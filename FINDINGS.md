@@ -96,6 +96,36 @@ consistent with these (a 120Hz panel roughly halves the frame-quantized componen
 for the real-feel numbers: launch the app, type, read the HUD (p50/p95/p99/max, live), and
 click "run benchmark".
 
+### ⚠ Refresh-rate finding (raised by the user): WKWebView renders at ~60Hz, not 120Hz
+
+The user (awake, on the 120Hz panel) noticed weavie renders at **60Hz**. Investigated — this is
+real and matters, because the vault calls 120Hz "the single biggest lever" for typing latency.
+
+- The OS display **is** in 120Hz ProMotion mode: `NSScreen.maximumFramesPerSecond = 120`. Not a
+  display setting, not battery/low-power (on AC, 100%).
+- **WKWebView caps `requestAnimationFrame` at 60fps on macOS** — a long-standing, documented
+  WebKit limitation (WebKit bugs 173434 / 294338). Hard cap on macOS 13–15; community workaround
+  flips the private `_features` flag `PreferPageRenderingUpdatesNear60FPSEnabled=false`.
+- **This machine is macOS 26.3**, where that workaround is reportedly a no-op (cap "removed"). Our
+  max-demand FPS probe (animate a visible element every frame, 3s) saw **min 11ms (91Hz)** frames
+  — so it is **not hard-capped at 60 here** — but **median 17ms (60Hz)**, i.e. WKWebView
+  effectively serves ~60Hz for normal content (adaptive ProMotion defaults low). (The probe's
+  frame count was low because an auto-launched window isn't reliably foreground; WebKit throttles
+  rAF off-focus. A clean steady-state number needs the window focused — user to confirm.)
+- **Implication for the gate:** the all-WKWebView stack likely gives **~60Hz typing on macOS**, so
+  weavie does *not* automatically get the 120Hz latency lever. Options: (a) accept 60Hz and judge
+  the feel (it may still be fine — the R15 gut-check passed); (b) force a continuous 120Hz rAF
+  heartbeat (hacky, power cost, may not stick — against the no-hacks philosophy); (c) the vault's
+  documented contingency — **Chromium/CEF (or Electron) on macOS**, whose bundled Chromium isn't
+  subject to WebKit's pacing, if 120Hz typing proves necessary. **This is a stack-level decision
+  for the user**, now surfaced with data — exactly what the prototype gate is for.
+- Diagnostics added (kept): `WEAVIE_FPSPROBE=1` runs the probe; the app logs
+  `NSScreen.maximumFramesPerSecond` at startup.
+
+**Clean way to confirm the steady-state yourself:** launch the app, **click into the window so it's
+focused/frontmost**, then either watch the HUD `frame …ms (…Hz)` while typing, or relaunch with
+`WEAVIE_FPSPROBE=1` and keep the window focused for ~3s; read the `FPS-PROBE` line from stdout.
+
 **Two toolchain findings worth keeping (see memory):**
 1. **Bash sandbox throttles I/O-heavy builds ~90×.** A Vite build of Monaco (thousands of
    small module files) took **15m37s at 1% CPU** sandboxed vs **9.9s at 140% CPU**

@@ -3,6 +3,7 @@ import { log, onHostMessage, postToHost } from "./bridge";
 import { type ActiveDiff, DiffView } from "./diff/DiffView";
 import { SAMPLE_CODE, createEditor, monaco } from "./editor/monaco-setup";
 import { runBenchmark } from "./latency/benchmark";
+import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
@@ -101,6 +102,10 @@ export default function App(): JSX.Element {
     meter.start();
     editor.focus();
     postToHost({ type: "monaco-ready" });
+
+    if (new URLSearchParams(location.search).has("fpsprobe")) {
+      runFpsProbe();
+    }
 
     const hudTimer = window.setInterval(() => {
       const snap = meter.snapshot();

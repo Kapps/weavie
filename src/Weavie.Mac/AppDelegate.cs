@@ -65,10 +65,20 @@ public sealed class AppDelegate : NSApplicationDelegate
         _window.Center();
         _window.MakeKeyAndOrderFront(null);
 
-        var autobench = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))
-            ? string.Empty
-            : "?autobench=1";
-        _webView.LoadRequest(new NSUrlRequest(new NSUrl($"app://app/index.html{autobench}")));
+        var screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
+        Console.WriteLine($"[weavie] NSScreen.maximumFramesPerSecond = {screenHz}");
+
+        var query = new List<string>();
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH")))
+        {
+            query.Add("autobench=1");
+        }
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_FPSPROBE")))
+        {
+            query.Add("fpsprobe=1");
+        }
+        var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
+        _webView.LoadRequest(new NSUrlRequest(new NSUrl($"app://app/index.html{qs}")));
 
         NSApplication.SharedApplication.Activate();
 

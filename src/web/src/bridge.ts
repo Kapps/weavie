@@ -19,7 +19,9 @@ export type HostBoundMessage =
   | { type: "term-input"; dataB64: string }
   | { type: "term-resize"; cols: number; rows: number }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
-  | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string };
+  | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
+  // Clickable file:line in the terminal -> ask the host to load + reveal the file.
+  | { type: "reveal-file"; path: string; line: number };
 
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
@@ -36,7 +38,8 @@ export type WebBoundMessage =
       proposed: string;
     }
   | { type: "close-diff"; id: string }
-  | { type: "open-file"; path: string };
+  // Host delivers a file's contents to load + reveal in the Monaco editor.
+  | { type: "open-file"; path: string; content: string; line: number };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

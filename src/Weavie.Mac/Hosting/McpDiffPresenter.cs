@@ -15,15 +15,18 @@ public sealed class McpDiffPresenter : IDiffPresenter
 {
     private readonly HostBridge _bridge;
     private readonly IFileSystem _fileSystem;
+    private readonly FileOpener _fileOpener;
     private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
     private int _counter;
 
-    public McpDiffPresenter(HostBridge bridge, IFileSystem fileSystem)
+    public McpDiffPresenter(HostBridge bridge, IFileSystem fileSystem, FileOpener fileOpener)
     {
         ArgumentNullException.ThrowIfNull(bridge);
         ArgumentNullException.ThrowIfNull(fileSystem);
+        ArgumentNullException.ThrowIfNull(fileOpener);
         _bridge = bridge;
         _fileSystem = fileSystem;
+        _fileOpener = fileOpener;
     }
 
     public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken)
@@ -48,8 +51,7 @@ public sealed class McpDiffPresenter : IDiffPresenter
 
     public Task OpenFileAsync(string filePath, CancellationToken cancellationToken)
     {
-        var path = "\"" + JsonEncodedText.Encode(filePath) + "\"";
-        _bridge.PostToWeb($"{{\"type\":\"open-file\",\"path\":{path}}}");
+        _fileOpener.Open(filePath, line: 1);
         return Task.CompletedTask;
     }
 

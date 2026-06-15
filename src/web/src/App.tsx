@@ -1,8 +1,7 @@
-import type * as monaco from "monaco-editor";
 import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { log, onHostMessage, postToHost } from "./bridge";
 import { type ActiveDiff, DiffView } from "./diff/DiffView";
-import { SAMPLE_CODE, createEditor } from "./editor/monaco-setup";
+import { SAMPLE_CODE, createEditor, monaco } from "./editor/monaco-setup";
 import { runBenchmark } from "./latency/benchmark";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
@@ -15,11 +14,28 @@ const ms = (n: number): string => n.toFixed(1);
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
+  let splitContainer!: HTMLDivElement;
+  const [leftPct, setLeftPct] = createSignal(50);
   const [stats, setStats] = createSignal<LiveLatencyStats | null>(null);
   const [loadOn, setLoadOn] = createSignal(false);
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
   const [benchRunning, setBenchRunning] = createSignal(false);
   const [activeDiff, setActiveDiff] = createSignal<ActiveDiff | null>(null);
+
+  const startDrag = (event: PointerEvent): void => {
+    event.preventDefault();
+    const onMove = (move: PointerEvent): void => {
+      const rect = splitContainer.getBoundingClientRect();
+      const pct = ((move.clientX - rect.left) / rect.width) * 100;
+      setLeftPct(Math.min(80, Math.max(20, pct)));
+    };
+    const onUp = (): void => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
 
   const resolveDiff = (kept: boolean, finalContents: string): void => {
     const diff = activeDiff();
@@ -64,6 +80,22 @@ export default function App(): JSX.Element {
     }
   };
 
+  const openFileInEditor = (path: string, content: string, line: number): void => {
+    if (editor === undefined) {
+      return;
+    }
+    const uri = monaco.Uri.file(path);
+    const existing = monaco.editor.getModel(uri);
+    const model = existing ?? monaco.editor.createModel(content, undefined, uri);
+    if (existing) {
+      existing.setValue(content);
+    }
+    editor.setModel(model);
+    editor.revealLineInCenter(line);
+    editor.setPosition({ lineNumber: line, column: 1 });
+    editor.focus();
+  };
+
   onMount(() => {
     editor = createEditor(editorContainer);
     meter.start();
@@ -93,6 +125,8 @@ export default function App(): JSX.Element {
         if (activeDiff()?.id === message.id) {
           setActiveDiff(null);
         }
+      } else if (message.type === "open-file") {
+        openFileInEditor(message.path, message.content, message.line);
       }
     });
 
@@ -125,13 +159,14 @@ export default function App(): JSX.Element {
         onToggleLoad={() => setLoad(!loadOn())}
         onRunBench={() => void runBench()}
       />
-      <div class="split">
-        <div class="pane">
+      <div class="split" ref={splitContainer}>
+        <div class="pane" style={`flex: 0 0 ${leftPct()}%`}>
           <div class="editor" ref={editorContainer} />
           <Show when={activeDiff()}>
             {(diff) => <DiffView diff={diff()} onResolve={resolveDiff} />}
           </Show>
         </div>
+        <div class="splitter" onPointerDown={startDrag} />
         <div class="pane term-pane">
           <TerminalView />
         </div>

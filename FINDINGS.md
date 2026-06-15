@@ -17,8 +17,8 @@ Toolchain verified: dotnet 10.0.301, node v25.6.0, npm 11.8.0, claude 2.1.177, X
 | 1 | Monaco "just type" + rigorous keypress→paint latency harness | ✅ Done |
 | 2 | xterm.js + WebGL + PTY → interactive `claude`; verify subscription billing | ✅ Done |
 | 3 | IDE-MCP `openDiff` (sole edit feed) — real handshake, render to Monaco | ✅ Handshake verified vs real claude; openDiff impl + UI built |
-| 4 | Clickable `file:line` (OSC 8 + regex link provider → reveal in Monaco) | ⏳ Pending |
-| 5 | Side-by-side two-pane Solid chrome | ⏳ Pending |
+| 4 | Clickable `file:line` (OSC 8 + regex link provider → reveal in Monaco) | ✅ Built |
+| 5 | Side-by-side two-pane Solid chrome | ✅ Built |
 
 ---
 
@@ -234,6 +234,67 @@ All confirmed against `claude` 2.1.178 unless noted UNCERTAIN.
   observation of the live CLI** (the authoritative check). A background research subagent stalled
   mid-run, so the protocol was pinned from the docs and then confirmed empirically.
 
+## Step 4 — Clickable file:line ✅ (built)
+
+Two link sources in the xterm pane resolve to "reveal in Monaco":
+- **OSC 8 hyperlinks** (`file://` URIs Claude emits) via `term.options.linkHandler`.
+- **Un-hyperlinked `path:line[:col]`** via a custom `registerLinkProvider` + regex.
+
+On click the web posts `reveal-file {path, line}`; the host `FileOpener` resolves relative paths
+against the workspace, reads the file (`LocalFileSystem`), and posts `open-file {path, content,
+line}`; the editor loads it (language inferred from the URI) and reveals the line. The MCP
+`openFile` tool shares the same `FileOpener`. Builds clean; live click-through needs the screen
+awake (it's a terminal click).
+
+## Step 5 — Side-by-side chrome ✅ (built)
+
+The two-pane chrome is in place: Monaco editor | **draggable splitter** | xterm terminal, under
+the latency HUD. Chat happens in the real claude TUI (left↔right), its edits arrive as editable
+Monaco diffs (step 3's openDiff: accept / edit-then-accept / reject), and file:line links reveal
+files in the editor (step 4). Screenshot of the openDiff review UI: `docs/screenshots/step3-opendiff.png`.
+
+## Screenshots
+
+- `docs/screenshots/step1-latency.png` — Monaco + live latency HUD in the real WKWebView.
+- `docs/screenshots/step2-terminal.png` — two-pane editor | terminal layout.
+- `docs/screenshots/step3-opendiff.png` — openDiff review UI (tab name, path, Keep/Reject).
+
+(Terminal/diff *text* reads blank in these because they were captured with the screen locked —
+xterm's WebGL renderer and Monaco's diff paint are rAF-driven and pause under occlusion. The HUD,
+chrome, buttons, and editor text paint fine; functionality is proven by the PTY/MCP logs + tests.)
+
+## How to run it (awake, for the real feel + live flow)
+
+```
+cd src/web && npm install && npm run build          # build the web app (sandbox-free, ~10s)
+cd ../.. && dotnet build src/Weavie.Mac/Weavie.Mac.csproj -c Debug
+open src/Weavie.Mac/bin/Debug/net10.0-macos/osx-arm64/Weavie.Mac.app
+# or run the inner binary to see stdout:
+src/Weavie.Mac/bin/Debug/net10.0-macos/osx-arm64/Weavie.Mac.app/Contents/MacOS/Weavie.Mac
+```
+Optional env: `WEAVIE_WORKSPACE=<dir>` (claude's cwd + IDE workspace; default `$HOME`),
+`WEAVIE_PTY_LOG=<file>` (tee claude's PTY), `WEAVIE_AUTOBENCH=1` (auto-run the latency benchmark).
+Type in Monaco to feel latency (read the HUD); chat with claude in the right pane; ask it to edit a
+file and Keep/Reject the diff on the left; click a `file:line` in the terminal to reveal it.
+
+Verify the MCP handshake against the real CLI any time:
+`dotnet run --project tools/Weavie.IdeHarness` (spawns claude, prints the handshake summary).
+
 ## Prioritized next steps
 
-_(lands at the end)_
+1. **Live-verify in-app openDiff + file:line awake** (15 min): run the app with the screen on, ask
+   claude to edit a file, Keep the Monaco diff, confirm it saves; click a terminal `file:line`.
+   This closes the one gap the locked screen prevented tonight. (Everything underneath is tested.)
+2. **Re-run the latency benchmark awake on the 120Hz panel** and record the user's feel verdict —
+   the actual gate. Numbers tonight were a healthy 60Hz (ProMotion idled); expect ~half the
+   frame-quantized component at 120Hz.
+3. **openDiff for new-file creates / permission interplay**: confirm whether real claude uses
+   openDiff vs direct Write for new files and under different permission modes; adjust if needed.
+4. **Selection sync notifications** (`selection_changed`/`at_mentioned`) — only when an at-mention
+   or selection-aware flow is actually wanted (YAGNI today).
+5. **FS-watch for out-of-band changes** (git checkout, terminal edits) — deferred per the vault
+   until sessions start doing git ops (it is NOT an edit feed).
+6. **Harden the terminal output path** (batch base64→EvaluateJavaScript on a timer) if claude's
+   redraws feel laggy under load once driven awake.
+7. **A couple of T3 Playwright tests** (real Monaco keystrokes, real diff accept) to complement the
+   39 T1 tests — the quality bar's "a few high-fidelity tests".

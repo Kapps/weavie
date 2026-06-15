@@ -14,6 +14,7 @@ public sealed class AppDelegate : NSApplicationDelegate
     private readonly HostBridge _bridge = new();
     private TerminalController? _terminal;
     private McpDiffPresenter? _diffPresenter;
+    private FileOpener? _fileOpener;
     private IdeIntegration? _ide;
     private NSWindow? _window;
     private WKWebView? _webView;
@@ -39,9 +40,10 @@ public sealed class AppDelegate : NSApplicationDelegate
         // IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject
         // the discovery env so the spawned claude connects to us (the SOLE edit feed).
         var fileSystem = new LocalFileSystem();
-        _diffPresenter = new McpDiffPresenter(_bridge, fileSystem);
         var workspace = TerminalController.ResolveWorkspace();
         _terminal.Workspace = workspace;
+        _fileOpener = new FileOpener(_bridge, fileSystem, workspace);
+        _diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
         _ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie");
         _ide.Server.Log += line =>
         {
@@ -77,6 +79,13 @@ public sealed class AppDelegate : NSApplicationDelegate
         {
             var delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out var d) ? d : 4.0;
             NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
+        }
+
+        // Dev aid: render a sample openDiff so the Monaco diff UI can be screenshotted without
+        // driving claude. Gated on WEAVIE_DEMO_DIFF; never fires in normal use.
+        if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEMO_DIFF")))
+        {
+            NSTimer.CreateScheduledTimer(2.5, repeats: false, _ => PostDemoDiff());
         }
     }
 
@@ -128,12 +137,37 @@ public sealed class AppDelegate : NSApplicationDelegate
                 var finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
                 _diffPresenter?.Resolve(diffId, kept, finalContents);
                 break;
+            case "reveal-file":
+                var revealPath = root.GetProperty("path").GetString() ?? string.Empty;
+                var revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
+                _fileOpener?.Open(revealPath, revealLine);
+                break;
             default:
                 // benchmark-result / latency-live / log / ready — surface for unattended capture.
                 Console.WriteLine($"[weavie] {json}");
                 Console.Out.Flush();
                 break;
         }
+    }
+
+    private void PostDemoDiff()
+    {
+        const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
+        const string proposed = "export function greet(name: string): string {\n  // weavie openDiff demo\n  return `hello, ${name}!`;\n}\n";
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream))
+        {
+            writer.WriteStartObject();
+            writer.WriteString("type", "show-diff");
+            writer.WriteString("id", "demo");
+            writer.WriteString("path", "/Users/kapps/src/weavie/demo/greet.ts");
+            writer.WriteString("tabName", "✻ [Claude Code] greet.ts");
+            writer.WriteString("original", original);
+            writer.WriteString("proposed", proposed);
+            writer.WriteEndObject();
+        }
+
+        _bridge.PostToWeb(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
     }
 
     private void CaptureSnapshot()

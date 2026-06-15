@@ -102,14 +102,23 @@ body,
 
 .pane {
   position: relative;
-  flex: 1 1 50%;
+  flex: 1 1 0;
   min-width: 0;
   overflow: hidden;
 }
 
 .term-pane {
-  border-left: 1px solid var(--border);
   background: var(--bg);
+}
+
+.splitter {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+}
+
+.splitter:hover {
+  background: var(--accent);
 }
 
 .editor {

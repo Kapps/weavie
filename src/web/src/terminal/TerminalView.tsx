@@ -1,10 +1,21 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { Terminal } from "@xterm/xterm";
+import { type ILink, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { type JSX, onCleanup, onMount } from "solid-js";
 import { log, onHostMessage, postToHost } from "../bridge";
 import { base64ToBytes, bytesToBase64 } from "./base64";
+
+// Matches paths with an extension followed by :line (optionally :col), e.g.
+// src/foo.ts:42, /abs/bar.cs:10:5, ./baz.py:7
+const FILE_LINE = /(?:[~.]{0,2}\/)?[\w./-]+\.[A-Za-z0-9]+:\d+(?::\d+)?/g;
+
+function revealFromMatch(matchText: string): void {
+  const [path, lineText] = matchText.split(":");
+  if (path !== undefined && path.length > 0) {
+    postToHost({ type: "reveal-file", path, line: Number(lineText) || 1 });
+  }
+}
 
 // xterm.js pane wired to the C# PTY over the bridge:
 //   PTY bytes  -> { term-output } -> term.write(Uint8Array)
@@ -34,6 +45,54 @@ export function TerminalView(): JSX.Element {
     } catch (error) {
       log("warn", `WebGL terminal renderer unavailable, using fallback: ${String(error)}`);
     }
+    // OSC 8 hyperlinks Claude emits (file:// URIs) -> reveal in Monaco.
+    term.options.linkHandler = {
+      activate: (_event, uri) => {
+        try {
+          const url = new URL(uri);
+          if (url.protocol === "file:") {
+            const lineMatch = /(\d+)/.exec(url.hash);
+            postToHost({
+              type: "reveal-file",
+              path: decodeURIComponent(url.pathname),
+              line: lineMatch ? Number(lineMatch[1]) : 1,
+            });
+          }
+        } catch {
+          // not a parseable URI; ignore
+        }
+      },
+    };
+
+    // Clickable un-hyperlinked file:line references in terminal output.
+    term.registerLinkProvider({
+      provideLinks(lineNumber, callback) {
+        const bufferLine = term.buffer.active.getLine(lineNumber - 1);
+        if (bufferLine === undefined) {
+          callback(undefined);
+          return;
+        }
+        const text = bufferLine.translateToString(true);
+        const links: ILink[] = [];
+        FILE_LINE.lastIndex = 0;
+        let match = FILE_LINE.exec(text);
+        while (match !== null) {
+          const startX = match.index + 1;
+          const matched = match[0];
+          links.push({
+            range: {
+              start: { x: startX, y: lineNumber },
+              end: { x: startX + matched.length, y: lineNumber },
+            },
+            text: matched,
+            activate: () => revealFromMatch(matched),
+          });
+          match = FILE_LINE.exec(text);
+        }
+        callback(links.length > 0 ? links : undefined);
+      },
+    });
+
     fit.fit();
 
     term.onData((data) => {

@@ -55,3 +55,15 @@ CodeCoverage/
 *.VisualState.xml
 TestResult.xml
 nunit-*.xml
+
+# JetBrains Rider / IntelliJ
+.idea/
+
+# Node / web frontend
+node_modules/
+dist/
+.vite/
+*.tsbuildinfo
+
+# OS
+.DS_Store

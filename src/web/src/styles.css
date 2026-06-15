@@ -94,7 +94,31 @@ body,
   color: var(--dim);
 }
 
-.editor {
+.split {
+  display: flex;
   flex: 1 1 auto;
   min-height: 0;
+}
+
+.pane {
+  position: relative;
+  flex: 1 1 50%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.term-pane {
+  border-left: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.editor {
+  position: absolute;
+  inset: 0;
+}
+
+.term {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0 4px 6px;
 }

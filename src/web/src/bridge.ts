@@ -13,11 +13,17 @@ export type HostBoundMessage =
   | { type: "monaco-ready" }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
   | { type: "latency-live"; stats: LiveLatencyStats }
-  | { type: "benchmark-result"; report: BenchmarkReport };
+  | { type: "benchmark-result"; report: BenchmarkReport }
+  // Terminal: the xterm pane is mounted and ready to host the PTY child.
+  | { type: "term-ready"; cols: number; rows: number }
+  | { type: "term-input"; dataB64: string }
+  | { type: "term-resize"; cols: number; rows: number };
 
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
-  | { type: "set-load"; enabled: boolean };
+  | { type: "set-load"; enabled: boolean }
+  | { type: "term-output"; dataB64: string }
+  | { type: "term-exit"; code: number };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

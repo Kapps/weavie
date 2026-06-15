@@ -1,3 +1,4 @@
+using System.Text.Json;
 using CoreGraphics;
 using Foundation;
 using Weavie.Mac.Hosting;
@@ -9,6 +10,7 @@ namespace Weavie.Mac;
 public sealed class AppDelegate : NSApplicationDelegate
 {
     private readonly HostBridge _bridge = new();
+    private TerminalController? _terminal;
     private NSWindow? _window;
     private WKWebView? _webView;
 
@@ -27,6 +29,7 @@ public sealed class AppDelegate : NSApplicationDelegate
         var frame = new CGRect(0, 0, 1280, 840);
         _webView = new WKWebView(frame, config);
         _bridge.Attach(_webView);
+        _terminal = new TerminalController(_bridge);
         _bridge.MessageReceived += OnWebMessage;
 
         _window = new NSWindow(
@@ -41,7 +44,10 @@ public sealed class AppDelegate : NSApplicationDelegate
         _window.Center();
         _window.MakeKeyAndOrderFront(null);
 
-        _webView.LoadRequest(new NSUrlRequest(new NSUrl("app://app/index.html")));
+        var autobench = string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))
+            ? string.Empty
+            : "?autobench=1";
+        _webView.LoadRequest(new NSUrlRequest(new NSUrl($"app://app/index.html{autobench}")));
 
         NSApplication.SharedApplication.Activate();
 
@@ -50,16 +56,55 @@ public sealed class AppDelegate : NSApplicationDelegate
         // shipped app never writes screenshots.
         if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR")))
         {
-            NSTimer.CreateScheduledTimer(4.0, repeats: false, _ => CaptureSnapshot());
+            var delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out var d) ? d : 4.0;
+            NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
         }
     }
 
     public override bool ApplicationShouldTerminateAfterLastWindowClosed(NSApplication sender) => true;
 
-    private static void OnWebMessage(string json)
+    public override void WillTerminate(NSNotification notification) => _terminal?.Dispose();
+
+    private void OnWebMessage(string json)
     {
-        Console.WriteLine($"[weavie] {json}");
-        Console.Out.Flush();
+        string type;
+        JsonElement root;
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            root = doc.RootElement.Clone();
+            type = root.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty;
+        }
+        catch (JsonException)
+        {
+            Console.WriteLine($"[weavie] (unparsed) {json}");
+            return;
+        }
+
+        switch (type)
+        {
+            case "term-input":
+                var input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
+                if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_INPUT")))
+                {
+                    var printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
+                    Console.WriteLine($"[weavie] term-input <- xterm ({input.Length}B): {printable}");
+                    Console.Out.Flush();
+                }
+                _terminal?.Write(input);
+                break;
+            case "term-resize":
+                _terminal?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+                break;
+            case "term-ready":
+                _terminal?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+                break;
+            default:
+                // benchmark-result / latency-live / log / ready — surface for unattended capture.
+                Console.WriteLine($"[weavie] {json}");
+                Console.Out.Flush();
+                break;
+        }
     }
 
     private void CaptureSnapshot()
@@ -71,7 +116,8 @@ public sealed class AppDelegate : NSApplicationDelegate
         }
 
         Directory.CreateDirectory(dir);
-        var path = Path.Combine(dir, "step1-latency.png");
+        var name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
+        var path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
 
         _webView.TakeSnapshot(new WKSnapshotConfiguration(), (image, error) =>
         {

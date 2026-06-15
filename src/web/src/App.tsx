@@ -6,6 +6,7 @@ import { runBenchmark } from "./latency/benchmark";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
+import { TerminalView } from "./terminal/TerminalView";
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 
@@ -72,11 +73,14 @@ export default function App(): JSX.Element {
       }
     });
 
-    // Auto-run once so the host captures objective numbers unattended; then the
-    // editor is reset and free for manual feel-testing.
-    const autoBench = window.setTimeout(() => {
-      void runBench();
-    }, 1500);
+    // Auto-run once (only when the host requests it via ?autobench=1) so unattended
+    // captures get objective numbers; the editor then resets for manual feel-testing.
+    // In normal use the user clicks "run benchmark" instead.
+    const autoBench = new URLSearchParams(location.search).has("autobench")
+      ? window.setTimeout(() => {
+          void runBench();
+        }, 1500)
+      : 0;
 
     onCleanup(() => {
       window.clearInterval(hudTimer);
@@ -98,7 +102,14 @@ export default function App(): JSX.Element {
         onToggleLoad={() => setLoad(!loadOn())}
         onRunBench={() => void runBench()}
       />
-      <div class="editor" ref={editorContainer} />
+      <div class="split">
+        <div class="pane">
+          <div class="editor" ref={editorContainer} />
+        </div>
+        <div class="pane term-pane">
+          <TerminalView />
+        </div>
+      </div>
     </div>
   );
 }

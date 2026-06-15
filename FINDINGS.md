@@ -15,7 +15,7 @@ Toolchain verified: dotnet 10.0.301, node v25.6.0, npm 11.8.0, claude 2.1.177, X
 |---|---|---|
 | 0 | Branch, build gates, CPM, interface seams, example-flow T1 test | ✅ Done |
 | 1 | Monaco "just type" + rigorous keypress→paint latency harness | ✅ Done |
-| 2 | xterm.js + WebGL + PTY → interactive `claude`; verify subscription billing | ⏳ Pending |
+| 2 | xterm.js + WebGL + PTY → interactive `claude`; verify subscription billing | ✅ Done |
 | 3 | IDE-MCP `openDiff` (sole edit feed) — real handshake, render to Monaco | ⏳ Pending |
 | 4 | Clickable `file:line` (OSC 8 + regex link provider → reveal in Monaco) | ⏳ Pending |
 | 5 | Side-by-side two-pane Solid chrome | ⏳ Pending |
@@ -109,9 +109,52 @@ click "run benchmark".
    the screen awake (run 1 above was captured before the lock). `WKWebView.TakeSnapshot`
    still renders occluded content, so screenshots work regardless.
 
+## Step 2 — xterm.js + WebGL + PTY → interactive claude ✅
+
+**Done.** The real interactive `claude` TUI runs in an xterm.js pane, driven by a hand-rolled
+macOS PTY, on the user's subscription.
+
+- **PTY (`Weavie.Core/Terminal/`):** `ITerminal` seam with `FakeTerminal` (scripted) and
+  `PosixPtyTerminal` (real). The real one uses `posix_openpt` + `posix_spawn` with
+  `POSIX_SPAWN_SETSID` (+ `CLOEXEC_DEFAULT`) — the child becomes session leader and the
+  file-action open of the slave tty makes it the controlling terminal. **No `fork()` in the
+  managed runtime.** Supports env inject/remove, `addchdir_np` workspace, `TIOCSWINSZ` resize,
+  background read thread → `Output`, `waitpid` → `Exited`. P/Invoke via source-generated
+  `LibraryImport` (AOT/trim-safe).
+- **Validated by tests** (8 terminal tests, real processes on macOS): echo round-trips, env
+  injection visible to child, env removal hides a var, working-directory honored.
+- **Web:** `@xterm/xterm` + **WebGL addon** + fit addon in a Solid `TerminalView`, in a
+  two-pane split (Monaco | terminal). PTY bytes ride the bridge as base64 both ways; resize
+  is wired through the fit addon. `TerminalController` (host) launches
+  `"$SHELL" -l -c "exec claude"` in the workspace (`WEAVIE_WORKSPACE`, default `$HOME`),
+  stripping `ANTHROPIC_API_KEY`, optionally teeing raw PTY bytes to `WEAVIE_PTY_LOG`.
+- **Proven end to end:** launched in-app, `claude` rendered its full TUI through our terminal
+  (captured 4453 PTY bytes): *"Claude Code v2.1.178 · Welcome back Ogi! · Opus 4.8 (1M context)
+  · Claude Max"*. The PTY↔xterm round-trip works even with the screen locked (xterm parsed
+  claude's setup and replied with a focus event). Screenshot: `docs/screenshots/step2-terminal.png`
+  (the terminal half is dark there because xterm's WebGL renderer needs `requestAnimationFrame`,
+  which is paused while the screen is locked — the PTY capture is the functional proof;
+  it paints normally on an awake screen).
+
 ## Billing method + evidence
 
-_(lands in step 2)_
+**Method:** launch the user's installed, logged-in **interactive** `claude` (never `-p`/SDK/ACP)
+as the PTY child, with `ANTHROPIC_API_KEY` removed from its environment. Per Anthropic's
+2026-06-15 billing split, interactive CLI draws on the **full subscription**; only headless
+draws on the capped Agent-SDK credit. This is the JetBrains-plugin model.
+
+**Evidence gathered (this machine, tonight):**
+1. **In-UI proof:** `claude` rendered **"Claude Max"** in its own welcome banner when launched
+   by our app's PTY — i.e. it is operating as the subscription plan, not an API key.
+2. **Account/credential:** `~/.claude.json` `oauthAccount` shows `billingType: stripe_subscription`,
+   `organizationRateLimitTier: default_claude_max_20x` (Claude **Max 20×**); the OAuth token
+   lives in the macOS Keychain (`Claude Code-credentials`). We never read/extract the token (ToS).
+3. **No API key:** verified absent from the session env *and* explicitly stripped from the
+   child env (`RemoveEnvironment: ["ANTHROPIC_API_KEY"]`).
+
+**Caveat (carried from the vault):** the interactive-vs-headless billing split is Anthropic's
+announced behavior; we verify the *mechanism* (interactive, OAuth-logged-in, no API key), which
+is what selects subscription billing. Re-confirm on the dashboard after real usage.
 
 ## MCP handshake — what was reverse-engineered
 

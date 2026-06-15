@@ -1,18 +1,34 @@
 <Project Sdk="Microsoft.NET.Sdk">
-  <ItemGroup>
-    <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
-  </ItemGroup>
+
   <PropertyGroup>
     <TargetFramework>net10.0-macos</TargetFramework>
     <OutputType>Exe</OutputType>
-    <Nullable>enable</Nullable>
-    <ImplicitUsings>true</ImplicitUsings>
-    <SupportedOSPlatformVersion>12.0</SupportedOSPlatformVersion>
-
-    <!--
-      Enable full trimming in Release mode.
-      To learn more, see: https://learn.microsoft.com/dotnet/core/deploying/trimming/trimming-options#trimming-granularity
-    -->
+    <!-- This machine is macOS 26; floor at 14.0 so modern (non-deprecated) AppKit APIs
+         pass the CA1422 obsolete-API gate. -->
+    <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
     <TrimMode Condition="'$(Configuration)' == 'Release'">full</TrimMode>
+    <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
   </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+  </ItemGroup>
+
+  <!--
+    Copy the built Vite web app into the app bundle's Resources/wwwroot.
+    The web app is built separately (`npm run build` in src/web) — kept out of the
+    dotnet build so C# iteration stays fast. Fails loudly if assets are missing.
+  -->
+  <Target Name="CopyWebAssets" AfterTargets="Build">
+    <Error Condition="!Exists('$(WebRoot)/dist/index.html')"
+           Text="Web assets not found at $(WebRoot)/dist. Run 'npm run build' in src/web first." />
+    <ItemGroup>
+      <WebDist Include="$(WebRoot)/dist/**/*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(WebDist)"
+          DestinationFiles="@(WebDist->'$(OutDir)$(AssemblyName).app/Contents/Resources/wwwroot/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="weavie: copied @(WebDist->Count()) web asset(s) into the app bundle." />
+  </Target>
+
 </Project>

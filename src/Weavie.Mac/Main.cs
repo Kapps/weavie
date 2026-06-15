@@ -1,5 +1,9 @@
+using AppKit;
 using Weavie.Mac;
 
-// This is the main entry point of the application.
-NSApplication.Init ();
-NSApplication.Main (args);
+NSApplication.Init();
+
+var app = NSApplication.SharedApplication;
+app.ActivationPolicy = NSApplicationActivationPolicy.Regular;
+app.Delegate = new AppDelegate();
+app.Run();

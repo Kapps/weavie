@@ -1,0 +1,24 @@
+{
+  "name": "weavie-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "typecheck": "tsc --noEmit",
+    "lint": "biome check .",
+    "lint:fix": "biome check --write .",
+    "verify": "tsc --noEmit && biome check ."
+  },
+  "dependencies": {
+    "monaco-editor": "0.52.2",
+    "solid-js": "1.9.3"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "1.9.4",
+    "typescript": "5.7.2",
+    "vite": "6.0.7",
+    "vite-plugin-solid": "2.11.0"
+  }
+}

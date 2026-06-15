@@ -1,6 +1,8 @@
 using System.Text.Json;
 using CoreGraphics;
 using Foundation;
+using Weavie.Core.FileSystem;
+using Weavie.Core.Mcp;
 using Weavie.Mac.Hosting;
 using WebKit;
 
@@ -11,6 +13,8 @@ public sealed class AppDelegate : NSApplicationDelegate
 {
     private readonly HostBridge _bridge = new();
     private TerminalController? _terminal;
+    private McpDiffPresenter? _diffPresenter;
+    private IdeIntegration? _ide;
     private NSWindow? _window;
     private WKWebView? _webView;
 
@@ -31,6 +35,21 @@ public sealed class AppDelegate : NSApplicationDelegate
         _bridge.Attach(_webView);
         _terminal = new TerminalController(_bridge);
         _bridge.MessageReceived += OnWebMessage;
+
+        // IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject
+        // the discovery env so the spawned claude connects to us (the SOLE edit feed).
+        var fileSystem = new LocalFileSystem();
+        _diffPresenter = new McpDiffPresenter(_bridge, fileSystem);
+        var workspace = TerminalController.ResolveWorkspace();
+        _terminal.Workspace = workspace;
+        _ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie");
+        _ide.Server.Log += line =>
+        {
+            Console.WriteLine($"[mcp] {line}");
+            Console.Out.Flush();
+        };
+        _terminal.ExtraEnvironment = _ide.EnvironmentVariables;
+        Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; workspace {workspace}; lock {_ide.LockFilePath}");
 
         _window = new NSWindow(
             frame,
@@ -63,7 +82,11 @@ public sealed class AppDelegate : NSApplicationDelegate
 
     public override bool ApplicationShouldTerminateAfterLastWindowClosed(NSApplication sender) => true;
 
-    public override void WillTerminate(NSNotification notification) => _terminal?.Dispose();
+    public override void WillTerminate(NSNotification notification)
+    {
+        _terminal?.Dispose();
+        _ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+    }
 
     private void OnWebMessage(string json)
     {
@@ -98,6 +121,12 @@ public sealed class AppDelegate : NSApplicationDelegate
                 break;
             case "term-ready":
                 _terminal?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+                break;
+            case "diff-resolved":
+                var diffId = root.GetProperty("id").GetString() ?? string.Empty;
+                var kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
+                var finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
+                _diffPresenter?.Resolve(diffId, kept, finalContents);
                 break;
             default:
                 // benchmark-result / latency-live / log / ready — surface for unattended capture.

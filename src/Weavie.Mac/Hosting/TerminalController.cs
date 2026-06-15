@@ -22,9 +22,24 @@ public sealed class TerminalController : IDisposable
         _bridge = bridge;
     }
 
-    /// <summary>Extra environment to inject into the spawned claude (used by step 3's MCP wiring).</summary>
+    /// <summary>Extra environment to inject into the spawned claude (used by the MCP wiring).</summary>
     public IReadOnlyDictionary<string, string> ExtraEnvironment { get; set; } =
         new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>The directory claude runs in (and the IDE workspace). Defaults to <see cref="ResolveWorkspace"/>.</summary>
+    public string Workspace { get; set; } = ResolveWorkspace();
+
+    /// <summary>WEAVIE_WORKSPACE if set and existing, else the user's home directory.</summary>
+    public static string ResolveWorkspace()
+    {
+        var workspace = Environment.GetEnvironmentVariable("WEAVIE_WORKSPACE");
+        if (string.IsNullOrEmpty(workspace) || !Directory.Exists(workspace))
+        {
+            workspace = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+        }
+
+        return workspace;
+    }
 
     public void Start(int columns, int rows)
     {
@@ -47,12 +62,7 @@ public sealed class TerminalController : IDisposable
                 shell = "/bin/zsh";
             }
 
-            var workspace = Environment.GetEnvironmentVariable("WEAVIE_WORKSPACE");
-            if (string.IsNullOrEmpty(workspace) || !Directory.Exists(workspace))
-            {
-                workspace = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-            }
-
+            var workspace = Workspace;
             var terminal = new PosixPtyTerminal();
             terminal.Output += OnOutput;
             terminal.Exited += OnExited;

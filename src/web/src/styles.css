@@ -122,3 +122,65 @@ body,
   inset: 0;
   padding: 4px 0 4px 6px;
 }
+
+.diff-overlay {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  z-index: 20;
+}
+
+.diff-bar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.diff-path {
+  color: var(--dim);
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.diff-actions button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 12px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.diff-actions .keep {
+  background: #1d5a2a;
+  border-color: #2e8b3d;
+  color: #e8ffe8;
+}
+
+.diff-actions .reject {
+  background: #5a1d1d;
+  border-color: #a33;
+  color: #ffe8e8;
+}
+
+.diff-editor {
+  flex: 1 1 auto;
+  min-height: 0;
+}

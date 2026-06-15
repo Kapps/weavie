@@ -1,6 +1,7 @@
 import type * as monaco from "monaco-editor";
 import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { log, onHostMessage, postToHost } from "./bridge";
+import { type ActiveDiff, DiffView } from "./diff/DiffView";
 import { SAMPLE_CODE, createEditor } from "./editor/monaco-setup";
 import { runBenchmark } from "./latency/benchmark";
 import { LatencyMeter } from "./latency/latency-meter";
@@ -18,6 +19,16 @@ export default function App(): JSX.Element {
   const [loadOn, setLoadOn] = createSignal(false);
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
   const [benchRunning, setBenchRunning] = createSignal(false);
+  const [activeDiff, setActiveDiff] = createSignal<ActiveDiff | null>(null);
+
+  const resolveDiff = (kept: boolean, finalContents: string): void => {
+    const diff = activeDiff();
+    if (diff === null) {
+      return;
+    }
+    postToHost({ type: "diff-resolved", id: diff.id, kept, finalContents });
+    setActiveDiff(null);
+  };
 
   const meter = new LatencyMeter();
   const load = new LoadGenerator(5);
@@ -70,6 +81,18 @@ export default function App(): JSX.Element {
         setLoad(message.enabled);
       } else if (message.type === "run-benchmark") {
         void runBench();
+      } else if (message.type === "show-diff") {
+        setActiveDiff({
+          id: message.id,
+          path: message.path,
+          tabName: message.tabName,
+          original: message.original,
+          proposed: message.proposed,
+        });
+      } else if (message.type === "close-diff") {
+        if (activeDiff()?.id === message.id) {
+          setActiveDiff(null);
+        }
       }
     });
 
@@ -105,6 +128,9 @@ export default function App(): JSX.Element {
       <div class="split">
         <div class="pane">
           <div class="editor" ref={editorContainer} />
+          <Show when={activeDiff()}>
+            {(diff) => <DiffView diff={diff()} onResolve={resolveDiff} />}
+          </Show>
         </div>
         <div class="pane term-pane">
           <TerminalView />

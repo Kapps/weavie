@@ -16,7 +16,7 @@ Toolchain verified: dotnet 10.0.301, node v25.6.0, npm 11.8.0, claude 2.1.177, X
 | 0 | Branch, build gates, CPM, interface seams, example-flow T1 test | ✅ Done |
 | 1 | Monaco "just type" + rigorous keypress→paint latency harness | ✅ Done |
 | 2 | xterm.js + WebGL + PTY → interactive `claude`; verify subscription billing | ✅ Done |
-| 3 | IDE-MCP `openDiff` (sole edit feed) — real handshake, render to Monaco | ⏳ Pending |
+| 3 | IDE-MCP `openDiff` (sole edit feed) — real handshake, render to Monaco | ✅ Handshake verified vs real claude; openDiff impl + UI built |
 | 4 | Clickable `file:line` (OSC 8 + regex link provider → reveal in Monaco) | ⏳ Pending |
 | 5 | Side-by-side two-pane Solid chrome | ⏳ Pending |
 
@@ -156,9 +156,83 @@ draws on the capped Agent-SDK credit. This is the JetBrains-plugin model.
 announced behavior; we verify the *mechanism* (interactive, OAuth-logged-in, no API key), which
 is what selects subscription billing. Re-confirm on the dashboard after real usage.
 
+## Step 3 — IDE-MCP openDiff ✅ (handshake verified end-to-end; full integration built)
+
+This is the riskiest, most reverse-engineered step. **The hard part — the handshake — is verified
+against the real installed `claude` 2.1.178.** openDiff is implemented, deterministically tested,
+and wired to an editable Monaco diff in the app.
+
+**What's built (`Weavie.Core/Mcp/`):**
+- `McpServer` — loopback (127.0.0.1) WebSocket server speaking MCP/JSON-RPC 2.0. Manual HTTP
+  upgrade so we can enforce auth; `WebSocket.CreateFromStream` for framing. Handles `initialize`,
+  `notifications/initialized`, `ping`, `tools/list`, `tools/call`. Dispatches each message off the
+  receive loop so a blocking `openDiff` never stalls the connection.
+- `IdeLockFile` — writes `~/.claude/ide/<port>.lock` (respects `$CLAUDE_CONFIG_DIR`).
+- `IdeIntegration` — generates the token, starts the server on an ephemeral port, writes the lock
+  file, exposes the env vars to inject, cleans up on dispose.
+- `IDiffPresenter` seam (`FakeDiffPresenter` for tests, `McpDiffPresenter` in the app).
+- Wired into the app: `AppDelegate` starts `IdeIntegration`, injects the env into the spawned
+  `claude` via `TerminalController.ExtraEnvironment`, and `McpDiffPresenter` renders openDiff as an
+  **editable Monaco diff** (`DiffView.tsx`) with Keep/Reject; the host saves on Keep and replies
+  `FILE_SAVED`. Dedicated per-app port + lock, so the spawned claude hits OUR server.
+
+**Verification:**
+- **Real-claude handshake (the empirical proof), via the `tools/Weavie.IdeHarness` dev harness** —
+  spawn real `claude` with our env, watch our server:
+  ```
+  client connected + authenticated   (lock-file token + WS upgrade accepted)
+  recv: method=initialize
+  recv: method=notifications/initialized
+  recv: method=ide_connected          (claude's own notification)
+  recv: method=tools/list             (claude fetched our tool list)
+  ```
+  Reproduced in both `/tmp` and the repo workspace. The harness sends **only Enter** (retried until
+  connected) to clear the first-run "trust this folder?" prompt — no keystroke-timed TUI scripting.
+- **openDiff contract (deterministic), `McpServerTests`** — a real loopback WebSocket client drives
+  the server: connection without/with-wrong token is **rejected** (CVE-2025-52882), `initialize`
+  echoes the protocol version + returns serverInfo, `tools/list` advertises `openDiff`, openDiff
+  **Keep** saves the file + returns `FILE_SAVED`, **Reject** leaves the file + returns `DIFF_REJECTED`.
+- **Live in-app openDiff (claude → Monaco diff → Keep → save):** built and wired, but **not
+  exercised tonight** — it needs the screen awake. While the screen is locked the WebView is
+  occluded, host→webview delivery throttles to ~1/s, and claude's terminal-capability startup
+  (which in the app rides the xterm round-trip) stalls *before* it opens the IDE socket. The harness
+  avoids this (raw PTY, no webview), which is why it connects reliably. **To see it live: run the app
+  awake, type "edit <file>: …" to claude, watch the diff appear in the left pane, Keep it.**
+
 ## MCP handshake — what was reverse-engineered
 
-_(lands in step 3)_
+All confirmed against `claude` 2.1.178 unless noted UNCERTAIN.
+
+- **Lock file:** `~/.claude/ide/<PORT>.lock` (stem = the WS port, not PID). JSON:
+  `{ "pid": <int>, "workspaceFolders": ["<dir>"], "ideName": "weavie", "transport": "ws", "authToken": "<32 hex>" }`.
+  Token = 32 lowercase hex (128 bits). Honors `$CLAUDE_CONFIG_DIR`.
+- **Env injected into claude:** `CLAUDE_CODE_SSE_PORT=<port>`, `ENABLE_IDE_INTEGRATION=true`. Claude
+  reads the lock file matching the port to get `authToken`. (No API key — billing stays subscription.)
+- **WebSocket:** claude connects to `ws://127.0.0.1:<port>/` and presents the token in the
+  **`x-claude-code-ide-authorization`** request header. We reject the upgrade (401) without the exact
+  token — the CVE-2025-52882 mitigation. Confirmed: claude's connection is accepted only with the
+  lock-file token.
+- **MCP:** claude is the JSON-RPC client, the IDE is the server. Sequence observed:
+  `initialize` → (we reply protocolVersion + `capabilities.tools` + serverInfo) →
+  `notifications/initialized` → `ide_connected` (claude→us notification, no reply) → `tools/list`
+  (we reply with our tools). Later, `tools/call` for the tools claude needs.
+  - **protocolVersion: sources disagreed** (PROTOCOL.md "2025-03-26" vs nvim/Zed "2024-11-05"), so we
+    **echo whatever claude sends** in `initialize` — robust against version drift. (UNCERTAIN which is
+    canonical; echoing sidesteps it.)
+  - Real claude was also observed calling `closeAllDiffTabs` and `getDiagnostics` into us at
+    startup/around edits — our minimal handlers satisfy it and claude proceeds.
+- **openDiff (the star) — request:** `tools/call` name `openDiff`, arguments
+  `{ old_file_path, new_file_path, new_file_contents, tab_name }`.
+  **Response:** `{ "content": [ { "type": "text", "text": "FILE_SAVED" } ] }` on accept (the IDE writes
+  the file first), `… "DIFF_REJECTED"` on reject. Implemented exactly; deterministically tested.
+  (UNCERTAIN: whether real claude prefers `openDiff` vs a direct Write for *new* files, and the exact
+  permission interplay — observed claude using a direct Write under `--dangerously-skip-permissions`.
+  The canonical openDiff trigger is editing an existing file in normal permission mode; verify live.)
+- **Notifications IDE→claude (not required for openDiff, not yet sent):** `selection_changed`,
+  `at_mentioned`. Deferred (YAGNI until selection-sync is needed).
+- **Sources:** coder/claudecode.nvim PROTOCOL.md + lua; CVE-2025-52882 advisory; **plus direct
+  observation of the live CLI** (the authoritative check). A background research subagent stalled
+  mid-run, so the protocol was pinned from the docs and then confirmed empirically.
 
 ## Prioritized next steps
 

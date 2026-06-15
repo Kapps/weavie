@@ -17,13 +17,26 @@ export type HostBoundMessage =
   // Terminal: the xterm pane is mounted and ready to host the PTY child.
   | { type: "term-ready"; cols: number; rows: number }
   | { type: "term-input"; dataB64: string }
-  | { type: "term-resize"; cols: number; rows: number };
+  | { type: "term-resize"; cols: number; rows: number }
+  // IDE-MCP: the user's Keep/Reject decision for an openDiff.
+  | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string };
 
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
   | { type: "set-load"; enabled: boolean }
   | { type: "term-output"; dataB64: string }
-  | { type: "term-exit"; code: number };
+  | { type: "term-exit"; code: number }
+  // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
+  | {
+      type: "show-diff";
+      id: string;
+      path: string;
+      tabName: string;
+      original: string;
+      proposed: string;
+    }
+  | { type: "close-diff"; id: string }
+  | { type: "open-file"; path: string };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

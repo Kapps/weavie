@@ -1,8 +1,10 @@
+using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using Weavie.Core.Mcp;
 
 namespace Weavie.Core.Lsp;
@@ -22,9 +24,13 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	private readonly string _workspaceRoot;
 	private readonly string? _allowedOrigin;
 	private readonly Func<string, LanguageServerDescriptor?> _resolveDescriptor;
+	private readonly ConcurrentDictionary<LspConnection, byte> _connections = new();
+	private readonly IReadOnlySet<string> _watchedExtensions;
+	private readonly Lock _watcherLock = new();
 
 	private TcpListener? _listener;
 	private CancellationTokenSource? _cts;
+	private WorkspaceWatcher? _watcher;
 
 	/// <summary>
 	/// Creates the bridge. Call <see cref="Start"/> to begin listening.
@@ -45,6 +51,9 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		_workspaceRoot = workspaceRoot;
 		_allowedOrigin = allowedOrigin;
 		_resolveDescriptor = resolveDescriptor ?? DefaultResolve;
+		_watchedExtensions = LanguageServerCatalog.All
+			.SelectMany(d => d.FileExtensions)
+			.ToHashSet(StringComparer.OrdinalIgnoreCase);
 	}
 
 	/// <summary>Diagnostic log line (connections, spawns, server stderr, teardown).</summary>
@@ -160,7 +169,53 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		Emit($"{descriptor.DisplayName}: spawned {command.ServerPath} (pid {process.Id})");
 		using var ws = WebSocket.CreateFromStream(stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(30));
 		var connection = new LspConnection(ws, process, descriptor.DisplayName, Emit);
-		await connection.RunAsync(ct).ConfigureAwait(false);
+
+		// Track the live connection so the workspace watcher can forward didChangeWatchedFiles to it,
+		// and lazily start watching once there's at least one server to notify (§9).
+		_connections[connection] = 1;
+		EnsureWatcherStarted();
+		try {
+			await connection.RunAsync(ct).ConfigureAwait(false);
+		} finally {
+			_connections.TryRemove(connection, out _);
+		}
+	}
+
+	private void EnsureWatcherStarted() {
+		lock (_watcherLock) {
+			if (_watcher is not null) {
+				return;
+			}
+
+			_watcher = new WorkspaceWatcher(_workspaceRoot, _watchedExtensions, BroadcastFileChanges, Emit);
+			_watcher.Start();
+		}
+	}
+
+	// Forward a debounced batch of on-disk changes (incl. Claude/MCP edits) to every live server as a
+	// single workspace/didChangeWatchedFiles notification, so diagnostics/types don't go stale (§9).
+	private void BroadcastFileChanges(IReadOnlyList<WatchedFileChange> changes) {
+		if (_connections.IsEmpty || changes.Count == 0) {
+			return;
+		}
+
+		var builder = new StringBuilder("{\"changes\":[");
+		for (var i = 0; i < changes.Count; i++) {
+			if (i > 0) {
+				builder.Append(',');
+			}
+
+			builder.Append("{\"uri\":\"").Append(JsonEncodedText.Encode(changes[i].Uri))
+				.Append("\",\"type\":").Append((int)changes[i].Kind).Append('}');
+		}
+
+		builder.Append("]}");
+		var paramsJson = builder.ToString();
+		var token = _cts?.Token ?? CancellationToken.None;
+		Emit($"didChangeWatchedFiles: {changes.Count} change(s) → {_connections.Count} server(s)");
+		foreach (var connection in _connections.Keys) {
+			_ = connection.SendNotificationAsync("workspace/didChangeWatchedFiles", paramsJson, token);
+		}
 	}
 
 	private Process StartServer(ResolvedCommand command) {
@@ -261,6 +316,11 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);
 			_cts.Dispose();
+		}
+
+		lock (_watcherLock) {
+			_watcher?.Dispose();
+			_watcher = null;
 		}
 
 		_listener?.Stop();

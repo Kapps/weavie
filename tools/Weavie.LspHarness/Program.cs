@@ -56,7 +56,13 @@ Console.WriteLine($"[lsp-harness] workspace: {workspace}");
 var token = IdeLockFile.NewAuthToken();
 // allowedOrigin: null — the harness is a native client and sends no Origin header; the token is the gate.
 await using var bridge = new LspBridgeServer(token, workspace!, allowedOrigin: null);
-bridge.Log += line => Console.WriteLine($"[bridge] {line}");
+var watchBroadcast = false;
+bridge.Log += line => {
+	Console.WriteLine($"[bridge] {line}");
+	if (line.Contains("didChangeWatchedFiles", StringComparison.Ordinal)) {
+		watchBroadcast = true;
+	}
+};
 var port = bridge.Start();
 
 var results = new Results();
@@ -162,6 +168,23 @@ try {
 	Console.Error.WriteLine($"[lsp-harness] diagnostics: {ex.Message}");
 }
 
+// 7. File-watcher → didChangeWatchedFiles (§9). Touch a watched file on disk and confirm the host
+// detects it and broadcasts to the live server (the agentic-editor path: Claude edits files on disk).
+if (workspaceIsTemp) {
+	try {
+		File.WriteAllText(Path.Combine(workspace!, $"watched-trigger{Path.GetExtension(probe.MainFileName)}"), probe.Source);
+		using var watchWait = CancellationTokenSource.CreateLinkedTokenSource(ct);
+		watchWait.CancelAfter(TimeSpan.FromSeconds(5));
+		while (!watchBroadcast && !watchWait.IsCancellationRequested) {
+			await Task.Delay(100, watchWait.Token);
+		}
+	} catch (OperationCanceledException) {
+		// timed out waiting for the broadcast
+	}
+}
+
+results.WatchBroadcast = watchBroadcast;
+
 await client.NotifyAsync("textDocument/didClose", new JsonObject {
 	["textDocument"] = new JsonObject { ["uri"] = fileUri },
 }, ct);
@@ -254,6 +277,7 @@ internal sealed class Results {
 	public int SemanticTokenInts;
 	public bool HoverHasContents;
 	public int CompletionItems;
+	public bool WatchBroadcast;
 
 	// The hard M0 gates: a real diagnostic and real semantic tokens prove the compiler-truth pipeline.
 	public bool Passed => DiagnosticCount > 0 && SemanticTokenInts > 0 && HoverHasContents && CompletionItems > 0;
@@ -268,6 +292,7 @@ internal sealed class Results {
 		Console.WriteLine($"  semanticTokens ints    : {SemanticTokenInts}  ({SemanticTokenInts / 5} tokens)");
 		Console.WriteLine($"  hover has contents     : {HoverHasContents}");
 		Console.WriteLine($"  completion items       : {CompletionItems}");
+		Console.WriteLine($"  file-watch → server    : {WatchBroadcast}");
 		Console.WriteLine($"  RESULT                 : {(Passed ? "PASS" : "FAIL")}");
 	}
 }

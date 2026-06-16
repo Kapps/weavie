@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using System.Net.WebSockets;
+using System.Text;
+using System.Text.Json;
 
 namespace Weavie.Core.Lsp;
 
@@ -15,6 +17,7 @@ internal sealed class LspConnection {
 	private readonly Process _process;
 	private readonly string _label;
 	private readonly Action<string> _log;
+	private readonly SemaphoreSlim _stdinLock = new(1, 1);
 
 	public LspConnection(WebSocket socket, Process process, string label, Action<string> log) {
 		_socket = socket;
@@ -47,7 +50,6 @@ internal sealed class LspConnection {
 	}
 
 	private async Task PumpClientToServerAsync(CancellationToken ct) {
-		var stdin = _process.StandardInput.BaseStream;
 		var buffer = new byte[64 * 1024];
 		using var message = new MemoryStream();
 
@@ -70,12 +72,38 @@ internal sealed class LspConnection {
 
 			ReadOnlyMemory<byte> body = message.GetBuffer().AsMemory(0, (int)message.Length);
 			try {
-				await LspFraming.WriteFrameAsync(stdin, body, ct).ConfigureAwait(false);
+				await WriteToServerAsync(body, ct).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) {
 				break;
 			}
 
 			message.SetLength(0);
+		}
+	}
+
+	/// <summary>
+	/// Injects a host-originated JSON-RPC notification into the server's stdin (e.g.
+	/// <c>workspace/didChangeWatchedFiles</c>). Shares the stdin write lock with the client→server pump
+	/// so frames never interleave. Best-effort: silently no-ops if the server is gone.
+	/// </summary>
+	/// <param name="method">The notification method name.</param>
+	/// <param name="paramsJson">The pre-serialized JSON for the notification's <c>params</c>.</param>
+	/// <param name="ct">Cancellation token.</param>
+	public async Task SendNotificationAsync(string method, string paramsJson, CancellationToken ct) {
+		var envelope = $"{{\"jsonrpc\":\"2.0\",\"method\":\"{JsonEncodedText.Encode(method)}\",\"params\":{paramsJson}}}";
+		try {
+			await WriteToServerAsync(Encoding.UTF8.GetBytes(envelope), ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException or InvalidOperationException) {
+			// Server already torn down — nothing to notify.
+		}
+	}
+
+	private async Task WriteToServerAsync(ReadOnlyMemory<byte> body, CancellationToken ct) {
+		await _stdinLock.WaitAsync(ct).ConfigureAwait(false);
+		try {
+			await LspFraming.WriteFrameAsync(_process.StandardInput.BaseStream, body, ct).ConfigureAwait(false);
+		} finally {
+			_stdinLock.Release();
 		}
 	}
 
@@ -86,7 +114,7 @@ internal sealed class LspConnection {
 			byte[]? body;
 			try {
 				body = await LspFraming.ReadFrameAsync(stdout, ct).ConfigureAwait(false);
-			} catch (Exception ex) when (ex is IOException or ObjectDisposedException or EndOfStreamException or InvalidDataException or OperationCanceledException) {
+			} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidDataException or OperationCanceledException) {
 				break;
 			}
 

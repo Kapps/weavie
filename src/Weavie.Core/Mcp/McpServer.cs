@@ -40,18 +40,30 @@ public sealed class McpServer : IAsyncDisposable {
 		IFileSystem fileSystem,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName = "weavie",
-		SettingsStore? settings = null) {
+		SettingsStore? settings = null,
+		bool registryMode = false) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
+		if (registryMode && settings is null) {
+			throw new ArgumentNullException(nameof(settings), "Registry-mode server requires a settings store.");
+		}
 
 		_authToken = authToken;
 		_presenter = presenter;
 		_fileSystem = fileSystem;
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
-		_toolsListJson = "{\"tools\":[" + (settings is null ? IdeToolEntries : IdeToolEntries + "," + SettingsToolEntries) + "]}";
+
+		// Registry mode advertises ONLY the capability tools (settings, later commands) — this is the
+		// model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
+		// openDiff-style tools Claude Code filters out before they reach the model. The default (IDE)
+		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
+		var entries = registryMode
+			? SettingsToolEntries
+			: settings is null ? IdeToolEntries : IdeToolEntries + "," + SettingsToolEntries;
+		_toolsListJson = "{\"tools\":[" + entries + "]}";
 		IdeName = ideName;
 	}
 
@@ -109,9 +121,18 @@ public sealed class McpServer : IAsyncDisposable {
 					return;
 				}
 
-				// CVE-2025-52882: never upgrade without the correct per-session token.
-				headers.TryGetValue("x-claude-code-ide-authorization", out var token);
-				if (!string.Equals(token, _authToken, StringComparison.Ordinal)) {
+				// CVE-2025-52882: never upgrade without the correct per-session token. Accept it via the
+				// IDE header (lock-file discovery) or a standard `Authorization: Bearer` (how Claude Code
+				// presents headers for a `.mcp.json` ws server — the capability-registry connection).
+				headers.TryGetValue("x-claude-code-ide-authorization", out var ideToken);
+				string? bearer = null;
+				if (headers.TryGetValue("authorization", out var authHeader)
+					&& authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) {
+					bearer = authHeader["Bearer ".Length..].Trim();
+				}
+
+				if (!string.Equals(ideToken, _authToken, StringComparison.Ordinal)
+					&& !string.Equals(bearer, _authToken, StringComparison.Ordinal)) {
 					Emit("rejected connection: missing/invalid auth token");
 					await WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 					return;

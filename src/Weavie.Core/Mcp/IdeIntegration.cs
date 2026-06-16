@@ -4,15 +4,25 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Mcp;
 
 /// <summary>
-/// One-call setup of the IDE-MCP surface: generate a token, start the loopback MCP server on an
-/// ephemeral port, and write the <c>~/.claude/ide/&lt;port&gt;.lock</c> file. Expose the env vars to
-/// inject into the spawned <c>claude</c> so it connects to <em>this</em> server. Disposal removes
-/// the lock file and stops the server.
+/// One-call setup of the Claude-facing MCP surfaces, with the same per-session token:
+/// <list type="bullet">
+/// <item>the <b>IDE server</b> (discovered via the <c>~/.claude/ide/&lt;port&gt;.lock</c> file) carries
+/// the harness RPC tools — openDiff/openFile/... Claude Code filters these before they reach the model,
+/// so they're for the CLI's own UI, not user-facing.</item>
+/// <item>the <b>registry server</b> (advertised to the spawned <c>claude</c> via a generated
+/// <c>--mcp-config</c>) carries the capability tools — <c>listSettings</c>/<c>getSetting</c>/
+/// <c>setSetting</c> — which DO reach the model as <c>mcp__weavie__*</c>, so the user can drive Weavie
+/// by talking to Claude. Created only when a settings store is supplied.</item>
+/// </list>
+/// Disposal removes the lock file and stops both servers. See <c>docs/concepts/mcp-registry.md</c>.
 /// </summary>
 public sealed class IdeIntegration : IAsyncDisposable {
+	private const string McpServerName = "weavie";
+
 	/// <summary>
-	/// Mints an auth token, starts the loopback MCP server on an ephemeral port, and writes the
-	/// IDE lock file so a spawned <c>claude</c> can discover and connect to this server.
+	/// Mints an auth token, starts the IDE server (writing the lock file) and—when
+	/// <paramref name="settings"/> is supplied—the capability registry server, both on ephemeral
+	/// loopback ports with the same token.
 	/// </summary>
 	public IdeIntegration(
 		IDiffPresenter presenter,
@@ -23,18 +33,30 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
-		Server = new McpServer(AuthToken, presenter, fileSystem, workspaceFolders, ideName, settings);
+		Server = new McpServer(AuthToken, presenter, fileSystem, workspaceFolders, ideName);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
+
+		if (settings is not null) {
+			RegistryServer = new McpServer(
+				AuthToken, presenter, fileSystem, workspaceFolders, ideName, settings, registryMode: true);
+			RegistryPort = RegistryServer.Start();
+		}
 	}
 
-	/// <summary>The running MCP server backing this integration.</summary>
+	/// <summary>The running IDE MCP server (harness RPC: openDiff, etc.).</summary>
 	public McpServer Server { get; }
 
-	/// <summary>The loopback port the server is listening on.</summary>
+	/// <summary>The loopback port the IDE server is listening on.</summary>
 	public int Port { get; }
 
-	/// <summary>The auth token Claude must present, also written into the lock file.</summary>
+	/// <summary>The capability registry MCP server (settings tools), or <c>null</c> if no store was supplied.</summary>
+	public McpServer? RegistryServer { get; }
+
+	/// <summary>The loopback port the registry server is listening on; 0 when there is none.</summary>
+	public int RegistryPort { get; }
+
+	/// <summary>The auth token Claude must present, also written into the lock file and the MCP config.</summary>
 	public string AuthToken { get; }
 
 	/// <summary>Path of the lock file written for the current <see cref="Port"/>.</summary>
@@ -46,9 +68,34 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		["ENABLE_IDE_INTEGRATION"] = "true",
 	};
 
+	/// <summary>
+	/// Writes a Claude Code MCP config file pointing at the registry server (ws + Bearer token) and
+	/// returns its path, for the spawned <c>claude</c>'s <c>--mcp-config</c>. Returns <c>null</c> when
+	/// there is no registry server. The file is rewritten each run with the current ephemeral port.
+	/// </summary>
+	public string? WriteMcpConfigFile() {
+		if (RegistryServer is null) {
+			return null;
+		}
+
+		var directory = WeaviePaths.Internal("mcp");
+		Directory.CreateDirectory(directory);
+		// Port-scoped filename so concurrent weavie instances never clobber each other's config (each
+		// spawned claude is handed the exact path for its own registry server's ephemeral port).
+		var path = Path.Combine(directory, $"weavie-{RegistryPort}.mcp.json");
+		var json =
+			$"{{\"mcpServers\":{{\"{McpServerName}\":{{\"type\":\"ws\",\"url\":\"ws://127.0.0.1:{RegistryPort}\"," +
+			$"\"headers\":{{\"Authorization\":\"Bearer {AuthToken}\"}}}}}}}}";
+		File.WriteAllText(path, json);
+		return path;
+	}
+
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		IdeLockFile.Delete(Port);
 		await Server.DisposeAsync().ConfigureAwait(false);
+		if (RegistryServer is not null) {
+			await RegistryServer.DisposeAsync().ConfigureAwait(false);
+		}
 	}
 }

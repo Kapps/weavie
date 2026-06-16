@@ -1,12 +1,28 @@
 # Claude-facing capability registry
 
-Weavie embeds the real Claude Code CLI and runs an "IDE" MCP server that Claude connects back to
-(`Weavie.Core/Mcp/McpServer.cs`). That back-channel is the mechanism by which Weavie exposes its own
-capabilities to the embedded Claude — so the user can drive Weavie by *talking to Claude* rather
-than hunting through menus or memorizing a config file's shape.
+Weavie embeds the real Claude Code CLI and exposes its own capabilities to that embedded Claude as
+MCP tools — so the user can drive Weavie by *talking to Claude* rather than hunting through menus or
+memorizing a config file's shape.
+
+## Two MCP servers, on purpose
+
+Both are `Weavie.Core/Mcp/McpServer.cs` (loopback WebSocket, JSON-RPC, one shared per-session token),
+but they reach Claude two different ways — and only one is model-facing:
+
+- **IDE server** — discovered via the `~/.claude/ide/<port>.lock` file. Carries the *harness RPC*
+  tools (openDiff/openFile/getDiagnostics/…). **Claude Code filters the IDE tool list down to a fixed
+  allowlist before it reaches the model** (essentially just `getDiagnostics`/`executeCode`), so custom
+  tools added here are invisible to the model. This server is for the CLI's own UI, not for
+  user-facing capabilities.
+- **Registry server** *(`registryMode: true`)* — advertised to the spawned `claude` via a generated
+  `--mcp-config` file (`~/.weavie/internals/mcp/weavie-<port>.mcp.json`, a `ws://` + Bearer-token
+  entry; port-scoped so concurrent instances don't collide). Carries **only the capability tools**,
+  which **do** reach the model as `mcp__weavie__*`. This is the channel that makes *"set my weavie
+  shell to nushell"* work. The same auth token authorizes both servers (IDE header or `Authorization:
+  Bearer`).
 
 The unifying idea: capabilities are **registered** in Core and automatically surfaced to Claude as
-MCP tools. There are two kinds.
+MCP tools *on the registry server*. There are two kinds.
 
 - **Settings** *(being built now)* — declared configuration values, each with a type, default,
   human-readable description, aliases, and validation. Surfaced as `listSettings` / `getSetting` /
@@ -22,8 +38,8 @@ MCP tools. There are two kinds.
 ```mermaid
 flowchart LR
     D["register(declaration)"] --> R[Core registry]
-    R --> M["MCP tool surface<br/>(McpServer)"]
-    M --> C[embedded Claude]
+    R --> M["registry MCP server<br/>(McpServer, registryMode)"]
+    M -. "--mcp-config at spawn" .-> C["embedded Claude<br/>(mcp__weavie__*)"]
 ```
 
 One declaration drives everything downstream: the MCP tool schema, validation, defaults, and the
@@ -40,5 +56,7 @@ hand-written MCP tools per capability:
 
 ## Status
 
-- Settings registry + MCP tools — in progress (see the settings spec).
-- Commands registry — concept only; not yet specced or built.
+- Settings registry + registry MCP server — implemented. Verified end to end: the embedded Claude
+  connects to the registry server via `--mcp-config` and calls `mcp__weavie__setSetting` to change the
+  shell against the running app (see the settings spec).
+- Commands registry — concept only; not yet specced or built. Will register onto the same registry server.

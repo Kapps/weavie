@@ -46,6 +46,13 @@ public sealed class TerminalController : IDisposable {
 	public string Workspace { get; set; }
 
 	/// <summary>
+	/// Path to a Claude Code MCP config file passed as <c>--mcp-config</c> when launching claude, so the
+	/// capability registry server's tools (<c>mcp__weavie__*</c>) are available to the model. Only the
+	/// claude session uses it.
+	/// </summary>
+	public string? McpConfigPath { get; set; }
+
+	/// <summary>
 	/// Spawns this session's child (claude via a login shell, or the configured shell) at the given size
 	/// and begins relaying its output to the web view. No-op if already started.
 	/// </summary>
@@ -115,7 +122,8 @@ public sealed class TerminalController : IDisposable {
 	/// </summary>
 	private (string Command, IReadOnlyList<string> Arguments) ResolveClaudeLauncher() {
 		var claude = _settings.GetString("claude.path") ?? "claude";
-		return (LoginShell(), ["-l", "-c", $"exec {claude}"]);
+		var mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
+		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}"]);
 	}
 
 	/// <summary>

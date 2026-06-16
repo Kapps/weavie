@@ -373,13 +373,19 @@ should not appear in `listSettings`: `WEAVIE_PTY_LOG`, `WEAVIE_AUTOBENCH`, `WEAV
 
 ## MCP tools (the editing surface)
 
-Three tools are added to the existing `McpServer` (`Weavie.Core/Mcp/McpServer.cs`), appended to
-`ToolsListJson` and dispatched in `HandleToolCallAsync`. See the
-[capability registry concept](../concepts/mcp-registry.md) for how these are generated from the
-registry rather than hand-written. All three return the standard MCP
-`{"content":[{"type":"text","text":...}]}` envelope used by the existing tools; `listSettings` and
-`getSetting` serialize their JSON payload into that `text` field (matching `getWorkspaceFolders`),
-and `setSetting` returns a human-readable summary.
+Three tools — `listSettings`/`getSetting`/`setSetting` — are served by `McpServer`
+(`Weavie.Core/Mcp/McpServer.cs`) and dispatched in `HandleToolCallAsync`.
+
+**They must run on the registry MCP server, not the IDE server.** Claude Code filters the IDE
+connection's tool list down to a fixed allowlist before it reaches the model, so custom tools added to
+the IDE server are invisible to Claude. Instead the host runs a second `McpServer` in `registryMode`
+(advertising only these tools), registered with the spawned `claude` via a generated `--mcp-config`
+(`~/.weavie/internals/mcp/weavie-<port>.mcp.json`: a `ws://` entry with the shared token as
+`Authorization: Bearer`). Then the tools reach the model as `mcp__weavie__listSettings` etc. See the
+[capability registry concept](../concepts/mcp-registry.md). All three return the standard MCP
+`{"content":[{"type":"text","text":...}]}` envelope; `listSettings`/`getSetting` serialize their JSON
+payload into that `text` field, and `setSetting` returns a human-readable summary (errors set
+`isError: true`).
 
 ### `listSettings`
 

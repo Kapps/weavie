@@ -22,5 +22,8 @@ Keep the repo root clean. Do not drop scratch files, findings, or notes in the r
   gitignored; nothing in it is committed.
 - **Specs & designs** — design docs and technical specs you intend to keep →
   write to `docs/specs/` (one file or folder per spec). These are tracked and reviewed.
+- **Concepts** — high-level architecture concepts meant to be loaded on demand →
+  write to `docs/concepts/` (one file per concept). Keep the CLAUDE.md "Concepts" section to a
+  one-line summary + link per concept; the detail lives in the doc.
 - **Diagrams in docs** — draw diagrams as Mermaid (` ```mermaid ` fenced blocks), never hand-drawn
   ASCII-art. Applies to specs and design docs.

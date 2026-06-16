@@ -19,8 +19,11 @@ MCP tools. There are two kinds.
 
 ## The shared pattern
 
-```
-register(declaration)  →  Core registry  →  MCP tool surface on McpServer  →  embedded Claude
+```mermaid
+flowchart LR
+    D["register(declaration)"] --> R[Core registry]
+    R --> M["MCP tool surface<br/>(McpServer)"]
+    M --> C[embedded Claude]
 ```
 
 One declaration drives everything downstream: the MCP tool schema, validation, defaults, and the

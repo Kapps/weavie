@@ -1,7 +1,7 @@
 # Settings
 
 Status: accepted, not yet implemented
-Last updated: 2026-06-15
+Last updated: 2026-06-16
 
 Settings is the first concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) concept: configuration values are
@@ -13,7 +13,7 @@ startup (`WEAVIE_WORKSPACE`, `WEAVIE_SHELL`/`SHELL`, `WEAVIE_CLAUDE`, plus dev/d
 spec introduces a user-level settings system that is:
 
 - **OS-portable but dev-friendly** — one file at `~/.weavie/settings.toml` on every platform.
-- **Schema-driven** — settings are *declared* in code (type, default, description, validation), so
+- **Schema-driven** — settings are *declared* in code (kind, default, description, validation), so
   one registry powers defaults, validation, env-var overrides, the MCP tool surface, and the
   natural-language "tell Claude to change it" flow.
 - **Env-overridable** — every setting has a derived `WEAVIE_*` env var that wins over the file.
@@ -55,8 +55,8 @@ Resolved from the user profile / home directory
 (`Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)`), correct on Windows, macOS, and
 Linux. Chosen over OS-standard config dirs (`%APPDATA%`, `~/Library/Application Support`,
 `$XDG_CONFIG_HOME`) because it is trivial to `cd ~/.weavie` and hand-edit, identical everywhere, and
-mirrors `~/.claude` — the tool Weavie weaves. The `~/.weavie/` directory is also the natural home
-for future per-user state; this spec only defines `settings.toml`.
+mirrors `~/.claude` — the tool Weavie weaves. The `~/.weavie/` directory is created on first write
+and is the natural home for future per-user state; this spec only defines `settings.toml`.
 
 ## File format — TOML
 
@@ -83,6 +83,11 @@ claude.path = 'C:\Users\me\claude.exe'
 severity = "error"
 ```
 
+**Document shape.** The store writes known leaf settings as **dotted keys at the document root**
+(`terminal.shell = "nu"`), one key per line, so each setting is a self-contained line that can carry
+its own description comment. `[plugins.*]` tables and any other unknown subtree are treated as
+opaque and preserved byte-for-faithful on round-trip — never reshaped or stripped.
+
 ### Comments: description-above-the-line
 
 Reads and writes go through Tomlyn's `DocumentSyntax` so existing comments and formatting survive a
@@ -97,18 +102,26 @@ Deferred refinement: re-propagating a changed registry description onto keys tha
 ### Atomic writes
 
 Serialize the `DocumentSyntax` to text, write `settings.toml.tmp`, then atomically replace
-`settings.toml`, so a crash mid-write never corrupts the file. A malformed existing file is a loud
-error surfaced to the host log (and, for `setSetting`, back to Claude) — never silently reset; the
-last-good in-memory values are retained.
+`settings.toml`, so a crash mid-write never corrupts the file.
+
+### Malformed / missing file
+
+- **Missing** — treated as an empty document: every setting resolves to its default. The file and
+  `~/.weavie/` are created on the first write.
+- **Malformed** (TOML parse error) — *strict, non-destructive*: resolution falls back to defaults
+  (env vars still apply), the parse error is surfaced loudly to the host log, and the broken file is
+  **left intact**. `setSetting` **refuses to write** while the file is unparseable (so we never
+  clobber the user's content) and returns an error telling the user to fix or delete the file. This
+  honors strict enforcement without bricking the app over a typo.
 
 ## The settings registry
 
-Settings are declared in code. The registry is the single source of truth for what exists, its type,
+Settings are declared in code. The registry is the single source of truth for what exists, its kind,
 default, docs, validation, env var, and how a change applies. Core registers its settings at
 startup; plugins (future) contribute additional definitions the same way.
 
 ```csharp
-public enum SettingKind { String, Bool, Int, Path, Enum }
+public enum SettingKind { String, Bool, Int, Path }
 
 // How a changed value takes effect — reported to Claude by setSetting, and the contract the
 // host's change-reaction wiring honors.
@@ -121,19 +134,59 @@ public enum ApplyMode {
 
 public sealed record SettingDefinition {
     public required string Key { get; init; }                 // "terminal.shell"
-    public required SettingKind Kind { get; init; }
+    public required SettingKind Kind { get; init; }           // explicit + authoritative (see below)
     public required string Description { get; init; }         // → MCP + the file's "# " comment
     public IReadOnlyList<string> Aliases { get; init; } = []; // "shell", "my shell" — NL hints
-    public IReadOnlyList<string>? AllowedValues { get; init; }// for Enum
+    public IReadOnlyList<string>? AllowedValues { get; init; }// closed set on a String → JSON Schema "enum"
     public object? Default { get; init; }                     // static default…
     public Func<object?>? ComputeDefault { get; init; }       // …or computed (platform auto-detect)
-    public Func<object?, ValidationResult>? Validate { get; init; }
+    public Func<object?, ValidationResult>? Validate { get; init; }  // open-ended checks only
     public ApplyMode Apply { get; init; } = ApplyMode.NextSession;
 
     // Derived: "terminal.shell" -> "WEAVIE_TERMINAL_SHELL". No per-setting registration needed.
     public string EnvVar => "WEAVIE_" + Key.ToUpperInvariant().Replace('.', '_');
 }
 ```
+
+### Kinds vs constraints (the design rule)
+
+A `SettingKind` exists only when it carries distinct **parse / coerce / normalize behavior**. A mere
+*constraint* on values (an allowed set, a numeric range, must-exist-on-disk) is a validator or a
+structured constraint — **not** a kind.
+
+- `String` / `Bool` / `Int` — distinct parsing of the env-var string / JSON value. ✅ kinds.
+- `Path` — earns its place through path *behavior*: `~` expansion and resolving a relative path
+  against the workspace. (Without that behavior it would just be `String` + a validator.)
+- ~~`Enum`~~ — deliberately **not** a kind. An enum has no distinct parse behavior; it is `String`
+  parsing plus a set membership constraint. It is expressed as a `String` with `AllowedValues`.
+
+**`AllowedValues` vs `Validate`** — both reject bad input, but they differ in introspectability,
+which is the whole point of the MCP/NL layer:
+
+- `AllowedValues` (closed set, structured) — the system can *enumerate* the options: `listSettings`
+  exposes them, error messages auto-list them, a future UI renders a dropdown, and it maps 1:1 onto
+  JSON Schema `enum` in the tool input schema. Membership validation is auto-derived; you don't
+  write a `Validate` for it. Applies to `String` settings.
+- `Validate` (open-ended predicate) — for checks that can't be enumerated. Returns a
+  `ValidationResult` (ok / message). Opaque to the system by nature.
+
+The two initial real examples sit on opposite sides, neither needing an `Enum` kind:
+
+- `terminal.shell` → `String` + `Validate` (resolvable on PATH). **Open-ended** — you can't list
+  every shell.
+- a future `theme` → `String` + `AllowedValues = ["dark","light"]`. **Closed set** — structured,
+  so Claude and the UI can read the options.
+
+### Coercion
+
+Values arrive as untyped strings (env vars) or JSON (MCP) and are coerced to the declared `Kind`;
+mismatches are rejected, never guessed:
+
+- **From an env-var string:** `Bool` accepts `true`/`false` (case-insensitive); `Int` is an
+  invariant integer parse; `String`/`Path` are taken verbatim. Then `Path` normalization and any
+  `AllowedValues`/`Validate` checks run. A value that fails to parse is a loud error.
+- **From an MCP JSON value:** `String`/`Path` expect a JSON string, `Bool` a JSON bool, `Int` a JSON
+  number. A type mismatch is rejected by `setSetting`.
 
 ### Env-var override convention
 
@@ -153,12 +206,17 @@ system suggest."
 
 ### Resolution order (highest wins)
 
+```mermaid
+flowchart TD
+    A[Resolve key] --> B{"WEAVIE_* env set?"}
+    B -- yes --> Benv["env value<br/>source = Environment"]
+    B -- no --> C{"present in settings.toml?"}
+    C -- yes --> Cfile["file value<br/>source = UserFile"]
+    C -- no --> D["registered default<br/>ComputeDefault() / Default<br/>source = Default"]
 ```
-1. environment variable   (the setting's derived WEAVIE_* name)   ← always wins; for dev/CI
-2. ~/.weavie/settings.toml                                         ← what setSetting writes
-3. registered default     (static Default or ComputeDefault())
-   ── reserved slot 1.5: workspace .weavie/settings.toml (future) ──
-```
+
+A future per-workspace `.weavie/settings.toml` slots in between the env and user-file layers; not
+built in this milestone.
 
 ```csharp
 public ResolvedValue Resolve(string key) {
@@ -174,7 +232,8 @@ public ResolvedValue Resolve(string key) {
 
 `setSetting` requires an **exact registered key**. Unknown keys are rejected (optionally with
 near-match suggestions) — fuzzy/natural-language mapping is the LLM's job, done by reading the
-catalog from `listSettings`, never by the store guessing.
+catalog from `listSettings`, never by the store guessing. The store always writes the explicit value
+(even if it equals the current default).
 
 Because env vars win over the file, writing a setting while its env var is set won't change the
 *effective* value. Per the strict-enforcement principle, `setSetting` reports this loudly instead of
@@ -183,9 +242,10 @@ silently no-opping:
 ```csharp
 public SetResult Set(string key, JsonElement value) {           // value arrives as JSON (MCP)
     var def = _registry.Require(key);                           // strict: unknown -> error
-    var result = def.Validate?.Invoke(Coerce(def, value)) ?? ValidationResult.Ok;
+    var coerced = Coerce(def, value);                           // kind mismatch -> error
+    var result = def.Validate?.Invoke(coerced) ?? ValidationResult.Ok;
     if (!result.Ok) throw new SettingValidationException(key, result.Message);   // loud
-    _doc.Set(key, Coerce(def, value));                          // into the TOML syntax tree
+    _doc.Set(key, coerced);                                     // into the TOML syntax tree
     SaveAtomic();
     RaiseChanged(key, ...);                                      // -> reaction hub (below)
     var shadow = Environment.GetEnvironmentVariable(def.EnvVar);
@@ -198,7 +258,7 @@ public SetResult Set(string key, JsonElement value) {           // value arrives
 ```
 
 Note the boundary: **MCP speaks JSON, the file is TOML.** `setSetting`'s `value` is a JSON value;
-the store coerces it to the declared type via the registry and writes it into the TOML document. The
+the store coerces it to the declared kind via the registry and writes it into the TOML document. The
 file format never leaks into the Claude-facing contract.
 
 ## Reacting to changes — the change hub
@@ -218,32 +278,53 @@ public IDisposable Subscribe(string key, Action<SettingChange> handler);   // co
 1. **`setSetting`** (explicit, via MCP).
 2. **A `FileSystemWatcher` on `settings.toml`**, *debounced* (~250 ms) and *parse-guarded*: a
    half-typed hand-edit never triggers a reaction; the store reacts only once the file settles into
-   a clean parse, then diffs against the current resolved values and raises one change per key.
+   a clean parse, then **diffs the reloaded values against the current in-memory resolved values**
+   and raises one change per key that actually differs.
 
-Reactions run off the raising thread, so subscribers marshal to the UI thread the same way
-`HostBridge.PostToWeb` already does (`BeginInvoke` on Windows, `InvokeOnMainThread` on macOS).
+The diff-on-reload also dedupes the store's own writes: after `setSetting` updates in-memory state
+and raises its change, the watcher's subsequent reload sees no difference and raises nothing — so a
+write never double-fires a reaction. Reactions run off the raising thread, so subscribers marshal to
+the UI thread the same way `HostBridge.PostToWeb` already does (`BeginInvoke` on Windows,
+`InvokeOnMainThread` on macOS).
+
+`ApplyMode` is advisory metadata that `setSetting` reports to Claude *and* the contract the host's
+wiring honors. Only `ReopensTerminal` has an active reaction wired in this milestone; `NextSession`
+and `RestartRequired` settings simply get read fresh when the relevant session next starts.
 
 ### Shell change → reopen the terminal
 
 The host subscribes to `terminal.shell` and reopens the shell pane(s), reusing the existing
 ready/start handshake:
 
-```
-setSetting("terminal.shell","nu")   (or a settled hand-edit)
-  → store writes + raises SettingChanged("terminal.shell")
-  → host subscriber, on the UI thread, calls shellController.Restart():
-       dispose the PTY, post {type:"term-reset", session:"shell"} to the web
-  → web TerminalView for "shell" clears its xterm + re-sends term-ready(cols,rows)
-  → controller.Start() spawns a fresh PTY, resolving the shell from the store
+```mermaid
+sequenceDiagram
+    participant Claude
+    participant Store as SettingsStore
+    participant Host
+    participant Ctl as TerminalController (shell)
+    participant Web as Web TerminalView (shell)
+
+    Claude->>Store: setSetting("terminal.shell", "nu")
+    Note over Store: write TOML · raise SettingChanged
+    Store-->>Host: SettingChanged("terminal.shell")
+    Host->>Ctl: Restart()
+    Note over Ctl: dispose PTY
+    Ctl->>Web: term-reset {session:"shell"}
+    Web->>Web: clear xterm
+    Web->>Host: term-ready {cols, rows}
+    Host->>Ctl: Start() — resolve shell from store
+    Ctl->>Web: term-output (nu prompt)
 ```
 
 The claude pane is a different setting (`claude.path`) and is untouched. Reopening **kills that
 pane's scrollback and any running command** — acceptable for an explicitly requested change, and the
 debounce/parse-guard keeps a hand-edit from thrashing it. New plumbing required:
 
-- `TerminalController.Restart()` (dispose + emit `term-reset`).
-- A `term-reset` inbound message handled in the web `bridge.ts` / `TerminalView` (clear xterm,
-  re-emit `term-ready`).
+- `TerminalController.Restart()` — dispose the PTY and post `{type:"term-reset", session:<id>}` over
+  the bridge.
+- A `term-reset` inbound message handled in the web `bridge.ts` / `TerminalView`: clear that
+  session's xterm and re-emit `term-ready` with the current cols/rows (which routes through the
+  host's existing `OnWebMessage` → `controller.Start()`).
 
 (If auto-reopening on *passive* hand-edits ever proves annoying, a later refinement can downgrade
 the file-watch path to `NextSession` while keeping explicit `setSetting` on reopen. Not done now.)
@@ -275,12 +356,15 @@ should not appear in `listSettings`: `WEAVIE_PTY_LOG`, `WEAVIE_AUTOBENCH`, `WEAV
 Three tools are added to the existing `McpServer` (`Weavie.Core/Mcp/McpServer.cs`), appended to
 `ToolsListJson` and dispatched in `HandleToolCallAsync`. See the
 [capability registry concept](../concepts/mcp-registry.md) for how these are generated from the
-registry rather than hand-written.
+registry rather than hand-written. All three return the standard MCP
+`{"content":[{"type":"text","text":...}]}` envelope used by the existing tools; `listSettings` and
+`getSetting` serialize their JSON payload into that `text` field (matching `getWorkspaceFolders`),
+and `setSetting` returns a human-readable summary.
 
 ### `listSettings`
 
 No input. Returns the live catalog — what Claude reads to map natural language to an exact key, so it
-carries descriptions, aliases, current value, source, and default:
+carries descriptions, aliases, current value, source, default, and (when closed-set) allowed values:
 
 ```json
 { "settings": [
@@ -291,9 +375,12 @@ carries descriptions, aliases, current value, source, and default:
 ] }
 ```
 
+`allowedValues` is included only for settings that declare it (e.g. a `theme` would carry
+`"allowedValues": ["dark","light"]`).
+
 ### `getSetting`
 
-Input `{ "key": "terminal.shell" }` → the resolved value and where it came from.
+Input `{ "key": "terminal.shell" }` → the resolved value and where it came from (`source`).
 
 ### `setSetting`
 
@@ -316,7 +403,7 @@ instructs the model to **call `listSettings` first** to find the exact key rathe
 ```
 Weavie.Core/
   Configuration/
-    SettingDefinition.cs     // the record above
+    SettingDefinition.cs     // the record + SettingKind / ApplyMode
     SettingsRegistry.cs      // register + Require(key) + catalog
     SettingsStore.cs         // TOML load/save (Tomlyn, atomic), Resolve, Set, watch, change hub
     CoreSettings.cs          // registers workspace / terminal.shell / claude.path
@@ -332,11 +419,12 @@ the `TerminalController`s collapses into the registered settings' `ComputeDefaul
 
 1. **Core config module** — `SettingDefinition`, `SettingsRegistry`, `SettingsStore`
    (Tomlyn load/save + description-comment injection, atomic write, env+file+default resolution,
-   validation, debounced parse-guarded `FileSystemWatcher`, `SettingChanged`/`Subscribe`). Register
-   `workspace`, `terminal.shell`, `claude.path`; port the `TerminalController` resolution logic in;
-   update both hosts to read from the store. Unit tests in `Weavie.Core.Tests` (resolution
-   precedence, unknown-key + comment preservation, atomic write, validation rejects bad values,
-   env-shadow reporting, change-diff on file edit).
+   coercion, validation, debounced parse-guarded `FileSystemWatcher`, `SettingChanged`/`Subscribe`).
+   Register `workspace`, `terminal.shell`, `claude.path`; port the `TerminalController` resolution
+   logic in; update both hosts to read from the store. Unit tests in `Weavie.Core.Tests`
+   (resolution precedence, coercion per kind, unknown-key + comment preservation, atomic write,
+   validation + `AllowedValues` rejection, malformed-file fallback + write-refusal, env-shadow
+   reporting, change-diff on file edit / no double-fire on self-write).
 2. **Reaction wiring** — `TerminalController.Restart()` + `term-reset` web handling; hosts subscribe
    `terminal.shell` → reopen. Verify a shell change reopens the pane.
 3. **MCP tools** — `listSettings`/`getSetting`/`setSetting` on `McpServer`, wired to the store.

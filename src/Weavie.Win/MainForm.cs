@@ -2,6 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Weavie.Core;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Win.Hosting;
@@ -73,9 +74,9 @@ internal sealed class MainForm : Form {
 		// build without web assets still opens the window (navigation 404s) instead of crashing.
 		Directory.CreateDirectory(wwwroot);
 
-		// WebView2 needs a writable user-data folder; the exe may live under Program Files.
-		var userDataFolder = Path.Combine(
-			Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "weavie", "WebView2");
+		// WebView2 needs a writable user-data folder (the exe may live under Program Files); keep it
+		// under the Weavie root so all Weavie data lives together (~/.weavie/internals/webview2).
+		var userDataFolder = WeaviePaths.Internal("webview2");
 		Directory.CreateDirectory(userDataFolder);
 
 		var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);

@@ -7,8 +7,9 @@ namespace Weavie.Core.Lsp;
 /// </summary>
 public static class LanguageServerCatalog {
 	/// <summary>
-	/// TypeScript / JavaScript. Prefers <c>vtsls</c> (the spec's M0 control), falling back to the
-	/// classic <c>typescript-language-server</c>; M1 inserts <c>tsgo</c> ahead of both.
+	/// TypeScript / JavaScript. Prefers <c>tsgo</c> (ts-go / TypeScript 7's native LSP) per the spec's
+	/// "replace Monaco's bundled TS immediately", falling back to the tsserver-based <c>vtsls</c> then
+	/// the classic <c>typescript-language-server</c> if tsgo isn't installed (bring-your-own, on PATH).
 	/// </summary>
 	public static LanguageServerDescriptor TypeScript { get; } = new() {
 		Id = "typescript",
@@ -16,6 +17,7 @@ public static class LanguageServerCatalog {
 		LanguageIds = ["typescript", "typescriptreact", "javascript", "javascriptreact"],
 		FileExtensions = [".ts", ".tsx", ".mts", ".cts", ".js", ".jsx", ".mjs", ".cjs"],
 		Candidates = [
+			new("tsgo", ["--lsp", "-stdio"]),
 			new("vtsls", ["--stdio"]),
 			new("typescript-language-server", ["--stdio"]),
 		],

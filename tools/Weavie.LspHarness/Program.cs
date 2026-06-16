@@ -72,6 +72,7 @@ if (debug) {
 results.SemanticTokensProvider = caps.TryGetProperty("semanticTokensProvider", out var stp) && stp.ValueKind != JsonValueKind.Null;
 results.HoverProvider = caps.TryGetProperty("hoverProvider", out _);
 results.CompletionProvider = caps.TryGetProperty("completionProvider", out _);
+results.DiagnosticProvider = caps.TryGetProperty("diagnosticProvider", out var diag) && diag.ValueKind != JsonValueKind.Null;
 if (results.SemanticTokensProvider && stp.TryGetProperty("legend", out var legend) && legend.TryGetProperty("tokenTypes", out var tt)) {
 	results.LegendTokenTypeCount = tt.GetArrayLength();
 }
@@ -121,14 +122,29 @@ try {
 	Console.Error.WriteLine($"[lsp-harness] completion: {ex.Message}");
 }
 
-// 6. Diagnostics (server-pushed). The sample has a deliberate type error; the project is loaded now.
+// 6. Diagnostics. tsserver-based servers (vtsls) PUSH via publishDiagnostics; ts-go / TS 7 uses the
+// 3.17 PULL model (textDocument/diagnostic). Support both (spec §15). The sample has a type error.
 try {
-	var diagnostics = await client.WaitForDiagnosticsAsync(fileUri, TimeSpan.FromSeconds(30), ct);
-	results.DiagnosticCount = diagnostics.GetArrayLength();
-	if (results.DiagnosticCount > 0) {
-		results.FirstDiagnostic = diagnostics[0].GetProperty("message").GetString();
+	JsonElement diagnostics;
+	if (results.DiagnosticProvider) {
+		var report = await client.RequestAsync("textDocument/diagnostic",
+			new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = fileUri } }, ct);
+		diagnostics = report.ValueKind == JsonValueKind.Object && report.TryGetProperty("items", out var items)
+			? items
+			: default;
+	} else {
+		diagnostics = await client.WaitForDiagnosticsAsync(fileUri, TimeSpan.FromSeconds(30), ct);
+	}
+
+	if (diagnostics.ValueKind == JsonValueKind.Array) {
+		results.DiagnosticCount = diagnostics.GetArrayLength();
+		if (results.DiagnosticCount > 0) {
+			results.FirstDiagnostic = diagnostics[0].GetProperty("message").GetString();
+		}
 	}
 } catch (TimeoutException ex) {
+	Console.Error.WriteLine($"[lsp-harness] diagnostics: {ex.Message}");
+} catch (InvalidOperationException ex) {
 	Console.Error.WriteLine($"[lsp-harness] diagnostics: {ex.Message}");
 }
 
@@ -153,6 +169,7 @@ static JsonObject InitializeParams(string rootUri, string fileUri) => new() {
 		["textDocument"] = new JsonObject {
 			["synchronization"] = new JsonObject { ["didSave"] = true, ["dynamicRegistration"] = true },
 			["publishDiagnostics"] = new JsonObject { ["relatedInformation"] = true },
+			["diagnostic"] = new JsonObject { ["dynamicRegistration"] = true, ["relatedDocumentSupport"] = false },
 			["hover"] = new JsonObject { ["contentFormat"] = new JsonArray { "markdown", "plaintext" } },
 			["completion"] = new JsonObject {
 				["dynamicRegistration"] = true,
@@ -227,6 +244,7 @@ internal sealed class Results {
 	public int LegendTokenTypeCount;
 	public bool HoverProvider;
 	public bool CompletionProvider;
+	public bool DiagnosticProvider;
 	public int DiagnosticCount;
 	public string? FirstDiagnostic;
 	public int SemanticTokenInts;
@@ -242,7 +260,7 @@ internal sealed class Results {
 		Console.WriteLine($"  semanticTokensProvider : {SemanticTokensProvider} (legend types: {LegendTokenTypeCount})");
 		Console.WriteLine($"  hoverProvider          : {HoverProvider}");
 		Console.WriteLine($"  completionProvider     : {CompletionProvider}");
-		Console.WriteLine($"  diagnostics            : {DiagnosticCount}  (first: {FirstDiagnostic ?? "-"})");
+		Console.WriteLine($"  diagnostics            : {DiagnosticCount}  ({(DiagnosticProvider ? "pull" : "push")}; first: {FirstDiagnostic ?? "-"})");
 		Console.WriteLine($"  semanticTokens ints    : {SemanticTokenInts}  ({SemanticTokenInts / 5} tokens)");
 		Console.WriteLine($"  hover has contents     : {HoverHasContents}");
 		Console.WriteLine($"  completion items       : {CompletionItems}");

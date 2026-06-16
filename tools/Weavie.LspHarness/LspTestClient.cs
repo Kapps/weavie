@@ -161,7 +161,10 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	private async Task DispatchAsync(string json, CancellationToken ct) {
 		using var doc = JsonDocument.Parse(json);
 		var root = doc.RootElement.Clone();
-		var hasId = root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.Number;
+		// LSP request ids may be integer OR string (ts-go uses string ids for its server→client
+		// requests). Treat both as ids — else we never reply and the server blocks forever.
+		var hasId = root.TryGetProperty("id", out var idEl)
+			&& idEl.ValueKind is JsonValueKind.Number or JsonValueKind.String;
 		var hasMethod = root.TryGetProperty("method", out var methodEl);
 
 		if (_debug) {
@@ -171,7 +174,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 		}
 
 		if (hasMethod && hasId) {
-			await ReplyToServerRequestAsync(methodEl.GetString() ?? string.Empty, idEl.GetInt32(), root, ct);
+			await ReplyToServerRequestAsync(methodEl.GetString() ?? string.Empty, idEl, root, ct);
 			return;
 		}
 
@@ -180,7 +183,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 			return;
 		}
 
-		if (hasId && _pending.TryRemove(idEl.GetInt32(), out var tcs)) {
+		// Responses to our own requests always carry the numeric ids we minted.
+		if (hasId && idEl.ValueKind == JsonValueKind.Number && _pending.TryRemove(idEl.GetInt32(), out var tcs)) {
 			if (root.TryGetProperty("error", out var error)) {
 				tcs.TrySetException(new InvalidOperationException($"LSP error: {error.GetRawText()}"));
 			} else {
@@ -224,7 +228,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 
 	// Real servers make a handful of requests to the client during startup. We answer the ones that
 	// matter (configuration, workspace folders) and acknowledge the rest with null so startup proceeds.
-	private async Task ReplyToServerRequestAsync(string method, int id, JsonElement root, CancellationToken ct) {
+	private async Task ReplyToServerRequestAsync(string method, JsonElement id, JsonElement root, CancellationToken ct) {
 		JsonNode? result = method switch {
 			"workspace/configuration" => ConfigurationResponse(root),
 			"workspace/workspaceFolders" => WorkspaceFoldersResponse(),
@@ -233,7 +237,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 
 		var envelope = new JsonObject {
 			["jsonrpc"] = "2.0",
-			["id"] = id,
+			["id"] = JsonNode.Parse(id.GetRawText()), // echo the id verbatim (integer or string)
 			["result"] = result,
 		};
 		await SendAsync(envelope, ct);

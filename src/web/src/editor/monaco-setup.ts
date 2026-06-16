@@ -1,18 +1,9 @@
 import * as monaco from "monaco-editor";
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
-import tsWorker from "monaco-editor/esm/vs/language/typescript/ts.worker?worker";
 
-// Wire Monaco's workers through Vite. Built as classic (iife) workers so they load
-// reliably under the app:// custom scheme. If a worker fails to construct, Monaco still
-// supports basic typing on the main thread — the latency path is unaffected.
-self.MonacoEnvironment = {
-  getWorker(_workerId: string, label: string): Worker {
-    if (label === "typescript" || label === "javascript") {
-      return new tsWorker();
-    }
-    return new editorWorker();
-  },
-};
+// Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices),
+// which must run before any editor is created. TypeScript/JS intelligence now comes from a real LSP
+// server over the bridge (see lsp/lsp-client.ts), not Monaco's bundled ts.worker — so that worker is
+// intentionally gone (spec §9: replace Monaco's in-browser TS immediately).
 
 export const SAMPLE_CODE = `// weavie — Monaco typing-latency gate.
 // Type freely; the HUD up top shows keydown->frame and input->paint percentiles.
@@ -42,7 +33,10 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     language: "typescript",
     theme: "vs-dark",
     fontSize: 14,
-    fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
+    // Cross-platform monospace stack (spec §4 fix): the old macOS-only list silently fell back to
+    // generic monospace on Windows. Typography becomes a real setting later (owned by the settings agent).
+    fontFamily:
+      'ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace',
     automaticLayout: true,
     minimap: { enabled: true },
     bracketPairColorization: { enabled: true },

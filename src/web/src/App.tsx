@@ -7,6 +7,7 @@ import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
+import { startLanguageClient } from "./lsp/lsp-client";
 import { TerminalView } from "./terminal/TerminalView";
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
@@ -112,9 +113,22 @@ export default function App(): JSX.Element {
   };
 
   onMount(() => {
-    editor = createEditor(editorContainer);
-    editor.focus();
-    postToHost({ type: "monaco-ready" });
+    // Editor init must not abort the shared onMount queue: a throw here would otherwise prevent the
+    // sibling terminal panes from mounting (and emitting term-ready), blanking the whole left column.
+    try {
+      editor = createEditor(editorContainer);
+      editor.focus();
+      postToHost({ type: "monaco-ready" });
+      // Real TS/JS intelligence via the LSP bridge (no-op if the host didn't inject bridge config).
+      startLanguageClient("typescript", [
+        "typescript",
+        "typescriptreact",
+        "javascript",
+        "javascriptreact",
+      ]);
+    } catch (error) {
+      log("error", `editor init failed: ${String(error)}`);
+    }
 
     // All live perf instrumentation is opt-in via ?debugperf. When off we never start the meter,
     // the HUD tick, the fps probe, or the auto-bench — so the shipped UI carries none of their cost

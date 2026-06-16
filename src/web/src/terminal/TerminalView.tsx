@@ -136,7 +136,12 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
           // The host disposed our PTY (e.g. the shell setting changed). Wipe scrollback + state and
           // re-announce readiness so the host relaunches the child sized to the current pane.
           term.reset();
-          postToHost({ type: "term-ready", session: props.session, cols: term.cols, rows: term.rows });
+          postToHost({
+            type: "term-ready",
+            session: props.session,
+            cols: term.cols,
+            rows: term.rows,
+          });
         }
       }
     });

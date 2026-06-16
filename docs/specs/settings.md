@@ -1,7 +1,27 @@
 # Settings
 
-Status: accepted, not yet implemented
+Status: implemented
 Last updated: 2026-06-16
+
+Implemented in `Weavie.Core/Configuration/` (`SettingDefinition`, `SettingsRegistry`, `SettingsStore`,
+`CoreSettings`, `ExecutableFinder`) + the `listSettings`/`getSetting`/`setSetting` tools on
+`McpServer`, with reaction wiring in both hosts (`TerminalController.Restart()` + the web `term-reset`
+handler). Verified end to end on Windows: driving `setSetting terminal.shell = "nu"` over MCP against
+the running app reopened the shell pane running nushell (`temp/settings-implementation-notes.md`).
+
+A few spec gaps were resolved the strict / least-surprising way during implementation:
+
+- **Resolution runs `Validate` on the env and file layers** (not only at `Set` time): an invalid
+  env/file value is logged loudly and falls through to the next layer, rather than being served. This
+  is what preserves the old "bad `WEAVIE_WORKSPACE` falls back to home" behavior generically.
+- **Malformed file at runtime keeps the last-good resolved state** (only the *first* load with a
+  malformed file falls back to defaults), so a transient half-typed save never thrashes reactions.
+  Writes are refused while malformed, regardless.
+- **Shell launch flags are chosen by shell name**, not hardcoded: PowerShell gets `-NoLogo`; other
+  shells (nushell, cmd, bash, …) launch bare. The macOS claude wrapper keeps using a POSIX login
+  shell (separate from `terminal.shell`, which may be nushell) to `exec` the `claude.path` binary.
+- **Path values are written as TOML literal (single-quoted) strings** when they contain a backslash
+  and no quote, so Windows paths round-trip without escaping.
 
 Settings is the first concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) concept: configuration values are

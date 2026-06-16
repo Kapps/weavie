@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
 using Weavie.Core.FileSystem;
 
@@ -20,6 +21,8 @@ public sealed class McpServer : IAsyncDisposable {
 	private readonly IDiffPresenter _presenter;
 	private readonly IFileSystem _fileSystem;
 	private readonly IReadOnlyList<string> _workspaceFolders;
+	private readonly SettingsStore? _settings;
+	private readonly string _toolsListJson;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
 	private TcpListener? _listener;
@@ -27,15 +30,17 @@ public sealed class McpServer : IAsyncDisposable {
 
 	/// <summary>
 	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter that
-	/// handles inbound tool calls, the filesystem seam, and the advertised workspace folders.
-	/// Call <see cref="Start"/> to begin listening.
+	/// handles inbound tool calls, the filesystem seam, and the advertised workspace folders. When a
+	/// <paramref name="settings"/> store is supplied, the settings tools (<c>listSettings</c> /
+	/// <c>getSetting</c> / <c>setSetting</c>) are advertised and served. Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
 		string authToken,
 		IDiffPresenter presenter,
 		IFileSystem fileSystem,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie") {
+		string ideName = "weavie",
+		SettingsStore? settings = null) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -45,6 +50,8 @@ public sealed class McpServer : IAsyncDisposable {
 		_presenter = presenter;
 		_fileSystem = fileSystem;
 		_workspaceFolders = workspaceFolders;
+		_settings = settings;
+		_toolsListJson = "{\"tools\":[" + (settings is null ? IdeToolEntries : IdeToolEntries + "," + SettingsToolEntries) + "]}";
 		IdeName = ideName;
 	}
 
@@ -184,7 +191,7 @@ public sealed class McpServer : IAsyncDisposable {
 					await SendResultAsync(ws, idRaw, "{}", ct).ConfigureAwait(false);
 					break;
 				case "tools/list":
-					await SendResultAsync(ws, idRaw, ToolsListJson, ct).ConfigureAwait(false);
+					await SendResultAsync(ws, idRaw, _toolsListJson, ct).ConfigureAwait(false);
 					break;
 				case "tools/call":
 					await HandleToolCallAsync(ws, root, idRaw, ct).ConfigureAwait(false);
@@ -256,11 +263,91 @@ public sealed class McpServer : IAsyncDisposable {
 			case "saveDocument":
 				await SendToolTextAsync(ws, idRaw, "OK", ct).ConfigureAwait(false);
 				break;
+			case "listSettings":
+				await HandleListSettingsAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "getSetting":
+				await HandleGetSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "setSetting":
+				await HandleSetSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			default:
 				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
 				break;
 		}
 	}
+
+	private async Task HandleListSettingsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		if (_settings is null) {
+			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		await SendToolTextAsync(ws, idRaw, _settings.BuildCatalogJson(), ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleGetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_settings is null) {
+			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		var key = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("key", out var k) ? k.GetString() : null;
+		if (string.IsNullOrEmpty(key)) {
+			await SendToolErrorAsync(ws, idRaw, "getSetting requires a 'key'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			await SendToolTextAsync(ws, idRaw, _settings.BuildGetJson(key), ct).ConfigureAwait(false);
+		} catch (UnknownSettingException ex) {
+			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
+	}
+
+	private async Task HandleSetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_settings is null) {
+			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		var hasArgs = args.ValueKind == JsonValueKind.Object;
+		var key = hasArgs && args.TryGetProperty("key", out var k) ? k.GetString() : null;
+		if (string.IsNullOrEmpty(key)) {
+			await SendToolErrorAsync(ws, idRaw, "setSetting requires a 'key'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (!hasArgs || !args.TryGetProperty("value", out var valueElement)) {
+			await SendToolErrorAsync(ws, idRaw, "setSetting requires a 'value'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			var result = _settings.Set(key, valueElement);
+			await SendToolTextAsync(ws, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
+			Emit($"setSetting {key} = {valueElement.GetRawText()}");
+		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
+			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
+	}
+
+	private static string FormatSetSummary(string key, JsonElement value, SetResult result) {
+		var note = result.Apply switch {
+			ApplyMode.ReopensTerminal => " The terminal pane will reopen to apply.",
+			ApplyMode.NextSession => " It applies to the next session that starts.",
+			ApplyMode.RestartRequired => " Restart weavie to apply.",
+			_ => " It is live now.",
+		};
+		var shadow = result.ShadowedByEnv is null
+			? string.Empty
+			: $" Note: {result.ShadowedByEnv} is set and overrides the file, so the effective value is unchanged until you unset it.";
+		return $"Set {key} to {value.GetRawText()}.{note}{shadow}";
+	}
+
+	private Task SendToolErrorAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
+		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}],\"isError\":true}}", ct);
 
 	private async Task HandleOpenDiffAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
 		string? GetArg(string key) => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) ? v.GetString() : null;
@@ -378,10 +465,10 @@ public sealed class McpServer : IAsyncDisposable {
 		_sendLock.Dispose();
 	}
 
-	// tools/list payload. openDiff is the star (blocking review); the rest give Claude IDE context.
-	private const string ToolsListJson =
+	// tools/list entries. openDiff is the star (blocking review); the rest give Claude IDE context.
+	// Wrapped in {"tools":[...]} (plus the settings entries when a store is present) by the constructor.
+	private const string IdeToolEntries =
 		"""
-        {"tools":[
           {"name":"openDiff","description":"Open an editable diff for the user to review proposed changes to a file. Blocks until the user accepts (FILE_SAVED) or rejects (DIFF_REJECTED).","inputSchema":{"type":"object","properties":{"old_file_path":{"type":"string"},"new_file_path":{"type":"string"},"new_file_contents":{"type":"string"},"tab_name":{"type":"string"}},"required":["old_file_path","new_file_path","new_file_contents","tab_name"]}},
           {"name":"openFile","description":"Open/reveal a file in the editor.","inputSchema":{"type":"object","properties":{"filePath":{"type":"string"},"preview":{"type":"boolean"},"startText":{"type":"string"},"endText":{"type":"string"}},"required":["filePath"]}},
           {"name":"getWorkspaceFolders","description":"Get the workspace folders open in the IDE.","inputSchema":{"type":"object","properties":{}}},
@@ -390,6 +477,13 @@ public sealed class McpServer : IAsyncDisposable {
           {"name":"getDiagnostics","description":"Get language diagnostics from the IDE.","inputSchema":{"type":"object","properties":{"uri":{"type":"string"}}}},
           {"name":"close_tab","description":"Close a tab by name.","inputSchema":{"type":"object","properties":{"tab_name":{"type":"string"}},"required":["tab_name"]}},
           {"name":"closeAllDiffTabs","description":"Close all open diff tabs.","inputSchema":{"type":"object","properties":{}}}
-        ]}
+        """;
+
+	// Settings tools (the Claude-facing editing surface), advertised only when a SettingsStore is wired.
+	private const string SettingsToolEntries =
+		"""
+          {"name":"listSettings","description":"List all weavie settings with each one's current value, source (environment/userFile/default), default, description, aliases, and any allowed values. Call this FIRST to find the exact key before changing a setting.","inputSchema":{"type":"object","properties":{}}},
+          {"name":"getSetting","description":"Get one weavie setting's resolved value and where it came from.","inputSchema":{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}},
+          {"name":"setSetting","description":"Change a weavie setting. Call listSettings first to find the exact key; never guess keys. 'value' must match the setting's declared type (string/bool/int/path).","inputSchema":{"type":"object","properties":{"key":{"type":"string"},"value":{}},"required":["key","value"]}}
         """;
 }

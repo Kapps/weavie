@@ -131,6 +131,13 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
         if (message.session === props.session) {
           term.write(`\r\n\x1b[90m[process exited: ${message.code}]\x1b[0m\r\n`);
         }
+      } else if (message.type === "term-reset") {
+        if (message.session === props.session) {
+          // The host disposed our PTY (e.g. the shell setting changed). Wipe scrollback + state and
+          // re-announce readiness so the host relaunches the child sized to the current pane.
+          term.reset();
+          postToHost({ type: "term-ready", session: props.session, cols: term.cols, rows: term.rows });
+        }
       }
     });
 

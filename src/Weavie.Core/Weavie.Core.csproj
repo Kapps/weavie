@@ -6,4 +6,9 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
+  <ItemGroup>
+    <!-- TOML store for user settings (comment-preserving DocumentSyntax round-trip). -->
+    <PackageReference Include="Tomlyn" />
+  </ItemGroup>
+
 </Project>

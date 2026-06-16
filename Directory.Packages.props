@@ -14,6 +14,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Settings storage: TOML parse/serialize with a comment-preserving syntax tree (MIT). -->
+    <PackageVersion Include="Tomlyn" Version="0.19.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Windows host: Edge WebView2 (Chromium) embedding. Pinned to the SDK matching the
          installed Evergreen runtime (149.x = 1.0.4022.*). -->
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />

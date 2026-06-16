@@ -1,3 +1,4 @@
+using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Mcp;
@@ -17,11 +18,12 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		IDiffPresenter presenter,
 		IFileSystem fileSystem,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie") {
+		string ideName = "weavie",
+		SettingsStore? settings = null) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
-		Server = new McpServer(AuthToken, presenter, fileSystem, workspaceFolders, ideName);
+		Server = new McpServer(AuthToken, presenter, fileSystem, workspaceFolders, ideName, settings);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 	}

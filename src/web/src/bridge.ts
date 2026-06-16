@@ -33,6 +33,9 @@ export type WebBoundMessage =
   | { type: "set-load"; enabled: boolean }
   | { type: "term-output"; session: TermSession; dataB64: string }
   | { type: "term-exit"; session: TermSession; code: number }
+  // Host tore down this session's PTY (e.g. the shell setting changed): clear the pane and
+  // re-emit term-ready so the host relaunches the child with the new setting.
+  | { type: "term-reset"; session: TermSession }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

@@ -3,7 +3,9 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
+using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Win.Hosting;
 
@@ -41,11 +43,13 @@ internal sealed class MainForm : Form {
 
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
+	private SettingsStore? _settings;
 	private TerminalController? _claude;
 	private TerminalController? _shell;
 	private McpDiffPresenter? _diffPresenter;
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
+	private LspBridgeServer? _lsp;
 
 	public MainForm() {
 		Text = "weavie";
@@ -91,25 +95,60 @@ internal sealed class MainForm : Form {
 		core.Settings.IsStatusBarEnabled = false;
 
 		_bridge.Attach(_webView);
-		_claude = new TerminalController(_bridge, "claude");
-		_shell = new TerminalController(_bridge, "shell");
+
+		// User settings (shell / workspace / claude path) resolved from ~/.weavie/settings.toml; the
+		// store is the change hub the host reacts to (e.g. a shell change reopens the shell pane).
+		_settings = CoreSettings.CreateStore();
+		_settings.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+		_claude = new TerminalController(_bridge, "claude", _settings);
+		_shell = new TerminalController(_bridge, "shell", _settings);
 		_bridge.MessageReceived += OnWebMessage;
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
-		// discovery env so the spawned claude connects to us (the SOLE edit feed).
+		// discovery env so the spawned claude connects to us (the SOLE edit feed). The same store backs
+		// the settings MCP tools, so the user can change settings by talking to claude.
 		var fileSystem = new LocalFileSystem();
-		var workspace = TerminalController.ResolveWorkspace();
+		var workspace = _settings.GetString("workspace")
+			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie");
+		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie", _settings);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
 		};
 		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; workspace {workspace}; lock {_ide.LockFilePath}");
+
+		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved
+		// on PATH) and pipes them to monaco-languageclient in the page. Inject discovery — the port, a
+		// per-session token, and the workspace root — before navigation; mirrors the IDE-MCP loopback +
+		// token posture (bind 127.0.0.1, require the token on the WS upgrade; origin pinned to the app).
+		var lspToken = IdeLockFile.NewAuthToken();
+		_lsp = new LspBridgeServer(lspToken, workspace, allowedOrigin: $"https://{AppHost}");
+		_lsp.Log += line => {
+			Console.WriteLine($"[lsp] {line}");
+			Console.Out.Flush();
+		};
+		var lspPort = _lsp.Start();
+		var lspConfig = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace });
+		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {lspConfig};");
+		Console.WriteLine($"[weavie] LSP bridge on 127.0.0.1:{lspPort}; workspace {workspace}");
+
+		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
+		// Settings events arrive off the UI thread, so marshal onto it before touching the controller.
+		_settings.Subscribe("terminal.shell", _ => {
+			if (InvokeRequired) {
+				BeginInvoke(() => _shell?.Restart());
+			} else {
+				_shell?.Restart();
+			}
+		});
 
 		var query = new List<string>();
 		if (_debugPerformance) {
@@ -253,5 +292,7 @@ internal sealed class MainForm : Form {
 		_claude?.Dispose();
 		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		_lsp?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		_settings?.Dispose();
 	}
 }

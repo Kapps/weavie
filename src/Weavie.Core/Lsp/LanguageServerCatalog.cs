@@ -24,8 +24,36 @@ public static class LanguageServerCatalog {
 		RootMarkers = ["tsconfig.json", "jsconfig.json", "package.json", ".git"],
 	};
 
+	/// <summary>
+	/// C#. Served by <c>csharp-ls</c> (a Roslyn-based .NET global tool; speaks LSP over stdio with no
+	/// flags). The heavier Roslyn <c>Microsoft.CodeAnalysis.LanguageServer</c> is a deferred upgrade.
+	/// </summary>
+	public static LanguageServerDescriptor CSharp { get; } = new() {
+		Id = "csharp",
+		DisplayName = "C#",
+		LanguageIds = ["csharp"],
+		FileExtensions = [".cs"],
+		Candidates = [new("csharp-ls", [])],
+		RootMarkers = [".sln", ".slnx", ".csproj", ".git"],
+	};
+
+	/// <summary>
+	/// Go. Served by <c>gopls</c> (the reference Go LSP; serves over stdio with no flags). Acquired via
+	/// <c>go install golang.org/x/tools/gopls@latest</c> (bring-your-own, on PATH).
+	/// </summary>
+	public static LanguageServerDescriptor Go { get; } = new() {
+		Id = "go",
+		DisplayName = "Go",
+		LanguageIds = ["go"],
+		FileExtensions = [".go"],
+		Candidates = [new("gopls", [])],
+		RootMarkers = ["go.work", "go.mod", ".git"],
+		// gopls emits no semantic tokens unless this is enabled in its settings.
+		DefaultSettingsJson = "{\"semanticTokens\":true}",
+	};
+
 	/// <summary>All built-in recipes, in catalog order.</summary>
-	public static IReadOnlyList<LanguageServerDescriptor> All { get; } = [TypeScript];
+	public static IReadOnlyList<LanguageServerDescriptor> All { get; } = [TypeScript, CSharp, Go];
 
 	/// <summary>
 	/// Returns the recipe that handles <paramref name="languageId"/> (case-insensitive), or

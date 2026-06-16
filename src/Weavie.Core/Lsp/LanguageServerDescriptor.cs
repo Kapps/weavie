@@ -28,6 +28,15 @@ public sealed record LanguageServerDescriptor {
 	/// later to pick the workspace root per server; informational for the M0 single-root bring-up.
 	/// </summary>
 	public IReadOnlyList<string> RootMarkers { get; init; } = [];
+
+	/// <summary>
+	/// Default server-specific settings, as a JSON object string, sent both as LSP
+	/// <c>initializationOptions</c> and as the answer to the server's <c>workspace/configuration</c>
+	/// requests. Some servers gate features on these (e.g. gopls needs <c>{ "semanticTokens": true }</c>
+	/// to emit semantic tokens). <see langword="null"/> means "no defaults". (Spec §15: the bridge must
+	/// answer configuration from an adapter-supplied map or features silently degrade.)
+	/// </summary>
+	public string? DefaultSettingsJson { get; init; }
 }
 
 /// <summary>

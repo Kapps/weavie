@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Diagnostics;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -20,18 +21,24 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	private readonly ConcurrentDictionary<string, JsonElement> _diagnosticsByUri = new(StringComparer.Ordinal);
 	private readonly List<(Func<JsonElement, bool> Match, TaskCompletionSource<JsonElement> Tcs)> _notificationWaiters = [];
 	private readonly object _waitersLock = new();
+	private readonly ConcurrentDictionary<string, byte> _registeredMethods = new(StringComparer.Ordinal);
 	private readonly IReadOnlyList<string> _workspaceFolders;
+	private readonly JsonNode? _defaultSettings;
 	private readonly Action<string> _log;
 	private readonly bool _debug;
 	private readonly CancellationTokenSource _cts = new();
 	private int _nextId;
 	private Task? _receiveLoop;
 
-	public LspTestClient(IReadOnlyList<string> workspaceFolders, Action<string> log, bool debug = false) {
+	public LspTestClient(IReadOnlyList<string> workspaceFolders, Action<string> log, bool debug = false, JsonNode? defaultSettings = null) {
 		_workspaceFolders = workspaceFolders;
+		_defaultSettings = defaultSettings;
 		_log = log;
 		_debug = debug;
 	}
+
+	/// <summary>Methods the server registered dynamically via <c>client/registerCapability</c> (e.g. csharp-ls).</summary>
+	public bool IsRegistered(string method) => _registeredMethods.ContainsKey(method);
 
 	public async Task ConnectAsync(Uri uri, CancellationToken ct) {
 		await _ws.ConnectAsync(uri, ct);
@@ -73,21 +80,37 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	public async Task<JsonElement> WaitForDiagnosticsAsync(string uri, TimeSpan timeout, CancellationToken ct) {
 		// Servers emit their own canonical URI form (vscode lowercases the Windows drive and
 		// percent-encodes the colon), so match on the normalized local path, not the raw string.
+		// Many servers (gopls) push an INITIAL empty publishDiagnostics, then the real one once the
+		// package loads — so keep waiting for a non-empty report until the timeout, then return what we have.
 		var target = NormalizeUri(uri);
-		if (_debug) {
-			_log($"diag target='{target}'; stored keys=[{string.Join(" | ", _diagnosticsByUri.Keys)}]");
+		var stopwatch = Stopwatch.StartNew();
+		while (true) {
+			if (_diagnosticsByUri.TryGetValue(target, out var stored)) {
+				var diagnostics = stored.GetProperty("diagnostics");
+				if (diagnostics.GetArrayLength() > 0 || stopwatch.Elapsed >= timeout) {
+					return diagnostics;
+				}
+			}
+
+			var remaining = timeout - stopwatch.Elapsed;
+			if (remaining <= TimeSpan.Zero) {
+				break;
+			}
+
+			try {
+				await WaitForNotificationAsync(
+					"textDocument/publishDiagnostics",
+					n => n.TryGetProperty("uri", out var u) && string.Equals(NormalizeUri(u.GetString()), target, StringComparison.Ordinal),
+					remaining,
+					ct);
+			} catch (TimeoutException) {
+				break;
+			}
 		}
 
-		if (_diagnosticsByUri.TryGetValue(target, out var existing)) {
-			return existing;
-		}
-
-		var notification = await WaitForNotificationAsync(
-			"textDocument/publishDiagnostics",
-			n => n.TryGetProperty("uri", out var u) && string.Equals(NormalizeUri(u.GetString()), target, StringComparison.Ordinal),
-			timeout,
-			ct);
-		return notification.GetProperty("diagnostics");
+		return _diagnosticsByUri.TryGetValue(target, out var last)
+			? last.GetProperty("diagnostics")
+			: throw new TimeoutException($"No textDocument/publishDiagnostics for {uri} within {timeout.TotalSeconds:0}s.");
 	}
 
 	private static string NormalizeUri(string? uri) {
@@ -229,6 +252,17 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	// Real servers make a handful of requests to the client during startup. We answer the ones that
 	// matter (configuration, workspace folders) and acknowledge the rest with null so startup proceeds.
 	private async Task ReplyToServerRequestAsync(string method, JsonElement id, JsonElement root, CancellationToken ct) {
+		if (method == "client/registerCapability"
+			&& root.TryGetProperty("params", out var rp)
+			&& rp.TryGetProperty("registrations", out var regs)
+			&& regs.ValueKind == JsonValueKind.Array) {
+			foreach (var reg in regs.EnumerateArray()) {
+				if (reg.TryGetProperty("method", out var rm) && rm.GetString() is { } m) {
+					_registeredMethods[m] = 1;
+				}
+			}
+		}
+
 		JsonNode? result = method switch {
 			"workspace/configuration" => ConfigurationResponse(root),
 			"workspace/workspaceFolders" => WorkspaceFoldersResponse(),
@@ -243,14 +277,15 @@ internal sealed class LspTestClient : IAsyncDisposable {
 		await SendAsync(envelope, ct);
 	}
 
-	private static JsonArray ConfigurationResponse(JsonElement root) {
-		// Reply with one (empty) settings object per requested item, so the server reads its defaults.
+	private JsonArray ConfigurationResponse(JsonElement root) {
+		// Reply with the adapter's default settings (or empty) once per requested item, so servers that
+		// gate features on configuration (gopls semantic tokens) get what they need.
 		var count = root.TryGetProperty("params", out var p) && p.TryGetProperty("items", out var items)
 			? items.GetArrayLength()
 			: 1;
 		var array = new JsonArray();
 		for (var i = 0; i < count; i++) {
-			array.Add(new JsonObject());
+			array.Add(_defaultSettings?.DeepClone() ?? new JsonObject());
 		}
 
 		return array;

@@ -30,17 +30,25 @@ if (resolved is null) {
 
 Console.WriteLine($"[lsp-harness] server: {resolved.ServerPath}");
 
+var probe = LanguageProbe.For(descriptor.Id) ?? LanguageProbe.For(selector);
+if (probe is null) {
+	Console.Error.WriteLine($"[lsp-harness] no probe fixture for '{descriptor.Id}'");
+	return 2;
+}
+
 var workspace = Environment.GetEnvironmentVariable("WEAVIE_LSP_WORKSPACE");
 var workspaceIsTemp = string.IsNullOrEmpty(workspace);
 if (workspaceIsTemp) {
-	workspace = Path.Combine(Path.GetTempPath(), "weavie-lsp-harness");
+	workspace = Path.Combine(Path.GetTempPath(), $"weavie-lsp-harness-{descriptor.Id}");
 	Directory.CreateDirectory(workspace);
-	File.WriteAllText(Path.Combine(workspace, "tsconfig.json"),
-		"{\n  \"compilerOptions\": { \"strict\": true, \"target\": \"ESNext\", \"module\": \"ESNext\", \"moduleResolution\": \"Bundler\", \"noEmit\": true }\n}\n");
-	File.WriteAllText(Path.Combine(workspace, "sample.ts"), SampleSource);
+	foreach (var (name, content) in probe.ProjectFiles) {
+		File.WriteAllText(Path.Combine(workspace, name), content);
+	}
+
+	File.WriteAllText(Path.Combine(workspace, probe.MainFileName), probe.Source);
 }
 
-var samplePath = Path.Combine(workspace!, "sample.ts");
+var samplePath = Path.Combine(workspace!, probe.MainFileName);
 var rootUri = new Uri(workspace + Path.DirectorySeparatorChar).AbsoluteUri;
 var fileUri = new Uri(samplePath).AbsoluteUri;
 Console.WriteLine($"[lsp-harness] workspace: {workspace}");
@@ -52,16 +60,18 @@ bridge.Log += line => Console.WriteLine($"[bridge] {line}");
 var port = bridge.Start();
 
 var results = new Results();
-using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(100));
+// Generous: csharp-ls runs a design-time MSBuild load and gopls indexes the module on first open.
+using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(150));
 var ct = overall.Token;
 
 var debug = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_LSP_DEBUG"));
-await using var client = new LspTestClient([workspace!], line => Console.WriteLine($"[client] {line}"), debug);
+var defaultSettings = string.IsNullOrEmpty(descriptor.DefaultSettingsJson) ? null : JsonNode.Parse(descriptor.DefaultSettingsJson);
+await using var client = new LspTestClient([workspace!], line => Console.WriteLine($"[client] {line}"), debug, defaultSettings?.DeepClone());
 await client.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/{descriptor.Id}?token={token}"), ct);
 Console.WriteLine($"[lsp-harness] connected ws://127.0.0.1:{port}/{descriptor.Id}");
 
 // 1. initialize → inspect server capabilities.
-var initResult = await client.RequestAsync("initialize", InitializeParams(rootUri, fileUri), ct);
+var initResult = await client.RequestAsync("initialize", InitializeParams(rootUri, defaultSettings?.DeepClone()), ct);
 var caps = initResult.GetProperty("capabilities");
 if (debug) {
 	Console.WriteLine($"[lsp-harness] capabilities keys: {string.Join(", ", caps.EnumerateObject().Select(p => p.Name))}");
@@ -83,9 +93,9 @@ await client.NotifyAsync("initialized", new JsonObject(), ct);
 await client.NotifyAsync("textDocument/didOpen", new JsonObject {
 	["textDocument"] = new JsonObject {
 		["uri"] = fileUri,
-		["languageId"] = "typescript",
+		["languageId"] = probe.LanguageId,
 		["version"] = 1,
-		["text"] = SampleSource,
+		["text"] = probe.Source,
 	},
 }, ct);
 
@@ -93,22 +103,22 @@ await client.NotifyAsync("textDocument/didOpen", new JsonObject {
 // project; cold start can take ~30s, so we issue them first and check the (server-pushed)
 // diagnostics last — by then the project is loaded and the diagnostics have arrived.
 
-// 3. Semantic tokens (the hard requirement).
-if (results.SemanticTokensProvider) {
-	try {
-		var st = await client.RequestAsync("textDocument/semanticTokens/full",
-			new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = fileUri } }, ct);
-		if (st.ValueKind == JsonValueKind.Object && st.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array) {
-			results.SemanticTokenInts = data.GetArrayLength();
-		}
-	} catch (InvalidOperationException ex) {
-		Console.Error.WriteLine($"[lsp-harness] semanticTokens: {ex.Message}");
+// 3. Semantic tokens (the hard requirement). Attempt regardless of the static capability — servers
+// like csharp-ls advertise it via dynamic client/registerCapability, not the initialize result.
+try {
+	var st = await client.RequestAsync("textDocument/semanticTokens/full",
+		new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = fileUri } }, ct);
+	if (st.ValueKind == JsonValueKind.Object && st.TryGetProperty("data", out var data) && data.ValueKind == JsonValueKind.Array) {
+		results.SemanticTokenInts = data.GetArrayLength();
 	}
+} catch (InvalidOperationException ex) {
+	Console.Error.WriteLine($"[lsp-harness] semanticTokens: {ex.Message}");
 }
+results.SemanticTokensProvider = results.SemanticTokensProvider || client.IsRegistered("textDocument/semanticTokens") || results.SemanticTokenInts > 0;
 
 // 4. Hover on the `add` function (line 1, char 9).
 try {
-	var hover = await client.RequestAsync("textDocument/hover", PositionParams(fileUri, 1, 9), ct);
+	var hover = await client.RequestAsync("textDocument/hover", PositionParams(fileUri, probe.HoverLine, probe.HoverChar), ct);
 	results.HoverHasContents = hover.ValueKind == JsonValueKind.Object && hover.TryGetProperty("contents", out _);
 } catch (InvalidOperationException ex) {
 	Console.Error.WriteLine($"[lsp-harness] hover: {ex.Message}");
@@ -116,24 +126,28 @@ try {
 
 // 5. Completion inside the function body (line 2, char 10).
 try {
-	var completion = await client.RequestAsync("textDocument/completion", PositionParams(fileUri, 2, 10), ct);
+	var completion = await client.RequestAsync("textDocument/completion", PositionParams(fileUri, probe.CompletionLine, probe.CompletionChar), ct);
 	results.CompletionItems = CountCompletions(completion);
 } catch (InvalidOperationException ex) {
 	Console.Error.WriteLine($"[lsp-harness] completion: {ex.Message}");
 }
+// Reflect dynamic registration (csharp-ls registers completion via client/registerCapability).
+results.CompletionProvider = results.CompletionProvider || client.IsRegistered("textDocument/completion") || results.CompletionItems > 0;
 
 // 6. Diagnostics. tsserver-based servers (vtsls) PUSH via publishDiagnostics; ts-go / TS 7 uses the
 // 3.17 PULL model (textDocument/diagnostic). Support both (spec §15). The sample has a type error.
+var canPull = results.DiagnosticProvider || client.IsRegistered("textDocument/diagnostic");
+results.DiagnosticProvider = canPull;
 try {
 	JsonElement diagnostics;
-	if (results.DiagnosticProvider) {
+	if (canPull) {
 		var report = await client.RequestAsync("textDocument/diagnostic",
 			new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = fileUri } }, ct);
 		diagnostics = report.ValueKind == JsonValueKind.Object && report.TryGetProperty("items", out var items)
 			? items
 			: default;
 	} else {
-		diagnostics = await client.WaitForDiagnosticsAsync(fileUri, TimeSpan.FromSeconds(30), ct);
+		diagnostics = await client.WaitForDiagnosticsAsync(fileUri, TimeSpan.FromSeconds(60), ct);
 	}
 
 	if (diagnostics.ValueKind == JsonValueKind.Array) {
@@ -155,7 +169,7 @@ await client.NotifyAsync("textDocument/didClose", new JsonObject {
 results.Print();
 return results.Passed ? 0 : 1;
 
-static JsonObject InitializeParams(string rootUri, string fileUri) => new() {
+static JsonObject InitializeParams(string rootUri, JsonNode? initializationOptions) => new() {
 	["processId"] = Environment.ProcessId,
 	["clientInfo"] = new JsonObject { ["name"] = "weavie-lsp-harness", ["version"] = "0.1.0" },
 	["rootUri"] = rootUri,
@@ -186,7 +200,7 @@ static JsonObject InitializeParams(string rootUri, string fileUri) => new() {
 			},
 		},
 	},
-	["initializationOptions"] = new JsonObject(),
+	["initializationOptions"] = initializationOptions ?? new JsonObject(),
 };
 
 static JsonObject PositionParams(string uri, int line, int character) => new() {
@@ -216,16 +230,6 @@ static int CountCompletions(JsonElement completion) {
 }
 
 internal partial class Program {
-	internal const string SampleSource =
-		"const greeting: number = \"hello\";\n" +
-		"function add(a: number, b: number): number {\n" +
-		"  return a + b;\n" +
-		"}\n" +
-		"class Point {\n" +
-		"  x = 0;\n" +
-		"  y = 0;\n" +
-		"}\n";
-
 	// Standard LSP semantic token legend (declared so servers advertise semanticTokensProvider).
 	internal static readonly string[] SemanticTokenTypes = [
 		"namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter",

@@ -1,10 +1,11 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using Weavie.Core.Diffs;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 
-namespace Weavie.Mac.Hosting;
+namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// Production <see cref="IDiffPresenter"/>: renders an inbound <c>openDiff</c> as an editable Monaco
@@ -18,7 +19,10 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
 	private int _counter;
 
-	/// <summary>Creates a presenter that renders diffs over the bridge and delegates file opens to <paramref name="fileOpener"/>.</summary>
+	/// <summary>
+	/// Creates the presenter, rendering diffs/files into the webview via <paramref name="bridge"/>
+	/// and persisting kept edits through <paramref name="fileSystem"/>.
+	/// </summary>
 	public McpDiffPresenter(HostBridge bridge, IFileSystem fileSystem, FileOpener fileOpener) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -28,10 +32,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		_fileOpener = fileOpener;
 	}
 
-	/// <summary>
-	/// Assigns the proposal an id, pushes a <c>show-diff</c> to the webview, and returns a task that
-	/// completes when the user resolves it (or is cancelled, which also closes the diff in the UI).
-	/// </summary>
+	/// <inheritdoc/>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
 		var id = $"diff-{Interlocked.Increment(ref _counter)}";
 		var tcs = new TaskCompletionSource<DiffOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -49,7 +50,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		return tcs.Task;
 	}
 
-	/// <summary>Reveals the file in Monaco (at line 1) in response to the MCP <c>openFile</c> tool.</summary>
+	/// <inheritdoc/>
 	public Task OpenFileAsync(string filePath, CancellationToken cancellationToken) {
 		_fileOpener.Open(filePath, line: 1);
 		return Task.CompletedTask;
@@ -75,6 +76,6 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 			writer.WriteEndObject();
 		}
 
-		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 }

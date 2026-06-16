@@ -20,8 +20,13 @@
     <!-- Central Package Management -->
     <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>
 
+    <!-- XML docs are required on the public surface: the doc file is ON so CS1591 enforces a
+         documented public API. (It also lets IDE0005 run on build — detecting unnecessary usings
+         needs doc-comment binding to account for usings referenced only by a <see cref> — but
+         that's a secondary benefit, not the reason.) -->
+    <GenerateDocumentationFile>true</GenerateDocumentationFile>
+
     <!-- Deterministic, clean output -->
-    <GenerateDocumentationFile>false</GenerateDocumentationFile>
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 

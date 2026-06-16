@@ -13,4 +13,10 @@
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Windows host: Edge WebView2 (Chromium) embedding. Pinned to the SDK matching the
+         installed Evergreen runtime (149.x = 1.0.4022.*). -->
+    <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />
+  </ItemGroup>
+
 </Project>

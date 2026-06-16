@@ -1,0 +1,56 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- The WebView2 SDK ships a WPF control assembly that pulls in WindowsBase; enabling WPF
+         unifies it with the framework version (resolving MSB3277). Zero runtime cost — WinForms
+         and WPF share the same Microsoft.WindowsDesktop.App runtime. We only use the WinForms control. -->
+    <UseWPF>true</UseWPF>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- ConPTY P/Invoke (CreatePseudoConsole + STARTUPINFOEX) needs pointers. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- NOTE: ConPTY (pseudo console) requires Windows 10 1809 (build 17763) or newer at runtime.
+         Not expressed as SupportedOSPlatformVersion because the generic net10.0-windows TFM caps
+         TargetPlatformVersion at 7.0; the ConPTY calls are our own kernel32 P/Invokes, not BCL APIs. -->
+    <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The WinForms/WPF desktop implicit-usings set omits System.IO; the shared Core code and the
+         rest of the host assume it's implicit (as it is under the other SDKs). Restore it. -->
+    <Using Include="System.IO" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" />
+  </ItemGroup>
+
+  <!--
+    Copy the built Vite web app next to the host exe under wwwroot/. The web app is built
+    separately (`npm run build` in src/web) and intentionally kept out of the dotnet build so
+    C# iteration stays fast. Unlike the Mac bundle there's no .app, so assets land in $(OutDir)wwwroot.
+    Missing assets are a loud warning (not a hard error) so the host still compiles to a runnable
+    exe — the UI simply won't render until the web app is built.
+  -->
+  <Target Name="CopyWebAssets" AfterTargets="Build">
+    <ItemGroup Condition="Exists('$(WebRoot)/dist/index.html')">
+      <WebDist Include="$(WebRoot)/dist/**/*" />
+    </ItemGroup>
+    <Copy Condition="Exists('$(WebRoot)/dist/index.html')"
+          SourceFiles="@(WebDist)"
+          DestinationFiles="@(WebDist->'$(OutDir)wwwroot/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Condition="Exists('$(WebRoot)/dist/index.html')"
+             Importance="high" Text="weavie: copied @(WebDist->Count()) web asset(s) next to the host exe." />
+    <Message Condition="!Exists('$(WebRoot)/dist/index.html')"
+             Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'npm run build' in src/web, then rebuild, so the window has a UI to load." />
+  </Target>
+
+</Project>

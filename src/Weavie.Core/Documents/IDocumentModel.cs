@@ -7,24 +7,28 @@ namespace Weavie.Core.Documents;
 /// (<see cref="InMemoryDocumentModel"/>) is a naive in-memory buffer.
 /// One model per file (Editor &amp; Shared Models: one TextModel, no parallel buffer).
 /// </summary>
-public interface IDocumentModel
-{
-    /// <summary>Absolute path this model is bound to; <see cref="Save"/> writes here.</summary>
-    string FilePath { get; }
+public interface IDocumentModel {
+	/// <summary>Absolute path this model is bound to; <see cref="Save"/> writes here.</summary>
+	string FilePath { get; }
 
-    /// <summary>Whether the buffer has unsaved changes relative to the last save/load.</summary>
-    bool IsDirty { get; }
+	/// <summary>Whether the buffer has unsaved changes relative to the last save/load.</summary>
+	bool IsDirty { get; }
 
-    string GetText();
+	/// <summary>Returns the full text of the document.</summary>
+	string GetText();
 
-    string GetText(TextRange range);
+	/// <summary>Returns the text covered by <paramref name="range"/>.</summary>
+	string GetText(TextRange range);
 
-    void ApplyEdit(TextEdit edit);
+	/// <summary>Applies a single structured edit to the buffer.</summary>
+	void ApplyEdit(TextEdit edit);
 
-    void ApplyEdits(IReadOnlyList<TextEdit> edits);
+	/// <summary>Applies a batch of structured edits to the buffer.</summary>
+	void ApplyEdits(IReadOnlyList<TextEdit> edits);
 
-    TextRange Selection { get; set; }
+	/// <summary>The current selection/caret range within the document.</summary>
+	TextRange Selection { get; set; }
 
-    /// <summary>Persists the current text to <see cref="FilePath"/> through the filesystem seam.</summary>
-    void Save();
+	/// <summary>Persists the current text to <see cref="FilePath"/> through the filesystem seam.</summary>
+	void Save();
 }

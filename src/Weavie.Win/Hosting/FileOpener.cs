@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Core.FileSystem;
 
-namespace Weavie.Mac.Hosting;
+namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// Loads a file from disk and pushes its contents to the Monaco editor to reveal at a line.
@@ -13,7 +13,10 @@ public sealed class FileOpener {
 	private readonly HostBridge _bridge;
 	private readonly IFileSystem _fileSystem;
 
-	/// <summary>Creates an opener that pushes files to Monaco via the bridge, resolving relative paths against <paramref name="workspace"/>.</summary>
+	/// <summary>
+	/// Creates a file opener that reveals files in the Monaco editor over the bridge; relative
+	/// paths are resolved against <paramref name="workspace"/>.
+	/// </summary>
 	public FileOpener(HostBridge bridge, IFileSystem fileSystem, string workspace) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -22,13 +25,12 @@ public sealed class FileOpener {
 		Workspace = workspace;
 	}
 
-	/// <summary>The directory relative paths are resolved against.</summary>
+	/// <summary>The directory that relative paths passed to <see cref="Open"/> resolve against.</summary>
 	public string Workspace { get; set; }
 
 	/// <summary>
-	/// Reads the file (relative paths resolve against <see cref="Workspace"/>) and pushes an
-	/// <c>open-file</c> message so Monaco loads it and reveals the given 1-based line; logs and
-	/// returns if the file does not exist.
+	/// Loads <paramref name="path"/> (relative paths resolve against the workspace) and pushes its
+	/// contents to the Monaco editor, revealing line <paramref name="line"/>.
 	/// </summary>
 	public void Open(string path, int line) {
 		var resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));

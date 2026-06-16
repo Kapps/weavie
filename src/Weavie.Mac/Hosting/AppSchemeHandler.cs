@@ -9,77 +9,74 @@ namespace Weavie.Mac.Hosting;
 /// same-origin context (so workers and the Event Timing API behave). Files are read from disk
 /// and returned with a correct MIME type (WebKit refuses ES modules served with the wrong type).
 /// </summary>
-public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler
-{
-    private readonly string _root;
+public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
+	private readonly string _root;
 
-    public AppSchemeHandler(string wwwroot)
-    {
-        ArgumentException.ThrowIfNullOrEmpty(wwwroot);
-        _root = Path.GetFullPath(wwwroot);
-    }
+	/// <summary>Creates a handler that serves files from <paramref name="wwwroot"/> (resolved to a full path).</summary>
+	public AppSchemeHandler(string wwwroot) {
+		ArgumentException.ThrowIfNullOrEmpty(wwwroot);
+		_root = Path.GetFullPath(wwwroot);
+	}
 
-    [Export("webView:startURLSchemeTask:")]
-    public void StartUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask)
-    {
-        var url = urlSchemeTask.Request.Url;
-        var requestedPath = url?.Path;
-        if (string.IsNullOrEmpty(requestedPath) || requestedPath == "/")
-        {
-            requestedPath = "/index.html";
-        }
+	/// <summary>
+	/// Serves the requested <c>app://</c> URL from the web root: maps "/" to index.html, rejects
+	/// path-traversal escapes, and returns the file bytes with a correct MIME type (404 otherwise).
+	/// </summary>
+	[Export("webView:startURLSchemeTask:")]
+	public void StartUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask) {
+		var url = urlSchemeTask.Request.Url;
+		var requestedPath = url?.Path;
+		if (string.IsNullOrEmpty(requestedPath) || requestedPath == "/") {
+			requestedPath = "/index.html";
+		}
 
-        var resolved = Path.GetFullPath(Path.Combine(_root, requestedPath.TrimStart('/')));
+		var resolved = Path.GetFullPath(Path.Combine(_root, requestedPath.TrimStart('/')));
 
-        // Defend against path traversal escaping the web root.
-        if (!resolved.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-            && resolved != _root)
-        {
-            FailNotFound(urlSchemeTask, url);
-            return;
-        }
+		// Defend against path traversal escaping the web root.
+		if (!resolved.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
+			&& resolved != _root) {
+			FailNotFound(urlSchemeTask, url);
+			return;
+		}
 
-        if (!File.Exists(resolved))
-        {
-            FailNotFound(urlSchemeTask, url);
-            return;
-        }
+		if (!File.Exists(resolved)) {
+			FailNotFound(urlSchemeTask, url);
+			return;
+		}
 
-        var bytes = File.ReadAllBytes(resolved);
-        using var data = NSData.FromArray(bytes);
-        var mime = MimeFor(Path.GetExtension(resolved));
-        using var response = new NSUrlResponse(url!, mime, (nint)bytes.Length, "utf-8");
+		var bytes = File.ReadAllBytes(resolved);
+		using var data = NSData.FromArray(bytes);
+		var mime = MimeFor(Path.GetExtension(resolved));
+		using var response = new NSUrlResponse(url!, mime, (nint)bytes.Length, "utf-8");
 
-        urlSchemeTask.DidReceiveResponse(response);
-        urlSchemeTask.DidReceiveData(data);
-        urlSchemeTask.DidFinish();
-    }
+		urlSchemeTask.DidReceiveResponse(response);
+		urlSchemeTask.DidReceiveData(data);
+		urlSchemeTask.DidFinish();
+	}
 
-    [Export("webView:stopURLSchemeTask:")]
-    public void StopUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask)
-    {
-        // Synchronous file reads complete within StartUrlSchemeTask; nothing to cancel.
-    }
+	/// <summary>No-op: reads complete synchronously in <see cref="StartUrlSchemeTask"/>, so there is nothing to cancel.</summary>
+	[Export("webView:stopURLSchemeTask:")]
+	public void StopUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask) {
+		// Synchronous file reads complete within StartUrlSchemeTask; nothing to cancel.
+	}
 
-    private static void FailNotFound(IWKUrlSchemeTask task, NSUrl? url)
-    {
-        using var response = new NSUrlResponse(url ?? new NSUrl("app://app/"), "text/plain", 0, "utf-8");
-        task.DidReceiveResponse(response);
-        task.DidFinish();
-    }
+	private static void FailNotFound(IWKUrlSchemeTask task, NSUrl? url) {
+		using var response = new NSUrlResponse(url ?? new NSUrl("app://app/"), "text/plain", 0, "utf-8");
+		task.DidReceiveResponse(response);
+		task.DidFinish();
+	}
 
-    private static string MimeFor(string extension) => extension.ToLowerInvariant() switch
-    {
-        ".html" => "text/html",
-        ".js" or ".mjs" => "text/javascript",
-        ".css" => "text/css",
-        ".json" or ".map" => "application/json",
-        ".svg" => "image/svg+xml",
-        ".png" => "image/png",
-        ".woff" => "font/woff",
-        ".woff2" => "font/woff2",
-        ".ttf" => "font/ttf",
-        ".wasm" => "application/wasm",
-        _ => "application/octet-stream",
-    };
+	private static string MimeFor(string extension) => extension.ToLowerInvariant() switch {
+		".html" => "text/html",
+		".js" or ".mjs" => "text/javascript",
+		".css" => "text/css",
+		".json" or ".map" => "application/json",
+		".svg" => "image/svg+xml",
+		".png" => "image/png",
+		".woff" => "font/woff",
+		".woff2" => "font/woff2",
+		".ttf" => "font/ttf",
+		".wasm" => "application/wasm",
+		_ => "application/octet-stream",
+	};
 }

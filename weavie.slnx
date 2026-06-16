@@ -2,6 +2,7 @@
   <Folder Name="/src/">
     <Project Path="src/Weavie.Core/Weavie.Core.csproj" />
     <Project Path="src/Weavie.Mac/Weavie.Mac.csproj" />
+    <Project Path="src/Weavie.Win/Weavie.Win.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj" />

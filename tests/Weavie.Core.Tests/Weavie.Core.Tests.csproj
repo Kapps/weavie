@@ -4,6 +4,9 @@
     <TargetFramework>net10.0</TargetFramework>
     <IsPackable>false</IsPackable>
     <IsTestProject>true</IsTestProject>
+    <!-- The doc file stays on (inherited) so IDE0005 runs here too, but we don't require XML docs
+         on test methods — their names are the documentation. CS1591 only. -->
+    <NoWarn>$(NoWarn);CS1591</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>

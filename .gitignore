@@ -67,3 +67,9 @@ dist/
 
 # OS
 .DS_Store
+
+# Intermediate / scratch output (notes, findings, logs, experiments).
+# Folder is kept via .gitkeep; everything else inside is untracked.
+/temp/*
+!/temp/.gitkeep
+weavie.sln.DotSettings.user

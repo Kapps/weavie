@@ -15,9 +15,8 @@ using Weavie.Core.Terminal;
 
 var seconds = int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_HARNESS_SECONDS"), out var s) ? s : 25;
 var workspace = Environment.GetEnvironmentVariable("WEAVIE_HARNESS_WORKSPACE");
-if (string.IsNullOrEmpty(workspace))
-{
-    workspace = Path.Combine(Path.GetTempPath(), "weavie-ide-harness");
+if (string.IsNullOrEmpty(workspace)) {
+	workspace = Path.Combine(Path.GetTempPath(), "weavie-ide-harness");
 }
 
 Directory.CreateDirectory(workspace);
@@ -27,23 +26,19 @@ var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
 await using var ide = new IdeIntegration(presenter, new LocalFileSystem(), [workspace], "weavie");
 
-ide.Server.Log += line =>
-{
-    Console.WriteLine($"[mcp] {line}");
-    if (line.Contains("connected + authenticated", StringComparison.Ordinal))
-    {
-        flags.Connected = true;
-    }
+ide.Server.Log += line => {
+	Console.WriteLine($"[mcp] {line}");
+	if (line.Contains("connected + authenticated", StringComparison.Ordinal)) {
+		flags.Connected = true;
+	}
 
-    if (line.Contains("method=initialize", StringComparison.Ordinal))
-    {
-        flags.Initialized = true;
-    }
+	if (line.Contains("method=initialize", StringComparison.Ordinal)) {
+		flags.Initialized = true;
+	}
 
-    if (line.Contains("method=tools/list", StringComparison.Ordinal))
-    {
-        flags.ToolsListed = true;
-    }
+	if (line.Contains("method=tools/list", StringComparison.Ordinal)) {
+		flags.ToolsListed = true;
+	}
 };
 
 Console.WriteLine($"[harness] IDE-MCP server on 127.0.0.1:{ide.Port}");
@@ -52,9 +47,8 @@ Console.WriteLine($"[harness] env inject: CLAUDE_CODE_SSE_PORT={ide.Port} ENABLE
 
 const string claudeCmd = "exec claude";
 var shell = Environment.GetEnvironmentVariable("SHELL");
-if (string.IsNullOrEmpty(shell) || !File.Exists(shell))
-{
-    shell = "/bin/zsh";
+if (string.IsNullOrEmpty(shell) || !File.Exists(shell)) {
+	shell = "/bin/zsh";
 }
 
 var ptyLogPath = Path.Combine(Path.GetTempPath(), "weavie-harness-pty.log");
@@ -62,22 +56,20 @@ await using var ptyLog = new FileStream(ptyLogPath, FileMode.Create, FileAccess.
 
 using var terminal = new PosixPtyTerminal();
 var ansi = new Regex(@"\x1b\[[0-9;?]*[A-Za-z]|\x1b\][^\x07]*\x07|\x1b[()][AB0]", RegexOptions.Compiled);
-terminal.Output += bytes =>
-{
-    ptyLog.Write(bytes, 0, bytes.Length);
-    ptyLog.Flush();
+terminal.Output += bytes => {
+	ptyLog.Write(bytes, 0, bytes.Length);
+	ptyLog.Flush();
 };
 
 var env = new Dictionary<string, string>(ide.EnvironmentVariables, StringComparer.Ordinal);
-terminal.Start(new TerminalStartInfo
-{
-    Command = shell,
-    Arguments = ["-l", "-c", claudeCmd],
-    WorkingDirectory = workspace,
-    Environment = env,
-    RemoveEnvironment = ["ANTHROPIC_API_KEY"],
-    Columns = 100,
-    Rows = 40,
+terminal.Start(new TerminalStartInfo {
+	Command = shell,
+	Arguments = ["-l", "-c", claudeCmd],
+	WorkingDirectory = workspace,
+	Environment = env,
+	RemoveEnvironment = ["ANTHROPIC_API_KEY"],
+	Columns = 100,
+	Rows = 40,
 });
 Console.WriteLine($"[harness] spawned: {shell} -l -c '{claudeCmd}' in {workspace}");
 
@@ -88,21 +80,18 @@ Console.WriteLine($"[harness] spawned: {shell} -l -c '{claudeCmd}' in {workspace
 var start = DateTime.UtcNow;
 var deadline = start.AddSeconds(seconds);
 var lastTrustEnter = 0.0;
-while (DateTime.UtcNow < deadline)
-{
-    await Task.Delay(500);
-    var elapsed = (DateTime.UtcNow - start).TotalSeconds;
+while (DateTime.UtcNow < deadline) {
+	await Task.Delay(500);
+	var elapsed = (DateTime.UtcNow - start).TotalSeconds;
 
-    if (!flags.Connected && elapsed > 3 && elapsed - lastTrustEnter > 2)
-    {
-        terminal.Write(Encoding.UTF8.GetBytes("\r")); // accept "Yes, I trust this folder"
-        lastTrustEnter = elapsed;
-    }
+	if (!flags.Connected && elapsed > 3 && elapsed - lastTrustEnter > 2) {
+		terminal.Write(Encoding.UTF8.GetBytes("\r")); // accept "Yes, I trust this folder"
+		lastTrustEnter = elapsed;
+	}
 
-    if (flags.Connected && flags.ToolsListed && elapsed > 6)
-    {
-        break; // handshake confirmed — done
-    }
+	if (flags.Connected && flags.ToolsListed && elapsed > 6) {
+		break; // handshake confirmed — done
+	}
 }
 
 Console.WriteLine();
@@ -117,16 +106,15 @@ Console.WriteLine("  (openDiff correctness is covered by McpServerTests; live op
 ptyLog.Flush();
 var raw = await File.ReadAllBytesAsync(ptyLogPath);
 var text = ansi.Replace(Encoding.UTF8.GetString(raw), string.Empty);
-text = new string(text.Where(c => c is '\n' or '\t' || (c >= ' ' && c < (char)127)).ToArray());
+text = new string([.. text.Where(c => c is '\n' or '\t' || (c >= ' ' && c < (char)127))]);
 text = Regex.Replace(text, "[ \t]{2,}", " ");
 Console.WriteLine("--- claude output (stripped, last 800 chars) ---");
 Console.WriteLine(text.Length > 800 ? text[^800..] : text);
 
 return flags.Connected && flags.Initialized ? 0 : 1;
 
-internal sealed class HandshakeFlags
-{
-    public bool Connected;
-    public bool Initialized;
-    public bool ToolsListed;
+internal sealed class HandshakeFlags {
+	public bool Connected;
+	public bool Initialized;
+	public bool ToolsListed;
 }

@@ -70,11 +70,52 @@ export function startLanguageServices(): void {
   });
 }
 
-function connect(config: WeavieLspConfig, server: WeavieLspServer): void {
+// Supervision: if a server crashes (or the WS drops) while documents are open, reconnect — each
+// reconnect spawns a fresh subprocess on the host and re-initializes — with exponential backoff,
+// capped, so a fundamentally broken server doesn't storm. A connection that stayed up a while is
+// considered healthy and resets the backoff.
+const MAX_RECONNECT_ATTEMPTS = 5;
+const HEALTHY_UPTIME_MS = 10_000;
+
+function hasOpenDocumentFor(server: WeavieLspServer): boolean {
+  return monaco.editor.getModels().some((m) => server.languageIds.includes(m.getLanguageId()));
+}
+
+function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0): void {
   const url = `${config.url}/${server.id}?token=${encodeURIComponent(config.token)}`;
   const webSocket = new WebSocket(url);
+  let openedAt = 0;
+
+  const superviseReconnect = (reason: string): void => {
+    if (!hasOpenDocumentFor(server)) {
+      started.delete(server.id); // no document needs it — let a future open restart it
+      return;
+    }
+    const nextAttempt = openedAt > 0 && Date.now() - openedAt > HEALTHY_UPTIME_MS ? 1 : attempt + 1;
+    if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
+      started.delete(server.id);
+      log(
+        "error",
+        `lsp: ${server.id} gave up after ${MAX_RECONNECT_ATTEMPTS} reconnects (${reason})`,
+      );
+      return;
+    }
+    const delayMs = Math.min(1000 * 2 ** (nextAttempt - 1), 15_000);
+    log(
+      "warn",
+      `lsp: ${server.id} ${reason}; reconnecting in ${delayMs}ms (attempt ${nextAttempt})`,
+    );
+    setTimeout(() => {
+      if (hasOpenDocumentFor(server)) {
+        connect(config, server, nextAttempt); // stays in `started` across the retry
+      } else {
+        started.delete(server.id);
+      }
+    }, delayMs);
+  };
 
   webSocket.onopen = (): void => {
+    openedAt = Date.now();
     const socket = toSocket(webSocket);
     const reader = new WebSocketMessageReader(socket);
     const writer = new WebSocketMessageWriter(socket);
@@ -97,7 +138,7 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer): void {
             configuration: (params) => params.items.map(() => settings),
           },
         },
-        // Resilient by default; the host owns server lifecycle/supervision.
+        // The client itself stays passive on errors; recovery is the host-supervised reconnect below.
         errorHandler: {
           error: () => ({ action: ErrorAction.Continue }),
           closed: () => ({ action: CloseAction.DoNotRestart }),
@@ -110,12 +151,13 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer): void {
     log("info", `lsp: ${server.id} client started`);
     reader.onClose(() => {
       client.dispose();
-      started.delete(server.id); // allow a fresh start if a matching document reopens
+      superviseReconnect("connection closed");
     });
   };
 
   webSocket.onerror = (): void => {
-    started.delete(server.id);
-    log("warn", `lsp: ${server.id} websocket error (is the server installed on PATH?)`);
+    if (openedAt === 0) {
+      superviseReconnect("websocket error (is the server installed on PATH?)");
+    }
   };
 }

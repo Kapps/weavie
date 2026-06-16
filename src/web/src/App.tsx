@@ -7,7 +7,7 @@ import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
-import { startLanguageClient } from "./lsp/lsp-client";
+import { startLanguageServices } from "./lsp/lsp-client";
 import { TerminalView } from "./terminal/TerminalView";
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
@@ -119,13 +119,9 @@ export default function App(): JSX.Element {
       editor = createEditor(editorContainer);
       editor.focus();
       postToHost({ type: "monaco-ready" });
-      // Real TS/JS intelligence via the LSP bridge (no-op if the host didn't inject bridge config).
-      startLanguageClient("typescript", [
-        "typescript",
-        "typescriptreact",
-        "javascript",
-        "javascriptreact",
-      ]);
+      // Lazy per-language LSP via the bridge (no-op if the host didn't inject bridge config); a client
+      // connects the first time a document of its language is open.
+      startLanguageServices();
     } catch (error) {
       log("error", `editor init failed: ${String(error)}`);
     }

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
@@ -136,7 +137,15 @@ internal sealed class MainForm : Form {
 			Console.Out.Flush();
 		};
 		var lspPort = _lsp.Start();
-		var lspConfig = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace });
+		// Advertise the catalog so the page can lazily start a client per language (on first matching
+		// document) and feed each server its default settings as initializationOptions + the answer to
+		// workspace/configuration (e.g. gopls needs {"semanticTokens":true}; spec §15).
+		var servers = LanguageServerCatalog.All.Select(d => new {
+			id = d.Id,
+			languageIds = d.LanguageIds,
+			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
+		});
+		var lspConfig = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace, servers });
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {lspConfig};");
 		Console.WriteLine($"[weavie] LSP bridge on 127.0.0.1:{lspPort}; workspace {workspace}");
 

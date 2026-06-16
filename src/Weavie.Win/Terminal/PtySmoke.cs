@@ -14,9 +14,11 @@ internal static class PtySmoke {
 	private const string Marker = "weavie-pty-ok";
 
 	public static int Run() {
-		// Log to a file when asked, so the smoke can run with NO redirected stdout — a redirected
-		// stdout handle on this WinExe would leak into the ConPTY child and steal its output, which
-		// the console-less production app never does.
+		// Optionally log to a file (WEAVIE_SMOKE_LOG) to keep the smoke's own diagnostics out of the
+		// captured stream when stdout is redirected. The child's output no longer leaks onto a
+		// redirected parent stdout: WindowsConPtyTerminal spawns with STARTF_USESTDHANDLES + NULL std
+		// handles so the child attaches solely to the pseudoconsole, never the parent's stdio (see
+		// SpawnChild).
 		var logPath = Environment.GetEnvironmentVariable("WEAVIE_SMOKE_LOG");
 		void Log(string line) {
 			if (string.IsNullOrEmpty(logPath)) {

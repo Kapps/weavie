@@ -3,7 +3,7 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { type ILink, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { type JSX, onCleanup, onMount } from "solid-js";
-import { log, onHostMessage, postToHost } from "../bridge";
+import { type TermSession, log, onHostMessage, postToHost } from "../bridge";
 import { base64ToBytes, bytesToBase64 } from "./base64";
 
 // Matches paths with an extension followed by :line (optionally :col), e.g.
@@ -17,12 +17,14 @@ function revealFromMatch(matchText: string): void {
   }
 }
 
-// xterm.js pane wired to the C# PTY over the bridge:
+// xterm.js pane wired to one C# PTY session over the bridge:
 //   PTY bytes  -> { term-output } -> term.write(Uint8Array)
 //   keystrokes -> term.onData    -> { term-input }
 //   layout     -> FitAddon       -> { term-resize }
-// On mount it reports { term-ready } so the host launches `claude` sized to match.
-export function TerminalView(): JSX.Element {
+// On mount it reports { term-ready } so the host launches the session's child (the interactive
+// `claude` TUI for "claude", a plain login shell for "shell") sized to match. Every message it
+// sends and receives is tagged with `session` so two panes can share the single bridge channel.
+export function TerminalView(props: { session: TermSession }): JSX.Element {
   let container!: HTMLDivElement;
 
   const term = new Terminal({
@@ -96,15 +98,19 @@ export function TerminalView(): JSX.Element {
     fit.fit();
 
     term.onData((data) => {
-      postToHost({ type: "term-input", dataB64: bytesToBase64(encoder.encode(data)) });
+      postToHost({
+        type: "term-input",
+        session: props.session,
+        dataB64: bytesToBase64(encoder.encode(data)),
+      });
     });
 
     term.onResize(({ cols, rows }) => {
-      postToHost({ type: "term-resize", cols, rows });
+      postToHost({ type: "term-resize", session: props.session, cols, rows });
     });
 
-    // Ask the host to start the PTY child sized to the fitted terminal.
-    postToHost({ type: "term-ready", cols: term.cols, rows: term.rows });
+    // Ask the host to start this session's PTY child sized to the fitted terminal.
+    postToHost({ type: "term-ready", session: props.session, cols: term.cols, rows: term.rows });
 
     const resizeObserver = new ResizeObserver(() => {
       try {
@@ -116,10 +122,15 @@ export function TerminalView(): JSX.Element {
     resizeObserver.observe(container);
 
     const offHost = onHostMessage((message) => {
+      // The bridge channel is shared across sessions; ignore traffic for the other pane.
       if (message.type === "term-output") {
-        term.write(base64ToBytes(message.dataB64));
+        if (message.session === props.session) {
+          term.write(base64ToBytes(message.dataB64));
+        }
       } else if (message.type === "term-exit") {
-        term.write(`\r\n\x1b[90m[process exited: ${message.code}]\x1b[0m\r\n`);
+        if (message.session === props.session) {
+          term.write(`\r\n\x1b[90m[process exited: ${message.code}]\x1b[0m\r\n`);
+        }
       }
     });
 

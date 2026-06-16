@@ -32,9 +32,16 @@ internal sealed class MainForm : Form {
         })();
         """;
 
+	// Perf instrumentation (the live latency HUD and its per-tick log spam) is opt-in via
+	// WEAVIE_DEBUG_PERFORMANCE: surfaced to the web app as ?debugperf, and used here to gate the
+	// latency-live/benchmark-result console logging. Off by default so normal runs stay quiet.
+	private readonly bool _debugPerformance =
+		!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_PERFORMANCE"));
+
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
-	private TerminalController? _terminal;
+	private TerminalController? _claude;
+	private TerminalController? _shell;
 	private McpDiffPresenter? _diffPresenter;
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
@@ -83,14 +90,16 @@ internal sealed class MainForm : Form {
 		core.Settings.IsStatusBarEnabled = false;
 
 		_bridge.Attach(_webView);
-		_terminal = new TerminalController(_bridge);
+		_claude = new TerminalController(_bridge, "claude");
+		_shell = new TerminalController(_bridge, "shell");
 		_bridge.MessageReceived += OnWebMessage;
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
 		// discovery env so the spawned claude connects to us (the SOLE edit feed).
 		var fileSystem = new LocalFileSystem();
 		var workspace = TerminalController.ResolveWorkspace();
-		_terminal.Workspace = workspace;
+		_claude.Workspace = workspace;
+		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie");
@@ -98,10 +107,13 @@ internal sealed class MainForm : Form {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
 		};
-		_terminal.ExtraEnvironment = _ide.EnvironmentVariables;
+		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		var query = new List<string>();
+		if (_debugPerformance) {
+			query.Add("debugperf=1");
+		}
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))) {
 			query.Add("autobench=1");
 		}
@@ -145,13 +157,13 @@ internal sealed class MainForm : Form {
 					Console.WriteLine($"[weavie] term-input <- xterm ({input.Length}B): {printable}");
 					Console.Out.Flush();
 				}
-				_terminal?.Write(input);
+				TerminalFor(root)?.Write(input);
 				break;
 			case "term-resize":
-				_terminal?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "term-ready":
-				_terminal?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "diff-resolved":
 				var diffId = root.GetProperty("id").GetString() ?? string.Empty;
@@ -164,12 +176,26 @@ internal sealed class MainForm : Form {
 				var revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
 				_fileOpener?.Open(revealPath, revealLine);
 				break;
+			case "latency-live":
+			case "benchmark-result":
+				// Per-tick perf telemetry (latency-live fires ~2x/sec) — noise unless we're profiling.
+				if (_debugPerformance) {
+					Console.WriteLine($"[weavie] {json}");
+					Console.Out.Flush();
+				}
+				break;
 			default:
-				// benchmark-result / latency-live / log / ready — surface for unattended capture.
+				// log / ready — surface for diagnostics and unattended capture.
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
 		}
+	}
+
+	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
+	private TerminalController? TerminalFor(JsonElement root) {
+		var session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
+		return session == "shell" ? _shell : _claude;
 	}
 
 	private void PostDemoDiff() {
@@ -223,7 +249,8 @@ internal sealed class MainForm : Form {
 	}
 
 	private void Shutdown() {
-		_terminal?.Dispose();
+		_claude?.Dispose();
+		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 	}
 }

@@ -8,6 +8,11 @@
 
 import type { BenchmarkConfig, BenchmarkReport, LiveLatencyStats } from "./latency/types";
 
+// The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
+// and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
+// the host can route it to the right PTY and the page can route output back to the right xterm pane.
+export type TermSession = "claude" | "shell";
+
 export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
@@ -15,9 +20,9 @@ export type HostBoundMessage =
   | { type: "latency-live"; stats: LiveLatencyStats }
   | { type: "benchmark-result"; report: BenchmarkReport }
   // Terminal: the xterm pane is mounted and ready to host the PTY child.
-  | { type: "term-ready"; cols: number; rows: number }
-  | { type: "term-input"; dataB64: string }
-  | { type: "term-resize"; cols: number; rows: number }
+  | { type: "term-ready"; session: TermSession; cols: number; rows: number }
+  | { type: "term-input"; session: TermSession; dataB64: string }
+  | { type: "term-resize"; session: TermSession; cols: number; rows: number }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file.
@@ -26,8 +31,8 @@ export type HostBoundMessage =
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
   | { type: "set-load"; enabled: boolean }
-  | { type: "term-output"; dataB64: string }
-  | { type: "term-exit"; code: number }
+  | { type: "term-output"; session: TermSession; dataB64: string }
+  | { type: "term-exit"; session: TermSession; code: number }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

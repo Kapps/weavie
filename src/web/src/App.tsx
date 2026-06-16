@@ -1,5 +1,5 @@
 import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
-import { log, onHostMessage, postToHost } from "./bridge";
+import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
 import { type ActiveDiff, DiffView } from "./diff/DiffView";
 import { SAMPLE_CODE, createEditor, monaco } from "./editor/monaco-setup";
 import { runBenchmark } from "./latency/benchmark";
@@ -11,17 +11,31 @@ import { TerminalView } from "./terminal/TerminalView";
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 
+// The performance debug surface — the latency HUD bar, the live meter (a permanent rAF loop +
+// Event-Timing observer), the fps probe, the auto-bench, and the twice-a-second latency-live
+// message to the host — is gated behind ?debugperf, which the host sets from WEAVIE_DEBUG_PERFORMANCE.
+// Off by default: normal use gets the clean two-pane UI with no instrumentation overhead and no
+// host log spam. (A future in-app setting will flip this at runtime; for now it's launch-only.)
+const DEBUG_PERF = new URLSearchParams(location.search).has("debugperf");
+
 const ms = (n: number): string => n.toFixed(1);
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
   let splitContainer!: HTMLDivElement;
-  const [leftPct, setLeftPct] = createSignal(50);
+  // Width of the left (terminal) column as a % of the split; the editor takes the rest.
+  const [leftPct, setLeftPct] = createSignal(40);
+  // Which left-column pane is "active" and expands to 80% of the column height. Driven by focus.
+  const [activeLeft, setActiveLeft] = createSignal<TermSession>("claude");
   const [stats, setStats] = createSignal<LiveLatencyStats | null>(null);
   const [loadOn, setLoadOn] = createSignal(false);
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
   const [benchRunning, setBenchRunning] = createSignal(false);
   const [activeDiff, setActiveDiff] = createSignal<ActiveDiff | null>(null);
+  // Device-pixel ratio: 1 == native 1x (text rendered one device pixel per CSS pixel),
+  // 2 == HiDPI/Retina. Drives how "antialiased" the editor text looks. Polled in the HUD
+  // tick so dragging the window to a differently-scaled monitor updates it.
+  const [dpr, setDpr] = createSignal(window.devicePixelRatio);
 
   const startDrag = (event: PointerEvent): void => {
     event.preventDefault();
@@ -99,19 +113,37 @@ export default function App(): JSX.Element {
 
   onMount(() => {
     editor = createEditor(editorContainer);
-    meter.start();
     editor.focus();
     postToHost({ type: "monaco-ready" });
 
-    if (new URLSearchParams(location.search).has("fpsprobe")) {
-      runFpsProbe();
-    }
+    // All live perf instrumentation is opt-in via ?debugperf. When off we never start the meter,
+    // the HUD tick, the fps probe, or the auto-bench — so the shipped UI carries none of their cost
+    // and posts no latency-live spam. The fpsprobe/autobench sub-flags only take effect under it.
+    let hudTimer = 0;
+    let autoBench = 0;
+    if (DEBUG_PERF) {
+      meter.start();
 
-    const hudTimer = window.setInterval(() => {
-      const snap = meter.snapshot();
-      setStats(snap);
-      postToHost({ type: "latency-live", stats: snap });
-    }, 500);
+      if (new URLSearchParams(location.search).has("fpsprobe")) {
+        runFpsProbe();
+      }
+
+      hudTimer = window.setInterval(() => {
+        const snap = meter.snapshot();
+        setStats(snap);
+        setDpr(window.devicePixelRatio);
+        postToHost({ type: "latency-live", stats: snap });
+      }, 500);
+
+      // Auto-run once (only when the host requests it via ?autobench=1) so unattended captures get
+      // objective numbers; the editor then resets for manual feel-testing. In normal use the user
+      // clicks "run benchmark" instead.
+      autoBench = new URLSearchParams(location.search).has("autobench")
+        ? window.setTimeout(() => {
+            void runBench();
+          }, 1500)
+        : 0;
+    }
 
     const offHost = onHostMessage((message) => {
       if (message.type === "set-load") {
@@ -135,15 +167,6 @@ export default function App(): JSX.Element {
       }
     });
 
-    // Auto-run once (only when the host requests it via ?autobench=1) so unattended
-    // captures get objective numbers; the editor then resets for manual feel-testing.
-    // In normal use the user clicks "run benchmark" instead.
-    const autoBench = new URLSearchParams(location.search).has("autobench")
-      ? window.setTimeout(() => {
-          void runBench();
-        }, 1500)
-      : 0;
-
     onCleanup(() => {
       window.clearInterval(hudTimer);
       window.clearTimeout(autoBench);
@@ -156,25 +179,84 @@ export default function App(): JSX.Element {
 
   return (
     <div class="app">
-      <Hud
-        stats={stats()}
-        loadOn={loadOn()}
-        benchRunning={benchRunning()}
-        report={report()}
-        onToggleLoad={() => setLoad(!loadOn())}
-        onRunBench={() => void runBench()}
-      />
+      <Show when={DEBUG_PERF}>
+        <Hud
+          stats={stats()}
+          dpr={dpr()}
+          loadOn={loadOn()}
+          benchRunning={benchRunning()}
+          report={report()}
+          onToggleLoad={() => setLoad(!loadOn())}
+          onRunBench={() => void runBench()}
+        />
+      </Show>
       <div class="split" ref={splitContainer}>
-        <div class="pane" style={`flex: 0 0 ${leftPct()}%`}>
+        <div class="left-col" style={`flex: 0 0 ${leftPct()}%`}>
+          <TerminalPane
+            session="claude"
+            label="Claude Code"
+            active={activeLeft() === "claude"}
+            onActivate={() => setActiveLeft("claude")}
+          />
+          <TerminalPane
+            session="shell"
+            label="Terminal"
+            active={activeLeft() === "shell"}
+            onActivate={() => setActiveLeft("shell")}
+          />
+        </div>
+        <div class="splitter" onPointerDown={startDrag} />
+        <div class="pane editor-pane">
           <div class="editor" ref={editorContainer} />
           <Show when={activeDiff()}>
             {(diff) => <DiffView diff={diff()} onResolve={resolveDiff} />}
           </Show>
         </div>
-        <div class="splitter" onPointerDown={startDrag} />
-        <div class="pane term-pane">
-          <TerminalView />
-        </div>
+      </div>
+    </div>
+  );
+}
+
+// One pane in the left column: a titled, focus-driven accordion section wrapping a terminal
+// session. Selecting it (click or keyboard) makes it "active", expanding it to 80% of the column.
+//
+// We must resize only *after* the pointer is released, never on pointerdown/focusin: a press inside
+// an inactive pane focuses xterm (firing focusin), and resizing then would grow the pane while the
+// button is held, sliding the text up under the stationary cursor — which the browser reports as
+// mousemove and xterm turns into a stray drag-selection. So pointer activation waits for the click,
+// and the focusin path is gated to keyboard focus (no pointer down) only.
+function TerminalPane(props: {
+  session: TermSession;
+  label: string;
+  active: boolean;
+  onActivate: () => void;
+}): JSX.Element {
+  let pointerDown = false;
+  return (
+    <div
+      class="left-pane"
+      classList={{ active: props.active }}
+      onPointerDown={() => {
+        pointerDown = true;
+      }}
+      onPointerUp={() => {
+        pointerDown = false;
+        props.onActivate();
+      }}
+      onPointerLeave={() => {
+        pointerDown = false;
+      }}
+      onFocusIn={() => {
+        if (!pointerDown) {
+          props.onActivate();
+        }
+      }}
+    >
+      <div class="pane-head">
+        <span class="pane-label">{props.label}</span>
+      </div>
+      <div class="pane-body">
+        <TerminalView session={props.session} />
       </div>
     </div>
   );
@@ -182,6 +264,7 @@ export default function App(): JSX.Element {
 
 function Hud(props: {
   stats: LiveLatencyStats | null;
+  dpr: number;
   loadOn: boolean;
   benchRunning: boolean;
   report: BenchmarkReport | null;
@@ -204,6 +287,9 @@ function Hud(props: {
         </span>
         <span class="kv">
           frame <b>{props.stats ? ms(props.stats.frameIntervalMs.p50) : "–"}</b>ms (<b>{hz()}</b>Hz)
+        </span>
+        <span class="kv">
+          dpr <b>{props.dpr.toFixed(2)}</b>
         </span>
         <button type="button" classList={{ on: props.loadOn }} onClick={props.onToggleLoad}>
           load: {props.loadOn ? "ON" : "off"}

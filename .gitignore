@@ -73,3 +73,4 @@ dist/
 /temp/*
 !/temp/.gitkeep
 weavie.sln.DotSettings.user
+*.swp

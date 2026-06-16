@@ -18,6 +18,10 @@ internal static partial class ConPtyNativeMethods {
 	internal const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
 	internal const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
 
+	// StartupInfo.dwFlags: honor the explicit hStdInput/hStdOutput/hStdError (here set to NULL so the
+	// ConPTY child does not inherit the parent's redirected std handles — see SpawnChild).
+	internal const int STARTF_USESTDHANDLES = 0x00000100;
+
 	[StructLayout(LayoutKind.Sequential)]
 	internal struct Coord {
 		public short X;

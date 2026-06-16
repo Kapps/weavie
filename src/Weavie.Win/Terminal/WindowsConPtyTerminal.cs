@@ -118,6 +118,23 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 			var startupInfo = new StartupInfoEx { lpAttributeList = attrList };
 			startupInfo.StartupInfo.cb = sizeof(StartupInfoEx);
 
+			// Opt out of console standard-handle inheritance. When weavie's own stdio is redirected to a
+			// file/pipe — which it is whenever the app is launched from a terminal, under `dotnet run`,
+			// or piped — the console subsystem otherwise *duplicates* those non-console handles into the
+			// child as its standard handles (this happens even with bInheritHandles=false; it is the
+			// console's own handle hand-off, separate from Win32 handle inheritance). They then win over
+			// the pseudoconsole for the child's GetStdHandle slots, so claude reads a non-TTY pipe on
+			// stdin, falls back to `--print`, leaves the pane blank, and dumps its output onto weavie's
+			// stdout. STARTF_USESTDHANDLES with NULL handles tells CreateProcess "use exactly these"
+			// (i.e. none of the parent's), so the child instead attaches to the pseudoconsole supplied by
+			// the attribute above and gets a real console (CONIN$/CONOUT$). Verified: node and cmd both
+			// then see stdin/stdout as a TTY. When weavie is console-less the parent slots are already
+			// NULL, so this is a no-op — it only hardens the redirected-parent case.
+			startupInfo.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+			startupInfo.StartupInfo.hStdInput = 0;
+			startupInfo.StartupInfo.hStdOutput = 0;
+			startupInfo.StartupInfo.hStdError = 0;
+
 			var ok = CreateProcess(
 				lpApplicationName: null,
 				lpCommandLine: BuildCommandLine(startInfo),

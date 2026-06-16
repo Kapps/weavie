@@ -9,6 +9,7 @@ import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
 import { startLanguageServices } from "./lsp/lsp-client";
 import { TerminalView } from "./terminal/TerminalView";
+import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./theme";
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 
@@ -113,6 +114,10 @@ export default function App(): JSX.Element {
   };
 
   onMount(() => {
+    // Theme chrome from the default palette (spec §6 application surface). Override ops layer here once
+    // wired to settings/MCP; for now this publishes --weavie-* CSS vars for the chrome to consume.
+    applyColorsToCssVars(resolveColors(DEFAULT_DARK_PALETTE, []));
+
     // Editor init must not abort the shared onMount queue: a throw here would otherwise prevent the
     // sibling terminal panes from mounting (and emitting term-ready), blanking the whole left column.
     try {

@@ -1,4 +1,5 @@
 import * as monaco from "monaco-editor";
+import { registerActiveEditor } from "./vscode-services";
 
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices),
 // which must run before any editor is created. TypeScript/JS intelligence now comes from a real LSP
@@ -28,9 +29,17 @@ console.log([...walk(list)].reduce((a, b) => a + b, 0));
 `;
 
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  return monaco.editor.create(container, {
-    value: SAMPLE_CODE,
-    language: "typescript",
+  // Back the editor with a real file:// model URI under the workspace. tsserver-family servers (tsgo)
+  // give loose inmemory:/untitled: docs only partial service — they publish diagnostics for file://
+  // docs, not for in-memory ones — so a file:// URI makes it a project file and squiggles flow.
+  const workspace = window.__WEAVIE_LSP__?.workspace;
+  const uri =
+    workspace !== undefined
+      ? monaco.Uri.file(`${workspace.replaceAll("\\", "/")}/weavie-scratch.ts`)
+      : undefined;
+  const model = monaco.editor.createModel(SAMPLE_CODE, "typescript", uri);
+  const editor = monaco.editor.create(container, {
+    model,
     theme: "vs-dark",
     fontSize: 14,
     // Cross-platform monospace stack (spec §4 fix): the old macOS-only list silently fell back to
@@ -45,6 +54,9 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     renderWhitespace: "none",
     scrollBeyondLastLine: true,
   });
+  // The editor service opens go-to-def / reveal-file targets through this editor (we own layout).
+  registerActiveEditor(editor);
+  return editor;
 }
 
 export { monaco };

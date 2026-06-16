@@ -1,16 +1,25 @@
 // Initializes the VSCode services that back Monaco, per the theming+LSP spec (§7): the *services /
-// editor* slice of @codingame/monaco-vscode-api — theme + textmate + languages only. This is the
-// layout-safe path: we pass no container to `initialize`, so no workbench/activity-bar/sidebar/panel
-// is ever rendered (the spec's hard-no). It must run exactly once, before the first editor is created.
+// editor* slice of @codingame/monaco-vscode-api. We pass no container to `initialize`, so no
+// workbench / activity-bar / sidebar / panel is ever rendered (the spec's hard-no). Runs once, before
+// the first editor is created.
 //
-// Guardrail (spec §18): we deliberately import ONLY the theme/textmate/languages overrides — never a
-// workbench/views/configuration/keybindings override, and never the extension host. The default VSCode
-// "extensions" we import are declarative data only (grammars, language configs, theme JSON).
+// Service overrides we enable (all guardrail-safe per §18 — none are workbench/views/configuration/
+// keybindings/extension-host):
+//  - theme + textmate + languages: faithful coloring + semantic highlighting substrate (§7 core).
+//  - model + editor: the editor SERVICE abstraction (active/visible-editor state + "open this model").
+//    Real LSP features need it — pull diagnostics key off the active editor, and go-to-def/peek ask
+//    the service to open a target. It renders NO layout: it delegates *how* to show a file to our
+//    `openEditor` callback below, so weavie keeps full control of its editors and file-opening.
 
 import { initialize } from "@codingame/monaco-vscode-api";
+import getEditorServiceOverride, {
+  type OpenEditor,
+} from "@codingame/monaco-vscode-editor-service-override";
 import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-service-override";
+import getModelServiceOverride from "@codingame/monaco-vscode-model-service-override";
 import getTextmateServiceOverride from "@codingame/monaco-vscode-textmate-service-override";
 import getThemeServiceOverride from "@codingame/monaco-vscode-theme-service-override";
+import type * as monaco from "monaco-editor";
 
 // Default VSCode extensions — declarative contributions, no extension-host JS:
 //  - theme-defaults: the built-in Dark+/Light+/Modern color themes (so setTheme has something to load)
@@ -25,6 +34,34 @@ import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/w
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
 let initPromise: Promise<void> | undefined;
+let activeEditor: monaco.editor.IStandaloneCodeEditor | undefined;
+
+/**
+ * Registers weavie's editor as the surface the editor service opens files into. Called once the
+ * editor is created; until then file-open requests are no-ops.
+ */
+export function registerActiveEditor(editor: monaco.editor.IStandaloneCodeEditor): void {
+  activeEditor = editor;
+}
+
+// weavie owns layout: when the editor service is asked to open a model (go-to-def, peek, reveal-file),
+// show it in our own editor pane and reveal the requested range. (Single pane for now; a tabbed model
+// can replace this later — the point is the decision stays ours, not VSCode's.)
+const openEditor: OpenEditor = (modelRef, options) => {
+  if (activeEditor === undefined) {
+    return Promise.resolve(undefined);
+  }
+
+  activeEditor.setModel(modelRef.object.textEditorModel);
+  const selection = (options as { selection?: monaco.IRange } | undefined)?.selection;
+  if (selection !== undefined) {
+    activeEditor.setSelection(selection);
+    activeEditor.revealRangeInCenterIfOutsideViewport(selection);
+  }
+
+  activeEditor.focus();
+  return Promise.resolve(activeEditor);
+};
 
 /** Initializes the VSCode services backing Monaco. Idempotent — subsequent calls return the same promise. */
 export function initEditorServices(): Promise<void> {
@@ -49,5 +86,7 @@ async function doInit(): Promise<void> {
     ...getThemeServiceOverride(),
     ...getTextmateServiceOverride(),
     ...getLanguagesServiceOverride(),
+    ...getModelServiceOverride(),
+    ...getEditorServiceOverride(openEditor),
   });
 }

@@ -1,26 +1,24 @@
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
 using Weavie.Core.Configuration;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
-using Weavie.Core.Lsp;
-using Weavie.Core.Mcp;
 using Weavie.Win.Hosting;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
 namespace Weavie.Win;
 
 /// <summary>
-/// The Windows host window: a single full-bleed WebView2 rendering the shared Vite web app, wired
-/// to the same Core seams as the macOS app — a real ConPTY terminal running <c>claude</c>, the
-/// loopback IDE-MCP server + lock file, and Monaco diff/file presentation. This is the Windows
-/// analogue of the macOS <c>AppDelegate</c>.
+/// One workspace's host window: a single full-bleed WebView2 rendering the shared Vite web app, wired to
+/// the Core seams through one <see cref="HostSession"/> — a real ConPTY terminal running <c>claude</c>, a
+/// shell, the loopback IDE-MCP server + lock file, the LSP bridge, and Monaco diff/file presentation. The
+/// window owns the per-workspace pane layout + window geometry; the session owns the live backend. v1
+/// hosts exactly one session; multiple sessions per window come later. Windows analogue of the macOS
+/// per-window wiring in <c>AppDelegate</c>; created and tracked by <see cref="AppController"/>.
 /// </summary>
-internal sealed class MainForm : Form {
+internal sealed class WorkspaceWindow : Form {
 	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin
 	// context (workers + Event Timing API behave), mirroring the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
@@ -44,18 +42,15 @@ internal sealed class MainForm : Form {
 	private readonly bool _debugPerformance =
 		!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_PERFORMANCE"));
 
+	private readonly AppController _app;
+	private readonly string _workspaceRoot;
+	private readonly SettingsStore _settings;
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
 	private readonly LayoutStore _layout;
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
-	private SettingsStore? _settings;
-	private TerminalController? _claude;
-	private TerminalController? _shell;
-	private McpDiffPresenter? _diffPresenter;
-	private FileOpener? _fileOpener;
-	private IdeIntegration? _ide;
-	private LspBridgeServer? _lsp;
+	private HostSession? _session;
 #if DEBUG
 	private WebDevServer? _webDev;
 #endif
@@ -65,7 +60,13 @@ internal sealed class MainForm : Form {
 	// when theme persistence lands the host can swap in the user's resolved theme background here.
 	private static readonly Color StartupBackground = Color.FromArgb(0x1e, 0x1e, 0x1e);
 
-	public MainForm() {
+	public WorkspaceWindow(AppController app, string workspaceRoot) {
+		ArgumentNullException.ThrowIfNull(app);
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		_app = app;
+		_workspaceRoot = workspaceRoot;
+		_settings = app.Settings;
+
 		Text = "weavie";
 		BackColor = StartupBackground;
 
@@ -201,81 +202,24 @@ internal sealed class MainForm : Form {
 
 		_bridge.Attach(_webView);
 
-		// User settings (shell / workspace / claude path) resolved from ~/.weavie/settings.toml; the
-		// store is the change hub the host reacts to (e.g. a shell change reopens the shell pane).
-		_settings = CoreSettings.CreateStore();
-		_settings.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
 		// Off-by-default diagnostic (a real setting, not a buried env var): when on, the host logs its
 		// launch phases below and tells the web app to log its own via ?startuptiming.
 		bool startupTiming = _settings.GetBool("diagnostics.startupTiming");
-		_claude = new TerminalController(_bridge, "claude", _settings);
-		_shell = new TerminalController(_bridge, "shell", _settings);
 		_bridge.MessageReceived += OnWebMessage;
 
-		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
-		// discovery env so the spawned claude connects to us (the SOLE edit feed). The same store backs
-		// the settings MCP tools, so the user can change settings by talking to claude.
-		var fileSystem = new LocalFileSystem();
-		string workspace = _settings.GetString("workspace")
-			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		_claude.Workspace = workspace;
-		_shell.Workspace = workspace;
-		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
-		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout);
-		_ide.Server.Log += line => {
-			Console.WriteLine($"[mcp] {line}");
-			Console.Out.Flush();
-		};
-		if (_ide.RegistryServer is not null) {
-			_ide.RegistryServer.Log += line => {
-				Console.WriteLine($"[registry] {line}");
-				Console.Out.Flush();
-			};
-		}
+		// Session: the live, workspace-scoped backend this window hosts — the two terminals (claude +
+		// shell), the IDE-MCP server + lock file (so the spawned claude connects to us as the SOLE edit
+		// feed), the LSP bridge, and the file/diff presenters. Created once pageOrigin is known so the LSP
+		// WS origin is pinned correctly.
+		_session = new HostSession(_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8]);
 
-		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
-		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
-		// so the settings tools reach the model as mcp__weavie__* (the IDE server's tools are filtered).
-		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
-		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay. The observed
-		// stream is logged here; the session change view consumes the same feed.
-		_claude.SettingsFilePath = _ide.WriteSettingsFile();
-		_ide.HookBridge.Observed += request => {
-			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
-			Console.Out.Flush();
-		};
-		_ide.HookBridge.Log += line => {
-			Console.WriteLine($"[hook] {line}");
-			Console.Out.Flush();
-		};
-		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
+		// Session changes: push the updated change list to the page whenever a tracked file changes. The
+		// event fires off the UI thread (the hook accept loop); PostToWeb marshals, so calling it is safe.
+		_session.Changes.Changed += PushChangesToWeb;
 
-		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved
-		// on PATH) and pipes them to monaco-languageclient in the page. Inject discovery — the port, a
-		// per-session token, and the workspace root — before navigation; mirrors the IDE-MCP loopback +
-		// token posture (bind 127.0.0.1, require the token on the WS upgrade; origin pinned to the app).
-		string lspToken = IdeLockFile.NewAuthToken();
-		_lsp = new LspBridgeServer(lspToken, workspace, allowedOrigin: pageOrigin);
-		_lsp.Log += line => {
-			Console.WriteLine($"[lsp] {line}");
-			Console.Out.Flush();
-		};
-		int lspPort = _lsp.Start();
-		// Advertise the catalog so the page can lazily start a client per language (on first matching
-		// document) and feed each server its default settings as initializationOptions + the answer to
-		// workspace/configuration (e.g. gopls needs {"semanticTokens":true}; spec §15).
-		var servers = LanguageServerCatalog.All.Select(d => new {
-			id = d.Id,
-			languageIds = d.LanguageIds,
-			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
-		});
-		string lspConfig = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace, servers });
-		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {lspConfig};");
-		Console.WriteLine($"[weavie] LSP bridge on 127.0.0.1:{lspPort}; workspace {workspace}");
+		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
+		// lazily start a monaco-languageclient per language on first matching document.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {_session.LspConfigJson};");
 
 		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
@@ -285,9 +229,9 @@ internal sealed class MainForm : Form {
 		// Settings events arrive off the UI thread, so marshal onto it before touching the controller.
 		_settings.Subscribe("terminal.shell", _ => {
 			if (InvokeRequired) {
-				BeginInvoke(() => _shell?.Restart());
+				BeginInvoke(() => _session?.Shell.Restart());
 			} else {
-				_shell?.Restart();
+				_session?.Shell.Restart();
 			}
 		});
 
@@ -380,12 +324,15 @@ internal sealed class MainForm : Form {
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
 				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
-				_diffPresenter?.Resolve(diffId, kept, finalContents);
+				_session?.DiffPresenter.Resolve(diffId, kept, finalContents);
 				break;
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_fileOpener?.Open(revealPath, revealLine);
+				_session?.FileOpener.Open(revealPath, revealLine);
+				break;
+			case "get-change-diff":
+				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
 			case "latency-live":
 			case "benchmark-result":
@@ -412,10 +359,10 @@ internal sealed class MainForm : Form {
 		}
 	}
 
-	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
+	/// <summary>Routes a terminal message to the controller for its <c>session</c> pane (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {
-		string? session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
-		return session == "shell" ? _shell : _claude;
+		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;
+		return pane == "shell" ? _session?.Shell : _session?.Claude;
 	}
 
 	/// <summary>Applies a layout the web sent (split/focus change) through the store, which validates + persists it.</summary>
@@ -441,6 +388,37 @@ internal sealed class MainForm : Form {
 	private void PushLayoutToWeb() {
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
+	}
+
+	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
+	private void PushChangesToWeb() {
+		if (_session is null) {
+			return;
+		}
+
+		var files = _session.Changes.Summarize().Select(change => new {
+			path = change.Path,
+			name = Path.GetFileName(change.Path),
+			added = change.Added,
+			removed = change.Removed,
+		});
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-changes", files }));
+	}
+
+	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
+	private void PushChangeDiffToWeb(string path) {
+		var change = _session?.Changes.Get(path);
+		if (change is null) {
+			return;
+		}
+
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "change-diff",
+			path = change.Path,
+			name = Path.GetFileName(change.Path),
+			baseline = change.BaselineText,
+			current = change.CurrentText,
+		}));
 	}
 
 	private void PostDemoDiff() {
@@ -522,13 +500,9 @@ internal sealed class MainForm : Form {
 	}
 
 	private void Shutdown() {
-		_claude?.Dispose();
-		_shell?.Dispose();
-		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-		_lsp?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		_session?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 #if DEBUG
 		_webDev?.Dispose();
 #endif
-		_settings?.Dispose();
 	}
 }

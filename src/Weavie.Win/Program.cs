@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Weavie.Core.Hooks;
+using Weavie.Win.Hosting;
 using Weavie.Win.Terminal;
 
 namespace Weavie.Win;
@@ -26,7 +27,7 @@ internal static class Program {
 		}
 
 		ApplicationConfiguration.Initialize();
-		Application.Run(new MainForm());
+		Application.Run(new AppController());
 		return 0;
 	}
 }

@@ -1,4 +1,5 @@
 using Weavie.Core.Configuration;
+using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 
 namespace Weavie.Core.Mcp;
@@ -37,6 +38,12 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
+		// The hook bridge: a current-user-only pipe (no token) the spawned claude's PreToolUse/PostToolUse
+		// hooks dial via the relay, scoped to this instance by the IDE port. Carries the change-recording
+		// stream + the future gate. Lives as long as the IDE server.
+		HookBridge = new HookBridgeServer(HookProtocol.PipeName(Port));
+		HookBridge.Start();
+
 		if (settings is not null) {
 			RegistryServer = new McpServer(
 				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout);
@@ -59,6 +66,9 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	/// <summary>The auth token Claude must present, also written into the lock file and the MCP config.</summary>
 	public string AuthToken { get; }
 
+	/// <summary>The hook bridge listening for the spawned claude's PreToolUse/PostToolUse relay connections.</summary>
+	public HookBridgeServer HookBridge { get; }
+
 	/// <summary>Path of the lock file written for the current <see cref="Port"/>.</summary>
 	public string LockFilePath => IdeLockFile.PathForPort(Port);
 
@@ -66,6 +76,9 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	public IReadOnlyDictionary<string, string> EnvironmentVariables => new Dictionary<string, string>(StringComparer.Ordinal) {
 		["CLAUDE_CODE_SSE_PORT"] = Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
 		["ENABLE_IDE_INTEGRATION"] = "true",
+		// Names the hook pipe for the relay (claude's hook child inherits this). Disk-less, non-secret —
+		// the pipe's auth is its current-user-only ACL, not this value.
+		[HookProtocol.PipeEnvVar] = HookProtocol.PipeName(Port),
 	};
 
 	/// <summary>
@@ -90,9 +103,29 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		return path;
 	}
 
+	/// <summary>
+	/// Writes a Claude Code settings file (a <c>hooks</c> block only) for the spawned claude's
+	/// <c>--settings</c>, routing PreToolUse/PostToolUse for mutating tools to this instance's hook relay,
+	/// and returns its path. Port-scoped filename, like the MCP config. Returns <c>null</c> if the host
+	/// executable path is unknown (no relay to point at).
+	/// </summary>
+	public string? WriteSettingsFile() {
+		string? host = Environment.ProcessPath;
+		if (string.IsNullOrEmpty(host)) {
+			return null;
+		}
+
+		string directory = WeaviePaths.Internal("hooks");
+		Directory.CreateDirectory(directory);
+		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
+		File.WriteAllText(path, HookSettings.BuildJson(host));
+		return path;
+	}
+
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		IdeLockFile.Delete(Port);
+		await HookBridge.DisposeAsync().ConfigureAwait(false);
 		await Server.DisposeAsync().ConfigureAwait(false);
 		if (RegistryServer is not null) {
 			await RegistryServer.DisposeAsync().ConfigureAwait(false);

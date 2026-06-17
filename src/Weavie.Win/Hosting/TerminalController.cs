@@ -1,4 +1,6 @@
+using System.Text;
 using Weavie.Core.Configuration;
+using Weavie.Core.Processes;
 using Weavie.Core.Terminal;
 using Weavie.Win.Terminal;
 
@@ -9,19 +11,23 @@ namespace Weavie.Win.Hosting;
 /// <em>session</em>: <c>"claude"</c> launches the interactive <c>claude</c> TUI (resolved from the
 /// <c>claude.path</c> setting, with <c>ANTHROPIC_API_KEY</c> stripped so billing stays on the user's
 /// subscription — interactive CLI = full plan, never <c>-p</c>/SDK); <c>"shell"</c> launches the shell
-/// named by the <c>terminal.shell</c> setting. The session id tags every
-/// <c>term-output</c>/<c>term-exit</c> message so the page routes it to the matching pane. Only the
-/// claude session optionally tees raw PTY bytes to WEAVIE_PTY_LOG for debugging (e.g. the IDE-MCP
-/// handshake). Windows sibling of the macOS TerminalController.
+/// named by the <c>terminal.shell</c> setting. The child runs under a <see cref="ProcessSupervisor"/> with
+/// <see cref="RestartPolicy.Always"/>: a pane is a permanent fixture, so any exit (clean or crash) relaunches
+/// it — only the crash-loop breaker leaves a stopped pane. The session id tags every
+/// <c>term-output</c>/<c>term-exit</c> message so the page routes it to the matching pane. Only the claude
+/// session optionally tees raw PTY bytes to WEAVIE_PTY_LOG for debugging (e.g. the IDE-MCP handshake).
+/// Windows sibling of the macOS TerminalController.
 /// </summary>
 public sealed class TerminalController : IDisposable {
 	private readonly HostBridge _bridge;
 	private readonly string _session;
 	private readonly SettingsStore _settings;
 	private readonly Lock _gate = new();
+	private readonly ProcessSupervisor _supervisor;
 	private WindowsConPtyTerminal? _terminal;
 	private FileStream? _ptyLog;
-	private volatile bool _suppressExit;
+	private int _columns = 80;
+	private int _rows = 24;
 
 	/// <summary>
 	/// Creates the controller bound to the webview <paramref name="bridge"/> for streaming PTY output
@@ -37,6 +43,13 @@ public sealed class TerminalController : IDisposable {
 		_settings = settings;
 		Workspace = settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		_supervisor = new ProcessSupervisor(
+			$"terminal:{session}",
+			StartTerminal,
+			StopTerminal,
+			new SupervisionOptions { Policy = RestartPolicy.Always },
+			LogSupervisor);
+		_supervisor.StateChanged += OnSupervisorStateChanged;
 	}
 
 	/// <summary>Extra environment to inject into the spawned claude (used by the MCP wiring).</summary>
@@ -54,31 +67,54 @@ public sealed class TerminalController : IDisposable {
 	public string? McpConfigPath { get; set; }
 
 	/// <summary>
+	/// Path to a Claude Code settings file passed as <c>--settings</c> when launching claude — the hooks
+	/// block that routes its tool calls to Weavie's hook relay. Only the claude session uses it.
+	/// </summary>
+	public string? SettingsFilePath { get; set; }
+
+	/// <summary>
 	/// Launches this session's child (claude or a shell) in a ConPTY sized to the given columns and
-	/// rows. Idempotent: a no-op if the terminal is already running.
+	/// rows, under the supervisor. Idempotent: a no-op if it is already running or restarting.
 	/// </summary>
 	public void Start(int columns, int rows) {
 		lock (_gate) {
-			if (_terminal is not null) {
-				return;
-			}
+			_columns = columns;
+			_rows = rows;
+		}
 
-			_suppressExit = false;
-			bool isClaude = _session == "claude";
+		_supervisor.Start();
+	}
+
+	/// <summary>
+	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane
+	/// (which re-emits <c>term-ready</c> → <see cref="Start"/>), so a changed shell takes effect live.
+	/// </summary>
+	public void Restart() {
+		_supervisor.Stop();
+		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
+		Console.Out.Flush();
+		_bridge.PostToWeb($"{{\"type\":\"term-reset\",\"session\":\"{_session}\"}}");
+	}
+
+	/// <summary>Spawns a fresh ConPTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
+	private void StartTerminal(int attempt) {
+		bool isClaude = _session == "claude";
+		string workspace = Workspace;
+		lock (_gate) {
+			_terminal?.Dispose();
 
 			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would
 			// clash on the exclusive FileStream, and the log exists for the IDE-MCP handshake anyway.
+			_ptyLog?.Dispose();
 			string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
-			if (isClaude && !string.IsNullOrEmpty(logPath)) {
-				_ptyLog = new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read);
-			}
+			_ptyLog = isClaude && !string.IsNullOrEmpty(logPath)
+				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
+				: null;
 
 			var (command, arguments) = isClaude ? ResolveClaudeLauncher() : ResolveShellLauncher();
-
-			string workspace = Workspace;
 			var terminal = new WindowsConPtyTerminal();
 			terminal.Output += OnOutput;
-			terminal.Exited += OnExited;
+			terminal.Exited += _supervisor.NotifyExited;
 			terminal.Start(new TerminalStartInfo {
 				Command = command,
 				Arguments = arguments,
@@ -86,35 +122,81 @@ public sealed class TerminalController : IDisposable {
 				// Only the claude session needs the key stripped + the MCP discovery env injected.
 				RemoveEnvironment = isClaude ? ["ANTHROPIC_API_KEY"] : [],
 				Environment = isClaude ? ExtraEnvironment : new Dictionary<string, string>(StringComparer.Ordinal),
-				Columns = columns,
-				Rows = rows,
+				Columns = _columns,
+				Rows = _rows,
 			});
 			_terminal = terminal;
-			Console.WriteLine($"[weavie] terminal[{_session}] started: {command} {string.Join(' ', arguments)} in {workspace} ({columns}x{rows})");
+			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {attempt}): {command} {string.Join(' ', arguments)} in {workspace} ({_columns}x{_rows})");
 			Console.Out.Flush();
+		}
+
+		if (attempt > 0) {
+			PostNotice($"\r\n[weavie] {_session} exited - restarting...\r\n");
 		}
 	}
 
-	/// <summary>
-	/// Tears down the running child and asks the page to reset this pane (which re-emits
-	/// <c>term-ready</c> → <see cref="Start"/>), so a changed shell takes effect live. No-op if not running.
-	/// </summary>
-	public void Restart() {
+	/// <summary>Tears down the current ConPTY child and its optional log; the supervisor calls this on stop/dispose.</summary>
+	private void StopTerminal() {
 		lock (_gate) {
-			if (_terminal is null) {
-				return;
-			}
-
-			_suppressExit = true; // the impending EOF is our doing, not a child crash
-			_terminal.Dispose();
+			_terminal?.Dispose();
 			_terminal = null;
 			_ptyLog?.Dispose();
 			_ptyLog = null;
 		}
+	}
 
-		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
+	/// <summary>Maps supervisor state to pane UI: a real exit the policy won't relaunch, or the crash-loop give-up.</summary>
+	private void OnSupervisorStateChanged(SupervisorStateChanged change) {
+		switch (change.State) {
+			case SupervisorState.Idle when change.ExitCode is int exitedCode:
+				PostExit(exitedCode);
+				break;
+			case SupervisorState.Failed when change.ExitCode is int failedCode:
+				PostNotice($"\r\n[weavie] {_session} crashed repeatedly - stopped.\r\n");
+				PostExit(failedCode);
+				break;
+			default:
+				break;
+		}
+	}
+
+	/// <summary>Forwards input bytes (keystrokes) to the PTY child.</summary>
+	public void Write(byte[] data) {
+		lock (_gate) {
+			_terminal?.Write(data);
+		}
+	}
+
+	/// <summary>Resizes the pseudo console to the given columns and rows (and remembers them for restarts).</summary>
+	public void Resize(int columns, int rows) {
+		lock (_gate) {
+			_columns = columns;
+			_rows = rows;
+			_terminal?.Resize(columns, rows);
+		}
+	}
+
+	private void OnOutput(byte[] data) {
+		_ptyLog?.Write(data, 0, data.Length);
+		_ptyLog?.Flush();
+		string base64 = Convert.ToBase64String(data);
+		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
+	}
+
+	private void PostExit(int code) {
+		_bridge.PostToWeb($"{{\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
+		Console.WriteLine($"[weavie] terminal[{_session}] child exited: {code}");
 		Console.Out.Flush();
-		_bridge.PostToWeb($"{{\"type\":\"term-reset\",\"session\":\"{_session}\"}}");
+	}
+
+	private void PostNotice(string text) {
+		string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
+		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
+	}
+
+	private static void LogSupervisor(SupervisorLogEntry entry) {
+		Console.WriteLine($"[weavie] supervisor[{entry.Name}] {entry.Level}: {entry.Message}");
+		Console.Out.Flush();
 	}
 
 	/// <summary>
@@ -128,6 +210,10 @@ public sealed class TerminalController : IDisposable {
 		if (!string.IsNullOrEmpty(McpConfigPath)) {
 			claudeArgs.Add("--mcp-config");
 			claudeArgs.Add(McpConfigPath);
+		}
+		if (!string.IsNullOrEmpty(SettingsFilePath)) {
+			claudeArgs.Add("--settings");
+			claudeArgs.Add(SettingsFilePath);
 		}
 
 		string ext = Path.GetExtension(claude).ToLowerInvariant();
@@ -152,34 +238,10 @@ public sealed class TerminalController : IDisposable {
 		return (command, arguments);
 	}
 
-	/// <summary>Forwards input bytes (keystrokes) to the PTY child.</summary>
-	public void Write(byte[] data) => _terminal?.Write(data);
-
-	/// <summary>Resizes the pseudo console to the given columns and rows.</summary>
-	public void Resize(int columns, int rows) => _terminal?.Resize(columns, rows);
-
-	private void OnOutput(byte[] data) {
-		_ptyLog?.Write(data, 0, data.Length);
-		_ptyLog?.Flush();
-		string b64 = Convert.ToBase64String(data);
-		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{b64}\"}}");
-	}
-
-	private void OnExited(int code) {
-		if (_suppressExit) {
-			return; // a Restart() tear-down — the pane is being reset, not closed
-		}
-
-		_bridge.PostToWeb($"{{\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
-		Console.WriteLine($"[weavie] terminal[{_session}] child exited: {code}");
-		Console.Out.Flush();
-	}
-
-	/// <summary>Tears down the PTY child and the optional PTY log.</summary>
+	/// <summary>Tears down the supervised PTY child and the optional PTY log.</summary>
 	public void Dispose() {
+		_supervisor.Dispose();
 		lock (_gate) {
-			_terminal?.Dispose();
-			_terminal = null;
 			_ptyLog?.Dispose();
 			_ptyLog = null;
 		}

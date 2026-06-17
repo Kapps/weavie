@@ -241,6 +241,17 @@ internal sealed class MainForm : Form {
 		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
 		// so the settings tools reach the model as mcp__weavie__* (the IDE server's tools are filtered).
 		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
+		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay. The observed
+		// stream is logged here; the session change view consumes the same feed.
+		_claude.SettingsFilePath = _ide.WriteSettingsFile();
+		_ide.HookBridge.Observed += request => {
+			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
+			Console.Out.Flush();
+		};
+		_ide.HookBridge.Log += line => {
+			Console.WriteLine($"[hook] {line}");
+			Console.Out.Flush();
+		};
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved

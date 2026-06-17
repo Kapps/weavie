@@ -13,6 +13,15 @@ load it only when you need it.
   built now) and **commands** (named actions, not yet implemented). See
   [docs/concepts/mcp-registry.md](docs/concepts/mcp-registry.md).
 
+## Process supervision
+
+Every **long-lived child process** Weavie spawns (the embedded `claude` TUI, shell panes, language servers,
+the dev server) MUST be launched through `ProcessSupervisor` (`Weavie.Core.Processes`) with an explicit
+`RestartPolicy` — do not hand-roll `Process.Start`/PTY lifecycle plus restart logic. The supervisor owns
+launch, crash-restart with backoff, the crash-loop breaker, and clean teardown; it takes `start`/`stop`
+delegates so it works for both PTY children and `System.Diagnostics.Process`. Transient one-shot helpers
+(e.g. the hook relay) are exempt. See [docs/specs/process-supervisor.md](docs/specs/process-supervisor.md).
+
 ## Shared branch / parallel agents
 
 Multiple agents may work this branch and working tree at the same time. Files can change under you

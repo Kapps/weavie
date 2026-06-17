@@ -56,6 +56,18 @@ public static class CoreSettings {
 			ComputeDefault = DefaultClaudePath,
 		});
 
+		registry.Register(new SettingDefinition {
+			Key = "claude.permissionMode",
+			Kind = SettingKind.String,
+			Description = "How Claude's proposed file edits are handled: 'default' opens an editable diff "
+				+ "you Keep or Reject per edit; 'acceptEdits' applies them automatically without prompting. "
+				+ "Bash and other commands still ask either way. Takes effect on the next edit.",
+			Aliases = ["permission mode", "edit mode", "accept edits", "auto accept edits", "stop asking to edit"],
+			AllowedValues = ["default", "acceptEdits"],
+			Apply = ApplyMode.Live,
+			Default = "default",
+		});
+
 		FontSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {

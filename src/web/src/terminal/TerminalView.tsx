@@ -25,7 +25,12 @@ function revealFromMatch(matchText: string): void {
 // On mount it reports { term-ready } so the host launches the session's child (the interactive
 // `claude` TUI for "claude", a plain login shell for "shell") sized to match. Every message it
 // sends and receives is tagged with `session` so two panes can share the single bridge channel.
-export function TerminalView(props: { session: TermSession }): JSX.Element {
+export function TerminalView(props: {
+  session: TermSession;
+  // Called once on mount with a function that moves keyboard focus into this terminal, so the layout
+  // can delegate Ctrl+N pane switching to the live xterm (its hidden textarea, not the container div).
+  onReady?: (focus: () => void) => void;
+}): JSX.Element {
   let container!: HTMLDivElement;
 
   // Typography is a user setting resolved by the host (global font.* + terminal.font.* overrides),
@@ -147,6 +152,9 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
 
     // Ask the host to start this session's PTY child sized to the fitted terminal.
     postToHost({ type: "term-ready", session: props.session, cols: term.cols, rows: term.rows });
+
+    // Hand the layout a way to focus this terminal (Ctrl+N pane switching delegates here).
+    props.onReady?.(() => term.focus());
 
     const resizeObserver = new ResizeObserver(() => refit());
     resizeObserver.observe(container);

@@ -240,6 +240,39 @@ body,
   background: var(--accent);
 }
 
+/* Pane-switch shortcut badge (Ctrl+N), shown in the terminal heads and floating in the editor. */
+.pane-shortcut {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 16px;
+  user-select: none;
+}
+
+.editor-badge {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 5;
+  margin-left: 0;
+  background: var(--bar);
+  opacity: 0.7;
+}
+
+/* Focused pane: accent the border and its label / badge. */
+.terminal-surface.active,
+.editor-surface.active {
+  border-color: var(--accent);
+}
+
+.terminal-surface.active .pane-label,
+.editor-surface.active .pane-shortcut {
+  color: var(--accent);
+}
+
 .editor {
   position: absolute;
   inset: 0;

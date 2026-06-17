@@ -4,6 +4,7 @@ import {
   Show,
   Suspense,
   createEffect,
+  createMemo,
   createSignal,
   lazy,
   onCleanup,
@@ -17,6 +18,7 @@ import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
 import { LayoutView } from "./layout/LayoutView";
+import { paneOrder } from "./layout/geometry";
 import { layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
 import { dismissSplash } from "./splash";
@@ -39,6 +41,9 @@ const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 const DEBUG_PERF = new URLSearchParams(location.search).has("debugperf");
 
 const ms = (n: number): string => n.toFixed(1);
+
+// Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
+const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
 
 // The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the Claude
 // and shell terminals beside the editor, 40/60. Shown until the host pushes the persisted layout.
@@ -65,6 +70,20 @@ export default function App(): JSX.Element {
   // The live pane layout tree: seeded with the default, replaced when the host pushes the persisted
   // layout, and updated optimistically while the user drags a splitter.
   const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_ROOT);
+  // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
+  const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
+  // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
+  const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
+  const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
+  // A terminal registers its focus fn here on mount (the editor focuses via its host directly).
+  const terminalFocus = new Map<string, () => void>();
+  const focusPane = (kind: string): void => {
+    if (kind === "editor") {
+      host?.editor.focus();
+      return;
+    }
+    terminalFocus.get(kind)?.();
+  };
   const [stats, setStats] = createSignal<LiveLatencyStats | null>(null);
   const [loadOn, setLoadOn] = createSignal(false);
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
@@ -109,8 +128,16 @@ export default function App(): JSX.Element {
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
-        <div class="editor-surface">
+        <div
+          class="editor-surface"
+          classList={{ active: focusedKind() === "editor" }}
+          data-kind="editor"
+        >
           <div class="editor" ref={editorContainer} />
+          <span class="pane-shortcut editor-badge">
+            {CTRL_LABEL}
+            {numberOf("editor")}
+          </span>
           <Show when={activeDiff()}>
             {(diff) => (
               <Suspense>
@@ -123,12 +150,16 @@ export default function App(): JSX.Element {
     }
     const session: TermSession = kind === "terminal:claude" ? "claude" : "shell";
     return (
-      <div class="terminal-surface">
+      <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
         <div class="pane-head">
           <span class="pane-label">{kind === "terminal:claude" ? "Claude Code" : "Terminal"}</span>
+          <span class="pane-shortcut">
+            {CTRL_LABEL}
+            {numberOf(kind)}
+          </span>
         </div>
         <div class="pane-body">
-          <TerminalView session={session} />
+          <TerminalView session={session} onReady={(focus) => terminalFocus.set(kind, focus)} />
         </div>
       </div>
     );
@@ -274,10 +305,39 @@ export default function App(): JSX.Element {
       }
     });
 
+    // Ctrl+1..9 jumps focus to the Nth pane (DFS order). Capture phase so it wins over the focused
+    // xterm/Monaco; only intercepted when a pane exists at that index, so other Ctrl+digit chords pass
+    // through to the terminal/editor untouched.
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
+        return;
+      }
+      if (event.key.length !== 1 || event.key < "1" || event.key > "9") {
+        return;
+      }
+      const kind = paneNumbers()[Number(event.key) - 1];
+      if (kind === undefined) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      focusPane(kind);
+    };
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+
+    // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight.
+    const onFocusIn = (event: FocusEvent): void => {
+      const slot = (event.target as HTMLElement | null)?.closest("[data-kind]");
+      setFocusedKind(slot?.getAttribute("data-kind") ?? null);
+    };
+    document.addEventListener("focusin", onFocusIn);
+
     onCleanup(() => {
       window.clearInterval(hudTimer);
       window.clearTimeout(autoBench);
       window.clearTimeout(persistTimer);
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+      document.removeEventListener("focusin", onFocusIn);
       offHost();
       meter.dispose();
       load.stop();

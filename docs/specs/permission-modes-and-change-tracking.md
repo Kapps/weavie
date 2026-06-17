@@ -85,46 +85,40 @@ Driving the running Win app and reading `[mcp]`/`[lsp]` host logs (`MainForm.cs:
 
 ## Part 1 — the permission-mode setting
 
-A single registered setting, declared in `CoreSettings.Register` alongside `claude.path`:
+**Status: implemented** (`default` + `acceptEdits`). A single registered setting in
+`CoreSettings.Register`:
 
-| key                     | kind   | default     | apply        | meaning                                            |
-|-------------------------|--------|-------------|--------------|----------------------------------------------------|
-| `claude.permissionMode` | String | `default`   | NextSession  | How much Claude asks before editing / running tools |
+| key                     | kind   | default   | apply | values                   |
+|-------------------------|--------|-----------|-------|--------------------------|
+| `claude.permissionMode` | String | `default` | Live  | `default`, `acceptEdits` |
 
-- **`AllowedValues = ["default", "acceptEdits", "bypassPermissions"]`** — a closed set, so it's a
-  String with `AllowedValues` (not a new kind), enumerable via `listSettings`, and 1:1 with the CLI's
-  `--permission-mode` values. The strings deliberately match Claude Code's own mode names.
-- **`Apply = NextSession`** — the mode is passed as a launch flag, so a running claude keeps its mode
-  and the next claude session picks up the change. (This mirrors `claude.path`, also `NextSession`,
-  for the same reason: reopening the claude pane would destroy the conversation.)
-- **`Aliases = ["permission mode", "accept edits", "auto accept edits", "skip permissions",
-  "dangerously skip permissions", "yolo mode"]`** so *"stop asking me to approve every edit"* maps to
-  `acceptEdits`.
-- **Description** spells out the trade-off and that `bypassPermissions` skips *all* permission checks
-  (the `--dangerously-skip-permissions` behavior) — surfaced to Claude via `listSettings` and written
-  as the file comment.
+The pivotal idea: **Weavie's mode is a presenter policy, not a Claude launch flag.** Claude is
+*always* launched in its own `default` permission mode, so `openDiff` fires for every edit. A Core
+decorator, `PermissionModeDiffPresenter`, reads `claude.permissionMode` live and decides what to do
+with each inbound `openDiff`:
 
-### Mapping the setting to the launch flag
+- `default` → delegate to the real presenter (the blocking Keep/Reject review).
+- `acceptEdits` → auto-keep immediately (`DiffOutcome.Kept(newContents)`) — no prompt, edit applies.
 
-`TerminalController.ResolveClaudeLauncher` (both Win and Mac) appends the flag when the setting is not
-`default`:
+Because Claude never leaves its own `default` mode, **we never lose the openDiff signal** — which is
+what lets `acceptEdits` still be *recorded* (Part 2). `Apply = Live`: the decorator reads the setting
+per call, so toggling `default`↔`acceptEdits` takes effect on the very next edit, no relaunch. Both
+hosts wrap the `McpDiffPresenter` they hand to `IdeIntegration` in the decorator.
 
-```csharp
-string mode = _settings.GetString("claude.permissionMode") ?? "default";
-if (mode is "acceptEdits" or "bypassPermissions") {
-    claudeArgs.Add("--permission-mode");
-    claudeArgs.Add(mode);
-}
-```
+This is exactly why native `--permission-mode acceptEdits`/`bypassPermissions` are **not** used: they
+make Claude skip `openDiff` entirely (confirmed empirically), blinding the editor. Emulating
+accept-edits in the presenter keeps the diff.
 
-`--permission-mode bypassPermissions` is equivalent to the legacy `--dangerously-skip-permissions`
-(confirmed against the CLI reference). The user can still cycle modes live with Shift+Tab inside the
-TUI; the setting only chooses the **launch** mode — and is the *only* way to reach `bypassPermissions`
-at all, since Shift+Tab can't.
+### `bypassPermissions` is deferred (not offered yet)
 
-> **Implementation note to verify at wiring time:** launching with `bypassPermissions` may trigger
-> Claude Code's one-time "I accept the risk" acceptance screen in the claude pane. If so, document it
-> (it's a Claude Code gate, not ours) — don't try to auto-dismiss it.
+Claude's bypass flag (`--dangerously-skip-permissions`) auto-accepts *everything* including Bash, but
+it disables `openDiff` — so a bypass mode would lose the in-app diff. It returns once we can keep
+diffs alive without the flag, via either the change tracker (Part 2) or a `PreToolUse` auto-allow hook
+(Part 4). Until then the setting offers only `default` + `acceptEdits`, both of which preserve diffs.
+
+> Non-edit tools (Bash, etc.) still prompt in the terminal in **both** modes — they aren't `openDiff`,
+> so the presenter can't auto-approve them. That mirrors Claude's native `acceptEdits`. Owning that
+> surface (for a true "bypass everything" *with* diffs) needs `PreToolUse` hooks — see Part 4.
 
 ## Part 2 — the change tracker (permission-independent)
 
@@ -199,6 +193,27 @@ There is **no mode-aware auto-keep presenter** — that idea assumed `acceptEdit
 `openDiff` for us to auto-resolve, which the live run disproved. In `default`, `openDiff` stays a
 blocking Keep/Reject review (now conformant); in the other modes there is no `openDiff` and the change
 tracker (Part 2) is the entire diff surface.
+
+## Part 4 — non-edit permissions via `PreToolUse` hooks (future)
+
+`openDiff` only covers file edits. Bash and other tools aren't `openDiff`, so today Claude prompts for
+them in its own terminal in both modes. To let Weavie own *that* surface too — auto-approve, or render
+its own approve/deny — **without** `--dangerously-skip-permissions` (which kills openDiff), use a
+**`PreToolUse` hook** (works in the interactive TUI, not just SDK/`-p`). A hook returning
+`hookSpecificOutput.permissionDecision: "allow"` suppresses the terminal prompt for that call; it sees
+the full tool input, so it can allow/deny/record per Weavie's policy. The hook is a command Claude
+runs synchronously and blocks on, so to route a decision to Weavie's UI it bridges to Weavie's local
+server and returns the verdict. (A hook `allow` does not override `deny` rules: `deny > hook > ask >
+allow`.)
+
+This is what unblocks a real **`bypassPermissions`** mode that *keeps* diffs: edits via `openDiff`
+(auto-kept), everything else auto-allowed by the hook, Claude still in its own `default` mode.
+
+Verify before building (a source asserted these but was wrong about `--permission-prompt-tool`, so
+treat as unconfirmed): a native `"type":"http"` hook vs. a plain `command` hook doing the IPC; a
+separate `PermissionRequest` hook event; and whether an `Edit` fires *both* a hook and `openDiff`
+(and whether a hook-`allow` skips openDiff — if so, scope the hook matcher to non-edit tools only).
+The reliable foundation is a `command` hook + `hookSpecificOutput.permissionDecision: allow/deny/ask`.
 
 ## Architecture / placement
 

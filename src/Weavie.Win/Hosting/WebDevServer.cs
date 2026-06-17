@@ -10,7 +10,7 @@ namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// Owns the Vite dev server for hot-module reload during Debug runs. The host reuses a dev server
-/// already serving the port, or otherwise spawns <c>npm run dev</c> itself (so there's no second
+/// already serving the port, or otherwise spawns Vite itself (so there's no second
 /// terminal to babysit), waits for it to start serving, and the caller points the WebView at
 /// <see cref="Origin"/>. A server this instance spawned is killed on <see cref="Dispose"/>; a reused
 /// one is left alone. <see cref="StartAsync"/> returns <c>null</c> when the web source dir or the
@@ -58,9 +58,13 @@ internal sealed class WebDevServer : IDisposable {
 		try {
 			_process = new Process {
 				StartInfo = new ProcessStartInfo {
-					// npm is a .cmd shim on Windows — go through cmd.exe so it resolves on PATH.
-					FileName = "cmd.exe",
-					Arguments = "/c npm run dev",
+					// Spawn Vite directly rather than via `cmd /c npm run dev`. The cmd/npm shims exit as
+					// soon as Vite is up, severing the parent→child chain Kill(entireProcessTree) walks on
+					// teardown — so node(vite)/esbuild would orphan (holding port 5173, keeping the run
+					// session alive). Launching Vite's entry with node makes _process the actual Vite
+					// process, so its lone child (esbuild) is reaped reliably. (`dev` is just `vite`.)
+					FileName = "node",
+					Arguments = "node_modules/vite/bin/vite.js",
 					WorkingDirectory = devDir,
 					UseShellExecute = false,
 					CreateNoWindow = true,
@@ -83,7 +87,7 @@ internal sealed class WebDevServer : IDisposable {
 			_process.BeginOutputReadLine();
 			_process.BeginErrorReadLine();
 		} catch (Exception ex) {
-			_log($"failed to start `npm run dev`: {ex.Message}");
+			_log($"failed to start Vite (node): {ex.Message}");
 			return null;
 		}
 
@@ -103,7 +107,7 @@ internal sealed class WebDevServer : IDisposable {
 			if (_process is { HasExited: true }) {
 				bool up = await ProbeAsync(http).ConfigureAwait(false);
 				if (!up) {
-					_log($"`npm run dev` exited (code {_process.ExitCode}) before the server was ready");
+					_log($"Vite exited (code {_process.ExitCode}) before the server was ready");
 				}
 				return up;
 			}

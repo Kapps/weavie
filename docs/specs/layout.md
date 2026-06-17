@@ -551,9 +551,10 @@ store's posture (log via the existing `Log` event, never throw out of constructi
    subscribe / dispatch / startup-push on `ready`. (`pane-closed` deferred — no close UI yet.)
 6. **Done.** Web: types, bridge handlers, recursive renderer (`LayoutView` + `geometry.ts`), splitters
    at every boundary, optimistic + debounced persist, and **pane-instance preservation** via stable
-   absolutely-positioned slots (xterm/Monaco are repositioned, never remounted). Typecheck + lint +
-   production build all clean. *(Focus delegation / `PaneHandle` + capture-phase `Ctrl+1..9` still
-   pending — the one deferred sub-item.)*
+   absolutely-positioned slots (xterm/Monaco are repositioned, never remounted). Plus **`Ctrl+1..9`
+   focus switching** (capture-phase, DFS pane order, delegates to xterm/Monaco) with the shortcut shown
+   as a badge on each pane and an accent highlight on the focused pane. Typecheck + lint + production
+   build all clean.
 7. **Done.** Replaced the hardcoded `App.tsx` tree with `<LayoutView>`; deleted `leftPct`/`activeLeft`
    and the `TerminalPane` accordion.
 

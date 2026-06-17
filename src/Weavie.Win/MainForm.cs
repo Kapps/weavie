@@ -225,7 +225,7 @@ internal sealed class MainForm : Form {
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(_diffPresenter, [workspace], "weavie", _settings, _layout);
+		_ide = new IdeIntegration(new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();

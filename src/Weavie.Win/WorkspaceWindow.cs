@@ -67,15 +67,16 @@ internal sealed class WorkspaceWindow : Form {
 		_app = app;
 		_workspaceRoot = workspaceRoot;
 		_settings = app.Settings;
+		Id = WorkspaceId.ForPath(workspaceRoot);
 
-		Text = "weavie";
+		Text = $"{WorkspaceLabel(workspaceRoot)} — weavie";
 		BackColor = StartupBackground;
 
 		// Per-workspace layout: each opened folder gets its own pane tree + window geometry under
 		// ~/.weavie/workspaces/<id>/layout.json, keyed by the folder's path. Restore its saved geometry
 		// (size / position / maximized) before the handle is created; a missing or off-screen saved state
 		// falls back to a centered 1280x840 default.
-		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(WorkspaceId.ForPath(_workspaceRoot)));
+		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
 
@@ -90,11 +91,26 @@ internal sealed class WorkspaceWindow : Form {
 		};
 		Controls.Add(_webView);
 
+		// Native menu bar (Open Folder / Open Recent / Close / Exit). Added after the fill WebView so it
+		// docks above it and the WebView takes the remaining area below.
+		var menu = AppMenu.Build(this, app);
+		Controls.Add(menu);
+		MainMenuStrip = menu;
+
 		Load += OnLoad;
 		ResizeEnd += (_, _) => SaveWindowState();
 		SizeChanged += OnWindowSizeChanged;
 		FormClosing += OnFormClosing;
 		FormClosed += (_, _) => Shutdown();
+	}
+
+	/// <summary>This workspace's stable identity (path-derived), used by the app to dedupe/focus windows.</summary>
+	public WorkspaceId Id { get; }
+
+	/// <inheritdoc/>
+	protected override void OnHandleCreated(EventArgs e) {
+		base.OnHandleCreated(e);
+		NativeChrome.UseDarkTitleBar(Handle);
 	}
 
 	/// <summary>Applies the persisted window geometry, or a centered default when there's none or it's off-screen.</summary>
@@ -149,6 +165,12 @@ internal sealed class WorkspaceWindow : Form {
 	private static bool IsOnScreen(Rectangle bounds) =>
 		bounds is { Width: > 0, Height: > 0 }
 		&& Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(bounds));
+
+	/// <summary>The folder's leaf name for the window title (e.g. <c>weavie</c> for <c>C:\src\weavie</c>).</summary>
+	private static string WorkspaceLabel(string root) {
+		string leaf = Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+		return string.IsNullOrEmpty(leaf) ? root : leaf;
+	}
 
 	private async void OnLoad(object? sender, EventArgs e) {
 		try {

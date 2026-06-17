@@ -5,6 +5,7 @@ using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
 using Weavie.Core.Configuration;
 using Weavie.Core.Layout;
+using Weavie.Core.Workspaces;
 using Weavie.Win.Hosting;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
@@ -70,9 +71,11 @@ internal sealed class WorkspaceWindow : Form {
 		Text = "weavie";
 		BackColor = StartupBackground;
 
-		// Restore the saved window geometry (size / position / maximized) before the handle is created;
-		// a missing or off-screen saved state falls back to a centered 1280x840 default.
-		_layout = LayoutPanes.CreateStore();
+		// Per-workspace layout: each opened folder gets its own pane tree + window geometry under
+		// ~/.weavie/workspaces/<id>/layout.json, keyed by the folder's path. Restore its saved geometry
+		// (size / position / maximized) before the handle is created; a missing or off-screen saved state
+		// falls back to a centered 1280x840 default.
+		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(WorkspaceId.ForPath(_workspaceRoot)));
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
 

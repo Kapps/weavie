@@ -1,3 +1,5 @@
+using Weavie.Core.Workspaces;
+
 namespace Weavie.Core;
 
 /// <summary>
@@ -16,8 +18,14 @@ public static class WeaviePaths {
 	/// <summary>The user settings file: <c>~/.weavie/settings.toml</c>.</summary>
 	public static string SettingsFile { get; } = Path.Combine(Root, "settings.toml");
 
-	/// <summary>The persisted window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>.</summary>
+	/// <summary>The legacy single-window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>. Superseded by per-workspace layout files; kept for the default store and back-compat.</summary>
 	public static string LayoutFile { get; } = Path.Combine(Root, "layout.json");
+
+	/// <summary>Root for per-workspace state (each workspace's layout + window geometry): <c>~/.weavie/workspaces</c>.</summary>
+	public static string Workspaces { get; } = Path.Combine(Root, "workspaces");
+
+	/// <summary>The persisted most-recently-opened workspace list: <c>~/.weavie/recents.json</c>.</summary>
+	public static string RecentsFile { get; } = Path.Combine(Root, "recents.json");
 
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
@@ -32,4 +40,20 @@ public static class WeaviePaths {
 	/// <param name="name">The cache folder name.</param>
 	/// <returns>The absolute path to that folder under <see cref="Internals"/>.</returns>
 	public static string Internal(string name) => Path.Combine(Internals, name);
+
+	/// <summary>
+	/// This workspace's state folder, keyed by its <see cref="WorkspaceId"/>:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;</c>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's state folder.</returns>
+	public static string WorkspaceDir(WorkspaceId id) => Path.Combine(Workspaces, id.Value);
+
+	/// <summary>
+	/// This workspace's pane layout + window geometry:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/layout.json</c>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's layout file.</returns>
+	public static string WorkspaceLayoutFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "layout.json");
 }

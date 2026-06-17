@@ -345,3 +345,302 @@ body,
   flex: 1 1 auto;
   min-height: 0;
 }
+
+/* Session changes overlay: a floating "Changes" button + a right-docked panel (file list + unified diff).
+   Fixed-positioned over the app, independent of the pane layout. */
+.changes-toggle {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 40;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+.changes-toggle:hover {
+  opacity: 1;
+}
+
+.changes-panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(620px, 80vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+.changes-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.changes-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.changes-close {
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.changes-close:hover {
+  color: var(--fg);
+}
+
+.changes-body {
+  flex: 1 1 auto;
+  display: flex;
+  min-height: 0;
+}
+
+.changes-list {
+  flex: 0 0 210px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  overflow-y: auto;
+  border-right: 1px solid var(--border);
+}
+
+.changes-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  padding: 5px 10px;
+  cursor: pointer;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+
+.changes-item:hover {
+  background: var(--bar);
+}
+
+.changes-item.active {
+  background: var(--bar);
+  border-left: 2px solid var(--accent);
+}
+
+.cf-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cf-stat {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.cf-add {
+  color: #4ec978;
+}
+
+.cf-del {
+  color: #d27070;
+}
+
+.changes-empty,
+.changes-hint {
+  padding: 10px;
+  color: var(--dim);
+}
+
+.changes-diff {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.udiff {
+  display: flex;
+  flex-direction: column;
+  font: 12px / 1.45 ui-monospace, "SF Mono", Menlo, monospace;
+  white-space: pre;
+}
+
+.udiff-row {
+  display: flex;
+}
+
+.udiff-sign {
+  flex: 0 0 18px;
+  text-align: center;
+  color: var(--dim);
+  user-select: none;
+}
+
+.udiff-text {
+  flex: 1 1 auto;
+  padding-right: 10px;
+}
+
+.udiff-row.add {
+  background: rgba(40, 120, 60, 0.18);
+}
+
+.udiff-row.add .udiff-sign {
+  color: #4ec978;
+}
+
+.udiff-row.del {
+  background: rgba(150, 50, 50, 0.18);
+}
+
+.udiff-row.del .udiff-sign {
+  color: #d27070;
+}
+
+/* Contextual file browser: a floating "Files" button (bottom-left) + a left-docked tree panel rooted at
+   the workspace. Fixed over the app, independent of the pane layout — mirrors the changes overlay. */
+.browser-toggle {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 40;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+.browser-toggle:hover {
+  opacity: 1;
+}
+
+.browser-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(360px, 70vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+.browser-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-title {
+  color: var(--accent);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-close {
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  font: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
+.browser-close:hover {
+  color: var(--fg);
+}
+
+.browser-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+/* Each level of folder nesting indents its children a fixed amount (no per-row dynamic style). */
+.browser-children {
+  padding-left: 12px;
+}
+
+.browser-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.browser-row:hover {
+  background: var(--bar);
+}
+
+.browser-row.active {
+  background: var(--bar);
+  color: var(--accent);
+}
+
+.browser-twisty {
+  flex: 0 0 12px;
+  color: var(--dim);
+  user-select: none;
+}
+
+.browser-icon {
+  flex: 0 0 auto;
+  font-size: 11px;
+}
+
+.browser-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-loading {
+  padding: 4px 8px;
+  color: var(--dim);
+  font-style: italic;
+}

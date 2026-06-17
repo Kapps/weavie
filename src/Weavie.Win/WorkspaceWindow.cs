@@ -356,6 +356,9 @@ internal sealed class WorkspaceWindow : Form {
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
 				_session?.FileOpener.Open(revealPath, revealLine);
 				break;
+			case "list-dir":
+				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
+				break;
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;

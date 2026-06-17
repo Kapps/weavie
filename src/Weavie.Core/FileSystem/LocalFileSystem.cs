@@ -10,6 +10,32 @@ public sealed class LocalFileSystem : IFileSystem {
 	public bool FileExists(string path) => File.Exists(path);
 
 	/// <inheritdoc/>
+	public bool DirectoryExists(string path) => Directory.Exists(path);
+
+	/// <inheritdoc/>
+	public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) {
+		if (!Directory.Exists(path)) {
+			return [];
+		}
+
+		try {
+			var entries = new List<DirectoryEntry>();
+			foreach (string dir in Directory.EnumerateDirectories(path)) {
+				entries.Add(new DirectoryEntry(Path.GetFileName(dir), true));
+			}
+
+			foreach (string file in Directory.EnumerateFiles(path)) {
+				entries.Add(new DirectoryEntry(Path.GetFileName(file), false));
+			}
+
+			return entries;
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			// A directory we can list the parent of but not enter (ACLs) shouldn't crash the browser.
+			return [];
+		}
+	}
+
+	/// <inheritdoc/>
 	public string ReadAllText(string path) => File.ReadAllText(path, Utf8NoBom);
 
 	/// <inheritdoc/>

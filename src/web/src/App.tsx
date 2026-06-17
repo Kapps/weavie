@@ -11,8 +11,10 @@ import {
   onMount,
 } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
+import type { ChangeDiff, ChangeFile } from "./changes/ChangesPanel";
 import type { ActiveDiff } from "./diff/DiffView";
 import type { EditorHost } from "./editor/editor-host";
+import type { DirListings } from "./files/FileBrowser";
 import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
@@ -30,6 +32,12 @@ import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./the
 // dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none
 // of it. DiffView also pulls Monaco, so it's lazy too; by the time a diff arrives the chunk is warm.
 const DiffView = lazy(() => import("./diff/DiffView").then((m) => ({ default: m.DiffView })));
+const ChangesPanel = lazy(() => import("./changes/ChangesPanel"));
+const FileBrowser = lazy(() => import("./files/FileBrowser"));
+
+// The session's workspace root (host-injected before navigation); the file browser's tree is rooted
+// here. Null in plain-browser dev (no host) — the browser toggle is hidden in that case.
+const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 
@@ -89,6 +97,13 @@ export default function App(): JSX.Element {
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
   const [benchRunning, setBenchRunning] = createSignal(false);
   const [activeDiff, setActiveDiff] = createSignal<ActiveDiff | null>(null);
+  const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
+  const [changeDiff, setChangeDiff] = createSignal<ChangeDiff | null>(null);
+  const [changesOpen, setChangesOpen] = createSignal(false);
+  const [dirListings, setDirListings] = createSignal<DirListings>({});
+  const [browserOpen, setBrowserOpen] = createSignal(false);
+  // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
+  const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // Device-pixel ratio: 1 == native 1x (text rendered one device pixel per CSS pixel),
   // 2 == HiDPI/Retina. Drives how "antialiased" the editor text looks. Polled in the HUD
   // tick so dragging the window to a differently-scaled monitor updates it.
@@ -214,6 +229,7 @@ export default function App(): JSX.Element {
   };
 
   const openFileInEditor = (path: string, content: string, line: number): void => {
+    setCurrentFile(path);
     if (host !== undefined) {
       host.openFile(path, content, line);
     } else {
@@ -221,6 +237,18 @@ export default function App(): JSX.Element {
       pendingOpen = { path, content, line };
     }
   };
+
+  const toggleBrowser = (): void => {
+    setBrowserOpen((open) => !open);
+  };
+
+  // Whenever the browser is open and the workspace root listing hasn't loaded, request it; the current
+  // file's ancestor folders then cascade open from there. Driven by state, so it loads however it opened.
+  createEffect(() => {
+    if (browserOpen() && WORKSPACE_ROOT !== null && dirListings()[WORKSPACE_ROOT] === undefined) {
+      postToHost({ type: "list-dir", path: WORKSPACE_ROOT });
+    }
+  });
 
   onMount(() => {
     // Theme chrome from the default palette (spec §6 application surface). Override ops layer here once
@@ -302,6 +330,17 @@ export default function App(): JSX.Element {
         }
       } else if (message.type === "open-file") {
         openFileInEditor(message.path, message.content, message.line);
+      } else if (message.type === "session-changes") {
+        setChangeFiles(message.files);
+      } else if (message.type === "change-diff") {
+        setChangeDiff({
+          path: message.path,
+          name: message.name,
+          baseline: message.baseline,
+          current: message.current,
+        });
+      } else if (message.type === "dir-listing") {
+        setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       }
     });
 
@@ -359,6 +398,42 @@ export default function App(): JSX.Element {
         />
       </Show>
       <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+      <Show when={changeFiles().length > 0}>
+        <button
+          type="button"
+          class="changes-toggle"
+          onClick={() => setChangesOpen((open) => !open)}
+        >
+          Changes {changeFiles().length}
+        </button>
+      </Show>
+      <Show when={changesOpen()}>
+        <Suspense>
+          <ChangesPanel
+            files={changeFiles()}
+            diff={changeDiff()}
+            onSelect={(path) => postToHost({ type: "get-change-diff", path })}
+            onClose={() => setChangesOpen(false)}
+          />
+        </Suspense>
+      </Show>
+      <Show when={WORKSPACE_ROOT !== null}>
+        <button type="button" class="browser-toggle" onClick={toggleBrowser}>
+          Files
+        </button>
+      </Show>
+      <Show when={browserOpen() && WORKSPACE_ROOT !== null}>
+        <Suspense>
+          <FileBrowser
+            root={WORKSPACE_ROOT!}
+            listings={dirListings()}
+            currentFile={currentFile()}
+            onExpand={(path) => postToHost({ type: "list-dir", path })}
+            onOpen={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
+            onClose={() => setBrowserOpen(false)}
+          />
+        </Suspense>
+      </Show>
     </div>
   );
 }

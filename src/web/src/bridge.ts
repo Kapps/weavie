@@ -37,6 +37,10 @@ export type HostBoundMessage =
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file.
   | { type: "reveal-file"; path: string; line: number }
+  // The changes view asks the host for one file's session diff (baseline vs current text).
+  | { type: "get-change-diff"; path: string }
+  // The file browser asks the host to list a directory under the session root (root when path is "").
+  | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
   | { type: "layout-changed"; document: LayoutDocument };
 
@@ -63,7 +67,20 @@ export type WebBoundMessage =
   // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
   | { type: "set-layout"; document: LayoutDocument }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
-  | { type: "fonts"; editor: FontSpec; terminal: FontSpec };
+  | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
+  // Host pushes the session change list (each tracked file's path + added/removed line counts).
+  | {
+      type: "session-changes";
+      files: { path: string; name: string; added: number; removed: number }[];
+    }
+  // Host answers get-change-diff with one file's session baseline + current text.
+  | { type: "change-diff"; path: string; name: string; baseline: string; current: string }
+  // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
+  | {
+      type: "dir-listing";
+      path: string;
+      entries: { name: string; path: string; isDir: boolean }[];
+    };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

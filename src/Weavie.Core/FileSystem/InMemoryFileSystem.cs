@@ -26,6 +26,40 @@ public sealed class InMemoryFileSystem : IFileSystem {
 	public bool FileExists(string path) => _files.ContainsKey(Normalize(path));
 
 	/// <inheritdoc/>
+	public bool DirectoryExists(string path) {
+		string prefix = WithTrailingSeparator(Normalize(path));
+		return _files.Keys.Any(key => key.StartsWith(prefix, StringComparison.Ordinal));
+	}
+
+	/// <inheritdoc/>
+	public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) {
+		string prefix = WithTrailingSeparator(Normalize(path));
+		var subdirs = new HashSet<string>(StringComparer.Ordinal);
+		var files = new HashSet<string>(StringComparer.Ordinal);
+		foreach (string key in _files.Keys) {
+			if (!key.StartsWith(prefix, StringComparison.Ordinal)) {
+				continue;
+			}
+
+			string rest = key[prefix.Length..];
+			int separator = rest.IndexOf(Path.DirectorySeparatorChar);
+			if (separator < 0) {
+				files.Add(rest);
+			} else {
+				subdirs.Add(rest[..separator]);
+			}
+		}
+
+		var entries = new List<DirectoryEntry>(subdirs.Count + files.Count);
+		entries.AddRange(subdirs.Select(name => new DirectoryEntry(name, true)));
+		entries.AddRange(files.Where(name => !subdirs.Contains(name)).Select(name => new DirectoryEntry(name, false)));
+		return entries;
+	}
+
+	private static string WithTrailingSeparator(string path) =>
+		path.EndsWith(Path.DirectorySeparatorChar) ? path : path + Path.DirectorySeparatorChar;
+
+	/// <inheritdoc/>
 	public string ReadAllText(string path) {
 		if (_files.TryGetValue(Normalize(path), out string? contents)) {
 			return contents;

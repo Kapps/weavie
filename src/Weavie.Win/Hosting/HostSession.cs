@@ -6,6 +6,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Win.Hosting;
 
@@ -18,6 +19,8 @@ namespace Weavie.Win.Hosting;
 /// later. Mac sibling: the per-session wiring block in AppDelegate.
 /// </summary>
 internal sealed class HostSession : IAsyncDisposable {
+	private readonly HostBridge _bridge;
+
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals,
 	/// the IDE-MCP + registry servers (lock file written, discovery env minted), and the LSP bridge.
@@ -39,8 +42,10 @@ internal sealed class HostSession : IAsyncDisposable {
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
+		_bridge = bridge;
 
 		var fileSystem = new LocalFileSystem();
+		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		Claude = new TerminalController(bridge, "claude", settings) { Workspace = workspaceRoot };
 		Shell = new TerminalController(bridge, "shell", settings) { Workspace = workspaceRoot };
 		FileOpener = new FileOpener(bridge, fileSystem, workspaceRoot);
@@ -104,6 +109,9 @@ internal sealed class HostSession : IAsyncDisposable {
 	/// <summary>The directory this session's claude, shell, file opener, and LSP are rooted at.</summary>
 	public string WorkspaceRoot { get; }
 
+	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
+	public WorkspaceBrowser Browser { get; }
+
 	/// <summary>The claude TUI terminal.</summary>
 	public TerminalController Claude { get; }
 
@@ -127,6 +135,20 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>The <c>window.__WEAVIE_LSP__</c> discovery payload the window injects before navigation.</summary>
 	public string LspConfigJson { get; }
+
+	/// <summary>
+	/// Lists <paramref name="requestedPath"/> within the session root and pushes a <c>dir-listing</c> reply
+	/// to the page (directories first). The file browser calls this on open and on folder expand.
+	/// </summary>
+	public void ListDirectory(string requestedPath) {
+		var entries = Browser.List(requestedPath);
+		string json = JsonSerializer.Serialize(new {
+			type = "dir-listing",
+			path = string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath,
+			entries = entries.Select(e => new { name = e.Name, path = e.Path, isDir = e.IsDirectory }),
+		});
+		_bridge.PostToWeb(json);
+	}
 
 	private static Action<string> Tagged(string tag) => line => {
 		Console.WriteLine($"{tag} {line}");

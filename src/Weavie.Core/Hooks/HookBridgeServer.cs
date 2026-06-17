@@ -14,14 +14,20 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 	private const int MaxInstances = 4;
 
 	private readonly string _pipeName;
+	private readonly Func<HookRequest, HookDecision> _decide;
 	private readonly CancellationTokenSource _cts = new();
 	private Task? _acceptLoop;
 
 	/// <summary>Creates a server that listens on <paramref name="pipeName"/> once <see cref="Start"/> is called.</summary>
 	/// <param name="pipeName">The pipe name (see <see cref="HookProtocol.PipeName"/>).</param>
-	public HookBridgeServer(string pipeName) {
+	/// <param name="decide">
+	/// Maps an observed request to a decision (the active-mode policy); defaults to pass-through, so a server
+	/// constructed without one is a pure recorder.
+	/// </param>
+	public HookBridgeServer(string pipeName, Func<HookRequest, HookDecision>? decide = null) {
 		ArgumentException.ThrowIfNullOrEmpty(pipeName);
 		_pipeName = pipeName;
+		_decide = decide ?? (static _ => HookDecision.PassThrough);
 	}
 
 	/// <summary>Raised for every observed hook event (off the UI thread). The change-recording feed.</summary>
@@ -78,7 +84,7 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 				var request = HookRequest.Parse(Encoding.UTF8.GetString(requestBytes));
 				if (request is not null) {
 					RaiseObserved(request);
-					string? json = HookPolicy.Decide(request).ToHookOutputJson(request.Event);
+					string? json = _decide(request).ToHookOutputJson(request.Event);
 					if (json is not null) {
 						response = Encoding.UTF8.GetBytes(json);
 					}

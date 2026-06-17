@@ -54,4 +54,17 @@ public sealed class PermissionModeDiffPresenterTests : IDisposable {
 		Assert.Equal(DiffResult.Kept, outcome.Result);
 		Assert.Equal("new", outcome.FinalContents);
 	}
+
+	[Fact]
+	public async Task BypassPermissions_AutoKeepsWithoutConsultingInner() {
+		using var store = NewStore();
+		store.Set("claude.permissionMode", JsonSerializer.SerializeToElement("bypassPermissions"));
+		var inner = FakeDiffPresenter.AlwaysReject();
+		var presenter = new PermissionModeDiffPresenter(inner, store);
+
+		var outcome = await presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
+
+		Assert.Empty(inner.Presented);
+		Assert.Equal(DiffResult.Kept, outcome.Result);
+	}
 }

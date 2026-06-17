@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
 import type { ChangeDiff, ChangeFile } from "./changes/ChangesPanel";
+import { TitleBar } from "./chrome/TitleBar";
 import type { ActiveDiff } from "./diff/DiffView";
 import type { EditorHost } from "./editor/editor-host";
 import type { DirListings } from "./files/FileBrowser";
@@ -38,6 +39,11 @@ const FileBrowser = lazy(() => import("./files/FileBrowser"));
 // The session's workspace root (host-injected before navigation); the file browser's tree is rooted
 // here. Null in plain-browser dev (no host) — the browser toggle is hidden in that case.
 const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
+
+// Host-injected shell config (Windows custom title bar). Absent on macOS / plain-browser dev, where the
+// web title bar isn't rendered and the floating Files/Changes buttons remain the panel toggles.
+const SHELL = window.__WEAVIE_SHELL__;
+const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 
@@ -104,6 +110,12 @@ export default function App(): JSX.Element {
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
+  // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, and the flat
+  // workspace file index the omnibar's "Go to File" filters over (root may differ from WORKSPACE_ROOT).
+  const [maximized, setMaximized] = createSignal(false);
+  const [windowFocused, setWindowFocused] = createSignal(true);
+  const [fileIndex, setFileIndex] = createSignal<string[]>([]);
+  const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
   // Device-pixel ratio: 1 == native 1x (text rendered one device pixel per CSS pixel),
   // 2 == HiDPI/Retina. Drives how "antialiased" the editor text looks. Polled in the HUD
   // tick so dragging the window to a differently-scaled monitor updates it.
@@ -186,6 +198,12 @@ export default function App(): JSX.Element {
       return;
     }
     postToHost({ type: "diff-resolved", id: diff.id, kept, finalContents });
+    // Leave the editor showing the file's new state: if it's open, refresh it in place with the kept
+    // contents (Claude does the disk write async, so use what the user just accepted). The diff's own
+    // model is isolated, so tearing it down on setActiveDiff(null) no longer disturbs this one.
+    if (kept) {
+      host?.applyExternalEdit(diff.path, finalContents);
+    }
     setActiveDiff(null);
   };
 
@@ -341,6 +359,12 @@ export default function App(): JSX.Element {
         });
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
+      } else if (message.type === "window-state") {
+        setMaximized(message.maximized);
+        setWindowFocused(message.focused);
+      } else if (message.type === "file-index") {
+        setIndexRoot(message.root);
+        setFileIndex(message.files);
       }
     });
 
@@ -386,6 +410,27 @@ export default function App(): JSX.Element {
 
   return (
     <div class="app">
+      <Show when={CUSTOM_TITLEBAR}>
+        <TitleBar
+          maximized={maximized()}
+          focused={windowFocused()}
+          files={fileIndex()}
+          root={indexRoot()}
+          currentFile={currentFile()}
+          onWindowControl={(action) => postToHost({ type: "window-control", action })}
+          onMenuAction={(action, path) =>
+            postToHost(
+              path === undefined
+                ? { type: "menu-action", action }
+                : { type: "menu-action", action, path },
+            )
+          }
+          onToggleFiles={toggleBrowser}
+          onToggleChanges={() => setChangesOpen((open) => !open)}
+          onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
+          onRequestIndex={() => postToHost({ type: "request-file-index" })}
+        />
+      </Show>
       <Show when={DEBUG_PERF}>
         <Hud
           stats={stats()}
@@ -398,7 +443,7 @@ export default function App(): JSX.Element {
         />
       </Show>
       <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
-      <Show when={changeFiles().length > 0}>
+      <Show when={changeFiles().length > 0 && !CUSTOM_TITLEBAR}>
         <button
           type="button"
           class="changes-toggle"
@@ -417,7 +462,7 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Show when={WORKSPACE_ROOT !== null}>
+      <Show when={WORKSPACE_ROOT !== null && !CUSTOM_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>
           Files
         </button>

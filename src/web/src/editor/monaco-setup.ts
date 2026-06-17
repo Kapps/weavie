@@ -29,16 +29,20 @@ const list = build([1, 1, 2, 3, 5, 8, 13, 21, 34, 55]);
 console.log([...walk(list)].reduce((a, b) => a + b, 0));
 `;
 
+// The scratch/sample document's URI (a non-existent file:// under the workspace). Exported so the
+// editor host can suppress it from active-editor reports — it isn't something the user is "working on".
+export const SCRATCH_URI: monaco.Uri | undefined = (() => {
+  const workspace = window.__WEAVIE_LSP__?.workspace;
+  return workspace !== undefined
+    ? monaco.Uri.file(`${workspace.replaceAll("\\", "/")}/weavie-scratch.ts`)
+    : undefined;
+})();
+
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
   // Back the editor with a real file:// model URI under the workspace. tsserver-family servers (tsgo)
   // give loose inmemory:/untitled: docs only partial service — they publish diagnostics for file://
   // docs, not for in-memory ones — so a file:// URI makes it a project file and squiggles flow.
-  const workspace = window.__WEAVIE_LSP__?.workspace;
-  const uri =
-    workspace !== undefined
-      ? monaco.Uri.file(`${workspace.replaceAll("\\", "/")}/weavie-scratch.ts`)
-      : undefined;
-  const model = monaco.editor.createModel(SAMPLE_CODE, "typescript", uri);
+  const model = monaco.editor.createModel(SAMPLE_CODE, "typescript", SCRATCH_URI);
   // Typography is a user setting resolved by the host (global font.* + editor.font.* overrides),
   // injected before navigation so we mount at the right font, and live-updated below.
   const font = currentFonts().editor;

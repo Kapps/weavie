@@ -28,7 +28,7 @@ internal static class AppMenu {
 	}
 
 	/// <summary>Builds the File menu bar for <paramref name="owner"/>, wired to <paramref name="app"/>'s actions.</summary>
-	public static MenuStrip Build(Form owner, AppController app) {
+	public static MenuStrip Build(WorkspaceWindow owner, AppController app) {
 		ArgumentNullException.ThrowIfNull(owner);
 		ArgumentNullException.ThrowIfNull(app);
 
@@ -48,7 +48,9 @@ internal static class AppMenu {
 		// Seed one item so the submenu arrow shows before it's first opened.
 		openRecent.DropDownItems.Add(new ToolStripMenuItem("(loading…)") { Enabled = false });
 
-		var closeWindow = new ToolStripMenuItem("Close Window", null, (_, _) => owner.Close()) {
+		// Close Window (vs. the title-bar X): closing the LAST window this way falls back to the welcome
+		// window rather than quitting — see AppController.OnWorkspaceWindowClosed.
+		var closeWindow = new ToolStripMenuItem("Close Window", null, (_, _) => owner.CloseToWelcome()) {
 			ShortcutKeys = Keys.Control | Keys.W,
 			ForeColor = FgColor,
 		};

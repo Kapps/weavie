@@ -66,6 +66,12 @@ public sealed class TerminalController : IDisposable {
 	public string? McpConfigPath { get; set; }
 
 	/// <summary>
+	/// Path to a Claude Code settings file passed as <c>--settings</c> when launching claude — the hooks
+	/// block that routes its tool calls to Weavie's hook relay. Only the claude session uses it.
+	/// </summary>
+	public string? SettingsFilePath { get; set; }
+
+	/// <summary>
 	/// Launches this session's child (claude via a login shell, or the configured shell) at the given size
 	/// under the supervisor and begins relaying its output. Idempotent: a no-op if already running or restarting.
 	/// </summary>
@@ -199,7 +205,8 @@ public sealed class TerminalController : IDisposable {
 	private (string Command, IReadOnlyList<string> Arguments) ResolveClaudeLauncher() {
 		string claude = _settings.GetString("claude.path") ?? "claude";
 		string mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
-		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}"]);
+		string settings = string.IsNullOrEmpty(SettingsFilePath) ? string.Empty : $" --settings '{SettingsFilePath}'";
+		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}{settings}"]);
 	}
 
 	/// <summary>

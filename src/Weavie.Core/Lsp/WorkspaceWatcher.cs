@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Lsp;
 
@@ -28,9 +29,6 @@ public readonly record struct WatchedFileChange(string Uri, FileChangeKind Kind)
 /// build output) so a broad workspace root doesn't drown the servers.
 /// </summary>
 public sealed class WorkspaceWatcher : IDisposable {
-	private static readonly string[] IgnoredSegments =
-		["node_modules", ".git", "bin", "obj", "dist", ".vs", ".idea", "out", "target"];
-
 	private readonly string _root;
 	private readonly IReadOnlySet<string> _extensions;
 	private readonly Action<IReadOnlyList<WatchedFileChange>> _onChanges;
@@ -113,15 +111,7 @@ public sealed class WorkspaceWatcher : IDisposable {
 			return false;
 		}
 
-		foreach (string segment in fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) {
-			foreach (string ignored in IgnoredSegments) {
-				if (string.Equals(segment, ignored, StringComparison.OrdinalIgnoreCase)) {
-					return false;
-				}
-			}
-		}
-
-		return true;
+		return !WorkspacePaths.HasIgnoredSegment(fullPath);
 	}
 
 	private void Flush() {

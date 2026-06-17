@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Changes;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
@@ -46,15 +47,20 @@ internal sealed class HostSession : IAsyncDisposable {
 
 		var fileSystem = new LocalFileSystem();
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
+		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
+		FileIndex.Log += Tagged("[index]");
 		Claude = new TerminalController(bridge, "claude", settings) { Workspace = workspaceRoot };
 		Shell = new TerminalController(bridge, "shell", settings) { Workspace = workspaceRoot };
 		FileOpener = new FileOpener(bridge, fileSystem, workspaceRoot);
 		DiffPresenter = new McpDiffPresenter(bridge, fileSystem, FileOpener);
+		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
+		// this session's claude what the user is looking at.
+		Editor = new EditorStore();
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
 		// discovery env so this session's claude connects to us (the SOLE edit feed). The same store backs
 		// the settings MCP tools, so the user can change settings by talking to claude.
-		Ide = new IdeIntegration(new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout);
+		Ide = new IdeIntegration(new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor);
 		Ide.Server.Log += Tagged("[mcp]");
 		if (Ide.RegistryServer is not null) {
 			Ide.RegistryServer.Log += Tagged("[registry]");
@@ -112,6 +118,9 @@ internal sealed class HostSession : IAsyncDisposable {
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
 
+	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
+	public WorkspaceFileIndex FileIndex { get; }
+
 	/// <summary>The claude TUI terminal.</summary>
 	public TerminalController Claude { get; }
 
@@ -126,6 +135,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>The IDE-MCP + registry servers for this session.</summary>
 	public IdeIntegration Ide { get; }
+
+	/// <summary>Tracks the editor's active file + selection so claude knows what the user is looking at.</summary>
+	public EditorStore Editor { get; }
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
@@ -148,6 +160,16 @@ internal sealed class HostSession : IAsyncDisposable {
 			entries = entries.Select(e => new { name = e.Name, path = e.Path, isDir = e.IsDirectory }),
 		});
 		_bridge.PostToWeb(json);
+	}
+
+	/// <summary>
+	/// Applies an <c>active-editor-changed</c> message from the page: updates the editor store, which
+	/// pushes a <c>selection_changed</c> notification to claude over the IDE-MCP connection.
+	/// </summary>
+	public void UpdateActiveEditor(JsonElement message) {
+		if (ActiveEditor.TryParse(message, out var editor) && editor is not null) {
+			Editor.SetActive(editor);
+		}
 	}
 
 	private static Action<string> Tagged(string tag) => line => {

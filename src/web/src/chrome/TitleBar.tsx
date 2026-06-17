@@ -1,0 +1,86 @@
+import { Copy, Minus, Square, X } from "lucide-solid";
+import { type JSX, Show } from "solid-js";
+import { Menu, type MenuAction } from "./Menu";
+import { Omnibar } from "./Omnibar";
+import { WeavieIcon } from "./WeavieIcon";
+
+type WindowControlAction = "minimize" | "maximize-toggle" | "close";
+
+// The custom title bar (Windows), drawn in-web over a frameless host window. Left: app logo + File/View
+// menus. Center: the "Go to File" omnibar. Right: minimize / maximize-restore / close. The bar background
+// is draggable via CSS `app-region: drag` (WebView2 maps it to the window caption); interactive regions opt
+// out with `no-drag` in styles.css. UI glyphs are Lucide; the logo is our own placeholder mark. Static
+// config (recents, label) comes from `window.__WEAVIE_SHELL__`; live state arrives as props.
+export function TitleBar(props: {
+  maximized: boolean;
+  focused: boolean;
+  files: string[];
+  root: string | null;
+  currentFile: string | null;
+  onWindowControl: (action: WindowControlAction) => void;
+  onMenuAction: (action: MenuAction, path?: string) => void;
+  onToggleFiles: () => void;
+  onToggleChanges: () => void;
+  onOpenFile: (abs: string) => void;
+  onRequestIndex: () => void;
+}): JSX.Element {
+  const shell = window.__WEAVIE_SHELL__;
+  const recents = (): string[] => shell?.recents ?? [];
+  const label = (): string => shell?.workspaceLabel ?? "weavie";
+
+  return (
+    <div class="titlebar" classList={{ blurred: !props.focused }}>
+      <div class="tb-left">
+        <span class="tb-icon" aria-hidden="true">
+          <WeavieIcon />
+        </span>
+        <Menu
+          recents={recents()}
+          onMenuAction={props.onMenuAction}
+          onToggleFiles={props.onToggleFiles}
+          onToggleChanges={props.onToggleChanges}
+        />
+      </div>
+
+      <div class="tb-center">
+        <Omnibar
+          files={props.files}
+          root={props.root}
+          currentFile={props.currentFile}
+          workspaceLabel={label()}
+          onOpenFile={props.onOpenFile}
+          onRequestIndex={props.onRequestIndex}
+        />
+      </div>
+
+      <div class="tb-controls">
+        <button
+          type="button"
+          class="tb-ctl"
+          aria-label="Minimize"
+          onClick={() => props.onWindowControl("minimize")}
+        >
+          <Minus />
+        </button>
+        <button
+          type="button"
+          class="tb-ctl"
+          aria-label={props.maximized ? "Restore" : "Maximize"}
+          onClick={() => props.onWindowControl("maximize-toggle")}
+        >
+          <Show when={props.maximized} fallback={<Square />}>
+            <Copy />
+          </Show>
+        </button>
+        <button
+          type="button"
+          class="tb-ctl tb-close"
+          aria-label="Close"
+          onClick={() => props.onWindowControl("close")}
+        >
+          <X />
+        </button>
+      </div>
+    </div>
+  );
+}

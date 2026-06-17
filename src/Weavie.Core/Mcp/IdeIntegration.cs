@@ -1,4 +1,5 @@
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 
@@ -30,18 +31,23 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		IReadOnlyList<string> workspaceFolders,
 		string ideName = "weavie",
 		SettingsStore? settings = null,
-		LayoutStore? layout = null) {
+		LayoutStore? layout = null,
+		EditorStore? editor = null) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
-		Server = new McpServer(AuthToken, presenter, workspaceFolders, ideName);
+		// The IDE server (not the registry) carries the active-editor context: getCurrentSelection/
+		// getOpenEditors + the pushed selection_changed notification all live on the IDE connection.
+		Server = new McpServer(AuthToken, presenter, workspaceFolders, ideName, editor: editor);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
 		// The hook bridge: a current-user-only pipe (no token) the spawned claude's PreToolUse/PostToolUse
 		// hooks dial via the relay, scoped to this instance by the IDE port. Carries the change-recording
-		// stream + the future gate. Lives as long as the IDE server.
-		HookBridge = new HookBridgeServer(HookProtocol.PipeName(Port));
+		// stream + the permission gate (bypassPermissions → auto-allow), read live from the settings store.
+		HookBridge = new HookBridgeServer(
+			HookProtocol.PipeName(Port),
+			request => HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default"));
 		HookBridge.Start();
 
 		if (settings is not null) {

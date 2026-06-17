@@ -9,6 +9,8 @@ namespace Weavie.Core.Mcp;
 /// <list type="bullet">
 /// <item><c>default</c> — delegate to the inner presenter: the blocking Keep/Reject review.</item>
 /// <item><c>acceptEdits</c> — auto-keep immediately (no prompt), so edits apply without blocking.</item>
+/// <item><c>bypassPermissions</c> — also auto-keep (the hook bridge auto-allows tools; if Claude still
+/// asks for an edit via openDiff, keep it without prompting).</item>
 /// </list>
 /// Claude itself stays in its own <c>default</c> permission mode in both cases, so <c>openDiff</c>
 /// keeps firing for every edit — the policy lives here, not in a Claude launch flag (which would
@@ -32,7 +34,7 @@ public sealed class PermissionModeDiffPresenter : IDiffPresenter {
 	/// <inheritdoc/>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
 		ArgumentNullException.ThrowIfNull(proposal);
-		if (string.Equals(_settings.GetString(ModeKey), "acceptEdits", StringComparison.Ordinal)) {
+		if (_settings.GetString(ModeKey) is "acceptEdits" or "bypassPermissions") {
 			// Auto-keep: report the proposed contents as kept. openDiff returns them and Claude writes —
 			// no blocking review, but the edit still flowed through openDiff so it can be recorded.
 			return Task.FromResult(DiffOutcome.Kept(proposal.NewFileContents));

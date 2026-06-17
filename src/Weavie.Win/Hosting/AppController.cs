@@ -11,8 +11,9 @@ namespace Weavie.Win.Hosting;
 /// As the <see cref="ApplicationContext"/>, it keeps the message loop alive across multiple windows.
 ///
 /// Lifecycle: on launch it reopens the last workspace (else the legacy <c>workspace</c> setting, else the
-/// welcome window). Opening a folder already open just focuses its window. When the last workspace window
-/// closes, the welcome window appears; closing the welcome window quits. Mac sibling: AppDelegate.
+/// welcome window). Opening a folder already open just focuses its window. Closing the last workspace window
+/// via File ▸ Close Window falls back to the welcome window; closing it via the title-bar X quits. Closing
+/// the welcome window quits. Mac sibling: AppDelegate.
 /// </summary>
 internal sealed class AppController : ApplicationContext {
 	private readonly List<WorkspaceWindow> _windows = [];
@@ -21,7 +22,8 @@ internal sealed class AppController : ApplicationContext {
 	private bool _exiting;
 
 	public AppController() {
-		// Dark menu chrome process-wide before any window builds its menu.
+		// Dark chrome for any WinForms ToolStrip/context menu rendered process-wide (the workspace window's
+		// menu bar now lives in the web title bar; this stays for the dark renderer's other consumers).
 		AppMenu.UseDarkChrome();
 
 		// User settings (shell / workspace / claude path / fonts) resolved from ~/.weavie/settings.toml;
@@ -133,9 +135,18 @@ internal sealed class AppController : ApplicationContext {
 			return;
 		}
 
-		// Last workspace window closed → fall back to the welcome window rather than quitting.
-		if (_windows.Count == 0) {
+		if (_windows.Count > 0) {
+			return;
+		}
+
+		// Last workspace window closed. Fall back to the welcome window only when the user chose
+		// File ▸ Close Window (an intentional "close this workspace, keep the app" gesture); closing via
+		// the title-bar X / Alt+F4 quits instead — there's nothing left to show.
+		if (window.ClosedToWelcome) {
 			ShowWelcome();
+		} else {
+			_exiting = true;
+			ExitThread();
 		}
 	}
 

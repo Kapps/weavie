@@ -1,0 +1,144 @@
+import { For, type JSX, Show, createSignal, onCleanup } from "solid-js";
+
+export type MenuAction = "open-folder" | "open-recent" | "close-window" | "exit";
+
+function leaf(path: string): string {
+  const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
+  return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
+}
+
+// The title bar's menu bar: File + View. Web-rendered dropdowns (the native MenuStrip is gone). File items
+// post `menu-action` to the host (open folder, open recent, close, exit); View items toggle the in-app
+// Files/Changes panels. One menu is open at a time; hovering another top-level label while open switches to
+// it (VS Code behavior). Open Recent is a pure-CSS hover flyout.
+export function Menu(props: {
+  recents: string[];
+  onMenuAction: (action: MenuAction, path?: string) => void;
+  onToggleFiles: () => void;
+  onToggleChanges: () => void;
+}): JSX.Element {
+  const [openMenu, setOpenMenu] = createSignal<"file" | "view" | null>(null);
+
+  const close = (): void => {
+    setOpenMenu(null);
+  };
+  const toggle = (menu: "file" | "view"): void => {
+    setOpenMenu((m) => (m === menu ? null : menu));
+  };
+  const hover = (menu: "file" | "view"): void => {
+    if (openMenu() !== null) {
+      setOpenMenu(menu);
+    }
+  };
+
+  // Dismiss on any outside pointer-down or Escape while a menu is open.
+  const onPointerDown = (e: PointerEvent): void => {
+    if (!(e.target as HTMLElement).closest(".tb-menu")) {
+      close();
+    }
+  };
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      close();
+    }
+  };
+  window.addEventListener("pointerdown", onPointerDown);
+  window.addEventListener("keydown", onKeyDown);
+  onCleanup(() => {
+    window.removeEventListener("pointerdown", onPointerDown);
+    window.removeEventListener("keydown", onKeyDown);
+  });
+
+  const fileAction = (action: MenuAction, path?: string): void => {
+    close();
+    props.onMenuAction(action, path);
+  };
+  const viewAction = (fn: () => void): void => {
+    close();
+    fn();
+  };
+
+  return (
+    <div class="tb-menu">
+      <div class="tb-menu-item">
+        <button
+          type="button"
+          class="tb-menu-label"
+          classList={{ open: openMenu() === "file" }}
+          onClick={() => toggle("file")}
+          onMouseEnter={() => hover("file")}
+        >
+          File
+        </button>
+        <Show when={openMenu() === "file"}>
+          <div class="tb-dropdown">
+            <button type="button" class="tb-dropitem" onClick={() => fileAction("open-folder")}>
+              <span>Open Folder…</span>
+            </button>
+            <div
+              class="tb-dropitem has-submenu"
+              classList={{ disabled: props.recents.length === 0 }}
+            >
+              <span>Open Recent</span>
+              <span class="tb-submenu-arrow">›</span>
+              <Show when={props.recents.length > 0}>
+                <div class="tb-submenu">
+                  <For each={props.recents}>
+                    {(path) => (
+                      <button
+                        type="button"
+                        class="tb-dropitem"
+                        title={path}
+                        onClick={() => fileAction("open-recent", path)}
+                      >
+                        <span class="tb-recent-leaf">{leaf(path)}</span>
+                        <span class="tb-recent-path">{path}</span>
+                      </button>
+                    )}
+                  </For>
+                </div>
+              </Show>
+            </div>
+            <div class="tb-sep" />
+            <button type="button" class="tb-dropitem" onClick={() => fileAction("close-window")}>
+              <span>Close Window</span>
+            </button>
+            <button type="button" class="tb-dropitem" onClick={() => fileAction("exit")}>
+              <span>Exit</span>
+            </button>
+          </div>
+        </Show>
+      </div>
+
+      <div class="tb-menu-item">
+        <button
+          type="button"
+          class="tb-menu-label"
+          classList={{ open: openMenu() === "view" }}
+          onClick={() => toggle("view")}
+          onMouseEnter={() => hover("view")}
+        >
+          View
+        </button>
+        <Show when={openMenu() === "view"}>
+          <div class="tb-dropdown">
+            <button
+              type="button"
+              class="tb-dropitem"
+              onClick={() => viewAction(props.onToggleFiles)}
+            >
+              <span>Toggle Files</span>
+            </button>
+            <button
+              type="button"
+              class="tb-dropitem"
+              onClick={() => viewAction(props.onToggleChanges)}
+            >
+              <span>Toggle Changes</span>
+            </button>
+          </div>
+        </Show>
+      </div>
+    </div>
+  );
+}

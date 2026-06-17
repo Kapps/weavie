@@ -1,0 +1,122 @@
+using System.Text.Json;
+
+namespace Weavie.Core.Shell;
+
+/// <summary>A window-control button the web title bar offers.</summary>
+public enum WindowControl {
+	/// <summary>Minimize the window.</summary>
+	Minimize,
+
+	/// <summary>Toggle maximized/restored.</summary>
+	MaximizeToggle,
+
+	/// <summary>Close the window.</summary>
+	Close,
+}
+
+/// <summary>A File-menu command the web title bar offers.</summary>
+public enum MenuCommand {
+	/// <summary>Show the open-folder picker.</summary>
+	OpenFolder,
+
+	/// <summary>Open a recent workspace (carries a <c>path</c>).</summary>
+	OpenRecent,
+
+	/// <summary>Close the current window.</summary>
+	CloseWindow,
+
+	/// <summary>Quit the app.</summary>
+	Exit,
+}
+
+/// <summary>
+/// Builds and parses the title-bar bridge messages exchanged with the web shell. All wire JSON for the
+/// custom chrome lives here — one shared contract both hosts use, instead of each host hand-rolling the
+/// same strings. Mirrors the message <c>type</c>s declared in the web's <c>bridge.ts</c>.
+/// <list type="bullet">
+/// <item>host → web: the <c>__WEAVIE_SHELL__</c> config script, <c>window-state</c>, <c>file-index</c>.</item>
+/// <item>web → host: <c>window-control</c>, <c>menu-action</c> (parsed into the enums above).</item>
+/// </list>
+/// </summary>
+public static class ShellProtocol {
+	/// <summary>
+	/// Builds the <c>window.__WEAVIE_SHELL__ = {…};</c> script the host injects before navigation, telling the
+	/// web which platform/title-bar to render, the workspace label, and the recents for File ▸ Open Recent.
+	/// </summary>
+	/// <param name="platform">Short platform id, e.g. <c>win</c> or <c>mac</c>.</param>
+	/// <param name="titleBar">Title-bar mode the web should render (<c>custom</c>), or null for native chrome.</param>
+	/// <param name="workspaceLabel">The window's workspace label (folder leaf name).</param>
+	/// <param name="recents">Recent workspace paths (absolute); the web derives leaf names for display.</param>
+	public static string BuildConfigScript(
+		string platform,
+		string? titleBar,
+		string workspaceLabel,
+		IReadOnlyList<string> recents) {
+		ArgumentException.ThrowIfNullOrEmpty(platform);
+		ArgumentNullException.ThrowIfNull(workspaceLabel);
+		ArgumentNullException.ThrowIfNull(recents);
+		string json = JsonSerializer.Serialize(new {
+			platform,
+			titleBar,
+			workspaceLabel,
+			recents,
+		});
+		return $"window.__WEAVIE_SHELL__ = {json};";
+	}
+
+	/// <summary>Builds the <c>window-state</c> message (maximize glyph + blur dim) the host pushes on focus/size changes.</summary>
+	public static string BuildWindowState(bool maximized, bool focused) =>
+		JsonSerializer.Serialize(new { type = "window-state", maximized, focused });
+
+	/// <summary>Builds the <c>file-index</c> reply (root + every file's absolute path) for the omnibar quick-open.</summary>
+	public static string BuildFileIndex(string root, IReadOnlyList<string> files) {
+		ArgumentException.ThrowIfNullOrEmpty(root);
+		ArgumentNullException.ThrowIfNull(files);
+		return JsonSerializer.Serialize(new { type = "file-index", root, files });
+	}
+
+	/// <summary>Parses a <c>window-control</c> message's <c>action</c>. False for an unknown/missing action.</summary>
+	public static bool TryParseWindowControl(JsonElement message, out WindowControl control) {
+		control = default;
+		string? action = message.TryGetProperty("action", out var a) ? a.GetString() : null;
+		switch (action) {
+			case "minimize":
+				control = WindowControl.Minimize;
+				return true;
+			case "maximize-toggle":
+				control = WindowControl.MaximizeToggle;
+				return true;
+			case "close":
+				control = WindowControl.Close;
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	/// <summary>
+	/// Parses a <c>menu-action</c> message's <c>action</c> (and optional <c>path</c> for Open Recent). False for
+	/// an unknown/missing action.
+	/// </summary>
+	public static bool TryParseMenuAction(JsonElement message, out MenuCommand command, out string? path) {
+		command = default;
+		path = message.TryGetProperty("path", out var p) ? p.GetString() : null;
+		string? action = message.TryGetProperty("action", out var a) ? a.GetString() : null;
+		switch (action) {
+			case "open-folder":
+				command = MenuCommand.OpenFolder;
+				return true;
+			case "open-recent":
+				command = MenuCommand.OpenRecent;
+				return true;
+			case "close-window":
+				command = MenuCommand.CloseWindow;
+				return true;
+			case "exit":
+				command = MenuCommand.Exit;
+				return true;
+			default:
+				return false;
+		}
+	}
+}

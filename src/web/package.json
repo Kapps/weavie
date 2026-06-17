@@ -13,8 +13,10 @@
   },
   "dependencies": {
     "@codingame/monaco-vscode-api": "25.1.2",
+    "@codingame/monaco-vscode-csharp-default-extension": "25.1.2",
     "@codingame/monaco-vscode-editor-api": "25.1.2",
     "@codingame/monaco-vscode-editor-service-override": "25.1.2",
+    "@codingame/monaco-vscode-go-default-extension": "25.1.2",
     "@codingame/monaco-vscode-languages-service-override": "25.1.2",
     "@codingame/monaco-vscode-model-service-override": "25.1.2",
     "@codingame/monaco-vscode-textmate-service-override": "25.1.2",
@@ -24,6 +26,7 @@
     "@xterm/addon-fit": "0.10.0",
     "@xterm/addon-webgl": "0.18.0",
     "@xterm/xterm": "5.5.0",
+    "lucide-solid": "^1.20.0",
     "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@25.1.2",
     "monaco-languageclient": "10.7.0",
     "solid-js": "1.9.3",

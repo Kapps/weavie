@@ -5,6 +5,7 @@ using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
 using Weavie.Core.Configuration;
 using Weavie.Core.Layout;
+using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Win.Hosting;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -19,7 +20,7 @@ namespace Weavie.Win;
 /// hosts exactly one session; multiple sessions per window come later. Windows analogue of the macOS
 /// per-window wiring in <c>AppDelegate</c>; created and tracked by <see cref="AppController"/>.
 /// </summary>
-internal sealed class WorkspaceWindow : Form {
+internal sealed class WorkspaceWindow : Form, IShellWindow {
 	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin
 	// context (workers + Event Timing API behave), mirroring the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
@@ -52,6 +53,10 @@ internal sealed class WorkspaceWindow : Form {
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
 	private HostSession? _session;
+	// Drives the custom title bar: parses its window-control/menu-action/file-index messages (built once
+	// the session exists). _focused backs the title bar's blur dim, tracked from Activated/Deactivate.
+	private ShellController? _shell;
+	private bool _focused = true;
 #if DEBUG
 	private WebDevServer? _webDev;
 #endif
@@ -91,15 +96,16 @@ internal sealed class WorkspaceWindow : Form {
 		};
 		Controls.Add(_webView);
 
-		// Native menu bar (Open Folder / Open Recent / Close / Exit). Added after the fill WebView so it
-		// docks above it and the WebView takes the remaining area below.
-		var menu = AppMenu.Build(this, app);
-		Controls.Add(menu);
-		MainMenuStrip = menu;
+		// No native menu bar: the window is frameless (see WndProc/CustomChrome) and the WebView fills the
+		// whole client area. The File/View menus, app icon, omnibar, and min/maximize/close all live in the
+		// web title bar, which drives this window back through the IShellWindow members below.
 
 		Load += OnLoad;
 		ResizeEnd += (_, _) => SaveWindowState();
 		SizeChanged += OnWindowSizeChanged;
+		// Title-bar blur dim + focus state: track activation and re-push the window state to the page.
+		Activated += (_, _) => SetFocused(true);
+		Deactivate += (_, _) => SetFocused(false);
 		FormClosing += OnFormClosing;
 		FormClosed += (_, _) => Shutdown();
 	}
@@ -107,10 +113,43 @@ internal sealed class WorkspaceWindow : Form {
 	/// <summary>This workspace's stable identity (path-derived), used by the app to dedupe/focus windows.</summary>
 	public WorkspaceId Id { get; }
 
+	/// <summary>
+	/// True when this window was closed via File ▸ Close Window (<see cref="CloseToWelcome"/>) rather than the
+	/// title-bar X / Alt+F4. The app uses it to decide whether closing the last window falls back to the
+	/// welcome window (explicit Close Window) or quits (X).
+	/// </summary>
+	public bool ClosedToWelcome { get; private set; }
+
+	/// <summary>
+	/// Closes this window with the intent that, if it's the last one open, the app shows the welcome window
+	/// instead of quitting. The File ▸ Close Window path; hitting the title-bar X quits the app instead.
+	/// </summary>
+	public void CloseToWelcome() {
+		ClosedToWelcome = true;
+		Close();
+	}
+
 	/// <inheritdoc/>
 	protected override void OnHandleCreated(EventArgs e) {
 		base.OnHandleCreated(e);
 		NativeChrome.UseDarkTitleBar(Handle);
+		// Frameless chrome: keep the OS drop shadow + rounded corners even though the caption is removed.
+		CustomChrome.EnableShadow(Handle);
+	}
+
+	/// <summary>
+	/// Routes the frameless-window messages to <see cref="CustomChrome"/>: <c>WM_NCCALCSIZE</c> strips the
+	/// caption (the WebView fills the whole client area), <c>WM_NCHITTEST</c> re-supplies the edge resize
+	/// zones. Everything else (and window dragging, via the web title bar's <c>app-region: drag</c>) is the
+	/// default behavior. The styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
+	/// </summary>
+	protected override void WndProc(ref Message m) {
+		bool maximized = WindowState == FormWindowState.Maximized;
+		if (CustomChrome.HandleNcCalcSize(ref m, maximized) || CustomChrome.HandleNcHitTest(Handle, ref m, maximized)) {
+			return;
+		}
+
+		base.WndProc(ref m);
 	}
 
 	/// <summary>Applies the persisted window geometry, or a centered default when there's none or it's off-screen.</summary>
@@ -139,8 +178,36 @@ internal sealed class WorkspaceWindow : Form {
 		if (WindowState != FormWindowState.Minimized && maximized != _lastMaximized) {
 			_lastMaximized = maximized;
 			SaveWindowState();
+			// Keep the title bar's maximize/restore glyph in sync with the actual window state.
+			PushWindowState();
 		}
 	}
+
+	/// <summary>Updates focus state (for the title bar's blur dim) and re-pushes the window state.</summary>
+	private void SetFocused(bool focused) {
+		_focused = focused;
+		PushWindowState();
+	}
+
+	/// <summary>Pushes the current maximized + focused state to the title bar (no-op before the shell exists).</summary>
+	private void PushWindowState() =>
+		_shell?.PushWindowState(WindowState == FormWindowState.Maximized, _focused);
+
+	// IShellWindow — the platform primitives the web title bar drives (Weavie.Core.Shell). Close() (the ✕)
+	// is satisfied implicitly by Form.Close(); CloseWindow() (File ▸ Close Window) routes through
+	// CloseToWelcome() so the last window falls back to the welcome screen instead of quitting.
+	void IShellWindow.Minimize() => WindowState = FormWindowState.Minimized;
+
+	void IShellWindow.ToggleMaximize() =>
+		WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+
+	void IShellWindow.CloseWindow() => CloseToWelcome();
+
+	void IShellWindow.Quit() => _app.Quit();
+
+	void IShellWindow.ShowOpenFolderPicker() => _app.OpenFolderInteractive(this);
+
+	void IShellWindow.OpenWorkspace(string path) => _app.OpenOrFocus(path);
 
 	private void SaveWindowState() {
 		if (WindowState == FormWindowState.Minimized) {
@@ -204,6 +271,10 @@ internal sealed class WorkspaceWindow : Form {
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
 		core.Settings.AreDevToolsEnabled = true;          // local debugging of the prototype
 		core.Settings.IsStatusBarEnabled = false;
+		// Let the web title bar declare its draggable caption via CSS `app-region: drag`; WebView2 then
+		// handles window dragging, double-click-maximize, and the right-click system menu for the frameless
+		// window. The resize edges are owned by CustomChrome (WM_NCHITTEST).
+		core.Settings.IsNonClientRegionSupportEnabled = true;
 
 		// Page origin: the shipped app loads the bundled web app over https://weavie.app/. In Debug the
 		// host owns a Vite dev server — started here, torn down on exit, so there's no second terminal —
@@ -238,6 +309,10 @@ internal sealed class WorkspaceWindow : Form {
 		// WS origin is pinned correctly.
 		_session = new HostSession(_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8]);
 
+		// Custom title bar: route its window-control / menu-action / file-index messages (handled in
+		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
+		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
+
 		// Session changes: push the updated change list to the page whenever a tracked file changes. The
 		// event fires off the UI thread (the hook accept loop); PostToWeb marshals, so calling it is safe.
 		_session.Changes.Changed += PushChangesToWeb;
@@ -249,6 +324,11 @@ internal sealed class WorkspaceWindow : Form {
 		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+
+		// Custom title bar config: tell the web to render the Windows chrome (icon + File/View menus +
+		// omnibar + window controls), with the workspace label and the recents for File ▸ Open Recent.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync(
+			ShellProtocol.BuildConfigScript("win", "custom", WorkspaceLabel(_workspaceRoot), [.. _app.Recents.Items]));
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
 		// Settings events arrive off the UI thread, so marshal onto it before touching the controller.
@@ -359,8 +439,20 @@ internal sealed class WorkspaceWindow : Form {
 			case "list-dir":
 				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
 				break;
+			case "active-editor-changed":
+				_session?.UpdateActiveEditor(root);
+				break;
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
+			case "window-control":
+				_shell?.HandleWindowControl(root);
+				break;
+			case "menu-action":
+				_shell?.HandleMenuAction(root);
+				break;
+			case "request-file-index":
+				_shell?.PushFileIndex();
 				break;
 			case "latency-live":
 			case "benchmark-result":
@@ -371,8 +463,10 @@ internal sealed class WorkspaceWindow : Form {
 				}
 				break;
 			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch.
+				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
+				// the initial window state so the title bar's maximize glyph + blur dim start correct.
 				PushLayoutToWeb();
+				PushWindowState();
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;

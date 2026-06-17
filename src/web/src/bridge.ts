@@ -42,7 +42,30 @@ export type HostBoundMessage =
   // The file browser asks the host to list a directory under the session root (root when path is "").
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
-  | { type: "layout-changed"; document: LayoutDocument };
+  | { type: "layout-changed"; document: LayoutDocument }
+  // The editor's active file or selection changed -> host updates the editor store, which tells the
+  // embedded Claude what the user is looking at (selection_changed). Positions are 0-based.
+  | {
+      type: "active-editor-changed";
+      uri: string;
+      languageId: string;
+      text: string;
+      selection: {
+        start: { line: number; character: number };
+        end: { line: number; character: number };
+        isEmpty: boolean;
+      };
+    }
+  // Custom title bar (Windows): the min / maximize-restore / close buttons.
+  | { type: "window-control"; action: "minimize" | "maximize-toggle" | "close" }
+  // Custom title bar File menu: open a folder, open a recent (carries its path), close this window, quit.
+  | {
+      type: "menu-action";
+      action: "open-folder" | "open-recent" | "close-window" | "exit";
+      path?: string;
+    }
+  // The omnibar asks the host to (re)send the workspace's flat file list for "Go to File".
+  | { type: "request-file-index" };
 
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
@@ -80,7 +103,11 @@ export type WebBoundMessage =
       type: "dir-listing";
       path: string;
       entries: { name: string; path: string; isDir: boolean }[];
-    };
+    }
+  // Host pushes the window's chrome state so the title bar updates its maximize glyph and blur dim.
+  | { type: "window-state"; maximized: boolean; focused: boolean }
+  // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
+  | { type: "file-index"; root: string; files: string[] };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

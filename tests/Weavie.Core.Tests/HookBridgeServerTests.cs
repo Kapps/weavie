@@ -29,6 +29,19 @@ public sealed class HookBridgeServerTests {
 		Assert.Equal(HookEventKind.PreToolUse, request.Event);
 	}
 
+	[Fact]
+	public async Task BypassDecider_ReturnsAllowDecision() {
+		string pipe = UniquePipe();
+		await using var server = new HookBridgeServer(pipe, _ => HookDecision.Allow("bypass"));
+		server.Start();
+
+		string payload = """{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"rm -rf x"}}""";
+		byte[] response = await ExchangeAsync(pipe, Encoding.UTF8.GetBytes(payload));
+
+		string json = Encoding.UTF8.GetString(response);
+		Assert.Contains("\"permissionDecision\":\"allow\"", json, StringComparison.Ordinal);
+	}
+
 	private static async Task<byte[]> ExchangeAsync(string pipe, byte[] payload) {
 		using var client = new NamedPipeClientStream(
 			".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);

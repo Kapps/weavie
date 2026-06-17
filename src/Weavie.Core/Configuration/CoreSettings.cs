@@ -59,11 +59,14 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = "claude.permissionMode",
 			Kind = SettingKind.String,
-			Description = "How Claude's proposed file edits are handled: 'default' opens an editable diff "
-				+ "you Keep or Reject per edit; 'acceptEdits' applies them automatically without prompting. "
-				+ "Bash and other commands still ask either way. Takes effect on the next edit.",
-			Aliases = ["permission mode", "edit mode", "accept edits", "auto accept edits", "stop asking to edit"],
-			AllowedValues = ["default", "acceptEdits"],
+			Description = "How Claude's tool calls are handled: 'default' opens an editable diff you Keep or "
+				+ "Reject per edit (Bash and other commands ask in the terminal); 'acceptEdits' applies edits "
+				+ "automatically without prompting (Bash still asks); 'bypassPermissions' auto-allows every "
+				+ "tool, including Bash, with no prompts. Changes are still recorded in every mode. Takes "
+				+ "effect on the next tool call.",
+			Aliases = ["permission mode", "edit mode", "accept edits", "auto accept edits", "stop asking to edit",
+				"bypass permissions", "yolo mode", "allow all", "skip permissions"],
+			AllowedValues = ["default", "acceptEdits", "bypassPermissions"],
 			Apply = ApplyMode.Live,
 			Default = "default",
 		});

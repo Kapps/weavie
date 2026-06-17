@@ -5,6 +5,7 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
+using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 
 namespace Weavie.Core.Mcp;
@@ -22,11 +23,17 @@ public sealed class McpServer : IAsyncDisposable {
 	private readonly IReadOnlyList<string> _workspaceFolders;
 	private readonly SettingsStore? _settings;
 	private readonly LayoutStore? _layout;
+	private readonly EditorStore? _editor;
 	private readonly string _toolsListJson;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
 	private TcpListener? _listener;
 	private CancellationTokenSource? _cts;
+
+	// The currently connected, authenticated client socket — captured so a host-driven active-editor
+	// change can push an unsolicited selection_changed notification. volatile: written by the accept
+	// task, read from the thread that raises ActiveEditorStore.Changed.
+	private volatile WebSocket? _activeWebSocket;
 
 	/// <summary>
 	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter that
@@ -41,7 +48,8 @@ public sealed class McpServer : IAsyncDisposable {
 		string ideName = "weavie",
 		SettingsStore? settings = null,
 		bool registryMode = false,
-		LayoutStore? layout = null) {
+		LayoutStore? layout = null,
+		EditorStore? editor = null) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -54,6 +62,12 @@ public sealed class McpServer : IAsyncDisposable {
 		_workspaceFolders = workspaceFolders;
 		_settings = settings;
 		_layout = layout;
+		_editor = editor;
+		if (editor is not null) {
+			// Push an unsolicited selection_changed to the connected client whenever the user's active
+			// file/selection changes, so the embedded claude always knows what they're looking at.
+			editor.Changed += OnActiveEditorChanged;
+		}
 
 		// Registry mode advertises ONLY the capability tools (settings + layout, later commands) — this is
 		// the model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
@@ -153,8 +167,15 @@ public sealed class McpServer : IAsyncDisposable {
 				using var ws = WebSocket.CreateFromStream(
 					stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(30));
 				Emit("client connected + authenticated");
+				_activeWebSocket = ws;
 				ClientConnected?.Invoke();
-				await MessageLoopAsync(ws, ct).ConfigureAwait(false);
+				try {
+					await MessageLoopAsync(ws, ct).ConfigureAwait(false);
+				} finally {
+					if (ReferenceEquals(_activeWebSocket, ws)) {
+						_activeWebSocket = null;
+					}
+				}
 			} catch (Exception ex) when (ex is IOException or WebSocketException or OperationCanceledException) {
 				Emit($"client disconnected: {ex.GetType().Name}");
 			}
@@ -272,13 +293,14 @@ public sealed class McpServer : IAsyncDisposable {
 				await SendToolTextAsync(ws, idRaw, BuildWorkspaceFoldersJson(), ct).ConfigureAwait(false);
 				break;
 			case "getOpenEditors":
-				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). We have no editor-
-				// tab model to report yet, so the list is empty — but the object shape must be correct.
-				await SendToolTextAsync(ws, idRaw, "{\"tabs\":[]}", ct).ConfigureAwait(false);
+				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). We report the one
+				// active editor the page told us about (empty list until then), with the correct object shape.
+				await SendToolTextAsync(ws, idRaw, BuildOpenEditorsResult(_editor?.Active), ct).ConfigureAwait(false);
 				break;
 			case "getCurrentSelection":
 			case "getLatestSelection":
-				await SendResultAsync(ws, idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"\"}]}", ct).ConfigureAwait(false);
+				// Stringified {success, text, filePath, selection} in the text item (the shape claude parses).
+				await SendToolTextAsync(ws, idRaw, BuildSelectionResult(_editor?.Active), ct).ConfigureAwait(false);
 				break;
 			case "getDiagnostics":
 				await SendResultAsync(ws, idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}", ct).ConfigureAwait(false);
@@ -501,6 +523,99 @@ public sealed class McpServer : IAsyncDisposable {
 		}
 	}
 
+	// Active-editor context. The page reports the user's active file + selection via the bridge; we both
+	// answer getCurrentSelection/getOpenEditors from it and push a selection_changed notification so the
+	// embedded claude tracks "what the user is looking at" without having to ask. Matches the VS Code /
+	// claudecode.nvim IDE protocol (text/filePath/fileUrl + 0-based selection range).
+	private void OnActiveEditorChanged(ActiveEditor active) {
+		var ws = _activeWebSocket;
+		if (ws is null || ws.State != WebSocketState.Open) {
+			return;
+		}
+
+		_ = PushSelectionChangedAsync(ws, active);
+	}
+
+	private async Task PushSelectionChangedAsync(WebSocket ws, ActiveEditor active) {
+		try {
+			string notification =
+				"{\"jsonrpc\":\"2.0\",\"method\":\"selection_changed\",\"params\":" + BuildSelectionChangedParams(active) + "}";
+			await SendRawAsync(ws, notification, CancellationToken.None).ConfigureAwait(false);
+			Emit($"selection_changed -> {active.FilePath}");
+		} catch (Exception ex) when (ex is IOException or WebSocketException or OperationCanceledException or ObjectDisposedException or InvalidOperationException) {
+			// Best-effort: the notification is advisory, so a closing/dropped socket just means no push.
+		}
+	}
+
+	// selection_changed notification params: { text, filePath, fileUrl, selection:{start,end,isEmpty} }.
+	private static string BuildSelectionChangedParams(ActiveEditor active) => WriteJson(writer => {
+		writer.WriteString("text", active.SelectedText);
+		writer.WriteString("filePath", active.FilePath);
+		writer.WriteString("fileUrl", PathToFileUri(active.FilePath));
+		WriteSelection(writer, active.Selection);
+	});
+
+	// getCurrentSelection/getLatestSelection text item: stringified { success, text, filePath, selection }.
+	private static string BuildSelectionResult(ActiveEditor? active) => WriteJson(writer => {
+		if (active is null) {
+			writer.WriteBoolean("success", false);
+			writer.WriteString("message", "No active editor");
+			return;
+		}
+
+		writer.WriteBoolean("success", true);
+		writer.WriteString("text", active.SelectedText);
+		writer.WriteString("filePath", active.FilePath);
+		WriteSelection(writer, active.Selection);
+	});
+
+	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty}] } — the one
+	// active editor the page reported, or an empty list until it reports one.
+	private static string BuildOpenEditorsResult(ActiveEditor? active) => WriteJson(writer => {
+		writer.WriteStartArray("tabs");
+		if (active is not null) {
+			writer.WriteStartObject();
+			writer.WriteString("uri", PathToFileUri(active.FilePath));
+			writer.WriteBoolean("isActive", true);
+			writer.WriteString("label", Path.GetFileName(active.FilePath));
+			if (active.LanguageId is not null) {
+				writer.WriteString("languageId", active.LanguageId);
+			}
+
+			writer.WriteBoolean("isDirty", false);
+			writer.WriteEndObject();
+		}
+
+		writer.WriteEndArray();
+	});
+
+	private static void WriteSelection(Utf8JsonWriter writer, EditorSelection selection) {
+		writer.WriteStartObject("selection");
+		WritePosition(writer, "start", selection.Start);
+		WritePosition(writer, "end", selection.End);
+		writer.WriteBoolean("isEmpty", selection.IsEmpty);
+		writer.WriteEndObject();
+	}
+
+	private static void WritePosition(Utf8JsonWriter writer, string name, EditorPosition position) {
+		writer.WriteStartObject(name);
+		writer.WriteNumber("line", position.Line);
+		writer.WriteNumber("character", position.Character);
+		writer.WriteEndObject();
+	}
+
+	// Builds a JSON object string: opens/closes the root object around <paramref name="body"/>.
+	private static string WriteJson(Action<Utf8JsonWriter> body) {
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream)) {
+			writer.WriteStartObject();
+			body(writer);
+			writer.WriteEndObject();
+		}
+
+		return Encoding.UTF8.GetString(stream.ToArray());
+	}
+
 	private async Task SendResultAsync(WebSocket ws, string? idRaw, string resultJson, CancellationToken ct) {
 		if (idRaw is null) {
 			return;
@@ -573,6 +688,10 @@ public sealed class McpServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+		if (_editor is not null) {
+			_editor.Changed -= OnActiveEditorChanged;
+		}
+
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);
 			_cts.Dispose();

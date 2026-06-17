@@ -2,6 +2,7 @@ using System.Text.Json;
 using CoreGraphics;
 using Foundation;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
@@ -32,6 +33,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
+	private EditorStore? _editor;
 	private NSWindow? _window;
 	private WKWebView? _webView;
 
@@ -92,7 +94,10 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout);
+		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
+		// the spawned claude what the user is looking at.
+		_editor = new EditorStore();
+		_ide = new IdeIntegration(new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -108,6 +113,17 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
 		// so the settings tools reach the model as mcp__weavie__* (the IDE server's tools are filtered).
 		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
+		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay; the observed
+		// stream is logged here (the session change view will consume the same feed).
+		_claude.SettingsFilePath = _ide.WriteSettingsFile();
+		_ide.HookBridge.Observed += request => {
+			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
+			Console.Out.Flush();
+		};
+		_ide.HookBridge.Log += line => {
+			Console.WriteLine($"[hook] {line}");
+			Console.Out.Flush();
+		};
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
@@ -258,6 +274,12 @@ public sealed class AppDelegate : NSApplicationDelegate {
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
 				_fileOpener?.Open(revealPath, revealLine);
+				break;
+			case "active-editor-changed":
+				if (_editor is not null && ActiveEditor.TryParse(root, out var activeEditor) && activeEditor is not null) {
+					_editor.SetActive(activeEditor);
+				}
+
 				break;
 			case "latency-live":
 			case "benchmark-result":

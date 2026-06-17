@@ -63,8 +63,13 @@ export function DiffView(props: {
         }),
       );
 
-      // Use a file URI for the modified side so Monaco infers the language from the extension.
-      const uri = monaco.Uri.file(props.diff.path);
+      // Keep the file: scheme + path (so Monaco infers the language from the extension exactly as before)
+      // but tag the URI with a query so it can't collide with the main editor's real file:// model for the
+      // same path. The editor backs the open file with that model; if the diff shared the URI, mounting
+      // would dispose the editor's model and tearing the diff down on Keep would dispose it again, leaving
+      // the editor on a dead model (a blank pane). The query keeps the two separate; this dispose only ever
+      // clears a stale model from a prior diff of the same file.
+      const uri = monaco.Uri.file(props.diff.path).with({ query: "weavie-diff" });
       monaco.editor.getModel(uri)?.dispose();
       modifiedModel = monaco.editor.createModel(props.diff.proposed, undefined, uri);
       originalModel = monaco.editor.createModel(props.diff.original, modifiedModel.getLanguageId());

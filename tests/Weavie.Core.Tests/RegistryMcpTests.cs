@@ -2,7 +2,6 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Xunit;
 
@@ -38,7 +37,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_AdvertisesOnlySettingsTools() {
 		using var store = NewStore();
 		await using var server = new McpServer(
-			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -58,7 +57,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_BearerAuth_AcceptsCorrect_RejectsWrong() {
 		using var store = NewStore();
 		await using var server = new McpServer(
-			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
 		int port = server.Start();
 
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectBearerAsync(port, "wrong-token"));
@@ -70,7 +69,7 @@ public sealed class RegistryMcpTests : IDisposable {
 	public async Task RegistryMode_SetSetting_OverBearer_Persists() {
 		using var store = NewStore();
 		await using var server = new McpServer(
-			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store, registryMode: true);
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
 		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
@@ -86,13 +85,13 @@ public sealed class RegistryMcpTests : IDisposable {
 	[Fact]
 	public void RegistryMode_RequiresStore() {
 		Assert.Throws<ArgumentNullException>(() => new McpServer(
-			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", settings: null, registryMode: true));
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings: null, registryMode: true));
 	}
 
 	[Fact]
 	public async Task IdeIntegration_WithSettings_WritesPortScopedConfig() {
 		using var store = NewStore();
-		await using var ide = new IdeIntegration(FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store);
+		await using var ide = new IdeIntegration(FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
 
 		Assert.NotNull(ide.RegistryServer);
 		Assert.True(ide.RegistryPort > 0);
@@ -110,7 +109,7 @@ public sealed class RegistryMcpTests : IDisposable {
 
 	[Fact]
 	public async Task IdeIntegration_WithoutSettings_HasNoRegistry() {
-		await using var ide = new IdeIntegration(FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie");
+		await using var ide = new IdeIntegration(FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie");
 		Assert.Null(ide.RegistryServer);
 		Assert.Equal(0, ide.RegistryPort);
 		Assert.Null(ide.WriteMcpConfigFile());

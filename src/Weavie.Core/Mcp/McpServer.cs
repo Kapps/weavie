@@ -269,11 +269,12 @@ public sealed class McpServer : IAsyncDisposable {
 				await SendToolTextAsync(ws, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
 				break;
 			case "getWorkspaceFolders":
-				string folders = string.Join(",", _workspaceFolders.Select(JsonString));
-				await SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":\"workspace\"}}],\"workspaceFolders\":[{folders}]}}", ct).ConfigureAwait(false);
+				await SendToolTextAsync(ws, idRaw, BuildWorkspaceFoldersJson(), ct).ConfigureAwait(false);
 				break;
 			case "getOpenEditors":
-				await SendResultAsync(ws, idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}", ct).ConfigureAwait(false);
+				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). We have no editor-
+				// tab model to report yet, so the list is empty — but the object shape must be correct.
+				await SendToolTextAsync(ws, idRaw, "{\"tabs\":[]}", ct).ConfigureAwait(false);
 				break;
 			case "getCurrentSelection":
 			case "getLatestSelection":
@@ -465,6 +466,39 @@ public sealed class McpServer : IAsyncDisposable {
 	private Task SendToolTextsAsync(WebSocket ws, string? idRaw, IReadOnlyList<string> texts, CancellationToken ct) {
 		string items = string.Join(",", texts.Select(t => $"{{\"type\":\"text\",\"text\":{JsonString(t)}}}"));
 		return SendResultAsync(ws, idRaw, $"{{\"content\":[{items}]}}", ct);
+	}
+
+	// getWorkspaceFolders: a JSON-stringified {success, folders:[{name,uri,path}], rootPath} inside one
+	// text item — the shape Claude parses (coder/claudecode.nvim). The earlier ad-hoc top-level
+	// "workspaceFolders" field with a "workspace" placeholder text was not read by Claude.
+	private string BuildWorkspaceFoldersJson() {
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream)) {
+			writer.WriteStartObject();
+			writer.WriteBoolean("success", true);
+			writer.WriteStartArray("folders");
+			foreach (string folder in _workspaceFolders) {
+				writer.WriteStartObject();
+				writer.WriteString("name", Path.GetFileName(folder.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)));
+				writer.WriteString("uri", PathToFileUri(folder));
+				writer.WriteString("path", folder);
+				writer.WriteEndObject();
+			}
+
+			writer.WriteEndArray();
+			writer.WriteString("rootPath", _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty);
+			writer.WriteEndObject();
+		}
+
+		return Encoding.UTF8.GetString(stream.ToArray());
+	}
+
+	private static string PathToFileUri(string path) {
+		try {
+			return new Uri(path).AbsoluteUri;
+		} catch (UriFormatException) {
+			return path;
+		}
 	}
 
 	private async Task SendResultAsync(WebSocket ws, string? idRaw, string resultJson, CancellationToken ct) {

@@ -182,8 +182,10 @@ dotnet_naming_symbols.private_fields.applicable_accessibilities = private, inter
 dotnet_naming_style.underscore_prefix.required_prefix = _
 dotnet_naming_style.underscore_prefix.capitalization = camel_case
 
-# Constants: PascalCase
-dotnet_naming_rule.constants_should_be_pascal.severity = error
+# Constants: rule disabled. Win32 P/Invoke constants (e.g. PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE)
+# keep their OS SCREAMING_SNAKE_CASE names to match MSDN/kernel32 verbatim, so PascalCase is not
+# enforced on const fields anywhere.
+dotnet_naming_rule.constants_should_be_pascal.severity = none
 dotnet_naming_rule.constants_should_be_pascal.symbols = constants
 dotnet_naming_rule.constants_should_be_pascal.style = pascal_case
 

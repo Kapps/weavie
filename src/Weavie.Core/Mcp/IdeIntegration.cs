@@ -1,5 +1,4 @@
 using Weavie.Core.Configuration;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 
 namespace Weavie.Core.Mcp;
@@ -27,7 +26,6 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	/// </summary>
 	public IdeIntegration(
 		IDiffPresenter presenter,
-		IFileSystem fileSystem,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName = "weavie",
 		SettingsStore? settings = null,
@@ -35,13 +33,13 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
-		Server = new McpServer(AuthToken, presenter, fileSystem, workspaceFolders, ideName);
+		Server = new McpServer(AuthToken, presenter, workspaceFolders, ideName);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
 		if (settings is not null) {
 			RegistryServer = new McpServer(
-				AuthToken, presenter, fileSystem, workspaceFolders, ideName, settings, registryMode: true, layout: layout);
+				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout);
 			RegistryPort = RegistryServer.Start();
 		}
 	}

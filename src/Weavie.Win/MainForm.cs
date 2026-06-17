@@ -48,6 +48,7 @@ internal sealed class MainForm : Form {
 	private readonly WebView2 _webView;
 	private readonly LayoutStore _layout;
 	private bool _lastMaximized;
+	private bool _webViewTornDown;
 	private SettingsStore? _settings;
 	private TerminalController? _claude;
 	private TerminalController? _shell;
@@ -88,7 +89,7 @@ internal sealed class MainForm : Form {
 		Load += OnLoad;
 		ResizeEnd += (_, _) => SaveWindowState();
 		SizeChanged += OnWindowSizeChanged;
-		FormClosing += (_, _) => SaveWindowState();
+		FormClosing += OnFormClosing;
 		FormClosed += (_, _) => Shutdown();
 	}
 
@@ -224,7 +225,7 @@ internal sealed class MainForm : Form {
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie", _settings, _layout);
+		_ide = new IdeIntegration(_diffPresenter, [workspace], "weavie", _settings, _layout);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -479,6 +480,34 @@ internal sealed class MainForm : Form {
 			action();
 		};
 		timer.Start();
+	}
+
+	/// <summary>
+	/// Runs as the window closes — before the handle is destroyed and while the message pump is still
+	/// alive. Persists geometry, then tears the WebView2 down deterministically. We can't leave this to
+	/// the Form's automatic control disposal: that runs only after <see cref="Shutdown"/> (in
+	/// FormClosed), as the message loop is already ending, which races WebView2's native teardown. When
+	/// this instance owns its browser process and the page still has live web workers / sockets (Monaco's
+	/// language workers, the LSP WebSocket), that race can leave a renderer thread alive — the window
+	/// closes but weavie.exe never exits (you see teardown finish in the log, then the process just
+	/// sits there). Disposing the control here closes the CoreWebView2 controller — terminating the
+	/// renderer and releasing those threads — while the pump can still service the teardown, and before
+	/// Shutdown kills the Vite dev server out from under the page.
+	/// </summary>
+	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
+		SaveWindowState();
+		if (_webViewTornDown) {
+			return; // FormClosing can fire more than once; dispose the view exactly once.
+		}
+
+		_webViewTornDown = true;
+		try {
+			_webView.Dispose();
+		} catch (Exception ex) {
+			// Best-effort: a dispose mid-initialization (closed during the ~0.3s cold start) can fault,
+			// and we're exiting regardless. Don't let it block the close.
+			Console.Error.WriteLine($"[weavie] webview teardown: {ex.Message}");
+		}
 	}
 
 	private void Shutdown() {

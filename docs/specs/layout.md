@@ -545,10 +545,17 @@ store's posture (log via the existing `Log` event, never throw out of constructi
 3. **Done (Win built; Mac unverified).** Window geometry: `WindowState` on the document,
    `LayoutStore.SetWindow`, host restore-on-launch + save-on-change. Windows compiles clean; the macOS
    mirror needs a Mac build to confirm the AppKit calls.
-4. **Pending.** MCP `getLayout`/`setLayout` on the registry server (+ loopback tests); wire
-   `LayoutStore` into `IdeIntegration` registry mode.
-5. **Pending.** Bridge messages (`set-layout`, `layout-changed`, `pane-closed`) + host subscribe/
-   dispatch/startup-push (Win + Mac).
-6. **Pending.** Web: types, bridge handlers, `PaneHandle`/focus delegation, capture-phase `Ctrl+1..9`,
-   recursive `LayoutTree` renderer + splitter, optimistic+debounced persist, pane-instance preservation.
-7. **Pending.** Replace the hardcoded `App.tsx` tree with the renderer; delete `leftPct`/`activeLeft`.
+4. **Done + tested.** MCP `getLayout`/`setLayout` on the registry server (4 loopback tests); wired
+   `LayoutStore` into `IdeIntegration` registry mode and both hosts.
+5. **Done (Win built; Mac mirrored).** Bridge messages (`set-layout`, `layout-changed`) + host
+   subscribe / dispatch / startup-push on `ready`. (`pane-closed` deferred — no close UI yet.)
+6. **Done.** Web: types, bridge handlers, recursive renderer (`LayoutView` + `geometry.ts`), splitters
+   at every boundary, optimistic + debounced persist, and **pane-instance preservation** via stable
+   absolutely-positioned slots (xterm/Monaco are repositioned, never remounted). Typecheck + lint +
+   production build all clean. *(Focus delegation / `PaneHandle` + capture-phase `Ctrl+1..9` still
+   pending — the one deferred sub-item.)*
+7. **Done.** Replaced the hardcoded `App.tsx` tree with `<LayoutView>`; deleted `leftPct`/`activeLeft`
+   and the `TerminalPane` accordion.
+
+The mapping that round-tripped `leftPct`/`activeLeft` through the tree (the intermediate from step 5's
+first cut) is gone — `App.tsx` now holds the layout as a real `LayoutNode` tree end to end.

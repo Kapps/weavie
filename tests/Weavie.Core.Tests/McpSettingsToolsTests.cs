@@ -2,7 +2,6 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Xunit;
 
@@ -36,7 +35,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	private SettingsStore NewStore() => CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
 	private McpServer NewServer(SettingsStore store) =>
-		new(Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store);
+		new(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
 
 	// A shell guaranteed to validate on this machine — prefer nushell (the acceptance target) when present.
 	private static string PresentShell() {

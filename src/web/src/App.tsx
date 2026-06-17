@@ -16,6 +16,7 @@ import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
+import { LayoutView } from "./layout/LayoutView";
 import { layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
 import { dismissSplash } from "./splash";
@@ -39,55 +40,31 @@ const DEBUG_PERF = new URLSearchParams(location.search).has("debugperf");
 
 const ms = (n: number): string => n.toFixed(1);
 
-const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
-
-// The current UI has two degrees of layout freedom — the left/right split ratio and which terminal is
-// expanded — which we round-trip through the Core layout tree (Row[ Column[claude, shell], editor ]) so
-// they persist across launches. When the full recursive renderer lands this mapping goes away.
-function viewToRoot(leftPct: number, active: TermSession): LayoutNode {
-  const left = clamp(leftPct, 20, 80) / 100;
-  const claudeWeight = active === "claude" ? 0.8 : 0.2;
-  return {
-    type: "split",
-    dir: "row",
-    weights: [left, 1 - left],
-    children: [
-      {
-        type: "split",
-        dir: "column",
-        weights: [claudeWeight, 1 - claudeWeight],
-        children: [
-          { type: "pane", id: "p_claude", kind: "terminal:claude" },
-          { type: "pane", id: "p_shell", kind: "terminal:shell" },
-        ],
-      },
-      { type: "pane", id: "p_editor", kind: "editor" },
-    ],
-  };
-}
-
-function rootToView(root: LayoutNode): { leftPct: number; active: TermSession } {
-  if (root.type === "split" && root.dir === "row") {
-    const leftPct = clamp(Math.round((root.weights[0] ?? 0.4) * 100), 20, 80);
-    const left = root.children[0];
-    let active: TermSession = "claude";
-    if (left?.type === "split") {
-      const claudeWeight = left.weights[0] ?? 0.5;
-      const shellWeight = left.weights[1] ?? 0.5;
-      active = shellWeight > claudeWeight ? "shell" : "claude";
-    }
-    return { leftPct, active };
-  }
-  return { leftPct: 40, active: "claude" };
-}
+// The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the Claude
+// and shell terminals beside the editor, 40/60. Shown until the host pushes the persisted layout.
+const DEFAULT_ROOT: LayoutNode = {
+  type: "split",
+  dir: "row",
+  weights: [0.4, 0.6],
+  children: [
+    {
+      type: "split",
+      dir: "column",
+      weights: [0.5, 0.5],
+      children: [
+        { type: "pane", id: "p_claude", kind: "terminal:claude" },
+        { type: "pane", id: "p_shell", kind: "terminal:shell" },
+      ],
+    },
+    { type: "pane", id: "p_editor", kind: "editor" },
+  ],
+};
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
-  let splitContainer!: HTMLDivElement;
-  // Width of the left (terminal) column as a % of the split; the editor takes the rest.
-  const [leftPct, setLeftPct] = createSignal(40);
-  // Which left-column pane is "active" and expands to 80% of the column height. Driven by focus.
-  const [activeLeft, setActiveLeft] = createSignal<TermSession>("claude");
+  // The live pane layout tree: seeded with the default, replaced when the host pushes the persisted
+  // layout, and updated optimistically while the user drags a splitter.
+  const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_ROOT);
   const [stats, setStats] = createSignal<LiveLatencyStats | null>(null);
   const [loadOn, setLoadOn] = createSignal(false);
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
@@ -101,47 +78,60 @@ export default function App(): JSX.Element {
   // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
   // layout, so we never overwrite the saved state with the default before it has loaded.
   let persistTimer = 0;
-  const persistLayout = (): void => {
+  const persistRoot = (root: LayoutNode): void => {
     const base = layoutDocument();
     if (base === null) {
       return;
     }
     window.clearTimeout(persistTimer);
     persistTimer = window.setTimeout(() => {
-      sendLayout({
-        ...base,
-        root: viewToRoot(leftPct(), activeLeft()),
-        focused: activeLeft() === "claude" ? "p_claude" : "p_shell",
-      });
+      sendLayout({ ...base, root });
     }, 400);
   };
 
-  // Apply the layout the host pushes (startup restore + any later host/MCP change). Gesture-driven
-  // persistence above means applying a pushed layout never echoes back into a save.
+  // A splitter drag: show the new sizes immediately, persist on a debounce.
+  const onLayoutResize = (root: LayoutNode): void => {
+    setLayoutRoot(root);
+    persistRoot(root);
+  };
+
+  // Apply the layout the host pushes (startup restore + any later host/MCP change). The resize handler
+  // is gesture-driven, so applying a pushed layout never echoes back into a save.
   createEffect(() => {
     const doc = layoutDocument();
-    if (doc === null) {
-      return;
+    if (doc !== null) {
+      setLayoutRoot(doc.root);
     }
-    const view = rootToView(doc.root);
-    setLeftPct(view.leftPct);
-    setActiveLeft(view.active);
   });
 
-  const startDrag = (event: PointerEvent): void => {
-    event.preventDefault();
-    const onMove = (move: PointerEvent): void => {
-      const rect = splitContainer.getBoundingClientRect();
-      const pct = ((move.clientX - rect.left) / rect.width) * 100;
-      setLeftPct(Math.min(80, Math.max(20, pct)));
-    };
-    const onUp = (): void => {
-      window.removeEventListener("pointermove", onMove);
-      window.removeEventListener("pointerup", onUp);
-      persistLayout();
-    };
-    window.addEventListener("pointermove", onMove);
-    window.addEventListener("pointerup", onUp);
+  // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable),
+  // so the editor and terminals are created a single time and only repositioned thereafter.
+  const renderPane = (kind: string): JSX.Element => {
+    if (kind === "editor") {
+      return (
+        <div class="editor-surface">
+          <div class="editor" ref={editorContainer} />
+          <Show when={activeDiff()}>
+            {(diff) => (
+              <Suspense>
+                <DiffView diff={diff()} onResolve={resolveDiff} />
+              </Suspense>
+            )}
+          </Show>
+        </div>
+      );
+    }
+    const session: TermSession = kind === "terminal:claude" ? "claude" : "shell";
+    return (
+      <div class="terminal-surface">
+        <div class="pane-head">
+          <span class="pane-label">{kind === "terminal:claude" ? "Claude Code" : "Terminal"}</span>
+        </div>
+        <div class="pane-body">
+          <TerminalView session={session} />
+        </div>
+      </div>
+    );
   };
 
   const resolveDiff = (kept: boolean, finalContents: string): void => {
@@ -308,84 +298,7 @@ export default function App(): JSX.Element {
           onRunBench={() => void runBench()}
         />
       </Show>
-      <div class="split" ref={splitContainer}>
-        <div class="left-col" style={`flex: 0 0 ${leftPct()}%`}>
-          <TerminalPane
-            session="claude"
-            label="Claude Code"
-            active={activeLeft() === "claude"}
-            onActivate={() => {
-              setActiveLeft("claude");
-              persistLayout();
-            }}
-          />
-          <TerminalPane
-            session="shell"
-            label="Terminal"
-            active={activeLeft() === "shell"}
-            onActivate={() => {
-              setActiveLeft("shell");
-              persistLayout();
-            }}
-          />
-        </div>
-        <div class="splitter" onPointerDown={startDrag} />
-        <div class="pane editor-pane">
-          <div class="editor" ref={editorContainer} />
-          <Show when={activeDiff()}>
-            {(diff) => (
-              <Suspense>
-                <DiffView diff={diff()} onResolve={resolveDiff} />
-              </Suspense>
-            )}
-          </Show>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// One pane in the left column: a titled, focus-driven accordion section wrapping a terminal
-// session. Selecting it (click or keyboard) makes it "active", expanding it to 80% of the column.
-//
-// We must resize only *after* the pointer is released, never on pointerdown/focusin: a press inside
-// an inactive pane focuses xterm (firing focusin), and resizing then would grow the pane while the
-// button is held, sliding the text up under the stationary cursor — which the browser reports as
-// mousemove and xterm turns into a stray drag-selection. So pointer activation waits for the click,
-// and the focusin path is gated to keyboard focus (no pointer down) only.
-function TerminalPane(props: {
-  session: TermSession;
-  label: string;
-  active: boolean;
-  onActivate: () => void;
-}): JSX.Element {
-  let pointerDown = false;
-  return (
-    <div
-      class="left-pane"
-      classList={{ active: props.active }}
-      onPointerDown={() => {
-        pointerDown = true;
-      }}
-      onPointerUp={() => {
-        pointerDown = false;
-        props.onActivate();
-      }}
-      onPointerLeave={() => {
-        pointerDown = false;
-      }}
-      onFocusIn={() => {
-        if (!pointerDown) {
-          props.onActivate();
-        }
-      }}
-    >
-      <div class="pane-head">
-        <span class="pane-label">{props.label}</span>
-      </div>
-      <div class="pane-body">
-        <TerminalView session={props.session} />
-      </div>
+      <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
     </div>
   );
 }

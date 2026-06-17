@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.RegularExpressions;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Terminal;
 
@@ -24,7 +23,7 @@ Console.WriteLine($"[harness] workspace: {workspace}");
 
 var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
-await using var ide = new IdeIntegration(presenter, new LocalFileSystem(), [workspace], "weavie");
+await using var ide = new IdeIntegration(presenter, [workspace], "weavie");
 
 ide.Server.Log += line => {
 	Console.WriteLine($"[mcp] {line}");

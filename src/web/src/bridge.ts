@@ -7,11 +7,21 @@
 // absent and outbound messages are no-ops — by design, never a thrown error.
 
 import type { BenchmarkConfig, BenchmarkReport, LiveLatencyStats } from "./latency/types";
+import type { LayoutDocument } from "./layout/types";
 
 // The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
 // and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
 // the host can route it to the right PTY and the page can route output back to the right xterm pane.
 export type TermSession = "claude" | "shell";
+
+// Resolved typography for one text surface (editor or terminal). The host resolves the global +
+// per-surface override font settings down to concrete values, injects them as window.__WEAVIE_FONTS__
+// before navigation, and re-pushes a { type: "fonts" } message whenever a font setting changes.
+export interface FontSpec {
+  family: string;
+  size: number;
+  weight: string;
+}
 
 export type HostBoundMessage =
   | { type: "ready" }
@@ -26,7 +36,9 @@ export type HostBoundMessage =
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file.
-  | { type: "reveal-file"; path: string; line: number };
+  | { type: "reveal-file"; path: string; line: number }
+  // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
+  | { type: "layout-changed"; document: LayoutDocument };
 
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
@@ -47,7 +59,11 @@ export type WebBoundMessage =
     }
   | { type: "close-diff"; id: string }
   // Host delivers a file's contents to load + reveal in the Monaco editor.
-  | { type: "open-file"; path: string; content: string; line: number };
+  | { type: "open-file"; path: string; content: string; line: number }
+  // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
+  | { type: "set-layout"; document: LayoutDocument }
+  // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
+  | { type: "fonts"; editor: FontSpec; terminal: FontSpec };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

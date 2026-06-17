@@ -14,11 +14,29 @@ public sealed class LocalFileSystem : IFileSystem {
 
 	/// <inheritdoc/>
 	public void WriteAllText(string path, string contents) {
-		var directory = Path.GetDirectoryName(Path.GetFullPath(path));
+		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
 		if (!string.IsNullOrEmpty(directory)) {
 			Directory.CreateDirectory(directory);
 		}
 
 		File.WriteAllText(path, contents, Utf8NoBom);
+	}
+
+	/// <inheritdoc/>
+	public void WriteAllTextAtomic(string path, string contents) {
+		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+		if (!string.IsNullOrEmpty(directory)) {
+			Directory.CreateDirectory(directory);
+		}
+
+		// Write to a sibling temp file then swap into place: File.Replace is atomic and preserves the
+		// destination's attributes/ACLs; File.Move covers the first-write case where there's no target.
+		string tmp = path + ".tmp";
+		File.WriteAllText(tmp, contents, Utf8NoBom);
+		if (File.Exists(path)) {
+			File.Replace(tmp, path, null);
+		} else {
+			File.Move(tmp, path);
+		}
 	}
 }

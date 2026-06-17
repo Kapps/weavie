@@ -1,15 +1,32 @@
-import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import {
+  For,
+  type JSX,
+  Show,
+  Suspense,
+  createEffect,
+  createSignal,
+  lazy,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
-import { type ActiveDiff, DiffView } from "./diff/DiffView";
-import { SAMPLE_CODE, createEditor, monaco } from "./editor/monaco-setup";
-import { runBenchmark } from "./latency/benchmark";
+import type { ActiveDiff } from "./diff/DiffView";
+import type { EditorHost } from "./editor/editor-host";
 import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
 import { LoadGenerator } from "./latency/load-generator";
 import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
-import { startLanguageServices } from "./lsp/lsp-client";
+import { layoutDocument, sendLayout } from "./layout/store";
+import type { LayoutNode } from "./layout/types";
+import { dismissSplash } from "./splash";
+import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
 import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./theme";
+
+// The Monaco editor and its VSCode service layer are the heaviest code in the app. They live behind a
+// dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none
+// of it. DiffView also pulls Monaco, so it's lazy too; by the time a diff arrives the chunk is warm.
+const DiffView = lazy(() => import("./diff/DiffView").then((m) => ({ default: m.DiffView })));
 
 const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 
@@ -21,6 +38,48 @@ const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
 const DEBUG_PERF = new URLSearchParams(location.search).has("debugperf");
 
 const ms = (n: number): string => n.toFixed(1);
+
+const clamp = (n: number, lo: number, hi: number): number => Math.min(hi, Math.max(lo, n));
+
+// The current UI has two degrees of layout freedom — the left/right split ratio and which terminal is
+// expanded — which we round-trip through the Core layout tree (Row[ Column[claude, shell], editor ]) so
+// they persist across launches. When the full recursive renderer lands this mapping goes away.
+function viewToRoot(leftPct: number, active: TermSession): LayoutNode {
+  const left = clamp(leftPct, 20, 80) / 100;
+  const claudeWeight = active === "claude" ? 0.8 : 0.2;
+  return {
+    type: "split",
+    dir: "row",
+    weights: [left, 1 - left],
+    children: [
+      {
+        type: "split",
+        dir: "column",
+        weights: [claudeWeight, 1 - claudeWeight],
+        children: [
+          { type: "pane", id: "p_claude", kind: "terminal:claude" },
+          { type: "pane", id: "p_shell", kind: "terminal:shell" },
+        ],
+      },
+      { type: "pane", id: "p_editor", kind: "editor" },
+    ],
+  };
+}
+
+function rootToView(root: LayoutNode): { leftPct: number; active: TermSession } {
+  if (root.type === "split" && root.dir === "row") {
+    const leftPct = clamp(Math.round((root.weights[0] ?? 0.4) * 100), 20, 80);
+    const left = root.children[0];
+    let active: TermSession = "claude";
+    if (left?.type === "split") {
+      const claudeWeight = left.weights[0] ?? 0.5;
+      const shellWeight = left.weights[1] ?? 0.5;
+      active = shellWeight > claudeWeight ? "shell" : "claude";
+    }
+    return { leftPct, active };
+  }
+  return { leftPct: 40, active: "claude" };
+}
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
@@ -39,6 +98,36 @@ export default function App(): JSX.Element {
   // tick so dragging the window to a differently-scaled monitor updates it.
   const [dpr, setDpr] = createSignal(window.devicePixelRatio);
 
+  // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
+  // layout, so we never overwrite the saved state with the default before it has loaded.
+  let persistTimer = 0;
+  const persistLayout = (): void => {
+    const base = layoutDocument();
+    if (base === null) {
+      return;
+    }
+    window.clearTimeout(persistTimer);
+    persistTimer = window.setTimeout(() => {
+      sendLayout({
+        ...base,
+        root: viewToRoot(leftPct(), activeLeft()),
+        focused: activeLeft() === "claude" ? "p_claude" : "p_shell",
+      });
+    }, 400);
+  };
+
+  // Apply the layout the host pushes (startup restore + any later host/MCP change). Gesture-driven
+  // persistence above means applying a pushed layout never echoes back into a save.
+  createEffect(() => {
+    const doc = layoutDocument();
+    if (doc === null) {
+      return;
+    }
+    const view = rootToView(doc.root);
+    setLeftPct(view.leftPct);
+    setActiveLeft(view.active);
+  });
+
   const startDrag = (event: PointerEvent): void => {
     event.preventDefault();
     const onMove = (move: PointerEvent): void => {
@@ -49,6 +138,7 @@ export default function App(): JSX.Element {
     const onUp = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      persistLayout();
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
@@ -65,7 +155,10 @@ export default function App(): JSX.Element {
 
   const meter = new LatencyMeter();
   const load = new LoadGenerator(5);
-  let editor: monaco.editor.IStandaloneCodeEditor | undefined;
+  // The Monaco editor host, set once its chunk has loaded and the editor is created (see onMount).
+  let host: EditorHost | undefined;
+  // An open-file request that arrived before the editor was ready; replayed when it is (last wins).
+  let pendingOpen: { path: string; content: string; line: number } | undefined;
 
   const setLoad = (on: boolean): void => {
     if (on) {
@@ -78,17 +171,19 @@ export default function App(): JSX.Element {
   };
 
   const runBench = async (): Promise<void> => {
-    if (editor === undefined || benchRunning()) {
+    if (host === undefined || benchRunning()) {
       return;
     }
     setBenchRunning(true);
     const restoreLoad = loadOn();
     try {
-      const result = await runBenchmark(editor, load, BENCH_CONFIG);
+      // benchmark.ts pulls Monaco, so it's loaded on demand (debugperf-only) rather than at startup.
+      const { runBenchmark } = await import("./latency/benchmark");
+      const result = await runBenchmark(host.editor, load, BENCH_CONFIG);
       setReport(result);
       postToHost({ type: "benchmark-result", report: result });
       log("info", `benchmark done: ${result.note}`);
-      editor.getModel()?.setValue(SAMPLE_CODE);
+      host.resetSample();
     } catch (error) {
       log("error", `benchmark failed: ${String(error)}`);
     } finally {
@@ -98,38 +193,45 @@ export default function App(): JSX.Element {
   };
 
   const openFileInEditor = (path: string, content: string, line: number): void => {
-    if (editor === undefined) {
-      return;
+    if (host !== undefined) {
+      host.openFile(path, content, line);
+    } else {
+      // Editor chunk not loaded yet — remember the request and replay it once the host is ready.
+      pendingOpen = { path, content, line };
     }
-    const uri = monaco.Uri.file(path);
-    const existing = monaco.editor.getModel(uri);
-    const model = existing ?? monaco.editor.createModel(content, undefined, uri);
-    if (existing) {
-      existing.setValue(content);
-    }
-    editor.setModel(model);
-    editor.revealLineInCenter(line);
-    editor.setPosition({ lineNumber: line, column: 1 });
-    editor.focus();
   };
 
   onMount(() => {
     // Theme chrome from the default palette (spec §6 application surface). Override ops layer here once
     // wired to settings/MCP; for now this publishes --weavie-* CSS vars for the chrome to consume.
     applyColorsToCssVars(resolveColors(DEFAULT_DARK_PALETTE, []));
+    mark("shell-mounted");
 
-    // Editor init must not abort the shared onMount queue: a throw here would otherwise prevent the
-    // sibling terminal panes from mounting (and emitting term-ready), blanking the whole left column.
-    try {
-      editor = createEditor(editorContainer);
-      editor.focus();
-      postToHost({ type: "monaco-ready" });
-      // Lazy per-language LSP via the bridge (no-op if the host didn't inject bridge config); a client
-      // connects the first time a document of its language is open.
-      startLanguageServices();
-    } catch (error) {
-      log("error", `editor init failed: ${String(error)}`);
-    }
+    // The terminal panes are already in the tree and mount now — emitting term-ready, which spawns
+    // claude — without waiting on Monaco. The editor (and its VSCode service layer) is a separate chunk
+    // loaded here, off the first-paint path; the pane shows a placeholder until it resolves. A failure
+    // must not take down the shell, so we catch and let the terminals keep working.
+    // Hold the splash over everything until the editor is ready, then fade once — so the editor's first
+    // paint happens *under* the splash and the reveal shows a settled UI (no placeholder relay, no
+    // pop-in flash). A safety timeout dismisses it even if the editor chunk is slow or fails, so the
+    // terminals are never stuck behind it.
+    const splashFallback = window.setTimeout(dismissSplash, 3000);
+    void import("./editor/editor-host")
+      .then(({ createEditorHost }) => createEditorHost(editorContainer))
+      .then((editorHost) => {
+        host = editorHost;
+        if (pendingOpen !== undefined) {
+          editorHost.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
+          pendingOpen = undefined;
+        }
+        postToHost({ type: "monaco-ready" });
+        mark("editor-ready");
+      })
+      .catch((error: unknown) => log("error", `editor init failed: ${String(error)}`))
+      .finally(() => {
+        window.clearTimeout(splashFallback);
+        dismissSplash();
+      });
 
     // All live perf instrumentation is opt-in via ?debugperf. When off we never start the meter,
     // the HUD tick, the fps probe, or the auto-bench — so the shipped UI carries none of their cost
@@ -185,10 +287,11 @@ export default function App(): JSX.Element {
     onCleanup(() => {
       window.clearInterval(hudTimer);
       window.clearTimeout(autoBench);
+      window.clearTimeout(persistTimer);
       offHost();
       meter.dispose();
       load.stop();
-      editor?.dispose();
+      host?.editor.dispose();
     });
   });
 
@@ -211,20 +314,30 @@ export default function App(): JSX.Element {
             session="claude"
             label="Claude Code"
             active={activeLeft() === "claude"}
-            onActivate={() => setActiveLeft("claude")}
+            onActivate={() => {
+              setActiveLeft("claude");
+              persistLayout();
+            }}
           />
           <TerminalPane
             session="shell"
             label="Terminal"
             active={activeLeft() === "shell"}
-            onActivate={() => setActiveLeft("shell")}
+            onActivate={() => {
+              setActiveLeft("shell");
+              persistLayout();
+            }}
           />
         </div>
         <div class="splitter" onPointerDown={startDrag} />
         <div class="pane editor-pane">
           <div class="editor" ref={editorContainer} />
           <Show when={activeDiff()}>
-            {(diff) => <DiffView diff={diff()} onResolve={resolveDiff} />}
+            {(diff) => (
+              <Suspense>
+                <DiffView diff={diff()} onResolve={resolveDiff} />
+              </Suspense>
+            )}
           </Show>
         </div>
       </div>

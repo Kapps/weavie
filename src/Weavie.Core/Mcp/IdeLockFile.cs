@@ -14,7 +14,7 @@ public static class IdeLockFile {
 	/// <summary>Directory holding the lock files: <c>$CLAUDE_CONFIG_DIR/ide</c>, else <c>~/.claude/ide</c>.</summary>
 	public static string DirectoryPath {
 		get {
-			var configDir = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
+			string? configDir = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
 			if (string.IsNullOrEmpty(configDir)) {
 				configDir = Path.Combine(
 					Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
@@ -44,7 +44,7 @@ public static class IdeLockFile {
 			writer.WriteStartObject();
 			writer.WriteNumber("pid", Environment.ProcessId);
 			writer.WriteStartArray("workspaceFolders");
-			foreach (var folder in workspaceFolders) {
+			foreach (string folder in workspaceFolders) {
 				writer.WriteStringValue(folder);
 			}
 
@@ -61,7 +61,7 @@ public static class IdeLockFile {
 	/// <summary>Removes the lock file for <paramref name="port"/> if present; best-effort (ignores I/O errors).</summary>
 	public static void Delete(int port) {
 		try {
-			var path = PathForPort(port);
+			string path = PathForPort(port);
 			if (File.Exists(path)) {
 				File.Delete(path);
 			}
@@ -72,7 +72,7 @@ public static class IdeLockFile {
 
 	internal static string ComputeWebSocketAccept(string secWebSocketKey) {
 		const string magic = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
-		var hash = SHA1.HashData(Encoding.ASCII.GetBytes(secWebSocketKey + magic));
+		byte[] hash = SHA1.HashData(Encoding.ASCII.GetBytes(secWebSocketKey + magic));
 		return Convert.ToBase64String(hash);
 	}
 }

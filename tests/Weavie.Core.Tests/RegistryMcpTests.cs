@@ -39,7 +39,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		await using var server = new McpServer(
 			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store, registryMode: true);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -59,7 +59,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		await using var server = new McpServer(
 			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store, registryMode: true);
-		var port = server.Start();
+		int port = server.Start();
 
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectBearerAsync(port, "wrong-token"));
 		using var ws = await ConnectBearerAsync(port, Token); // correct token connects
@@ -71,10 +71,10 @@ public sealed class RegistryMcpTests : IDisposable {
 		using var store = NewStore();
 		await using var server = new McpServer(
 			Token, FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem(), [_dir], "weavie", store, registryMode: true);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectBearerAsync(port, Token);
 
-		var shell = OperatingSystem.IsWindows() ? "cmd" : "/bin/sh";
+		string shell = OperatingSystem.IsWindows() ? "cmd" : "/bin/sh";
 		await SendAsync(ws, Request(2, "tools/call",
 			$"{{\"name\":\"setSetting\",\"arguments\":{{\"key\":\"terminal.shell\",\"value\":\"{shell}\"}}}}"));
 		using var response = await ReceiveAsync(ws);
@@ -97,7 +97,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.NotNull(ide.RegistryServer);
 		Assert.True(ide.RegistryPort > 0);
 
-		var path = ide.WriteMcpConfigFile();
+		string? path = ide.WriteMcpConfigFile();
 		Assert.NotNull(path);
 		Assert.Contains(ide.RegistryPort.ToString(System.Globalization.CultureInfo.InvariantCulture), Path.GetFileName(path!), StringComparison.Ordinal);
 
@@ -128,7 +128,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
 
 	private static async Task<JsonDocument> ReceiveAsync(ClientWebSocket ws) {
-		var buffer = new byte[64 * 1024];
+		byte[] buffer = new byte[64 * 1024];
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 		var ms = new MemoryStream();
 		WebSocketReceiveResult result;

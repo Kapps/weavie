@@ -28,7 +28,7 @@ public sealed class InMemoryDocumentModel : IDocumentModel {
 	/// <summary>Loads an existing file from the filesystem into a fresh model.</summary>
 	public static InMemoryDocumentModel OpenFromDisk(string filePath, IFileSystem fileSystem) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
-		var initialText = fileSystem.FileExists(filePath) ? fileSystem.ReadAllText(filePath) : string.Empty;
+		string initialText = fileSystem.FileExists(filePath) ? fileSystem.ReadAllText(filePath) : string.Empty;
 		return new InMemoryDocumentModel(filePath, initialText, fileSystem);
 	}
 

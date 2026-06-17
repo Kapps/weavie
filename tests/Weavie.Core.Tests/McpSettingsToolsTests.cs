@@ -51,7 +51,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	public async Task ToolsList_AdvertisesSettingsTools() {
 		using var store = NewStore();
 		await using var server = NewServer(store);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(1, "tools/list", "{}"));
@@ -69,13 +69,13 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	public async Task ListSettings_ReturnsCatalogWithTerminalShell() {
 		using var store = NewStore();
 		await using var server = NewServer(store);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(2, "tools/call", "{\"name\":\"listSettings\",\"arguments\":{}}"));
 		using var response = await ReceiveAsync(ws);
 
-		var text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+		string? text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
 		using var catalog = JsonDocument.Parse(text!);
 		var keys = catalog.RootElement.GetProperty("settings")
 			.EnumerateArray().Select(s => s.GetProperty("key").GetString()).ToList();
@@ -86,10 +86,10 @@ public sealed class McpSettingsToolsTests : IDisposable {
 
 	[Fact]
 	public async Task SetSetting_ChangesShell_PersistsAndConfirms() {
-		var shell = PresentShell();
+		string shell = PresentShell();
 		using var store = NewStore();
 		await using var server = NewServer(store);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(3, "tools/call",
@@ -98,7 +98,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 
 		var result = response.RootElement.GetProperty("result");
 		Assert.False(result.TryGetProperty("isError", out var err) && err.GetBoolean());
-		var text = result.GetProperty("content")[0].GetProperty("text").GetString();
+		string? text = result.GetProperty("content")[0].GetProperty("text").GetString();
 		Assert.Contains("Set terminal.shell", text, StringComparison.Ordinal);
 		Assert.Contains("reopen", text, StringComparison.OrdinalIgnoreCase);
 
@@ -111,7 +111,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	public async Task SetSetting_BogusShell_ReturnsIsError_AndDoesNotPersist() {
 		using var store = NewStore();
 		await using var server = NewServer(store);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(4, "tools/call",
@@ -127,7 +127,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	public async Task GetSetting_UnknownKey_ReturnsIsError() {
 		using var store = NewStore();
 		await using var server = NewServer(store);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(5, "tools/call", "{\"name\":\"getSetting\",\"arguments\":{\"key\":\"nope\"}}"));
@@ -148,7 +148,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
 
 	private static async Task<JsonDocument> ReceiveAsync(ClientWebSocket ws) {
-		var buffer = new byte[64 * 1024];
+		byte[] buffer = new byte[64 * 1024];
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 		var ms = new MemoryStream();
 		WebSocketReceiveResult result;

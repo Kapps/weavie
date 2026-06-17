@@ -19,7 +19,7 @@ internal static class PtySmoke {
 		// redirected parent stdout: WindowsConPtyTerminal spawns with STARTF_USESTDHANDLES + NULL std
 		// handles so the child attaches solely to the pseudoconsole, never the parent's stdio (see
 		// SpawnChild).
-		var logPath = Environment.GetEnvironmentVariable("WEAVIE_SMOKE_LOG");
+		string? logPath = Environment.GetEnvironmentVariable("WEAVIE_SMOKE_LOG");
 		void Log(string line) {
 			if (string.IsNullOrEmpty(logPath)) {
 				Console.WriteLine(line);
@@ -29,7 +29,7 @@ internal static class PtySmoke {
 		}
 
 		var output = new StringBuilder();
-		var totalBytes = 0;
+		int totalBytes = 0;
 
 		string Rendered() {
 			lock (output) {
@@ -47,7 +47,7 @@ internal static class PtySmoke {
 
 		// Drive an interactive cmd.exe (mirrors the long-lived `claude` workload): wait for the
 		// prompt, ask it to echo the marker, then exit.
-		var comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+		string comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
 		terminal.Start(new TerminalStartInfo {
 			Command = comspec,
 			Arguments = [],
@@ -64,10 +64,10 @@ internal static class PtySmoke {
 			Thread.Sleep(50);
 		}
 
-		terminal.Write(Encoding.UTF8.GetBytes("exit\r\n"));
+		terminal.Write("exit\r\n"u8.ToArray());
 		Thread.Sleep(200);
 
-		var sawMarker = Rendered().Contains(Marker, StringComparison.Ordinal);
+		bool sawMarker = Rendered().Contains(Marker, StringComparison.Ordinal);
 		Log($"[pty-smoke] sawMarker={sawMarker} bytes={Volatile.Read(ref totalBytes)}");
 		return sawMarker ? 0 : 1;
 	}

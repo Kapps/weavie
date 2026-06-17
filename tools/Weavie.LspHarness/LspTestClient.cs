@@ -47,7 +47,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 
 	/// <summary>Sends a request and awaits its matching response, throwing on a JSON-RPC error.</summary>
 	public async Task<JsonElement> RequestAsync(string method, JsonNode? parameters, CancellationToken ct) {
-		var id = Interlocked.Increment(ref _nextId);
+		int id = Interlocked.Increment(ref _nextId);
 		var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_pending[id] = tcs;
 
@@ -82,7 +82,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 		// percent-encodes the colon), so match on the normalized local path, not the raw string.
 		// Many servers (gopls) push an INITIAL empty publishDiagnostics, then the real one once the
 		// package loads — so keep waiting for a non-empty report until the timeout, then return what we have.
-		var target = NormalizeUri(uri);
+		string target = NormalizeUri(uri);
 		var stopwatch = Stopwatch.StartNew();
 		while (true) {
 			if (_diagnosticsByUri.TryGetValue(target, out var stored)) {
@@ -152,7 +152,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	}
 
 	private async Task ReceiveLoopAsync(CancellationToken ct) {
-		var buffer = new byte[64 * 1024];
+		byte[] buffer = new byte[64 * 1024];
 		using var message = new MemoryStream();
 		try {
 			while (_ws.State == WebSocketState.Open && !ct.IsCancellationRequested) {
@@ -172,7 +172,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 					continue;
 				}
 
-				var json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
+				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
 				message.SetLength(0);
 				await DispatchAsync(json, ct);
 			}
@@ -186,13 +186,13 @@ internal sealed class LspTestClient : IAsyncDisposable {
 		var root = doc.RootElement.Clone();
 		// LSP request ids may be integer OR string (ts-go uses string ids for its server→client
 		// requests). Treat both as ids — else we never reply and the server blocks forever.
-		var hasId = root.TryGetProperty("id", out var idEl)
+		bool hasId = root.TryGetProperty("id", out var idEl)
 			&& idEl.ValueKind is JsonValueKind.Number or JsonValueKind.String;
-		var hasMethod = root.TryGetProperty("method", out var methodEl);
+		bool hasMethod = root.TryGetProperty("method", out var methodEl);
 
 		if (_debug) {
-			var m = hasMethod ? methodEl.GetString() : "(response)";
-			var kind = hasMethod && hasId ? "req" : hasMethod ? "notif" : "resp";
+			string? m = hasMethod ? methodEl.GetString() : "(response)";
+			string kind = hasMethod && hasId ? "req" : hasMethod ? "notif" : "resp";
 			_log($"<- {kind} {m}{(hasMethod && m == "textDocument/publishDiagnostics" ? " " + root.GetProperty("params").GetProperty("uri").GetString() : string.Empty)}");
 		}
 
@@ -228,7 +228,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 				_log($"matching {method} against {_notificationWaiters.Count} waiter(s)");
 			}
 
-			for (var i = _notificationWaiters.Count - 1; i >= 0; i--) {
+			for (int i = _notificationWaiters.Count - 1; i >= 0; i--) {
 				bool isMatch;
 				try {
 					isMatch = _notificationWaiters[i].Match(root);
@@ -280,11 +280,11 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	private JsonArray ConfigurationResponse(JsonElement root) {
 		// Reply with the adapter's default settings (or empty) once per requested item, so servers that
 		// gate features on configuration (gopls semantic tokens) get what they need.
-		var count = root.TryGetProperty("params", out var p) && p.TryGetProperty("items", out var items)
+		int count = root.TryGetProperty("params", out var p) && p.TryGetProperty("items", out var items)
 			? items.GetArrayLength()
 			: 1;
 		var array = new JsonArray();
-		for (var i = 0; i < count; i++) {
+		for (int i = 0; i < count; i++) {
 			array.Add(_defaultSettings?.DeepClone() ?? new JsonObject());
 		}
 
@@ -293,8 +293,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 
 	private JsonArray WorkspaceFoldersResponse() {
 		var array = new JsonArray();
-		var index = 0;
-		foreach (var folder in _workspaceFolders) {
+		int index = 0;
+		foreach (string folder in _workspaceFolders) {
 			array.Add(new JsonObject {
 				["uri"] = new Uri(folder).AbsoluteUri,
 				["name"] = $"folder{index++}",
@@ -305,7 +305,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	}
 
 	private async Task SendAsync(JsonNode envelope, CancellationToken ct) {
-		var bytes = Encoding.UTF8.GetBytes(envelope.ToJsonString());
+		byte[] bytes = Encoding.UTF8.GetBytes(envelope.ToJsonString());
 		await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
 	}
 

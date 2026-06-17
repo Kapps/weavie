@@ -30,7 +30,7 @@ public sealed class OpenVsxThemeInstallerTests {
 
 	[Fact]
 	public void ParseThemeContributions_ResolvesLabelUiThemeAndAbsolutePath() {
-		var extensionDir = Path.Combine(Path.GetTempPath(), "weavie-ext");
+		string extensionDir = Path.Combine(Path.GetTempPath(), "weavie-ext");
 		const string packageJson = """
 		{ "contributes": { "themes": [
 		  { "label": "Dracula", "uiTheme": "vs-dark", "path": "./theme/dracula.json" },

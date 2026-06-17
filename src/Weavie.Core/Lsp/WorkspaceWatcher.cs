@@ -108,13 +108,13 @@ public sealed class WorkspaceWatcher : IDisposable {
 	}
 
 	private bool IsRelevant(string fullPath) {
-		var ext = Path.GetExtension(fullPath);
+		string ext = Path.GetExtension(fullPath);
 		if (string.IsNullOrEmpty(ext) || !_extensions.Contains(ext)) {
 			return false;
 		}
 
-		foreach (var segment in fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) {
-			foreach (var ignored in IgnoredSegments) {
+		foreach (string segment in fullPath.Split(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) {
+			foreach (string ignored in IgnoredSegments) {
 				if (string.Equals(segment, ignored, StringComparison.OrdinalIgnoreCase)) {
 					return false;
 				}

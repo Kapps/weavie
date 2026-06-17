@@ -33,13 +33,13 @@ public sealed class FileOpener {
 	/// contents to the Monaco editor, revealing line <paramref name="line"/>.
 	/// </summary>
 	public void Open(string path, int line) {
-		var resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
+		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
 		if (!_fileSystem.FileExists(resolved)) {
 			Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
 			return;
 		}
 
-		var content = _fileSystem.ReadAllText(resolved);
+		string content = _fileSystem.ReadAllText(resolved);
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
 			writer.WriteStartObject();

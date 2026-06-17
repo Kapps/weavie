@@ -15,4 +15,11 @@ public interface IFileSystem {
 
 	/// <summary>Writes UTF-8 text, creating parent directories as needed, overwriting any existing file.</summary>
 	void WriteAllText(string path, string contents);
+
+	/// <summary>
+	/// Writes UTF-8 text atomically (a crash leaves either the old or the new file, never a torn one),
+	/// creating parent directories as needed. For app-managed config documents; not for user source
+	/// files, where atomic-rename has observable costs (file-watcher churn, broken hardlinks, lost ACLs).
+	/// </summary>
+	void WriteAllTextAtomic(string path, string contents);
 }

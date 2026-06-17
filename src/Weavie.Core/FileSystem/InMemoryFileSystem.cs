@@ -27,7 +27,7 @@ public sealed class InMemoryFileSystem : IFileSystem {
 
 	/// <inheritdoc/>
 	public string ReadAllText(string path) {
-		if (_files.TryGetValue(Normalize(path), out var contents)) {
+		if (_files.TryGetValue(Normalize(path), out string? contents)) {
 			return contents;
 		}
 
@@ -36,6 +36,14 @@ public sealed class InMemoryFileSystem : IFileSystem {
 
 	/// <inheritdoc/>
 	public void WriteAllText(string path, string contents) {
+		ArgumentNullException.ThrowIfNull(contents);
+		_files[Normalize(path)] = contents;
+	}
+
+	/// <inheritdoc/>
+	public void WriteAllTextAtomic(string path, string contents) {
+		// A single dictionary assignment is atomic by construction, so the fake honors the same
+		// all-or-nothing contract the real filesystem provides via temp-file + replace.
 		ArgumentNullException.ThrowIfNull(contents);
 		_files[Normalize(path)] = contents;
 	}

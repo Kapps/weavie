@@ -31,7 +31,7 @@ public sealed class McpServerTests {
 	private static async Task SendAsync(ClientWebSocket ws, string json) => await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None);
 
 	private static async Task<JsonDocument> ReceiveAsync(ClientWebSocket ws) {
-		var buffer = new byte[64 * 1024];
+		byte[] buffer = new byte[64 * 1024];
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(5));
 		var ms = new MemoryStream();
 		WebSocketReceiveResult result;
@@ -50,21 +50,21 @@ public sealed class McpServerTests {
 	[Fact]
 	public async Task Connection_WithoutToken_IsRejected() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem());
-		var port = server.Start();
+		int port = server.Start();
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectAsync(port, token: null));
 	}
 
 	[Fact]
 	public async Task Connection_WithWrongToken_IsRejected() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem());
-		var port = server.Start();
+		int port = server.Start();
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectAsync(port, "wrong-token"));
 	}
 
 	[Fact]
 	public async Task Initialize_ReturnsServerInfoAndEchoesProtocolVersion() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem());
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port, Token);
 
 		await SendAsync(ws, Request(1, "initialize",
@@ -80,7 +80,7 @@ public sealed class McpServerTests {
 	[Fact]
 	public async Task ToolsList_AdvertisesOpenDiff() {
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep(), new InMemoryFileSystem());
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port, Token);
 
 		await SendAsync(ws, Request(2, "tools/list", "{}"));
@@ -97,14 +97,14 @@ public sealed class McpServerTests {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText("/workspace/a.txt", "old\n");
 		await using var server = NewServer(FakeDiffPresenter.AlwaysKeep(), fs);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port, Token);
 
 		await SendAsync(ws, Request(3, "tools/call",
 			"{\"name\":\"openDiff\",\"arguments\":{\"old_file_path\":\"/workspace/a.txt\",\"new_file_path\":\"/workspace/a.txt\",\"new_file_contents\":\"new\\n\",\"tab_name\":\"a.txt\"}}"));
 		using var response = await ReceiveAsync(ws);
 
-		var text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+		string? text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
 		Assert.Equal("FILE_SAVED", text);
 		Assert.Equal("new\n", fs.ReadAllText("/workspace/a.txt"));
 	}
@@ -114,14 +114,14 @@ public sealed class McpServerTests {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText("/workspace/a.txt", "old\n");
 		await using var server = NewServer(FakeDiffPresenter.AlwaysReject(), fs);
-		var port = server.Start();
+		int port = server.Start();
 		using var ws = await ConnectAsync(port, Token);
 
 		await SendAsync(ws, Request(4, "tools/call",
 			"{\"name\":\"openDiff\",\"arguments\":{\"old_file_path\":\"/workspace/a.txt\",\"new_file_path\":\"/workspace/a.txt\",\"new_file_contents\":\"new\\n\",\"tab_name\":\"a.txt\"}}"));
 		using var response = await ReceiveAsync(ws);
 
-		var text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+		string? text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
 		Assert.Equal("DIFF_REJECTED", text);
 		Assert.Equal("old\n", fs.ReadAllText("/workspace/a.txt"));
 	}

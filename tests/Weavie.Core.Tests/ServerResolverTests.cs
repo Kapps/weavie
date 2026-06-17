@@ -10,7 +10,7 @@ namespace Weavie.Core.Tests;
 public sealed class ServerResolverTests {
 	[Fact]
 	public void FindOnPath_ReturnsExplicitPath_WhenItExists() {
-		var temp = Path.Combine(Path.GetTempPath(), $"weavie-resolver-{Guid.NewGuid():N}.exe");
+		string temp = Path.Combine(Path.GetTempPath(), $"weavie-resolver-{Guid.NewGuid():N}.exe");
 		File.WriteAllText(temp, "stub");
 		try {
 			Assert.Equal(temp, ServerResolver.FindOnPath(temp));
@@ -21,7 +21,7 @@ public sealed class ServerResolverTests {
 
 	[Fact]
 	public void FindOnPath_ReturnsNull_ForExplicitMissingPath() {
-		var missing = Path.Combine(Path.GetTempPath(), $"weavie-missing-{Guid.NewGuid():N}.exe");
+		string missing = Path.Combine(Path.GetTempPath(), $"weavie-missing-{Guid.NewGuid():N}.exe");
 		Assert.Null(ServerResolver.FindOnPath(missing));
 	}
 

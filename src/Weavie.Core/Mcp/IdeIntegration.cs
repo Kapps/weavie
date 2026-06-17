@@ -1,5 +1,6 @@
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Layout;
 
 namespace Weavie.Core.Mcp;
 
@@ -29,7 +30,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		IFileSystem fileSystem,
 		IReadOnlyList<string> workspaceFolders,
 		string ideName = "weavie",
-		SettingsStore? settings = null) {
+		SettingsStore? settings = null,
+		LayoutStore? layout = null) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
@@ -39,7 +41,7 @@ public sealed class IdeIntegration : IAsyncDisposable {
 
 		if (settings is not null) {
 			RegistryServer = new McpServer(
-				AuthToken, presenter, fileSystem, workspaceFolders, ideName, settings, registryMode: true);
+				AuthToken, presenter, fileSystem, workspaceFolders, ideName, settings, registryMode: true, layout: layout);
 			RegistryPort = RegistryServer.Start();
 		}
 	}
@@ -78,12 +80,12 @@ public sealed class IdeIntegration : IAsyncDisposable {
 			return null;
 		}
 
-		var directory = WeaviePaths.Internal("mcp");
+		string directory = WeaviePaths.Internal("mcp");
 		Directory.CreateDirectory(directory);
 		// Port-scoped filename so concurrent weavie instances never clobber each other's config (each
 		// spawned claude is handed the exact path for its own registry server's ephemeral port).
-		var path = Path.Combine(directory, $"weavie-{RegistryPort}.mcp.json");
-		var json =
+		string path = Path.Combine(directory, $"weavie-{RegistryPort}.mcp.json");
+		string json =
 			$"{{\"mcpServers\":{{\"{McpServerName}\":{{\"type\":\"ws\",\"url\":\"ws://127.0.0.1:{RegistryPort}\"," +
 			$"\"headers\":{{\"Authorization\":\"Bearer {AuthToken}\"}}}}}}}}";
 		File.WriteAllText(path, json);

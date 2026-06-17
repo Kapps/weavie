@@ -14,21 +14,21 @@ public sealed class LspFramingTests {
 	[Fact]
 	public async Task WriteFrame_EmitsContentLengthHeaderAndBody() {
 		using var stream = new MemoryStream();
-		var body = Utf8("{\"jsonrpc\":\"2.0\"}");
+		byte[] body = Utf8("{\"jsonrpc\":\"2.0\"}");
 		await LspFraming.WriteFrameAsync(stream, body, CancellationToken.None);
 
-		var text = Encoding.UTF8.GetString(stream.ToArray());
+		string text = Encoding.UTF8.GetString(stream.ToArray());
 		Assert.Equal($"Content-Length: {body.Length}\r\n\r\n{{\"jsonrpc\":\"2.0\"}}", text);
 	}
 
 	[Fact]
 	public async Task WriteThenRead_RoundTripsBody() {
 		using var stream = new MemoryStream();
-		var body = Utf8("{\"method\":\"initialize\",\"id\":1}");
+		byte[] body = Utf8("{\"method\":\"initialize\",\"id\":1}");
 		await LspFraming.WriteFrameAsync(stream, body, CancellationToken.None);
 		stream.Position = 0;
 
-		var read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
+		byte[]? read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
 		Assert.NotNull(read);
 		Assert.Equal(body, read);
 	}
@@ -48,11 +48,11 @@ public sealed class LspFramingTests {
 	[Fact]
 	public async Task ReadFrame_IgnoresExtraHeadersLikeContentType() {
 		using var stream = new MemoryStream();
-		var raw = "Content-Length: 4\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\nping";
+		string raw = "Content-Length: 4\r\nContent-Type: application/vscode-jsonrpc; charset=utf-8\r\n\r\nping";
 		stream.Write(Encoding.ASCII.GetBytes(raw));
 		stream.Position = 0;
 
-		var read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
+		byte[]? read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
 		Assert.Equal("ping", Encoding.UTF8.GetString(read!));
 	}
 
@@ -66,11 +66,11 @@ public sealed class LspFramingTests {
 	public async Task ReadFrame_HandlesBinaryBodyBytesByLength() {
 		using var stream = new MemoryStream();
 		// A body whose bytes include characters that must be counted by Content-Length, not by lines.
-		var body = Utf8("{\"text\":\"line1\\nline2\\r\\nend\"}");
+		byte[] body = Utf8("{\"text\":\"line1\\nline2\\r\\nend\"}");
 		await LspFraming.WriteFrameAsync(stream, body, CancellationToken.None);
 		stream.Position = 0;
 
-		var read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
+		byte[]? read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
 		Assert.Equal(body, read);
 	}
 }

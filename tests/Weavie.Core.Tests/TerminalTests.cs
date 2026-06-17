@@ -34,7 +34,7 @@ public sealed class FakeTerminalTests {
 	public void EmitExit_StopsRunningAndRaisesExit() {
 		var term = new FakeTerminal();
 		term.Start(new TerminalStartInfo { Command = "/bin/zsh" });
-		var code = -1;
+		int code = -1;
 		term.Exited += c => code = c;
 		term.EmitExit(0);
 		Assert.False(term.IsRunning);
@@ -50,9 +50,9 @@ public sealed class PosixPtyTerminalTests {
 	private static (string Output, int ExitCode) RunToCompletion(TerminalStartInfo info, int timeoutSeconds = 5) {
 		using var term = new PosixPtyTerminal();
 		var sb = new StringBuilder();
-		var sync = new object();
+		object sync = new();
 		var exited = new ManualResetEventSlim(false);
-		var exitCode = -1;
+		int exitCode = -1;
 
 		term.Output += bytes => {
 			lock (sync) {

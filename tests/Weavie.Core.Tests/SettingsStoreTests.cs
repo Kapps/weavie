@@ -120,10 +120,10 @@ public sealed class SettingsStoreTests : IDisposable {
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
 		store.Set("t.str", Json("\"x\""));
 
-		var text = File.ReadAllText(FilePath);
+		string text = File.ReadAllText(FilePath);
 		Assert.Contains("# a string", text, StringComparison.Ordinal);
-		var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
-		var keyLine = Array.FindIndex(lines, l => l.StartsWith("t.str", StringComparison.Ordinal));
+		string[] lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n');
+		int keyLine = Array.FindIndex(lines, l => l.StartsWith("t.str", StringComparison.Ordinal));
 		Assert.True(keyLine > 0 && lines[keyLine - 1].Contains("# a string", StringComparison.Ordinal));
 	}
 
@@ -141,7 +141,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		store.Set("t.str", Json("\"new\""));
 
-		var text = File.ReadAllText(FilePath);
+		string text = File.ReadAllText(FilePath);
 		Assert.Contains("# my own note", text, StringComparison.Ordinal);       // user comment kept
 		Assert.Contains("[plugins.acme-linter]", text, StringComparison.Ordinal); // unknown subtree kept
 		Assert.Contains("severity = \"error\"", text, StringComparison.Ordinal);
@@ -157,12 +157,26 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		store.Set("claude.path", Json("\"C:\\\\tools\\\\claude.exe\""));
 
-		var text = File.ReadAllText(FilePath);
+		string text = File.ReadAllText(FilePath);
 		Assert.Contains("'C:\\tools\\claude.exe'", text, StringComparison.Ordinal); // single-quoted literal, no escaping
 		Assert.DoesNotContain("\\\\", text, StringComparison.Ordinal);
 		// And it round-trips back to the same path through a fresh store.
 		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false);
 		Assert.Equal(@"C:\tools\claude.exe", reopened.Resolve("claude.path").Value);
+	}
+
+	[Fact]
+	public void Set_ThreeSegmentKey_WritesNestedDottedKey_AndRoundTrips() {
+		var registry = new SettingsRegistry();
+		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Description = "editor font size", Default = 0L });
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+
+		store.Set("editor.font.size", Json("14"));
+
+		Assert.Contains("editor.font.size = 14", File.ReadAllText(FilePath), StringComparison.Ordinal);
+		// And it round-trips back through a fresh store (proves the nested-table read path works too).
+		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false);
+		Assert.Equal(14L, reopened.Resolve("editor.font.size").Value);
 	}
 
 	[Fact]
@@ -186,6 +200,19 @@ public sealed class SettingsStoreTests : IDisposable {
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
 		Assert.Throws<SettingValidationException>(() => store.Set("t.flag", Json("\"not-a-bool\"")));
 		Assert.Throws<SettingValidationException>(() => store.Set("t.num", Json("\"NaN\"")));
+	}
+
+	[Fact]
+	public void Set_StringifiedScalars_AreCoerced_LikeEnvVars() {
+		// LLM tool calls routinely stringify scalars; the MCP boundary tolerates a numeric/bool string
+		// (matching the env-var path) while still rejecting genuinely non-numeric/non-bool strings.
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+
+		store.Set("t.num", Json("\"16\""));   // stringified int
+		Assert.Equal(16L, store.Resolve("t.num").Value);
+
+		store.Set("t.flag", Json("\"true\"")); // stringified bool (case-insensitive)
+		Assert.Equal(true, store.Resolve("t.flag").Value);
 	}
 
 	[Fact]
@@ -258,8 +285,13 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Catalog_Json_IncludesValueSourceDefaultAndAllowedValues() {
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition {
-			Key = "theme", Kind = SettingKind.String, Description = "color theme",
-			Aliases = ["colors"], AllowedValues = ["dark", "light"], Default = "dark", Apply = ApplyMode.Live,
+			Key = "theme",
+			Kind = SettingKind.String,
+			Description = "color theme",
+			Aliases = ["colors"],
+			AllowedValues = ["dark", "light"],
+			Default = "dark",
+			Apply = ApplyMode.Live,
 		});
 		File.WriteAllText(FilePath, "theme = \"light\"\n");
 		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
@@ -292,7 +324,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public async Task Watcher_DoesNotDoubleFire_OnSelfWrite() {
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true);
-		var count = 0;
+		int count = 0;
 		store.Subscribe("t.str", _ => Interlocked.Increment(ref count));
 
 		store.Set("t.str", Json("\"once\""));

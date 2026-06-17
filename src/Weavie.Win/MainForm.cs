@@ -6,9 +6,11 @@ using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Win.Hosting;
+using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
 namespace Weavie.Win;
 
@@ -44,6 +46,8 @@ internal sealed class MainForm : Form {
 
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
+	private readonly LayoutStore _layout;
+	private bool _lastMaximized;
 	private SettingsStore? _settings;
 	private TerminalController? _claude;
 	private TerminalController? _shell;
@@ -55,17 +59,91 @@ internal sealed class MainForm : Form {
 	private WebDevServer? _webDev;
 #endif
 
+	// The app's dark background, painted on every host surface before the page loads so the ~0.25s of
+	// WebView2 cold-start shows dark instead of the default white. Matches the web splash + styles --bg;
+	// when theme persistence lands the host can swap in the user's resolved theme background here.
+	private static readonly Color StartupBackground = Color.FromArgb(0x1e, 0x1e, 0x1e);
+
 	public MainForm() {
 		Text = "weavie";
-		ClientSize = new Size(1280, 840);
-		StartPosition = FormStartPosition.CenterScreen;
+		BackColor = StartupBackground;
 
-		_webView = new WebView2 { Dock = DockStyle.Fill };
+		// Restore the saved window geometry (size / position / maximized) before the handle is created;
+		// a missing or off-screen saved state falls back to a centered 1280x840 default.
+		_layout = LayoutPanes.CreateStore();
+		ApplySavedWindowState();
+		_lastMaximized = WindowState == FormWindowState.Maximized;
+
+		// DefaultBackgroundColor must be set before the CoreWebView2 initializes — it's stored and applied
+		// during init, so the render surface is dark from the first frame. Setting it post-init (as before)
+		// leaves the surface its default white through the ~0.2s cold-start. BackColor covers the control
+		// itself in the window before that surface exists.
+		_webView = new WebView2 {
+			Dock = DockStyle.Fill,
+			BackColor = StartupBackground,
+			DefaultBackgroundColor = StartupBackground,
+		};
 		Controls.Add(_webView);
 
 		Load += OnLoad;
+		ResizeEnd += (_, _) => SaveWindowState();
+		SizeChanged += OnWindowSizeChanged;
+		FormClosing += (_, _) => SaveWindowState();
 		FormClosed += (_, _) => Shutdown();
 	}
+
+	/// <summary>Applies the persisted window geometry, or a centered default when there's none or it's off-screen.</summary>
+	private void ApplySavedWindowState() {
+		var saved = _layout.Current.Window;
+		if (saved is not null) {
+			var bounds = new Rectangle(saved.X, saved.Y, saved.Width, saved.Height);
+			if (IsOnScreen(bounds)) {
+				StartPosition = FormStartPosition.Manual;
+				Bounds = bounds;
+				if (saved.Maximized) {
+					WindowState = FormWindowState.Maximized;
+				}
+
+				return;
+			}
+		}
+
+		ClientSize = new Size(1280, 840);
+		StartPosition = FormStartPosition.CenterScreen;
+	}
+
+	/// <summary>Persists maximize/restore transitions; drag resize/move is covered by <c>ResizeEnd</c>.</summary>
+	private void OnWindowSizeChanged(object? sender, EventArgs e) {
+		bool maximized = WindowState == FormWindowState.Maximized;
+		if (WindowState != FormWindowState.Minimized && maximized != _lastMaximized) {
+			_lastMaximized = maximized;
+			SaveWindowState();
+		}
+	}
+
+	private void SaveWindowState() {
+		if (WindowState == FormWindowState.Minimized) {
+			return;
+		}
+
+		_layout.SetWindow(CaptureWindowState());
+	}
+
+	/// <summary>Snapshots the current geometry, using the restore (un-maximized) bounds when maximized.</summary>
+	private LayoutGeometry CaptureWindowState() {
+		var bounds = WindowState == FormWindowState.Normal ? Bounds : RestoreBounds;
+		return new LayoutGeometry {
+			X = bounds.X,
+			Y = bounds.Y,
+			Width = bounds.Width,
+			Height = bounds.Height,
+			Maximized = WindowState == FormWindowState.Maximized,
+		};
+	}
+
+	private static bool IsOnScreen(Rectangle bounds) =>
+		bounds is { Width: > 0, Height: > 0 }
+		&& Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(bounds));
 
 	private async void OnLoad(object? sender, EventArgs e) {
 		try {
@@ -77,18 +155,20 @@ internal sealed class MainForm : Form {
 	}
 
 	private async Task InitializeAsync() {
-		var wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 		// SetVirtualHostNameToFolderMapping throws if the folder is absent. Ensure it exists so a
 		// build without web assets still opens the window (navigation 404s) instead of crashing.
 		Directory.CreateDirectory(wwwroot);
 
 		// WebView2 needs a writable user-data folder (the exe may live under Program Files); keep it
 		// under the Weavie root so all Weavie data lives together (~/.weavie/internals/webview2).
-		var userDataFolder = WeaviePaths.Internal("webview2");
+		string userDataFolder = WeaviePaths.Internal("webview2");
 		Directory.CreateDirectory(userDataFolder);
 
+		long tBeforeEnv = Program.StartupClock.ElapsedMilliseconds;
 		var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
 		await _webView.EnsureCoreWebView2Async(environment);
+		long tWebViewReady = Program.StartupClock.ElapsedMilliseconds;
 		var core = _webView.CoreWebView2;
 
 		// Serve the built web app from wwwroot over https://weavie.app/ (no network, no localhost
@@ -103,13 +183,13 @@ internal sealed class MainForm : Form {
 		// and points the WebView at it for hot-module reload, falling back to the bundled wwwroot if the
 		// server can't start. Release loads the bundle (the block below is compiled out). The chosen
 		// origin flows into navigation and the LSP bridge's allowed origin.
-		var pageOrigin = $"https://{AppHost}";
+		string pageOrigin = $"https://{AppHost}";
 #if DEBUG
 		_webDev = new WebDevServer(line => {
 			Console.WriteLine($"[vite] {line}");
 			Console.Out.Flush();
 		});
-		var devOrigin = await _webDev.StartAsync();
+		string? devOrigin = await _webDev.StartAsync();
 		if (devOrigin is not null) {
 			pageOrigin = devOrigin;
 			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
@@ -127,6 +207,9 @@ internal sealed class MainForm : Form {
 			Console.WriteLine(line);
 			Console.Out.Flush();
 		};
+		// Off-by-default diagnostic (a real setting, not a buried env var): when on, the host logs its
+		// launch phases below and tells the web app to log its own via ?startuptiming.
+		bool startupTiming = _settings.GetBool("diagnostics.startupTiming");
 		_claude = new TerminalController(_bridge, "claude", _settings);
 		_shell = new TerminalController(_bridge, "shell", _settings);
 		_bridge.MessageReceived += OnWebMessage;
@@ -135,13 +218,13 @@ internal sealed class MainForm : Form {
 		// discovery env so the spawned claude connects to us (the SOLE edit feed). The same store backs
 		// the settings MCP tools, so the user can change settings by talking to claude.
 		var fileSystem = new LocalFileSystem();
-		var workspace = _settings.GetString("workspace")
+		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie", _settings);
+		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie", _settings, _layout);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -163,13 +246,13 @@ internal sealed class MainForm : Form {
 		// on PATH) and pipes them to monaco-languageclient in the page. Inject discovery — the port, a
 		// per-session token, and the workspace root — before navigation; mirrors the IDE-MCP loopback +
 		// token posture (bind 127.0.0.1, require the token on the WS upgrade; origin pinned to the app).
-		var lspToken = IdeLockFile.NewAuthToken();
+		string lspToken = IdeLockFile.NewAuthToken();
 		_lsp = new LspBridgeServer(lspToken, workspace, allowedOrigin: pageOrigin);
 		_lsp.Log += line => {
 			Console.WriteLine($"[lsp] {line}");
 			Console.Out.Flush();
 		};
-		var lspPort = _lsp.Start();
+		int lspPort = _lsp.Start();
 		// Advertise the catalog so the page can lazily start a client per language (on first matching
 		// document) and feed each server its default settings as initializationOptions + the answer to
 		// workspace/configuration (e.g. gopls needs {"semanticTokens":true}; spec §15).
@@ -178,9 +261,13 @@ internal sealed class MainForm : Form {
 			languageIds = d.LanguageIds,
 			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
 		});
-		var lspConfig = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace, servers });
+		string lspConfig = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace, servers });
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {lspConfig};");
 		Console.WriteLine($"[weavie] LSP bridge on 127.0.0.1:{lspPort}; workspace {workspace}");
+
+		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
+		// mount at the user's font with no default-font flash; live changes are pushed below.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
 		// Settings events arrive off the UI thread, so marshal onto it before touching the controller.
@@ -192,9 +279,31 @@ internal sealed class MainForm : Form {
 			}
 		});
 
+		// Fonts (ApplyMode.Live): any global or per-surface font change re-pushes the resolved editor +
+		// terminal fonts to the web app, which applies them in place. PostToWeb marshals to the UI
+		// thread itself and the store is thread-safe, so the off-thread change event can call it directly.
+		_settings.SettingChanged += change => {
+			if (FontSettings.Keys.Contains(change.Key)) {
+				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+		};
+
+		// Layout: when the store changes (a reconciled web edit, or a future MCP setLayout), push the
+		// canonical document back so the web re-renders. Change events arrive off the UI thread.
+		_layout.Changed += _ => {
+			if (InvokeRequired) {
+				BeginInvoke(PushLayoutToWeb);
+			} else {
+				PushLayoutToWeb();
+			}
+		};
+
 		var query = new List<string>();
 		if (_debugPerformance) {
 			query.Add("debugperf=1");
+		}
+		if (startupTiming) {
+			query.Add("startuptiming=1");
 		}
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))) {
 			query.Add("autobench=1");
@@ -202,13 +311,21 @@ internal sealed class MainForm : Form {
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_FPSPROBE"))) {
 			query.Add("fpsprobe=1");
 		}
-		var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
+		string qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
 		core.Navigate($"{pageOrigin}/index.html{qs}");
+
+		if (startupTiming) {
+			long tNavigate = Program.StartupClock.ElapsedMilliseconds;
+			Console.WriteLine(
+				$"[startup] webview-ready {tWebViewReady}ms (env+ensure took {tWebViewReady - tBeforeEnv}ms), "
+				+ $"host-setup {tNavigate - tWebViewReady}ms, navigate at {tNavigate}ms since process start");
+			Console.Out.Flush();
+		}
 
 		// Unattended screenshot for the deliverable; gated on WEAVIE_SHOT_DIR so the shipped app
 		// never writes screenshots.
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
-			var delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out var d) ? d : 4.0;
+			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
 		}
 
@@ -233,9 +350,9 @@ internal sealed class MainForm : Form {
 
 		switch (type) {
 			case "term-input":
-				var input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
+				byte[] input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
 				if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_INPUT"))) {
-					var printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
+					string printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
 					Console.WriteLine($"[weavie] term-input <- xterm ({input.Length}B): {printable}");
 					Console.Out.Flush();
 				}
@@ -248,14 +365,14 @@ internal sealed class MainForm : Form {
 				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "diff-resolved":
-				var diffId = root.GetProperty("id").GetString() ?? string.Empty;
-				var kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
-				var finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
+				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
+				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
+				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
 				_diffPresenter?.Resolve(diffId, kept, finalContents);
 				break;
 			case "reveal-file":
-				var revealPath = root.GetProperty("path").GetString() ?? string.Empty;
-				var revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
+				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
+				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
 				_fileOpener?.Open(revealPath, revealLine);
 				break;
 			case "latency-live":
@@ -266,8 +383,17 @@ internal sealed class MainForm : Form {
 					Console.Out.Flush();
 				}
 				break;
+			case "ready":
+				// The page's bridge listener is live; push the persisted layout so it restores on launch.
+				PushLayoutToWeb();
+				Console.WriteLine($"[weavie] {json}");
+				Console.Out.Flush();
+				break;
+			case "layout-changed":
+				HandleLayoutChanged(root);
+				break;
 			default:
-				// log / ready — surface for diagnostics and unattended capture.
+				// log — surface for diagnostics and unattended capture.
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
@@ -276,8 +402,33 @@ internal sealed class MainForm : Form {
 
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {
-		var session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
+		string? session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
 		return session == "shell" ? _shell : _claude;
+	}
+
+	/// <summary>Applies a layout the web sent (split/focus change) through the store, which validates + persists it.</summary>
+	private void HandleLayoutChanged(JsonElement root) {
+		if (!root.TryGetProperty("document", out var documentElement)) {
+			return;
+		}
+
+		if (!LayoutSerialization.TryDeserialize(documentElement.GetRawText(), out var document, out string? error)
+			|| document is null) {
+			Console.WriteLine($"[weavie] layout-changed: bad document ({error})");
+			return;
+		}
+
+		try {
+			_layout.SetPanes(document.Root, document.Focused, LayoutSource.User);
+		} catch (LayoutValidationException ex) {
+			Console.WriteLine($"[weavie] layout-changed rejected: {ex.Message}");
+		}
+	}
+
+	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
+	private void PushLayoutToWeb() {
+		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
+		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
 	}
 
 	private void PostDemoDiff() {
@@ -299,15 +450,15 @@ internal sealed class MainForm : Form {
 	}
 
 	private async Task CaptureSnapshotAsync() {
-		var dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
+		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
 		var core = _webView.CoreWebView2;
 		if (core is null || string.IsNullOrEmpty(dir)) {
 			return;
 		}
 
 		Directory.CreateDirectory(dir);
-		var name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
-		var path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
+		string? name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
+		string path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
 
 		try {
 			await using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write);

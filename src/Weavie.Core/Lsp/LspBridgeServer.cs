@@ -105,7 +105,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 				var (target, headers) = request.Value;
 
-				if (!headers.TryGetValue("sec-websocket-key", out var wsKey)) {
+				if (!headers.TryGetValue("sec-websocket-key", out string? wsKey)) {
 					await WriteStatusAsync(stream, "400 Bad Request", ct).ConfigureAwait(false);
 					return;
 				}
@@ -119,7 +119,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 				}
 
 				if (_allowedOrigin is not null
-					&& headers.TryGetValue("origin", out var origin)
+					&& headers.TryGetValue("origin", out string? origin)
 					&& !string.Equals(origin, _allowedOrigin, StringComparison.Ordinal)) {
 					Emit($"rejected: origin {origin}");
 					await WriteStatusAsync(stream, "403 Forbidden", ct).ConfigureAwait(false);
@@ -149,8 +149,8 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 	private async Task UpgradeAndProxyAsync(
 		NetworkStream stream, string wsKey, LanguageServerDescriptor descriptor, ResolvedCommand command, CancellationToken ct) {
-		var accept = IdeLockFile.ComputeWebSocketAccept(wsKey);
-		var response =
+		string accept = IdeLockFile.ComputeWebSocketAccept(wsKey);
+		string response =
 			"HTTP/1.1 101 Switching Protocols\r\n" +
 			"Upgrade: websocket\r\n" +
 			"Connection: Upgrade\r\n" +
@@ -200,7 +200,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		}
 
 		var builder = new StringBuilder("{\"changes\":[");
-		for (var i = 0; i < changes.Count; i++) {
+		for (int i = 0; i < changes.Count; i++) {
 			if (i > 0) {
 				builder.Append(',');
 			}
@@ -210,7 +210,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		}
 
 		builder.Append("]}");
-		var paramsJson = builder.ToString();
+		string paramsJson = builder.ToString();
 		var token = _cts?.Token ?? CancellationToken.None;
 		Emit($"didChangeWatchedFiles: {changes.Count} change(s) → {_connections.Count} server(s)");
 		foreach (var connection in _connections.Keys) {
@@ -229,7 +229,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 			CreateNoWindow = true,
 			StandardErrorEncoding = Encoding.UTF8,
 		};
-		foreach (var arg in command.Arguments) {
+		foreach (string arg in command.Arguments) {
 			psi.ArgumentList.Add(arg);
 		}
 
@@ -239,16 +239,16 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	}
 
 	private static (string Selector, string? Token) ParseTarget(string target) {
-		var queryIndex = target.IndexOf('?', StringComparison.Ordinal);
-		var path = queryIndex >= 0 ? target[..queryIndex] : target;
-		var query = queryIndex >= 0 ? target[(queryIndex + 1)..] : string.Empty;
-		var selector = Uri.UnescapeDataString(path.Trim('/'));
+		int queryIndex = target.IndexOf('?', StringComparison.Ordinal);
+		string path = queryIndex >= 0 ? target[..queryIndex] : target;
+		string query = queryIndex >= 0 ? target[(queryIndex + 1)..] : string.Empty;
+		string selector = Uri.UnescapeDataString(path.Trim('/'));
 		return (selector, ParseQueryValue(query, "token"));
 	}
 
 	private static string? ParseQueryValue(string query, string key) {
-		foreach (var pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries)) {
-			var eq = pair.IndexOf('=', StringComparison.Ordinal);
+		foreach (string pair in query.Split('&', StringSplitOptions.RemoveEmptyEntries)) {
+			int eq = pair.IndexOf('=', StringComparison.Ordinal);
 			if (eq <= 0) {
 				continue;
 			}
@@ -263,15 +263,15 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 	private static async Task<(string Target, Dictionary<string, string> Headers)?> ReadRequestAsync(NetworkStream stream, CancellationToken ct) {
 		var sb = new StringBuilder();
-		var one = new byte[1];
-		var matched = 0; // counts the "\r\n\r\n" terminator
+		byte[] one = new byte[1];
+		int matched = 0; // counts the "\r\n\r\n" terminator
 		while (matched < 4) {
-			var n = await stream.ReadAsync(one.AsMemory(0, 1), ct).ConfigureAwait(false);
+			int n = await stream.ReadAsync(one.AsMemory(0, 1), ct).ConfigureAwait(false);
 			if (n == 0) {
 				return null;
 			}
 
-			var c = (char)one[0];
+			char c = (char)one[0];
 			sb.Append(c);
 			matched = c switch {
 				'\r' when matched is 0 or 2 => matched + 1,
@@ -284,17 +284,17 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 			}
 		}
 
-		var lines = sb.ToString().Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
+		string[] lines = sb.ToString().Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
 		if (lines.Length == 0) {
 			return null;
 		}
 
-		var requestParts = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-		var target = requestParts.Length >= 2 ? requestParts[1] : "/";
+		string[] requestParts = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+		string target = requestParts.Length >= 2 ? requestParts[1] : "/";
 
 		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		foreach (var line in lines.Skip(1)) {
-			var colon = line.IndexOf(':', StringComparison.Ordinal);
+		foreach (string? line in lines.Skip(1)) {
+			int colon = line.IndexOf(':', StringComparison.Ordinal);
 			if (colon > 0) {
 				headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
 			}
@@ -304,7 +304,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	}
 
 	private static async Task WriteStatusAsync(NetworkStream stream, string status, CancellationToken ct) {
-		var response = $"HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
+		string response = $"HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
 		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}

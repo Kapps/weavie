@@ -26,7 +26,7 @@ public sealed class DiffSession {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(modelFactory);
 
-		var original = fileSystem.FileExists(proposal.OldFilePath)
+		string original = fileSystem.FileExists(proposal.OldFilePath)
 			? fileSystem.ReadAllText(proposal.OldFilePath)
 			: string.Empty;
 		var proposed = modelFactory.Create(proposal.NewFilePath, proposal.NewFileContents);

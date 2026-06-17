@@ -42,11 +42,11 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 				throw new InvalidOperationException("Terminal already started.");
 			}
 
-			if (!CreatePipe(out var inputRead, out var inputWrite, 0, 0)) {
+			if (!CreatePipe(out nint inputRead, out nint inputWrite, 0, 0)) {
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe (input) failed.");
 			}
 
-			if (!CreatePipe(out var outputRead, out var outputWrite, 0, 0)) {
+			if (!CreatePipe(out nint outputRead, out nint outputWrite, 0, 0)) {
 				CloseHandle(inputRead);
 				CloseHandle(inputWrite);
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "CreatePipe (output) failed.");
@@ -58,7 +58,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 					Y = (short)Math.Clamp(startInfo.Rows, 1, short.MaxValue),
 				};
 
-				var hr = CreatePseudoConsole(size, inputRead, outputWrite, 0, out _hPC);
+				int hr = CreatePseudoConsole(size, inputRead, outputWrite, 0, out _hPC);
 				if (hr < 0) {
 					Marshal.ThrowExceptionForHR(hr);
 				}
@@ -100,8 +100,8 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 		nint listSize = 0;
 		InitializeProcThreadAttributeList(0, 1, 0, ref listSize);
 
-		var attrList = Marshal.AllocHGlobal(listSize);
-		var envBlock = BuildEnvironmentBlock(startInfo);
+		nint attrList = Marshal.AllocHGlobal(listSize);
+		nint envBlock = BuildEnvironmentBlock(startInfo);
 		try {
 			if (!InitializeProcThreadAttributeList(attrList, 1, 0, ref listSize)) {
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "InitializeProcThreadAttributeList failed.");
@@ -135,7 +135,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 			startupInfo.StartupInfo.hStdOutput = 0;
 			startupInfo.StartupInfo.hStdError = 0;
 
-			var ok = CreateProcess(
+			bool ok = CreateProcess(
 				lpApplicationName: null,
 				lpCommandLine: BuildCommandLine(startInfo),
 				lpProcessAttributes: 0,
@@ -174,7 +174,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 			merged[(string)entry.Key] = entry.Value?.ToString() ?? string.Empty;
 		}
 
-		foreach (var name in startInfo.RemoveEnvironment) {
+		foreach (string name in startInfo.RemoveEnvironment) {
 			merged.Remove(name);
 		}
 
@@ -183,7 +183,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 		}
 
 		var sb = new StringBuilder();
-		foreach (var key in merged.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)) {
+		foreach (string? key in merged.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)) {
 			sb.Append(key).Append('=').Append(merged[key]).Append('\0');
 		}
 
@@ -194,7 +194,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 	private static string BuildCommandLine(TerminalStartInfo startInfo) {
 		var sb = new StringBuilder();
 		AppendArg(sb, startInfo.Command);
-		foreach (var arg in startInfo.Arguments) {
+		foreach (string arg in startInfo.Arguments) {
 			sb.Append(' ');
 			AppendArg(sb, arg);
 		}
@@ -210,8 +210,8 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 		}
 
 		sb.Append('"');
-		for (var i = 0; i < arg.Length; i++) {
-			var backslashes = 0;
+		for (int i = 0; i < arg.Length; i++) {
+			int backslashes = 0;
 			while (i < arg.Length && arg[i] == '\\') {
 				backslashes++;
 				i++;
@@ -245,9 +245,9 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 
 	private static unsafe void WriteAll(nint handle, byte[] data) {
 		fixed (byte* p = data) {
-			var offset = 0;
+			int offset = 0;
 			while (offset < data.Length) {
-				if (!WriteFile(handle, p + offset, (uint)(data.Length - offset), out var written, 0) || written == 0) {
+				if (!WriteFile(handle, p + offset, (uint)(data.Length - offset), out uint written, 0) || written == 0) {
 					break;
 				}
 
@@ -269,15 +269,15 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 	}
 
 	private unsafe void ReadLoop() {
-		var buffer = new byte[8192];
+		byte[] buffer = new byte[8192];
 		try {
 			fixed (byte* p = buffer) {
 				while (true) {
-					if (!ReadFile(_outputRead, p, (uint)buffer.Length, out var read, 0) || read == 0) {
+					if (!ReadFile(_outputRead, p, (uint)buffer.Length, out uint read, 0) || read == 0) {
 						break; // 0 bytes / broken pipe = ConPTY torn down, child gone
 					}
 
-					var slice = new byte[read];
+					byte[] slice = new byte[read];
 					Buffer.BlockCopy(buffer, 0, slice, 0, (int)read);
 					Output?.Invoke(slice);
 				}
@@ -294,11 +294,11 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 			return;
 		}
 
-		var process = _hProcess;
-		var code = 0;
+		nint process = _hProcess;
+		int code = 0;
 		if (process != 0) {
 			WaitForSingleObject(process, 2000);
-			if (GetExitCodeProcess(process, out var exitCode)) {
+			if (GetExitCodeProcess(process, out uint exitCode)) {
 				code = unchecked((int)exitCode);
 			}
 		}

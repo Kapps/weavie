@@ -34,7 +34,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 	}
 
 	private async Task<bool> WaitForAsync(Func<bool> predicate) {
-		for (var i = 0; i < 100; i++) {
+		for (int i = 0; i < 100; i++) {
 			if (predicate()) {
 				return true;
 			}
@@ -46,7 +46,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 	}
 
 	private bool HasChange(string fileName) {
-		var uri = new Uri(Path.Combine(_dir, fileName)).AbsoluteUri;
+		string uri = new Uri(Path.Combine(_dir, fileName)).AbsoluteUri;
 		return _changes.Any(c => string.Equals(c.Uri, uri, StringComparison.OrdinalIgnoreCase));
 	}
 
@@ -68,7 +68,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 
 	[Fact]
 	public async Task IgnoresNoiseDirectories() {
-		var nested = Path.Combine(_dir, "node_modules", "pkg");
+		string nested = Path.Combine(_dir, "node_modules", "pkg");
 		Directory.CreateDirectory(nested);
 		using var watcher = NewWatcher();
 		await File.WriteAllTextAsync(Path.Combine(nested, "dep.ts"), "export const z = 3;\n");
@@ -79,7 +79,7 @@ public sealed class WorkspaceWatcherTests : IDisposable {
 
 	[Fact]
 	public async Task ReportsDeletion() {
-		var path = Path.Combine(_dir, "gone.ts");
+		string path = Path.Combine(_dir, "gone.ts");
 		await File.WriteAllTextAsync(path, "export const g = 5;\n");
 		using var watcher = NewWatcher();
 		await Task.Delay(120);

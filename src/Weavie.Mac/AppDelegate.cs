@@ -3,9 +3,11 @@ using CoreGraphics;
 using Foundation;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Mac.Hosting;
 using WebKit;
+using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
 namespace Weavie.Mac;
 
@@ -29,6 +31,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private McpDiffPresenter? _diffPresenter;
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
+	private LayoutStore? _layout;
 	private NSWindow? _window;
 	private WKWebView? _webView;
 
@@ -38,9 +41,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	/// discovery env into the spawned claude), and loads the web app.
 	/// </summary>
 	public override void DidFinishLaunching(NSNotification notification) {
-		var resourcePath = NSBundle.MainBundle.ResourcePath
+		string resourcePath = NSBundle.MainBundle.ResourcePath
 			?? throw new InvalidOperationException("No bundle resource path.");
-		var wwwroot = Path.Combine(resourcePath, "wwwroot");
+		string wwwroot = Path.Combine(resourcePath, "wwwroot");
 
 		var config = new WKWebViewConfiguration();
 		config.SetUrlSchemeHandler(new AppSchemeHandler(wwwroot), "app");
@@ -48,7 +51,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Allow the Web Inspector for local debugging of the prototype.
 		config.Preferences.SetValueForKey(NSNumber.FromBoolean(true), new NSString("developerExtrasEnabled"));
 
-		var frame = new CGRect(0, 0, 1280, 840);
+		// Restore the saved window geometry (size / position / zoomed) when present and on-screen, else
+		// fall back to a centered 1280x840 default.
+		_layout = LayoutPanes.CreateStore();
+		var savedWindow = _layout.Current.Window;
+		bool usedSaved = savedWindow is not null
+			&& IsOnScreen(new CGRect(savedWindow.X, savedWindow.Y, savedWindow.Width, savedWindow.Height));
+		var frame = usedSaved
+			? new CGRect(savedWindow!.X, savedWindow.Y, savedWindow.Width, savedWindow.Height)
+			: new CGRect(0, 0, 1280, 840);
 		_webView = new WKWebView(frame, config);
 		_bridge.Attach(_webView);
 
@@ -59,6 +70,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			Console.WriteLine(line);
 			Console.Out.Flush();
 		};
+
+		// Typography: inject the resolved editor + terminal fonts at document start so both surfaces
+		// mount at the user's font with no default-font flash; live changes are pushed below.
+		config.UserContentController.AddUserScript(new WKUserScript(
+			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};"),
+			WKUserScriptInjectionTime.AtDocumentStart,
+			isForMainFrameOnly: true));
+
 		_claude = new TerminalController(_bridge, "claude", _settings);
 		_shell = new TerminalController(_bridge, "shell", _settings);
 		_bridge.MessageReceived += OnWebMessage;
@@ -67,13 +86,13 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// the discovery env so the spawned claude connects to us (the SOLE edit feed). The same store
 		// backs the settings MCP tools, so the user can change settings by talking to claude.
 		var fileSystem = new LocalFileSystem();
-		var workspace = _settings.GetString("workspace")
+		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
-		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie", _settings);
+		_ide = new IdeIntegration(_diffPresenter, fileSystem, [workspace], "weavie", _settings, _layout);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -95,6 +114,19 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Settings events arrive off the main thread, so marshal onto it before touching the controller.
 		_settings.Subscribe("terminal.shell", _ => InvokeOnMainThread(() => _shell?.Restart()));
 
+		// Fonts (ApplyMode.Live): any global or per-surface font change re-pushes the resolved editor +
+		// terminal fonts to the web app, which applies them in place. PostToWeb marshals to the main
+		// thread itself and the store is thread-safe, so the off-thread change event can call it directly.
+		_settings.SettingChanged += change => {
+			if (FontSettings.Keys.Contains(change.Key)) {
+				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+		};
+
+		// Layout: push the canonical document to the web when the store changes (a reconciled web edit or
+		// a future MCP setLayout). Change events arrive off the main thread.
+		_layout.Changed += _ => InvokeOnMainThread(PushLayoutToWeb);
+
 		_window = new NSWindow(
 			frame,
 			NSWindowStyle.Titled | NSWindowStyle.Closable | NSWindowStyle.Resizable | NSWindowStyle.Miniaturizable,
@@ -103,10 +135,19 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			Title = "weavie",
 			ContentView = _webView,
 		};
-		_window.Center();
+		if (!usedSaved) {
+			_window.Center();
+		} else if (savedWindow is { Maximized: true }) {
+			_window.Zoom(null);
+		}
+
+		// Persist geometry on resize-end and on close; SetWindow no-ops when nothing actually changed.
+		NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidEndLiveResizeNotification, _ => SaveWindowState(), _window);
+		NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.WillCloseNotification, _ => SaveWindowState(), _window);
+
 		_window.MakeKeyAndOrderFront(null);
 
-		var screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
+		nint screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
 		Console.WriteLine($"[weavie] NSScreen.maximumFramesPerSecond = {screenHz}");
 
 		var query = new List<string>();
@@ -119,7 +160,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_FPSPROBE"))) {
 			query.Add("fpsprobe=1");
 		}
-		var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
+		string qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
 		_webView.LoadRequest(new NSUrlRequest(new NSUrl($"app://app/index.html{qs}")));
 
 		NSApplication.SharedApplication.Activate();
@@ -128,7 +169,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// timer, which throttles when the window is occluded). Gated on WEAVIE_SHOT_DIR so the
 		// shipped app never writes screenshots.
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
-			var delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out var d) ? d : 4.0;
+			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
 		}
 
@@ -144,11 +185,40 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Disposes both terminals and shuts down the IDE-MCP server on app exit.</summary>
 	public override void WillTerminate(NSNotification notification) {
+		SaveWindowState();
 		_claude?.Dispose();
 		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		_settings?.Dispose();
 	}
+
+	private void SaveWindowState() {
+		if (_window is null || _layout is null || _window.IsMiniaturized) {
+			return;
+		}
+
+		_layout.SetWindow(CaptureWindowState());
+	}
+
+	/// <summary>Snapshots the current geometry, keeping the prior un-zoomed restore bounds while zoomed.</summary>
+	private LayoutGeometry CaptureWindowState() {
+		if (_window!.IsZoomed && _layout!.Current.Window is { } prior) {
+			return prior with { Maximized = true };
+		}
+
+		var frame = _window.Frame;
+		return new LayoutGeometry {
+			X = (int)frame.X,
+			Y = (int)frame.Y,
+			Width = (int)frame.Width,
+			Height = (int)frame.Height,
+			Maximized = _window.IsZoomed,
+		};
+	}
+
+	private static bool IsOnScreen(CGRect frame) =>
+		frame.Width > 0 && frame.Height > 0
+		&& NSScreen.Screens.Any(screen => screen.VisibleFrame.IntersectsWith(frame));
 
 	private void OnWebMessage(string json) {
 		string type;
@@ -164,9 +234,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		switch (type) {
 			case "term-input":
-				var input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
+				byte[] input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
 				if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_INPUT"))) {
-					var printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
+					string printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
 					Console.WriteLine($"[weavie] term-input <- xterm ({input.Length}B): {printable}");
 					Console.Out.Flush();
 				}
@@ -179,14 +249,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "diff-resolved":
-				var diffId = root.GetProperty("id").GetString() ?? string.Empty;
-				var kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
-				var finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
+				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
+				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
+				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
 				_diffPresenter?.Resolve(diffId, kept, finalContents);
 				break;
 			case "reveal-file":
-				var revealPath = root.GetProperty("path").GetString() ?? string.Empty;
-				var revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
+				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
+				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
 				_fileOpener?.Open(revealPath, revealLine);
 				break;
 			case "latency-live":
@@ -197,17 +267,55 @@ public sealed class AppDelegate : NSApplicationDelegate {
 					Console.Out.Flush();
 				}
 				break;
+			case "ready":
+				// The page's bridge listener is live; push the persisted layout so it restores on launch.
+				PushLayoutToWeb();
+				Console.WriteLine($"[weavie] {json}");
+				Console.Out.Flush();
+				break;
+			case "layout-changed":
+				HandleLayoutChanged(root);
+				break;
 			default:
-				// log / ready — surface for diagnostics and unattended capture.
+				// log — surface for diagnostics and unattended capture.
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
 		}
 	}
 
+	/// <summary>Applies a layout the web sent (split/focus change) through the store, which validates + persists it.</summary>
+	private void HandleLayoutChanged(JsonElement root) {
+		if (_layout is null || !root.TryGetProperty("document", out var documentElement)) {
+			return;
+		}
+
+		if (!LayoutSerialization.TryDeserialize(documentElement.GetRawText(), out var document, out string? error)
+			|| document is null) {
+			Console.WriteLine($"[weavie] layout-changed: bad document ({error})");
+			return;
+		}
+
+		try {
+			_layout.SetPanes(document.Root, document.Focused, LayoutSource.User);
+		} catch (LayoutValidationException ex) {
+			Console.WriteLine($"[weavie] layout-changed rejected: {ex.Message}");
+		}
+	}
+
+	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
+	private void PushLayoutToWeb() {
+		if (_layout is null) {
+			return;
+		}
+
+		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
+		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
+	}
+
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {
-		var session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
+		string? session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
 		return session == "shell" ? _shell : _claude;
 	}
 
@@ -230,14 +338,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	}
 
 	private void CaptureSnapshot() {
-		var dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
+		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
 		if (_webView is null || string.IsNullOrEmpty(dir)) {
 			return;
 		}
 
 		Directory.CreateDirectory(dir);
-		var name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
-		var path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
+		string? name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
+		string path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
 
 		_webView.TakeSnapshot(new WKSnapshotConfiguration(), (image, error) => {
 			if (image is null) {

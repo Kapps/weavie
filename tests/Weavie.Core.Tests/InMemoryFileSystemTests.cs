@@ -27,7 +27,7 @@ public sealed class InMemoryFileSystemTests {
 	[Fact]
 	public void Paths_NormalizeToFullPath_SoRelativeAndAbsoluteCollide() {
 		var fs = new InMemoryFileSystem();
-		var absolute = Path.GetFullPath("relative.txt");
+		string absolute = Path.GetFullPath("relative.txt");
 		fs.WriteAllText("relative.txt", "v1");
 		fs.WriteAllText(absolute, "v2");
 		Assert.Single(fs.Paths);

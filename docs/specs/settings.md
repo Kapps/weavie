@@ -371,6 +371,40 @@ session.
 should not appear in `listSettings`: `WEAVIE_PTY_LOG`, `WEAVIE_AUTOBENCH`, `WEAVIE_FPSPROBE`,
 `WEAVIE_SHOT_*`, `WEAVIE_DEMO_DIFF`, `WEAVIE_DEBUG_INPUT`.
 
+### Typography (fonts)
+
+Implemented in `Weavie.Core/Configuration/FontSettings.cs` (registered from `CoreSettings`). Both
+text surfaces — the Monaco editor and the xterm terminal — read their family, size, and weight from
+settings. A single **global** default is inherited by both, and each surface may **override** any
+axis. All nine are `ApplyMode.Live`: a change re-pushes the resolved fonts to the web app, which
+applies them in place (Monaco `updateOptions`, xterm `options` + refit) — no restart, no PTY reopen.
+
+| key                    | kind   | default                         | meaning                                  |
+|------------------------|--------|---------------------------------|------------------------------------------|
+| `font.family`          | String | cross-platform monospace stack  | global family (a CSS font-family stack)  |
+| `font.size`            | Int    | `13`                            | global size in px (6–72)                 |
+| `font.weight`          | String | `normal`                        | global weight (`normal`/`bold`/`100`–`900`) |
+| `editor.font.family`   | String | `""` → inherit                  | editor family override                   |
+| `editor.font.size`     | Int    | `0` → inherit                   | editor size override (0, or 6–72)        |
+| `editor.font.weight`   | String | `inherit`                       | editor weight override                   |
+| `terminal.font.family` | String | `""` → inherit                  | terminal family override                 |
+| `terminal.font.size`   | Int    | `0` → inherit                   | terminal size override (0, or 6–72)      |
+| `terminal.font.weight` | String | `inherit`                       | terminal weight override                 |
+
+An override left at its **inherit sentinel** — empty family, `0` size, `"inherit"` weight — falls
+through to the global value; otherwise the override wins for that surface only. The global `weight`
+carries `AllowedValues` (the CSS keywords + numeric scale) so it maps 1:1 onto Monaco's `fontWeight`
+and xterm's `FontWeight`; the override `weight` adds `inherit` to that set.
+
+**Host → web plumbing.** `FontSettings.BuildJson` resolves the editor + terminal fonts to
+`{ editor: {family,size,weight}, terminal: {…} }`. The host injects it as `window.__WEAVIE_FONTS__`
+before navigation (no default-font flash on mount) and, subscribing to all nine keys, re-pushes it as
+a `{ type: "fonts", … }` bridge message on any change. The web `fonts.ts` reads the injected global at
+editor/terminal creation and applies live pushes via `onFontsChanged`.
+
+The three-segment keys (`editor.font.size`) required lifting the TOML key writer's previous
+two-segment cap (`SettingsStore.BuildKeySyntax`), which now appends dotted keys for arbitrary depth.
+
 ## MCP tools (the editing surface)
 
 Three tools — `listSettings`/`getSetting`/`setSetting` — are served by `McpServer`

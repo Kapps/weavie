@@ -12,7 +12,7 @@ using Weavie.LspHarness;
 //   WEAVIE_LSP_SERVER     selector / language id (default "typescript")
 //   WEAVIE_LSP_WORKSPACE  workspace dir (default a fresh temp dir with a tsconfig + sample.ts)
 
-var selector = Environment.GetEnvironmentVariable("WEAVIE_LSP_SERVER");
+string? selector = Environment.GetEnvironmentVariable("WEAVIE_LSP_SERVER");
 selector = string.IsNullOrEmpty(selector) ? "typescript" : selector;
 
 var descriptor = LanguageServerCatalog.ForLanguage(selector) ?? LanguageServerCatalog.ForServerId(selector);
@@ -36,8 +36,8 @@ if (probe is null) {
 	return 2;
 }
 
-var workspace = Environment.GetEnvironmentVariable("WEAVIE_LSP_WORKSPACE");
-var workspaceIsTemp = string.IsNullOrEmpty(workspace);
+string? workspace = Environment.GetEnvironmentVariable("WEAVIE_LSP_WORKSPACE");
+bool workspaceIsTemp = string.IsNullOrEmpty(workspace);
 if (workspaceIsTemp) {
 	workspace = Path.Combine(Path.GetTempPath(), $"weavie-lsp-harness-{descriptor.Id}");
 	Directory.CreateDirectory(workspace);
@@ -48,29 +48,29 @@ if (workspaceIsTemp) {
 	File.WriteAllText(Path.Combine(workspace, probe.MainFileName), probe.Source);
 }
 
-var samplePath = Path.Combine(workspace!, probe.MainFileName);
-var rootUri = new Uri(workspace + Path.DirectorySeparatorChar).AbsoluteUri;
-var fileUri = new Uri(samplePath).AbsoluteUri;
+string samplePath = Path.Combine(workspace!, probe.MainFileName);
+string rootUri = new Uri(workspace + Path.DirectorySeparatorChar).AbsoluteUri;
+string fileUri = new Uri(samplePath).AbsoluteUri;
 Console.WriteLine($"[lsp-harness] workspace: {workspace}");
 
-var token = IdeLockFile.NewAuthToken();
+string token = IdeLockFile.NewAuthToken();
 // allowedOrigin: null — the harness is a native client and sends no Origin header; the token is the gate.
 await using var bridge = new LspBridgeServer(token, workspace!, allowedOrigin: null);
-var watchBroadcast = false;
+bool watchBroadcast = false;
 bridge.Log += line => {
 	Console.WriteLine($"[bridge] {line}");
 	if (line.Contains("didChangeWatchedFiles", StringComparison.Ordinal)) {
 		watchBroadcast = true;
 	}
 };
-var port = bridge.Start();
+int port = bridge.Start();
 
 var results = new Results();
 // Generous: csharp-ls runs a design-time MSBuild load and gopls indexes the module on first open.
 using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(150));
 var ct = overall.Token;
 
-var debug = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_LSP_DEBUG"));
+bool debug = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_LSP_DEBUG"));
 var defaultSettings = string.IsNullOrEmpty(descriptor.DefaultSettingsJson) ? null : JsonNode.Parse(descriptor.DefaultSettingsJson);
 await using var client = new LspTestClient([workspace!], line => Console.WriteLine($"[client] {line}"), debug, defaultSettings?.DeepClone());
 await client.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/{descriptor.Id}?token={token}"), ct);
@@ -142,7 +142,7 @@ results.CompletionProvider = results.CompletionProvider || client.IsRegistered("
 
 // 6. Diagnostics. tsserver-based servers (vtsls) PUSH via publishDiagnostics; ts-go / TS 7 uses the
 // 3.17 PULL model (textDocument/diagnostic). Support both (spec §15). The sample has a type error.
-var canPull = results.DiagnosticProvider || client.IsRegistered("textDocument/diagnostic");
+bool canPull = results.DiagnosticProvider || client.IsRegistered("textDocument/diagnostic");
 results.DiagnosticProvider = canPull;
 try {
 	JsonElement diagnostics;
@@ -233,7 +233,7 @@ static JsonObject PositionParams(string uri, int line, int character) => new() {
 
 static JsonArray ToArray(IEnumerable<string> values) {
 	var array = new JsonArray();
-	foreach (var v in values) {
+	foreach (string v in values) {
 		array.Add(v);
 	}
 

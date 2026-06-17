@@ -33,7 +33,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	/// completes when the user resolves it (or is cancelled, which also closes the diff in the UI).
 	/// </summary>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
-		var id = $"diff-{Interlocked.Increment(ref _counter)}";
+		string id = $"diff-{Interlocked.Increment(ref _counter)}";
 		var tcs = new TaskCompletionSource<DiffOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_pending[id] = tcs;
 
@@ -44,7 +44,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 			}
 		});
 
-		var original = _fileSystem.FileExists(proposal.OldFilePath) ? _fileSystem.ReadAllText(proposal.OldFilePath) : string.Empty;
+		string original = _fileSystem.FileExists(proposal.OldFilePath) ? _fileSystem.ReadAllText(proposal.OldFilePath) : string.Empty;
 		_bridge.PostToWeb(BuildShowDiff(id, proposal, original));
 		return tcs.Task;
 	}

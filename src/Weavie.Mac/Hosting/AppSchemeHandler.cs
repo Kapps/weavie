@@ -25,12 +25,12 @@ public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
 	[Export("webView:startURLSchemeTask:")]
 	public void StartUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask) {
 		var url = urlSchemeTask.Request.Url;
-		var requestedPath = url?.Path;
+		string? requestedPath = url?.Path;
 		if (string.IsNullOrEmpty(requestedPath) || requestedPath == "/") {
 			requestedPath = "/index.html";
 		}
 
-		var resolved = Path.GetFullPath(Path.Combine(_root, requestedPath.TrimStart('/')));
+		string resolved = Path.GetFullPath(Path.Combine(_root, requestedPath.TrimStart('/')));
 
 		// Defend against path traversal escaping the web root.
 		if (!resolved.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
@@ -44,9 +44,9 @@ public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
 			return;
 		}
 
-		var bytes = File.ReadAllBytes(resolved);
+		byte[] bytes = File.ReadAllBytes(resolved);
 		using var data = NSData.FromArray(bytes);
-		var mime = MimeFor(Path.GetExtension(resolved));
+		string mime = MimeFor(Path.GetExtension(resolved));
 		using var response = new NSUrlResponse(url!, mime, (nint)bytes.Length, "utf-8");
 
 		urlSchemeTask.DidReceiveResponse(response);

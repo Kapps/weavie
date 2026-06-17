@@ -53,7 +53,11 @@ csharp_style_namespace_declarations = file_scoped:error
 csharp_using_directive_placement = outside_namespace:error
 
 # Braces
-csharp_prefer_braces = when_multiline:suggestion
+# Brace style is the author's call — rule disabled. There's no "leave it alone" value
+# (true=always add, false=prefer none, when_multiline=add-multiline+strip-single-line), and Rider
+# acts on all three by add/removing braces. Severity `none` is the only way to truly not enforce.
+# Value kept as `true` so that if this is ever re-enabled it adds braces (safe) rather than strips.
+csharp_prefer_braces = true:none
 
 # =============================================================================
 # Expression-bodied members (all auto-fixable → error)
@@ -73,8 +77,8 @@ csharp_style_expression_bodied_local_functions = when_on_single_line:error
 # =============================================================================
 
 csharp_style_var_when_type_is_apparent = true:error
-csharp_style_var_for_built_in_types = false:suggestion
-csharp_style_var_elsewhere = false:suggestion
+csharp_style_var_for_built_in_types = false:error
+csharp_style_var_elsewhere = true:error
 
 # =============================================================================
 # Pattern matching (auto-fixable → error)
@@ -84,7 +88,7 @@ csharp_style_pattern_matching_over_is_with_cast_check = true:error
 csharp_style_pattern_matching_over_as_with_null_check = true:error
 csharp_style_prefer_switch_expression = true:error
 csharp_style_prefer_not_pattern = true:error
-csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_pattern_matching = true:error
 csharp_style_prefer_extended_property_pattern = true:error
 
 # =============================================================================
@@ -118,8 +122,9 @@ csharp_style_conditional_delegate_call = true:error
 dotnet_style_prefer_simplified_boolean_expressions = true:error
 dotnet_style_prefer_simplified_interpolation = true:error
 dotnet_style_prefer_compound_assignment = true:error
-dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
-dotnet_style_prefer_conditional_expression_over_return = true:suggestion
+# Ternary vs if/else is the author's call — intentionally not enforced or suggested.
+dotnet_style_prefer_conditional_expression_over_assignment = true:none
+dotnet_style_prefer_conditional_expression_over_return = true:none
 dotnet_style_prefer_inferred_tuple_names = true:error
 dotnet_style_prefer_inferred_anonymous_type_member_names = true:error
 dotnet_style_prefer_auto_properties = true:error
@@ -131,9 +136,10 @@ dotnet_style_prefer_collection_expression = true:error
 # =============================================================================
 
 dotnet_style_readonly_field = true:error
-csharp_style_unused_value_expression_statement_preference = discard_variable:suggestion
+# Off: explicit `_ =` discards are idiomatic in Go, just noise in C#.
+csharp_style_unused_value_expression_statement_preference = discard_variable:none
 csharp_style_unused_value_assignment_preference = discard_variable:error
-csharp_style_deconstructed_variable_declaration = true:suggestion
+csharp_style_deconstructed_variable_declaration = true:error
 csharp_style_inlined_variable_declaration = true:error
 
 # =============================================================================
@@ -166,7 +172,7 @@ dotnet_style_predefined_type_for_member_access = true:error
 # =============================================================================
 
 # Private/internal fields: must start with _
-dotnet_naming_rule.private_fields_should_be_underscore.severity = suggestion
+dotnet_naming_rule.private_fields_should_be_underscore.severity = error
 dotnet_naming_rule.private_fields_should_be_underscore.symbols = private_fields
 dotnet_naming_rule.private_fields_should_be_underscore.style = underscore_prefix
 

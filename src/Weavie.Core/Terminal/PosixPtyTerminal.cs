@@ -38,7 +38,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 				throw new InvalidOperationException("Terminal already started.");
 			}
 
-			var master = posix_openpt(O_RDWR | O_NOCTTY);
+			int master = posix_openpt(O_RDWR | O_NOCTTY);
 			if (master < 0) {
 				throw new IOException($"posix_openpt failed (errno {Marshal.GetLastPInvokeError()}).");
 			}
@@ -51,8 +51,8 @@ public sealed class PosixPtyTerminal : ITerminal {
 					throw new IOException($"unlockpt failed (errno {Marshal.GetLastPInvokeError()}).");
 				}
 
-				var slavePtr = ptsname(master);
-				var slavePath = slavePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(slavePtr);
+				nint slavePtr = ptsname(master);
+				string? slavePath = slavePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(slavePtr);
 				if (string.IsNullOrEmpty(slavePath)) {
 					throw new IOException("ptsname returned null.");
 				}
@@ -73,8 +73,8 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	private static int SpawnChild(TerminalStartInfo startInfo, string slavePath) {
-		var fileActions = IntPtr.Zero;
-		var attr = IntPtr.Zero;
+		nint fileActions = IntPtr.Zero;
+		nint attr = IntPtr.Zero;
 		posix_spawn_file_actions_init(ref fileActions);
 		posix_spawnattr_init(ref attr);
 		try {
@@ -93,13 +93,13 @@ public sealed class PosixPtyTerminal : ITerminal {
 			argvItems.AddRange(startInfo.Arguments);
 			var envItems = BuildEnvironment(startInfo);
 
-			var argv = ToUtf8PtrArray(argvItems);
-			var envp = ToUtf8PtrArray(envItems);
+			nint[] argv = ToUtf8PtrArray(argvItems);
+			nint[] envp = ToUtf8PtrArray(envItems);
 			var argvHandle = GCHandle.Alloc(argv, GCHandleType.Pinned);
 			var envpHandle = GCHandle.Alloc(envp, GCHandleType.Pinned);
 			try {
-				var rc = posix_spawn(
-					out var pid,
+				int rc = posix_spawn(
+					out int pid,
 					startInfo.Command,
 					ref fileActions,
 					ref attr,
@@ -128,7 +128,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 			merged[(string)entry.Key] = entry.Value?.ToString() ?? string.Empty;
 		}
 
-		foreach (var name in startInfo.RemoveEnvironment) {
+		foreach (string name in startInfo.RemoveEnvironment) {
 			merged.Remove(name);
 		}
 
@@ -140,15 +140,15 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	private void ReadLoop() {
-		var buffer = new byte[8192];
+		byte[] buffer = new byte[8192];
 		try {
 			while (true) {
-				var n = read(_masterFd, buffer, (nuint)buffer.Length);
+				nint n = read(_masterFd, buffer, (nuint)buffer.Length);
 				if (n <= 0) {
 					break; // 0 = EOF, -1 = EIO when the child closed the slave / exited
 				}
 
-				var slice = new byte[n];
+				byte[] slice = new byte[n];
 				Buffer.BlockCopy(buffer, 0, slice, 0, (int)n);
 				Output?.Invoke(slice);
 			}
@@ -164,9 +164,9 @@ public sealed class PosixPtyTerminal : ITerminal {
 			return;
 		}
 
-		var code = 0;
-		if (_pid > 0 && waitpid(_pid, out var status, 0) == _pid) {
-			var low = status & 0x7f;
+		int code = 0;
+		if (_pid > 0 && waitpid(_pid, out int status, 0) == _pid) {
+			int low = status & 0x7f;
 			code = low == 0 ? (status >> 8) & 0xff : 128 + low;
 		}
 
@@ -181,9 +181,9 @@ public sealed class PosixPtyTerminal : ITerminal {
 			return;
 		}
 
-		var remaining = data;
+		byte[] remaining = data;
 		while (remaining.Length > 0) {
-			var written = write(_masterFd, remaining, (nuint)remaining.Length);
+			nint written = write(_masterFd, remaining, (nuint)remaining.Length);
 			if (written <= 0) {
 				break;
 			}
@@ -223,8 +223,8 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	private static IntPtr[] ToUtf8PtrArray(IReadOnlyList<string> items) {
-		var array = new IntPtr[items.Count + 1];
-		for (var i = 0; i < items.Count; i++) {
+		nint[] array = new IntPtr[items.Count + 1];
+		for (int i = 0; i < items.Count; i++) {
 			array[i] = Marshal.StringToCoTaskMemUTF8(items[i]);
 		}
 		array[items.Count] = IntPtr.Zero;
@@ -232,7 +232,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	private static void FreeUtf8PtrArray(IntPtr[] array) {
-		foreach (var ptr in array) {
+		foreach (nint ptr in array) {
 			if (ptr != IntPtr.Zero) {
 				Marshal.FreeCoTaskMem(ptr);
 			}

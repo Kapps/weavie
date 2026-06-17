@@ -19,7 +19,7 @@ import getLanguagesServiceOverride from "@codingame/monaco-vscode-languages-serv
 import getModelServiceOverride from "@codingame/monaco-vscode-model-service-override";
 import getTextmateServiceOverride from "@codingame/monaco-vscode-textmate-service-override";
 import getThemeServiceOverride from "@codingame/monaco-vscode-theme-service-override";
-import type * as monaco from "monaco-editor";
+import * as monaco from "monaco-editor";
 
 // Default VSCode extensions — declarative contributions, no extension-host JS:
 //  - theme-defaults: the built-in Dark+/Light+/Modern color themes (so setTheme has something to load)
@@ -89,4 +89,8 @@ async function doInit(): Promise<void> {
     ...getModelServiceOverride(),
     ...getEditorServiceOverride(openEditor),
   });
+
+  // Select a dark theme up front, before any editor exists, so the first editor paint is dark instead
+  // of flashing the service layer's default (light) theme while the real one loads.
+  monaco.editor.setTheme("vs-dark");
 }

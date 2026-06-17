@@ -6,6 +6,10 @@
   --accent: #4ec9b0;
   --dim: #808080;
   color-scheme: dark;
+  /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
+     service injects the real theme colors — prevents a white editor flash on load. Monaco's own
+     theme stylesheet (injected later) overrides this once the dark theme is applied. */
+  --vscode-editor-background: #1e1e1e;
 }
 
 * {

@@ -1,4 +1,5 @@
 import * as monaco from "monaco-editor";
+import { currentFonts, onFontsChanged } from "../fonts";
 import { registerActiveEditor } from "./vscode-services";
 
 // Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices),
@@ -38,14 +39,15 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
       ? monaco.Uri.file(`${workspace.replaceAll("\\", "/")}/weavie-scratch.ts`)
       : undefined;
   const model = monaco.editor.createModel(SAMPLE_CODE, "typescript", uri);
+  // Typography is a user setting resolved by the host (global font.* + editor.font.* overrides),
+  // injected before navigation so we mount at the right font, and live-updated below.
+  const font = currentFonts().editor;
   const editor = monaco.editor.create(container, {
     model,
     theme: "vs-dark",
-    fontSize: 14,
-    // Cross-platform monospace stack (spec §4 fix): the old macOS-only list silently fell back to
-    // generic monospace on Windows. Typography becomes a real setting later (owned by the settings agent).
-    fontFamily:
-      'ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace',
+    fontSize: font.size,
+    fontFamily: font.family,
+    fontWeight: font.weight,
     automaticLayout: true,
     minimap: { enabled: true },
     bracketPairColorization: { enabled: true },
@@ -54,6 +56,17 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     renderWhitespace: "none",
     scrollBeyondLastLine: true,
   });
+
+  // Apply live font changes (Monaco re-lays out on updateOptions); drop the subscription with the editor.
+  const offFonts = onFontsChanged((config) =>
+    editor.updateOptions({
+      fontFamily: config.editor.family,
+      fontSize: config.editor.size,
+      fontWeight: config.editor.weight,
+    }),
+  );
+  editor.onDidDispose(offFonts);
+
   // The editor service opens go-to-def / reveal-file targets through this editor (we own layout).
   registerActiveEditor(editor);
   return editor;

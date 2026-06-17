@@ -9,11 +9,12 @@ using System.Reflection;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// Owns the Vite dev server for hot-module reload during Debug runs. The host spawns
-/// <c>npm run dev</c> itself (so there's no second terminal to babysit), waits for it to start
-/// serving, and the caller points the WebView at <see cref="Origin"/>. The whole process tree is
-/// killed on <see cref="Dispose"/>. <see cref="StartAsync"/> returns <c>null</c> when the web
-/// source dir or the server is unavailable, so the caller can fall back to the bundled wwwroot.
+/// Owns the Vite dev server for hot-module reload during Debug runs. The host reuses a dev server
+/// already serving the port, or otherwise spawns <c>npm run dev</c> itself (so there's no second
+/// terminal to babysit), waits for it to start serving, and the caller points the WebView at
+/// <see cref="Origin"/>. A server this instance spawned is killed on <see cref="Dispose"/>; a reused
+/// one is left alone. <see cref="StartAsync"/> returns <c>null</c> when the web source dir or the
+/// server is unavailable, so the caller can fall back to the bundled wwwroot.
 /// </summary>
 internal sealed class WebDevServer : IDisposable {
 	// Must match `server.port` (strictPort) in src/web/vite.config.ts. Use the `localhost` host (not
@@ -35,10 +36,23 @@ internal sealed class WebDevServer : IDisposable {
 	/// <c>null</c> if the directory is missing or the server never comes up.
 	/// </summary>
 	public async Task<string?> StartAsync() {
-		var devDir = ResolveWebDevDir();
+		string? devDir = ResolveWebDevDir();
 		if (devDir is null) {
 			_log("web dev dir not found (WeavieWebDevDir metadata absent or missing on disk)");
 			return null;
+		}
+
+		// Reuse a dev server already serving the port instead of spawning a second one. Vite uses
+		// strictPort, so a second `npm run dev` would only collide ("Port 5173 already in use") and
+		// exit, leaving the WebView bound to a server this instance neither owns nor reaps — and when
+		// that foreign server later dies the page breaks (ERR_CONNECTION_REFUSED) with no fallback.
+		// A hand-started server, or one from a not-yet-reaped prior run, is reused as-is; _process
+		// stays null so Dispose never tries to kill a server we didn't start.
+		using (var probeHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(2) }) {
+			if (await ProbeAsync(probeHttp).ConfigureAwait(false)) {
+				_log($"reusing dev server already serving at {Origin}");
+				return Origin;
+			}
 		}
 
 		try {
@@ -83,11 +97,11 @@ internal sealed class WebDevServer : IDisposable {
 			if (await ProbeAsync(http).ConfigureAwait(false)) {
 				return true;
 			}
-			// If our process died and nothing else is already serving the port, stop waiting. (A port
-			// taken by a prior dev server makes our spawn exit fast but the probe still succeeds — we
-			// happily reuse that server.)
+			// If our process died and nothing else is already serving the port, stop waiting. (Race
+			// guard: if another server grabbed the port between our up-front probe and this spawn, our
+			// spawn exits fast on the strict-port collision but the probe still succeeds — reuse it.)
 			if (_process is { HasExited: true }) {
-				var up = await ProbeAsync(http).ConfigureAwait(false);
+				bool up = await ProbeAsync(http).ConfigureAwait(false);
 				if (!up) {
 					_log($"`npm run dev` exited (code {_process.ExitCode}) before the server was ready");
 				}
@@ -111,14 +125,14 @@ internal sealed class WebDevServer : IDisposable {
 	/// <summary>Reads the web source dir from the <c>WeavieWebDevDir</c> assembly metadata that the
 	/// Debug build injects (see Weavie.Win.csproj), normalized to a full path that exists.</summary>
 	private static string? ResolveWebDevDir() {
-		var raw = Assembly.GetExecutingAssembly()
+		string? raw = Assembly.GetExecutingAssembly()
 			.GetCustomAttributes<AssemblyMetadataAttribute>()
 			.FirstOrDefault(a => string.Equals(a.Key, "WeavieWebDevDir", StringComparison.Ordinal))
 			?.Value;
 		if (string.IsNullOrEmpty(raw)) {
 			return null;
 		}
-		var full = Path.GetFullPath(raw);
+		string full = Path.GetFullPath(raw);
 		return Directory.Exists(full) ? full : null;
 	}
 

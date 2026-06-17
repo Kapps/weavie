@@ -13,8 +13,8 @@ using Weavie.Core.Terminal;
 //   WEAVIE_HARNESS_SECONDS   how long to run (default 25)
 //   WEAVIE_HARNESS_WORKSPACE workspace dir (default a fresh /tmp dir)
 
-var seconds = int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_HARNESS_SECONDS"), out var s) ? s : 25;
-var workspace = Environment.GetEnvironmentVariable("WEAVIE_HARNESS_WORKSPACE");
+int seconds = int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_HARNESS_SECONDS"), out int s) ? s : 25;
+string? workspace = Environment.GetEnvironmentVariable("WEAVIE_HARNESS_WORKSPACE");
 if (string.IsNullOrEmpty(workspace)) {
 	workspace = Path.Combine(Path.GetTempPath(), "weavie-ide-harness");
 }
@@ -46,12 +46,12 @@ Console.WriteLine($"[harness] lock file: {ide.LockFilePath}");
 Console.WriteLine($"[harness] env inject: CLAUDE_CODE_SSE_PORT={ide.Port} ENABLE_IDE_INTEGRATION=true");
 
 const string claudeCmd = "exec claude";
-var shell = Environment.GetEnvironmentVariable("SHELL");
+string? shell = Environment.GetEnvironmentVariable("SHELL");
 if (string.IsNullOrEmpty(shell) || !File.Exists(shell)) {
 	shell = "/bin/zsh";
 }
 
-var ptyLogPath = Path.Combine(Path.GetTempPath(), "weavie-harness-pty.log");
+string ptyLogPath = Path.Combine(Path.GetTempPath(), "weavie-harness-pty.log");
 await using var ptyLog = new FileStream(ptyLogPath, FileMode.Create, FileAccess.Write, FileShare.Read);
 
 using var terminal = new PosixPtyTerminal();
@@ -79,13 +79,13 @@ Console.WriteLine($"[harness] spawned: {shell} -l -c '{claudeCmd}' in {workspace
 // is covered deterministically by the WS-client unit tests.
 var start = DateTime.UtcNow;
 var deadline = start.AddSeconds(seconds);
-var lastTrustEnter = 0.0;
+double lastTrustEnter = 0.0;
 while (DateTime.UtcNow < deadline) {
 	await Task.Delay(500);
-	var elapsed = (DateTime.UtcNow - start).TotalSeconds;
+	double elapsed = (DateTime.UtcNow - start).TotalSeconds;
 
 	if (!flags.Connected && elapsed > 3 && elapsed - lastTrustEnter > 2) {
-		terminal.Write(Encoding.UTF8.GetBytes("\r")); // accept "Yes, I trust this folder"
+		terminal.Write("\r"u8.ToArray()); // accept "Yes, I trust this folder"
 		lastTrustEnter = elapsed;
 	}
 
@@ -104,8 +104,8 @@ Console.WriteLine("  (openDiff correctness is covered by McpServerTests; live op
 
 // Tail of claude's rendered output (ANSI stripped) for context.
 ptyLog.Flush();
-var raw = await File.ReadAllBytesAsync(ptyLogPath);
-var text = ansi.Replace(Encoding.UTF8.GetString(raw), string.Empty);
+byte[] raw = await File.ReadAllBytesAsync(ptyLogPath);
+string text = ansi.Replace(Encoding.UTF8.GetString(raw), string.Empty);
 text = new string([.. text.Where(c => c is '\n' or '\t' || (c >= ' ' && c < (char)127))]);
 text = Regex.Replace(text, "[ \t]{2,}", " ");
 Console.WriteLine("--- claude output (stripped, last 800 chars) ---");

@@ -22,7 +22,7 @@ public static class LspFraming {
 	public static async Task WriteFrameAsync(Stream destination, ReadOnlyMemory<byte> body, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(destination);
 
-		var header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
+		byte[] header = Encoding.ASCII.GetBytes($"Content-Length: {body.Length}\r\n\r\n");
 		await destination.WriteAsync(header, ct).ConfigureAwait(false);
 		await destination.WriteAsync(body, ct).ConfigureAwait(false);
 		await destination.FlushAsync(ct).ConfigureAwait(false);
@@ -39,15 +39,15 @@ public static class LspFraming {
 	public static async Task<byte[]?> ReadFrameAsync(Stream source, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(source);
 
-		var contentLength = await ReadHeadersAsync(source, ct).ConfigureAwait(false);
+		int contentLength = await ReadHeadersAsync(source, ct).ConfigureAwait(false);
 		if (contentLength < 0) {
 			return null; // clean EOF before any header byte
 		}
 
-		var body = new byte[contentLength];
-		var read = 0;
+		byte[] body = new byte[contentLength];
+		int read = 0;
 		while (read < contentLength) {
-			var n = await source.ReadAsync(body.AsMemory(read, contentLength - read), ct).ConfigureAwait(false);
+			int n = await source.ReadAsync(body.AsMemory(read, contentLength - read), ct).ConfigureAwait(false);
 			if (n == 0) {
 				return null; // truncated mid-body — treat as a closed stream
 			}
@@ -62,12 +62,12 @@ public static class LspFraming {
 	// line, returning the parsed Content-Length, or -1 at a clean EOF before any byte was read.
 	private static async Task<int> ReadHeadersAsync(Stream source, CancellationToken ct) {
 		var line = new StringBuilder();
-		var contentLength = -1;
-		var sawAnyByte = false;
-		var one = new byte[1];
+		int contentLength = -1;
+		bool sawAnyByte = false;
+		byte[] one = new byte[1];
 
 		while (true) {
-			var n = await source.ReadAsync(one.AsMemory(0, 1), ct).ConfigureAwait(false);
+			int n = await source.ReadAsync(one.AsMemory(0, 1), ct).ConfigureAwait(false);
 			if (n == 0) {
 				if (!sawAnyByte) {
 					return -1;
@@ -77,7 +77,7 @@ public static class LspFraming {
 			}
 
 			sawAnyByte = true;
-			var c = (char)one[0];
+			char c = (char)one[0];
 			if (c == '\r') {
 				continue; // CR is handled implicitly by the LF branch
 			}
@@ -94,7 +94,7 @@ public static class LspFraming {
 					: throw new InvalidDataException("LSP frame is missing its Content-Length header.");
 			}
 
-			var headerLine = line.ToString();
+			string headerLine = line.ToString();
 			line.Clear();
 			if (headerLine.StartsWith(ContentLengthHeader, StringComparison.OrdinalIgnoreCase)) {
 				contentLength = int.Parse(headerLine[ContentLengthHeader.Length..].Trim(), CultureInfo.InvariantCulture);

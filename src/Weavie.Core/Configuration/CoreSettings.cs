@@ -7,7 +7,7 @@ namespace Weavie.Core.Configuration;
 /// <see cref="SettingDefinition.ComputeDefault"/> and <see cref="SettingDefinition.Validate"/>.
 /// </summary>
 public static class CoreSettings {
-	/// <summary>Builds a registry pre-loaded with <c>workspace</c>, <c>terminal.shell</c>, and <c>claude.path</c>.</summary>
+	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, fonts, diagnostics).</summary>
 	public static SettingsRegistry CreateRegistry() {
 		var registry = new SettingsRegistry();
 		Register(registry);
@@ -18,7 +18,7 @@ public static class CoreSettings {
 	public static SettingsStore CreateStore(string? filePath = null, bool enableWatcher = true) =>
 		new(CreateRegistry(), filePath, enableWatcher);
 
-	/// <summary>Registers the three built-in settings into <paramref name="registry"/>.</summary>
+	/// <summary>Registers the built-in settings (workspace, shell, claude path, fonts, diagnostics) into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
@@ -55,6 +55,19 @@ public static class CoreSettings {
 			Apply = ApplyMode.NextSession,
 			ComputeDefault = DefaultClaudePath,
 		});
+
+		FontSettings.Register(registry);
+
+		registry.Register(new SettingDefinition {
+			Key = "diagnostics.startupTiming",
+			Kind = SettingKind.Bool,
+			Description = "Log startup phase timings (window→navigate on the host, navigate→shell→editor "
+				+ "in the web app) to the console. Off by default; for diagnosing launch latency.",
+			Aliases = ["startup timing", "launch timing", "boot timing", "startup profiling"],
+			// Captured during launch, so a change only takes effect on the next start.
+			Apply = ApplyMode.RestartRequired,
+			Default = false,
+		});
 	}
 
 	/// <summary>
@@ -67,7 +80,7 @@ public static class CoreSettings {
 			return ExecutableFinder.FindOnPath("pwsh") is not null ? "pwsh" : "powershell";
 		}
 
-		var shell = Environment.GetEnvironmentVariable("SHELL");
+		string? shell = Environment.GetEnvironmentVariable("SHELL");
 		return !string.IsNullOrEmpty(shell) && File.Exists(shell) ? shell : "/bin/zsh";
 	}
 
@@ -76,13 +89,13 @@ public static class CoreSettings {
 	/// bare <c>claude</c> (let the launcher search PATH). The host applies its own launch shim on top.
 	/// </summary>
 	private static object? DefaultClaudePath() {
-		var onPath = ExecutableFinder.FindOnPath("claude");
+		string? onPath = ExecutableFinder.FindOnPath("claude");
 		if (onPath is not null) {
 			return onPath;
 		}
 
 		if (OperatingSystem.IsWindows()) {
-			var local = Path.Combine(
+			string local = Path.Combine(
 				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "claude.exe");
 			return File.Exists(local) ? local : "claude";
 		}

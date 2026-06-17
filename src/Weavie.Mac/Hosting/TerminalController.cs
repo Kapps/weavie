@@ -63,18 +63,18 @@ public sealed class TerminalController : IDisposable {
 			}
 
 			_suppressExit = false;
-			var isClaude = _session == "claude";
+			bool isClaude = _session == "claude";
 
 			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would
 			// clash on the exclusive FileStream, and the log exists for the IDE-MCP handshake anyway.
-			var logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
+			string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
 			if (isClaude && !string.IsNullOrEmpty(logPath)) {
 				_ptyLog = new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read);
 			}
 
 			var (command, arguments) = isClaude ? ResolveClaudeLauncher() : ResolveShellLauncher();
 
-			var workspace = Workspace;
+			string workspace = Workspace;
 			var terminal = new PosixPtyTerminal();
 			terminal.Output += OnOutput;
 			terminal.Exited += OnExited;
@@ -121,8 +121,8 @@ public sealed class TerminalController : IDisposable {
 	/// setting — <c>-l</c> for the login environment, <c>-c "exec &lt;claude&gt;"</c> to replace the shell.
 	/// </summary>
 	private (string Command, IReadOnlyList<string> Arguments) ResolveClaudeLauncher() {
-		var claude = _settings.GetString("claude.path") ?? "claude";
-		var mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
+		string claude = _settings.GetString("claude.path") ?? "claude";
+		string mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
 		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}"]);
 	}
 
@@ -132,16 +132,16 @@ public sealed class TerminalController : IDisposable {
 	/// shells (nushell, fish, …) open at their prompt with no flags.
 	/// </summary>
 	private (string Command, IReadOnlyList<string> Arguments) ResolveShellLauncher() {
-		var shell = _settings.GetString("terminal.shell") ?? LoginShell();
-		var command = ExecutableFinder.FindOnPath(shell) ?? shell;
-		var name = Path.GetFileNameWithoutExtension(command);
+		string shell = _settings.GetString("terminal.shell") ?? LoginShell();
+		string command = ExecutableFinder.FindOnPath(shell) ?? shell;
+		string name = Path.GetFileNameWithoutExtension(command);
 		IReadOnlyList<string> arguments = name is "zsh" or "bash" or "sh" ? ["-l", "-i"] : [];
 		return (command, arguments);
 	}
 
 	/// <summary>The system login shell used to wrap claude: <c>$SHELL</c> if it exists, else <c>/bin/zsh</c>.</summary>
 	private static string LoginShell() {
-		var shell = Environment.GetEnvironmentVariable("SHELL");
+		string? shell = Environment.GetEnvironmentVariable("SHELL");
 		return !string.IsNullOrEmpty(shell) && File.Exists(shell) ? shell : "/bin/zsh";
 	}
 
@@ -154,7 +154,7 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
-		var b64 = Convert.ToBase64String(data);
+		string b64 = Convert.ToBase64String(data);
 		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{b64}\"}}");
 	}
 

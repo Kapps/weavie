@@ -43,17 +43,17 @@ public sealed class OpenVsxThemeInstaller {
 		ArgumentException.ThrowIfNullOrEmpty(ns);
 		ArgumentException.ThrowIfNullOrEmpty(name);
 
-		var metaUrl = version is null
+		string metaUrl = version is null
 			? $"{_registry}/api/{ns}/{name}"
 			: $"{_registry}/api/{ns}/{name}/{version}";
-		var metadata = await _http.GetStringAsync(metaUrl, ct).ConfigureAwait(false);
+		string metadata = await _http.GetStringAsync(metaUrl, ct).ConfigureAwait(false);
 		var (downloadUrl, resolvedVersion) = ParseMetadata(metadata);
 		if (downloadUrl is null || resolvedVersion is null) {
 			throw new InvalidOperationException($"Open VSX metadata for {ns}.{name} has no .vsix download.");
 		}
 
-		var vsix = await _http.GetByteArrayAsync(downloadUrl, ct).ConfigureAwait(false);
-		var extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{resolvedVersion}");
+		byte[] vsix = await _http.GetByteArrayAsync(downloadUrl, ct).ConfigureAwait(false);
+		string extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{resolvedVersion}");
 		if (Directory.Exists(extractDir)) {
 			Directory.Delete(extractDir, recursive: true);
 		}
@@ -64,8 +64,8 @@ public sealed class OpenVsxThemeInstaller {
 		}
 
 		// .vsix lays the extension out under "extension/"; theme paths in the manifest are relative to it.
-		var extensionDir = Path.Combine(extractDir, "extension");
-		var manifestPath = Path.Combine(extensionDir, "package.json");
+		string extensionDir = Path.Combine(extractDir, "extension");
+		string manifestPath = Path.Combine(extensionDir, "package.json");
 		var contributions = ParseThemeContributions(await File.ReadAllTextAsync(manifestPath, ct).ConfigureAwait(false), extensionDir);
 
 		var installed = contributions
@@ -96,7 +96,7 @@ public sealed class OpenVsxThemeInstaller {
 	public static (string? DownloadUrl, string? Version) ParseMetadata(string metadataJson) {
 		using var doc = JsonDocument.Parse(metadataJson);
 		var root = doc.RootElement;
-		var version = root.TryGetProperty("version", out var v) ? v.GetString() : null;
+		string? version = root.TryGetProperty("version", out var v) ? v.GetString() : null;
 		string? download = null;
 		if (root.TryGetProperty("files", out var files) && files.TryGetProperty("download", out var d)) {
 			download = d.GetString();
@@ -121,16 +121,16 @@ public sealed class OpenVsxThemeInstaller {
 
 		var result = new List<ThemeContribution>();
 		foreach (var theme in themes.EnumerateArray()) {
-			var rawPath = theme.TryGetProperty("path", out var p) ? p.GetString() : null;
+			string? rawPath = theme.TryGetProperty("path", out var p) ? p.GetString() : null;
 			if (string.IsNullOrEmpty(rawPath)) {
 				continue;
 			}
 
-			var label = (theme.TryGetProperty("label", out var l) ? l.GetString() : null)
+			string label = (theme.TryGetProperty("label", out var l) ? l.GetString() : null)
 				?? (theme.TryGetProperty("id", out var id) ? id.GetString() : null)
 				?? Path.GetFileNameWithoutExtension(rawPath);
-			var uiTheme = (theme.TryGetProperty("uiTheme", out var u) ? u.GetString() : null) ?? "vs-dark";
-			var fullPath = Path.GetFullPath(Path.Combine(extensionDir, rawPath));
+			string uiTheme = (theme.TryGetProperty("uiTheme", out var u) ? u.GetString() : null) ?? "vs-dark";
+			string fullPath = Path.GetFullPath(Path.Combine(extensionDir, rawPath));
 			result.Add(new ThemeContribution(label, uiTheme, fullPath));
 		}
 
@@ -145,7 +145,7 @@ public sealed class OpenVsxThemeInstaller {
 		existing.AddRange(installed);
 
 		Directory.CreateDirectory(WeaviePaths.Themes);
-		var json = JsonSerializer.Serialize(existing, new JsonSerializerOptions { WriteIndented = true });
+		string json = JsonSerializer.Serialize(existing, new JsonSerializerOptions { WriteIndented = true });
 		File.WriteAllText(IndexPath, json, Encoding.UTF8);
 	}
 }

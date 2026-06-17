@@ -49,8 +49,8 @@ public sealed class HostBridge {
 		}
 
 		// Encode the JSON payload as a JS string literal argument (trim-safe; no reflection).
-		var literal = $"\"{JsonEncodedText.Encode(json)}\"";
-		var script = $"window.__weavieReceive && window.__weavieReceive({literal});";
+		string literal = $"\"{JsonEncodedText.Encode(json)}\"";
+		string script = $"window.__weavieReceive && window.__weavieReceive({literal});";
 
 		// ExecuteScriptAsync must run on the UI thread; PTY output arrives off-thread.
 		if (webView.InvokeRequired) {

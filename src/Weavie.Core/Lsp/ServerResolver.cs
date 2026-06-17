@@ -26,7 +26,7 @@ public static class ServerResolver {
 		ArgumentNullException.ThrowIfNull(descriptor);
 
 		foreach (var candidate in descriptor.Candidates) {
-			var path = FindOnPath(candidate.Command);
+			string? path = FindOnPath(candidate.Command);
 			if (path is not null) {
 				return BuildCommand(path, candidate.Arguments);
 			}
@@ -53,14 +53,14 @@ public static class ServerResolver {
 			return File.Exists(command) ? command : null;
 		}
 
-		var pathVar = Environment.GetEnvironmentVariable("PATH");
+		string? pathVar = Environment.GetEnvironmentVariable("PATH");
 		if (string.IsNullOrEmpty(pathVar)) {
 			return null;
 		}
 
-		var dirs = pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-		foreach (var dir in dirs) {
-			foreach (var name in ExtensionVariants(command)) {
+		string[] dirs = pathVar.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+		foreach (string dir in dirs) {
+			foreach (string name in ExtensionVariants(command)) {
 				string full;
 				try {
 					full = Path.Combine(dir, name);
@@ -78,13 +78,13 @@ public static class ServerResolver {
 	}
 
 	private static ResolvedCommand BuildCommand(string serverPath, IReadOnlyList<string> arguments) {
-		var ext = Path.GetExtension(serverPath);
-		var isShim = ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
+		string ext = Path.GetExtension(serverPath);
+		bool isShim = ext.Equals(".cmd", StringComparison.OrdinalIgnoreCase)
 			|| ext.Equals(".bat", StringComparison.OrdinalIgnoreCase);
 
 		if (OperatingSystem.IsWindows() && isShim) {
 			// CreateProcess can't run .cmd/.bat directly; route through the command interpreter.
-			var comSpec = Environment.GetEnvironmentVariable("ComSpec");
+			string? comSpec = Environment.GetEnvironmentVariable("ComSpec");
 			comSpec = string.IsNullOrEmpty(comSpec) ? "cmd.exe" : comSpec;
 			var wrapped = new List<string>(arguments.Count + 2) { "/c", serverPath };
 			wrapped.AddRange(arguments);

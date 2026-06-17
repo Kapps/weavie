@@ -16,6 +16,9 @@ public static class WeaviePaths {
 	/// <summary>The user settings file: <c>~/.weavie/settings.toml</c>.</summary>
 	public static string SettingsFile { get; } = Path.Combine(Root, "settings.toml");
 
+	/// <summary>The persisted window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>.</summary>
+	public static string LayoutFile { get; } = Path.Combine(Root, "layout.json");
+
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
 

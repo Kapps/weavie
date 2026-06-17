@@ -64,18 +64,18 @@ public sealed class TerminalController : IDisposable {
 			}
 
 			_suppressExit = false;
-			var isClaude = _session == "claude";
+			bool isClaude = _session == "claude";
 
 			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would
 			// clash on the exclusive FileStream, and the log exists for the IDE-MCP handshake anyway.
-			var logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
+			string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
 			if (isClaude && !string.IsNullOrEmpty(logPath)) {
 				_ptyLog = new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read);
 			}
 
 			var (command, arguments) = isClaude ? ResolveClaudeLauncher() : ResolveShellLauncher();
 
-			var workspace = Workspace;
+			string workspace = Workspace;
 			var terminal = new WindowsConPtyTerminal();
 			terminal.Output += OnOutput;
 			terminal.Exited += OnExited;
@@ -123,16 +123,16 @@ public sealed class TerminalController : IDisposable {
 	/// to find on PATH) launches directly.
 	/// </summary>
 	private (string Command, IReadOnlyList<string> Arguments) ResolveClaudeLauncher() {
-		var claude = _settings.GetString("claude.path") ?? "claude";
+		string claude = _settings.GetString("claude.path") ?? "claude";
 		var claudeArgs = new List<string>();
 		if (!string.IsNullOrEmpty(McpConfigPath)) {
 			claudeArgs.Add("--mcp-config");
 			claudeArgs.Add(McpConfigPath);
 		}
 
-		var ext = Path.GetExtension(claude).ToLowerInvariant();
+		string ext = Path.GetExtension(claude).ToLowerInvariant();
 		if (ext is ".cmd" or ".bat") {
-			var comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
+			string comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
 			return (comspec, ["/c", claude, .. claudeArgs]);
 		}
 
@@ -145,9 +145,9 @@ public sealed class TerminalController : IDisposable {
 	/// bash, …) open straight at their prompt with no flags.
 	/// </summary>
 	private (string Command, IReadOnlyList<string> Arguments) ResolveShellLauncher() {
-		var shell = _settings.GetString("terminal.shell") ?? "powershell";
-		var command = ExecutableFinder.FindOnPath(shell) ?? shell;
-		var name = Path.GetFileNameWithoutExtension(command).ToLowerInvariant();
+		string shell = _settings.GetString("terminal.shell") ?? "powershell";
+		string command = ExecutableFinder.FindOnPath(shell) ?? shell;
+		string name = Path.GetFileNameWithoutExtension(command).ToLowerInvariant();
 		IReadOnlyList<string> arguments = name is "pwsh" or "powershell" ? ["-NoLogo"] : [];
 		return (command, arguments);
 	}
@@ -161,7 +161,7 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
-		var b64 = Convert.ToBase64String(data);
+		string b64 = Convert.ToBase64String(data);
 		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{b64}\"}}");
 	}
 

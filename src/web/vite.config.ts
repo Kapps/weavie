@@ -63,7 +63,9 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 4096,
-    // Local prototype served from disk — minification only adds build time.
-    minify: false,
+    // Even served from disk, the WebView must parse + evaluate every byte of JS before the app runs,
+    // and Monaco + the vscode-api layer is multiple megabytes. esbuild minification (near-free at build
+    // time) roughly thirds that, cutting startup parse/eval cost — worth it now that launch latency matters.
+    minify: "esbuild",
   },
 }));

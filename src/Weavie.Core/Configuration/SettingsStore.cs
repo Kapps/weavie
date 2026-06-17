@@ -60,7 +60,7 @@ public sealed class SettingsStore : IDisposable {
 		_registry = registry;
 		FilePath = filePath ?? WeaviePaths.SettingsFile;
 
-		var directory = Path.GetDirectoryName(FilePath);
+		string? directory = Path.GetDirectoryName(FilePath);
 		if (!string.IsNullOrEmpty(directory)) {
 			Directory.CreateDirectory(directory);
 		}
@@ -108,6 +108,12 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Resolves <paramref name="key"/> as a string (null if the value is absent or not a string).</summary>
 	public string? GetString(string key) => Resolve(key).Value as string;
 
+	/// <summary>Resolves <paramref name="key"/> as a bool (<paramref name="fallback"/> if absent or not a bool).</summary>
+	public bool GetBool(string key, bool fallback = false) => Resolve(key).Value is bool b ? b : fallback;
+
+	/// <summary>Resolves <paramref name="key"/> as an integer (<paramref name="fallback"/> if absent or not an int).</summary>
+	public long GetInt(string key, long fallback = 0) => Resolve(key).Value is long l ? l : fallback;
+
 	/// <summary>
 	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> (a JSON value from MCP)
 	/// to the user file, raising <see cref="SettingChanged"/> if the effective value changed. Throws
@@ -124,7 +130,7 @@ public sealed class SettingsStore : IDisposable {
 					$"{FilePath} has TOML parse errors; fix or delete it before changing settings.");
 			}
 
-			if (!TryCoerceJson(definition, value, out var coerced, out var coerceError)) {
+			if (!TryCoerceJson(definition, value, out object? coerced, out string? coerceError)) {
 				throw new SettingValidationException(key, coerceError!);
 			}
 
@@ -137,7 +143,7 @@ public sealed class SettingsStore : IDisposable {
 			SaveAtomicLocked();
 			changes = RecomputeAndDiffLocked();
 
-			var shadow = ResolveLocked(definition).Source == SettingSource.Environment ? definition.EnvVar : null;
+			string? shadow = ResolveLocked(definition).Source == SettingSource.Environment ? definition.EnvVar : null;
 			result = new SetResult { Written = true, ShadowedByEnv = shadow, Apply = definition.Apply };
 		}
 
@@ -213,14 +219,14 @@ public sealed class SettingsStore : IDisposable {
 
 	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition) {
 		var (value, source) = ResolveLocked(definition);
-		var fallback = definition.ComputeDefault?.Invoke() ?? definition.Default;
+		object? fallback = definition.ComputeDefault?.Invoke() ?? definition.Default;
 
 		writer.WriteStartObject();
 		writer.WriteString("key", definition.Key);
 		writer.WriteString("type", KindName(definition.Kind));
 		writer.WriteString("description", definition.Description);
 		writer.WriteStartArray("aliases");
-		foreach (var alias in definition.Aliases) {
+		foreach (string alias in definition.Aliases) {
 			writer.WriteStringValue(alias);
 		}
 
@@ -233,7 +239,7 @@ public sealed class SettingsStore : IDisposable {
 		writer.WriteString("apply", ApplyName(definition.Apply));
 		if (definition.AllowedValues is not null) {
 			writer.WriteStartArray("allowedValues");
-			foreach (var allowed in definition.AllowedValues) {
+			foreach (string allowed in definition.AllowedValues) {
 				writer.WriteStringValue(allowed);
 			}
 
@@ -244,9 +250,9 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	private ResolvedValue ResolveLocked(SettingDefinition definition) {
-		var env = Environment.GetEnvironmentVariable(definition.EnvVar);
+		string? env = Environment.GetEnvironmentVariable(definition.EnvVar);
 		if (env is not null) {
-			if (TryCoerceEnv(definition, env, out var coerced, out var error)) {
+			if (TryCoerceEnv(definition, env, out object? coerced, out string? error)) {
 				var validation = ValidateValue(definition, coerced);
 				if (validation.IsValid) {
 					return new ResolvedValue(coerced, SettingSource.Environment);
@@ -258,8 +264,8 @@ public sealed class SettingsStore : IDisposable {
 			Log?.Invoke($"[settings] {definition.Key}: ignoring invalid {definition.EnvVar}='{env}' ({error}); falling back.");
 		}
 
-		if (!_malformed && TryGetFileValue(definition.Key, out var fileValue)) {
-			if (TryCoerceFile(definition, fileValue, out var coerced, out var error)) {
+		if (!_malformed && TryGetFileValue(definition.Key, out object? fileValue)) {
+			if (TryCoerceFile(definition, fileValue, out object? coerced, out string? error)) {
 				var validation = ValidateValue(definition, coerced);
 				if (validation.IsValid) {
 					return new ResolvedValue(coerced, SettingSource.UserFile);
@@ -286,10 +292,10 @@ public sealed class SettingsStore : IDisposable {
 
 	private bool TryGetFileValue(string key, out object? value) {
 		value = null;
-		var parts = key.Split('.');
-		TomlTable table = _model;
-		for (var i = 0; i < parts.Length; i++) {
-			if (!table.TryGetValue(parts[i], out var current)) {
+		string[] parts = key.Split('.');
+		var table = _model;
+		for (int i = 0; i < parts.Length; i++) {
+			if (!table.TryGetValue(parts[i], out object? current)) {
 				return false;
 			}
 
@@ -318,7 +324,7 @@ public sealed class SettingsStore : IDisposable {
 				value = NormalizePath(raw, definition.Key);
 				return true;
 			case SettingKind.Bool:
-				if (bool.TryParse(raw, out var b)) {
+				if (bool.TryParse(raw, out bool b)) {
 					value = b;
 					return true;
 				}
@@ -327,7 +333,7 @@ public sealed class SettingsStore : IDisposable {
 				value = null;
 				return false;
 			case SettingKind.Int:
-				if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out var l)) {
+				if (long.TryParse(raw, NumberStyles.Integer, CultureInfo.InvariantCulture, out long l)) {
 					value = l;
 					return true;
 				}
@@ -407,10 +413,26 @@ public sealed class SettingsStore : IDisposable {
 					return true;
 				}
 
+				// Tolerate a stringified bool ("true"/"false"): LLM tool calls routinely stringify
+				// scalars, and this matches the env-var coercion path (which is always textual). A
+				// non-bool string still falls through and is rejected loudly below.
+				if (value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out bool sb)) {
+					coerced = sb;
+					return true;
+				}
+
 				break;
 			case SettingKind.Int:
-				if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out var l)) {
+				if (value.ValueKind == JsonValueKind.Number && value.TryGetInt64(out long l)) {
 					coerced = l;
+					return true;
+				}
+
+				// Tolerate a stringified integer ("16") for the same reason; a non-numeric string
+				// ("NaN") still falls through to the rejection below.
+				if (value.ValueKind == JsonValueKind.String
+					&& long.TryParse(value.GetString(), NumberStyles.Integer, CultureInfo.InvariantCulture, out long sl)) {
+					coerced = sl;
 					return true;
 				}
 
@@ -423,8 +445,8 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	private string NormalizePath(string raw, string key) {
-		var expanded = raw;
-		var home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		string expanded = raw;
+		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		if (expanded == "~") {
 			expanded = home;
 		} else if (expanded.StartsWith("~/", StringComparison.Ordinal) || expanded.StartsWith("~\\", StringComparison.Ordinal)) {
@@ -435,7 +457,7 @@ public sealed class SettingsStore : IDisposable {
 			return Path.GetFullPath(expanded);
 		}
 
-		var baseDir = string.Equals(key, WorkspaceKey, StringComparison.Ordinal)
+		string baseDir = string.Equals(key, WorkspaceKey, StringComparison.Ordinal)
 			? home
 			: ResolveWorkspaceDirLocked(home);
 		return Path.GetFullPath(Path.Combine(baseDir, expanded));
@@ -480,8 +502,8 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	private void SaveAtomicLocked() {
-		var text = _doc.ToString();
-		var tmp = FilePath + ".tmp";
+		string text = _doc.ToString();
+		string tmp = FilePath + ".tmp";
 		File.WriteAllText(tmp, text);
 		if (File.Exists(FilePath)) {
 			File.Replace(tmp, FilePath, null);
@@ -494,7 +516,7 @@ public sealed class SettingsStore : IDisposable {
 		var changes = new List<SettingChange>();
 		foreach (var definition in _registry.Definitions) {
 			var (value, source) = ResolveLocked(definition);
-			var previous = _resolved.GetValueOrDefault(definition.Key);
+			object? previous = _resolved.GetValueOrDefault(definition.Key);
 			if (!Equals(previous, value)) {
 				changes.Add(new SettingChange(definition.Key, previous, value, source));
 				_resolved[definition.Key] = value;
@@ -587,12 +609,15 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	private static KeySyntax BuildKeySyntax(string key) {
-		var parts = key.Split('.');
-		return parts.Length switch {
-			1 => new KeySyntax(parts[0]),
-			2 => new KeySyntax(parts[0], parts[1]),
-			_ => throw new NotSupportedException($"Keys deeper than two segments are not supported yet ('{key}')."),
-		};
+		string[] parts = key.Split('.');
+		// Tomlyn's KeySyntax only takes the first segment (+ optionally one dot key) via its
+		// constructors; deeper dotted keys (e.g. editor.font.size) are built by appending DotKeys.
+		var syntax = new KeySyntax(parts[0]);
+		for (int i = 1; i < parts.Length; i++) {
+			syntax.DotKeys.Add(new DottedKeyItemSyntax(parts[i]));
+		}
+
+		return syntax;
 	}
 
 	private static string DottedKeyName(KeySyntax key) {

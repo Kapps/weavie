@@ -1,9 +1,10 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { type ILink, Terminal } from "@xterm/xterm";
+import { type FontWeight, type ILink, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { type JSX, onCleanup, onMount } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "../bridge";
+import { currentFonts, onFontsChanged } from "../fonts";
 import { base64ToBytes, bytesToBase64 } from "./base64";
 
 // Matches paths with an extension followed by :line (optionally :col), e.g.
@@ -27,9 +28,13 @@ function revealFromMatch(matchText: string): void {
 export function TerminalView(props: { session: TermSession }): JSX.Element {
   let container!: HTMLDivElement;
 
+  // Typography is a user setting resolved by the host (global font.* + terminal.font.* overrides),
+  // injected before navigation so the terminal mounts at the right font, and live-updated in onMount.
+  const initialFont = currentFonts().terminal;
   const term = new Terminal({
-    fontFamily: 'ui-monospace, "SF Mono", Menlo, monospace',
-    fontSize: 13,
+    fontFamily: initialFont.family,
+    fontSize: initialFont.size,
+    fontWeight: initialFont.weight as FontWeight,
     lineHeight: 1.0,
     theme: { background: "#1e1e1e", foreground: "#d4d4d4" },
     cursorBlink: true,
@@ -55,6 +60,15 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
         // fit/refresh can throw mid-layout when the pane has zero size; ignore.
       }
     };
+
+    // Apply live font changes: update xterm's options, then refit since the cell metrics (and thus
+    // cols/rows, which the PTY must learn) change with the font.
+    const offFonts = onFontsChanged((config) => {
+      term.options.fontFamily = config.terminal.family;
+      term.options.fontSize = config.terminal.size;
+      term.options.fontWeight = config.terminal.weight as FontWeight;
+      refit();
+    });
 
     // WebGL renderer with self-healing: a lost GL context (driver churn, or DOM/style mutation from
     // an HMR swap in dev) otherwise leaves the canvas blank. On loss, drop the addon so xterm falls
@@ -176,6 +190,7 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
 
     onCleanup(() => {
       offHost();
+      offFonts();
       resizeObserver.disconnect();
       window.removeEventListener("resize", refit);
       if (import.meta.hot) {

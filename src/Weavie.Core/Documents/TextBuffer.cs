@@ -28,8 +28,8 @@ public sealed class TextBuffer {
 
 	/// <summary>Returns the substring covered by <paramref name="range"/>.</summary>
 	public string GetText(TextRange range) {
-		var start = OffsetOf(range.Start);
-		var end = OffsetOf(range.End);
+		int start = OffsetOf(range.Start);
+		int end = OffsetOf(range.End);
 		if (end < start) {
 			throw new ArgumentException($"Range end {range.End} precedes start {range.Start}.", nameof(range));
 		}
@@ -40,13 +40,13 @@ public sealed class TextBuffer {
 	/// <summary>Applies a single edit. Offsets are resolved against the pre-edit text.</summary>
 	public void Apply(TextEdit edit) {
 		ArgumentNullException.ThrowIfNull(edit.Text);
-		var start = OffsetOf(edit.Range.Start);
-		var end = OffsetOf(edit.Range.End);
+		int start = OffsetOf(edit.Range.Start);
+		int end = OffsetOf(edit.Range.End);
 		if (end < start) {
 			throw new ArgumentException($"Range end {edit.Range.End} precedes start {edit.Range.Start}.", nameof(edit));
 		}
 
-		var replacement = Normalize(edit.Text);
+		string replacement = Normalize(edit.Text);
 		Text = string.Concat(Text.AsSpan(0, start), replacement, Text.AsSpan(end));
 		_lineStarts = ComputeLineStarts(Text);
 	}
@@ -62,11 +62,11 @@ public sealed class TextBuffer {
 		}
 
 		var resolved = new (int Start, int End, string Text)[edits.Count];
-		for (var i = 0; i < edits.Count; i++) {
+		for (int i = 0; i < edits.Count; i++) {
 			var edit = edits[i];
 			ArgumentNullException.ThrowIfNull(edit.Text);
-			var start = OffsetOf(edit.Range.Start);
-			var end = OffsetOf(edit.Range.End);
+			int start = OffsetOf(edit.Range.Start);
+			int end = OffsetOf(edit.Range.End);
 			if (end < start) {
 				throw new ArgumentException($"Range end {edit.Range.End} precedes start {edit.Range.Start}.", nameof(edits));
 			}
@@ -75,14 +75,14 @@ public sealed class TextBuffer {
 		}
 
 		Array.Sort(resolved, static (a, b) => a.Start.CompareTo(b.Start));
-		for (var i = 1; i < resolved.Length; i++) {
+		for (int i = 1; i < resolved.Length; i++) {
 			if (resolved[i].Start < resolved[i - 1].End) {
 				throw new ArgumentException("Overlapping edits are not allowed in a single batch.", nameof(edits));
 			}
 		}
 
 		var sb = new StringBuilder(Text.Length);
-		var cursor = 0;
+		int cursor = 0;
 		foreach (var (start, end, text) in resolved) {
 			sb.Append(Text, cursor, start - cursor);
 			sb.Append(text);
@@ -97,8 +97,8 @@ public sealed class TextBuffer {
 	/// <summary>The position just past the last character (last line, column after its final character).</summary>
 	public Position EndPosition {
 		get {
-			var lastLineStart = _lineStarts[^1];
-			var lastLineLength = Text.Length - lastLineStart;
+			int lastLineStart = _lineStarts[^1];
+			int lastLineLength = Text.Length - lastLineStart;
 			return new Position(_lineStarts.Length, lastLineLength + 1);
 		}
 	}
@@ -111,11 +111,11 @@ public sealed class TextBuffer {
 				$"Line {position.LineNumber} is outside [1, {_lineStarts.Length}].");
 		}
 
-		var lineStart = _lineStarts[position.LineNumber - 1];
-		var lineEnd = position.LineNumber < _lineStarts.Length
+		int lineStart = _lineStarts[position.LineNumber - 1];
+		int lineEnd = position.LineNumber < _lineStarts.Length
 			? _lineStarts[position.LineNumber] - 1 // exclude the '\n'
 			: Text.Length;
-		var lineLength = lineEnd - lineStart;
+		int lineLength = lineEnd - lineStart;
 
 		if (position.Column < 1 || position.Column > lineLength + 1) {
 			throw new ArgumentOutOfRangeException(
@@ -129,7 +129,7 @@ public sealed class TextBuffer {
 
 	private static int[] ComputeLineStarts(string text) {
 		var starts = new List<int>(16) { 0 };
-		for (var i = 0; i < text.Length; i++) {
+		for (int i = 0; i < text.Length; i++) {
 			if (text[i] == '\n') {
 				starts.Add(i + 1);
 			}

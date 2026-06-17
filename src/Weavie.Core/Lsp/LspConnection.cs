@@ -50,7 +50,7 @@ internal sealed class LspConnection {
 	}
 
 	private async Task PumpClientToServerAsync(CancellationToken ct) {
-		var buffer = new byte[64 * 1024];
+		byte[] buffer = new byte[64 * 1024];
 		using var message = new MemoryStream();
 
 		while (_socket.State == WebSocketState.Open && !ct.IsCancellationRequested) {
@@ -90,7 +90,7 @@ internal sealed class LspConnection {
 	/// <param name="paramsJson">The pre-serialized JSON for the notification's <c>params</c>.</param>
 	/// <param name="ct">Cancellation token.</param>
 	public async Task SendNotificationAsync(string method, string paramsJson, CancellationToken ct) {
-		var envelope = $"{{\"jsonrpc\":\"2.0\",\"method\":\"{JsonEncodedText.Encode(method)}\",\"params\":{paramsJson}}}";
+		string envelope = $"{{\"jsonrpc\":\"2.0\",\"method\":\"{JsonEncodedText.Encode(method)}\",\"params\":{paramsJson}}}";
 		try {
 			await WriteToServerAsync(Encoding.UTF8.GetBytes(envelope), ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException or InvalidOperationException) {

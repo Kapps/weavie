@@ -81,4 +81,24 @@
              Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'npm run build' in src/web, then rebuild, so the window has a UI to load." />
   </Target>
 
+  <!--
+    Publish: carry the bundled web assets into the publish output. CopyWebAssets (above) only
+    populates $(OutDir)wwwroot, which is the build dir; `dotnet publish` computes its own file set
+    and would otherwise ship an exe with no UI. BuildWebAssets has already produced dist by the time
+    the build phase of publish completes, so re-glob it here and add each file as a published item
+    under wwwroot/ — the same bundled path the host loads when not using the dev server.
+  -->
+  <Target Name="PublishWebAssets"
+          Condition="'$(Configuration)' != 'Debug' And Exists('$(WebRoot)/dist/index.html')"
+          BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_WebDistToPublish Include="$(WebRoot)/dist/**/*" />
+      <ResolvedFileToPublish Include="@(_WebDistToPublish)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    <Message Importance="high" Text="weavie: staged @(_WebDistToPublish->Count()) web asset(s) into publish/wwwroot." />
+  </Target>
+
 </Project>

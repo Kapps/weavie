@@ -34,8 +34,8 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler {
 		}
 
 		// Encode the JSON payload as a JS string literal argument (trim-safe; no reflection).
-		var literal = $"\"{JsonEncodedText.Encode(json)}\"";
-		var script = $"window.__weavieReceive && window.__weavieReceive({literal});";
+		string literal = $"\"{JsonEncodedText.Encode(json)}\"";
+		string script = $"window.__weavieReceive && window.__weavieReceive({literal});";
 
 		if (NSThread.IsMain) {
 			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error));

@@ -26,12 +26,12 @@ public static class ExecutableFinder {
 			return OperatingSystem.IsWindows() ? ProbeWindowsExtensions(name) : null;
 		}
 
-		var path = Environment.GetEnvironmentVariable("PATH");
+		string? path = Environment.GetEnvironmentVariable("PATH");
 		if (string.IsNullOrEmpty(path)) {
 			return null;
 		}
 
-		foreach (var dir in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+		foreach (string dir in path.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
 			string candidate;
 			try {
 				candidate = Path.Combine(dir, name);
@@ -53,9 +53,9 @@ public static class ExecutableFinder {
 
 	/// <summary>Appends each <c>PATHEXT</c> extension to <paramref name="candidate"/> and returns the first that exists.</summary>
 	private static string? ProbeWindowsExtensions(string candidate) {
-		var pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
-		foreach (var ext in pathext.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
-			var withExt = candidate + ext;
+		string pathext = Environment.GetEnvironmentVariable("PATHEXT") ?? ".COM;.EXE;.BAT;.CMD";
+		foreach (string ext in pathext.Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+			string withExt = candidate + ext;
 			if (File.Exists(withExt)) {
 				return withExt;
 			}

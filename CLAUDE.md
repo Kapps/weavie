@@ -13,6 +13,15 @@ load it only when you need it.
   built now) and **commands** (named actions, not yet implemented). See
   [docs/concepts/mcp-registry.md](docs/concepts/mcp-registry.md).
 
+## Shared branch / parallel agents
+
+Multiple agents may work this branch and working tree at the same time. Files can change under you
+mid-task, and a build or test can fail on code you didn't touch (another agent's half-saved work).
+
+- Treat failures **outside your own change set** as someone else's in-progress work: don't fix,
+  revert, or investigate them, and don't retry in a tight loop. Wait, then re-run.
+- Only act on failures in files you actually changed.
+
 ## Output conventions
 
 Keep the repo root clean. Do not drop scratch files, findings, or notes in the root.
@@ -27,3 +36,11 @@ Keep the repo root clean. Do not drop scratch files, findings, or notes in the r
   one-line summary + link per concept; the detail lives in the doc.
 - **Diagrams in docs** — draw diagrams as Mermaid (` ```mermaid ` fenced blocks), never hand-drawn
   ASCII-art. Applies to specs and design docs.
+
+## Debug & instrumentation flags
+
+- **No buried environment variables.** Tracing, diagnostics, logging, and instrumentation toggles
+  must be real **settings** (in the settings system, surfaced via the capability registry), **off by
+  default** — never hidden env vars a user can't discover or flip. If a flag is worth having, it's
+  worth being a first-class setting. One-off, throwaway diagnosis during development is fine, but it
+  does not get committed — nothing buried lands in the codebase.

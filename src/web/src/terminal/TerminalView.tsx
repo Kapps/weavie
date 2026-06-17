@@ -42,8 +42,30 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
   onMount(() => {
     term.loadAddon(fit);
     term.open(container);
+
+    // Re-fit to the container and force a repaint. Used for every event that can leave the WebGL
+    // canvas stale/blank or the PTY sized to the wrong grid: layout changes, OS-window resizes, a
+    // lost GL context, and HMR swaps. fit() updates cols/rows (and so notifies the PTY via onResize);
+    // refresh() guarantees a paint even when the size is unchanged (the blank-after-HMR case).
+    const refit = (): void => {
+      try {
+        fit.fit();
+        term.refresh(0, term.rows - 1);
+      } catch {
+        // fit/refresh can throw mid-layout when the pane has zero size; ignore.
+      }
+    };
+
+    // WebGL renderer with self-healing: a lost GL context (driver churn, or DOM/style mutation from
+    // an HMR swap in dev) otherwise leaves the canvas blank. On loss, drop the addon so xterm falls
+    // back to the always-painting DOM renderer, then repaint.
     try {
-      term.loadAddon(new WebglAddon());
+      const webgl = new WebglAddon();
+      webgl.onContextLoss(() => {
+        webgl.dispose();
+        refit();
+      });
+      term.loadAddon(webgl);
     } catch (error) {
       log("warn", `WebGL terminal renderer unavailable, using fallback: ${String(error)}`);
     }
@@ -95,7 +117,7 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
       },
     });
 
-    fit.fit();
+    refit();
 
     term.onData((data) => {
       postToHost({
@@ -112,14 +134,20 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
     // Ask the host to start this session's PTY child sized to the fitted terminal.
     postToHost({ type: "term-ready", session: props.session, cols: term.cols, rows: term.rows });
 
-    const resizeObserver = new ResizeObserver(() => {
-      try {
-        fit.fit();
-      } catch {
-        // fit can throw mid-layout when the pane has zero size; ignore.
-      }
-    });
+    const resizeObserver = new ResizeObserver(() => refit());
     resizeObserver.observe(container);
+
+    // Backup for OS-window resizes: WebView2 doesn't reliably deliver those to the container's
+    // ResizeObserver, so without this the PTY keeps its old cols/rows until the next manual pane
+    // resize — i.e. the claude TUI never learns the window changed size.
+    window.addEventListener("resize", refit);
+
+    // After an HMR update (e.g. a CSS/theme hot-swap) there's no size change to trigger a refit, yet
+    // the WebGL canvas can be left blank — so refit + repaint explicitly. Dev-only: `import.meta.hot`
+    // is undefined in the production build, so this is tree-shaken out.
+    if (import.meta.hot) {
+      import.meta.hot.on("vite:afterUpdate", refit);
+    }
 
     const offHost = onHostMessage((message) => {
       // The bridge channel is shared across sessions; ignore traffic for the other pane.
@@ -149,6 +177,10 @@ export function TerminalView(props: { session: TermSession }): JSX.Element {
     onCleanup(() => {
       offHost();
       resizeObserver.disconnect();
+      window.removeEventListener("resize", refit);
+      if (import.meta.hot) {
+        import.meta.hot.off("vite:afterUpdate", refit);
+      }
       term.dispose();
     });
   });

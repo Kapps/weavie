@@ -51,6 +51,9 @@ internal sealed class MainForm : Form {
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
 	private LspBridgeServer? _lsp;
+#if DEBUG
+	private WebDevServer? _webDev;
+#endif
 
 	public MainForm() {
 		Text = "weavie";
@@ -95,6 +98,26 @@ internal sealed class MainForm : Form {
 		core.Settings.AreDevToolsEnabled = true;          // local debugging of the prototype
 		core.Settings.IsStatusBarEnabled = false;
 
+		// Page origin: the shipped app loads the bundled web app over https://weavie.app/. In Debug the
+		// host owns a Vite dev server — started here, torn down on exit, so there's no second terminal —
+		// and points the WebView at it for hot-module reload, falling back to the bundled wwwroot if the
+		// server can't start. Release loads the bundle (the block below is compiled out). The chosen
+		// origin flows into navigation and the LSP bridge's allowed origin.
+		var pageOrigin = $"https://{AppHost}";
+#if DEBUG
+		_webDev = new WebDevServer(line => {
+			Console.WriteLine($"[vite] {line}");
+			Console.Out.Flush();
+		});
+		var devOrigin = await _webDev.StartAsync();
+		if (devOrigin is not null) {
+			pageOrigin = devOrigin;
+			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
+		} else {
+			Console.WriteLine("[weavie] dev server unavailable; falling back to bundled wwwroot");
+		}
+#endif
+
 		_bridge.Attach(_webView);
 
 		// User settings (shell / workspace / claude path) resolved from ~/.weavie/settings.toml; the
@@ -123,15 +146,25 @@ internal sealed class MainForm : Form {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
 		};
+		if (_ide.RegistryServer is not null) {
+			_ide.RegistryServer.Log += line => {
+				Console.WriteLine($"[registry] {line}");
+				Console.Out.Flush();
+			};
+		}
+
 		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
-		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; workspace {workspace}; lock {_ide.LockFilePath}");
+		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
+		// so the settings tools reach the model as mcp__weavie__* (the IDE server's tools are filtered).
+		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
+		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved
 		// on PATH) and pipes them to monaco-languageclient in the page. Inject discovery — the port, a
 		// per-session token, and the workspace root — before navigation; mirrors the IDE-MCP loopback +
 		// token posture (bind 127.0.0.1, require the token on the WS upgrade; origin pinned to the app).
 		var lspToken = IdeLockFile.NewAuthToken();
-		_lsp = new LspBridgeServer(lspToken, workspace, allowedOrigin: $"https://{AppHost}");
+		_lsp = new LspBridgeServer(lspToken, workspace, allowedOrigin: pageOrigin);
 		_lsp.Log += line => {
 			Console.WriteLine($"[lsp] {line}");
 			Console.Out.Flush();
@@ -170,7 +203,7 @@ internal sealed class MainForm : Form {
 			query.Add("fpsprobe=1");
 		}
 		var qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
-		core.Navigate($"https://{AppHost}/index.html{qs}");
+		core.Navigate($"{pageOrigin}/index.html{qs}");
 
 		// Unattended screenshot for the deliverable; gated on WEAVIE_SHOT_DIR so the shipped app
 		// never writes screenshots.
@@ -302,6 +335,9 @@ internal sealed class MainForm : Form {
 		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		_lsp?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+#if DEBUG
+		_webDev?.Dispose();
+#endif
 		_settings?.Dispose();
 	}
 }

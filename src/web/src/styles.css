@@ -126,7 +126,9 @@ body,
   min-height: 0;
   overflow: hidden;
   border-bottom: 1px solid var(--border);
-  transition: flex-grow 0.18s ease;
+  /* No transition on flex-grow: pane switching must be an instant resize so the
+     terminal reflows once at the final size rather than across every animation
+     frame, which reads as jarring. */
 }
 
 .left-pane:last-child {

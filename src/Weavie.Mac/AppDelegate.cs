@@ -78,8 +78,18 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
 		};
+		if (_ide.RegistryServer is not null) {
+			_ide.RegistryServer.Log += line => {
+				Console.WriteLine($"[registry] {line}");
+				Console.Out.Flush();
+			};
+		}
+
 		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
-		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; workspace {workspace}; lock {_ide.LockFilePath}");
+		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
+		// so the settings tools reach the model as mcp__weavie__* (the IDE server's tools are filtered).
+		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
+		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
 		// Settings events arrive off the main thread, so marshal onto it before touching the controller.

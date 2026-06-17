@@ -1,3 +1,4 @@
+import importMetaUrlPlugin from "@codingame/esbuild-import-meta-url-plugin";
 import { type Plugin, defineConfig } from "vite";
 import solid from "vite-plugin-solid";
 
@@ -30,10 +31,29 @@ function fixTextmateLazyImport(): Plugin {
 // `https://weavie.app`) — no network, secure origin. `base: "./"` keeps every asset reference relative
 // so it resolves under the scheme. Workers are ES modules: the monaco-vscode-api textmate worker is a
 // code-splitting build, which Rollup cannot emit as iife/umd. Module workers are fine under a secure
-// context (both schemes qualify).
-export default defineConfig({
+// context (both schemes qualify, as does http://localhost — see the dev server below).
+export default defineConfig(({ command }) => ({
   plugins: [fixTextmateLazyImport(), solid()],
-  base: "./",
+  // Build: relative base so assets resolve under the custom scheme/virtual-host (no web root).
+  // Dev (`serve`): the server hosts from the origin root, where a relative base breaks the HMR
+  // client and module URLs — so use an absolute base.
+  base: command === "serve" ? "/" : "./",
+  // Hot reload: the .NET host (Debug) spawns this dev server itself and points the WebView at it —
+  // no second terminal. strictPort so the host can rely on a fixed URL (fail loud if 5173 is taken).
+  server: {
+    port: 5173,
+    strictPort: true,
+  },
+  // Dev only: monaco-vscode-api's default-extension packages register their assets (theme JSON,
+  // the TextMate grammar, onig.wasm) via `new URL('./resource', import.meta.url)`. Vite's *build*
+  // rewrites those to emitted assets, but dev pre-bundles the deps with esbuild, which drops the
+  // import.meta.url asset targets → 404 (e.g. dark_vs.json) → no theme. This plugin rewrites those
+  // URLs during pre-bundling so they resolve. optimizeDeps is dev-only; the build is unaffected.
+  optimizeDeps: {
+    esbuildOptions: {
+      plugins: [importMetaUrlPlugin],
+    },
+  },
   worker: {
     format: "es",
   },
@@ -46,4 +66,4 @@ export default defineConfig({
     // Local prototype served from disk — minification only adds build time.
     minify: false,
   },
-});
+}));

@@ -32,12 +32,40 @@
     <PackageReference Include="Microsoft.Web.WebView2" />
   </ItemGroup>
 
+  <!-- Debug only: tell the host where the web sources live so it can launch the Vite dev server
+       (hot reload) itself — no second terminal. Release bundles wwwroot instead (BuildWebAssets). -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <AssemblyMetadata Include="WeavieWebDevDir" Value="$(WebRoot)" />
+  </ItemGroup>
+
   <!--
-    Copy the built Vite web app next to the host exe under wwwroot/. The web app is built
-    separately (`npm run build` in src/web) and intentionally kept out of the dotnet build so
-    C# iteration stays fast. Unlike the Mac bundle there's no .app, so assets land in $(OutDir)wwwroot.
-    Missing assets are a loud warning (not a hard error) so the host still compiles to a runnable
-    exe — the UI simply won't render until the web app is built.
+    Release/CI: build the Vite web app as part of the dotnet build so a shippable build needs no
+    manual `npm run build`. Incremental (Inputs/Outputs) — a no-op when web sources are unchanged.
+    Skipped in Debug, where the host runs the Vite dev server for hot reload instead, keeping the
+    C#-only inner loop fast (no node on every build).
+  -->
+  <ItemGroup>
+    <WebSource Include="$(WebRoot)/src/**/*" />
+    <WebSource Include="$(WebRoot)/index.html" />
+    <WebSource Include="$(WebRoot)/vite.config.ts" />
+    <WebSource Include="$(WebRoot)/tsconfig.json" />
+    <WebSource Include="$(WebRoot)/package.json" />
+  </ItemGroup>
+  <Target Name="BuildWebAssets"
+          Condition="'$(Configuration)' != 'Debug'"
+          BeforeTargets="CopyWebAssets"
+          Inputs="@(WebSource)"
+          Outputs="$(WebRoot)/dist/index.html">
+    <Message Importance="high" Text="weavie: building web app (npm run build) in $(WebRoot)…" />
+    <Exec Command="npm run build" WorkingDirectory="$(WebRoot)" />
+  </Target>
+
+  <!--
+    Copy the Vite web app next to the host exe under wwwroot/ (the bundled path the host loads when
+    not using the dev server). In Release the bundle is produced by BuildWebAssets above; in Debug
+    it's whatever dist exists (the host serves the dev server instead). No .app like the Mac bundle,
+    so assets land in $(OutDir)wwwroot. Missing assets are a loud warning (not a hard error) so the
+    host still compiles to a runnable exe.
   -->
   <Target Name="CopyWebAssets" AfterTargets="Build">
     <ItemGroup Condition="Exists('$(WebRoot)/dist/index.html')">

@@ -148,8 +148,17 @@ become **session-aware**: a diff carries a session id and renders in that sessio
   click-to-open through the existing `open-file` path.
 
 Each phase: build + unit tests + drive the live Windows app to validate end-to-end, then commit.
-Windows is verified; the macOS host is mirrored but compile-unverified (no Mac toolchain available
-during this build).
+
+### Implementation status (2026-06-17)
+
+Phases 0–3 are **implemented and committed for the Windows host**, each verified by build + Core tests
+(188 passing) + driving the live app. The shared logic lives in Core (`WorkspaceId`, `RecentWorkspaces`,
+`WorkspaceManager`, `WorkspaceBrowser`, `IFileSystem` enumeration), so the **macOS host is not yet
+mirrored** — it was being actively edited by a parallel agent during this build and there was no Mac
+toolchain to compile-verify against. The Mac host (`src/Weavie.Mac/AppDelegate.cs` et al.) needs the same
+split as Windows: an app controller + per-window host + `HostSession` analogue, an `NSMenu` + `NSOpenPanel`,
+the welcome `NSWindow`, per-workspace layout, and a `list-dir` handler — built on a Mac against the
+existing Core, using the Windows host (`Weavie.Win/Hosting/`) as the template.
 
 ## Open questions / deferred
 

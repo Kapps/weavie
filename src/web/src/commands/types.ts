@@ -37,6 +37,11 @@ export const CommandIds = {
   focusOmnibarFiles: "weavie.omnibar.focusFiles",
   focusOmnibarCommands: "weavie.omnibar.focusCommands",
   reopenTerminal: "weavie.terminal.reopen",
+  nextChange: "weavie.diff.nextChange",
+  prevChange: "weavie.diff.prevChange",
+  acceptChange: "weavie.diff.accept",
+  rejectChange: "weavie.diff.reject",
+  undoChange: "weavie.diff.undo",
 } as const;
 
 declare global {

@@ -30,6 +30,9 @@ public static class WeaviePaths {
 	/// <summary>The persisted most-recently-opened workspace list: <c>~/.weavie/recents.json</c>.</summary>
 	public static string RecentsFile { get; } = Path.Combine(Root, "recents.json");
 
+	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, like layout — never part of settings.toml.</summary>
+	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
+
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
 

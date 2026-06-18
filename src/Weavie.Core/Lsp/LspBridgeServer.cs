@@ -59,6 +59,14 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	/// <summary>Diagnostic log line (connections, spawns, server stderr, teardown).</summary>
 	public event Action<string>? Log;
 
+	/// <summary>
+	/// Raised with each debounced batch of on-disk changes the workspace watcher reports — the same batch sent
+	/// to the language servers — so the host can also forward them to the editor's <c>file://</c> provider in
+	/// the page (covering non-Claude on-disk edits). Fires whether or not any LSP server is currently
+	/// connected, as long as the watcher is running. Invoked off the UI thread.
+	/// </summary>
+	public event Action<IReadOnlyList<WatchedFileChange>>? FileChanges;
+
 	/// <summary>The loopback port the server is listening on; 0 until <see cref="Start"/> is called.</summary>
 	public int Port { get; private set; }
 
@@ -193,9 +201,15 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	}
 
 	// Forward a debounced batch of on-disk changes (incl. Claude/MCP edits) to every live server as a
-	// single workspace/didChangeWatchedFiles notification, so diagnostics/types don't go stale (§9).
+	// single workspace/didChangeWatchedFiles notification, so diagnostics/types don't go stale (§9). The same
+	// batch is mirrored to the page's file:// provider via FileChanges (independent of LSP connection state).
 	private void BroadcastFileChanges(IReadOnlyList<WatchedFileChange> changes) {
-		if (_connections.IsEmpty || changes.Count == 0) {
+		if (changes.Count == 0) {
+			return;
+		}
+
+		FileChanges?.Invoke(changes);
+		if (_connections.IsEmpty) {
 			return;
 		}
 

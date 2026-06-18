@@ -1,15 +1,18 @@
 :root {
-  --bg: #1e1e1e;
-  --bar: #252526;
-  --border: #333;
-  --fg: #d4d4d4;
-  --accent: #4ec9b0;
-  --dim: #808080;
+  /* Initial/fallback chrome vars (Weavie Dark). The theme controller overwrites these on the active
+     theme's resolved palette at runtime (see theme/chrome-vars.ts); these defaults just avoid any flash
+     before it runs and back plain-browser dev. */
+  --bg: #0f1217;
+  --bar: #12161d;
+  --border: #232a35;
+  --fg: #e8eaf0;
+  --accent: #2dd4bf;
+  --dim: #8b95a7;
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own
-     theme stylesheet (injected later) overrides this once the dark theme is applied. */
-  --vscode-editor-background: #1e1e1e;
+     theme stylesheet (injected later) overrides this once the theme is applied. */
+  --vscode-editor-background: #0f1217;
 }
 
 * {
@@ -30,72 +33,6 @@ body,
   background: var(--bg);
   color: var(--fg);
   font: 12px / 1.5 ui-monospace, "SF Mono", Menlo, monospace;
-}
-
-.hud {
-  flex: 0 0 auto;
-  background: var(--bar);
-  border-bottom: 1px solid var(--border);
-  padding: 6px 10px;
-}
-
-.hud .row {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 14px;
-}
-
-.hud .title {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.hud .kv b {
-  color: var(--accent);
-  font-weight: 600;
-}
-
-.hud .dim,
-.hud .unit {
-  color: var(--dim);
-}
-
-.hud .unit {
-  margin-left: 4px;
-}
-
-.hud button {
-  background: #3a3d41;
-  color: var(--fg);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 3px 9px;
-  font: inherit;
-  cursor: pointer;
-}
-
-.hud button.on {
-  background: #5a1d1d;
-  border-color: #a33;
-}
-
-.hud button:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.bench {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  margin-top: 6px;
-  padding-top: 6px;
-  border-top: 1px dashed var(--border);
-}
-
-.bench .benchnote {
-  color: var(--dim);
 }
 
 .split {

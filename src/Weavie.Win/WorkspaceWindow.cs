@@ -10,7 +10,9 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
+using Weavie.Core.Lsp;
 using Weavie.Core.Shell;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Win.Hosting;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -42,12 +44,6 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
           };
         })();
         """;
-
-	// Perf instrumentation (the live latency HUD and its per-tick log spam) is opt-in via
-	// WEAVIE_DEBUG_PERFORMANCE: surfaced to the web app as ?debugperf, and used here to gate the
-	// latency-live/benchmark-result console logging. Off by default so normal runs stay quiet.
-	private readonly bool _debugPerformance =
-		!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_PERFORMANCE"));
 
 	private readonly AppController _app;
 	private readonly string _workspaceRoot;
@@ -344,7 +340,7 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// WS origin is pinned correctly.
 		_session = new HostSession(
 			_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8],
-			_app.CommandRegistry, _app.Keybindings);
+			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
 
 		// Commands: wire this session's dispatcher to the web (so Claude's runCommand of a web command posts
 		// run-command + awaits its ack) and register the Core-side handlers (reopen terminal → restart the
@@ -374,6 +370,11 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		_session.Changes.FileChanged += PushTurnDiffToWeb;
 		_session.Changes.TurnBegan += PushTurnReset;
 
+		// File provider: forward the workspace watcher's on-disk change batches (non-Claude edits — another
+		// editor, a git checkout) to the page's file:// provider so VSCode reloads the affected working copies.
+		// Claude's own edits reach the provider via PushRefreshToWeb above.
+		_session.Lsp.FileChanges += PushWatcherChangesToWeb;
+
 		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
 		// lazily start a monaco-languageclient per language on first matching document.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {_session.LspConfigJson};");
@@ -381,6 +382,11 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+
+		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
+		// before navigation so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync(
+			$"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _app.ThemeOverrides, log: line => Console.WriteLine(line))};");
 
 		// Commands + keybindings: inject the catalog + resolved bindings before navigation so the web's
 		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
@@ -412,6 +418,20 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			}
 		};
 
+		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
+		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
+		// the UI thread and the stores are thread-safe, so the off-thread events can call it directly.
+		_settings.SettingChanged += change => {
+			if (change.Key == "theme.active") {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+		_app.ThemeOverrides.Changed += themeId => {
+			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+
 		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
 		// web rebuilds its resolver + palette live. PostToWeb marshals to the UI thread itself; the store is
 		// thread-safe, so the off-thread change event can call it directly. Detached on close (Shutdown).
@@ -431,17 +451,8 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		};
 
 		var query = new List<string>();
-		if (_debugPerformance) {
-			query.Add("debugperf=1");
-		}
 		if (startupTiming) {
 			query.Add("startuptiming=1");
-		}
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))) {
-			query.Add("autobench=1");
-		}
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_FPSPROBE"))) {
-			query.Add("fpsprobe=1");
 		}
 		string qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
 		core.Navigate($"{pageOrigin}/index.html{qs}");
@@ -516,10 +527,25 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
-			case "save-buffer":
-				SaveBuffer(
-					root.GetProperty("path").GetString() ?? string.Empty,
-					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
+			case "fs-stat":
+				if (_session is not null) {
+					_bridge.PostToWeb(_session.FileProvider.Stat(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-read":
+				if (_session is not null) {
+					_bridge.PostToWeb(_session.FileProvider.Read(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-write":
+				if (_session is not null) {
+					_bridge.PostToWeb(_session.FileProvider.Write(
+						FsId(root), FsPath(root),
+						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				}
+
 				break;
 			case "accept-turn":
 				AcceptTurn();
@@ -550,14 +576,6 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			case "request-file-index":
 				_shell?.PushFileIndex();
 				break;
-			case "latency-live":
-			case "benchmark-result":
-				// Per-tick perf telemetry (latency-live fires ~2x/sec) — noise unless we're profiling.
-				if (_debugPerformance) {
-					Console.WriteLine($"[weavie] {json}");
-					Console.Out.Flush();
-				}
-				break;
 			case "ready":
 				// The page's bridge listener is live; push the persisted layout so it restores on launch, the
 				// persisted editor session so the editor reopens its files, and the initial window state so the
@@ -581,6 +599,14 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 				break;
 		}
 	}
+
+	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
+	private static string FsId(JsonElement root) =>
+		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
+
+	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
+	private static string FsPath(JsonElement root) =>
+		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> pane (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {
@@ -645,10 +671,25 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		}
 	}
 
-	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	/// <summary>
+	/// Pushes a live-refresh of one edited file. The editor's file models are VSCode working copies behind the
+	/// host-backed <c>file://</c> provider, so the reload is driven by an <c>fs-change</c> push (the provider
+	/// fires its change event → VSCode reloads the non-dirty model from disk). The legacy <c>refresh-file</c>
+	/// message is no longer sent; <c>fs-change</c> is the single reload path (shared with the watcher).
+	/// </summary>
 	private void PushRefreshToWeb(string path) {
 		if (_session?.Changes.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+			_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "updated"));
+		}
+	}
+
+	/// <summary>
+	/// Forwards a workspace-watcher batch (non-Claude on-disk edits) to the page's <c>file://</c> provider as an
+	/// <c>fs-change</c>. Fires off the UI thread (the watcher's timer); <c>PostToWeb</c> marshals.
+	/// </summary>
+	private void PushWatcherChangesToWeb(IReadOnlyList<WatchedFileChange> changes) {
+		if (FileProviderProtocol.WatchedChanges(changes) is { } json) {
+			_bridge.PostToWeb(json);
 		}
 	}
 
@@ -702,28 +743,6 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 
 		if (truncated.Count > 0) {
 			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
-		}
-	}
-
-	/// <summary>
-	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
-	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
-	/// path outside the workspace, which is a bug in the page) surfaces to the user as an error toast — an
-	/// autosave must never silently lose the user's work.
-	/// </summary>
-	private void SaveBuffer(string path, string content) {
-		// The session is created before the page can post any message — so a null here is a broken
-		// invariant, not a runtime condition to absorb. Fail loud rather than silently drop the save.
-		if (_session is null) {
-			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
-		}
-
-		try {
-			if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, path, content)) {
-				Notify("error", $"Couldn't save {Path.GetFileName(path)}: path is outside the workspace.");
-			}
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't save {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
 

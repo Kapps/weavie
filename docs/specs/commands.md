@@ -1,6 +1,6 @@
 # Commands & keybindings
 
-Status: implemented (Core + Windows host + web); macOS host wiring pending
+Status: implemented (Core + Windows + macOS hosts + web)
 Last updated: 2026-06-18
 
 The third concrete instance of the

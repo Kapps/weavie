@@ -1,5 +1,4 @@
 import {
-  For,
   type JSX,
   Show,
   Suspense,
@@ -25,10 +24,6 @@ import { type InlineDiff, createInlineDiff } from "./editor/inline-diff";
 // the module survives HMR — see editor/session-store.ts.
 import { editorSession } from "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
-import { runFpsProbe } from "./latency/fps-probe";
-import { LatencyMeter } from "./latency/latency-meter";
-import { LoadGenerator } from "./latency/load-generator";
-import type { BenchmarkReport, LatencySummary, LiveLatencyStats } from "./latency/types";
 import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
 import { layoutDocument, sendLayout } from "./layout/store";
@@ -37,7 +32,7 @@ import { type Toast, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
-import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./theme";
+import { applyChromeTheme } from "./theme";
 
 // The Monaco editor and its VSCode service layer are the heaviest code in the app. They live behind a
 // dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none of it.
@@ -52,17 +47,6 @@ const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 // web title bar isn't rendered and the floating Files/Changes buttons remain the panel toggles.
 const SHELL = window.__WEAVIE_SHELL__;
 const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
-
-const BENCH_CONFIG = { keystrokes: 150, intervalMs: 50 };
-
-// The performance debug surface — the latency HUD bar, the live meter (a permanent rAF loop +
-// Event-Timing observer), the fps probe, the auto-bench, and the twice-a-second latency-live
-// message to the host — is gated behind ?debugperf, which the host sets from WEAVIE_DEBUG_PERFORMANCE.
-// Off by default: normal use gets the clean two-pane UI with no instrumentation overhead and no
-// host log spam. (A future in-app setting will flip this at runtime; for now it's launch-only.)
-const DEBUG_PERF = new URLSearchParams(location.search).has("debugperf");
-
-const ms = (n: number): string => n.toFixed(1);
 
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
@@ -106,10 +90,6 @@ export default function App(): JSX.Element {
     }
     terminalFocus.get(kind)?.();
   };
-  const [stats, setStats] = createSignal<LiveLatencyStats | null>(null);
-  const [loadOn, setLoadOn] = createSignal(false);
-  const [report, setReport] = createSignal<BenchmarkReport | null>(null);
-  const [benchRunning, setBenchRunning] = createSignal(false);
   const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
   const [changesOpen, setChangesOpen] = createSignal(false);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
@@ -134,10 +114,6 @@ export default function App(): JSX.Element {
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
   const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
-  // Device-pixel ratio: 1 == native 1x (text rendered one device pixel per CSS pixel),
-  // 2 == HiDPI/Retina. Drives how "antialiased" the editor text looks. Polled in the HUD
-  // tick so dragging the window to a differently-scaled monitor updates it.
-  const [dpr, setDpr] = createSignal(window.devicePixelRatio);
 
   // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
   // layout, so we never overwrite the saved state with the default before it has loaded.
@@ -205,7 +181,11 @@ export default function App(): JSX.Element {
 
   // The openDiff currently under inline review (default mode). openDiff blocks per-edit, so at most one is
   // live at a time — a plain var (not a signal) is enough; the controller's toolbar drives accept/reject.
-  let activeReview: { id: string; path: string; original: string } | undefined;
+  // `reviewUri` is the transient review model's URI the inline diff is keyed by (review never touches the
+  // real file working copy).
+  let activeReview:
+    | { id: string; path: string; original: string; reviewUri: string | undefined }
+    | undefined;
 
   const resolveReview = (keep: boolean): void => {
     const review = activeReview;
@@ -213,10 +193,12 @@ export default function App(): JSX.Element {
       return;
     }
     activeReview = undefined;
-    // endReview reverts the buffer to `original` on reject and returns the final content; on keep that's the
-    // (possibly tweaked) proposal Claude then writes on FILE_SAVED.
+    // endReview returns the proposal's final (possibly tweaked) content, which Claude writes to disk on keep,
+    // and swaps the editor back to the real file. The review never dirtied the file working copy.
     const finalContents = host?.endReview(review.path, keep, review.original) ?? "";
-    inlineDiff?.clear(review.path);
+    if (review.reviewUri !== undefined) {
+      inlineDiff?.clearByUri(review.reviewUri);
+    }
     postToHost({
       type: "diff-resolved",
       id: review.id,
@@ -225,54 +207,21 @@ export default function App(): JSX.Element {
     });
   };
 
-  const meter = new LatencyMeter();
-  const load = new LoadGenerator(5);
   // The Monaco editor host, set once its chunk has loaded and the editor is created (see onMount).
   let host: EditorHost | undefined;
   // The inline-diff controller (Cursor-style diff inside the live editor), created with the host's editor.
   let inlineDiff: InlineDiff | undefined;
   // An open-file request that arrived before the editor was ready; replayed when it is (last wins).
-  let pendingOpen: { path: string; content: string; line: number } | undefined;
+  let pendingOpen: { path: string; line: number } | undefined;
 
-  const setLoad = (on: boolean): void => {
-    if (on) {
-      load.start();
-    } else {
-      load.stop();
-    }
-    meter.setLoadActive(on);
-    setLoadOn(on);
-  };
-
-  const runBench = async (): Promise<void> => {
-    if (host === undefined || benchRunning()) {
-      return;
-    }
-    setBenchRunning(true);
-    const restoreLoad = loadOn();
-    try {
-      // benchmark.ts pulls Monaco, so it's loaded on demand (debugperf-only) rather than at startup.
-      const { runBenchmark } = await import("./latency/benchmark");
-      const result = await runBenchmark(host.editor, load, BENCH_CONFIG);
-      setReport(result);
-      postToHost({ type: "benchmark-result", report: result });
-      log("info", `benchmark done: ${result.note}`);
-      host.resetSample();
-    } catch (error) {
-      log("error", `benchmark failed: ${String(error)}`);
-    } finally {
-      setLoad(restoreLoad);
-      setBenchRunning(false);
-    }
-  };
-
-  const openFileInEditor = (path: string, content: string, line: number): void => {
+  const openFileInEditor = (path: string, line: number): void => {
     setCurrentFile(path);
     if (host !== undefined) {
-      host.openFile(path, content, line);
+      // The working copy resolves its content from disk through the file provider; no need to pass content.
+      host.openFile(path, line);
     } else {
       // Editor chunk not loaded yet — remember the request and replay it once the host is ready.
-      pendingOpen = { path, content, line };
+      pendingOpen = { path, line };
     }
   };
 
@@ -289,9 +238,9 @@ export default function App(): JSX.Element {
   });
 
   onMount(() => {
-    // Theme chrome from the default palette (spec §6 application surface). Override ops layer here once
-    // wired to settings/MCP; for now this publishes --weavie-* CSS vars for the chrome to consume.
-    applyColorsToCssVars(resolveColors(DEFAULT_DARK_PALETTE, []));
+    // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
+    // active theme + override ops and also drives Monaco + xterm; this pushes the chrome's CSS vars.
+    applyChromeTheme();
     mark("shell-mounted");
 
     // The terminal panes are already in the tree and mount now — emitting term-ready, which spawns
@@ -306,7 +255,8 @@ export default function App(): JSX.Element {
     const EDITOR_INIT_MS = 15_000; // generous: only a genuine hang trips it, not a slow cold start.
     let initTimer: number | undefined;
     const editorReady = import("./editor/editor-host").then(({ createEditorHost }) =>
-      createEditorHost(editorContainer),
+      // A debounced save that fails to reach disk surfaces as an error toast — never a silent drop.
+      createEditorHost(editorContainer, (message) => addToast("error", message)),
     );
     const initDeadline = new Promise<never>((_, reject) => {
       initTimer = window.setTimeout(
@@ -320,7 +270,7 @@ export default function App(): JSX.Element {
         inlineDiff = createInlineDiff(created.editor);
         if (pendingOpen !== undefined) {
           // A user open-file that arrived while the editor was loading wins over the restored session.
-          created.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
+          created.openFile(pendingOpen.path, pendingOpen.line);
           pendingOpen = undefined;
         } else {
           // The editor host may have restored a persisted active file; reflect it as the current file so
@@ -331,6 +281,12 @@ export default function App(): JSX.Element {
             setCurrentFile(restoredActive);
           }
         }
+        // Reflect whatever file the editor ended up showing — a replayed pending-open, or a hot-reload
+        // restore of the previously-open file — in the app's current-file state so the browser/title track it.
+        const model = created.editor.getModel();
+        if (model !== null && model.uri.scheme === "file") {
+          setCurrentFile(model.uri.fsPath);
+        }
         postToHost({ type: "monaco-ready" });
         mark("editor-ready");
       })
@@ -340,64 +296,37 @@ export default function App(): JSX.Element {
         dismissSplash();
       });
 
-    // All live perf instrumentation is opt-in via ?debugperf. When off we never start the meter,
-    // the HUD tick, the fps probe, or the auto-bench — so the shipped UI carries none of their cost
-    // and posts no latency-live spam. The fpsprobe/autobench sub-flags only take effect under it.
-    let hudTimer = 0;
-    let autoBench = 0;
-    if (DEBUG_PERF) {
-      meter.start();
-
-      if (new URLSearchParams(location.search).has("fpsprobe")) {
-        runFpsProbe();
-      }
-
-      hudTimer = window.setInterval(() => {
-        const snap = meter.snapshot();
-        setStats(snap);
-        setDpr(window.devicePixelRatio);
-        postToHost({ type: "latency-live", stats: snap });
-      }, 500);
-
-      // Auto-run once (only when the host requests it via ?autobench=1) so unattended captures get
-      // objective numbers; the editor then resets for manual feel-testing. In normal use the user
-      // clicks "run benchmark" instead.
-      autoBench = new URLSearchParams(location.search).has("autobench")
-        ? window.setTimeout(() => {
-            void runBench();
-          }, 1500)
-        : 0;
-    }
-
     const offHost = onHostMessage((message) => {
-      if (message.type === "set-load") {
-        setLoad(message.enabled);
-      } else if (message.type === "run-benchmark") {
-        void runBench();
-      } else if (message.type === "show-diff") {
-        // Render Claude's openDiff proposal INLINE in the live editor (no standalone diff viewer): the buffer
-        // shows `proposed` (autosave suppressed), with the diff vs `original` and a Keep/Reject toolbar.
-        activeReview = { id: message.id, path: message.path, original: message.original };
-        host?.beginReview(message.path, message.proposed, 1);
-        inlineDiff?.set(message.path, {
+      if (message.type === "show-diff") {
+        // Render Claude's openDiff proposal INLINE over a TRANSIENT review model (the real file working copy
+        // is never touched): the editor shows `proposed`, diffed vs `original`, with a Keep/Reject toolbar.
+        const reviewUri = host?.beginReview(message.path, message.proposed, 1);
+        activeReview = {
+          id: message.id,
+          path: message.path,
           original: message.original,
-          mode: "review",
-          onAccept: () => resolveReview(true),
-          onReject: () => resolveReview(false),
-        });
+          reviewUri,
+        };
+        if (reviewUri !== undefined) {
+          inlineDiff?.setByUri(reviewUri, {
+            original: message.original,
+            mode: "review",
+            onAccept: () => resolveReview(true),
+            onReject: () => resolveReview(false),
+          });
+        }
       } else if (message.type === "close-diff") {
-        // Host cancelled the openDiff: tear the review down (revert buffer) without replying — the host's
-        // awaiting task is already cancelled.
+        // Host cancelled the openDiff: tear the review down without replying — the host's awaiting task is
+        // already cancelled.
         if (activeReview?.id === message.id) {
           host?.endReview(activeReview.path, false, activeReview.original);
-          inlineDiff?.clear(activeReview.path);
+          if (activeReview.reviewUri !== undefined) {
+            inlineDiff?.clearByUri(activeReview.reviewUri);
+          }
           activeReview = undefined;
         }
       } else if (message.type === "open-file") {
-        openFileInEditor(message.path, message.content, message.line);
-      } else if (message.type === "refresh-file") {
-        // Claude edited this file (any permission mode) — live-update its model in place if open.
-        host?.applyExternalEdit(message.path, message.content);
+        openFileInEditor(message.path, message.line);
       } else if (message.type === "turn-diff") {
         // Inline diff of this turn's changes, shown in the live editor. Equal baseline/current = no markers.
         if (message.baseline === message.current) {
@@ -457,6 +386,14 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleChanges, () => setChangesOpen((open) => !open)),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+      // Inline-diff navigation + actions — the floating diff toolbar buttons route through these same
+      // handlers, so keybindings / the palette / Claude's runCommand drive the active diff identically.
+      // Return the action's result so an unmatched keybinding (no active diff) falls through to the editor.
+      registerCommand(CommandIds.nextChange, () => inlineDiff?.nextChange() ?? false),
+      registerCommand(CommandIds.prevChange, () => inlineDiff?.prevChange() ?? false),
+      registerCommand(CommandIds.acceptChange, () => inlineDiff?.accept() ?? false),
+      registerCommand(CommandIds.rejectChange, () => inlineDiff?.reject() ?? false),
+      registerCommand(CommandIds.undoChange, () => inlineDiff?.undo() ?? false),
     ];
     const offKeybindings = installKeybindings();
 
@@ -473,8 +410,6 @@ export default function App(): JSX.Element {
     document.addEventListener("focusin", onFocusIn);
 
     onCleanup(() => {
-      window.clearInterval(hudTimer);
-      window.clearTimeout(autoBench);
       window.clearTimeout(persistTimer);
       offKeybindings();
       for (const off of offCommands) {
@@ -482,10 +417,8 @@ export default function App(): JSX.Element {
       }
       document.removeEventListener("focusin", onFocusIn);
       offHost();
-      meter.dispose();
-      load.stop();
       inlineDiff?.dispose();
-      host?.editor.dispose();
+      host?.dispose();
     });
   });
 
@@ -514,17 +447,6 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={CUSTOM_TITLEBAR}>
         <ResizeFrame maximized={maximized()} />
-      </Show>
-      <Show when={DEBUG_PERF}>
-        <Hud
-          stats={stats()}
-          dpr={dpr()}
-          loadOn={loadOn()}
-          benchRunning={benchRunning()}
-          report={report()}
-          onToggleLoad={() => setLoad(!loadOn())}
-          onRunBench={() => void runBench()}
-        />
       </Show>
       <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
       <Show when={changeFiles().length > 0 && !CUSTOM_TITLEBAR}>
@@ -568,89 +490,6 @@ export default function App(): JSX.Element {
         </Suspense>
       </Show>
       <Toasts toasts={toasts()} onDismiss={dismissToast} />
-    </div>
-  );
-}
-
-function Hud(props: {
-  stats: LiveLatencyStats | null;
-  dpr: number;
-  loadOn: boolean;
-  benchRunning: boolean;
-  report: BenchmarkReport | null;
-  onToggleLoad: () => void;
-  onRunBench: () => void;
-}): JSX.Element {
-  const hz = (): number => {
-    const p50 = props.stats?.frameIntervalMs.p50 ?? 0;
-    return p50 > 0 ? Math.round(1000 / p50) : 0;
-  };
-
-  return (
-    <div class="hud">
-      <div class="row">
-        <span class="title">weavie · typing-latency gate</span>
-        <Metric label="keydown→frame" summary={props.stats?.inputToFrame} />
-        <Metric label="input→paint" summary={props.stats?.inputToPaint} brief />
-        <span class="kv">
-          handler p50 <b>{props.stats ? ms(props.stats.handler.p50) : "–"}</b>ms
-        </span>
-        <span class="kv">
-          frame <b>{props.stats ? ms(props.stats.frameIntervalMs.p50) : "–"}</b>ms (<b>{hz()}</b>Hz)
-        </span>
-        <span class="kv">
-          dpr <b>{props.dpr.toFixed(2)}</b>
-        </span>
-        <button type="button" classList={{ on: props.loadOn }} onClick={props.onToggleLoad}>
-          load: {props.loadOn ? "ON" : "off"}
-        </button>
-        <button type="button" disabled={props.benchRunning} onClick={props.onRunBench}>
-          {props.benchRunning ? "benchmarking…" : "run benchmark"}
-        </button>
-      </div>
-      <Show when={props.report}>{(getReport) => <BenchTable report={getReport()} />}</Show>
-    </div>
-  );
-}
-
-function Metric(props: {
-  label: string;
-  summary: LatencySummary | undefined;
-  brief?: boolean;
-}): JSX.Element {
-  const s = (): LatencySummary | undefined => props.summary;
-  return (
-    <span class="kv">
-      {props.label} <b>{s() ? ms(s()!.p50) : "–"}</b>
-      <span class="dim">/{s() ? ms(s()!.p95) : "–"}</span>
-      <Show when={!props.brief}>
-        <span class="dim">/{s() ? ms(s()!.p99) : "–"}</span>
-        <span class="dim">/{s() ? ms(s()!.max) : "–"}</span>
-      </Show>
-      <span class="unit">ms{props.brief ? " p50/p95" : " p50/95/99/max"}</span>
-    </span>
-  );
-}
-
-function BenchTable(props: { report: BenchmarkReport }): JSX.Element {
-  return (
-    <div class="bench">
-      <span class="benchnote">
-        benchmark · {props.report.displayHz}Hz · {props.report.note}
-      </span>
-      <For each={props.report.phases}>
-        {(phase) => (
-          <span class="kv">
-            <b>{phase.label}</b> edit→frame {ms(phase.editToFrame.p50)}/{ms(phase.editToFrame.p95)}/
-            {ms(phase.editToFrame.p99)}/{ms(phase.editToFrame.max)} ms
-            <span class="dim">
-              {" "}
-              (frame {ms(phase.frameIntervalMs.p50)}ms
-              {phase.framesLookThrottled ? " ⚠throttled" : ""})
-            </span>
-          </span>
-        )}
-      </For>
     </div>
   );
 }

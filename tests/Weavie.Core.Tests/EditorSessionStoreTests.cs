@@ -7,8 +7,8 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Exercises <see cref="EditorSessionStore"/> over the in-memory filesystem: empty-on-missing, persist +
-/// reload (view state opaque round-trip), malformed-file backup + reset, and the restore push reading
-/// content from disk while skipping (and de-activating) files that no longer exist.
+/// reload (view state opaque round-trip), malformed-file backup + reset, and the restore push listing the
+/// open files (no content) while skipping (and de-activating) files that no longer exist.
 /// </summary>
 public sealed class EditorSessionStoreTests {
 	private const string SessionPath = "/weavie-editor-tests/editor-session.json";
@@ -63,13 +63,14 @@ public sealed class EditorSessionStoreTests {
 	}
 
 	[Fact]
-	public void BuildRestoreJson_AddsDiskContentForExistingFiles() {
+	public void BuildRestoreJson_ListsExistingFilesWithoutContent() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(FilePath, "export const x = 1;\n");
 		var store = NewStore(fs);
+		using var viewStateDoc = JsonDocument.Parse("""{"scrollTop":42}""");
 		store.Update(new EditorSession {
 			Active = FilePath,
-			Open = [new EditorSessionEntry { Path = FilePath }],
+			Open = [new EditorSessionEntry { Path = FilePath, ViewState = viewStateDoc.RootElement.Clone() }],
 		});
 
 		using var message = JsonDocument.Parse(store.BuildRestoreJson());
@@ -78,7 +79,10 @@ public sealed class EditorSessionStoreTests {
 		Assert.Equal("set-editor-session", message.RootElement.GetProperty("type").GetString());
 		Assert.Equal(FilePath, session.GetProperty("active").GetString());
 		var entry = session.GetProperty("open").EnumerateArray().Single();
-		Assert.Equal("export const x = 1;\n", entry.GetProperty("content").GetString());
+		Assert.Equal(FilePath, entry.GetProperty("path").GetString());
+		Assert.Equal(42, entry.GetProperty("viewState").GetProperty("scrollTop").GetInt32());
+		// Disk is the source of truth — the restore push never carries file content.
+		Assert.False(entry.TryGetProperty("content", out _));
 	}
 
 	[Fact]

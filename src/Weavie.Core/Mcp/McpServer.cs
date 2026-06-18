@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
@@ -8,6 +9,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
 using Weavie.Core.Layout;
+using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
 
@@ -27,6 +29,7 @@ public sealed class McpServer : IAsyncDisposable {
 	private readonly EditorStore? _editor;
 	private readonly CommandDispatcher? _commands;
 	private readonly KeybindingStore? _keybindings;
+	private readonly ThemeOverridesStore? _themeOverrides;
 	private readonly string _toolsListJson;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -54,7 +57,8 @@ public sealed class McpServer : IAsyncDisposable {
 		LayoutStore? layout = null,
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null) {
+		KeybindingStore? keybindings = null,
+		ThemeOverridesStore? themeOverrides = null) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -70,6 +74,7 @@ public sealed class McpServer : IAsyncDisposable {
 		_editor = editor;
 		_commands = commands;
 		_keybindings = keybindings;
+		_themeOverrides = themeOverrides;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
 		// file/selection changes, so the embedded claude always knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
@@ -87,6 +92,10 @@ public sealed class McpServer : IAsyncDisposable {
 
 			if (commands is not null) {
 				parts.Add(CommandToolEntries);
+			}
+
+			if (themeOverrides is not null) {
+				parts.Add(ThemeToolEntries);
 			}
 
 			entries = string.Join(",", parts);
@@ -345,6 +354,33 @@ public sealed class McpServer : IAsyncDisposable {
 			case "runCommand":
 				await HandleRunCommandAsync(ws, args, idRaw, ct).ConfigureAwait(false);
 				break;
+			case "listThemes":
+				await HandleListThemesAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "describeTheme":
+				await HandleDescribeThemeAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "selectTheme":
+				await HandleSelectThemeAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "setThemeOverride":
+				await HandleSetThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "applyThemeTransform":
+				await HandleApplyThemeTransformAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "removeThemeOverride":
+				await HandleRemoveThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "undoThemeOverride":
+				await HandleUndoThemeOverrideAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "resetTheme":
+				await HandleResetThemeAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "installTheme":
+				await HandleInstallThemeAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			default:
 				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
 				break;
@@ -509,6 +545,237 @@ public sealed class McpServer : IAsyncDisposable {
 		} catch (UnknownCommandException ex) {
 			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
+	}
+
+	private async Task HandleListThemesAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		string active = ActiveThemeId();
+		string json = WriteJson(writer => {
+			writer.WriteStartArray("themes");
+			foreach (var (id, label, type) in BuiltInThemes.All) {
+				writer.WriteStartObject();
+				writer.WriteString("id", id);
+				writer.WriteString("label", label);
+				writer.WriteString("type", type);
+				writer.WriteBoolean("builtIn", true);
+				writer.WriteBoolean("active", id == active);
+				writer.WriteEndObject();
+			}
+
+			foreach (var theme in OpenVsxThemeInstaller.ListInstalled()) {
+				writer.WriteStartObject();
+				writer.WriteString("id", theme.Id);
+				writer.WriteString("label", theme.Label);
+				writer.WriteString("type", theme.UiTheme);
+				writer.WriteBoolean("builtIn", false);
+				writer.WriteBoolean("active", theme.Id == active);
+				writer.WriteEndObject();
+			}
+
+			writer.WriteEndArray();
+		});
+		await SendToolTextAsync(ws, idRaw, json, ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleDescribeThemeAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		if (_themeOverrides is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string active = ActiveThemeId();
+		var overrides = _themeOverrides.Get(active);
+		string json = WriteJson(writer => {
+			writer.WriteString("active", active);
+			writer.WriteString("label", ThemeLabel(active));
+			writer.WritePropertyName("overrides");
+			ThemeJson.WriteOps(writer, overrides);
+		});
+		await SendToolTextAsync(ws, idRaw, json, ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleSelectThemeAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_settings is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string? id = GetStringArg(args, "id");
+		if (string.IsNullOrEmpty(id)) {
+			await SendToolErrorAsync(ws, idRaw, "selectTheme requires an 'id'. Call listThemes to see available themes.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (!BuiltInThemes.Contains(id) && OpenVsxThemeInstaller.ListInstalled().All(theme => theme.Id != id)) {
+			await SendToolErrorAsync(ws, idRaw, $"Unknown theme '{id}'. Call listThemes to see available themes.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			using var doc = JsonDocument.Parse(JsonString(id));
+			_settings.Set("theme.active", doc.RootElement);
+			await SendToolTextAsync(ws, idRaw, $"Active theme is now '{id}'.", ct).ConfigureAwait(false);
+			Emit($"selectTheme {id}");
+		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
+			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
+	}
+
+	private async Task HandleSetThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_themeOverrides is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string? key = GetStringArg(args, "key");
+		string? value = GetStringArg(args, "value");
+		if (string.IsNullOrEmpty(key)) {
+			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'key' (a VS Code color id, e.g. editor.background).", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (string.IsNullOrEmpty(value)) {
+			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'value' (a hex color, e.g. #000000).", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string active = ActiveThemeId();
+		_themeOverrides.Append(active, new ThemeOverrideSet { Key = key, Value = value });
+		await SendToolTextAsync(ws, idRaw, $"Set {key} = {value} on theme '{active}'.", ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleApplyThemeTransformAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_themeOverrides is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string? op = GetStringArg(args, "op");
+		if (string.IsNullOrEmpty(op) || !IsValidTransformOp(op)) {
+			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform requires 'op' one of: darken, lighten, saturate, desaturate, contrast.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (!TryGetDoubleArg(args, "amount", out double amount) || double.IsNaN(amount) || amount <= 0 || amount > 1) {
+			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform requires 'amount', a number between 0 and 1 (e.g. 0.2 for 20%).", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string? target = GetStringArg(args, "target");
+		string active = ActiveThemeId();
+		_themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
+		await SendToolTextAsync(ws, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)} to theme '{active}'.", ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleRemoveThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_themeOverrides is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string? key = GetStringArg(args, "key");
+		if (string.IsNullOrEmpty(key)) {
+			await SendToolErrorAsync(ws, idRaw, "removeThemeOverride requires a 'key'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string active = ActiveThemeId();
+		var ops = _themeOverrides.Get(active);
+		var kept = ops.Where(op => op is not ThemeOverrideSet set || set.Key != key).ToList();
+		if (kept.Count == ops.Count) {
+			await SendToolTextAsync(ws, idRaw, $"No 'set' override for {key} on theme '{active}'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		_themeOverrides.SetOps(active, kept);
+		await SendToolTextAsync(ws, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleUndoThemeOverrideAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		if (_themeOverrides is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string active = ActiveThemeId();
+		bool undone = _themeOverrides.UndoLast(active);
+		await SendToolTextAsync(
+			ws, idRaw,
+			undone ? $"Undid the last override on theme '{active}'." : $"Theme '{active}' has no overrides to undo.",
+			ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleResetThemeAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		if (_themeOverrides is null) {
+			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string active = ActiveThemeId();
+		bool cleared = _themeOverrides.Clear(active);
+		await SendToolTextAsync(
+			ws, idRaw,
+			cleared ? $"Cleared all overrides on theme '{active}'." : $"Theme '{active}' had no overrides.",
+			ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleInstallThemeAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		string? ns = GetStringArg(args, "namespace");
+		string? name = GetStringArg(args, "name");
+		string? version = GetStringArg(args, "version");
+		if (string.IsNullOrEmpty(ns) || string.IsNullOrEmpty(name)) {
+			await SendToolErrorAsync(ws, idRaw, "installTheme requires 'namespace' and 'name' (the Open VSX publisher and extension, e.g. dracula-theme / theme-dracula).", ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			var installer = new OpenVsxThemeInstaller();
+			var installed = await installer.InstallAsync(ns, name, string.IsNullOrEmpty(version) ? null : version, ct).ConfigureAwait(false);
+			if (installed.Count == 0) {
+				await SendToolTextAsync(ws, idRaw, $"Installed {ns}.{name}, but it contributed no color themes.", ct).ConfigureAwait(false);
+				return;
+			}
+
+			string ids = string.Join(", ", installed.Select(theme => $"'{theme.Id}'"));
+			await SendToolTextAsync(ws, idRaw, $"Installed {installed.Count} theme(s) from {ns}.{name}: {ids}. Use selectTheme to switch to one.", ct).ConfigureAwait(false);
+			Emit($"installTheme {ns}.{name} -> {installed.Count} theme(s)");
+		} catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException) {
+			await SendToolErrorAsync(ws, idRaw, $"installTheme failed: {ex.Message}", ct).ConfigureAwait(false);
+		}
+	}
+
+	private string ActiveThemeId() => _settings?.GetString("theme.active") ?? ThemeSettings.DefaultThemeId;
+
+	private static string ThemeLabel(string id) {
+		foreach (var (builtInId, label, _) in BuiltInThemes.All) {
+			if (builtInId == id) {
+				return label;
+			}
+		}
+
+		return OpenVsxThemeInstaller.ListInstalled().FirstOrDefault(theme => theme.Id == id)?.Label ?? id;
+	}
+
+	private static bool IsValidTransformOp(string op) =>
+		op is "darken" or "lighten" or "saturate" or "desaturate" or "contrast";
+
+	private static string? GetStringArg(JsonElement args, string key) =>
+		args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
+			? value.GetString()
+			: null;
+
+	private static bool TryGetDoubleArg(JsonElement args, string key, out double value) {
+		value = 0;
+		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(key, out var element)) {
+			return false;
+		}
+
+		if (element.ValueKind == JsonValueKind.Number && element.TryGetDouble(out value)) {
+			return true;
+		}
+
+		// The embedded claude routinely stringifies scalars ("0.2"); coerce like the settings boundary does.
+		return element.ValueKind == JsonValueKind.String
+			&& double.TryParse(element.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 	}
 
 	private Task SendToolErrorAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
@@ -802,5 +1069,22 @@ public sealed class McpServer : IAsyncDisposable {
 		"""
           {"name":"listCommands","description":"List all weavie commands (actions like focusing a pane, toggling the diff layout, or reopening the terminal) with each one's id, title, category, description, aliases, and current keybinding(s). Call this FIRST to find the exact id before running a command.","inputSchema":{"type":"object","properties":{}}},
           {"name":"runCommand","description":"Run a weavie command by id. Call listCommands first to find the exact id; never guess ids. 'args' is an optional object whose shape depends on the command (e.g. {\"index\":3} to focus the third pane).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object"}},"required":["id"]}}
+        """;
+
+	// Theme tools (model-facing) — the Claude-facing theming surface, advertised on the registry server only
+	// when a ThemeOverridesStore is wired. The override tools act on the ACTIVE theme; its overrides persist
+	// in ~/.weavie/theme-overrides.json. applyThemeTransform.amount is schema-less so the embedded claude may
+	// send it as a number or a string (the handler coerces).
+	private const string ThemeToolEntries =
+		"""
+          {"name":"listThemes","description":"List the available color themes (built-in + installed from Open VSX), each with its id, label, type, and whether it is the active theme. Call this FIRST to find a theme id before selecting one.","inputSchema":{"type":"object","properties":{}}},
+          {"name":"describeTheme","description":"Describe the active color theme: its id, label, and the ordered list of color overrides currently layered on it.","inputSchema":{"type":"object","properties":{}}},
+          {"name":"selectTheme","description":"Switch the active color theme. 'id' must be a built-in or installed theme id (call listThemes first; never guess). Overrides are remembered per theme.","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
+          {"name":"setThemeOverride","description":"Override one color on the active theme. 'key' is a VS Code workbench color id (e.g. editor.background, terminal.ansiRed, focusBorder); 'value' is a hex color (e.g. #000000 or #00000080). Use applyThemeTransform to shift the whole palette at once.","inputSchema":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":"string"}},"required":["key","value"]}},
+          {"name":"applyThemeTransform","description":"Shift the active theme's whole palette in one step (no need to set hundreds of colors). 'op' is one of darken, lighten, saturate, desaturate, contrast; 'amount' is a number from 0 to 1 (e.g. 0.2 = 20%). e.g. op 'darken' amount 0.2 = make everything 20% darker. 'amount' may be a number or a string.","inputSchema":{"type":"object","properties":{"op":{"type":"string"},"amount":{},"target":{"type":"string"}},"required":["op","amount"]}},
+          {"name":"removeThemeOverride","description":"Remove the color override(s) for one 'key' from the active theme.","inputSchema":{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}},
+          {"name":"undoThemeOverride","description":"Undo the most recent color override on the active theme (pop the last set/transform).","inputSchema":{"type":"object","properties":{}}},
+          {"name":"resetTheme","description":"Clear ALL color overrides on the active theme, returning it to its authored colors.","inputSchema":{"type":"object","properties":{}}},
+          {"name":"installTheme","description":"Install a VS Code color theme from the Open VSX registry by 'namespace' (publisher) and 'name' (extension), optionally a 'version'. e.g. namespace 'dracula-theme' name 'theme-dracula'. After installing, call selectTheme to switch to it.","inputSchema":{"type":"object","properties":{"namespace":{"type":"string"},"name":{"type":"string"},"version":{"type":"string"}},"required":["namespace","name"]}}
         """;
 }

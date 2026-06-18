@@ -58,9 +58,10 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message: the current session with each open file's
-	/// on-disk <c>content</c> read fresh (so a launch can seed Monaco models that don't exist yet). Files
-	/// that no longer exist are skipped and logged; if the active file was skipped, <c>active</c> is nulled.
+	/// Builds the host→web <c>set-editor-session</c> message: the current session (open file paths + opaque
+	/// view state). No file content rides along — the web reopens each file as a working copy resolved from
+	/// disk through the host file provider. Files that no longer exist are skipped and logged; if the active
+	/// file was skipped, <c>active</c> is nulled.
 	/// </summary>
 	public string BuildRestoreJson() {
 		EditorSession session;
@@ -71,8 +72,7 @@ public sealed class EditorSessionStore {
 		var open = new List<object>();
 		var surviving = new HashSet<string>(StringComparer.Ordinal);
 		foreach (var entry in session.Open) {
-			string? content = TryReadFile(entry.Path);
-			if (content is null) {
+			if (!FileSurvives(entry.Path)) {
 				continue;
 			}
 
@@ -80,7 +80,6 @@ public sealed class EditorSessionStore {
 			open.Add(new {
 				path = entry.Path,
 				viewState = entry.ViewState,
-				content,
 			});
 		}
 
@@ -115,18 +114,13 @@ public sealed class EditorSessionStore {
 		return parsed;
 	}
 
-	private string? TryReadFile(string path) {
-		try {
-			if (!_fileSystem.FileExists(path)) {
-				Log?.Invoke($"[editor-session] open file no longer exists; skipping {path}");
-				return null;
-			}
-
-			return _fileSystem.ReadAllText(path);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[editor-session] could not read {path}: {ex.Message}; skipping");
-			return null;
+	private bool FileSurvives(string path) {
+		if (_fileSystem.FileExists(path)) {
+			return true;
 		}
+
+		Log?.Invoke($"[editor-session] open file no longer exists; skipping {path}");
+		return false;
 	}
 
 	private void BackupBadFileLocked(string text) {

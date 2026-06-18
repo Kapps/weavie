@@ -1,13 +1,16 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using CoreGraphics;
 using Foundation;
 using Weavie.Core;
 using Weavie.Core.Changes;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Mac.Hosting;
 using WebKit;
@@ -22,12 +25,6 @@ namespace Weavie.Mac;
 /// </summary>
 [Register("AppDelegate")]
 public sealed class AppDelegate : NSApplicationDelegate {
-	// Perf instrumentation (the live latency HUD and its per-tick log spam) is opt-in via
-	// WEAVIE_DEBUG_PERFORMANCE: surfaced to the web app as ?debugperf, and used here to gate the
-	// latency-live/benchmark-result console logging. Off by default so normal runs stay quiet.
-	private readonly bool _debugPerformance =
-		!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_PERFORMANCE"));
-
 	private readonly HostBridge _bridge = new();
 	private SettingsStore? _settings;
 	private TerminalController? _claude;
@@ -36,13 +33,21 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
+	private ThemeOverridesStore? _themeOverrides;
 	private EditorStore? _editor;
 	private EditorSessionStore? _editorSession;
 	private SessionChangeTracker? _changes;
 	private LocalFileSystem? _fileSystem;
+	private FileProviderService? _fileProvider;
 	private string? _workspace;
 	private NSWindow? _window;
 	private WKWebView? _webView;
+	private CommandRegistry? _commandRegistry;
+	private KeybindingStore? _keybindings;
+	private CommandDispatcher? _commands;
+	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
+	// the web's command-ack (or a 5s timeout).
+	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
 
 	/// <summary>
 	/// Creates the host window and WKWebView, registers the <c>app://</c> scheme handler and
@@ -80,10 +85,44 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			Console.Out.Flush();
 		};
 
+		// Commands + keybindings: the app's command catalog (CoreCommands) and the user keybindings resolved
+		// from ~/.weavie/keybindings.json over the defaults. The dispatcher routes runCommand (MCP) +
+		// invoke-command (web) to Core/web handlers; the WebInvoker + Core handlers are wired below.
+		_commandRegistry = CoreCommands.CreateRegistry();
+		_keybindings = new KeybindingStore(_commandRegistry);
+		_keybindings.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+		_commands = new CommandDispatcher(_commandRegistry);
+
+		// Per-theme color overrides (~/.weavie/theme-overrides.json); the active theme itself is a setting.
+		_themeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		_themeOverrides.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Typography: inject the resolved editor + terminal fonts at document start so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		config.UserContentController.AddUserScript(new WKUserScript(
 			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};"),
+			WKUserScriptInjectionTime.AtDocumentStart,
+			isForMainFrameOnly: true));
+
+		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
+		// at document start so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
+		config.UserContentController.AddUserScript(new WKUserScript(
+			new NSString($"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, log: line => Console.WriteLine(line))};"),
+			WKUserScriptInjectionTime.AtDocumentStart,
+			isForMainFrameOnly: true));
+
+		// Commands + keybindings: inject the catalog + resolved bindings at document start so the web's
+		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
+		config.UserContentController.AddUserScript(new WKUserScript(
+			new NSString(
+				$"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()}; "
+				+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"),
 			WKUserScriptInjectionTime.AtDocumentStart,
 			isForMainFrameOnly: true));
 
@@ -99,6 +138,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_workspace = workspace;
+		_fileProvider = new FileProviderService(fileSystem, workspace);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 
@@ -116,7 +156,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// the spawned claude what the user is looking at.
 		_editor = new EditorStore();
-		_ide = new IdeIntegration(new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor);
+		_ide = new IdeIntegration(
+			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
+			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -170,9 +212,38 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			}
 		};
 
+		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
+		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
+		// the main thread and the stores are thread-safe, so the off-thread events can call it directly.
+		_settings.SettingChanged += change => {
+			if (change.Key == "theme.active") {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+		_themeOverrides.Changed += themeId => {
+			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+
 		// Layout: push the canonical document to the web when the store changes (a reconciled web edit or
 		// a future MCP setLayout). Change events arrive off the main thread.
 		_layout.Changed += _ => InvokeOnMainThread(PushLayoutToWeb);
+
+		// Commands: wire the dispatcher to the web (Claude's runCommand of a web command posts run-command +
+		// awaits its ack) and register the Core-side handlers (reopen terminal → restart the shell pane,
+		// marshaled to the main thread).
+		_commands.WebInvoker = InvokeWebCommandAsync;
+		_commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
+			InvokeOnMainThread(() => _shell?.Restart());
+			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
+		});
+
+		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
+		// web rebuilds its resolver + palette live. PostToWeb marshals to the main thread itself.
+		_keybindings.KeybindingsChanged += () => _bridge.PostToWeb(
+			$"{{\"type\":\"commands\",\"commands\":{_keybindings.BuildCommandsJson()},"
+			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
 
 		_window = new NSWindow(
 			frame,
@@ -197,18 +268,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		nint screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
 		Console.WriteLine($"[weavie] NSScreen.maximumFramesPerSecond = {screenHz}");
 
-		var query = new List<string>();
-		if (_debugPerformance) {
-			query.Add("debugperf=1");
-		}
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))) {
-			query.Add("autobench=1");
-		}
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_FPSPROBE"))) {
-			query.Add("fpsprobe=1");
-		}
-		string qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
-		_webView.LoadRequest(new NSUrlRequest(new NSUrl($"app://app/index.html{qs}")));
+		_webView.LoadRequest(new NSUrlRequest(new NSUrl("app://app/index.html")));
 
 		NSApplication.SharedApplication.Activate();
 
@@ -233,9 +293,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	/// <summary>Disposes both terminals and shuts down the IDE-MCP server on app exit.</summary>
 	public override void WillTerminate(NSNotification notification) {
 		SaveWindowState();
+		// Fail any web command still awaiting an ack so a runCommand in flight at exit doesn't hang.
+		foreach (var pending in _pendingWebCommands.Values) {
+			pending.TrySetResult(CommandResult.Failure("The app is terminating before the command completed."));
+		}
+
 		_claude?.Dispose();
 		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		_keybindings?.Dispose();
 		_settings?.Dispose();
 	}
 
@@ -315,10 +381,25 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
-			case "save-buffer":
-				SaveBuffer(
-					root.GetProperty("path").GetString() ?? string.Empty,
-					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
+			case "fs-stat":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-read":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Read(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-write":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Write(
+						FsId(root), FsPath(root),
+						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				}
+
 				break;
 			case "accept-turn":
 				AcceptTurn();
@@ -326,13 +407,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "undo-turn":
 				UndoTurn();
 				break;
-			case "latency-live":
-			case "benchmark-result":
-				// Per-tick perf telemetry (latency-live fires ~2x/sec) — noise unless we're profiling.
-				if (_debugPerformance) {
-					Console.WriteLine($"[weavie] {json}");
-					Console.Out.Flush();
-				}
+			case "invoke-command":
+				// A keybinding/palette in the web invoked a Core command — run it here (fire-and-forget).
+				InvokeCommandFromWeb(
+					root.TryGetProperty("id", out var ciEl) ? ciEl.GetString() ?? string.Empty : string.Empty,
+					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null);
+				break;
+			case "command-ack":
+				// The web finished a run-command (a web command Claude invoked over MCP) — settle the await.
+				CompleteWebCommand(root);
 				break;
 			case "ready":
 				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
@@ -421,10 +504,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	/// <summary>
+	/// Pushes a live-refresh of one edited file. The editor's file models are VSCode working copies behind the
+	/// host-backed <c>file://</c> provider, so the reload is driven by an <c>fs-change</c> push (the provider
+	/// fires its change event → VSCode reloads the non-dirty model from disk). The legacy <c>refresh-file</c>
+	/// message is no longer sent.
+	/// </summary>
 	private void PushRefreshToWeb(string path) {
 		if (_changes?.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+			_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "updated"));
 		}
 	}
 
@@ -480,31 +568,84 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
+	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
+	private void Notify(string level, string message) =>
+		// Built by hand (not JsonSerializer.Serialize, which is trim-unsafe — IL2026 — on the macOS target).
+		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
+
 	/// <summary>
-	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
-	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
-	/// path outside the workspace, which is a bug in the page) surfaces to the user as an error toast — an
-	/// autosave must never silently lose the user's work.
+	/// Runs a Core command the web asked for (its keybinding/palette resolved to a Core command).
+	/// Fire-and-forget: the web doesn't await a result for its own triggers; failures are logged.
 	/// </summary>
-	private void SaveBuffer(string path, string content) {
-		// The session is wired in DidFinishLaunching, before the page can post any message — so a null here
-		// is a broken invariant, not a runtime condition to absorb. Fail loud rather than drop the save.
-		if (_fileSystem is null || _workspace is null) {
-			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
+	private void InvokeCommandFromWeb(string id, string? argsJson) {
+		if (_commands is null || string.IsNullOrEmpty(id)) {
+			return;
+		}
+
+		_ = RunCommandSafeAsync(id, argsJson);
+	}
+
+	private async Task RunCommandSafeAsync(string id, string? argsJson) {
+		if (_commands is null) {
+			return;
 		}
 
 		try {
-			if (!BufferStore.Save(_fileSystem, _workspace, path, content)) {
-				Notify("error", $"Couldn't save {Path.GetFileName(path)}: path is outside the workspace.");
+			var result = await _commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
+			if (!result.Ok) {
+				Console.WriteLine($"[weavie] invoke-command {id} failed: {result.Error}");
 			}
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't save {Path.GetFileName(path)}: {ex.Message}");
+		} catch (Exception ex) when (ex is UnknownCommandException or InvalidOperationException) {
+			Console.WriteLine($"[weavie] invoke-command {id} error: {ex.Message}");
 		}
 	}
 
-	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
-	private void Notify(string level, string message) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
+	/// <summary>
+	/// The dispatcher's web invoker: posts a <c>run-command</c> to the page and awaits its <c>command-ack</c>
+	/// (or a 5s timeout). How Claude's <c>runCommand</c> of a web command reaches the UI and gets a result back.
+	/// </summary>
+	private async Task<CommandResult> InvokeWebCommandAsync(string id, string? argsJson, CancellationToken ct) {
+		string token = Guid.NewGuid().ToString("n");
+		var completion = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+		_pendingWebCommands[token] = completion;
+		try {
+			string argsPart = string.IsNullOrEmpty(argsJson) ? "null" : argsJson;
+			_bridge.PostToWeb(
+				$"{{\"type\":\"run-command\",\"id\":{JsonString(id)},\"args\":{argsPart},\"token\":{JsonString(token)}}}");
+
+			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+			timeout.CancelAfter(TimeSpan.FromSeconds(5));
+			await using (timeout.Token.Register(() => completion.TrySetResult(
+				CommandResult.Failure($"Command '{id}' was dispatched but the UI didn't acknowledge within 5s."))).ConfigureAwait(false)) {
+				return await completion.Task.ConfigureAwait(false);
+			}
+		} finally {
+			_pendingWebCommands.TryRemove(token, out _);
+		}
+	}
+
+	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
+	private void CompleteWebCommand(JsonElement root) {
+		string? token = root.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
+		if (string.IsNullOrEmpty(token) || !_pendingWebCommands.TryGetValue(token, out var completion)) {
+			return;
+		}
+
+		bool ok = root.TryGetProperty("ok", out var okEl) && okEl.ValueKind is JsonValueKind.True or JsonValueKind.False && okEl.GetBoolean();
+		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
+		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
+	}
+
+	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
+	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
+
+	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
+	private static string FsId(JsonElement root) =>
+		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
+
+	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
+	private static string FsPath(JsonElement root) =>
+		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {

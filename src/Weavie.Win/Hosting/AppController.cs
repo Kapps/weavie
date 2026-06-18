@@ -1,6 +1,7 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Win.Hosting;
@@ -45,6 +46,14 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
+		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global like settings so a change
+		// reaches every window; the active theme itself is a normal setting (theme.active).
+		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		ThemeOverrides.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe so the logic isn't duplicated on macOS.
 		var recents = new RecentWorkspaces(new LocalFileSystem());
@@ -71,6 +80,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>The recent-workspaces store, for the Open Recent menu and the welcome window.</summary>
 	public RecentWorkspaces Recents => _manager.Recents;
+
+	/// <summary>The app-global per-theme color overrides store (theme-overrides.json), shared by every window.</summary>
+	public ThemeOverridesStore ThemeOverrides { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if that folder is already

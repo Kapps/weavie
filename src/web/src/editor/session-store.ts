@@ -33,7 +33,8 @@ export function setLocalSession(next: EditorSession): void {
   }
   postTimer = setTimeout(() => {
     postTimer = undefined;
-    // Strip any content before persisting (the host never trusts the web for file contents).
+    // Normalize each entry to the on-the-wire shape (path + opaque view state); the host persists this
+    // verbatim and reads file contents from disk itself, never from the web.
     const open = next.open.map((entry) => ({
       path: entry.path,
       viewState: entry.viewState ?? null,

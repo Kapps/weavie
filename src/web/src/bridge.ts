@@ -8,8 +8,9 @@
 
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
-import type { BenchmarkConfig, BenchmarkReport, LiveLatencyStats } from "./latency/types";
 import type { LayoutDocument } from "./layout/types";
+import type { OverrideOp } from "./theme/overrides";
+import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
 // The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
 // and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
@@ -41,8 +42,6 @@ export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
-  | { type: "latency-live"; stats: LiveLatencyStats }
-  | { type: "benchmark-result"; report: BenchmarkReport }
   // Terminal: the xterm pane is mounted and ready to host the PTY child.
   | { type: "term-ready"; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; session: TermSession; dataB64: string }
@@ -53,9 +52,12 @@ export type HostBoundMessage =
   | { type: "reveal-file"; path: string; line: number }
   // The changes view asks the host for one file's session diff (baseline vs current text).
   | { type: "get-change-diff"; path: string }
-  // Autosave: the editor buffer changed -> host writes it to disk so the embedded Claude (which reads
-  // disk directly) builds its edits on the user's current state. Debounced web-side; one per file path.
-  | { type: "save-buffer"; path: string; content: string }
+  // Host-backed file:// provider: the editor's VSCode working copies read/write the real disk through the
+  // host (this is how the editor persists buffers now — it replaced the old debounced save-buffer message).
+  // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
+  | { type: "fs-stat"; id: string; path: string }
+  | { type: "fs-read"; id: string; path: string }
+  | { type: "fs-write"; id: string; path: string; content: string }
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
   | { type: "accept-turn" }
@@ -101,8 +103,6 @@ export type HostBoundMessage =
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
-  | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
-  | { type: "set-load"; enabled: boolean }
   | { type: "term-output"; session: TermSession; dataB64: string }
   | { type: "term-exit"; session: TermSession; code: number }
   // Host tore down this session's PTY (e.g. the shell setting changed): clear the pane and
@@ -127,6 +127,10 @@ export type WebBoundMessage =
   | { type: "set-editor-session"; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
+  // Host pushes the active theme (a theme switch or an override edit): its id, override ops, and — for
+  // installed themes — the converted VS Code theme JSON (built-ins carry only the id). Re-themes the
+  // editor, terminal, and chrome live.
+  | { type: "theme"; id: string; ops: OverrideOp[]; theme?: VsCodeColorTheme }
   // Host pushes the session change list (each tracked file's path + added/removed line counts).
   | {
       type: "session-changes";
@@ -134,9 +138,41 @@ export type WebBoundMessage =
     }
   // Host answers get-change-diff with one file's session baseline + current text.
   | { type: "change-diff"; path: string; name: string; baseline: string; current: string }
-  // Live-refresh: Claude edited this file (any permission mode) -> update its already-open Monaco model
-  // in place. No-op web-side if the file has no model yet (its content is on disk until first opened).
-  | { type: "refresh-file"; path: string; content: string }
+  // Host-backed file:// provider replies, correlated to a request `id`. fs-stat-result: existence + stat;
+  // fs-read-result: content + etag, or code:"FileNotFound" (provider falls through) or a loud error;
+  // fs-write-result: post-write etag, or an error. Optional fields are absent (not null) when not applicable.
+  | {
+      type: "fs-stat-result";
+      id: string;
+      ok: boolean;
+      exists: boolean;
+      isDir: boolean;
+      mtimeMs: number;
+      ctimeMs: number;
+      size: number;
+      error?: string;
+    }
+  | {
+      type: "fs-read-result";
+      id: string;
+      ok: boolean;
+      content?: string;
+      mtimeMs?: number;
+      size?: number;
+      code?: string;
+      error?: string;
+    }
+  | {
+      type: "fs-write-result";
+      id: string;
+      ok: boolean;
+      mtimeMs?: number;
+      size?: number;
+      error?: string;
+    }
+  // The host-backed file:// provider learned files changed on disk (a Claude edit, or the workspace watcher
+  // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
+  | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
   // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
   // baseline === current means "no markers" (the file was accepted or reverted this turn).
   | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }

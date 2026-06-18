@@ -7,8 +7,8 @@ namespace Weavie.Core.Editor;
 /// One open editor entry: a file <see cref="Path"/> plus its opaque Monaco <see cref="ViewState"/>
 /// (scroll + cursor + folding, the JSON from <c>editor.saveViewState()</c>). The view state is stored and
 /// forwarded verbatim — Weavie never interprets it; it only hands it back to <c>editor.restoreViewState</c>.
-/// File contents are deliberately absent: disk is the source of truth, so the host reads each file's
-/// content at push time rather than persisting a possibly-stale buffer here.
+/// File contents are deliberately absent — disk is the source of truth: the web reopens each file as a
+/// working copy resolved from disk through the host file provider, so no buffer is persisted or pushed here.
 /// </summary>
 public sealed record EditorSessionEntry {
 	/// <summary>The native absolute path of the open file.</summary>

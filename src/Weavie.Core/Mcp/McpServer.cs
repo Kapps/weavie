@@ -73,7 +73,11 @@ public sealed class McpServer : IAsyncDisposable {
 		if (editor is not null) {
 			// Push an unsolicited selection_changed to the connected client whenever the user's active
 			// file/selection changes, so the embedded claude always knows what they're looking at.
+			// IDE0031's suggested fix (editor?.Changed += ...) is illegal on event accessors, so the
+			// explicit guard stays and the false-positive is suppressed locally.
+#pragma warning disable IDE0031
 			editor.Changed += OnActiveEditorChanged;
+#pragma warning restore IDE0031
 		}
 
 		// Registry mode advertises ONLY the capability tools (settings + layout + commands) — this is the
@@ -759,9 +763,11 @@ public sealed class McpServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+#pragma warning disable IDE0031 // null-propagation fix is illegal on event accessors
 		if (_editor is not null) {
 			_editor.Changed -= OnActiveEditorChanged;
 		}
+#pragma warning restore IDE0031
 
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);

@@ -9,6 +9,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Theming;
 using Weavie.Mac.Hosting;
 using WebKit;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -30,9 +31,11 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
+	private ThemeOverridesStore? _themeOverrides;
 	private EditorStore? _editor;
 	private SessionChangeTracker? _changes;
 	private LocalFileSystem? _fileSystem;
+	private FileProviderService? _fileProvider;
 	private string? _workspace;
 	private NSWindow? _window;
 	private WKWebView? _webView;
@@ -90,10 +93,24 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		};
 		_commands = new CommandDispatcher(_commandRegistry);
 
+		// Per-theme color overrides (~/.weavie/theme-overrides.json); the active theme itself is a setting.
+		_themeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		_themeOverrides.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Typography: inject the resolved editor + terminal fonts at document start so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		config.UserContentController.AddUserScript(new WKUserScript(
 			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};"),
+			WKUserScriptInjectionTime.AtDocumentStart,
+			isForMainFrameOnly: true));
+
+		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
+		// at document start so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
+		config.UserContentController.AddUserScript(new WKUserScript(
+			new NSString($"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, log: line => Console.WriteLine(line))};"),
 			WKUserScriptInjectionTime.AtDocumentStart,
 			isForMainFrameOnly: true));
 
@@ -118,6 +135,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_workspace = workspace;
+		_fileProvider = new FileProviderService(fileSystem, workspace);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
@@ -127,7 +145,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_editor = new EditorStore();
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
-			commands: _commands, keybindings: _keybindings);
+			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -178,6 +196,20 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_settings.SettingChanged += change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+		};
+
+		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
+		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
+		// the main thread and the stores are thread-safe, so the off-thread events can call it directly.
+		_settings.SettingChanged += change => {
+			if (change.Key == "theme.active") {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+		_themeOverrides.Changed += themeId => {
+			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
 			}
 		};
 
@@ -336,10 +368,25 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
-			case "save-buffer":
-				SaveBuffer(
-					root.GetProperty("path").GetString() ?? string.Empty,
-					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
+			case "fs-stat":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-read":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Read(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-write":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Write(
+						FsId(root), FsPath(root),
+						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				}
+
 				break;
 			case "accept-turn":
 				AcceptTurn();
@@ -417,10 +464,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	/// <summary>
+	/// Pushes a live-refresh of one edited file. The editor's file models are VSCode working copies behind the
+	/// host-backed <c>file://</c> provider, so the reload is driven by an <c>fs-change</c> push (the provider
+	/// fires its change event → VSCode reloads the non-dirty model from disk). The legacy <c>refresh-file</c>
+	/// message is no longer sent.
+	/// </summary>
 	private void PushRefreshToWeb(string path) {
 		if (_changes?.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+			_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "updated"));
 		}
 	}
 
@@ -473,28 +525,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		if (truncated.Count > 0) {
 			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
-		}
-	}
-
-	/// <summary>
-	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
-	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
-	/// path outside the workspace, which is a bug in the page) surfaces to the user as an error toast — an
-	/// autosave must never silently lose the user's work.
-	/// </summary>
-	private void SaveBuffer(string path, string content) {
-		// The session is wired in DidFinishLaunching, before the page can post any message — so a null here
-		// is a broken invariant, not a runtime condition to absorb. Fail loud rather than drop the save.
-		if (_fileSystem is null || _workspace is null) {
-			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
-		}
-
-		try {
-			if (!BufferStore.Save(_fileSystem, _workspace, path, content)) {
-				Notify("error", $"Couldn't save {Path.GetFileName(path)}: path is outside the workspace.");
-			}
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't save {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
 
@@ -568,6 +598,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
+
+	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
+	private static string FsId(JsonElement root) =>
+		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
+
+	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
+	private static string FsPath(JsonElement root) =>
+		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {

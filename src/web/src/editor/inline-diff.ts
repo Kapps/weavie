@@ -1,8 +1,8 @@
 // Renders a diff INSIDE the live code editor (Cursor-style), never a standalone diff viewer: added lines as
 // green whole-line decorations, removed lines as red "ghost" view-zones in place, char-level highlights for
 // replacements, and a small Accept/Reject(/Undo) toolbar. The modified side is always the editor's LIVE model
-// content, so the diff tracks edits live (the user tweaking a proposal, or a host refresh-file landing). The
-// layer owns only its decorations/zones/widget — it NEVER disposes the host-owned live model.
+// content, so the diff tracks edits live (the user tweaking a proposal, or the working copy reloading after a
+// Claude edit). The layer owns only its decorations/zones/widget — it NEVER disposes the host-owned live model.
 
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 import { currentFonts, onFontsChanged } from "../fonts";
@@ -14,7 +14,7 @@ const DIFF_OPTIONS = {
   computeMoves: false,
 } as const;
 
-// Debounce diff recompute so typing into a model under review (or a burst of refresh-file pushes) doesn't
+// Debounce diff recompute so typing into a model under review (or a burst of working-copy reloads) doesn't
 // recompute + re-lay-out view zones on every keystroke.
 const RECOMPUTE_DEBOUNCE_MS = 120;
 
@@ -43,6 +43,13 @@ export interface InlineDiff {
   set(path: string, options: InlineDiffOptions): void;
   /** Remove the diff for a file path. */
   clear(path: string): void;
+  /**
+   * Register the diff keyed by an exact model URI string (not a file path) — used for the transient
+   * `weavie-review:` model an openDiff review renders over. Renders immediately if it's the active model.
+   */
+  setByUri(uri: string, options: InlineDiffOptions): void;
+  /** Remove the diff registered by an exact model URI string (the review-model counterpart of clear). */
+  clearByUri(uri: string): void;
   /** Remove every registered diff. */
   clearAll(): void;
   /** Jump to the next change hunk in the active diff (no-op if none). */
@@ -301,22 +308,31 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const onContent = editor.onDidChangeModelContent(scheduleRender);
   const offFonts = onFontsChanged(renderActive);
 
+  // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
+  // to its file:// URI; the review path passes the transient model's URI directly).
+  const setByUri = (key: string, options: InlineDiffOptions): void => {
+    diffs.set(key, options);
+    const model = editor.getModel();
+    if (model !== null && model.uri.toString() === key) {
+      render(key);
+    }
+  };
+  const clearByUri = (key: string): void => {
+    diffs.delete(key);
+    if (renderedUri === key) {
+      clearRender();
+    }
+  };
+
   return {
     set(path, options) {
-      const key = monaco.Uri.file(path).toString();
-      diffs.set(key, options);
-      const model = editor.getModel();
-      if (model !== null && model.uri.toString() === key) {
-        render(key);
-      }
+      setByUri(monaco.Uri.file(path).toString(), options);
     },
     clear(path) {
-      const key = monaco.Uri.file(path).toString();
-      diffs.delete(key);
-      if (renderedUri === key) {
-        clearRender();
-      }
+      clearByUri(monaco.Uri.file(path).toString());
     },
+    setByUri,
+    clearByUri,
     clearAll() {
       diffs.clear();
       clearRender();

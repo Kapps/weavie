@@ -16,6 +16,7 @@
     "@codingame/monaco-vscode-csharp-default-extension": "25.1.2",
     "@codingame/monaco-vscode-editor-api": "25.1.2",
     "@codingame/monaco-vscode-editor-service-override": "25.1.2",
+    "@codingame/monaco-vscode-files-service-override": "25.1.2",
     "@codingame/monaco-vscode-go-default-extension": "25.1.2",
     "@codingame/monaco-vscode-languages-service-override": "25.1.2",
     "@codingame/monaco-vscode-model-service-override": "25.1.2",

@@ -5,6 +5,7 @@ import "@xterm/xterm/css/xterm.css";
 import { type JSX, onCleanup, onMount } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "../bridge";
 import { currentFonts, onFontsChanged } from "../fonts";
+import { currentXtermTheme, onXtermThemeChanged } from "../theme";
 import { base64ToBytes, bytesToBase64 } from "./base64";
 
 // Matches paths with an extension followed by :line (optionally :col), e.g.
@@ -41,7 +42,7 @@ export function TerminalView(props: {
     fontSize: initialFont.size,
     fontWeight: initialFont.weight as FontWeight,
     lineHeight: 1.0,
-    theme: { background: "#1e1e1e", foreground: "#d4d4d4" },
+    theme: currentXtermTheme(),
     cursorBlink: true,
     scrollback: 8000,
     allowProposedApi: true,
@@ -73,6 +74,11 @@ export function TerminalView(props: {
       term.options.fontSize = config.terminal.size;
       term.options.fontWeight = config.terminal.weight as FontWeight;
       refit();
+    });
+
+    // Apply live theme changes (an active-theme switch or an override edit) to this terminal.
+    const offTheme = onXtermThemeChanged((theme) => {
+      term.options.theme = theme;
     });
 
     // WebGL renderer with self-healing: a lost GL context (driver churn, or DOM/style mutation from
@@ -199,6 +205,7 @@ export function TerminalView(props: {
     onCleanup(() => {
       offHost();
       offFonts();
+      offTheme();
       resizeObserver.disconnect();
       window.removeEventListener("resize", refit);
       if (import.meta.hot) {

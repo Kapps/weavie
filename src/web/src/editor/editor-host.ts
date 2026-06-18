@@ -3,17 +3,36 @@
 // lands in a separate chunk that loads AFTER the shell (the terminal panes) has painted — keeping the
 // multi-megabyte editor code off the first-paint path. Everything Monaco-touching that the shell needs
 // is reached through the EditorHost handle returned here.
+//
+// File models are real VSCode *working copies*: opened via ITextModelService.createModelReference (which
+// resolves the file through the host-backed file:// provider → real disk), saved through the same provider
+// on weavie's debounce, and reloaded by VSCode's own model manager when the host pushes an fs-change. This
+// is what makes every Monaco feature that resolves a file:// model reference (occurrence highlighting,
+// peek/references, format, …) actually work — they reuse the one working copy per URI instead of failing to
+// read an empty provider. See host-file-provider.ts and docs/specs/file-management-and-sessions.md.
 
+import { getService } from "@codingame/monaco-vscode-api/services";
+import { ITextFileService, ITextModelService } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { createEditor, monaco } from "./monaco-setup";
 import { initEditorServices } from "./vscode-services";
 
+// A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
+// freed only when no reference remains (so a feature's transient createModelReference never frees our model).
+type ModelRef = Awaited<ReturnType<ITextModelService["createModelReference"]>>;
+
+// The scheme for the transient model that backs an openDiff review. NOT `file://`, so it is never a working
+// copy, never resolved by the host file provider, and never pushed as the active editor (the active-editor
+// notification filters scheme "file") — so a review can't dirty/collide with the real file working copy.
+const REVIEW_SCHEME = "weavie-review";
+
 // Editor-session state that must survive a Vite hot reload. A hot reload rebuilds the editor widget (App is
-// the HMR boundary — see vscode-services.ts), but the open file *models* live in the global vscode model
-// service and persist. Stash which file + view state was active so the rebuilt editor can reattach to the
-// surviving model instead of coming up blank — making a hot reload seamless. Production never hot-reloads, so
-// this is written once on teardown and read once on the next build.
+// the HMR boundary — see vscode-services.ts), but the open file *working copies* live in the global VSCode
+// model/text-file services and persist. Stash which file + view state was active (DOC) and keep the model
+// references alive across the rebuild (REFS) so the new host adopts them — the refcount never hits 0, so the
+// surviving working copies aren't torn down. Production never hot-reloads, so this is written once on teardown
+// and read once on the next build.
 declare global {
   interface Window {
     __WEAVIE_EDITOR_DOC__?:
@@ -22,6 +41,7 @@ declare global {
           viewState: monaco.editor.ICodeEditorViewState | null;
         }
       | undefined;
+    __WEAVIE_EDITOR_REFS__?: Map<string, ModelRef>;
   }
 }
 
@@ -35,40 +55,29 @@ function nextPaint(): Promise<void> {
 /** The live editor, plus the operations the shell drives it with (open a file, review a diff, tear down). */
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
-  /** Loads a file's contents into the editor and reveals <paramref>line</paramref> (host open-file). */
-  openFile(path: string, content: string, line: number): void;
+  /** Loads a file as a working copy into the editor and reveals <paramref>line</paramref> (host open-file). */
+  openFile(path: string, line: number): void;
   /**
-   * Refreshes an already-open file's contents in place after an edit landed elsewhere (Claude editing the
-   * file in any permission mode, or the diff Keep), preserving the scroll/cursor view state and never
-   * stealing focus. No-op when the file has no model yet (its content lives on disk until first opened).
+   * Begins an inline review of an openDiff proposal in a transient model (the real file working copy is left
+   * untouched), makes it the active editor showing <paramref>proposed</paramref>, and returns the transient
+   * model's URI string so the caller can render the inline diff over it.
    */
-  applyExternalEdit(path: string, content: string): void;
+  beginReview(path: string, proposed: string, line: number): string;
   /**
-   * Returns the live `file://` model for <paramref>path</paramref>, creating it from <paramref>seed</paramref>
-   * if absent (and wiring its autosave). The Changes view shares this model so its diff is the live buffer —
-   * the caller MUST NOT dispose it; the model is owned by the host for the session.
-   */
-  getOrCreateFileModel(path: string, seed: string): monaco.editor.ITextModel;
-  /**
-   * Begins an inline review of an openDiff proposal: makes <paramref>path</paramref> the active editor
-   * showing <paramref>proposed</paramref>, and suppresses autosave/refresh for it until <see cref="endReview"/>
-   * (Claude writes the file on accept, not our autosave).
-   */
-  beginReview(path: string, proposed: string, line: number): void;
-  /**
-   * Ends an inline review and returns the file's final buffer content. When <paramref>keep</paramref> is
-   * false the buffer is reverted to <paramref>original</paramref> first. Re-enables autosave for the file.
+   * Ends an inline review and returns the proposal's final (possibly tweaked) content. Swaps the editor back
+   * to the real file (its working copy reloads to the kept content via the host's fs-change on accept; on
+   * reject it is left at disk content). Disposes the transient review model.
    */
   endReview(path: string, keep: boolean, original: string): string;
   /**
-   * Tears the host down: flushes any pending autosave, drops all subscriptions (including those on models
-   * that outlive the widget), and disposes the editor. The session's file models are intentionally NOT
-   * disposed — they persist so the next host (e.g. after a hot reload) can reattach to them.
+   * Tears the host down: flushes any pending save, drops all subscriptions (including those on models that
+   * outlive the widget), and disposes the editor. The session's file working copies and their references are
+   * intentionally NOT released — they persist on window so the next host (e.g. after a hot reload) reattaches.
    */
   dispose(): void;
 }
 
-/** A real user file worth autosaving / reporting as active: a `file://` model (the editor's only models). */
+/** A real user file worth saving / reporting as active: a `file://` model (the editor's working copies). */
 function isUserFileModel(model: monaco.editor.ITextModel): boolean {
   return model.uri.scheme === "file";
 }
@@ -76,11 +85,21 @@ function isUserFileModel(model: monaco.editor.ITextModel): boolean {
 /**
  * Brings up the editor: initializes the VSCode services (which must precede any editor creation),
  * creates the editor in <paramref>container</paramref>, and wires lazy per-language LSP. The caller
- * (App) catches failures so a broken editor never takes down the terminal panes.
+ * (App) catches failures so a broken editor never takes down the terminal panes. <paramref>onSaveError</paramref>
+ * surfaces a debounced save that failed to reach disk as a user-facing toast (never a silent drop).
  */
-export async function createEditorHost(container: HTMLElement): Promise<EditorHost> {
+export async function createEditorHost(
+  container: HTMLElement,
+  onSaveError?: (message: string) => void,
+): Promise<EditorHost> {
   await initEditorServices();
+  const textModelService = await getService(ITextModelService);
+  const textFileService = await getService(ITextFileService);
   const editor = createEditor(container);
+
+  // Open file working copies survive a hot reload on this window-scoped map; first host creates it.
+  window.__WEAVIE_EDITOR_REFS__ ??= new Map<string, ModelRef>();
+  const refs = window.__WEAVIE_EDITOR_REFS__;
 
   // Don't yank focus if the user has already clicked into a terminal while the editor was loading —
   // only claim focus when nothing else has it (matches the old eager-focus when the shell first mounts).
@@ -94,8 +113,8 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
 
   // Tell the host which file + selection is active so the embedded Claude always knows what the user
   // is looking at (the host pushes a selection_changed notification + answers getCurrentSelection from
-  // it). Debounced — cursor moves fire rapidly and Claude only needs the settled state. The scratch
-  // sample doc is suppressed; it isn't a file the user is working on.
+  // it). Debounced — cursor moves fire rapidly and Claude only needs the settled state. The transient
+  // review model (scheme weavie-review) is suppressed; it isn't a file the user is working on.
   let emitTimer: ReturnType<typeof setTimeout> | undefined;
   const emitActiveEditor = (): void => {
     const model = editor.getModel();
@@ -128,68 +147,53 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   };
   // Every subscription this host makes is collected here so dispose() can tear them ALL down — crucially
   // including listeners on models that OUTLIVE the widget (a hot reload rebuilds the editor but not the
-  // models), so a rebuilt host never stacks a second set of autosave/selection handlers on a surviving model.
+  // models), so a rebuilt host never stacks a second set of save/selection handlers on a surviving model.
   const disposables: monaco.IDisposable[] = [
     editor.onDidChangeModel(scheduleEmitActiveEditor),
     editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
   ];
 
-  // Autosave: the model is the working copy, debounce-flushed to disk so the embedded Claude (which reads
-  // disk directly) sees the user's current state. Guards against echoing host-driven writes back as saves:
-  //  - `applyingRemote` suppresses the synchronous change event fired during a programmatic setValue.
-  //  - `lastApplied[path]` is the content we last loaded/saved, so a change that settles back to it (an
-  //    open/refresh, or a save round-trip) doesn't re-schedule a write.
-  // A user autosave fires no Claude hook, so it never loops back through the change tracker.
-  const lastApplied = new Map<string, string>();
-  const autosaveAttached = new WeakSet<monaco.editor.ITextModel>();
+  // Save: the working copy is debounce-flushed to disk through the file provider so the embedded Claude
+  // (which reads disk directly) sees the user's current state. A blind overwrite (ignoreModifiedSince) —
+  // weavie's buffer is authoritative, matching the live-refresh-all-modes policy; there is no save-conflict
+  // dialog. A reload/revert updates the model WITHOUT marking it dirty, so the isDirty guard means those
+  // never schedule a (no-op) save.
+  const saveAttached = new WeakSet<monaco.editor.ITextModel>();
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  // Content queued behind a debounce, kept so dispose() (incl. a hot reload) can flush it synchronously
-  // rather than dropping an unsaved edit.
-  const pendingSaves = new Map<string, string>();
-  let applyingRemote = false;
-  // Files whose buffer holds a pending openDiff proposal under inline review (default mode). Autosave AND
-  // host refresh are suppressed for these — Claude is the one who writes on accept (FILE_SAVED); pre-writing
-  // the proposal would double-write and, for a new file, collide ("file already exists").
-  const pendingReview = new Set<string>();
 
-  // Write a file's queued buffer to disk now (via the host), clearing its debounce. Called both by the
-  // debounce timer and by dispose(), so a teardown flushes pending edits instead of losing them.
   const flushSave = (key: string): void => {
     const timer = saveTimers.get(key);
     if (timer !== undefined) {
       clearTimeout(timer);
       saveTimers.delete(key);
     }
-    const content = pendingSaves.get(key);
-    if (content === undefined) {
+    const uri = monaco.Uri.parse(key);
+    if (!textFileService.isDirty(uri)) {
       return;
     }
-    pendingSaves.delete(key);
-    lastApplied.set(key, content);
-    // The host write wants the native path, which the canonical URI's fsPath gives back.
-    postToHost({ type: "save-buffer", path: monaco.Uri.parse(key).fsPath, content });
+    void textFileService
+      .save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true })
+      .catch((error: unknown) => {
+        const name = key.split("/").pop() ?? key;
+        const message = `Couldn't save ${name}: ${String(error)}`;
+        log("error", message);
+        onSaveError?.(message);
+      });
   };
 
-  const attachAutosave = (model: monaco.editor.ITextModel): void => {
-    if (autosaveAttached.has(model) || !isUserFileModel(model)) {
+  const attachSave = (model: monaco.editor.ITextModel): void => {
+    if (saveAttached.has(model) || !isUserFileModel(model)) {
       return;
     }
-    autosaveAttached.add(model);
-    // Key state by the canonical URI string (stable + matching openFile/applyExternalEdit).
+    saveAttached.add(model);
     const key = model.uri.toString();
-    // Attached to the MODEL (not an editor), so a file shown in both the main editor and the Changes-view
-    // diff doesn't double-schedule.
     disposables.push(
       model.onDidChangeContent(() => {
-        if (applyingRemote || pendingReview.has(key)) {
+        // Only a real user edit dirties the working copy; a host-driven reload/revert does not (VSCode sets
+        // ignoreDirtyOnModelContentChange during reload), so this skips scheduling a redundant save for it.
+        if (!textFileService.isDirty(model.uri)) {
           return;
         }
-        const content = model.getValue();
-        if (lastApplied.get(key) === content) {
-          pendingSaves.delete(key);
-          return;
-        }
-        pendingSaves.set(key, content);
         const delay = editor.getModel() === model ? 250 : 600;
         const pending = saveTimers.get(key);
         if (pending !== undefined) {
@@ -206,104 +210,115 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
           clearTimeout(pending);
           saveTimers.delete(key);
         }
-        pendingSaves.delete(key);
       }),
     );
   };
 
-  // The host owns file models for the session — created once, reused, kept live by autosave + refresh,
-  // and never disposed by the Changes view that shares them.
-  const ensureModel = (path: string, seed: string): monaco.editor.ITextModel => {
+  // Resolve (or reuse) the refcounted working-copy reference for a file URI, and wire its save listener once.
+  const ensureRef = async (uri: monaco.Uri): Promise<ModelRef> => {
+    const key = uri.toString();
+    let ref = refs.get(key);
+    if (ref === undefined) {
+      ref = await textModelService.createModelReference(uri);
+      refs.set(key, ref);
+    }
+    attachSave(ref.object.textEditorModel);
+    return ref;
+  };
+
+  // open-file requests can arrive faster than they resolve (createModelReference is async); only the latest
+  // wins so a slow resolve can't clobber a newer open.
+  let openSeq = 0;
+  const openFile = (path: string, line: number): void => {
     const uri = monaco.Uri.file(path);
-    let model = monaco.editor.getModel(uri);
+    const token = ++openSeq;
+    void ensureRef(uri)
+      .then((ref) => {
+        if (token !== openSeq) {
+          return; // superseded by a newer open
+        }
+        editor.setModel(ref.object.textEditorModel);
+        editor.revealLineInCenter(line);
+        editor.setPosition({ lineNumber: line, column: 1 });
+        editor.focus();
+      })
+      .catch((error: unknown) => log("error", `open-file failed for ${path}: ${String(error)}`));
+  };
+
+  // Review uses a transient model per file path (one openDiff is live at a time — it blocks). Tracked so
+  // endReview can read its final content and dispose it.
+  const reviewModels = new Map<string, monaco.editor.ITextModel>();
+  // What was showing before the review began, to restore on resolve when we can't show the real file.
+  let preReview:
+    | {
+        model: monaco.editor.ITextModel | null;
+        viewState: monaco.editor.ICodeEditorViewState | null;
+      }
+    | undefined;
+
+  const beginReview = (path: string, proposed: string, line: number): string => {
+    const fileUri = monaco.Uri.file(path);
+    // A non-file URI whose path still ends in the real filename, so Monaco infers the language (syntax
+    // highlighting) from the extension while the scheme keeps it out of the file-service / working-copy world.
+    const reviewUri = monaco.Uri.from({ scheme: REVIEW_SCHEME, path: fileUri.path });
+    let model = monaco.editor.getModel(reviewUri);
     if (model === null) {
-      model = monaco.editor.createModel(seed, undefined, uri);
-      lastApplied.set(uri.toString(), seed);
+      model = monaco.editor.createModel(proposed, undefined, reviewUri);
+    } else {
+      model.setValue(proposed);
     }
-    attachAutosave(model);
-    return model;
-  };
-
-  const getOrCreateFileModel = (path: string, seed: string): monaco.editor.ITextModel =>
-    ensureModel(path, seed);
-
-  const openFile = (path: string, content: string, line: number): void => {
-    // Reveal the live model; if it already exists keep its (possibly dirty) buffer rather than clobbering
-    // it with disk content — autosave + refresh keep it in sync. New models are seeded from disk content.
-    const model = ensureModel(path, content);
-    editor.setModel(model);
-    editor.revealLineInCenter(line);
-    editor.setPosition({ lineNumber: line, column: 1 });
-    editor.focus();
-  };
-
-  const applyExternalEdit = (path: string, content: string): void => {
-    const uri = monaco.Uri.file(path);
-    const model = monaco.editor.getModel(uri);
-    if (model === null || model.getValue() === content || pendingReview.has(uri.toString())) {
-      return;
-    }
-    // Restore the view state around setValue so the refresh doesn't fling the visible file back to line 1;
-    // only meaningful when this is the editor's active model. Mark the content applied + suppress the echo
-    // so this host-driven write isn't bounced back as an autosave.
-    const isActive = editor.getModel() === model;
-    const viewState = isActive ? editor.saveViewState() : null;
-    applyingRemote = true;
-    lastApplied.set(uri.toString(), content);
-    model.setValue(content);
-    applyingRemote = false;
-    if (viewState !== null) {
-      editor.restoreViewState(viewState);
-    }
-  };
-
-  // Programmatic content swap that never echoes as an autosave (used by review begin/revert).
-  const setModelContentSilently = (
-    model: monaco.editor.ITextModel,
-    key: string,
-    content: string,
-  ): void => {
-    if (model.getValue() === content) {
-      lastApplied.set(key, content);
-      return;
-    }
-    applyingRemote = true;
-    lastApplied.set(key, content);
-    model.setValue(content);
-    applyingRemote = false;
-  };
-
-  const beginReview = (path: string, proposed: string, line: number): void => {
-    const uri = monaco.Uri.file(path);
-    // Mark pending BEFORE touching content so the proposal (and any tweaks during review) never autosave.
-    pendingReview.add(uri.toString());
-    const model = ensureModel(path, proposed);
-    setModelContentSilently(model, uri.toString(), proposed);
+    reviewModels.set(path, model);
+    preReview = { model: editor.getModel(), viewState: editor.saveViewState() };
     editor.setModel(model);
     editor.revealLineInCenter(Math.max(1, line));
     editor.focus();
+    return reviewUri.toString();
   };
 
   const endReview = (path: string, keep: boolean, original: string): string => {
-    const uri = monaco.Uri.file(path);
-    const key = uri.toString();
-    const model = monaco.editor.getModel(uri);
-    if (model !== null && !keep) {
-      // Reject/cancel: restore the file to its pre-proposal content.
-      setModelContentSilently(model, key, original);
+    const fileUri = monaco.Uri.file(path);
+    const reviewModel = reviewModels.get(path);
+    reviewModels.delete(path);
+    const finalContents = reviewModel?.getValue() ?? (keep ? "" : original);
+    const restore = preReview;
+    preReview = undefined;
+
+    // If the user navigated away during the review, leave their current view alone — just drop the proposal.
+    if (reviewModel === undefined || editor.getModel() !== reviewModel) {
+      reviewModel?.dispose();
+      return finalContents;
     }
-    pendingReview.delete(key);
-    // Sync the autosave baseline to the buffer's current value: on keep, the kept content is what Claude
-    // writes (don't re-save it); on reject, it's `original`. Post-review user edits autosave from here.
-    const finalContent = model?.getValue() ?? (keep ? "" : original);
-    if (model !== null) {
-      lastApplied.set(key, finalContent);
+
+    const fileModel = monaco.editor.getModel(fileUri);
+    if (fileModel !== null) {
+      // The real file is open as a working copy: show it. On keep, Claude's write → fs-change reloads it to
+      // the kept content; on reject it stays at disk content. The file working copy was never dirtied by the
+      // review, so no save/conflict fires.
+      editor.setModel(fileModel);
+      if (restore?.model === fileModel && restore.viewState !== null) {
+        editor.restoreViewState(restore.viewState);
+      }
+      reviewModel.dispose();
+    } else if (restore !== undefined && restore.model !== null && !restore.model.isDisposed()) {
+      editor.setModel(restore.model);
+      if (restore.viewState !== null) {
+        editor.restoreViewState(restore.viewState);
+      }
+      reviewModel.dispose();
+    } else if (keep) {
+      // A brand-new file was just kept and nothing else was open: keep showing the kept content. It becomes a
+      // real working copy when the user reopens it (after Claude writes the file). Don't dispose — it's all
+      // that's visible.
+    } else {
+      // A brand-new file was rejected and nothing else was open: clear the editor and drop the proposal.
+      editor.setModel(null);
+      reviewModel.dispose();
     }
-    return finalContent;
+    return finalContents;
   };
 
   // Snapshot the active file + view state for the next (hot-reloaded) host to restore. Only a real user file
-  // is worth remembering; an empty editor clears it.
+  // is worth remembering; an empty editor (or a transient review model) clears it.
   const rememberActiveDoc = (): void => {
     const model = editor.getModel();
     window.__WEAVIE_EDITOR_DOC__ =
@@ -314,6 +329,8 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
 
   const dispose = (): void => {
     rememberActiveDoc();
+    // Best-effort flush of any pending edit before teardown (fire-and-forget; on a hot reload the working
+    // copy survives anyway, on a real unload the browser is going away).
     for (const key of [...saveTimers.keys()]) {
       flushSave(key);
     }
@@ -324,22 +341,23 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
       subscription.dispose();
     }
     editor.dispose();
+    // The model references are intentionally NOT disposed — they persist on window so the next host
+    // (after a hot reload) reattaches to the same working copies and the refcount never hits 0.
   };
 
   // Hot-reload restore: the freshly-built widget comes up with no model. If a file was open before the reload
-  // its model survived in the global model service — reattach it with its scroll/cursor so the reload is
-  // seamless rather than blank. Re-wire autosave and seed the baseline to the surviving buffer so the reattach
-  // itself doesn't bounce back as a redundant save.
+  // its working-copy reference survived on window — reattach it with its scroll/cursor so the reload is
+  // seamless rather than blank, and re-wire its save listener.
   const lastDoc = window.__WEAVIE_EDITOR_DOC__;
   if (lastDoc !== undefined) {
-    const restored = monaco.editor.getModel(monaco.Uri.parse(lastDoc.uri));
-    if (restored !== null) {
-      attachAutosave(restored);
-      lastApplied.set(lastDoc.uri, restored.getValue());
-      editor.setModel(restored);
+    try {
+      const ref = await ensureRef(monaco.Uri.parse(lastDoc.uri));
+      editor.setModel(ref.object.textEditorModel);
       if (lastDoc.viewState !== null) {
         editor.restoreViewState(lastDoc.viewState);
       }
+    } catch (error) {
+      log("error", `hot-reload restore failed for ${lastDoc.uri}: ${String(error)}`);
     }
   }
 
@@ -351,8 +369,6 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   return {
     editor,
     openFile,
-    applyExternalEdit,
-    getOrCreateFileModel,
     beginReview,
     endReview,
     dispose,

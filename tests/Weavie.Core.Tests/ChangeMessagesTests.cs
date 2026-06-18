@@ -42,15 +42,6 @@ public sealed class ChangeMessagesTests {
 	}
 
 	[Fact]
-	public void RefreshFile_CarriesPathAndContent() {
-		var root = Parse(ChangeMessages.RefreshFile("/w/a.cs", "contents\n"));
-
-		Assert.Equal("refresh-file", root.GetProperty("type").GetString());
-		Assert.Equal("/w/a.cs", root.GetProperty("path").GetString());
-		Assert.Equal("contents\n", root.GetProperty("content").GetString());
-	}
-
-	[Fact]
 	public void TurnDiff_CarriesBaselineAndCurrent() {
 		var change = new FileChange { Path = "/w/dir/a.cs", BaselineText = "before", CurrentText = "after" };
 

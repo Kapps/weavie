@@ -3,6 +3,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
+using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
 
@@ -35,7 +36,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		LayoutStore? layout = null,
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null) {
+		KeybindingStore? keybindings = null,
+		ThemeOverridesStore? themeOverrides = null) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
@@ -56,7 +58,7 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		if (settings is not null) {
 			RegistryServer = new McpServer(
 				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout,
-				commands: commands, keybindings: keybindings);
+				commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
 			RegistryPort = RegistryServer.Start();
 		}
 	}

@@ -263,8 +263,10 @@ host-spawned subprocess over stdio**. We adopt that:
 Unlike a normal editor, **Claude edits files on disk** — directly, and via the IDE-MCP `openDiff`
 apply flow. Language servers must hear about every such change or their diagnostics/types go stale:
 
-- File **open in Monaco** → reconcile the on-disk change into the model; the normal `didChange` then
-  notifies the server.
+- File **open in Monaco** → the model is a **VSCode working copy** behind the host-backed `file://`
+  provider (see below). When the host pushes an `fs-change`, the provider fires its change event and
+  VSCode's `TextFileEditorModelManager` reloads the non-dirty model from disk (a minimal diff that
+  preserves cursor/scroll and is a no-op when unchanged); the resulting `didChange` notifies the server.
 - File **not open** → the **host watches the workspace** (`FileSystemWatcher`) and forwards
   `workspace/didChangeWatchedFiles` to each affected server. Servers also *register* watch globs via
   `client/registerCapability` (`workspace/didChangeWatchedFiles`) — honor those.
@@ -272,6 +274,21 @@ apply flow. Language servers must hear about every such change or their diagnost
 This makes a host-side **file-watch → server** path **mandatory**, and couples the diff-apply flow to
 LSP. It is the main correctness hazard unique to an agentic editor — design it in from the start,
 don't bolt it on.
+
+#### Host-backed `file://` provider + working copies
+The editor's `file://` models are real VSCode **working copies**: opened via
+`ITextModelService.createModelReference` (resolved through a host-backed file-system provider →
+correlated `fs-read`/`fs-stat` bridge → real disk), saved through the same provider (`fs-write`) on
+weavie's debounce, and reloaded by VSCode's own model manager on `fs-change`. This is what makes every
+Monaco feature that resolves a `file://` model reference (occurrence highlighting, peek/references,
+format, inlay-hint locations, document symbols) actually work — they reuse the one working copy per URI
+instead of failing to read an empty in-memory provider. Save timing is weavie's (a 250ms-active /
+600ms-background debounce, blind `ignoreModifiedSince` overwrite), not VSCode's autosave — the
+`EditorAutoSave` workbench contribution is never constructed in services/editor mode, so there is
+nothing to disable and weavie's debounced `save()` is the sole writer. `openDiff` review renders over a
+**transient** `weavie-review:` model so the real working copy is never dirtied or collided.
+Implementation: `src/web/src/editor/host-file-provider.ts`, `editor-host.ts`,
+`Weavie.Core/Editor/FileProvider{Protocol,Service}.cs`. Background: memory `file-scheme-empty-provider.md`.
 
 ## 10. Process topology
 
@@ -428,14 +445,20 @@ Beyond the happy-path flow, design these in (or consciously defer):
   cap, surface crashes); show **status** — starting / indexing (`$/progress`) / ready / crashed. Keep
   warm for the session; shut down on app exit. Don't casually restart (rust-analyzer/gopls indexing
   is expensive).
-- **Model/URI lifecycle.** Monaco model create/dispose → LSP `didOpen`/`didClose`, real `file://`
-  URIs (already via `monaco.Uri.file`). One server per `(language, workspace root)`; sub-projects are
-  the server's job given the right root.
-- **Files-change-underneath (§9).** Host `FileSystemWatcher` → `workspace/didChangeWatchedFiles`,
-  incl. Claude/MCP edits; reconcile open models. Mandatory, not optional.
+- **Model/URI lifecycle.** Real `file://` URIs (via `monaco.Uri.file`), now opened as VSCode working
+  copies via `ITextModelService.createModelReference` backed by the host `file://` provider (§9). One
+  refcounted reference per URI held by the editor host; transient feature resolves
+  (`createModelReference` from WordHighlighter, peek, format) reuse it instead of failing to read an
+  empty provider. One server per `(language, workspace root)`; sub-projects are the server's job.
+- **Files-change-underneath (§9).** Host `FileSystemWatcher` + the change tracker → `fs-change` to the
+  page's `file://` provider (open models reload via VSCode's manager) **and**
+  `workspace/didChangeWatchedFiles` to servers, incl. Claude/MCP edits. Mandatory, not optional.
 - **Latency invariant.** LSP stays **off the keystroke hot path** — all LSP I/O async + debounced,
-  never in keydown→frame. Re-run the typing-latency gate after wiring to confirm no regression. This
-  is the project's core value; treat a regression as a release blocker.
+  never in keydown→frame. The host `file://` provider is likewise off the hot path: saves are debounced
+  and a feature's `createModelReference` (e.g. WordHighlighter on cursor move) resolves from the
+  already-held working-copy reference, so there is no per-keystroke host round-trip. Re-run the
+  typing-latency gate after wiring to confirm no regression. This is the project's core value; treat a
+  regression as a release blocker.
 - **Loopback WS security.** Bind 127.0.0.1 only; gate the handshake with a per-session token / origin
   check (reuse the IDE-MCP lockfile-token pattern). One WS endpoint per server (isolates failures).
 - **Disable Monaco's built-in TS** worker/defaults once an LSP provides TS, or

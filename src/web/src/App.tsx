@@ -29,7 +29,7 @@ import { type Toast, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
-import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./theme";
+import { applyChromeTheme } from "./theme";
 
 // The Monaco editor and its VSCode service layer are the heaviest code in the app. They live behind a
 // dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none of it.
@@ -178,7 +178,11 @@ export default function App(): JSX.Element {
 
   // The openDiff currently under inline review (default mode). openDiff blocks per-edit, so at most one is
   // live at a time — a plain var (not a signal) is enough; the controller's toolbar drives accept/reject.
-  let activeReview: { id: string; path: string; original: string } | undefined;
+  // `reviewUri` is the transient review model's URI the inline diff is keyed by (review never touches the
+  // real file working copy).
+  let activeReview:
+    | { id: string; path: string; original: string; reviewUri: string | undefined }
+    | undefined;
 
   const resolveReview = (keep: boolean): void => {
     const review = activeReview;
@@ -186,10 +190,12 @@ export default function App(): JSX.Element {
       return;
     }
     activeReview = undefined;
-    // endReview reverts the buffer to `original` on reject and returns the final content; on keep that's the
-    // (possibly tweaked) proposal Claude then writes on FILE_SAVED.
+    // endReview returns the proposal's final (possibly tweaked) content, which Claude writes to disk on keep,
+    // and swaps the editor back to the real file. The review never dirtied the file working copy.
     const finalContents = host?.endReview(review.path, keep, review.original) ?? "";
-    inlineDiff?.clear(review.path);
+    if (review.reviewUri !== undefined) {
+      inlineDiff?.clearByUri(review.reviewUri);
+    }
     postToHost({
       type: "diff-resolved",
       id: review.id,
@@ -203,15 +209,16 @@ export default function App(): JSX.Element {
   // The inline-diff controller (Cursor-style diff inside the live editor), created with the host's editor.
   let inlineDiff: InlineDiff | undefined;
   // An open-file request that arrived before the editor was ready; replayed when it is (last wins).
-  let pendingOpen: { path: string; content: string; line: number } | undefined;
+  let pendingOpen: { path: string; line: number } | undefined;
 
-  const openFileInEditor = (path: string, content: string, line: number): void => {
+  const openFileInEditor = (path: string, line: number): void => {
     setCurrentFile(path);
     if (host !== undefined) {
-      host.openFile(path, content, line);
+      // The working copy resolves its content from disk through the file provider; no need to pass content.
+      host.openFile(path, line);
     } else {
       // Editor chunk not loaded yet — remember the request and replay it once the host is ready.
-      pendingOpen = { path, content, line };
+      pendingOpen = { path, line };
     }
   };
 
@@ -228,9 +235,9 @@ export default function App(): JSX.Element {
   });
 
   onMount(() => {
-    // Theme chrome from the default palette (spec §6 application surface). Override ops layer here once
-    // wired to settings/MCP; for now this publishes --weavie-* CSS vars for the chrome to consume.
-    applyColorsToCssVars(resolveColors(DEFAULT_DARK_PALETTE, []));
+    // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
+    // active theme + override ops and also drives Monaco + xterm; this pushes the chrome's CSS vars.
+    applyChromeTheme();
     mark("shell-mounted");
 
     // The terminal panes are already in the tree and mount now — emitting term-ready, which spawns
@@ -245,7 +252,8 @@ export default function App(): JSX.Element {
     const EDITOR_INIT_MS = 15_000; // generous: only a genuine hang trips it, not a slow cold start.
     let initTimer: number | undefined;
     const editorReady = import("./editor/editor-host").then(({ createEditorHost }) =>
-      createEditorHost(editorContainer),
+      // A debounced save that fails to reach disk surfaces as an error toast — never a silent drop.
+      createEditorHost(editorContainer, (message) => addToast("error", message)),
     );
     const initDeadline = new Promise<never>((_, reject) => {
       initTimer = window.setTimeout(
@@ -258,7 +266,7 @@ export default function App(): JSX.Element {
         host = created;
         inlineDiff = createInlineDiff(created.editor);
         if (pendingOpen !== undefined) {
-          created.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
+          created.openFile(pendingOpen.path, pendingOpen.line);
           pendingOpen = undefined;
         }
         // Reflect whatever file the editor ended up showing — a replayed pending-open, or a hot-reload
@@ -278,29 +286,35 @@ export default function App(): JSX.Element {
 
     const offHost = onHostMessage((message) => {
       if (message.type === "show-diff") {
-        // Render Claude's openDiff proposal INLINE in the live editor (no standalone diff viewer): the buffer
-        // shows `proposed` (autosave suppressed), with the diff vs `original` and a Keep/Reject toolbar.
-        activeReview = { id: message.id, path: message.path, original: message.original };
-        host?.beginReview(message.path, message.proposed, 1);
-        inlineDiff?.set(message.path, {
+        // Render Claude's openDiff proposal INLINE over a TRANSIENT review model (the real file working copy
+        // is never touched): the editor shows `proposed`, diffed vs `original`, with a Keep/Reject toolbar.
+        const reviewUri = host?.beginReview(message.path, message.proposed, 1);
+        activeReview = {
+          id: message.id,
+          path: message.path,
           original: message.original,
-          mode: "review",
-          onAccept: () => resolveReview(true),
-          onReject: () => resolveReview(false),
-        });
+          reviewUri,
+        };
+        if (reviewUri !== undefined) {
+          inlineDiff?.setByUri(reviewUri, {
+            original: message.original,
+            mode: "review",
+            onAccept: () => resolveReview(true),
+            onReject: () => resolveReview(false),
+          });
+        }
       } else if (message.type === "close-diff") {
-        // Host cancelled the openDiff: tear the review down (revert buffer) without replying — the host's
-        // awaiting task is already cancelled.
+        // Host cancelled the openDiff: tear the review down without replying — the host's awaiting task is
+        // already cancelled.
         if (activeReview?.id === message.id) {
           host?.endReview(activeReview.path, false, activeReview.original);
-          inlineDiff?.clear(activeReview.path);
+          if (activeReview.reviewUri !== undefined) {
+            inlineDiff?.clearByUri(activeReview.reviewUri);
+          }
           activeReview = undefined;
         }
       } else if (message.type === "open-file") {
-        openFileInEditor(message.path, message.content, message.line);
-      } else if (message.type === "refresh-file") {
-        // Claude edited this file (any permission mode) — live-update its model in place if open.
-        host?.applyExternalEdit(message.path, message.content);
+        openFileInEditor(message.path, message.line);
       } else if (message.type === "turn-diff") {
         // Inline diff of this turn's changes, shown in the live editor. Equal baseline/current = no markers.
         if (message.baseline === message.current) {

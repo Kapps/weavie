@@ -14,6 +14,37 @@ public enum WindowControl {
 	Close,
 }
 
+/// <summary>
+/// A window edge or corner the user grabbed to resize the frameless window. The web draws the grab
+/// handles (the WebView covers the host's real resize border) and names the edge; the host maps it to
+/// the matching <c>HT*</c> code to begin a native OS resize. See <c>ResizeFrame.tsx</c> + <c>CustomChrome</c>.
+/// </summary>
+public enum ResizeEdge {
+	/// <summary>The left edge.</summary>
+	Left,
+
+	/// <summary>The right edge.</summary>
+	Right,
+
+	/// <summary>The top edge.</summary>
+	Top,
+
+	/// <summary>The bottom edge.</summary>
+	Bottom,
+
+	/// <summary>The top-left corner.</summary>
+	TopLeft,
+
+	/// <summary>The top-right corner.</summary>
+	TopRight,
+
+	/// <summary>The bottom-left corner.</summary>
+	BottomLeft,
+
+	/// <summary>The bottom-right corner.</summary>
+	BottomRight,
+}
+
 /// <summary>A File-menu command the web title bar offers.</summary>
 public enum MenuCommand {
 	/// <summary>Show the open-folder picker.</summary>
@@ -88,6 +119,40 @@ public static class ShellProtocol {
 				return true;
 			case "close":
 				control = WindowControl.Close;
+				return true;
+			default:
+				return false;
+		}
+	}
+
+	/// <summary>Parses a <c>window-resize</c> message's <c>edge</c>. False for an unknown/missing edge.</summary>
+	public static bool TryParseWindowResize(JsonElement message, out ResizeEdge edge) {
+		edge = default;
+		string? value = message.TryGetProperty("edge", out var e) ? e.GetString() : null;
+		switch (value) {
+			case "left":
+				edge = ResizeEdge.Left;
+				return true;
+			case "right":
+				edge = ResizeEdge.Right;
+				return true;
+			case "top":
+				edge = ResizeEdge.Top;
+				return true;
+			case "bottom":
+				edge = ResizeEdge.Bottom;
+				return true;
+			case "top-left":
+				edge = ResizeEdge.TopLeft;
+				return true;
+			case "top-right":
+				edge = ResizeEdge.TopRight;
+				return true;
+			case "bottom-left":
+				edge = ResizeEdge.BottomLeft;
+				return true;
+			case "bottom-right":
+				edge = ResizeEdge.BottomRight;
 				return true;
 			default:
 				return false;

@@ -114,36 +114,39 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
       return;
     }
     autosaveAttached.add(model);
-    const path = model.uri.fsPath;
+    // Key state by the canonical URI string (stable + matching openFile/applyExternalEdit); the host write
+    // wants the native path, which is the model URI's fsPath.
+    const key = model.uri.toString();
+    const fsPath = model.uri.fsPath;
     // Attached to the MODEL (not an editor), so a file shown in both the main editor and the Changes-view
     // diff doesn't double-schedule.
-    model.onDidChangeModelContent(() => {
+    model.onDidChangeContent(() => {
       if (applyingRemote) {
         return;
       }
       const content = model.getValue();
-      if (lastApplied.get(path) === content) {
+      if (lastApplied.get(key) === content) {
         return;
       }
       const delay = editor.getModel() === model ? 250 : 600;
-      const pending = saveTimers.get(path);
+      const pending = saveTimers.get(key);
       if (pending !== undefined) {
         clearTimeout(pending);
       }
       saveTimers.set(
-        path,
+        key,
         setTimeout(() => {
-          saveTimers.delete(path);
-          lastApplied.set(path, content);
-          postToHost({ type: "save-buffer", path, content });
+          saveTimers.delete(key);
+          lastApplied.set(key, content);
+          postToHost({ type: "save-buffer", path: fsPath, content });
         }, delay),
       );
     });
     model.onWillDispose(() => {
-      const pending = saveTimers.get(path);
+      const pending = saveTimers.get(key);
       if (pending !== undefined) {
         clearTimeout(pending);
-        saveTimers.delete(path);
+        saveTimers.delete(key);
       }
     });
   };
@@ -155,7 +158,7 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
     let model = monaco.editor.getModel(uri);
     if (model === null) {
       model = monaco.editor.createModel(seed, undefined, uri);
-      lastApplied.set(path, seed);
+      lastApplied.set(uri.toString(), seed);
     }
     attachAutosave(model);
     return model;
@@ -175,7 +178,8 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   };
 
   const applyExternalEdit = (path: string, content: string): void => {
-    const model = monaco.editor.getModel(monaco.Uri.file(path));
+    const uri = monaco.Uri.file(path);
+    const model = monaco.editor.getModel(uri);
     if (model === null || model.getValue() === content) {
       return;
     }
@@ -185,7 +189,7 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
     const isActive = editor.getModel() === model;
     const viewState = isActive ? editor.saveViewState() : null;
     applyingRemote = true;
-    lastApplied.set(path, content);
+    lastApplied.set(uri.toString(), content);
     model.setValue(content);
     applyingRemote = false;
     if (viewState !== null) {

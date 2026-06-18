@@ -61,6 +61,26 @@ public sealed class ShellProtocolTests {
 	public void TryParseWindowControl_UnknownAction_ReturnsFalse() =>
 		Assert.False(ShellProtocol.TryParseWindowControl(Parse("""{"action":"spin"}"""), out _));
 
+	[Theory]
+	[InlineData("left", ResizeEdge.Left)]
+	[InlineData("right", ResizeEdge.Right)]
+	[InlineData("top", ResizeEdge.Top)]
+	[InlineData("bottom", ResizeEdge.Bottom)]
+	[InlineData("top-left", ResizeEdge.TopLeft)]
+	[InlineData("top-right", ResizeEdge.TopRight)]
+	[InlineData("bottom-left", ResizeEdge.BottomLeft)]
+	[InlineData("bottom-right", ResizeEdge.BottomRight)]
+	public void TryParseWindowResize_KnownEdges(string edge, ResizeEdge expected) {
+		var el = Parse($$"""{"type":"window-resize","edge":"{{edge}}"}""");
+
+		Assert.True(ShellProtocol.TryParseWindowResize(el, out var parsed));
+		Assert.Equal(expected, parsed);
+	}
+
+	[Fact]
+	public void TryParseWindowResize_UnknownEdge_ReturnsFalse() =>
+		Assert.False(ShellProtocol.TryParseWindowResize(Parse("""{"edge":"sideways"}"""), out _));
+
 	[Fact]
 	public void TryParseMenuAction_OpenRecent_CarriesPath() {
 		var el = Parse("""{"type":"menu-action","action":"open-recent","path":"C:\\proj"}""");
@@ -83,6 +103,7 @@ public sealed class ShellControllerTests {
 
 		public void Minimize() => Calls.Add("minimize");
 		public void ToggleMaximize() => Calls.Add("toggle-maximize");
+		public void StartResize(ResizeEdge edge) => Calls.Add($"start-resize:{edge}");
 		public void Close() => Calls.Add("close");
 		public void CloseWindow() => Calls.Add("close-window");
 		public void Quit() => Calls.Add("quit");
@@ -109,6 +130,22 @@ public sealed class ShellControllerTests {
 		Make(window, out _).HandleWindowControl(Parse("""{"action":"minimize"}"""));
 
 		Assert.Equal(["minimize"], window.Calls);
+	}
+
+	[Fact]
+	public void HandleWindowResize_KnownEdge_StartsResize() {
+		var window = new FakeWindow();
+		Make(window, out _).HandleWindowResize(Parse("""{"type":"window-resize","edge":"bottom-right"}"""));
+
+		Assert.Equal(["start-resize:BottomRight"], window.Calls);
+	}
+
+	[Fact]
+	public void HandleWindowResize_UnknownEdge_DoesNothing() {
+		var window = new FakeWindow();
+		Make(window, out _).HandleWindowResize(Parse("""{"type":"window-resize","edge":"nope"}"""));
+
+		Assert.Empty(window.Calls);
 	}
 
 	[Fact]

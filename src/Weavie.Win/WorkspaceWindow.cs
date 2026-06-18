@@ -77,6 +77,7 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
 		Text = $"{WorkspaceLabel(workspaceRoot)} — weavie";
+		Icon = AppIcon.Shared;
 		BackColor = StartupBackground;
 
 		// Per-workspace layout: each opened folder gets its own pane tree + window geometry under
@@ -146,7 +147,10 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 	/// default behavior. The styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
 	/// </summary>
 	protected override void WndProc(ref Message m) {
-		bool maximized = WindowState == FormWindowState.Maximized;
+		// IsMaximized (live WS_MAXIMIZE), not WindowState: WinForms updates WindowState on WM_SIZE, which
+		// fires after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal here and the
+		// frame inset would be skipped — clipping the top of the title bar.
+		bool maximized = CustomChrome.IsMaximized(Handle);
 		if (CustomChrome.HandleNcCalcSize(ref m, maximized) || CustomChrome.HandleNcHitTest(Handle, ref m, maximized)) {
 			return;
 		}
@@ -202,6 +206,16 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 
 	void IShellWindow.ToggleMaximize() =>
 		WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
+
+	void IShellWindow.StartResize(ResizeEdge edge) {
+		// A maximized window doesn't resize. The web hides its grab handles when maximized; this guards the
+		// race where a mousedown's message arrives just after a maximize.
+		if (WindowState == FormWindowState.Maximized) {
+			return;
+		}
+
+		CustomChrome.StartResize(Handle, edge);
+	}
 
 	void IShellWindow.CloseWindow() => CloseToWelcome();
 
@@ -457,6 +471,9 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			case "window-control":
 				_shell?.HandleWindowControl(root);
 				break;
+			case "window-resize":
+				_shell?.HandleWindowResize(root);
+				break;
 			case "menu-action":
 				_shell?.HandleMenuAction(root);
 				break;
@@ -544,24 +561,29 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 
 	/// <summary>
 	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
-	/// workspace) so the embedded claude sees the user's current state. Never lets a refused path or a write
-	/// failure crash the message loop.
+	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
+	/// path outside the workspace, which is a bug in the page) surfaces to the user as an error toast — an
+	/// autosave must never silently lose the user's work.
 	/// </summary>
 	private void SaveBuffer(string path, string content) {
+		// The session is created before the page can post any message — so a null here is a broken
+		// invariant, not a runtime condition to absorb. Fail loud rather than silently drop the save.
 		if (_session is null) {
-			return;
+			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
 		}
 
 		try {
 			if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, path, content)) {
-				Console.WriteLine($"[weavie] save-buffer refused (outside workspace): {path}");
-				Console.Out.Flush();
+				Notify("error", $"Couldn't save {Path.GetFileName(path)}: path is outside the workspace.");
 			}
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Console.WriteLine($"[weavie] save-buffer failed for {path}: {ex.Message}");
-			Console.Out.Flush();
+			Notify("error", $"Couldn't save {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
+
+	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
+	private void Notify(string level, string message) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
 
 	private void PostDemoDiff() {
 		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";

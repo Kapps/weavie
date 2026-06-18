@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Weavie.Core.Shell;
 
 namespace Weavie.Win.Hosting;
 
@@ -6,14 +7,22 @@ namespace Weavie.Win.Hosting;
 /// Win32 helpers that turn a normal WinForms window into a "frameless but functional" one — the host
 /// frame for a VS Code–style title bar drawn entirely in the web content. The window keeps its real
 /// <c>WS_THICKFRAME | WS_CAPTION</c> styles (so Aero Snap, the drop shadow, and work-area maximize all
-/// keep working), but the visual caption is removed by intercepting <c>WM_NCCALCSIZE</c> and the resize
-/// borders are re-supplied via <c>WM_NCHITTEST</c>. Window <em>dragging</em> comes from the web side:
-/// WebView2's non-client-region support maps CSS <c>app-region: drag</c> to <c>HTCAPTION</c>, so this
-/// only owns the frame geometry + resize edges. A <see cref="Form"/> delegates its <c>WndProc</c> here.
+/// keep working), but the visual caption is removed by intercepting <c>WM_NCCALCSIZE</c>. Both window
+/// <em>dragging</em> and <em>resizing</em> are driven from the web side, because the <c>Dock.Fill</c>
+/// WebView2 covers the whole client area and swallows the mouse at the window edges:
+/// <list type="bullet">
+/// <item>Drag: WebView2's non-client-region support maps CSS <c>app-region: drag</c> to <c>HTCAPTION</c>.</item>
+/// <item>Resize: the web draws grab handles at the border and calls <see cref="StartResize"/> on mousedown,
+///   which hands off to the OS's native resize loop (WebView2 has no resize equivalent of <c>app-region</c>).</item>
+/// </list>
+/// <see cref="HandleNcHitTest"/> still re-supplies the edge codes for completeness, but the WebView covers
+/// those pixels so it rarely fires; the web handles are the real resize path. A <see cref="Form"/> delegates
+/// its <c>WndProc</c> here.
 /// </summary>
 internal static class CustomChrome {
 	private const int WmNcCalcSize = 0x0083;
 	private const int WmNcHitTest = 0x0084;
+	private const int WmNcLButtonDown = 0x00A1;
 
 	private const int HtClient = 1;
 	private const int HtLeft = 10;
@@ -56,15 +65,42 @@ internal static class CustomChrome {
 		public int Bottom;
 	}
 
+	// DPI-aware metrics (Win10 1607+): the frame thickness for the window's *current* monitor, not the
+	// primary/system DPI that GetSystemMetrics reports — so the maximized inset is right on a scaled monitor.
 	[DllImport("user32.dll")]
-	private static extern int GetSystemMetrics(int index);
+	private static extern int GetSystemMetricsForDpi(int index, uint dpi);
+
+	[DllImport("user32.dll")]
+	private static extern uint GetDpiForWindow(IntPtr hwnd);
+
+	// Live maximized state (WS_MAXIMIZE), correct inside WM_NCCALCSIZE — unlike Form.WindowState.
+	[DllImport("user32.dll")]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool IsZoomed(IntPtr hwnd);
 
 	[DllImport("user32.dll")]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	private static extern bool GetWindowRect(IntPtr hwnd, out Rect rect);
 
+	// Hand off to the OS's native resize loop: release any in-process mouse capture (the WebView grabbed it
+	// on the handle's mousedown), then post the non-client button-down the OS uses to begin edge tracking.
+	[DllImport("user32.dll")]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	private static extern bool ReleaseCapture();
+
+	[DllImport("user32.dll", CharSet = CharSet.Unicode)]
+	private static extern IntPtr SendMessage(IntPtr hwnd, int msg, IntPtr wParam, IntPtr lParam);
+
 	[DllImport("dwmapi.dll")]
 	private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
+
+	/// <summary>
+	/// True when <paramref name="handle"/> is maximized, read live from the window (WS_MAXIMIZE). Use this
+	/// inside <c>WndProc</c> rather than <see cref="Form.WindowState"/>: WinForms only updates WindowState on
+	/// <c>WM_SIZE</c>, which fires <em>after</em> <c>WM_NCCALCSIZE</c>, so during a maximize the NCCALCSIZE
+	/// handler would otherwise still see the old (restored) state and skip the frame inset.
+	/// </summary>
+	public static bool IsMaximized(IntPtr handle) => handle != IntPtr.Zero && IsZoomed(handle);
 
 	/// <summary>
 	/// Extends a 1px DWM frame into the client area so the OS keeps drawing the window's drop shadow and
@@ -91,8 +127,13 @@ internal static class CustomChrome {
 
 		if (maximized) {
 			var p = Marshal.PtrToStructure<NcCalcSizeParams>(message.LParam);
-			int frameX = GetSystemMetrics(SmCxFrame) + GetSystemMetrics(SmCxPaddedBorder);
-			int frameY = GetSystemMetrics(SmCyFrame) + GetSystemMetrics(SmCxPaddedBorder);
+			uint dpi = GetDpiForWindow(message.HWnd);
+			if (dpi == 0) {
+				dpi = 96;
+			}
+
+			int frameX = GetSystemMetricsForDpi(SmCxFrame, dpi) + GetSystemMetricsForDpi(SmCxPaddedBorder, dpi);
+			int frameY = GetSystemMetricsForDpi(SmCyFrame, dpi) + GetSystemMetricsForDpi(SmCxPaddedBorder, dpi);
 			p.Proposed.Left += frameX;
 			p.Proposed.Top += frameY;
 			p.Proposed.Right -= frameX;
@@ -148,5 +189,39 @@ internal static class CustomChrome {
 		};
 		message.Result = (IntPtr)hit;
 		return true;
+	}
+
+	/// <summary>
+	/// Begins a native OS resize of <paramref name="handle"/> from <paramref name="edge"/>, following the cursor
+	/// until the button is released. This is the working resize path for the frameless window: the WebView2
+	/// fills the client area and swallows the mouse at the edges, so the form's <see cref="HandleNcHitTest"/>
+	/// resize zones never fire there. Instead the web draws grab handles at the border and, on mousedown, asks
+	/// the host to call this — the same "web drives the window" handoff the title bar uses for dragging, but for
+	/// a resize edge. No-op for a null handle or an unmapped edge.
+	/// </summary>
+	public static void StartResize(IntPtr handle, ResizeEdge edge) {
+		if (handle == IntPtr.Zero) {
+			return;
+		}
+
+		int hit = edge switch {
+			ResizeEdge.Left => HtLeft,
+			ResizeEdge.Right => HtRight,
+			ResizeEdge.Top => HtTop,
+			ResizeEdge.Bottom => HtBottom,
+			ResizeEdge.TopLeft => HtTopLeft,
+			ResizeEdge.TopRight => HtTopRight,
+			ResizeEdge.BottomLeft => HtBottomLeft,
+			ResizeEdge.BottomRight => HtBottomRight,
+			_ => HtClient,
+		};
+		if (hit == HtClient) {
+			return;
+		}
+
+		// ReleaseCapture + WM_NCLBUTTONDOWN(<edge HT>) enters the OS modal resize loop, which tracks the live
+		// cursor itself — so lParam (the click point) is unused and passed as zero.
+		ReleaseCapture();
+		_ = SendMessage(handle, WmNcLButtonDown, (IntPtr)hit, IntPtr.Zero);
 	}
 }

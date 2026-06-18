@@ -1,4 +1,4 @@
-import { type JSX, onCleanup, onMount } from "solid-js";
+import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
 import { monaco } from "../editor/monaco-setup";
 import { initEditorServices } from "../editor/vscode-services";
 import { currentFonts, onFontsChanged } from "../fonts";
@@ -11,11 +11,15 @@ export interface ActiveDiff {
   proposed: string;
 }
 
-// Renders an inbound openDiff as an editable Monaco diff: original (read-only, left) vs the
-// proposed contents (editable, right). The user can tweak the proposal before keeping. Keep ->
-// the host saves the (edited) modified side and replies FILE_SAVED to Claude; Reject -> DIFF_REJECTED.
+// Renders an inbound openDiff as an editable Monaco diff over the editor pane: the current file vs the
+// proposed contents (editable). Defaults to an INLINE diff (one column, changes shown in place) so a review
+// reads like your editor with the change applied; `sideBySide` flips it to the two-column view. The user can
+// tweak the proposal before keeping. Keep -> the host saves the (edited) modified side and replies
+// FILE_SAVED to Claude; Reject -> DIFF_REJECTED.
 export function DiffView(props: {
   diff: ActiveDiff;
+  sideBySide: boolean;
+  onToggleSideBySide: () => void;
   onResolve: (kept: boolean, finalContents: string) => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
@@ -49,7 +53,7 @@ export function DiffView(props: {
         automaticLayout: true,
         readOnly: false,
         originalEditable: false,
-        renderSideBySide: true,
+        renderSideBySide: props.sideBySide,
         fontSize: font.size,
         fontFamily: font.family,
         fontWeight: font.weight,
@@ -78,6 +82,12 @@ export function DiffView(props: {
     });
   });
 
+  // Flip inline ⇆ side-by-side live, without recreating the editor (Monaco re-lays out on the option change).
+  createEffect(() => {
+    const sideBySide = props.sideBySide;
+    diffEditor?.updateOptions({ renderSideBySide: sideBySide });
+  });
+
   const keep = (): void => props.onResolve(true, modifiedModel?.getValue() ?? props.diff.proposed);
   const reject = (): void => props.onResolve(false, "");
 
@@ -87,6 +97,14 @@ export function DiffView(props: {
         <span class="diff-title">{props.diff.tabName}</span>
         <span class="diff-path">{props.diff.path}</span>
         <span class="diff-actions">
+          <button
+            type="button"
+            class="diff-mode"
+            onClick={() => props.onToggleSideBySide()}
+            title="Toggle inline / side-by-side diff"
+          >
+            {props.sideBySide ? "Inline" : "Side-by-side"}
+          </button>
           <button type="button" class="keep" onClick={keep}>
             Keep ⏎
           </button>

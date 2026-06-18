@@ -1,5 +1,12 @@
 import { X } from "lucide-solid";
-import { For, type JSX, Show, createMemo } from "solid-js";
+import { For, type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { monaco } from "../editor/monaco-setup";
+import { initEditorServices } from "../editor/vscode-services";
+import { currentFonts, onFontsChanged } from "../fonts";
+
+// Inline diff for now; a future setting flips this to side-by-side. Kept as a module constant so the
+// toggle is a one-line change, not a rewrite of the diff editor wiring.
+const RENDER_SIDE_BY_SIDE = false;
 
 // One changed file in the session list: path + the line counts the host computed.
 export interface ChangeFile {
@@ -9,7 +16,8 @@ export interface ChangeFile {
   removed: number;
 }
 
-// One file's session diff: its baseline (content at first touch) vs. its current content.
+// One file's session diff: its baseline (content at first touch) vs. its current content. `current` only
+// seeds the live model when the file isn't open yet — once a model exists, the diff shows the LIVE buffer.
 export interface ChangeDiff {
   path: string;
   name: string;
@@ -17,92 +25,91 @@ export interface ChangeDiff {
   current: string;
 }
 
-type Row = { kind: "ctx" | "add" | "del"; sign: string; text: string };
+// A real Monaco diff editor whose MODIFIED side is the file's live `file://` model (shared with the main
+// editor), so it carries syntax highlighting, LSP, and the same dirty buffer — and edits made here flow
+// straight back to the editor + autosave. The ORIGINAL side is the read-only session baseline.
+function InlineDiff(props: {
+  diff: ChangeDiff;
+  getFileModel: (path: string, seed: string) => monaco.editor.ITextModel | undefined;
+}): JSX.Element {
+  let container!: HTMLDivElement;
+  let diffEditor: monaco.editor.IStandaloneDiffEditor | undefined;
+  // The baseline (original) model is ours to own and dispose. The modified model is the live file model,
+  // owned by the editor host for the session — we must NEVER dispose it (that would blank the main editor).
+  let baselineModel: monaco.editor.ITextModel | undefined;
+  let offFonts: (() => void) | undefined;
+  let disposed = false;
+  const [ready, setReady] = createSignal(false);
 
-// Above this (rows × cols) the O(n·m) LCS is too costly for the page; show every line as removed-then-added
-// instead. Rare for source files; keeps a pathological paste from freezing the UI.
-const LCS_CELL_CAP = 2_000_000;
-
-function splitLines(text: string): string[] {
-  return text.length === 0 ? [] : text.replace(/\r\n?/g, "\n").split("\n");
-}
-
-// A unified line diff via an LCS backtrack — enough for a readable "what changed this session" view.
-function diffLines(before: string, after: string): Row[] {
-  const a = splitLines(before);
-  const b = splitLines(after);
-  const n = a.length;
-  const m = b.length;
-
-  if (n * m > LCS_CELL_CAP) {
-    return [
-      ...a.map((text): Row => ({ kind: "del", sign: "−", text })),
-      ...b.map((text): Row => ({ kind: "add", sign: "+", text })),
-    ];
-  }
-
-  // dp[i][j] = LCS length of a[i:] and b[j:]. Indexing is bounds-guaranteed by the loop ranges, so the
-  // non-null assertions satisfy noUncheckedIndexedAccess at no runtime cost.
-  const dp: number[][] = Array.from({ length: n + 1 }, () => new Array<number>(m + 1).fill(0));
-  for (let i = n - 1; i >= 0; i--) {
-    const row = dp[i]!;
-    const next = dp[i + 1]!;
-    const ai = a[i]!;
-    for (let j = m - 1; j >= 0; j--) {
-      row[j] = ai === b[j]! ? next[j + 1]! + 1 : Math.max(next[j]!, row[j + 1]!);
+  // Rebuild the diff's model pair for the currently selected file. The modified side is fetched live; if
+  // the host isn't ready yet it returns undefined and we leave the editor empty until the next run.
+  const applyModel = (): void => {
+    if (diffEditor === undefined) {
+      return;
     }
-  }
-
-  const rows: Row[] = [];
-  let i = 0;
-  let j = 0;
-  while (i < n && j < m) {
-    const ai = a[i]!;
-    const bj = b[j]!;
-    if (ai === bj) {
-      rows.push({ kind: "ctx", sign: " ", text: ai });
-      i++;
-      j++;
-    } else if (dp[i + 1]![j]! >= dp[i]![j + 1]!) {
-      rows.push({ kind: "del", sign: "−", text: ai });
-      i++;
-    } else {
-      rows.push({ kind: "add", sign: "+", text: bj });
-      j++;
+    const modified = props.getFileModel(props.diff.path, props.diff.current);
+    if (modified === undefined) {
+      return;
     }
-  }
-  while (i < n) {
-    rows.push({ kind: "del", sign: "−", text: a[i]! });
-    i++;
-  }
-  while (j < m) {
-    rows.push({ kind: "add", sign: "+", text: b[j]! });
-    j++;
-  }
-  return rows;
+    const previousBaseline = baselineModel;
+    baselineModel = monaco.editor.createModel(props.diff.baseline, modified.getLanguageId());
+    diffEditor.setModel({ original: baselineModel, modified });
+    previousBaseline?.dispose();
+  };
+
+  onMount(() => {
+    onCleanup(() => {
+      disposed = true;
+      offFonts?.();
+      diffEditor?.dispose();
+      baselineModel?.dispose();
+    });
+
+    // This component creates its own Monaco diff editor, so the VSCode service layer must be initialized
+    // first (idempotent; the editor host also does it at startup).
+    void initEditorServices().then(() => {
+      if (disposed) {
+        return;
+      }
+      const font = currentFonts().editor;
+      diffEditor = monaco.editor.createDiffEditor(container, {
+        theme: "vs-dark",
+        automaticLayout: true,
+        readOnly: false,
+        originalEditable: false,
+        renderSideBySide: RENDER_SIDE_BY_SIDE,
+        fontSize: font.size,
+        fontFamily: font.family,
+        fontWeight: font.weight,
+        minimap: { enabled: false },
+      });
+      offFonts = onFontsChanged((config) =>
+        diffEditor?.updateOptions({
+          fontFamily: config.editor.family,
+          fontSize: config.editor.size,
+          fontWeight: config.editor.weight,
+        }),
+      );
+      setReady(true);
+    });
+  });
+
+  // Re-apply when the editor becomes ready or the selected file changes (applyModel reads props.diff, so
+  // its fields are tracked each time it runs).
+  createEffect(() => {
+    if (ready()) {
+      applyModel();
+    }
+  });
+
+  return <div class="changes-diff-editor" ref={container} />;
 }
 
-function UnifiedDiff(props: { diff: ChangeDiff }): JSX.Element {
-  const rows = createMemo(() => diffLines(props.diff.baseline, props.diff.current));
-  return (
-    <div class="udiff">
-      <For each={rows()}>
-        {(row) => (
-          <div class={`udiff-row ${row.kind}`}>
-            <span class="udiff-sign">{row.sign}</span>
-            <span class="udiff-text">{row.text === "" ? " " : row.text}</span>
-          </div>
-        )}
-      </For>
-    </div>
-  );
-}
-
-// The session changes overlay: a file list (with +/- counts) beside the selected file's unified diff.
-// Self-contained — no Monaco, no layout pane — so it never collides with the editor or the pane tree.
+// The session changes overlay: a file list (with +/- counts) beside the selected file's live diff editor.
 export default function ChangesPanel(props: {
   files: ChangeFile[];
   diff: ChangeDiff | null;
+  getFileModel: (path: string, seed: string) => monaco.editor.ITextModel | undefined;
   onSelect: (path: string) => void;
   onClose: () => void;
 }): JSX.Element {
@@ -144,7 +151,7 @@ export default function ChangesPanel(props: {
             when={props.diff}
             fallback={<div class="changes-hint">Select a file to see its session diff.</div>}
           >
-            {(diff) => <UnifiedDiff diff={diff()} />}
+            {(diff) => <InlineDiff diff={diff()} getFileModel={props.getFileModel} />}
           </Show>
         </div>
       </div>

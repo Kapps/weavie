@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" type="image/svg+xml" href="/weavie.svg" />
     <title>weavie</title>
     <!-- Standalone empty-state entry (no editor / terminals / session): the welcome screen shown when
          there's no workspace to restore. Mirrors index.html's pre-JS splash so the WebView's first frame
@@ -13,7 +14,7 @@
       #root { height: 100%; }
       #splash {
         position: fixed; inset: 0; z-index: 9999;
-        display: flex; align-items: center; justify-content: center;
+        display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
         font: 600 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         letter-spacing: 0.08em; color: #4ec9b0; background: #181a1b;
         transition: opacity 0.18s ease;
@@ -23,7 +24,13 @@
   </head>
   <body>
     <div id="root"></div>
-    <div id="splash">weavie</div>
+    <div id="splash">
+      <svg width="58" height="58" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+        <path d="M2 5c5 0 5 14 10 14s5-14 10-14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
+        <path d="M2 19c5 0 5-14 10-14s5 14 10 14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" opacity="0.5" />
+      </svg>
+      <span>weavie</span>
+    </div>
     <script type="module" src="/src/welcome/index.tsx"></script>
   </body>
 </html>

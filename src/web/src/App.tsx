@@ -12,6 +12,7 @@ import {
 } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
 import type { ChangeDiff, ChangeFile } from "./changes/ChangesPanel";
+import { ResizeFrame } from "./chrome/ResizeFrame";
 import { TitleBar } from "./chrome/TitleBar";
 import type { ActiveDiff } from "./diff/DiffView";
 import type { EditorHost } from "./editor/editor-host";
@@ -24,6 +25,7 @@ import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
 import { layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+import { type Toast, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
@@ -103,6 +105,9 @@ export default function App(): JSX.Element {
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
   const [benchRunning, setBenchRunning] = createSignal(false);
   const [activeDiff, setActiveDiff] = createSignal<ActiveDiff | null>(null);
+  // Diff render mode for the openDiff review: inline by default (reads like your editor with the change in
+  // place); the user can flip to side-by-side. Session-persistent so it sticks across edits.
+  const [diffSideBySide, setDiffSideBySide] = createSignal(false);
   const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
   const [changeDiff, setChangeDiff] = createSignal<ChangeDiff | null>(null);
   const [changesOpen, setChangesOpen] = createSignal(false);
@@ -110,6 +115,18 @@ export default function App(): JSX.Element {
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
+  // User-facing toasts (e.g. an autosave write that failed). Auto-dismissed after a few seconds, or by
+  // the user; a failed save surfaces here rather than being silently dropped.
+  const [toasts, setToasts] = createSignal<Toast[]>([]);
+  let nextToastId = 0;
+  const dismissToast = (id: number): void => {
+    setToasts((list) => list.filter((t) => t.id !== id));
+  };
+  const addToast = (level: Toast["level"], message: string): void => {
+    const id = ++nextToastId;
+    setToasts((list) => [...list, { id, level, message }]);
+    window.setTimeout(() => dismissToast(id), 6000);
+  };
   // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, and the flat
   // workspace file index the omnibar's "Go to File" filters over (root may differ from WORKSPACE_ROOT).
   const [maximized, setMaximized] = createSignal(false);
@@ -168,7 +185,12 @@ export default function App(): JSX.Element {
           <Show when={activeDiff()}>
             {(diff) => (
               <Suspense>
-                <DiffView diff={diff()} onResolve={resolveDiff} />
+                <DiffView
+                  diff={diff()}
+                  sideBySide={diffSideBySide()}
+                  onToggleSideBySide={() => setDiffSideBySide((v) => !v)}
+                  onResolve={resolveDiff}
+                />
               </Suspense>
             )}
           </Show>
@@ -355,6 +377,8 @@ export default function App(): JSX.Element {
       } else if (message.type === "refresh-file") {
         // Claude edited this file (any permission mode) — live-update its model in place if open.
         host?.applyExternalEdit(message.path, message.content);
+      } else if (message.type === "notify") {
+        addToast(message.level, message.message);
       } else if (message.type === "session-changes") {
         setChangeFiles(message.files);
       } else if (message.type === "change-diff") {
@@ -438,6 +462,9 @@ export default function App(): JSX.Element {
           onRequestIndex={() => postToHost({ type: "request-file-index" })}
         />
       </Show>
+      <Show when={CUSTOM_TITLEBAR}>
+        <ResizeFrame maximized={maximized()} />
+      </Show>
       <Show when={DEBUG_PERF}>
         <Hud
           stats={stats()}
@@ -464,6 +491,7 @@ export default function App(): JSX.Element {
           <ChangesPanel
             files={changeFiles()}
             diff={changeDiff()}
+            getFileModel={(path, seed) => editorHost()?.getOrCreateFileModel(path, seed)}
             onSelect={(path) => postToHost({ type: "get-change-diff", path })}
             onClose={() => setChangesOpen(false)}
           />
@@ -486,6 +514,7 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
+      <Toasts toasts={toasts()} onDismiss={dismissToast} />
     </div>
   );
 }

@@ -45,6 +45,13 @@ public sealed class ShellController {
 		}
 	}
 
+	/// <summary>Handles a <c>window-resize</c> message: begins a native resize from the named edge/corner.</summary>
+	public void HandleWindowResize(JsonElement message) {
+		if (ShellProtocol.TryParseWindowResize(message, out var edge)) {
+			_window.StartResize(edge);
+		}
+	}
+
 	/// <summary>Handles a <c>menu-action</c> message: open folder / open recent / close window / exit.</summary>
 	public void HandleMenuAction(JsonElement message) {
 		if (!ShellProtocol.TryParseMenuAction(message, out var command, out string? path)) {

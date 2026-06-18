@@ -14,6 +14,13 @@ public interface IShellWindow {
 	/// <summary>Toggles this window between maximized and restored.</summary>
 	void ToggleMaximize();
 
+	/// <summary>
+	/// Begins an interactive resize of this window from <paramref name="edge"/>, following the cursor until the
+	/// button is released. Used by the frameless custom chrome: the WebView covers the host's real resize
+	/// border, so the web draws grab handles at the edges and calls this to hand off to the OS's native resize.
+	/// </summary>
+	void StartResize(ResizeEdge edge);
+
 	/// <summary>Closes this window — the title-bar ✕ button. The host decides last-window behavior.</summary>
 	void Close();
 

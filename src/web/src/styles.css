@@ -329,6 +329,15 @@ body,
   cursor: pointer;
 }
 
+.diff-actions .diff-mode {
+  background: var(--bar);
+  color: var(--fg);
+}
+
+.diff-actions .diff-mode:hover {
+  border-color: var(--accent);
+}
+
 .diff-actions .keep {
   background: #1d5a2a;
   border-color: #2e8b3d;
@@ -484,47 +493,14 @@ body,
 .changes-diff {
   flex: 1 1 auto;
   min-width: 0;
-  overflow: auto;
+  overflow: hidden;
   background: var(--bg);
 }
 
-.udiff {
-  display: flex;
-  flex-direction: column;
-  font: 12px / 1.45 ui-monospace, "SF Mono", Menlo, monospace;
-  white-space: pre;
-}
-
-.udiff-row {
-  display: flex;
-}
-
-.udiff-sign {
-  flex: 0 0 18px;
-  text-align: center;
-  color: var(--dim);
-  user-select: none;
-}
-
-.udiff-text {
-  flex: 1 1 auto;
-  padding-right: 10px;
-}
-
-.udiff-row.add {
-  background: rgba(40, 120, 60, 0.18);
-}
-
-.udiff-row.add .udiff-sign {
-  color: #4ec978;
-}
-
-.udiff-row.del {
-  background: rgba(150, 50, 50, 0.18);
-}
-
-.udiff-row.del .udiff-sign {
-  color: #d27070;
+/* The live Monaco diff editor fills the diff pane; Monaco owns its own scrolling. */
+.changes-diff-editor {
+  height: 100%;
+  width: 100%;
 }
 
 /* Contextual file browser: a floating "Files" button (bottom-left) + a left-docked tree panel rooted at
@@ -1016,4 +992,143 @@ body,
 
 .titlebar.blurred .tb-ctl {
   color: var(--dim);
+}
+
+/* ── Frameless-window resize handles (Windows custom chrome) ──────────────────────────────────────
+   Thin grab strips at the window border (see ResizeFrame.tsx). The host window is frameless and the
+   WebView2 covers its real resize border, so resize is handed off to the OS natively on mousedown. These
+   are physical pointer hit areas pinned to the window edge — deliberately sized in px (not em/%): they
+   must not scale with the UI font. The frame container is inert; only the handles grab. They sit above
+   the chrome so the edge always wins, and opt out of the draggable caption (`app-region: no-drag`). */
+.resize-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.resize-handle {
+  position: fixed;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.resize-top,
+.resize-bottom {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-top {
+  top: 0;
+}
+
+.resize-bottom {
+  bottom: 0;
+}
+
+.resize-left,
+.resize-right {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-left {
+  left: 0;
+}
+
+.resize-right {
+  right: 0;
+}
+
+.resize-top-left,
+.resize-top-right,
+.resize-bottom-left,
+.resize-bottom-right {
+  width: 10px;
+  height: 10px;
+}
+
+.resize-top-left {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.resize-top-right {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.resize-bottom-left {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.resize-bottom-right {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}
+
+/* Toasts: bottom-right stack of transient notifications (e.g. a failed autosave). Above every panel
+   so a save failure is never hidden behind the changes/browser overlays. */
+.toasts {
+  position: fixed;
+  right: 14px;
+  bottom: 14px;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: min(420px, 80vw);
+  pointer-events: none;
+}
+
+.toast {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+}
+
+.toast-error {
+  border-left-color: #f48771;
+}
+
+.toast-warn {
+  border-left-color: #cca700;
+}
+
+.toast-msg {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.toast-close {
+  flex: 0 0 auto;
+  background: none;
+  border: none;
+  color: var(--dim);
+  cursor: pointer;
+  font: inherit;
+  padding: 0 2px;
+}
+
+.toast-close:hover {
+  color: var(--fg);
 }

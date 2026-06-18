@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
     <OutputType>WinExe</OutputType>
+    <!-- The exe / Explorer / default taskbar icon. The same .ico is embedded below for Form.Icon. -->
+    <ApplicationIcon>weavie.ico</ApplicationIcon>
     <UseWindowsForms>true</UseWindowsForms>
     <!-- The WebView2 SDK ships a WPF control assembly that pulls in WindowsBase; enabling WPF
          unifies it with the framework version (resolving MSB3277). Zero runtime cost — WinForms
@@ -26,6 +28,14 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Embed the multi-size icon so every window can set Form.Icon (taskbar / Alt-Tab / title bar) from it
+       via AppIcon; loaded by the logical name "weavie.ico". -->
+  <ItemGroup>
+    <EmbeddedResource Include="weavie.ico">
+      <LogicalName>weavie.ico</LogicalName>
+    </EmbeddedResource>
   </ItemGroup>
 
   <ItemGroup>

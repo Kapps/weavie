@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none">
+  <!-- The weavie mark: two interlaced "weave" strokes, the back one dimmed. Canonical source SVG,
+       kept in sync with the inline WeavieIcon.tsx component (which uses currentColor for in-UI theming);
+       here the teal brand color is baked in so it works as a favicon / standalone asset. -->
+  <path d="M2 5c5 0 5 14 10 14s5-14 10-14" stroke="#4ec9b0" stroke-width="2.6" stroke-linecap="round" />
+  <path d="M2 19c5 0 5-14 10-14s5 14 10 14" stroke="#4ec9b0" stroke-width="2.6" stroke-linecap="round" opacity="0.5" />
+</svg>

@@ -50,6 +50,7 @@ internal sealed class WelcomeWindow : Form {
 		_app = app;
 
 		Text = "weavie";
+		Icon = AppIcon.Shared;
 		BackColor = StartupBackground;
 		MinimumSize = new Size(620, 460);
 		StartPosition = FormStartPosition.Manual;

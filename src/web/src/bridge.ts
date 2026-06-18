@@ -14,6 +14,18 @@ import type { LayoutDocument } from "./layout/types";
 // the host can route it to the right PTY and the page can route output back to the right xterm pane.
 export type TermSession = "claude" | "shell";
 
+// A frameless-window resize edge/corner the user grabbed (Windows custom chrome). The web draws the grab
+// handles and names the edge; the host maps it to the matching native resize. Mirrors Core's ResizeEdge.
+export type ResizeEdge =
+  | "top"
+  | "bottom"
+  | "left"
+  | "right"
+  | "top-left"
+  | "top-right"
+  | "bottom-left"
+  | "bottom-right";
+
 // Resolved typography for one text surface (editor or terminal). The host resolves the global +
 // per-surface override font settings down to concrete values, injects them as window.__WEAVIE_FONTS__
 // before navigation, and re-pushes a { type: "fonts" } message whenever a font setting changes.
@@ -61,6 +73,9 @@ export type HostBoundMessage =
     }
   // Custom title bar (Windows): the min / maximize-restore / close buttons.
   | { type: "window-control"; action: "minimize" | "maximize-toggle" | "close" }
+  // Frameless-window resize: the user grabbed an edge/corner handle -> host begins a native OS resize.
+  // The WebView2 covers the host's real resize border, so resize can't come from the native frame.
+  | { type: "window-resize"; edge: ResizeEdge }
   // Custom title bar File menu: open a folder, open a recent (carries its path), close this window, quit.
   | {
       type: "menu-action";
@@ -104,6 +119,9 @@ export type WebBoundMessage =
   // Live-refresh: Claude edited this file (any permission mode) -> update its already-open Monaco model
   // in place. No-op web-side if the file has no model yet (its content is on disk until first opened).
   | { type: "refresh-file"; path: string; content: string }
+  // A user-facing notification to surface as a toast (e.g. an autosave write that failed — the user must
+  // see that their work didn't reach disk, never a silent drop).
+  | { type: "notify"; level: "error" | "warn" | "info"; message: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";

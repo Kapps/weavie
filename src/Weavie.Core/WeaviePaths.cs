@@ -59,4 +59,12 @@ public static class WeaviePaths {
 	/// <param name="id">The workspace identity (a path-derived digest).</param>
 	/// <returns>The absolute path to that workspace's layout file.</returns>
 	public static string WorkspaceLayoutFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "layout.json");
+
+	/// <summary>
+	/// This workspace's persisted editor session (open files + per-file Monaco view state):
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's editor-session file.</returns>
+	public static string WorkspaceEditorSessionFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "editor-session.json");
 }

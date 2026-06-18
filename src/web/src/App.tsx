@@ -21,6 +21,9 @@ import { registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import type { EditorHost } from "./editor/editor-host";
 import { type InlineDiff, createInlineDiff } from "./editor/inline-diff";
+// Imported at top level (entry chunk) so the session store's host-message listener registers at load and
+// the module survives HMR — see editor/session-store.ts.
+import { editorSession } from "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
@@ -316,8 +319,17 @@ export default function App(): JSX.Element {
         host = created;
         inlineDiff = createInlineDiff(created.editor);
         if (pendingOpen !== undefined) {
+          // A user open-file that arrived while the editor was loading wins over the restored session.
           created.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
           pendingOpen = undefined;
+        } else {
+          // The editor host may have restored a persisted active file; reflect it as the current file so
+          // the browser/title bar highlight it. Read the session store (not Monaco) to keep the editor
+          // chunk's scratch-URI logic out of the shell.
+          const restoredActive = editorSession()?.active;
+          if (restoredActive != null) {
+            setCurrentFile(restoredActive);
+          }
         }
         postToHost({ type: "monaco-ready" });
         mark("editor-ready");

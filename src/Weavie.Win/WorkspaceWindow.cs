@@ -8,6 +8,7 @@ using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
@@ -54,6 +55,7 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
 	private readonly LayoutStore _layout;
+	private readonly EditorSessionStore _editorSession;
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
 	private HostSession? _session;
@@ -95,6 +97,15 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
+
+		// Per-workspace editor session: the open files + per-file Monaco view state under
+		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
+		// scroll/cursor on launch. Web-written (the user opens files / moves the cursor); pushed back on ready.
+		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
+		_editorSession.Log += line => {
+			Console.WriteLine($"[weavie] {line}");
+			Console.Out.Flush();
+		};
 
 		// DefaultBackgroundColor must be set before the CoreWebView2 initializes — it's stored and applied
 		// during init, so the render surface is dark from the first frame. Setting it post-init (as before)
@@ -548,15 +559,20 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 				}
 				break;
 			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
-				// the initial window state so the title bar's maximize glyph + blur dim start correct.
+				// The page's bridge listener is live; push the persisted layout so it restores on launch, the
+				// persisted editor session so the editor reopens its files, and the initial window state so the
+				// title bar's maximize glyph + blur dim start correct.
 				PushLayoutToWeb();
+				PushEditorSessionToWeb();
 				PushWindowState();
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
+				break;
+			case "editor-session-changed":
+				HandleEditorSessionChanged(root);
 				break;
 			default:
 				// log — surface for diagnostics and unattended capture.
@@ -596,6 +612,24 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
 	}
+
+	/// <summary>Applies an editor session the web sent (open files + view state) through the store, which persists it.</summary>
+	private void HandleEditorSessionChanged(JsonElement root) {
+		if (!root.TryGetProperty("session", out var sessionElement)) {
+			return;
+		}
+
+		if (!EditorSessionSerialization.TryDeserialize(sessionElement.GetRawText(), out var session, out string? error)
+			|| session is null) {
+			Console.WriteLine($"[weavie] editor-session-changed: bad session ({error})");
+			return;
+		}
+
+		_editorSession.Update(session);
+	}
+
+	/// <summary>Pushes the persisted editor session (with each open file's on-disk content) for launch restore.</summary>
+	private void PushEditorSessionToWeb() => _bridge.PostToWeb(_editorSession.BuildRestoreJson());
 
 	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
 	private void PushChangesToWeb() {

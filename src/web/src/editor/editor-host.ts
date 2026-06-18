@@ -7,6 +7,7 @@
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { SAMPLE_CODE, SCRATCH_URI, createEditor, monaco } from "./monaco-setup";
+import { editorSession, setLocalSession } from "./session-store";
 import { initEditorServices } from "./vscode-services";
 
 /** Resolves after two animation frames — enough for Monaco to lay out and paint its first frame. */
@@ -108,6 +109,34 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   };
   editor.onDidChangeModel(scheduleEmitActiveEditor);
   editor.onDidChangeCursorSelection(scheduleEmitActiveEditor);
+
+  // Persist the editor session (active file + Monaco view state) so a relaunch — and a hot reload — reopens
+  // the same file at the same scroll/cursor/folding. Debounced like the active-editor emit; scroll feeds it
+  // too (view state includes scroll). The scratch sample is suppressed (isUserFileModel), so an editor
+  // showing only the sample persists an empty session. setLocalSession both keeps the live store fresh (for
+  // HMR fidelity) and posts the debounced editor-session-changed to the host.
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+  const captureSession = (): void => {
+    const model = editor.getModel();
+    if (model === null || !isUserFileModel(model)) {
+      return;
+    }
+    const path = model.uri.fsPath;
+    setLocalSession({
+      active: path,
+      // List-shaped (one visible pane today) so it extends cleanly to tabs.
+      open: [{ path, viewState: editor.saveViewState() ?? null }],
+    });
+  };
+  const scheduleCaptureSession = (): void => {
+    if (sessionTimer !== undefined) {
+      clearTimeout(sessionTimer);
+    }
+    sessionTimer = setTimeout(captureSession, 200);
+  };
+  editor.onDidChangeModel(scheduleCaptureSession);
+  editor.onDidChangeCursorSelection(scheduleCaptureSession);
+  editor.onDidScrollChange(scheduleCaptureSession);
 
   // Autosave: the model is the working copy, debounce-flushed to disk so the embedded Claude (which reads
   // disk directly) sees the user's current state. Guards against echoing host-driven writes back as saves:
@@ -260,6 +289,33 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   const resetSample = (): void => {
     editor.getModel()?.setValue(SAMPLE_CODE);
   };
+
+  // Restore the persisted/HMR editor session: reopen the active file at its saved Monaco view state. One
+  // path handles both cases identically — on a fresh launch the model doesn't exist yet and is seeded from
+  // the `content` the host read off disk and pushed alongside the session; after a hot reload the model
+  // survives in Monaco's registry, so ensureModel finds the live one and `content` is unused. Non-active
+  // open entries are left to lazily reopen — we don't eagerly create them (no LSP spin-up for invisible
+  // files). No-op when there's no session yet or nothing was open.
+  const restoreSession = (): void => {
+    const session = editorSession();
+    if (session === null || session.active === null) {
+      return;
+    }
+    const entry = session.open.find((open) => open.path === session.active);
+    if (entry === undefined) {
+      return;
+    }
+    const uri = monaco.Uri.file(entry.path);
+    if (monaco.editor.getModel(uri) === null && entry.content === undefined) {
+      return; // fresh launch with no content to seed from — can't restore this entry.
+    }
+    const model = ensureModel(entry.path, entry.content ?? "");
+    editor.setModel(model);
+    if (entry.viewState != null) {
+      editor.restoreViewState(entry.viewState as monaco.editor.ICodeEditorViewState);
+    }
+  };
+  restoreSession();
 
   // Wait for Monaco's first real paint before resolving. The caller fades the splash on resolution, so
   // this keeps the editor's initial layout/paint hidden under the splash rather than flashing into view.

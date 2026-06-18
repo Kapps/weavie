@@ -70,11 +70,9 @@ public sealed class McpServer : IAsyncDisposable {
 		_editor = editor;
 		_commands = commands;
 		_keybindings = keybindings;
-		if (editor is not null) {
-			// Push an unsolicited selection_changed to the connected client whenever the user's active
-			// file/selection changes, so the embedded claude always knows what they're looking at.
-			editor.Changed += OnActiveEditorChanged;
-		}
+		// Push an unsolicited selection_changed to the connected client whenever the user's active
+		// file/selection changes, so the embedded claude always knows what they're looking at.
+		editor?.Changed += OnActiveEditorChanged;
 
 		// Registry mode advertises ONLY the capability tools (settings + layout + commands) — this is the
 		// model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
@@ -759,9 +757,7 @@ public sealed class McpServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		if (_editor is not null) {
-			_editor.Changed -= OnActiveEditorChanged;
-		}
+		_editor?.Changed -= OnActiveEditorChanged;
 
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);

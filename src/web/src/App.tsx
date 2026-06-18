@@ -211,6 +211,9 @@ export default function App(): JSX.Element {
   const load = new LoadGenerator(5);
   // The Monaco editor host, set once its chunk has loaded and the editor is created (see onMount).
   let host: EditorHost | undefined;
+  // Reactive mirror of `host` so the lazy Changes panel can reach getOrCreateFileModel once the editor
+  // chunk resolves; the plain `host` var stays for the synchronous call sites in this component.
+  const [editorHost, setEditorHost] = createSignal<EditorHost>();
   // An open-file request that arrived before the editor was ready; replayed when it is (last wins).
   let pendingOpen: { path: string; content: string; line: number } | undefined;
 
@@ -285,10 +288,11 @@ export default function App(): JSX.Element {
     const splashFallback = window.setTimeout(dismissSplash, 3000);
     void import("./editor/editor-host")
       .then(({ createEditorHost }) => createEditorHost(editorContainer))
-      .then((editorHost) => {
-        host = editorHost;
+      .then((created) => {
+        host = created;
+        setEditorHost(created);
         if (pendingOpen !== undefined) {
-          editorHost.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
+          created.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
           pendingOpen = undefined;
         }
         postToHost({ type: "monaco-ready" });
@@ -348,6 +352,9 @@ export default function App(): JSX.Element {
         }
       } else if (message.type === "open-file") {
         openFileInEditor(message.path, message.content, message.line);
+      } else if (message.type === "refresh-file") {
+        // Claude edited this file (any permission mode) — live-update its model in place if open.
+        host?.applyExternalEdit(message.path, message.content);
       } else if (message.type === "session-changes") {
         setChangeFiles(message.files);
       } else if (message.type === "change-diff") {

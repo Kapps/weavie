@@ -16,6 +16,12 @@ interface WeavieShellConfig {
   recents: string[];
 }
 
+/** Host-injected config for the standalone welcome window (window.__WEAVIE_WELCOME__), set before navigation. */
+interface WeavieWelcomeConfig {
+  /** Recent workspace paths (absolute); the welcome screen derives leaf names for display. */
+  recents: string[];
+}
+
 interface Window {
   webkit?: {
     messageHandlers?: {
@@ -26,5 +32,7 @@ interface Window {
   __weavieReceive?: (raw: string) => void;
   /** Custom-chrome config injected by the Windows host; drives the web title bar. */
   __WEAVIE_SHELL__?: WeavieShellConfig;
+  /** Recents injected by the host for the standalone welcome window (welcome.html). */
+  __WEAVIE_WELCOME__?: WeavieWelcomeConfig;
   // The LSP bridge config (window.__WEAVIE_LSP__) is augmented onto Window in lsp/lsp-client.ts.
 }

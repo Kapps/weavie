@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>weavie</title>
+    <!-- Standalone empty-state entry (no editor / terminals / session): the welcome screen shown when
+         there's no workspace to restore. Mirrors index.html's pre-JS splash so the WebView's first frame
+         is an intentional dark canvas, not a white flash; faded out once <Welcome> mounts. Inline (no
+         external CSS) so it paints with zero requests. -->
+    <style>
+      html, body { height: 100%; margin: 0; background: #181a1b; color: #e6e8e9; }
+      #root { height: 100%; }
+      #splash {
+        position: fixed; inset: 0; z-index: 9999;
+        display: flex; align-items: center; justify-content: center;
+        font: 600 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+        letter-spacing: 0.08em; color: #4ec9b0; background: #181a1b;
+        transition: opacity 0.18s ease;
+      }
+      #splash.hide { opacity: 0; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <div id="splash">weavie</div>
+    <script type="module" src="/src/welcome/index.tsx"></script>
+  </body>
+</html>

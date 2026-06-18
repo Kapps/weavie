@@ -1,3 +1,4 @@
+import { X } from "lucide-solid";
 import { For, type JSX, Show, createMemo } from "solid-js";
 
 // One changed file in the session list: path + the line counts the host computed.
@@ -110,7 +111,7 @@ export default function ChangesPanel(props: {
       <div class="changes-head">
         <span class="changes-title">Session changes ({props.files.length})</span>
         <button type="button" class="changes-close" onClick={() => props.onClose()}>
-          ✕
+          <X />
         </button>
       </div>
       <div class="changes-body">

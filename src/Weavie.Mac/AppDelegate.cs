@@ -1,6 +1,7 @@
 using System.Text.Json;
 using CoreGraphics;
 using Foundation;
+using Weavie.Core.Changes;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
@@ -34,6 +35,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
 	private EditorStore? _editor;
+	private SessionChangeTracker? _changes;
+	private LocalFileSystem? _fileSystem;
+	private string? _workspace;
 	private NSWindow? _window;
 	private WKWebView? _webView;
 
@@ -88,8 +92,10 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// the discovery env so the spawned claude connects to us (the SOLE edit feed). The same store
 		// backs the settings MCP tools, so the user can change settings by talking to claude.
 		var fileSystem = new LocalFileSystem();
+		_fileSystem = fileSystem;
 		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		_workspace = workspace;
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
@@ -124,6 +130,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			Console.WriteLine($"[hook] {line}");
 			Console.Out.Flush();
 		};
+
+		// Session change tracking: the same hook stream feeds the tracker (baseline at PreToolUse, new
+		// content at PostToolUse), independent of openDiff and permission mode. Changed pushes the change
+		// list; FileChanged pushes a targeted live-refresh of the one edited file. Events arrive off the
+		// main thread; marshal before touching the web.
+		_changes = new SessionChangeTracker(fileSystem);
+		_ide.HookBridge.Observed += _changes.Observe;
+		_changes.Changed += () => InvokeOnMainThread(PushChangesToWeb);
+		_changes.FileChanged += path => InvokeOnMainThread(() => PushRefreshToWeb(path));
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
@@ -281,6 +296,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 				}
 
 				break;
+			case "get-change-diff":
+				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
+			case "save-buffer":
+				SaveBuffer(
+					root.GetProperty("path").GetString() ?? string.Empty,
+					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
+				break;
 			case "latency-live":
 			case "benchmark-result":
 				// Per-tick perf telemetry (latency-live fires ~2x/sec) — noise unless we're profiling.
@@ -333,6 +356,48 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
+	}
+
+	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
+	private void PushChangesToWeb() {
+		if (_changes is not null) {
+			_bridge.PostToWeb(ChangeMessages.SessionChanges(_changes));
+		}
+	}
+
+	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
+	private void PushChangeDiffToWeb(string path) {
+		if (_changes?.Get(path) is { } change) {
+			_bridge.PostToWeb(ChangeMessages.ChangeDiff(change));
+		}
+	}
+
+	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	private void PushRefreshToWeb(string path) {
+		if (_changes?.Get(path) is { } change) {
+			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+		}
+	}
+
+	/// <summary>
+	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
+	/// workspace) so the embedded claude sees the user's current state. Never lets a refused path or a write
+	/// failure crash the message loop.
+	/// </summary>
+	private void SaveBuffer(string path, string content) {
+		if (_fileSystem is null || _workspace is null) {
+			return;
+		}
+
+		try {
+			if (!BufferStore.Save(_fileSystem, _workspace, path, content)) {
+				Console.WriteLine($"[weavie] save-buffer refused (outside workspace): {path}");
+				Console.Out.Flush();
+			}
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Console.WriteLine($"[weavie] save-buffer failed for {path}: {ex.Message}");
+			Console.Out.Flush();
+		}
 	}
 
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>

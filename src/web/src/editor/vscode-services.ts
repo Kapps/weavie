@@ -24,14 +24,17 @@ import * as monaco from "monaco-editor";
 // Default VSCode extensions — declarative contributions, no extension-host JS. Each registers a
 // language (its file-extension associations) + TextMate grammar, which is what gives an opened file its
 // language id — driving both syntax highlighting AND the LSP client selection (lsp-client keys off the
-// model's language id). Without the matching extension a .cs/.go file falls back to plaintext: no
-// highlighting and no language server. Keep this list in sync with LanguageServerCatalog (Core).
+// model's language id). These curated packs are the LSP-backed languages: they ship full
+// language-configuration (comments/brackets/folding) and stay authoritative. Every OTHER language's
+// highlighting comes from the data-driven broad loader below (registerBroadGrammars). Keep these in sync
+// with LanguageServerCatalog (Core).
 //  - theme-defaults: the built-in Dark+/Light+/Modern color themes (so setTheme has something to load)
-//  - typescript-basics / csharp / go: the TS/JS, C#, and Go grammars + language configuration
+//  - typescript-basics / csharp / go: the TS/TSX, C#, and Go grammars + language configuration
 import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-csharp-default-extension";
 import "@codingame/monaco-vscode-go-default-extension";
+import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
 // Workers. monaco-vscode-api uses a generic editor worker for most services and a dedicated worker
@@ -99,4 +102,9 @@ async function doInit(): Promise<void> {
   // Select a dark theme up front, before any editor exists, so the first editor paint is dark instead
   // of flashing the service layer's default (light) theme while the real one loads.
   monaco.editor.setTheme("vs-dark");
+
+  // Broad highlighting: register every other language (grammar + extensions + generic config) from the
+  // data-driven tm-grammars catalog. Must run after initialize() and before any model is created, since
+  // Monaco resolves a model's language from its extension at creation time.
+  registerBroadGrammars();
 }

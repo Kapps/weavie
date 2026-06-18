@@ -29,6 +29,12 @@ public sealed class SessionChangeTracker {
 	public event Action? Changed;
 
 	/// <summary>
+	/// Raised with the absolute path of a file whose content was just recorded, so the host can push a
+	/// targeted live-refresh of that one file's editor model. Fires alongside <see cref="Changed"/>.
+	/// </summary>
+	public event Action<string>? FileChanged;
+
+	/// <summary>
 	/// Folds a hook event into the change set: PreToolUse on a file-editing tool snapshots the baseline,
 	/// PostToolUse records the new content. Non-editing tools (Bash, etc.) are ignored.
 	/// </summary>
@@ -67,6 +73,7 @@ public sealed class SessionChangeTracker {
 			_current[path] = ReadOrEmpty(path);
 		}
 		Changed?.Invoke();
+		FileChanged?.Invoke(path);
 	}
 
 	/// <summary>The files whose current content differs from their session baseline.</summary>

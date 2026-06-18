@@ -39,6 +39,9 @@ export type HostBoundMessage =
   | { type: "reveal-file"; path: string; line: number }
   // The changes view asks the host for one file's session diff (baseline vs current text).
   | { type: "get-change-diff"; path: string }
+  // Autosave: the editor buffer changed -> host writes it to disk so the embedded Claude (which reads
+  // disk directly) builds its edits on the user's current state. Debounced web-side; one per file path.
+  | { type: "save-buffer"; path: string; content: string }
   // The file browser asks the host to list a directory under the session root (root when path is "").
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
@@ -98,6 +101,9 @@ export type WebBoundMessage =
     }
   // Host answers get-change-diff with one file's session baseline + current text.
   | { type: "change-diff"; path: string; name: string; baseline: string; current: string }
+  // Live-refresh: Claude edited this file (any permission mode) -> update its already-open Monaco model
+  // in place. No-op web-side if the file has no model yet (its content is on disk until first opened).
+  | { type: "refresh-file"; path: string; content: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";

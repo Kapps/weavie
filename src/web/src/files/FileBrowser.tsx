@@ -1,3 +1,4 @@
+import { ChevronDown, ChevronRight, File, Folder, FolderOpen, X } from "lucide-solid";
 import { For, type JSX, Show, createEffect, createSignal } from "solid-js";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
@@ -61,8 +62,20 @@ function Node(props: {
         title={props.entry.path}
         onClick={onClick}
       >
-        <span class="browser-twisty">{props.entry.isDir ? (open() ? "▾" : "▸") : ""}</span>
-        <span class="browser-icon">{props.entry.isDir ? "📁" : "📄"}</span>
+        <span class="browser-twisty">
+          <Show when={props.entry.isDir}>
+            <Show when={open()} fallback={<ChevronRight />}>
+              <ChevronDown />
+            </Show>
+          </Show>
+        </span>
+        <span class="browser-icon">
+          <Show when={props.entry.isDir} fallback={<File />}>
+            <Show when={open()} fallback={<Folder />}>
+              <FolderOpen />
+            </Show>
+          </Show>
+        </span>
         <span class="browser-name">{props.entry.name}</span>
       </button>
       <Show when={props.entry.isDir && open()}>
@@ -102,7 +115,7 @@ export default function FileBrowser(props: {
           {leafName(props.root)}
         </span>
         <button type="button" class="browser-close" onClick={() => props.onClose()}>
-          ✕
+          <X />
         </button>
       </div>
       <div class="browser-body">

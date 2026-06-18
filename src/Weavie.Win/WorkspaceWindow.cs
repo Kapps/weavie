@@ -3,7 +3,9 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
+using Weavie.Core.Changes;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
@@ -313,9 +315,11 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
 		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
 
-		// Session changes: push the updated change list to the page whenever a tracked file changes. The
-		// event fires off the UI thread (the hook accept loop); PostToWeb marshals, so calling it is safe.
+		// Session changes: push the updated change list to the page whenever a tracked file changes, and a
+		// targeted live-refresh of the one edited file so its open editor model updates in place (every
+		// permission mode). The events fire off the UI thread (the hook accept loop); PostToWeb marshals.
 		_session.Changes.Changed += PushChangesToWeb;
+		_session.Changes.FileChanged += PushRefreshToWeb;
 
 		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
 		// lazily start a monaco-languageclient per language on first matching document.
@@ -445,6 +449,11 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
+			case "save-buffer":
+				SaveBuffer(
+					root.GetProperty("path").GetString() ?? string.Empty,
+					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
+				break;
 			case "window-control":
 				_shell?.HandleWindowControl(root);
 				break;
@@ -514,33 +523,44 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 
 	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
 	private void PushChangesToWeb() {
-		if (_session is null) {
-			return;
+		if (_session is not null) {
+			_bridge.PostToWeb(ChangeMessages.SessionChanges(_session.Changes));
 		}
-
-		var files = _session.Changes.Summarize().Select(change => new {
-			path = change.Path,
-			name = Path.GetFileName(change.Path),
-			added = change.Added,
-			removed = change.Removed,
-		});
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-changes", files }));
 	}
 
 	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
 	private void PushChangeDiffToWeb(string path) {
-		var change = _session?.Changes.Get(path);
-		if (change is null) {
+		if (_session?.Changes.Get(path) is { } change) {
+			_bridge.PostToWeb(ChangeMessages.ChangeDiff(change));
+		}
+	}
+
+	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	private void PushRefreshToWeb(string path) {
+		if (_session?.Changes.Get(path) is { } change) {
+			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+		}
+	}
+
+	/// <summary>
+	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
+	/// workspace) so the embedded claude sees the user's current state. Never lets a refused path or a write
+	/// failure crash the message loop.
+	/// </summary>
+	private void SaveBuffer(string path, string content) {
+		if (_session is null) {
 			return;
 		}
 
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "change-diff",
-			path = change.Path,
-			name = Path.GetFileName(change.Path),
-			baseline = change.BaselineText,
-			current = change.CurrentText,
-		}));
+		try {
+			if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, path, content)) {
+				Console.WriteLine($"[weavie] save-buffer refused (outside workspace): {path}");
+				Console.Out.Flush();
+			}
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Console.WriteLine($"[weavie] save-buffer failed for {path}: {ex.Message}");
+			Console.Out.Flush();
+		}
 	}
 
 	private void PostDemoDiff() {

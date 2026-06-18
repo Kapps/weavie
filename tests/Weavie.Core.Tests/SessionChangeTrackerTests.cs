@@ -70,6 +70,19 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void RecordChange_RaisesFileChangedWithPath() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "x");
+		var tracker = new SessionChangeTracker(fileSystem);
+		string? changedPath = null;
+		tracker.FileChanged += path => changedPath = path;
+
+		tracker.RecordChange("/w/a.txt");
+
+		Assert.Equal("/w/a.txt", changedPath);
+	}
+
+	[Fact]
 	public void Summarize_CountsAddedAndRemoved() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");

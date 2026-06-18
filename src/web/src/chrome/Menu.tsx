@@ -1,3 +1,4 @@
+import { ChevronRight } from "lucide-solid";
 import { For, type JSX, Show, createSignal, onCleanup } from "solid-js";
 
 export type MenuAction = "open-folder" | "open-recent" | "close-window" | "exit";
@@ -80,7 +81,9 @@ export function Menu(props: {
               classList={{ disabled: props.recents.length === 0 }}
             >
               <span>Open Recent</span>
-              <span class="tb-submenu-arrow">›</span>
+              <span class="tb-submenu-arrow">
+                <ChevronRight />
+              </span>
               <Show when={props.recents.length > 0}>
                 <div class="tb-submenu">
                   <For each={props.recents}>

@@ -63,6 +63,14 @@ export default defineConfig(({ command }) => ({
     emptyOutDir: true,
     assetsInlineLimit: 0,
     chunkSizeWarningLimit: 4096,
+    // Multi-page build: emit both the workspace app and the welcome window, sharing common chunks.
+    // Paths are relative to the Vite root (src/web), where index.html / welcome.html live.
+    rollupOptions: {
+      input: {
+        main: "index.html",
+        welcome: "welcome.html",
+      },
+    },
     // Even served from disk, the WebView must parse + evaluate every byte of JS before the app runs,
     // and Monaco + the vscode-api layer is multiple megabytes. esbuild minification (near-free at build
     // time) roughly thirds that, cutting startup parse/eval cost — worth it now that launch latency matters.

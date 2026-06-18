@@ -46,6 +46,7 @@ internal sealed class HostSession : IAsyncDisposable {
 		_bridge = bridge;
 
 		var fileSystem = new LocalFileSystem();
+		FileSystem = fileSystem;
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		FileIndex.Log += Tagged("[index]");
@@ -114,6 +115,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>The directory this session's claude, shell, file opener, and LSP are rooted at.</summary>
 	public string WorkspaceRoot { get; }
+
+	/// <summary>The session's filesystem, used to persist the editor's autosaved buffers to disk.</summary>
+	public IFileSystem FileSystem { get; }
 
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }

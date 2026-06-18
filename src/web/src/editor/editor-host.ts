@@ -11,8 +11,11 @@
 // peek/references, format, …) actually work — they reuse the one working copy per URI instead of failing to
 // read an empty provider. See host-file-provider.ts and docs/specs/file-management-and-sessions.md.
 
-import { getService } from "@codingame/monaco-vscode-api/services";
-import { ITextFileService, ITextModelService } from "@codingame/monaco-vscode-api/services";
+import {
+  ITextFileService,
+  ITextModelService,
+  getService,
+} from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { createEditor, monaco } from "./monaco-setup";
@@ -56,12 +59,12 @@ function nextPaint(): Promise<void> {
 /** The live editor, plus the operations the shell drives it with (open a file, review a diff, tear down). */
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
-  /** Loads a file as a working copy into the editor and reveals <paramref>line</paramref> (host open-file). */
+  /** Loads a file as a working copy into the editor and reveals `line` (host open-file). */
   openFile(path: string, line: number): void;
   /**
    * Begins an inline review of an openDiff proposal in a transient model (the real file working copy is left
-   * untouched), makes it the active editor showing <paramref>proposed</paramref>, and returns the transient
-   * model's URI string so the caller can render the inline diff over it.
+   * untouched), makes it the active editor showing `proposed`, and returns the transient model's URI string
+   * so the caller can render the inline diff over it.
    */
   beginReview(path: string, proposed: string, line: number): string;
   /**
@@ -85,9 +88,9 @@ function isUserFileModel(model: monaco.editor.ITextModel): boolean {
 
 /**
  * Brings up the editor: initializes the VSCode services (which must precede any editor creation),
- * creates the editor in <paramref>container</paramref>, and wires lazy per-language LSP. The caller
- * (App) catches failures so a broken editor never takes down the terminal panes. <paramref>onSaveError</paramref>
- * surfaces a debounced save that failed to reach disk as a user-facing toast (never a silent drop).
+ * creates the editor in `container`, and wires lazy per-language LSP. The caller (App) catches failures
+ * so a broken editor never takes down the terminal panes. `onSaveError` surfaces a debounced save that
+ * failed to reach disk as a user-facing toast (never a silent drop).
  */
 export async function createEditorHost(
   container: HTMLElement,

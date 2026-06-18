@@ -2,17 +2,17 @@
   /* Initial/fallback chrome vars (Weavie Dark). The theme controller overwrites these on the active
      theme's resolved palette at runtime (see theme/chrome-vars.ts); these defaults just avoid any flash
      before it runs and back plain-browser dev. */
-  --bg: #0f1217;
-  --bar: #12161d;
-  --border: #232a35;
-  --fg: #e8eaf0;
-  --accent: #2dd4bf;
-  --dim: #8b95a7;
+  --bg: #0a0c10;
+  --bar: #11141a;
+  --border: #1b212a;
+  --fg: #d4d9e1;
+  --accent: #4fb0a6;
+  --dim: #7e8794;
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own
      theme stylesheet (injected later) overrides this once the theme is applied. */
-  --vscode-editor-background: #0f1217;
+  --vscode-editor-background: #0a0c10;
 }
 
 * {

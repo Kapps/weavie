@@ -88,6 +88,9 @@ internal sealed class HostSession : IAsyncDisposable {
 		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay. The observed
 		// stream is logged here; the session change view consumes the same feed.
 		Claude.SettingsFilePath = Ide.WriteSettingsFile();
+		// Orientation: an --append-system-prompt-file telling claude it's embedded in Weavie and to read
+		// live app state (themes/settings/layout) through the mcp__weavie__* tools, not the on-disk config.
+		Claude.SystemPromptFilePath = Ide.WriteSystemPromptFile();
 		Ide.HookBridge.Observed += request => {
 			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
 			Console.Out.Flush();

@@ -11,7 +11,8 @@ if (root === null) {
   throw new Error("missing #root");
 }
 
-// TEMP diagnostic: surface uncaught errors to the host log so a headless run can see mount failures.
+// Forward uncaught errors + promise rejections to the host log — an embedded WebView has no easy
+// devtools, so this is the only place a mount failure or stray rejection becomes visible.
 window.addEventListener("error", (e) => {
   postToHost({
     type: "log",

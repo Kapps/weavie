@@ -36,8 +36,10 @@ function childRect(parent: Rect, dir: SplitDir, pos: number, size: number): Rect
     : { x: parent.x, y: pos, w: parent.w, h: size };
 }
 
-/// Pane kinds in DFS order (left-to-right / top-to-bottom) — the order Ctrl+1..9 selects, and the
-/// number shown on each pane.
+/**
+ * Pane kinds in DFS order (left-to-right / top-to-bottom) — the order Ctrl+1..9 selects, and the
+ * number shown on each pane.
+ */
 export function paneOrder(root: LayoutNode): string[] {
   const out: string[] = [];
   collectPanes(root, out);
@@ -54,7 +56,7 @@ function collectPanes(node: LayoutNode, out: string[]): void {
   }
 }
 
-/// Maps each pane KIND to its rectangle. Kinds are singletons in v1, so kind is a stable slot key.
+/** Maps each pane KIND to its rectangle. Kinds are singletons in v1, so kind is a stable slot key. */
 export function computeRects(root: LayoutNode): Map<string, Rect> {
   const out = new Map<string, Rect>();
   walkRects(root, FULL, out);
@@ -76,7 +78,7 @@ function walkRects(node: LayoutNode, rect: Rect, out: Map<string, Rect>): void {
   });
 }
 
-/// One draggable handle per internal boundary of every split, with the geometry the drag needs.
+/** One draggable handle per internal boundary of every split, with the geometry the drag needs. */
 export function computeSplitters(root: LayoutNode): SplitterInfo[] {
   const out: SplitterInfo[] = [];
   walkSplitters(root, FULL, [], out);
@@ -110,8 +112,10 @@ function walkSplitters(node: LayoutNode, rect: Rect, path: number[], out: Splitt
   });
 }
 
-/// Returns a new tree with the split at `path` resized so the boundary after child `index` sits at
-/// `fraction` (0-1) of the split's own extent. Refuses to shrink either neighbour below a minimum.
+/**
+ * Returns a new tree with the split at `path` resized so the boundary after child `index` sits at
+ * `fraction` (0-1) of the split's own extent. Refuses to shrink either neighbour below a minimum.
+ */
 export function setBoundary(
   root: LayoutNode,
   path: number[],

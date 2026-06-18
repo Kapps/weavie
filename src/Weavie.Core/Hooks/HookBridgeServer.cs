@@ -114,6 +114,7 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 			try {
 				await _acceptLoop.ConfigureAwait(false);
 			} catch (OperationCanceledException) {
+				// Expected — we just cancelled the loop.
 			}
 		}
 		_cts.Dispose();

@@ -134,6 +134,24 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		return path;
 	}
 
+	/// <summary>
+	/// Writes the embedded-claude system-prompt appendix (<see cref="EmbeddedClaudeGuidance"/>) for the
+	/// spawned claude's <c>--append-system-prompt-file</c>, and returns its path. Port-scoped filename, like
+	/// the MCP config. Returns <c>null</c> when there is no registry server — the appendix points claude at
+	/// the <c>mcp__weavie__*</c> tools, which only exist when that server is wired.
+	/// </summary>
+	public string? WriteSystemPromptFile() {
+		if (RegistryServer is null) {
+			return null;
+		}
+
+		string directory = WeaviePaths.Internal("mcp");
+		Directory.CreateDirectory(directory);
+		string path = Path.Combine(directory, $"weavie-{RegistryPort}.system-prompt.txt");
+		File.WriteAllText(path, EmbeddedClaudeGuidance.SystemPromptAppendix);
+		return path;
+	}
+
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		IdeLockFile.Delete(Port);

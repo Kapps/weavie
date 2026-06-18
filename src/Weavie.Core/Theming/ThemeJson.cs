@@ -65,6 +65,10 @@ public static class ThemeJson {
 			switch (op) {
 				case ThemeOverrideSet set:
 					writer.WriteString("kind", "set");
+					if (set.Table is not null) {
+						writer.WriteString("table", set.Table);
+					}
+
 					writer.WriteString("key", set.Key);
 					writer.WriteString("value", set.Value);
 					break;

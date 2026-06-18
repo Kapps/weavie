@@ -52,16 +52,18 @@ export interface InlineDiff {
   clearByUri(uri: string): void;
   /** Remove every registered diff. */
   clearAll(): void;
-  /** Jump to the next change hunk in the active diff (no-op if none). */
-  nextChange(): void;
-  /** Jump to the previous change hunk in the active diff (no-op if none). */
-  prevChange(): void;
-  /** Accept the active diff (review Keep / applied Accept); no-op if not applicable. */
-  accept(): void;
-  /** Reject the active review proposal; no-op if not applicable. */
-  reject(): void;
-  /** Undo the active applied turn; no-op if not applicable. */
-  undo(): void;
+  // The nav/action methods return whether they acted, so an unmatched keybinding (no active diff, or the
+  // action unavailable in this mode) falls through to the editor.
+  /** Jump to the next change hunk in the active diff. */
+  nextChange(): boolean;
+  /** Jump to the previous change hunk in the active diff. */
+  prevChange(): boolean;
+  /** Accept the active diff (review Keep / applied Accept). */
+  accept(): boolean;
+  /** Reject the active review proposal. */
+  reject(): boolean;
+  /** Undo the active applied turn. */
+  undo(): boolean;
   /** Tear down listeners + any rendered markers (never disposes a model). */
   dispose(): void;
 }
@@ -71,7 +73,7 @@ function splitLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").split("\n");
 }
 
-/** Creates an inline-diff controller bound to <paramref>editor</paramref>. */
+/** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();
   let decorations: monaco.editor.IEditorDecorationsCollection | undefined;

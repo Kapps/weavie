@@ -3,6 +3,7 @@ using System.Net.Sockets;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
@@ -24,6 +25,8 @@ public sealed class McpServer : IAsyncDisposable {
 	private readonly SettingsStore? _settings;
 	private readonly LayoutStore? _layout;
 	private readonly EditorStore? _editor;
+	private readonly CommandDispatcher? _commands;
+	private readonly KeybindingStore? _keybindings;
 	private readonly string _toolsListJson;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -49,7 +52,9 @@ public sealed class McpServer : IAsyncDisposable {
 		SettingsStore? settings = null,
 		bool registryMode = false,
 		LayoutStore? layout = null,
-		EditorStore? editor = null) {
+		EditorStore? editor = null,
+		CommandDispatcher? commands = null,
+		KeybindingStore? keybindings = null) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -63,19 +68,30 @@ public sealed class McpServer : IAsyncDisposable {
 		_settings = settings;
 		_layout = layout;
 		_editor = editor;
+		_commands = commands;
+		_keybindings = keybindings;
 		if (editor is not null) {
 			// Push an unsolicited selection_changed to the connected client whenever the user's active
 			// file/selection changes, so the embedded claude always knows what they're looking at.
 			editor.Changed += OnActiveEditorChanged;
 		}
 
-		// Registry mode advertises ONLY the capability tools (settings + layout, later commands) — this is
-		// the model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
+		// Registry mode advertises ONLY the capability tools (settings + layout + commands) — this is the
+		// model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
 		// openDiff-style tools Claude Code filters out before they reach the model. The default (IDE) mode
 		// advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
-			entries = layout is null ? SettingsToolEntries : SettingsToolEntries + "," + LayoutToolEntries;
+			var parts = new List<string> { SettingsToolEntries };
+			if (layout is not null) {
+				parts.Add(LayoutToolEntries);
+			}
+
+			if (commands is not null) {
+				parts.Add(CommandToolEntries);
+			}
+
+			entries = string.Join(",", parts);
 		} else {
 			entries = settings is null ? IdeToolEntries : IdeToolEntries + "," + SettingsToolEntries;
 		}
@@ -325,6 +341,12 @@ public sealed class McpServer : IAsyncDisposable {
 			case "setLayout":
 				await HandleSetLayoutAsync(ws, args, idRaw, ct).ConfigureAwait(false);
 				break;
+			case "listCommands":
+				await HandleListCommandsAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "runCommand":
+				await HandleRunCommandAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			default:
 				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
 				break;
@@ -438,6 +460,55 @@ public sealed class McpServer : IAsyncDisposable {
 			await SendToolTextAsync(ws, idRaw, result.Summary, ct).ConfigureAwait(false);
 			Emit($"setLayout applied ({result.Summary})");
 		} catch (LayoutValidationException ex) {
+			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
+	}
+
+	private async Task HandleListCommandsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		if (_commands is null) {
+			await SendToolErrorAsync(ws, idRaw, "Commands are not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		// Prefer the keybinding store's catalog (it includes each command's current keys); fall back to the
+		// registry alone (no keys) if no keybinding store was wired.
+		string commandsArray = _keybindings is not null
+			? _keybindings.BuildCommandsJson()
+			: CommandCatalog.BuildCommandsArrayJson(_commands.Registry.Definitions, []);
+		await SendToolTextAsync(ws, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
+	}
+
+	private async Task HandleRunCommandAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		if (_commands is null) {
+			await SendToolErrorAsync(ws, idRaw, "Commands are not available.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		bool hasArgs = args.ValueKind == JsonValueKind.Object;
+		string? id = hasArgs && args.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
+			? idEl.GetString()
+			: null;
+		if (string.IsNullOrEmpty(id)) {
+			await SendToolErrorAsync(ws, idRaw, "runCommand requires an 'id'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		// Pass the args object through as raw JSON (the web/core handler coerces leniently); the embedded
+		// claude routinely stringifies scalars, so handlers must tolerate that like the settings boundary does.
+		string? argsJson = hasArgs && args.TryGetProperty("args", out var aEl) && aEl.ValueKind == JsonValueKind.Object
+			? aEl.GetRawText()
+			: null;
+
+		try {
+			var result = await _commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
+			if (result.Ok) {
+				await SendToolTextAsync(ws, idRaw, result.Message ?? $"Ran {id}.", ct).ConfigureAwait(false);
+				Emit($"runCommand {id} ok");
+			} else {
+				await SendToolErrorAsync(ws, idRaw, result.Error ?? $"Command '{id}' failed.", ct).ConfigureAwait(false);
+				Emit($"runCommand {id} failed: {result.Error}");
+			}
+		} catch (UnknownCommandException ex) {
 			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
@@ -728,5 +799,12 @@ public sealed class McpServer : IAsyncDisposable {
 		"""
           {"name":"getLayout","description":"Get the current weavie window layout as a JSON tree of nested row/column splits and leaf panes.","inputSchema":{"type":"object","properties":{}}},
           {"name":"setLayout","description":"Replace the weavie window layout. 'root' is a layout tree where each node is a split (type 'split', with 'dir' 'row' or 'column', a 'weights' number array, and a 'children' node array) or a pane (type 'pane', with a unique 'id' and a 'kind'). Pane kinds: editor, terminal:claude, terminal:shell. Weights are relative. Optionally set 'focused' to a pane id. Call getLayout first to see the current shape.","inputSchema":{"type":"object","properties":{"root":{"type":"object"},"focused":{"type":"string"}},"required":["root"]}}
+        """;
+
+	// Command tools (model-facing), advertised on the registry server only when a CommandDispatcher is wired.
+	private const string CommandToolEntries =
+		"""
+          {"name":"listCommands","description":"List all weavie commands (actions like focusing a pane, toggling the diff layout, or reopening the terminal) with each one's id, title, category, description, aliases, and current keybinding(s). Call this FIRST to find the exact id before running a command.","inputSchema":{"type":"object","properties":{}}},
+          {"name":"runCommand","description":"Run a weavie command by id. Call listCommands first to find the exact id; never guess ids. 'args' is an optional object whose shape depends on the command (e.g. {\"index\":3} to focus the third pane).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object"}},"required":["id"]}}
         """;
 }

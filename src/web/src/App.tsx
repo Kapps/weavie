@@ -11,11 +11,16 @@ import {
   onMount,
 } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
-import type { ChangeDiff, ChangeFile } from "./changes/ChangesPanel";
+import type { ChangeFile } from "./changes/ChangesPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { TitleBar } from "./chrome/TitleBar";
-import type { ActiveDiff } from "./diff/DiffView";
+import { focusOmnibar } from "./chrome/omnibar-controller";
+import { setContext } from "./commands/context";
+import { installKeybindings } from "./commands/keybindings";
+import { registerCommand } from "./commands/registry";
+import { CommandIds } from "./commands/types";
 import type { EditorHost } from "./editor/editor-host";
+import { type InlineDiff, createInlineDiff } from "./editor/inline-diff";
 import type { DirListings } from "./files/FileBrowser";
 import { runFpsProbe } from "./latency/fps-probe";
 import { LatencyMeter } from "./latency/latency-meter";
@@ -32,9 +37,7 @@ import { TerminalView } from "./terminal/TerminalView";
 import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./theme";
 
 // The Monaco editor and its VSCode service layer are the heaviest code in the app. They live behind a
-// dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none
-// of it. DiffView also pulls Monaco, so it's lazy too; by the time a diff arrives the chunk is warm.
-const DiffView = lazy(() => import("./diff/DiffView").then((m) => ({ default: m.DiffView })));
+// dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none of it.
 const ChangesPanel = lazy(() => import("./changes/ChangesPanel"));
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 
@@ -104,12 +107,7 @@ export default function App(): JSX.Element {
   const [loadOn, setLoadOn] = createSignal(false);
   const [report, setReport] = createSignal<BenchmarkReport | null>(null);
   const [benchRunning, setBenchRunning] = createSignal(false);
-  const [activeDiff, setActiveDiff] = createSignal<ActiveDiff | null>(null);
-  // Diff render mode for the openDiff review: inline by default (reads like your editor with the change in
-  // place); the user can flip to side-by-side. Session-persistent so it sticks across edits.
-  const [diffSideBySide, setDiffSideBySide] = createSignal(false);
   const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
-  const [changeDiff, setChangeDiff] = createSignal<ChangeDiff | null>(null);
   const [changesOpen, setChangesOpen] = createSignal(false);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
@@ -182,18 +180,6 @@ export default function App(): JSX.Element {
             {CTRL_LABEL}
             {numberOf("editor")}
           </span>
-          <Show when={activeDiff()}>
-            {(diff) => (
-              <Suspense>
-                <DiffView
-                  diff={diff()}
-                  sideBySide={diffSideBySide()}
-                  onToggleSideBySide={() => setDiffSideBySide((v) => !v)}
-                  onResolve={resolveDiff}
-                />
-              </Suspense>
-            )}
-          </Show>
         </div>
       );
     }
@@ -214,28 +200,34 @@ export default function App(): JSX.Element {
     );
   };
 
-  const resolveDiff = (kept: boolean, finalContents: string): void => {
-    const diff = activeDiff();
-    if (diff === null) {
+  // The openDiff currently under inline review (default mode). openDiff blocks per-edit, so at most one is
+  // live at a time — a plain var (not a signal) is enough; the controller's toolbar drives accept/reject.
+  let activeReview: { id: string; path: string; original: string } | undefined;
+
+  const resolveReview = (keep: boolean): void => {
+    const review = activeReview;
+    if (review === undefined) {
       return;
     }
-    postToHost({ type: "diff-resolved", id: diff.id, kept, finalContents });
-    // Leave the editor showing the file's new state: if it's open, refresh it in place with the kept
-    // contents (Claude does the disk write async, so use what the user just accepted). The diff's own
-    // model is isolated, so tearing it down on setActiveDiff(null) no longer disturbs this one.
-    if (kept) {
-      host?.applyExternalEdit(diff.path, finalContents);
-    }
-    setActiveDiff(null);
+    activeReview = undefined;
+    // endReview reverts the buffer to `original` on reject and returns the final content; on keep that's the
+    // (possibly tweaked) proposal Claude then writes on FILE_SAVED.
+    const finalContents = host?.endReview(review.path, keep, review.original) ?? "";
+    inlineDiff?.clear(review.path);
+    postToHost({
+      type: "diff-resolved",
+      id: review.id,
+      kept: keep,
+      finalContents: keep ? finalContents : "",
+    });
   };
 
   const meter = new LatencyMeter();
   const load = new LoadGenerator(5);
   // The Monaco editor host, set once its chunk has loaded and the editor is created (see onMount).
   let host: EditorHost | undefined;
-  // Reactive mirror of `host` so the lazy Changes panel can reach getOrCreateFileModel once the editor
-  // chunk resolves; the plain `host` var stays for the synchronous call sites in this component.
-  const [editorHost, setEditorHost] = createSignal<EditorHost>();
+  // The inline-diff controller (Cursor-style diff inside the live editor), created with the host's editor.
+  let inlineDiff: InlineDiff | undefined;
   // An open-file request that arrived before the editor was ready; replayed when it is (last wins).
   let pendingOpen: { path: string; content: string; line: number } | undefined;
 
@@ -301,18 +293,28 @@ export default function App(): JSX.Element {
 
     // The terminal panes are already in the tree and mount now — emitting term-ready, which spawns
     // claude — without waiting on Monaco. The editor (and its VSCode service layer) is a separate chunk
-    // loaded here, off the first-paint path; the pane shows a placeholder until it resolves. A failure
-    // must not take down the shell, so we catch and let the terminals keep working.
-    // Hold the splash over everything until the editor is ready, then fade once — so the editor's first
-    // paint happens *under* the splash and the reveal shows a settled UI (no placeholder relay, no
-    // pop-in flash). A safety timeout dismisses it even if the editor chunk is slow or fails, so the
-    // terminals are never stuck behind it.
-    const splashFallback = window.setTimeout(dismissSplash, 3000);
-    void import("./editor/editor-host")
-      .then(({ createEditorHost }) => createEditorHost(editorContainer))
+    // loaded here, off the first-paint path; the pane shows a placeholder until it resolves.
+    // The splash is held over everything until the editor is ready, then faded once — so the editor's
+    // first paint happens *under* the splash and the reveal shows a settled UI. We fade it on a
+    // DETERMINISTIC outcome only: editor ready, or a real failure. A failure — chunk load, editor crash,
+    // or an init that never settles within EDITOR_INIT_MS — rejects LOUDLY (logged as an error), then
+    // frees the splash so the already-working terminals aren't trapped. No silent timer that dismisses
+    // while pretending success.
+    const EDITOR_INIT_MS = 15_000; // generous: only a genuine hang trips it, not a slow cold start.
+    let initTimer: number | undefined;
+    const editorReady = import("./editor/editor-host").then(({ createEditorHost }) =>
+      createEditorHost(editorContainer),
+    );
+    const initDeadline = new Promise<never>((_, reject) => {
+      initTimer = window.setTimeout(
+        () => reject(new Error(`editor init did not settle within ${EDITOR_INIT_MS}ms`)),
+        EDITOR_INIT_MS,
+      );
+    });
+    void Promise.race([editorReady, initDeadline])
       .then((created) => {
         host = created;
-        setEditorHost(created);
+        inlineDiff = createInlineDiff(created.editor);
         if (pendingOpen !== undefined) {
           created.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
           pendingOpen = undefined;
@@ -322,7 +324,7 @@ export default function App(): JSX.Element {
       })
       .catch((error: unknown) => log("error", `editor init failed: ${String(error)}`))
       .finally(() => {
-        window.clearTimeout(splashFallback);
+        window.clearTimeout(initTimer);
         dismissSplash();
       });
 
@@ -361,33 +363,55 @@ export default function App(): JSX.Element {
       } else if (message.type === "run-benchmark") {
         void runBench();
       } else if (message.type === "show-diff") {
-        setActiveDiff({
-          id: message.id,
-          path: message.path,
-          tabName: message.tabName,
+        // Render Claude's openDiff proposal INLINE in the live editor (no standalone diff viewer): the buffer
+        // shows `proposed` (autosave suppressed), with the diff vs `original` and a Keep/Reject toolbar.
+        activeReview = { id: message.id, path: message.path, original: message.original };
+        host?.beginReview(message.path, message.proposed, 1);
+        inlineDiff?.set(message.path, {
           original: message.original,
-          proposed: message.proposed,
+          mode: "review",
+          onAccept: () => resolveReview(true),
+          onReject: () => resolveReview(false),
         });
       } else if (message.type === "close-diff") {
-        if (activeDiff()?.id === message.id) {
-          setActiveDiff(null);
+        // Host cancelled the openDiff: tear the review down (revert buffer) without replying — the host's
+        // awaiting task is already cancelled.
+        if (activeReview?.id === message.id) {
+          host?.endReview(activeReview.path, false, activeReview.original);
+          inlineDiff?.clear(activeReview.path);
+          activeReview = undefined;
         }
       } else if (message.type === "open-file") {
         openFileInEditor(message.path, message.content, message.line);
       } else if (message.type === "refresh-file") {
         // Claude edited this file (any permission mode) — live-update its model in place if open.
         host?.applyExternalEdit(message.path, message.content);
+      } else if (message.type === "turn-diff") {
+        // Inline diff of this turn's changes, shown in the live editor. Equal baseline/current = no markers.
+        if (message.baseline === message.current) {
+          inlineDiff?.clear(message.path);
+        } else {
+          inlineDiff?.set(message.path, {
+            original: message.baseline,
+            mode: "applied",
+            onAccept: () => postToHost({ type: "accept-turn" }),
+            onUndo: () => postToHost({ type: "undo-turn" }),
+          });
+        }
+      } else if (message.type === "turn-reset") {
+        inlineDiff?.clearAll();
       } else if (message.type === "notify") {
         addToast(message.level, message.message);
       } else if (message.type === "session-changes") {
         setChangeFiles(message.files);
       } else if (message.type === "change-diff") {
-        setChangeDiff({
-          path: message.path,
-          name: message.name,
-          baseline: message.baseline,
-          current: message.current,
-        });
+        // A file picked in the Changes navigator: show its whole-session diff inline in the live editor
+        // (read-only view — the file is opened via reveal-file alongside this request).
+        if (message.baseline === message.current) {
+          inlineDiff?.clear(message.path);
+        } else {
+          inlineDiff?.set(message.path, { original: message.baseline, mode: "view" });
+        }
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "window-state") {
@@ -399,30 +423,40 @@ export default function App(): JSX.Element {
       }
     });
 
-    // Ctrl+1..9 jumps focus to the Nth pane (DFS order). Capture phase so it wins over the focused
-    // xterm/Monaco; only intercepted when a pane exists at that index, so other Ctrl+digit chords pass
-    // through to the terminal/editor untouched.
-    const onKeyDown = (event: KeyboardEvent): void => {
-      if (!event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) {
-        return;
-      }
-      if (event.key.length !== 1 || event.key < "1" || event.key > "9") {
-        return;
-      }
-      const kind = paneNumbers()[Number(event.key) - 1];
-      if (kind === undefined) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      focusPane(kind);
-    };
-    window.addEventListener("keydown", onKeyDown, { capture: true });
+    // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. The
+    // migrated Ctrl+1–9 (focus pane by index), the omnibar focus shortcuts, and the view toggles all resolve
+    // through it; Core commands (reopen terminal) route to the host. See docs/specs/commands.md.
+    const offCommands = [
+      // focus-pane-by-index returns false when there's no pane at that number, so an unbound Ctrl+digit
+      // still falls through to the focused xterm/Monaco (preserving the old behavior).
+      registerCommand(CommandIds.focusPaneByIndex, (args) => {
+        const index = Number((args as { index?: unknown } | undefined)?.index);
+        if (!Number.isFinite(index)) {
+          return false;
+        }
+        const kind = paneNumbers()[index - 1];
+        if (kind === undefined) {
+          return false;
+        }
+        focusPane(kind);
+        return true;
+      }),
+      registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
+      registerCommand(CommandIds.toggleChanges, () => setChangesOpen((open) => !open)),
+      registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
+      registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+    ];
+    const offKeybindings = installKeybindings();
 
-    // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight.
+    // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight, and publish it as a
+    // `when`-context key so command guards (e.g. terminalFocused) can read it.
     const onFocusIn = (event: FocusEvent): void => {
       const slot = (event.target as HTMLElement | null)?.closest("[data-kind]");
-      setFocusedKind(slot?.getAttribute("data-kind") ?? null);
+      const kind = slot?.getAttribute("data-kind") ?? null;
+      setFocusedKind(kind);
+      setContext("focusedPane", kind);
+      setContext("editorFocused", kind === "editor");
+      setContext("terminalFocused", kind?.startsWith("terminal:") ?? false);
     };
     document.addEventListener("focusin", onFocusIn);
 
@@ -430,11 +464,15 @@ export default function App(): JSX.Element {
       window.clearInterval(hudTimer);
       window.clearTimeout(autoBench);
       window.clearTimeout(persistTimer);
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
+      offKeybindings();
+      for (const off of offCommands) {
+        off();
+      }
       document.removeEventListener("focusin", onFocusIn);
       offHost();
       meter.dispose();
       load.stop();
+      inlineDiff?.dispose();
       host?.editor.dispose();
     });
   });
@@ -490,9 +528,12 @@ export default function App(): JSX.Element {
         <Suspense>
           <ChangesPanel
             files={changeFiles()}
-            diff={changeDiff()}
-            getFileModel={(path, seed) => editorHost()?.getOrCreateFileModel(path, seed)}
-            onSelect={(path) => postToHost({ type: "get-change-diff", path })}
+            currentFile={currentFile()}
+            onSelect={(path) => {
+              // Open the file in the live editor and request its session diff, shown inline (no diff viewer).
+              postToHost({ type: "reveal-file", path, line: 1 });
+              postToHost({ type: "get-change-diff", path });
+            }}
             onClose={() => setChangesOpen(false)}
           />
         </Suspense>

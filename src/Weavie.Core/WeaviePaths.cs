@@ -18,6 +18,9 @@ public static class WeaviePaths {
 	/// <summary>The user settings file: <c>~/.weavie/settings.toml</c>.</summary>
 	public static string SettingsFile { get; } = Path.Combine(Root, "settings.toml");
 
+	/// <summary>The user keybindings file: <c>~/.weavie/keybindings.json</c> (a list of {key, command, args?, when?} records).</summary>
+	public static string KeybindingsFile { get; } = Path.Combine(Root, "keybindings.json");
+
 	/// <summary>The legacy single-window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>. Superseded by per-workspace layout files; kept for the default store and back-compat.</summary>
 	public static string LayoutFile { get; } = Path.Combine(Root, "layout.json");
 

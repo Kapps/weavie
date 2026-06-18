@@ -70,6 +70,71 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void TurnChanges_TracksOnlyThisTurnAgainstTurnBaseline() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "v0\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+
+		// Turn 1: a.txt v0 -> v1.
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "v1\n");
+		tracker.RecordChange("/w/a.txt");
+
+		var turn1 = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("v0\n", turn1.BaselineText);
+		Assert.Equal("v1\n", turn1.CurrentText);
+
+		// New turn: prior changes implicitly accepted -> turn baseline resets to current (v1).
+		tracker.BeginTurn();
+		Assert.Empty(tracker.TurnChanges());
+
+		// Turn 2: a.txt v1 -> v2. The turn diff is v1->v2, NOT the session v0->v2.
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "v2\n");
+		tracker.RecordChange("/w/a.txt");
+
+		var turn2 = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("v1\n", turn2.BaselineText);
+		Assert.Equal("v2\n", turn2.CurrentText);
+		// Session diff still spans the whole session.
+		Assert.Equal("v0\n", Assert.Single(tracker.Changes()).BaselineText);
+	}
+
+	[Fact]
+	public void BeginTurn_RaisesTurnBegan() {
+		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
+		int fired = 0;
+		tracker.TurnBegan += () => fired++;
+
+		tracker.Observe(new HookRequest {
+			Event = HookEventKind.UserPromptSubmit, ToolName = string.Empty, ToolInputJson = "{}",
+		});
+
+		Assert.Equal(1, fired);
+	}
+
+	[Fact]
+	public void AcceptTurn_ClearsTurnDiffButKeepsSessionDiff() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "v0\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "v1\n");
+		tracker.RecordChange("/w/a.txt");
+
+		tracker.AcceptTurn();
+
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Single(tracker.Changes()); // session diff (v0 -> v1) remains
+	}
+
+	[Fact]
+	public void GetTurn_UntouchedThisTurn_ReturnsNull() {
+		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
+		Assert.Null(tracker.GetTurn("/w/never.txt"));
+	}
+
+	[Fact]
 	public void RecordChange_RaisesFileChangedWithPath() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "x");

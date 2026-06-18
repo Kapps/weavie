@@ -1,3 +1,4 @@
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
@@ -34,6 +35,16 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
+		// Commands + keybindings: the app-global command catalog (CoreCommands) and the user keybindings
+		// resolved from ~/.weavie/keybindings.json over the command defaults. Both are shared across windows;
+		// each window injects them into its web app and re-pushes when the keybindings file changes.
+		CommandRegistry = CoreCommands.CreateRegistry();
+		Keybindings = new KeybindingStore(CommandRegistry);
+		Keybindings.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe so the logic isn't duplicated on macOS.
 		var recents = new RecentWorkspaces(new LocalFileSystem());
@@ -51,6 +62,12 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>The single app-global settings store, shared by every workspace window.</summary>
 	public SettingsStore Settings { get; }
+
+	/// <summary>The app-global command catalog (the built-in <see cref="CoreCommands"/>), shared by every window.</summary>
+	public CommandRegistry CommandRegistry { get; }
+
+	/// <summary>The app-global keybindings store (user file merged over command defaults), shared by every window.</summary>
+	public KeybindingStore Keybindings { get; }
 
 	/// <summary>The recent-workspaces store, for the Open Recent menu and the welcome window.</summary>
 	public RecentWorkspaces Recents => _manager.Recents;
@@ -200,6 +217,7 @@ internal sealed class AppController : ApplicationContext {
 	protected override void Dispose(bool disposing) {
 		if (disposing) {
 			Settings.Dispose();
+			Keybindings.Dispose();
 		}
 
 		base.Dispose(disposing);

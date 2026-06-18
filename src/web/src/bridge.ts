@@ -6,6 +6,7 @@
 // Messages are JSON. When running in a plain browser (dev), the host handler is
 // absent and outbound messages are no-ops — by design, never a thrown error.
 
+import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
 import type { BenchmarkConfig, BenchmarkReport, LiveLatencyStats } from "./latency/types";
 import type { LayoutDocument } from "./layout/types";
 
@@ -54,6 +55,12 @@ export type HostBoundMessage =
   // Autosave: the editor buffer changed -> host writes it to disk so the embedded Claude (which reads
   // disk directly) builds its edits on the user's current state. Debounced web-side; one per file path.
   | { type: "save-buffer"; path: string; content: string }
+  // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
+  // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
+  | { type: "accept-turn" }
+  // Inline diff (acceptEdits mode): undo the whole turn's changes — the host reverts each touched file to its
+  // turn baseline on disk and live-refreshes the editor.
+  | { type: "undo-turn" }
   // The file browser asks the host to list a directory under the session root (root when path is "").
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
@@ -83,7 +90,11 @@ export type HostBoundMessage =
       path?: string;
     }
   // The omnibar asks the host to (re)send the workspace's flat file list for "Go to File".
-  | { type: "request-file-index" };
+  | { type: "request-file-index" }
+  // A keybinding/palette invoked a Core command — ask the host to run it (fire-and-forget for the web).
+  | { type: "invoke-command"; id: string; args?: unknown }
+  // Reply to a host run-command: whether the web handler ran (Claude's runCommand of a web command).
+  | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
   | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
@@ -119,6 +130,11 @@ export type WebBoundMessage =
   // Live-refresh: Claude edited this file (any permission mode) -> update its already-open Monaco model
   // in place. No-op web-side if the file has no model yet (its content is on disk until first opened).
   | { type: "refresh-file"; path: string; content: string }
+  // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
+  // baseline === current means "no markers" (the file was accepted or reverted this turn).
+  | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }
+  // A turn boundary: clear all inline turn markers (the prior turn is implicitly accepted).
+  | { type: "turn-reset" }
   // A user-facing notification to surface as a toast (e.g. an autosave write that failed — the user must
   // see that their work didn't reach disk, never a silent drop).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string }
@@ -131,7 +147,11 @@ export type WebBoundMessage =
   // Host pushes the window's chrome state so the title bar updates its maximize glyph and blur dim.
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
-  | { type: "file-index"; root: string; files: string[] };
+  | { type: "file-index"; root: string; files: string[] }
+  // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
+  | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
+  // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
+  | { type: "run-command"; id: string; args?: unknown; token: string };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 

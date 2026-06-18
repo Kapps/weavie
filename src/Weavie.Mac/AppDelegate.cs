@@ -139,6 +139,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_ide.HookBridge.Observed += _changes.Observe;
 		_changes.Changed += () => InvokeOnMainThread(PushChangesToWeb);
 		_changes.FileChanged += path => InvokeOnMainThread(() => PushRefreshToWeb(path));
+		// Inline diff: per-turn diff per edited file + clear-all on a turn boundary (implicit accept).
+		_changes.FileChanged += path => InvokeOnMainThread(() => PushTurnDiffToWeb(path));
+		_changes.TurnBegan += () => InvokeOnMainThread(PushTurnReset);
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
@@ -304,6 +307,12 @@ public sealed class AppDelegate : NSApplicationDelegate {
 					root.GetProperty("path").GetString() ?? string.Empty,
 					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
 				break;
+			case "accept-turn":
+				AcceptTurn();
+				break;
+			case "undo-turn":
+				UndoTurn();
+				break;
 			case "latency-live":
 			case "benchmark-result":
 				// Per-tick perf telemetry (latency-live fires ~2x/sec) — noise unless we're profiling.
@@ -376,6 +385,58 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private void PushRefreshToWeb(string path) {
 		if (_changes?.Get(path) is { } change) {
 			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+		}
+	}
+
+	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
+	private void PushTurnDiffToWeb(string path) {
+		if (_changes?.GetTurn(path) is { } turn) {
+			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
+		}
+	}
+
+	/// <summary>Clears all inline turn markers on a turn boundary (the prior turn is implicitly accepted).</summary>
+	private void PushTurnReset() => _bridge.PostToWeb(ChangeMessages.TurnReset());
+
+	/// <summary>Accepts the whole turn's changes: resets the per-turn baseline and clears the page's inline markers.</summary>
+	private void AcceptTurn() {
+		if (_changes is null) {
+			return;
+		}
+
+		_changes.AcceptTurn();
+		_bridge.PostToWeb(ChangeMessages.TurnReset());
+	}
+
+	/// <summary>
+	/// Undoes the whole turn's changes: reverts every file touched this turn to its turn baseline on disk and
+	/// live-refreshes the editor. Files created this turn truncate to empty (not deleted) — surfaced via a toast.
+	/// </summary>
+	private void UndoTurn() {
+		if (_changes is null || _fileSystem is null || _workspace is null) {
+			return;
+		}
+
+		var truncated = new List<string>();
+		foreach (var change in _changes.TurnChanges()) {
+			try {
+				if (!BufferStore.Save(_fileSystem, _workspace, change.Path, change.BaselineText)) {
+					Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
+					continue;
+				}
+
+				if (change.BaselineText.Length == 0) {
+					truncated.Add(Path.GetFileName(change.Path));
+				}
+
+				_changes.RecordChange(change.Path);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
+			}
+		}
+
+		if (truncated.Count > 0) {
+			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
 		}
 	}
 

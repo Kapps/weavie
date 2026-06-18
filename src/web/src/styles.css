@@ -438,6 +438,12 @@ body,
   border-right: 1px solid var(--border);
 }
 
+/* Navigator variant (no embedded diff pane): the file list fills the panel height. */
+.changes-panel-nav .changes-list {
+  flex: 1 1 auto;
+  border-right: none;
+}
+
 .changes-item {
   display: flex;
   align-items: center;
@@ -957,6 +963,16 @@ body,
   text-overflow: ellipsis;
 }
 
+/* Command-palette row: the keybinding hint sits flush right, dimmed and monospaced. */
+.tb-row-keys {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
 .tb-omnibar-empty,
 .tb-omnibar-more {
   padding: 10px;
@@ -1076,6 +1092,68 @@ body,
   bottom: 0;
   right: 0;
   cursor: nwse-resize;
+}
+
+/* Inline diff rendered inside the live editor (no standalone diff viewer): green added lines, red removed
+   "ghost" view-zones in place, char-level highlights, and a floating Accept/Reject(/Undo) toolbar. */
+.weavie-inline-added {
+  background: rgba(46, 160, 67, 0.16);
+}
+
+.weavie-inline-added-gutter {
+  background: #2ea043;
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+.weavie-inline-added-text {
+  background: rgba(46, 160, 67, 0.32);
+}
+
+.weavie-inline-removed {
+  background: rgba(210, 90, 90, 0.14);
+  border-left: 3px solid #d25a5a;
+  white-space: pre;
+  overflow-x: hidden;
+}
+
+.weavie-inline-removed-line {
+  padding-left: 8px;
+  color: #d29a9a;
+  text-decoration: line-through;
+  text-decoration-color: rgba(210, 90, 90, 0.5);
+}
+
+.weavie-inline-toolbar {
+  display: flex;
+  gap: 6px;
+  margin: 8px 14px 0 0;
+}
+
+.weavie-inline-toolbar button {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 12px;
+  font: inherit;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.weavie-inline-toolbar .weavie-inline-accept {
+  background: #1d5a2a;
+  border-color: #2e8b3d;
+  color: #e8ffe8;
+}
+
+.weavie-inline-toolbar .weavie-inline-reject {
+  background: #5a1d1d;
+  border-color: #a33;
+  color: #ffe8e8;
+}
+
+.weavie-inline-toolbar .weavie-inline-undo {
+  background: var(--bar);
+  color: var(--fg);
 }
 
 /* Toasts: bottom-right stack of transient notifications (e.g. a failed autosave). Above every panel

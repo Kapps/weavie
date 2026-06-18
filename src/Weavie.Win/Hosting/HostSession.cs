@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Changes;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
@@ -34,16 +35,25 @@ internal sealed class HostSession : IAsyncDisposable {
 		LayoutStore layout,
 		string workspaceRoot,
 		string pageOrigin,
-		string id) {
+		string id,
+		CommandRegistry commandRegistry,
+		KeybindingStore keybindings) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentException.ThrowIfNullOrEmpty(id);
+		ArgumentNullException.ThrowIfNull(commandRegistry);
+		ArgumentNullException.ThrowIfNull(keybindings);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
 		_bridge = bridge;
+
+		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and the web's
+		// invoke-command both route here. The window wires the WebInvoker (for web commands invoked by
+		// Claude) and the Core handlers (e.g. reopen terminal) once the session exists.
+		Commands = new CommandDispatcher(commandRegistry);
 
 		var fileSystem = new LocalFileSystem();
 		FileSystem = fileSystem;
@@ -61,7 +71,9 @@ internal sealed class HostSession : IAsyncDisposable {
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
 		// discovery env so this session's claude connects to us (the SOLE edit feed). The same store backs
 		// the settings MCP tools, so the user can change settings by talking to claude.
-		Ide = new IdeIntegration(new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor);
+		Ide = new IdeIntegration(
+			new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor,
+			commands: Commands, keybindings: keybindings);
 		Ide.Server.Log += Tagged("[mcp]");
 		if (Ide.RegistryServer is not null) {
 			Ide.RegistryServer.Log += Tagged("[registry]");
@@ -139,6 +151,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>The IDE-MCP + registry servers for this session.</summary>
 	public IdeIntegration Ide { get; }
+
+	/// <summary>Routes command invocations (runCommand over MCP, invoke-command from the web) to Core/web handlers.</summary>
+	public CommandDispatcher Commands { get; }
 
 	/// <summary>Tracks the editor's active file + selection so claude knows what the user is looking at.</summary>
 	public EditorStore Editor { get; }

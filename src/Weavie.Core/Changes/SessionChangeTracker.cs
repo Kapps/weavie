@@ -17,6 +17,9 @@ public sealed class SessionChangeTracker {
 	private readonly object _gate = new();
 	private readonly Dictionary<string, string> _baseline = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _current = new(StringComparer.Ordinal);
+	// Per-TURN baseline: each file's content at the start of the current turn. Reset on UserPromptSubmit
+	// (the prior turn is implicitly accepted). The inline diff renders against this, not the session baseline.
+	private readonly Dictionary<string, string> _turnBaseline = new(StringComparer.Ordinal);
 
 	/// <summary>Creates a tracker that reads file content through <paramref name="fileSystem"/>.</summary>
 	/// <param name="fileSystem">The filesystem seam used to snapshot baseline + current content.</param>
@@ -34,6 +37,9 @@ public sealed class SessionChangeTracker {
 	/// </summary>
 	public event Action<string>? FileChanged;
 
+	/// <summary>Raised when a new turn starts (UserPromptSubmit), so the host can clear the inline turn markers.</summary>
+	public event Action? TurnBegan;
+
 	/// <summary>
 	/// Folds a hook event into the change set: PreToolUse on a file-editing tool snapshots the baseline,
 	/// PostToolUse records the new content. Non-editing tools (Bash, etc.) are ignored.
@@ -41,6 +47,11 @@ public sealed class SessionChangeTracker {
 	/// <param name="request">The observed hook event.</param>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
+		if (request.Event == HookEventKind.UserPromptSubmit) {
+			BeginTurn();
+			return;
+		}
+
 		string? path = ExtractEditPath(request);
 		if (path is null) {
 			return;
@@ -53,13 +64,36 @@ public sealed class SessionChangeTracker {
 		}
 	}
 
+	/// <summary>
+	/// Marks a new turn: the prior turn's changes are implicitly accepted, so the per-turn baseline is reset
+	/// to the current content (turn diff becomes empty until the new turn edits). Raises <see cref="TurnBegan"/>.
+	/// </summary>
+	public void BeginTurn() {
+		lock (_gate) {
+			SnapshotTurnBaselineLocked();
+		}
+
+		TurnBegan?.Invoke();
+	}
+
+	/// <summary>Accepts the current turn's changes (resets the per-turn baseline to current), clearing the turn diff.</summary>
+	public void AcceptTurn() {
+		lock (_gate) {
+			SnapshotTurnBaselineLocked();
+		}
+	}
+
 	/// <summary>Snapshots <paramref name="path"/>'s current content as its session baseline, once.</summary>
 	/// <param name="path">Absolute file path.</param>
 	public void CaptureBaseline(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
-			if (!_baseline.ContainsKey(path)) {
-				_baseline[path] = ReadOrEmpty(path);
+			// Read once; seed both the session baseline (first touch ever) and the turn baseline (first touch
+			// this turn) if either is missing. Disk content here = the file before this edit = the right baseline.
+			if (!_baseline.ContainsKey(path) || !_turnBaseline.ContainsKey(path)) {
+				string content = ReadOrEmpty(path);
+				_baseline.TryAdd(path, content);
+				_turnBaseline.TryAdd(path, content);
 			}
 		}
 	}
@@ -70,6 +104,7 @@ public sealed class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
 			_baseline.TryAdd(path, string.Empty);
+			_turnBaseline.TryAdd(path, string.Empty);
 			_current[path] = ReadOrEmpty(path);
 		}
 		Changed?.Invoke();
@@ -113,6 +148,45 @@ public sealed class SessionChangeTracker {
 				BaselineText = _baseline.GetValueOrDefault(path, string.Empty),
 				CurrentText = current,
 			};
+		}
+	}
+
+	/// <summary>The files whose current content differs from this turn's baseline (the inline turn diff set).</summary>
+	public IReadOnlyList<FileChange> TurnChanges() {
+		lock (_gate) {
+			var changes = new List<FileChange>();
+			foreach (var (path, baseline) in _turnBaseline) {
+				if (_current.TryGetValue(path, out string? current) && !string.Equals(baseline, current, StringComparison.Ordinal)) {
+					changes.Add(new FileChange { Path = path, BaselineText = baseline, CurrentText = current });
+				}
+			}
+
+			return changes;
+		}
+	}
+
+	/// <summary>
+	/// The change for <paramref name="path"/> against this turn's baseline, or <see langword="null"/> if the
+	/// file wasn't touched this turn. Baseline may equal current (e.g. just accepted/reverted) — the caller
+	/// treats an equal pair as "no markers".
+	/// </summary>
+	/// <param name="path">Absolute file path.</param>
+	public FileChange? GetTurn(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		lock (_gate) {
+			if (!_turnBaseline.TryGetValue(path, out string? baseline) || !_current.TryGetValue(path, out string? current)) {
+				return null;
+			}
+
+			return new FileChange { Path = path, BaselineText = baseline, CurrentText = current };
+		}
+	}
+
+	// Reset the per-turn baseline to the current content of every tracked file. Caller holds _gate.
+	private void SnapshotTurnBaselineLocked() {
+		_turnBaseline.Clear();
+		foreach (var (path, content) in _current) {
+			_turnBaseline[path] = content;
 		}
 	}
 

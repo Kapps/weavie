@@ -43,4 +43,23 @@ public static class ChangeMessages {
 		ArgumentNullException.ThrowIfNull(content);
 		return JsonSerializer.Serialize(new { type = "refresh-file", path, content });
 	}
+
+	/// <summary>
+	/// One file's <em>turn</em> diff (this turn's baseline vs. current), for the inline diff in the live editor.
+	/// An equal baseline/current pair means "no markers" (the file was accepted or reverted this turn).
+	/// </summary>
+	/// <param name="change">The per-turn file change to serialize.</param>
+	public static string TurnDiff(FileChange change) {
+		ArgumentNullException.ThrowIfNull(change);
+		return JsonSerializer.Serialize(new {
+			type = "turn-diff",
+			path = change.Path,
+			name = Path.GetFileName(change.Path),
+			baseline = change.BaselineText,
+			current = change.CurrentText,
+		});
+	}
+
+	/// <summary>A turn boundary: the page clears all inline turn markers (the prior turn is implicitly accepted).</summary>
+	public static string TurnReset() => JsonSerializer.Serialize(new { type = "turn-reset" });
 }

@@ -1,8 +1,11 @@
 import type { JSX } from "solid-js";
 
-// Placeholder app logo: two interlaced strokes (a "weave") in the current color — our own brand mark, not
-// a library icon (it'll be replaced with the real logo). Inline SVG so it inherits `currentColor`, themes
-// for free, and ships no asset request. Defaults to 1em so its size follows the container's font-size.
+// The app mark — the full-color weavie icon (red/green/blue source chips weaving into the editor on a
+// charcoal tile). Loaded from the shared `/weavie.svg` asset, which is the single source of truth: the
+// same file backs the favicon and is rasterized into the Windows .ico / macOS appiconset. Sized via the
+// `size` prop (number = px), defaulting to 1em so it tracks the container's font-size (the title bar uses
+// 1em; the welcome screen sizes it up via font-size). It's a full-color brand mark now, so unlike the old
+// weave stroke it no longer follows `currentColor`.
 export function WeavieIcon(props: { size?: number | string }): JSX.Element {
   const size = (): string =>
     props.size === undefined
@@ -11,20 +14,14 @@ export function WeavieIcon(props: { size?: number | string }): JSX.Element {
         ? `${props.size}px`
         : props.size;
   return (
-    <svg width={size()} height={size()} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M2 5c5 0 5 14 10 14s5-14 10-14"
-        stroke="currentColor"
-        stroke-width="2.6"
-        stroke-linecap="round"
-      />
-      <path
-        d="M2 19c5 0 5-14 10-14s5 14 10 14"
-        stroke="currentColor"
-        stroke-width="2.6"
-        stroke-linecap="round"
-        opacity="0.5"
-      />
-    </svg>
+    <img
+      src="/weavie.svg"
+      alt=""
+      aria-hidden="true"
+      // Style as a string, not an object: a dynamic object-style makes the Solid compiler emit a
+      // `setStyleProperty` helper that solid-js@1.9.3 doesn't export (vite-plugin-solid version skew),
+      // which breaks the production build. The string form compiles to the exported `style` helper.
+      style={`width:${size()};height:${size()};display:block`}
+    />
   );
 }

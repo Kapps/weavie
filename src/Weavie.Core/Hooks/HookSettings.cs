@@ -27,8 +27,11 @@ public static class HookSettings {
 		using (var writer = new Utf8JsonWriter(buffer)) {
 			writer.WriteStartObject();
 			writer.WriteStartObject("hooks");
-			WriteEvent(writer, "PreToolUse", command, timeoutSeconds: 600);
-			WriteEvent(writer, "PostToolUse", command, timeoutSeconds: 30);
+			WriteEvent(writer, "PreToolUse", command, timeoutSeconds: 600, matcher: ToolMatcher);
+			WriteEvent(writer, "PostToolUse", command, timeoutSeconds: 30, matcher: ToolMatcher);
+			// Turn-start boundary (no matcher — UserPromptSubmit isn't tool-scoped); short timeout since the
+			// handler just resets the per-turn diff baseline in memory.
+			WriteEvent(writer, "UserPromptSubmit", command, timeoutSeconds: 10, matcher: null);
 			writer.WriteEndObject();
 			writer.WriteEndObject();
 		}
@@ -36,10 +39,13 @@ public static class HookSettings {
 		return Encoding.UTF8.GetString(buffer.WrittenSpan);
 	}
 
-	private static void WriteEvent(Utf8JsonWriter writer, string eventName, string command, int timeoutSeconds) {
+	private static void WriteEvent(Utf8JsonWriter writer, string eventName, string command, int timeoutSeconds, string? matcher) {
 		writer.WriteStartArray(eventName);
 		writer.WriteStartObject();
-		writer.WriteString("matcher", ToolMatcher);
+		if (matcher is not null) {
+			writer.WriteString("matcher", matcher);
+		}
+
 		writer.WriteStartArray("hooks");
 		writer.WriteStartObject();
 		writer.WriteString("type", "command");

@@ -1,6 +1,20 @@
 import { Search } from "lucide-solid";
-import { For, type JSX, Show, createEffect, createMemo, createSignal, on } from "solid-js";
+import {
+  For,
+  type JSX,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  on,
+  onCleanup,
+} from "solid-js";
+import { evaluateWhen } from "../commands/context";
+import { formatKey } from "../commands/keybindings";
+import { dispatchCommand, getCommands, onCommandsChanged } from "../commands/registry";
+import type { CommandInfo } from "../commands/types";
 import { fuzzyMatch } from "./fuzzy";
+import { omnibarRequest } from "./omnibar-controller";
 
 // Max rows rendered at once. With no query the rendered window is centered on the current file, so the
 // list "centers around" the open file without mounting thousands of rows for a large workspace.
@@ -28,10 +42,10 @@ function splitPath(abs: string, root: string): Row {
   };
 }
 
-// The center omnibar: a VS Code–style "Go to File" quick-open. Focusing it asks the host for the workspace
-// file index and opens a compact popover rooted at the project root, with the currently-open file centered
-// and highlighted. Typing fuzzy-filters; Enter/click opens the file in the editor. A leading ">" flips to a
-// (stubbed) command mode. Replaces the old floating "Files" button on Windows.
+// The center omnibar: a VS Code–style quick-open. Default mode is "Go to File" (fuzzy over the workspace
+// file index, opens the file). A leading ">" flips to the command palette (fuzzy over the command catalog,
+// Enter runs the command). Focusing it asks the host for the file index; the focus-omnibar commands open it
+// programmatically (via omnibarRequest) in either mode. Replaces the old floating "Files" button on Windows.
 export function Omnibar(props: {
   files: string[];
   root: string | null;
@@ -46,6 +60,10 @@ export function Omnibar(props: {
   let inputRef!: HTMLInputElement;
   let listRef: HTMLUListElement | undefined;
 
+  // The command catalog, kept live as the host pushes keybinding/catalog changes.
+  const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
+  onCleanup(onCommandsChanged(() => setCommandList(getCommands())));
+
   const rows = createMemo<Row[]>(() => {
     const root = props.root ?? "";
     return props.files.map((abs) => splitPath(abs, root));
@@ -53,7 +71,7 @@ export function Omnibar(props: {
 
   const commandMode = (): boolean => query().startsWith(">");
 
-  // The full filtered list (uncapped): empty query → alpha order; otherwise fuzzy-ranked best-first.
+  // The full filtered file list (uncapped): empty query → alpha order; otherwise fuzzy-ranked best-first.
   const filtered = createMemo<Row[]>(() => {
     if (commandMode()) {
       return [];
@@ -90,13 +108,38 @@ export function Omnibar(props: {
     return all.slice(0, VIEW_CAP);
   });
 
+  // The palette: visible commands whose `when` passes, fuzzy-ranked over the query after the ">".
+  const commandView = createMemo<CommandInfo[]>(() => {
+    if (!commandMode()) {
+      return [];
+    }
+    const all = commandList().filter((c) => c.showInPalette && evaluateWhen(c.when));
+    const q = query().slice(1).trim();
+    if (q.length === 0) {
+      return [...all].sort(
+        (a, b) =>
+          (a.category ?? "").localeCompare(b.category ?? "") || a.title.localeCompare(b.title),
+      );
+    }
+    const scored: { cmd: CommandInfo; score: number }[] = [];
+    for (const cmd of all) {
+      const m = fuzzyMatch(q, [cmd.title, cmd.category ?? "", ...cmd.aliases].join(" "));
+      if (m !== null) {
+        scored.push({ cmd, score: m.score });
+      }
+    }
+    scored.sort((a, b) => b.score - a.score);
+    return scored.map((s) => s.cmd);
+  });
+
+  const activeLen = (): number => (commandMode() ? commandView().length : view().length);
   const hiddenCount = (): number => Math.max(0, filtered().length - view().length);
 
   const scrollToSelected = (block: ScrollLogicalPosition): void => {
     (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
   };
 
-  // On open with no query, preselect + center the current file.
+  // On open with no query, preselect + center the current file (file mode only).
   createEffect(
     on(open, (isOpen) => {
       if (!isOpen) {
@@ -121,21 +164,49 @@ export function Omnibar(props: {
     ),
   );
 
-  const choose = (row: Row | undefined): void => {
-    if (row === undefined) {
-      return;
-    }
-    props.onOpenFile(row.abs);
+  // A focus-omnibar command opened us: switch to the requested mode, focus the input, refresh the index.
+  createEffect(
+    on(
+      omnibarRequest,
+      (request) => {
+        if (request === null) {
+          return;
+        }
+        setQuery(request.mode === "command" ? ">" : "");
+        setOpen(true);
+        props.onRequestIndex();
+        queueMicrotask(() => inputRef.focus());
+      },
+      { defer: true },
+    ),
+  );
+
+  const close = (): void => {
     setOpen(false);
     setQuery("");
     inputRef.blur();
   };
 
+  const choose = (row: Row | undefined): void => {
+    if (row === undefined) {
+      return;
+    }
+    props.onOpenFile(row.abs);
+    close();
+  };
+
+  const runCommand = (cmd: CommandInfo | undefined): void => {
+    if (cmd === undefined) {
+      return;
+    }
+    dispatchCommand(cmd.id);
+    close();
+  };
+
   const onKeyDown = (e: KeyboardEvent): void => {
-    const v = view();
     if (e.key === "ArrowDown") {
       e.preventDefault();
-      setSelected((i) => Math.min(i + 1, v.length - 1));
+      setSelected((i) => Math.min(i + 1, activeLen() - 1));
       scrollToSelected("nearest");
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
@@ -143,8 +214,10 @@ export function Omnibar(props: {
       scrollToSelected("nearest");
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (!commandMode()) {
-        choose(v[selected()]);
+      if (commandMode()) {
+        runCommand(commandView()[selected()]);
+      } else {
+        choose(view()[selected()]);
       }
     } else if (e.key === "Escape") {
       e.preventDefault();
@@ -187,7 +260,39 @@ export function Omnibar(props: {
         <div class="tb-omnibar-pop">
           <Show
             when={!commandMode()}
-            fallback={<div class="tb-omnibar-empty">Commands — coming soon</div>}
+            fallback={
+              <Show
+                when={commandView().length > 0}
+                fallback={<div class="tb-omnibar-empty">No matching commands</div>}
+              >
+                <ul class="tb-omnibar-list" ref={listRef}>
+                  <For each={commandView()}>
+                    {(cmd, i) => (
+                      <li>
+                        <button
+                          type="button"
+                          class="tb-omnibar-row"
+                          classList={{ selected: i() === selected() }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setSelected(i());
+                            runCommand(cmd);
+                          }}
+                        >
+                          <span class="tb-row-leaf">{cmd.title}</span>
+                          <Show when={cmd.category}>
+                            <span class="tb-row-dir">{cmd.category}</span>
+                          </Show>
+                          <Show when={cmd.keys.length > 0}>
+                            <span class="tb-row-keys">{cmd.keys.map(formatKey).join(" / ")}</span>
+                          </Show>
+                        </button>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
+            }
           >
             <Show
               when={view().length > 0}

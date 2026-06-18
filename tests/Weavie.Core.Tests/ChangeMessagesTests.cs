@@ -49,4 +49,23 @@ public sealed class ChangeMessagesTests {
 		Assert.Equal("/w/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("contents\n", root.GetProperty("content").GetString());
 	}
+
+	[Fact]
+	public void TurnDiff_CarriesBaselineAndCurrent() {
+		var change = new FileChange { Path = "/w/dir/a.cs", BaselineText = "before", CurrentText = "after" };
+
+		var root = Parse(ChangeMessages.TurnDiff(change));
+
+		Assert.Equal("turn-diff", root.GetProperty("type").GetString());
+		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
+		Assert.Equal("a.cs", root.GetProperty("name").GetString());
+		Assert.Equal("before", root.GetProperty("baseline").GetString());
+		Assert.Equal("after", root.GetProperty("current").GetString());
+	}
+
+	[Fact]
+	public void TurnReset_IsTypeOnly() {
+		var root = Parse(ChangeMessages.TurnReset());
+		Assert.Equal("turn-reset", root.GetProperty("type").GetString());
+	}
 }

@@ -5,14 +5,14 @@ namespace Weavie.Core.Hooks;
 /// <summary>
 /// A parsed Claude Code hook event — the JSON Claude pipes to a <c>command</c> hook's stdin, relayed to
 /// Weavie over the hook pipe. Carries enough to record a change (the tool plus its raw input) and to route
-/// a decision. Malformed / nameless payloads parse to <see langword="null"/>, and the bridge then stays out
-/// of the way.
+/// a decision. Malformed payloads parse to <see langword="null"/>, and the bridge then stays out of the way.
+/// Non-tool events (turn boundaries like <c>UserPromptSubmit</c>/<c>Stop</c>) carry an empty tool name.
 /// </summary>
 public sealed record HookRequest {
-	/// <summary>The hook event (pre/post tool use).</summary>
+	/// <summary>The hook event (pre/post tool use, or a turn boundary).</summary>
 	public required HookEventKind Event { get; init; }
 
-	/// <summary>The tool Claude is about to run / has run (e.g. <c>Bash</c>, <c>Edit</c>, <c>Write</c>).</summary>
+	/// <summary>The tool Claude is about to run / has run (e.g. <c>Bash</c>, <c>Edit</c>, <c>Write</c>); empty for non-tool events.</summary>
 	public required string ToolName { get; init; }
 
 	/// <summary>The tool's input as raw JSON (e.g. <c>{"command":"…"}</c> for Bash, <c>{"file_path":…}</c> for Edit).</summary>
@@ -25,8 +25,9 @@ public sealed record HookRequest {
 	public string? Cwd { get; init; }
 
 	/// <summary>
-	/// Parses a hook stdin payload. Returns <see langword="null"/> if the JSON is malformed or missing the
-	/// tool name — the caller treats that as "no opinion", leaving Claude's normal flow untouched.
+	/// Parses a hook stdin payload. Returns <see langword="null"/> if the JSON is malformed, or for a
+	/// <em>tool</em> event missing its tool name — the caller treats that as "no opinion", leaving Claude's
+	/// normal flow untouched. Non-tool events (turn boundaries) parse with an empty tool name.
 	/// </summary>
 	/// <param name="json">The JSON text Claude wrote to the hook's stdin.</param>
 	public static HookRequest? Parse(string json) {
@@ -41,16 +42,20 @@ public sealed record HookRequest {
 				return null;
 			}
 
+			var evt = MapEvent(GetString(root, "hook_event_name"));
 			string? toolName = GetString(root, "tool_name");
-			if (string.IsNullOrEmpty(toolName)) {
+			// Turn-boundary events (UserPromptSubmit/Stop) legitimately carry no tool name; everything else —
+			// tool events and unrecognized junk — needs one, else there's nothing to act on (stay out of the way).
+			bool isTurnEvent = evt is HookEventKind.UserPromptSubmit or HookEventKind.Stop;
+			if (!isTurnEvent && string.IsNullOrEmpty(toolName)) {
 				return null;
 			}
 
 			string toolInput = root.TryGetProperty("tool_input", out var input) ? input.GetRawText() : "{}";
 
 			return new HookRequest {
-				Event = MapEvent(GetString(root, "hook_event_name")),
-				ToolName = toolName,
+				Event = evt,
+				ToolName = toolName ?? string.Empty,
 				ToolInputJson = toolInput,
 				SessionId = GetString(root, "session_id"),
 				Cwd = GetString(root, "cwd"),
@@ -63,6 +68,8 @@ public sealed record HookRequest {
 	private static HookEventKind MapEvent(string? name) => name switch {
 		"PreToolUse" => HookEventKind.PreToolUse,
 		"PostToolUse" => HookEventKind.PostToolUse,
+		"UserPromptSubmit" => HookEventKind.UserPromptSubmit,
+		"Stop" => HookEventKind.Stop,
 		_ => HookEventKind.Other,
 	};
 

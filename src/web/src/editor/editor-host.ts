@@ -33,6 +33,17 @@ export interface EditorHost {
    * the caller MUST NOT dispose it; the model is owned by the host for the session.
    */
   getOrCreateFileModel(path: string, seed: string): monaco.editor.ITextModel;
+  /**
+   * Begins an inline review of an openDiff proposal: makes <paramref>path</paramref> the active editor
+   * showing <paramref>proposed</paramref>, and suppresses autosave/refresh for it until <see cref="endReview"/>
+   * (Claude writes the file on accept, not our autosave).
+   */
+  beginReview(path: string, proposed: string, line: number): void;
+  /**
+   * Ends an inline review and returns the file's final buffer content. When <paramref>keep</paramref> is
+   * false the buffer is reverted to <paramref>original</paramref> first. Re-enables autosave for the file.
+   */
+  endReview(path: string, keep: boolean, original: string): string;
   /** Restores the sample document — used to reset the editor after a benchmark run. */
   resetSample(): void;
 }
@@ -108,6 +119,10 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   const autosaveAttached = new WeakSet<monaco.editor.ITextModel>();
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
   let applyingRemote = false;
+  // Files whose buffer holds a pending openDiff proposal under inline review (default mode). Autosave AND
+  // host refresh are suppressed for these — Claude is the one who writes on accept (FILE_SAVED); pre-writing
+  // the proposal would double-write and, for a new file, collide ("file already exists").
+  const pendingReview = new Set<string>();
 
   const attachAutosave = (model: monaco.editor.ITextModel): void => {
     if (autosaveAttached.has(model) || !isUserFileModel(model)) {
@@ -121,7 +136,7 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
     // Attached to the MODEL (not an editor), so a file shown in both the main editor and the Changes-view
     // diff doesn't double-schedule.
     model.onDidChangeContent(() => {
-      if (applyingRemote) {
+      if (applyingRemote || pendingReview.has(key)) {
         return;
       }
       const content = model.getValue();
@@ -180,7 +195,7 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   const applyExternalEdit = (path: string, content: string): void => {
     const uri = monaco.Uri.file(path);
     const model = monaco.editor.getModel(uri);
-    if (model === null || model.getValue() === content) {
+    if (model === null || model.getValue() === content || pendingReview.has(uri.toString())) {
       return;
     }
     // Restore the view state around setValue so the refresh doesn't fling the visible file back to line 1;
@@ -197,6 +212,51 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
     }
   };
 
+  // Programmatic content swap that never echoes as an autosave (used by review begin/revert).
+  const setModelContentSilently = (
+    model: monaco.editor.ITextModel,
+    key: string,
+    content: string,
+  ): void => {
+    if (model.getValue() === content) {
+      lastApplied.set(key, content);
+      return;
+    }
+    applyingRemote = true;
+    lastApplied.set(key, content);
+    model.setValue(content);
+    applyingRemote = false;
+  };
+
+  const beginReview = (path: string, proposed: string, line: number): void => {
+    const uri = monaco.Uri.file(path);
+    // Mark pending BEFORE touching content so the proposal (and any tweaks during review) never autosave.
+    pendingReview.add(uri.toString());
+    const model = ensureModel(path, proposed);
+    setModelContentSilently(model, uri.toString(), proposed);
+    editor.setModel(model);
+    editor.revealLineInCenter(Math.max(1, line));
+    editor.focus();
+  };
+
+  const endReview = (path: string, keep: boolean, original: string): string => {
+    const uri = monaco.Uri.file(path);
+    const key = uri.toString();
+    const model = monaco.editor.getModel(uri);
+    if (model !== null && !keep) {
+      // Reject/cancel: restore the file to its pre-proposal content.
+      setModelContentSilently(model, key, original);
+    }
+    pendingReview.delete(key);
+    // Sync the autosave baseline to the buffer's current value: on keep, the kept content is what Claude
+    // writes (don't re-save it); on reject, it's `original`. Post-review user edits autosave from here.
+    const finalContent = model?.getValue() ?? (keep ? "" : original);
+    if (model !== null) {
+      lastApplied.set(key, finalContent);
+    }
+    return finalContent;
+  };
+
   const resetSample = (): void => {
     editor.getModel()?.setValue(SAMPLE_CODE);
   };
@@ -206,5 +266,13 @@ export async function createEditorHost(container: HTMLElement): Promise<EditorHo
   await nextPaint();
 
   log("info", "editor host ready");
-  return { editor, openFile, applyExternalEdit, getOrCreateFileModel, resetSample };
+  return {
+    editor,
+    openFile,
+    applyExternalEdit,
+    getOrCreateFileModel,
+    beginReview,
+    endReview,
+    resetSample,
+  };
 }

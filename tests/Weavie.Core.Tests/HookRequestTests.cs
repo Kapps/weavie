@@ -39,6 +39,25 @@ public sealed class HookRequestTests {
 	}
 
 	[Fact]
+	public void Parse_UserPromptSubmit_ParsesWithoutToolName() {
+		var request = HookRequest.Parse("""{"hook_event_name":"UserPromptSubmit","prompt":"hi","session_id":"s1","cwd":"/w"}""");
+
+		Assert.NotNull(request);
+		Assert.Equal(HookEventKind.UserPromptSubmit, request!.Event);
+		Assert.Equal(string.Empty, request.ToolName);
+		Assert.Equal("/w", request.Cwd);
+	}
+
+	[Fact]
+	public void Parse_Stop_ParsesWithoutToolName() {
+		var request = HookRequest.Parse("""{"hook_event_name":"Stop","session_id":"s1"}""");
+
+		Assert.NotNull(request);
+		Assert.Equal(HookEventKind.Stop, request!.Event);
+		Assert.Equal(string.Empty, request.ToolName);
+	}
+
+	[Fact]
 	public void Parse_MissingToolInput_DefaultsToEmptyObject() {
 		var request = HookRequest.Parse("""{"hook_event_name":"PreToolUse","tool_name":"Bash"}""");
 

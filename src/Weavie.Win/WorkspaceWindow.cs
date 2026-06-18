@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
 using Weavie.Core.Changes;
+using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Layout;
@@ -59,6 +61,12 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 	// the session exists). _focused backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private ShellController? _shell;
 	private bool _focused = true;
+	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
+	// the web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
+	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
+	// The app-global keybindings store outlives the window, so its KeybindingsChanged handler is kept here
+	// and detached on close to avoid leaking this window into the store.
+	private Action? _onKeybindingsChanged;
 #if DEBUG
 	private WebDevServer? _webDev;
 #endif
@@ -323,7 +331,23 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// shell), the IDE-MCP server + lock file (so the spawned claude connects to us as the SOLE edit
 		// feed), the LSP bridge, and the file/diff presenters. Created once pageOrigin is known so the LSP
 		// WS origin is pinned correctly.
-		_session = new HostSession(_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8]);
+		_session = new HostSession(
+			_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8],
+			_app.CommandRegistry, _app.Keybindings);
+
+		// Commands: wire this session's dispatcher to the web (so Claude's runCommand of a web command posts
+		// run-command + awaits its ack) and register the Core-side handlers (reopen terminal → restart the
+		// shell pane, marshaled to the UI thread).
+		_session.Commands.WebInvoker = InvokeWebCommandAsync;
+		_session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
+			if (InvokeRequired) {
+				BeginInvoke(() => _session?.Shell.Restart());
+			} else {
+				_session?.Shell.Restart();
+			}
+
+			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
+		});
 
 		// Custom title bar: route its window-control / menu-action / file-index messages (handled in
 		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
@@ -334,6 +358,10 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// permission mode). The events fire off the UI thread (the hook accept loop); PostToWeb marshals.
 		_session.Changes.Changed += PushChangesToWeb;
 		_session.Changes.FileChanged += PushRefreshToWeb;
+		// Inline diff: push the edited file's per-turn diff so the page can render it in the live editor, and
+		// clear all inline markers when a new turn starts (the prior turn is implicitly accepted).
+		_session.Changes.FileChanged += PushTurnDiffToWeb;
+		_session.Changes.TurnBegan += PushTurnReset;
 
 		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
 		// lazily start a monaco-languageclient per language on first matching document.
@@ -342,6 +370,12 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+
+		// Commands + keybindings: inject the catalog + resolved bindings before navigation so the web's
+		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync(
+			$"window.__WEAVIE_COMMANDS__ = {_app.Keybindings.BuildCommandsJson()}; "
+			+ $"window.__WEAVIE_KEYBINDINGS__ = {_app.Keybindings.BuildKeybindingsJson()};");
 
 		// Custom title bar config: tell the web to render the Windows chrome (icon + File/View menus +
 		// omnibar + window controls), with the workspace label and the recents for File ▸ Open Recent.
@@ -366,6 +400,14 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
 			}
 		};
+
+		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
+		// web rebuilds its resolver + palette live. PostToWeb marshals to the UI thread itself; the store is
+		// thread-safe, so the off-thread change event can call it directly. Detached on close (Shutdown).
+		_onKeybindingsChanged = () => _bridge.PostToWeb(
+			$"{{\"type\":\"commands\",\"commands\":{_app.Keybindings.BuildCommandsJson()},"
+			+ $"\"keybindings\":{_app.Keybindings.BuildKeybindingsJson()}}}");
+		_app.Keybindings.KeybindingsChanged += _onKeybindingsChanged;
 
 		// Layout: when the store changes (a reconciled web edit, or a future MCP setLayout), push the
 		// canonical document back so the web re-renders. Change events arrive off the UI thread.
@@ -468,6 +510,23 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 					root.GetProperty("path").GetString() ?? string.Empty,
 					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
 				break;
+			case "accept-turn":
+				AcceptTurn();
+				break;
+			case "undo-turn":
+				UndoTurn();
+				break;
+			case "invoke-command":
+				// A keybinding/palette in the web invoked a Core command — run it here (fire-and-forget; the
+				// web doesn't await a result for its own triggers).
+				InvokeCommandFromWeb(
+					root.TryGetProperty("id", out var ciEl) ? ciEl.GetString() ?? string.Empty : string.Empty,
+					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null);
+				break;
+			case "command-ack":
+				// The web finished a run-command (a web command Claude invoked over MCP) — settle the pending await.
+				CompleteWebCommand(root);
+				break;
 			case "window-control":
 				_shell?.HandleWindowControl(root);
 				break;
@@ -559,6 +618,59 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		}
 	}
 
+	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
+	private void PushTurnDiffToWeb(string path) {
+		if (_session?.Changes.GetTurn(path) is { } turn) {
+			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
+		}
+	}
+
+	/// <summary>Clears all inline turn markers on a turn boundary (the prior turn is implicitly accepted).</summary>
+	private void PushTurnReset() => _bridge.PostToWeb(ChangeMessages.TurnReset());
+
+	/// <summary>Accepts the whole turn's changes: resets the per-turn baseline and clears the page's inline markers.</summary>
+	private void AcceptTurn() {
+		if (_session is null) {
+			return;
+		}
+
+		_session.Changes.AcceptTurn();
+		_bridge.PostToWeb(ChangeMessages.TurnReset());
+	}
+
+	/// <summary>
+	/// Undoes the whole turn's changes: reverts every file touched this turn to its turn baseline on disk and
+	/// live-refreshes the editor. Files created this turn truncate to empty (not deleted) — surfaced via a toast.
+	/// </summary>
+	private void UndoTurn() {
+		if (_session is null) {
+			return;
+		}
+
+		var truncated = new List<string>();
+		foreach (var change in _session.Changes.TurnChanges()) {
+			try {
+				if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, change.Path, change.BaselineText)) {
+					Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
+					continue;
+				}
+
+				if (change.BaselineText.Length == 0) {
+					truncated.Add(Path.GetFileName(change.Path));
+				}
+
+				// Re-read disk (now the baseline) into the tracker → fires FileChanged → refresh + empty turn diff.
+				_session.Changes.RecordChange(change.Path);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
+			}
+		}
+
+		if (truncated.Count > 0) {
+			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
+		}
+	}
+
 	/// <summary>
 	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
 	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
@@ -584,6 +696,69 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	private void Notify(string level, string message) =>
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
+
+	/// <summary>
+	/// Runs a Core command the web asked for (its keybinding/palette resolved to a <see cref="CommandLocation.Core"/>
+	/// command). Fire-and-forget: the web doesn't await a result for its own triggers; failures are logged.
+	/// </summary>
+	private void InvokeCommandFromWeb(string id, string? argsJson) {
+		if (_session is null || string.IsNullOrEmpty(id)) {
+			return;
+		}
+
+		_ = RunCommandSafeAsync(id, argsJson);
+	}
+
+	private async Task RunCommandSafeAsync(string id, string? argsJson) {
+		try {
+			var result = await _session!.Commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
+			if (!result.Ok) {
+				Console.WriteLine($"[weavie] invoke-command {id} failed: {result.Error}");
+			}
+		} catch (Exception ex) when (ex is UnknownCommandException or InvalidOperationException) {
+			Console.WriteLine($"[weavie] invoke-command {id} error: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// The dispatcher's web invoker: posts a <c>run-command</c> to the page and awaits its <c>command-ack</c>
+	/// (or a 5s timeout). This is how Claude's <c>runCommand</c> of a <see cref="CommandLocation.Web"/> command
+	/// reaches the UI and gets an honest invoked/failed result back.
+	/// </summary>
+	private async Task<CommandResult> InvokeWebCommandAsync(string id, string? argsJson, CancellationToken ct) {
+		string token = Guid.NewGuid().ToString("n");
+		var completion = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+		_pendingWebCommands[token] = completion;
+		try {
+			string argsPart = string.IsNullOrEmpty(argsJson) ? "null" : argsJson;
+			_bridge.PostToWeb(
+				$"{{\"type\":\"run-command\",\"id\":{JsonString(id)},\"args\":{argsPart},\"token\":{JsonString(token)}}}");
+
+			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
+			timeout.CancelAfter(TimeSpan.FromSeconds(5));
+			await using (timeout.Token.Register(() => completion.TrySetResult(
+				CommandResult.Failure($"Command '{id}' was dispatched but the UI didn't acknowledge within 5s."))).ConfigureAwait(false)) {
+				return await completion.Task.ConfigureAwait(false);
+			}
+		} finally {
+			_pendingWebCommands.TryRemove(token, out _);
+		}
+	}
+
+	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
+	private void CompleteWebCommand(JsonElement root) {
+		string? token = root.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
+		if (string.IsNullOrEmpty(token) || !_pendingWebCommands.TryGetValue(token, out var completion)) {
+			return;
+		}
+
+		bool ok = root.TryGetProperty("ok", out var okEl) && okEl.ValueKind is JsonValueKind.True or JsonValueKind.False && okEl.GetBoolean();
+		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
+		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
+	}
+
+	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
+	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
 
 	private void PostDemoDiff() {
 		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
@@ -664,6 +839,17 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 	}
 
 	private void Shutdown() {
+		if (_onKeybindingsChanged is not null) {
+			_app.Keybindings.KeybindingsChanged -= _onKeybindingsChanged;
+			_onKeybindingsChanged = null;
+		}
+
+		// Fail any web command still awaiting an ack so a runCommand in flight at close doesn't hang.
+		foreach (var pending in _pendingWebCommands.Values) {
+			pending.TrySetResult(CommandResult.Failure("The window closed before the command completed."));
+		}
+
+		_pendingWebCommands.Clear();
 		_session?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 #if DEBUG
 		_webDev?.Dispose();

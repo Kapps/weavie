@@ -8,6 +8,12 @@ public enum HookEventKind {
 	/// <summary>Fired after a tool ran; carries the result. Weavie's "it actually happened" record.</summary>
 	PostToolUse,
 
+	/// <summary>Fired when the user submits a prompt — Weavie's turn-start boundary (implicitly accepts the prior turn).</summary>
+	UserPromptSubmit,
+
+	/// <summary>Fired when Claude finishes responding — the turn-end boundary (observed; not acted on yet).</summary>
+	Stop,
+
 	/// <summary>Any other hook event (unrecognized name): observed, never acted on.</summary>
 	Other,
 }

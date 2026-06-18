@@ -12,6 +12,8 @@
 //    `openEditor` callback below, so weavie keeps full control of its editors and file-opening.
 
 import { initialize } from "@codingame/monaco-vscode-api";
+// TEMP probe imports (throwaway, do not commit) — see the probe block in doInit().
+import { IFileService, getService } from "@codingame/monaco-vscode-api/services";
 import getEditorServiceOverride, {
   type OpenEditor,
 } from "@codingame/monaco-vscode-editor-service-override";
@@ -34,6 +36,8 @@ import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-csharp-default-extension";
 import "@codingame/monaco-vscode-go-default-extension";
+// TEMP probe (throwaway, do not commit).
+import { log } from "../bridge";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
@@ -98,6 +102,24 @@ async function doInit(): Promise<void> {
     ...getModelServiceOverride(),
     ...getEditorServiceOverride(openEditor),
   });
+
+  // TEMP probe (throwaway, do not commit): settle the load-bearing unknown — is a `file://` file-system
+  // provider registered, and what else? `listCapabilities()` enumerates every registered scheme (with its
+  // capability bitmask); `hasProvider(file://)` decides which text-model-resolver branch workspace files
+  // take (working-copy vs content-provider). Look for `[probe]` in the host log, then remove this block.
+  try {
+    const fileService = await getService(IFileService);
+    const schemes = [...fileService.listCapabilities()]
+      .map((c) => `${c.scheme}=${c.capabilities}`)
+      .join(", ");
+    log("info", `[probe] fs providers: ${schemes}`);
+    log(
+      "info",
+      `[probe] hasProvider(file://) = ${fileService.hasProvider(monaco.Uri.file("C:/x.cs"))}`,
+    );
+  } catch (error) {
+    log("error", `[probe] failed: ${String(error)}`);
+  }
 
   // Select a dark theme up front, before any editor exists, so the first editor paint is dark instead
   // of flashing the service layer's default (light) theme while the real one loads.

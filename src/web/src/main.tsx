@@ -21,6 +21,17 @@ window.addEventListener("error", (e) => {
 });
 window.addEventListener("unhandledrejection", (e) => {
   postToHost({ type: "log", level: "error", message: `unhandledrejection: ${String(e.reason)}` });
+  // TEMP probe (throwaway, do not commit): for the file-read rejections we're chasing, also dump the
+  // stack so we can see who calls readFile(file://…). Remove once the caller is identified.
+  const reason = String(e.reason);
+  if (reason.includes("Unable to read file") || reason.includes("nonexistent file")) {
+    const stack = (e.reason as { stack?: string } | undefined)?.stack;
+    postToHost({
+      type: "log",
+      level: "error",
+      message: `[probe] readFile stack:\n${stack ?? "(none)"}`,
+    });
+  }
 });
 
 postToHost({ type: "ready" });

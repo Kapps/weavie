@@ -21,14 +21,42 @@
       }
       #splash.hide { opacity: 0; }
     </style>
+    <!-- Boot error capture. A CLASSIC inline script, run outside the ES-module graph: if a module fails
+         to load or link (e.g. a bad import), main.tsx — and the error handlers it would install — never
+         runs, so without this a boot failure is invisible (splash hangs forever, no log). This survives
+         that and forwards uncaught errors to the host log, so a broken boot is loud, never silent. -->
+    <script>
+      (function () {
+        function toHost(level, message) {
+          try {
+            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.weavie;
+            if (h) h.postMessage(JSON.stringify({ type: "log", level: level, message: message }));
+          } catch (err) {}
+        }
+        window.addEventListener(
+          "error",
+          function (e) {
+            var t = e.target;
+            if (t && t !== window && t.tagName) {
+              toHost("warn", "resource failed to load: " + (t.src || t.href || t.tagName));
+            } else {
+              var at = e.filename ? " @ " + e.filename + ":" + e.lineno + ":" + e.colno : "";
+              toHost("error", "uncaught: " + (e.message || "unknown error") + at);
+            }
+          },
+          true,
+        );
+        window.addEventListener("unhandledrejection", function (e) {
+          var r = e.reason;
+          toHost("error", "unhandledrejection: " + String((r && r.message) || r));
+        });
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
     <div id="splash">
-      <svg width="58" height="58" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M2 5c5 0 5 14 10 14s5-14 10-14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" />
-        <path d="M2 19c5 0 5-14 10-14s5 14 10 14" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" opacity="0.5" />
-      </svg>
+      <img src="/weavie.svg" width="144" height="144" alt="" />
       <span>weavie</span>
     </div>
     <script type="module" src="/src/main.tsx"></script>

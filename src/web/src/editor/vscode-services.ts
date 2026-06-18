@@ -12,8 +12,6 @@
 //    `openEditor` callback below, so weavie keeps full control of its editors and file-opening.
 
 import { initialize } from "@codingame/monaco-vscode-api";
-// TEMP probe imports (throwaway, do not commit) — see the resolver-wrap block in doInit().
-import { ITextModelService, getService } from "@codingame/monaco-vscode-api/services";
 import getEditorServiceOverride, {
   type OpenEditor,
 } from "@codingame/monaco-vscode-editor-service-override";
@@ -36,8 +34,6 @@ import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-csharp-default-extension";
 import "@codingame/monaco-vscode-go-default-extension";
-// TEMP probe (throwaway, do not commit).
-import { log } from "../bridge";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
@@ -123,27 +119,6 @@ async function doInit(): Promise<void> {
     ...getModelServiceOverride(),
     ...getEditorServiceOverride(openEditor),
   });
-
-  // TEMP probe (throwaway, do not commit): the rejection is a REDUNDANT createModelReference(file://…) on
-  // an already-open file, taking the working-copy branch. The async stack hides the synchronous caller, and
-  // the instance from getService is a DIFFERENT container than the caller's — so patch the resolver's
-  // PROTOTYPE (shared by every instance) to log the call site for file:// URIs. Remove after.
-  try {
-    const resolver = await getService(ITextModelService);
-    const proto = Object.getPrototypeOf(resolver) as {
-      createModelReference: (uri: monaco.Uri) => unknown;
-    };
-    const original = proto.createModelReference;
-    proto.createModelReference = function wrapped(this: unknown, uri: monaco.Uri): unknown {
-      if (uri.scheme === "file") {
-        log("error", `[probe] createModelReference(${uri.path})\n${new Error("call-site").stack}`);
-      }
-      return original.call(this, uri);
-    };
-    log("info", "[probe] createModelReference (prototype) wrapped");
-  } catch (error) {
-    log("error", `[probe] wrap failed: ${String(error)}`);
-  }
 
   // Select a dark theme up front, before any editor exists, so the first editor paint is dark instead
   // of flashing the service layer's default (light) theme while the real one loads.

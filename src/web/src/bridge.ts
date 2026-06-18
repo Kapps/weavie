@@ -7,7 +7,6 @@
 // absent and outbound messages are no-ops — by design, never a thrown error.
 
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
-import type { BenchmarkConfig, BenchmarkReport, LiveLatencyStats } from "./latency/types";
 import type { LayoutDocument } from "./layout/types";
 
 // The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
@@ -40,8 +39,6 @@ export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
-  | { type: "latency-live"; stats: LiveLatencyStats }
-  | { type: "benchmark-result"; report: BenchmarkReport }
   // Terminal: the xterm pane is mounted and ready to host the PTY child.
   | { type: "term-ready"; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; session: TermSession; dataB64: string }
@@ -97,8 +94,6 @@ export type HostBoundMessage =
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
-  | { type: "run-benchmark"; config?: Partial<BenchmarkConfig> }
-  | { type: "set-load"; enabled: boolean }
   | { type: "term-output"; session: TermSession; dataB64: string }
   | { type: "term-exit"; session: TermSession; code: number }
   // Host tore down this session's PTY (e.g. the shell setting changed): clear the pane and

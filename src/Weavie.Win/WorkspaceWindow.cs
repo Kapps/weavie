@@ -42,12 +42,6 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
         })();
         """;
 
-	// Perf instrumentation (the live latency HUD and its per-tick log spam) is opt-in via
-	// WEAVIE_DEBUG_PERFORMANCE: surfaced to the web app as ?debugperf, and used here to gate the
-	// latency-live/benchmark-result console logging. Off by default so normal runs stay quiet.
-	private readonly bool _debugPerformance =
-		!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_PERFORMANCE"));
-
 	private readonly AppController _app;
 	private readonly string _workspaceRoot;
 	private readonly SettingsStore _settings;
@@ -420,17 +414,8 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		};
 
 		var query = new List<string>();
-		if (_debugPerformance) {
-			query.Add("debugperf=1");
-		}
 		if (startupTiming) {
 			query.Add("startuptiming=1");
-		}
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_AUTOBENCH"))) {
-			query.Add("autobench=1");
-		}
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_FPSPROBE"))) {
-			query.Add("fpsprobe=1");
 		}
 		string qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
 		core.Navigate($"{pageOrigin}/index.html{qs}");
@@ -538,14 +523,6 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 				break;
 			case "request-file-index":
 				_shell?.PushFileIndex();
-				break;
-			case "latency-live":
-			case "benchmark-result":
-				// Per-tick perf telemetry (latency-live fires ~2x/sec) — noise unless we're profiling.
-				if (_debugPerformance) {
-					Console.WriteLine($"[weavie] {json}");
-					Console.Out.Flush();
-				}
 				break;
 			case "ready":
 				// The page's bridge listener is live; push the persisted layout so it restores on launch, and

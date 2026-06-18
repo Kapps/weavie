@@ -29,7 +29,7 @@ MCP tools *on the registry server*. There are two kinds.
   `setSetting`, which lets the user say *"set my weavie shell to nushell."* The registry's
   descriptions and aliases are what let Claude map natural language onto the exact setting key.
   Concrete design: [docs/specs/settings.md](../specs/settings.md).
-- **Commands** *(implemented: Core + Windows + web; macOS host wiring pending)* — named actions Weavie can perform (e.g. "reopen the
+- **Commands** *(implemented: Core + Windows + macOS hosts + web)* — named actions Weavie can perform (e.g. "reopen the
   terminal", "open the diff panel", "split the editor"). Registered the same way and surfaced as
   invokable MCP tools (`listCommands`/`runCommand`), so the user can ask Claude to run them — and the
   same declaration drives keybindings and the omnibar command palette. Design:
@@ -61,6 +61,6 @@ hand-written MCP tools per capability:
 - Settings registry + registry MCP server — implemented. Verified end to end: the embedded Claude
   connects to the registry server via `--mcp-config` and calls `mcp__weavie__setSetting` to change the
   shell against the running app (see the settings spec).
-- Commands registry — [implemented](../specs/commands.md) (Core + Windows host + web; macOS host wiring
-  pending). Registers onto the same registry server (`listCommands`/`runCommand`); the one declaration also
-  drives keybindings (`~/.weavie/keybindings.json`) + the omnibar command palette.
+- Commands registry — [implemented](../specs/commands.md) (Core + Windows + macOS hosts + web). Registers
+  onto the same registry server (`listCommands`/`runCommand`); the one declaration also drives keybindings
+  (`~/.weavie/keybindings.json`) + the omnibar command palette.

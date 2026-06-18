@@ -28,6 +28,21 @@ public static class CoreCommands {
 	/// <summary>Reopens (restarts) the shell terminal pane. The one Core-side command in the initial set.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
 
+	/// <summary>Jumps to the next change hunk in the inline diff.</summary>
+	public const string NextChange = "weavie.diff.nextChange";
+
+	/// <summary>Jumps to the previous change hunk in the inline diff.</summary>
+	public const string PrevChange = "weavie.diff.prevChange";
+
+	/// <summary>Accepts the active inline diff (keep a proposed edit, or clear the turn's markers).</summary>
+	public const string AcceptChange = "weavie.diff.accept";
+
+	/// <summary>Rejects the active inline diff proposal (default-mode review only).</summary>
+	public const string RejectChange = "weavie.diff.reject";
+
+	/// <summary>Undoes the current turn's inline changes (acceptEdits/bypass mode).</summary>
+	public const string UndoChange = "weavie.diff.undo";
+
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
 		var registry = new CommandRegistry();
@@ -106,6 +121,60 @@ public static class CoreCommands {
 			Category = "Terminal",
 			Description = "Restart the shell terminal pane (kills its scrollback and any running command).",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
+		});
+
+		// Inline-diff navigation + actions (the floating diff toolbar). All web-handled; the toolbar buttons
+		// and these keybindings/palette entries route to the same handlers. The web handlers DECLINE (let the
+		// key fall through to the editor) when no diff is active, so these reuse familiar editor chords safely:
+		// $mod+Down/Up navigate hunks, $mod+Enter accepts, $mod+Backspace rejects (Cursor-style). Undo is left
+		// unbound (a whole-turn revert is destructive — bind it deliberately).
+		registry.Register(new CommandDefinition {
+			Id = NextChange,
+			Title = "Next Change",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Jump to the next change in the inline diff.",
+			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Down" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PrevChange,
+			Title = "Previous Change",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Jump to the previous change in the inline diff.",
+			Aliases = ["previous change", "prev change", "previous diff", "previous hunk"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Up" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AcceptChange,
+			Title = "Accept Change",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Keep the proposed edit under review, or clear the current turn's inline markers.",
+			Aliases = ["accept change", "keep change", "keep edit", "accept edit"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RejectChange,
+			Title = "Reject Change",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Reject the proposed edit under review (default-mode openDiff).",
+			Aliases = ["reject change", "reject edit", "discard proposal"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = UndoChange,
+			Title = "Undo Change",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Revert the current turn's changes (acceptEdits/bypass mode).",
+			Aliases = ["undo change", "undo turn", "revert changes", "revert turn"],
 		});
 	}
 }

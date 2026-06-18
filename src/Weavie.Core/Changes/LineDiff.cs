@@ -30,7 +30,7 @@ public static class LineDiff {
 
 	private static string[] SplitLines(string text) =>
 		text.Length == 0 ? [] : text.ReplaceLineEndings("\n").Split('\n');
-
+	
 	private static int LcsLength(string[] a, string[] b) {
 		int[] previous = new int[b.Length + 1];
 		int[] current = new int[b.Length + 1];

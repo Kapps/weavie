@@ -34,6 +34,18 @@ import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-csharp-default-extension";
 import "@codingame/monaco-vscode-go-default-extension";
+
+// Semantic-highlighting CONSUMER. monaco-languageclient registers a DocumentSemanticTokensProvider, but
+// the editor-side feature that pulls tokens from it and repaints identifiers with the theme's
+// `semanticTokenColors` lives in the full monaco-vscode-api — it is NOT in the editor-api ("monaco-editor")
+// bundle, and none of the service overrides above import it. Without these two side-effect imports the
+// provider is registered yet never consumed: the LSP's class/parameter/etc. coloring silently never
+// applies and you see only TextMate (regex) colors. `documentSemanticTokens` registers the feature;
+// `editorFeatures` is the workbench contribution that constructs registered editor features when an editor
+// is created (same registerWorkbenchContribution2 / BlockRestore path the working TextMate tokenizer uses).
+// Both must load before initialize().
+import "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/semanticTokens/browser/documentSemanticTokens";
+import "@codingame/monaco-vscode-api/vscode/vs/workbench/contrib/codeEditor/browser/editorFeatures";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";

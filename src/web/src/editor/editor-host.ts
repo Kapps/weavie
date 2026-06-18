@@ -19,6 +19,7 @@ import {
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { createEditor, monaco } from "./monaco-setup";
+import { editorSession, setLocalSession } from "./session-store";
 import { initEditorServices } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
@@ -155,6 +156,37 @@ export async function createEditorHost(
     editor.onDidChangeModel(scheduleEmitActiveEditor),
     editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
   ];
+
+  // Persist the editor session (active file + Monaco view state) so a relaunch — and a hot reload — reopens
+  // the same file at the same scroll/cursor/folding. Debounced like the active-editor emit; scroll feeds it
+  // too (view state includes scroll). Only a real file working copy is captured (isUserFileModel), so an
+  // empty editor or a transient review model persists an empty session. setLocalSession both keeps the live
+  // store fresh (for HMR fidelity) and posts the debounced editor-session-changed to the host. The listeners
+  // join `disposables` so a hot-reloaded host doesn't stack a second set on the surviving models.
+  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+  const captureSession = (): void => {
+    const model = editor.getModel();
+    if (model === null || !isUserFileModel(model)) {
+      return;
+    }
+    const path = model.uri.fsPath;
+    setLocalSession({
+      active: path,
+      // List-shaped (one visible pane today) so it extends cleanly to tabs.
+      open: [{ path, viewState: editor.saveViewState() ?? null }],
+    });
+  };
+  const scheduleCaptureSession = (): void => {
+    if (sessionTimer !== undefined) {
+      clearTimeout(sessionTimer);
+    }
+    sessionTimer = setTimeout(captureSession, 200);
+  };
+  disposables.push(
+    editor.onDidChangeModel(scheduleCaptureSession),
+    editor.onDidChangeCursorSelection(scheduleCaptureSession),
+    editor.onDidScrollChange(scheduleCaptureSession),
+  );
 
   // Save: the working copy is debounce-flushed to disk through the file provider so the embedded Claude
   // (which reads disk directly) sees the user's current state. A blind overwrite (ignoreModifiedSince) —
@@ -340,6 +372,9 @@ export async function createEditorHost(
     if (emitTimer !== undefined) {
       clearTimeout(emitTimer);
     }
+    if (sessionTimer !== undefined) {
+      clearTimeout(sessionTimer);
+    }
     for (const subscription of disposables) {
       subscription.dispose();
     }
@@ -348,9 +383,35 @@ export async function createEditorHost(
     // (after a hot reload) reattaches to the same working copies and the refcount never hits 0.
   };
 
+  // Restore the editor across a relaunch / Ctrl+R: the host reads the persisted session off disk and pushes
+  // set-editor-session on `ready`, seeding the (HMR-surviving) session store before this heavy editor chunk
+  // finishes loading. Reopen the active file as a real working copy — ensureRef resolves it from disk through
+  // the host file provider, so no file content needs to ride along on the wire — at its saved view state.
+  // Non-active entries are left to reopen lazily (no eager LSP spin-up for invisible files).
+  const restoreSession = async (): Promise<void> => {
+    const session = editorSession();
+    if (session === null || session.active === null) {
+      return;
+    }
+    const entry = session.open.find((open) => open.path === session.active);
+    if (entry === undefined) {
+      return;
+    }
+    try {
+      const ref = await ensureRef(monaco.Uri.file(entry.path));
+      editor.setModel(ref.object.textEditorModel);
+      if (entry.viewState != null) {
+        editor.restoreViewState(entry.viewState as monaco.editor.ICodeEditorViewState);
+      }
+    } catch (error) {
+      log("error", `session restore failed for ${entry.path}: ${String(error)}`);
+    }
+  };
+
   // Hot-reload restore: the freshly-built widget comes up with no model. If a file was open before the reload
   // its working-copy reference survived on window — reattach it with its scroll/cursor so the reload is
-  // seamless rather than blank, and re-wire its save listener.
+  // seamless rather than blank, and re-wire its save listener. On a fresh page (launch / Ctrl+R) that snapshot
+  // is absent, so fall back to the persisted editor session instead.
   const lastDoc = window.__WEAVIE_EDITOR_DOC__;
   if (lastDoc !== undefined) {
     try {
@@ -362,6 +423,8 @@ export async function createEditorHost(
     } catch (error) {
       log("error", `hot-reload restore failed for ${lastDoc.uri}: ${String(error)}`);
     }
+  } else {
+    await restoreSession();
   }
 
   // Wait for Monaco's first real paint before resolving. The caller fades the splash on resolution, so

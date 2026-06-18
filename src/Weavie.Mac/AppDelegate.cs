@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using CoreGraphics;
 using Foundation;
+using Weavie.Core;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -10,6 +11,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Theming;
+using Weavie.Core.Workspaces;
 using Weavie.Mac.Hosting;
 using WebKit;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -33,6 +35,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private LayoutStore? _layout;
 	private ThemeOverridesStore? _themeOverrides;
 	private EditorStore? _editor;
+	private EditorSessionStore? _editorSession;
 	private SessionChangeTracker? _changes;
 	private LocalFileSystem? _fileSystem;
 	private FileProviderService? _fileProvider;
@@ -138,6 +141,16 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_fileProvider = new FileProviderService(fileSystem, workspace);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
+
+		// Per-workspace editor session: the open files + per-file Monaco view state under
+		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
+		// scroll/cursor on launch. Web-written; pushed back on ready. Keyed by the workspace path's id so it
+		// is per-folder even though the macOS layout store is still the legacy single-window file.
+		_editorSession = new EditorSessionStore(fileSystem, WeaviePaths.WorkspaceEditorSessionFile(WorkspaceId.ForPath(workspace)));
+		_editorSession.Log += line => {
+			Console.WriteLine($"[weavie] {line}");
+			Console.Out.Flush();
+		};
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
@@ -408,13 +421,18 @@ public sealed class AppDelegate : NSApplicationDelegate {
 				CompleteWebCommand(root);
 				break;
 			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch.
+				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
+				// the persisted editor session so the editor reopens its files.
 				PushLayoutToWeb();
+				PushEditorSessionToWeb();
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
+				break;
+			case "editor-session-changed":
+				HandleEditorSessionChanged(root);
 				break;
 			default:
 				// log — surface for diagnostics and unattended capture.
@@ -451,6 +469,28 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
+	}
+
+	/// <summary>Applies an editor session the web sent (open files + view state) through the store, which persists it.</summary>
+	private void HandleEditorSessionChanged(JsonElement root) {
+		if (_editorSession is null || !root.TryGetProperty("session", out var sessionElement)) {
+			return;
+		}
+
+		if (!EditorSessionSerialization.TryDeserialize(sessionElement.GetRawText(), out var session, out string? error)
+			|| session is null) {
+			Console.WriteLine($"[weavie] editor-session-changed: bad session ({error})");
+			return;
+		}
+
+		_editorSession.Update(session);
+	}
+
+	/// <summary>Pushes the persisted editor session (with each open file's on-disk content) for launch restore.</summary>
+	private void PushEditorSessionToWeb() {
+		if (_editorSession is not null) {
+			_bridge.PostToWeb(_editorSession.BuildRestoreJson());
+		}
 	}
 
 	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>

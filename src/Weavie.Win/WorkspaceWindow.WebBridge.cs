@@ -110,15 +110,20 @@ internal sealed partial class WorkspaceWindow {
 				_shell?.PushFileIndex();
 				break;
 			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
-				// the initial window state so the title bar's maximize glyph + blur dim start correct.
+				// The page's bridge listener is live; push the persisted layout so it restores on launch, the
+				// persisted editor session so the editor reopens its files, and the initial window state so the
+				// title bar's maximize glyph + blur dim start correct.
 				PushLayoutToWeb();
+				PushEditorSessionToWeb();
 				PushWindowState();
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
+				break;
+			case "editor-session-changed":
+				HandleEditorSessionChanged(root);
 				break;
 			default:
 				// log — surface for diagnostics and unattended capture.
@@ -166,6 +171,24 @@ internal sealed partial class WorkspaceWindow {
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
 	}
+
+	/// <summary>Applies an editor session the web sent (open files + view state) through the store, which persists it.</summary>
+	private void HandleEditorSessionChanged(JsonElement root) {
+		if (!root.TryGetProperty("session", out var sessionElement)) {
+			return;
+		}
+
+		if (!EditorSessionSerialization.TryDeserialize(sessionElement.GetRawText(), out var session, out string? error)
+			|| session is null) {
+			Console.WriteLine($"[weavie] editor-session-changed: bad session ({error})");
+			return;
+		}
+
+		_editorSession.Update(session);
+	}
+
+	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore.</summary>
+	private void PushEditorSessionToWeb() => _bridge.PostToWeb(_editorSession.BuildRestoreJson());
 
 	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
 	private void PushChangesToWeb() {

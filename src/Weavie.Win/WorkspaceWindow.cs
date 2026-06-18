@@ -6,6 +6,8 @@ using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
@@ -47,6 +49,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
 	private readonly LayoutStore _layout;
+	private readonly EditorSessionStore _editorSession;
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
 	private HostSession? _session;
@@ -86,6 +89,16 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		// (size / position / maximized) before the handle is created; a missing or off-screen saved state
 		// falls back to a centered 1280x840 default.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
+
+		// Per-workspace editor session: the open files + per-file Monaco view state under
+		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
+		// scroll/cursor on launch. Web-written (the user opens files / moves the cursor); pushed back on ready.
+		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
+		_editorSession.Log += line => {
+			Console.WriteLine($"[weavie] {line}");
+			Console.Out.Flush();
+		};
+
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
 

@@ -79,9 +79,7 @@ internal sealed class HostSession : IAsyncDisposable {
 			new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor,
 			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides);
 		Ide.Server.Log += Tagged("[mcp]");
-		if (Ide.RegistryServer is not null) {
-			Ide.RegistryServer.Log += Tagged("[registry]");
-		}
+		Ide.RegistryServer?.Log += Tagged("[registry]");
 
 		Claude.ExtraEnvironment = Ide.EnvironmentVariables;
 		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server

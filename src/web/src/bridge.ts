@@ -7,6 +7,7 @@
 // absent and outbound messages are no-ops — by design, never a thrown error.
 
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
+import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
@@ -67,6 +68,9 @@ export type HostBoundMessage =
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
   | { type: "layout-changed"; document: LayoutDocument }
+  // The editor session changed (file opened, cursor moved, scrolled); debounced; host persists it. Carries
+  // the open-list + active + per-file view state, NEVER file contents (the host reads those from disk).
+  | { type: "editor-session-changed"; session: EditorSession }
   // The editor's active file or selection changed -> host updates the editor store, which tells the
   // embedded Claude what the user is looking at (selection_changed). Positions are 0-based.
   | {
@@ -118,6 +122,9 @@ export type WebBoundMessage =
   | { type: "open-file"; path: string; content: string; line: number }
   // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
   | { type: "set-layout"; document: LayoutDocument }
+  // Host pushes the persisted editor session to restore on launch/Ctrl+R. Each open entry carries the
+  // file's on-disk `content` so the web can create models that don't exist yet on a fresh page.
+  | { type: "set-editor-session"; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
   // Host pushes the active theme (a theme switch or an override edit): its id, override ops, and — for

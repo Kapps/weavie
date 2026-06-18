@@ -1,7 +1,6 @@
 using System.Collections.Concurrent;
+using System.Runtime.InteropServices;
 using System.Text.Json;
-using CoreGraphics;
-using Foundation;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -10,20 +9,25 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Hosting;
-using Weavie.Mac.Hosting;
-using WebKit;
+using Weavie.Linux.Hosting;
+using Weavie.Linux.Native;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
-namespace Weavie.Mac;
+namespace Weavie.Linux;
 
 /// <summary>
-/// The macOS application delegate: builds the WKWebView host window, wires the JS bridge,
-/// terminal, file opener, and MCP diff presenter, and starts the IDE-MCP server so the spawned
-/// claude connects back as the sole edit feed.
+/// The GTK + WebKitGTK application host: builds the web-view window, wires the JS bridge, terminals,
+/// file opener, and MCP diff presenter, and starts the IDE-MCP server so the spawned claude connects
+/// back as the sole edit feed. The Linux counterpart of the macOS <c>AppDelegate</c>; all logic below
+/// the native window/view is shared <c>Weavie.Core</c>.
 /// </summary>
-[Register("AppDelegate")]
-public sealed class AppDelegate : NSApplicationDelegate {
+internal sealed class WorkspaceHost {
 	private readonly HostBridge _bridge = new();
+	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
+	// the web's command-ack (or a 5s timeout).
+	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
+
+	private AppSchemeHandler? _scheme;
 	private SettingsStore? _settings;
 	private TerminalController? _claude;
 	private TerminalController? _shell;
@@ -35,85 +39,62 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private SessionChangeTracker? _changes;
 	private LocalFileSystem? _fileSystem;
 	private string? _workspace;
-	private NSWindow? _window;
-	private WKWebView? _webView;
 	private CommandRegistry? _commandRegistry;
 	private KeybindingStore? _keybindings;
 	private CommandDispatcher? _commands;
-	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
-	// the web's command-ack (or a 5s timeout).
-	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
+
+	private IntPtr _window;
+	private IntPtr _webView;
+	private IntPtr _contentManager;
+	// Kept alive for the lifetime of the host: native holds a bare function pointer to this.
+	private WidgetCallback? _onDestroy;
 
 	/// <summary>
-	/// Creates the host window and WKWebView, registers the <c>app://</c> scheme handler and
-	/// <c>weavie</c> script-message bridge, starts the terminal and IDE-MCP server (injecting its
-	/// discovery env into the spawned claude), and loads the web app.
+	/// Builds the window and WebKit view, registers the <c>app://</c> scheme handler and the
+	/// <c>weavie</c> script-message bridge, starts the terminals and IDE-MCP server (injecting its
+	/// discovery env into the spawned claude), restores the saved geometry, and loads the web app.
+	/// Must be called on the GTK main thread (after <c>gtk_init</c>, before <c>gtk_main</c>).
 	/// </summary>
-	public override void DidFinishLaunching(NSNotification notification) {
-		string resourcePath = NSBundle.MainBundle.ResourcePath
-			?? throw new InvalidOperationException("No bundle resource path.");
-		string wwwroot = Path.Combine(resourcePath, "wwwroot");
+	internal void Start() {
+		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 
-		var config = new WKWebViewConfiguration();
-		config.SetUrlSchemeHandler(new AppSchemeHandler(wwwroot), "app");
-		config.UserContentController.AddScriptMessageHandler(_bridge, "weavie");
-		// Allow the Web Inspector for local debugging of the prototype.
-		config.Preferences.SetValueForKey(NSNumber.FromBoolean(true), new NSString("developerExtrasEnabled"));
-
-		// Restore the saved window geometry (size / position / zoomed) when present and on-screen, else
-		// fall back to a centered 1280x840 default.
+		// Restore the saved window geometry when present and sane, else a 1280x840 default.
 		_layout = LayoutPanes.CreateStore();
 		var savedWindow = _layout.Current.Window;
-		bool usedSaved = savedWindow is not null
-			&& IsOnScreen(new CGRect(savedWindow.X, savedWindow.Y, savedWindow.Width, savedWindow.Height));
-		var frame = usedSaved
-			? new CGRect(savedWindow!.X, savedWindow.Y, savedWindow.Width, savedWindow.Height)
-			: new CGRect(0, 0, 1280, 840);
-		_webView = new WKWebView(frame, config);
+		bool usedSaved = savedWindow is { Width: > 0, Height: > 0 };
+		int width = usedSaved ? savedWindow!.Width : 1280;
+		int height = usedSaved ? savedWindow!.Height : 840;
+
+		// Custom app:// scheme on the default web context (the one the view below uses), the script-message
+		// bridge on a fresh user-content manager, then the view bound to that manager.
+		_scheme = new AppSchemeHandler(wwwroot);
+		_scheme.Register(WebKit.webkit_web_context_get_default());
+		_contentManager = WebKit.webkit_user_content_manager_new();
+		_bridge.RegisterOn(_contentManager);
+		_webView = WebKit.webkit_web_view_new_with_user_content_manager(_contentManager);
 		_bridge.Attach(_webView);
+		WebKit.webkit_settings_set_enable_developer_extras(WebKit.webkit_web_view_get_settings(_webView), true);
 
 		// User settings (shell / workspace / claude path) resolved from ~/.weavie/settings.toml; the
 		// store is the change hub the host reacts to (e.g. a shell change reopens the shell pane).
 		_settings = CoreSettings.CreateStore();
-		_settings.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
+		_settings.Log += Log;
 
 		// Commands + keybindings: the app's command catalog (CoreCommands) and the user keybindings resolved
 		// from ~/.weavie/keybindings.json over the defaults. The dispatcher routes runCommand (MCP) +
 		// invoke-command (web) to Core/web handlers; the WebInvoker + Core handlers are wired below.
 		_commandRegistry = CoreCommands.CreateRegistry();
 		_keybindings = new KeybindingStore(_commandRegistry);
-		_keybindings.Log += line => {
-			Console.WriteLine(line);
-			Console.Out.Flush();
-		};
+		_keybindings.Log += Log;
 		_commands = new CommandDispatcher(_commandRegistry);
-
-		// Typography: inject the resolved editor + terminal fonts at document start so both surfaces
-		// mount at the user's font with no default-font flash; live changes are pushed below.
-		config.UserContentController.AddUserScript(new WKUserScript(
-			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};"),
-			WKUserScriptInjectionTime.AtDocumentStart,
-			isForMainFrameOnly: true));
-
-		// Commands + keybindings: inject the catalog + resolved bindings at document start so the web's
-		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
-		config.UserContentController.AddUserScript(new WKUserScript(
-			new NSString(
-				$"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()}; "
-				+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"),
-			WKUserScriptInjectionTime.AtDocumentStart,
-			isForMainFrameOnly: true));
 
 		_claude = new TerminalController(_bridge, "claude", _settings);
 		_shell = new TerminalController(_bridge, "shell", _settings);
 		_bridge.MessageReceived += OnWebMessage;
 
-		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject
-		// the discovery env so the spawned claude connects to us (the SOLE edit feed). The same store
-		// backs the settings MCP tools, so the user can change settings by talking to claude.
+		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
+		// discovery env so the spawned claude connects to us (the SOLE edit feed). The same store backs
+		// the settings MCP tools, so the user can change settings by talking to claude.
 		var fileSystem = new LocalFileSystem();
 		_fileSystem = fileSystem;
 		string workspace = _settings.GetString("workspace")
@@ -129,15 +110,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
 			commands: _commands, keybindings: _keybindings);
-		_ide.Server.Log += line => {
-			Console.WriteLine($"[mcp] {line}");
-			Console.Out.Flush();
-		};
-		if (_ide.RegistryServer is not null) {
-			_ide.RegistryServer.Log += line => {
-				Console.WriteLine($"[registry] {line}");
-				Console.Out.Flush();
-			};
+		_ide.Server.Log += line => Log($"[mcp] {line}");
+		if (_ide.RegistryServer is { } registryServer) {
+			registryServer.Log += line => Log($"[registry] {line}");
 		}
 
 		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
@@ -145,33 +120,25 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// so the settings tools reach the model as mcp__weavie__* (the IDE server's tools are filtered).
 		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
 		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay; the observed
-		// stream is logged here (the session change view will consume the same feed).
+		// stream is logged here (the session change view consumes the same feed).
 		_claude.SettingsFilePath = _ide.WriteSettingsFile();
-		_ide.HookBridge.Observed += request => {
-			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
-			Console.Out.Flush();
-		};
-		_ide.HookBridge.Log += line => {
-			Console.WriteLine($"[hook] {line}");
-			Console.Out.Flush();
-		};
+		_ide.HookBridge.Observed += request => Log($"[hook] {request.Event} {request.ToolName}");
+		_ide.HookBridge.Log += line => Log($"[hook] {line}");
 
 		// Session change tracking: the same hook stream feeds the tracker (baseline at PreToolUse, new
-		// content at PostToolUse), independent of openDiff and permission mode. Changed pushes the change
-		// list; FileChanged pushes a targeted live-refresh of the one edited file. Events arrive off the
-		// main thread; marshal before touching the web.
+		// content at PostToolUse), independent of openDiff and permission mode. Events arrive off the main
+		// thread; marshal before touching the web.
 		_changes = new SessionChangeTracker(fileSystem);
 		_ide.HookBridge.Observed += _changes.Observe;
-		_changes.Changed += () => InvokeOnMainThread(PushChangesToWeb);
-		_changes.FileChanged += path => InvokeOnMainThread(() => PushRefreshToWeb(path));
+		_changes.Changed += () => GtkMain.Invoke(PushChangesToWeb);
+		_changes.FileChanged += path => GtkMain.Invoke(() => PushRefreshToWeb(path));
 		// Inline diff: per-turn diff per edited file + clear-all on a turn boundary (implicit accept).
-		_changes.FileChanged += path => InvokeOnMainThread(() => PushTurnDiffToWeb(path));
-		_changes.TurnBegan += () => InvokeOnMainThread(PushTurnReset);
-		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
+		_changes.FileChanged += path => GtkMain.Invoke(() => PushTurnDiffToWeb(path));
+		_changes.TurnBegan += () => GtkMain.Invoke(PushTurnReset);
+		Log($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
-		// Settings events arrive off the main thread, so marshal onto it before touching the controller.
-		_settings.Subscribe("terminal.shell", _ => InvokeOnMainThread(() => _shell?.Restart()));
+		_settings.Subscribe("terminal.shell", _ => GtkMain.Invoke(() => _shell?.Restart()));
 
 		// Fonts (ApplyMode.Live): any global or per-surface font change re-pushes the resolved editor +
 		// terminal fonts to the web app, which applies them in place. PostToWeb marshals to the main
@@ -184,14 +151,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		// Layout: push the canonical document to the web when the store changes (a reconciled web edit or
 		// a future MCP setLayout). Change events arrive off the main thread.
-		_layout.Changed += _ => InvokeOnMainThread(PushLayoutToWeb);
+		_layout.Changed += _ => GtkMain.Invoke(PushLayoutToWeb);
 
 		// Commands: wire the dispatcher to the web (Claude's runCommand of a web command posts run-command +
 		// awaits its ack) and register the Core-side handlers (reopen terminal → restart the shell pane,
 		// marshaled to the main thread).
 		_commands.WebInvoker = InvokeWebCommandAsync;
 		_commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
-			InvokeOnMainThread(() => _shell?.Restart());
+			GtkMain.Invoke(() => _shell?.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
 
@@ -201,53 +168,36 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			$"{{\"type\":\"commands\",\"commands\":{_keybindings.BuildCommandsJson()},"
 			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
 
-		_window = new NSWindow(
-			frame,
-			NSWindowStyle.Titled | NSWindowStyle.Closable | NSWindowStyle.Resizable | NSWindowStyle.Miniaturizable,
-			NSBackingStore.Buffered,
-			false) {
-			Title = "weavie",
-			ContentView = _webView,
-		};
-		if (!usedSaved) {
-			_window.Center();
-		} else if (savedWindow is { Maximized: true }) {
-			_window.Zoom(null);
+		// Typography + command/keybinding catalog: inject at document start so both surfaces mount at the
+		// user's font (no default-font flash) and the keybinding resolver / palette are populated at mount.
+		// Live changes are pushed by the subscriptions above.
+		InjectAtDocumentStart($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+		InjectAtDocumentStart(
+			$"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()}; "
+			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};");
+
+		// Window: a single top-level holding the web view, restored to the saved geometry.
+		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
+		Gtk.gtk_window_set_title(_window, "weavie");
+		Gtk.gtk_window_set_default_size(_window, width, height);
+		Gtk.gtk_container_add(_window, _webView);
+		if (usedSaved) {
+			Gtk.gtk_window_move(_window, savedWindow!.X, savedWindow.Y);
+			if (savedWindow.Maximized) {
+				Gtk.gtk_window_maximize(_window);
+			}
 		}
 
-		// Persist geometry on resize-end and on close; SetWindow no-ops when nothing actually changed.
-		NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidEndLiveResizeNotification, _ => SaveWindowState(), _window);
-		NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.WillCloseNotification, _ => SaveWindowState(), _window);
+		_onDestroy = OnWindowDestroy;
+		_ = GLib.g_signal_connect_data(
+			_window, "destroy", Marshal.GetFunctionPointerForDelegate(_onDestroy), IntPtr.Zero, IntPtr.Zero, 0);
 
-		_window.MakeKeyAndOrderFront(null);
-
-		nint screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
-		Console.WriteLine($"[weavie] NSScreen.maximumFramesPerSecond = {screenHz}");
-
-		_webView.LoadRequest(new NSUrlRequest(new NSUrl("app://app/index.html")));
-
-		NSApplication.SharedApplication.Activate();
-
-		// Unattended screenshot for the deliverable: fire from the native run loop (not a JS
-		// timer, which throttles when the window is occluded). Gated on WEAVIE_SHOT_DIR so the
-		// shipped app never writes screenshots.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
-			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
-			NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
-		}
-
-		// Dev aid: render a sample openDiff so the Monaco diff UI can be screenshotted without
-		// driving claude. Gated on WEAVIE_DEMO_DIFF; never fires in normal use.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEMO_DIFF"))) {
-			NSTimer.CreateScheduledTimer(2.5, repeats: false, _ => PostDemoDiff());
-		}
+		Gtk.gtk_widget_show_all(_window);
+		WebKit.webkit_web_view_load_uri(_webView, "app://app/index.html");
 	}
 
-	/// <summary>Quits the app when its last (only) window is closed.</summary>
-	public override bool ApplicationShouldTerminateAfterLastWindowClosed(NSApplication sender) => true;
-
-	/// <summary>Disposes both terminals and shuts down the IDE-MCP server on app exit.</summary>
-	public override void WillTerminate(NSNotification notification) {
+	/// <summary>Disposes both terminals and shuts down the IDE-MCP server; called after the main loop exits.</summary>
+	internal void Shutdown() {
 		SaveWindowState();
 		// Fail any web command still awaiting an ack so a runCommand in flight at exit doesn't hang.
 		foreach (var pending in _pendingWebCommands.Values) {
@@ -261,33 +211,41 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_settings?.Dispose();
 	}
 
+	private void OnWindowDestroy(IntPtr widget, IntPtr userData) {
+		SaveWindowState();
+		Gtk.gtk_main_quit();
+	}
+
+	private void InjectAtDocumentStart(string source) {
+		IntPtr script = WebKit.webkit_user_script_new(
+			source, WebKit.InjectTopFrame, WebKit.InjectAtDocumentStart, IntPtr.Zero, IntPtr.Zero);
+		WebKit.webkit_user_content_manager_add_script(_contentManager, script);
+	}
+
 	private void SaveWindowState() {
-		if (_window is null || _layout is null || _window.IsMiniaturized) {
+		if (_window == IntPtr.Zero || _layout is null) {
 			return;
 		}
 
 		_layout.SetWindow(CaptureWindowState());
 	}
 
-	/// <summary>Snapshots the current geometry, keeping the prior un-zoomed restore bounds while zoomed.</summary>
+	/// <summary>Snapshots the current geometry, keeping the prior un-maximized restore bounds while maximized.</summary>
 	private LayoutGeometry CaptureWindowState() {
-		if (_window!.IsZoomed && _layout!.Current.Window is { } prior) {
+		if (Gtk.gtk_window_is_maximized(_window) && _layout!.Current.Window is { } prior) {
 			return prior with { Maximized = true };
 		}
 
-		var frame = _window.Frame;
+		Gtk.gtk_window_get_size(_window, out int width, out int height);
+		Gtk.gtk_window_get_position(_window, out int x, out int y);
 		return new LayoutGeometry {
-			X = (int)frame.X,
-			Y = (int)frame.Y,
-			Width = (int)frame.Width,
-			Height = (int)frame.Height,
-			Maximized = _window.IsZoomed,
+			X = x,
+			Y = y,
+			Width = width,
+			Height = height,
+			Maximized = false,
 		};
 	}
-
-	private static bool IsOnScreen(CGRect frame) =>
-		frame.Width > 0 && frame.Height > 0
-		&& NSScreen.Screens.Any(screen => screen.VisibleFrame.IntersectsWith(frame));
 
 	private void OnWebMessage(string json) {
 		string type;
@@ -297,18 +255,13 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			root = doc.RootElement.Clone();
 			type = root.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty;
 		} catch (JsonException) {
-			Console.WriteLine($"[weavie] (unparsed) {json}");
+			Log($"[weavie] (unparsed) {json}");
 			return;
 		}
 
 		switch (type) {
 			case "term-input":
 				byte[] input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
-				if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_INPUT"))) {
-					string printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
-					Console.WriteLine($"[weavie] term-input <- xterm ({input.Length}B): {printable}");
-					Console.Out.Flush();
-				}
 				TerminalFor(root)?.Write(input);
 				break;
 			case "term-resize":
@@ -361,16 +314,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "ready":
 				// The page's bridge listener is live; push the persisted layout so it restores on launch.
 				PushLayoutToWeb();
-				Console.WriteLine($"[weavie] {json}");
-				Console.Out.Flush();
+				Log($"[weavie] {json}");
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
 				break;
 			default:
-				// log — surface for diagnostics and unattended capture.
-				Console.WriteLine($"[weavie] {json}");
-				Console.Out.Flush();
+				// log — surface for diagnostics.
+				Log($"[weavie] {json}");
 				break;
 		}
 	}
@@ -383,14 +334,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		if (!LayoutSerialization.TryDeserialize(documentElement.GetRawText(), out var document, out string? error)
 			|| document is null) {
-			Console.WriteLine($"[weavie] layout-changed: bad document ({error})");
+			Log($"[weavie] layout-changed: bad document ({error})");
 			return;
 		}
 
 		try {
 			_layout.SetPanes(document.Root, document.Focused, LayoutSource.User);
 		} catch (LayoutValidationException ex) {
-			Console.WriteLine($"[weavie] layout-changed rejected: {ex.Message}");
+			Log($"[weavie] layout-changed rejected: {ex.Message}");
 		}
 	}
 
@@ -484,8 +435,8 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	/// autosave must never silently lose the user's work.
 	/// </summary>
 	private void SaveBuffer(string path, string content) {
-		// The session is wired in DidFinishLaunching, before the page can post any message — so a null here
-		// is a broken invariant, not a runtime condition to absorb. Fail loud rather than drop the save.
+		// The session is wired in Start, before the page can post any message — so a null here is a broken
+		// invariant, not a runtime condition to absorb. Fail loud rather than drop the save.
 		if (_fileSystem is null || _workspace is null) {
 			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
 		}
@@ -501,7 +452,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	private void Notify(string level, string message) =>
-		// Built by hand (not JsonSerializer.Serialize, which is trim-unsafe — IL2026 — on the macOS target).
 		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
 
 	/// <summary>
@@ -524,10 +474,10 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		try {
 			var result = await _commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
 			if (!result.Ok) {
-				Console.WriteLine($"[weavie] invoke-command {id} failed: {result.Error}");
+				Log($"[weavie] invoke-command {id} failed: {result.Error}");
 			}
 		} catch (Exception ex) when (ex is UnknownCommandException or InvalidOperationException) {
-			Console.WriteLine($"[weavie] invoke-command {id} error: {ex.Message}");
+			Log($"[weavie] invoke-command {id} error: {ex.Message}");
 		}
 	}
 
@@ -576,59 +526,8 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		return session == "shell" ? _shell : _claude;
 	}
 
-	private void PostDemoDiff() {
-		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
-		const string proposed = "export function greet(name: string): string {\n  // weavie openDiff demo\n  return `hello, ${name}!`;\n}\n";
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
-			writer.WriteString("type", "show-diff");
-			writer.WriteString("id", "demo");
-			writer.WriteString("path", "/Users/kapps/src/weavie/demo/greet.ts");
-			writer.WriteString("tabName", "✻ [Claude Code] greet.ts");
-			writer.WriteString("original", original);
-			writer.WriteString("proposed", proposed);
-			writer.WriteEndObject();
-		}
-
-		_bridge.PostToWeb(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
-	}
-
-	private void CaptureSnapshot() {
-		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
-		if (_webView is null || string.IsNullOrEmpty(dir)) {
-			return;
-		}
-
-		Directory.CreateDirectory(dir);
-		string? name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
-		string path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
-
-		_webView.TakeSnapshot(new WKSnapshotConfiguration(), (image, error) => {
-			if (image is null) {
-				Console.Error.WriteLine($"[weavie] snapshot failed: {error?.LocalizedDescription}");
-				return;
-			}
-
-			var tiff = image.AsTiff();
-			if (tiff is null) {
-				return;
-			}
-
-			using var rep = new NSBitmapImageRep(tiff);
-			var png = rep.RepresentationUsingTypeProperties(NSBitmapImageFileType.Png, new NSDictionary());
-			if (png is null) {
-				Console.Error.WriteLine("[weavie] snapshot: PNG encoding failed");
-				return;
-			}
-
-			if (png.Save(path, true, out var saveError)) {
-				Console.WriteLine($"[weavie] snapshot saved: {path}");
-			} else {
-				Console.Error.WriteLine($"[weavie] snapshot save failed: {saveError?.LocalizedDescription}");
-			}
-
-			Console.Out.Flush();
-		});
+	private static void Log(string line) {
+		Console.WriteLine(line);
+		Console.Out.Flush();
 	}
 }

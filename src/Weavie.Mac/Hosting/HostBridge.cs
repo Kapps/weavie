@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Foundation;
+using Weavie.Hosting;
 using WebKit;
 
 namespace Weavie.Mac.Hosting;
@@ -10,7 +11,7 @@ namespace Weavie.Mac.Hosting;
 ///   outbound: <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the main thread.
 /// Bodies are raw JSON strings; typed dispatch lives on each side.
 /// </summary>
-public sealed class HostBridge : NSObject, IWKScriptMessageHandler {
+public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge {
 	private WKWebView? _webView;
 
 	/// <summary>Raised with the raw JSON body of each inbound message (on the main thread).</summary>

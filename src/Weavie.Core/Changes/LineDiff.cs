@@ -28,6 +28,37 @@ public static class LineDiff {
 		return (b.Length - common, a.Length - common);
 	}
 
+	/// <summary>
+	/// The 1-based number of the first line that differs turning <paramref name="before"/> into
+	/// <paramref name="after"/> — a "jump to the edit" target. Line endings are normalized first. Returns
+	/// <see langword="null"/> when the two texts are line-for-line identical. For a pure trailing
+	/// insertion/deletion the result is the first added line (or, for a deletion, the last surviving line),
+	/// always clamped into <paramref name="after"/>'s range.
+	/// </summary>
+	/// <param name="before">The baseline text (before the edit).</param>
+	/// <param name="after">The current text (after the edit).</param>
+	public static int? FirstChangedLine(string before, string after) {
+		ArgumentNullException.ThrowIfNull(before);
+		ArgumentNullException.ThrowIfNull(after);
+
+		string[] a = SplitLines(before);
+		string[] b = SplitLines(after);
+
+		int shared = Math.Min(a.Length, b.Length);
+		for (int i = 0; i < shared; i++) {
+			if (!string.Equals(a[i], b[i], StringComparison.Ordinal)) {
+				return i + 1;
+			}
+		}
+
+		// Common prefix is identical: the change is a trailing insertion or deletion (or nothing).
+		if (a.Length == b.Length) {
+			return null;
+		}
+
+		return Math.Clamp(shared + 1, 1, Math.Max(b.Length, 1));
+	}
+
 	private static string[] SplitLines(string text) =>
 		text.Length == 0 ? [] : text.ReplaceLineEndings("\n").Split('\n');
 	

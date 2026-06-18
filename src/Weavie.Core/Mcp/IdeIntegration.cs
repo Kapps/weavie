@@ -37,7 +37,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) {
+		ThemeOverridesStore? themeOverrides = null,
+		Func<HookRequest, string?>? editLocator = null) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
@@ -52,7 +53,13 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		// stream + the permission gate (bypassPermissions → auto-allow), read live from the settings store.
 		HookBridge = new HookBridgeServer(
 			HookProtocol.PipeName(Port),
-			request => HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default"));
+			request => {
+				var decision = HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default");
+				// On a landed edit, attach a clickable file:line jump target as the hook's systemMessage so
+				// Claude prints it in the TUI (the terminal turns path:line tokens into Monaco reveals).
+				string? location = editLocator?.Invoke(request);
+				return location is null ? decision : decision with { SystemMessage = location };
+			});
 		HookBridge.Start();
 
 		if (settings is not null) {

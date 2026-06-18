@@ -640,9 +640,16 @@ public sealed class McpServer : IAsyncDisposable {
 			return;
 		}
 
+		string? table = GetStringArg(args, "table");
+		if (table is not (null or "colors" or "tokenColors" or "semanticTokenColors")) {
+			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'table' must be one of: colors, tokenColors, semanticTokenColors.", ct).ConfigureAwait(false);
+			return;
+		}
+
 		string active = ActiveThemeId();
-		_themeOverrides.Append(active, new ThemeOverrideSet { Key = key, Value = value });
-		await SendToolTextAsync(ws, idRaw, $"Set {key} = {value} on theme '{active}'.", ct).ConfigureAwait(false);
+		_themeOverrides.Append(active, new ThemeOverrideSet { Table = table, Key = key, Value = value });
+		string where = table is null or "colors" ? string.Empty : $" ({table})";
+		await SendToolTextAsync(ws, idRaw, $"Set {key} = {value}{where} on theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleApplyThemeTransformAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -663,9 +670,15 @@ public sealed class McpServer : IAsyncDisposable {
 		}
 
 		string? target = GetStringArg(args, "target");
+		if (target is not (null or "all" or "colors" or "tokenColors" or "semanticTokenColors" or "syntax")) {
+			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform 'target' must be one of: all, colors, tokenColors, semanticTokenColors, syntax.", ct).ConfigureAwait(false);
+			return;
+		}
+
 		string active = ActiveThemeId();
 		_themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
-		await SendToolTextAsync(ws, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)} to theme '{active}'.", ct).ConfigureAwait(false);
+		string scope = target is null or "all" ? string.Empty : $" ({target})";
+		await SendToolTextAsync(ws, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)}{scope} to theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleRemoveThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -1057,7 +1070,7 @@ public sealed class McpServer : IAsyncDisposable {
 	private const string SettingsToolEntries =
 		"""
           {"name":"listSettings","description":"List all weavie settings with each one's current value, source (environment/userFile/default), default, description, aliases, and any allowed values. Call this FIRST to find the exact key before changing a setting.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"getSetting","description":"Get one weavie setting's resolved value and where it came from.","inputSchema":{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}},
+          {"name":"getSetting","description":"Get one weavie setting's resolved value and where it came from (environment/userFile/default). This reflects what the running app has actually loaded — prefer it over reading ~/.weavie config files on disk, which are only the persisted layer and can diverge from the live app.","inputSchema":{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}},
           {"name":"setSetting","description":"Change a weavie setting. Call listSettings first to find the exact key; never guess keys. 'value' should match the setting's declared type (string/bool/int/path); int and bool values may be sent as a JSON number/boolean or as a string (e.g. 16 or \"16\", true or \"true\").","inputSchema":{"type":"object","properties":{"key":{"type":"string"},"value":{}},"required":["key","value"]}}
         """;
 
@@ -1082,10 +1095,10 @@ public sealed class McpServer : IAsyncDisposable {
 	private const string ThemeToolEntries =
 		"""
           {"name":"listThemes","description":"List the available color themes (built-in + installed from Open VSX), each with its id, label, type, and whether it is the active theme. Call this FIRST to find a theme id before selecting one.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"describeTheme","description":"Describe the active color theme: its id, label, and the ordered list of color overrides currently layered on it.","inputSchema":{"type":"object","properties":{}}},
+          {"name":"describeTheme","description":"Describe the active color theme: its id, label, and the ordered list of color overrides currently layered on it. This is the live source of truth for what the running app has loaded — use it to answer \"what theme/overrides are set\", and prefer it over reading ~/.weavie/theme-overrides.json, which is only the persisted layer and can diverge from the live app.","inputSchema":{"type":"object","properties":{}}},
           {"name":"selectTheme","description":"Switch the active color theme. 'id' must be a built-in or installed theme id (call listThemes first; never guess). Overrides are remembered per theme.","inputSchema":{"type":"object","properties":{"id":{"type":"string"}},"required":["id"]}},
-          {"name":"setThemeOverride","description":"Override one color on the active theme. 'key' is a VS Code workbench color id (e.g. editor.background, terminal.ansiRed, focusBorder); 'value' is a hex color (e.g. #000000 or #00000080). Use applyThemeTransform to shift the whole palette at once.","inputSchema":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":"string"}},"required":["key","value"]}},
-          {"name":"applyThemeTransform","description":"Shift the active theme's whole palette in one step (no need to set hundreds of colors). 'op' is one of darken, lighten, saturate, desaturate, contrast; 'amount' is a number from 0 to 1 (e.g. 0.2 = 20%). e.g. op 'darken' amount 0.2 = make everything 20% darker. 'amount' may be a number or a string.","inputSchema":{"type":"object","properties":{"op":{"type":"string"},"amount":{},"target":{"type":"string"}},"required":["op","amount"]}},
+          {"name":"setThemeOverride","description":"Override one color on the active theme. 'value' is a hex color (e.g. #00ff00 or #00000080). 'table' chooses what 'key' means: omit it (or 'colors') for a workbench color id (e.g. editor.background, terminal.ansiRed, focusBorder); 'semanticTokenColors' to recolor SYNTAX by semantic token type (e.g. key 'keyword', 'function', 'class', 'variable.readonly', 'parameter', 'property'); or 'tokenColors' for a raw TextMate scope (e.g. 'keyword.control', 'string', 'comment'). Prefer 'semanticTokenColors' for languages with an LSP. Use applyThemeTransform to shift the whole theme at once.","inputSchema":{"type":"object","properties":{"key":{"type":"string"},"value":{"type":"string"},"table":{"type":"string"}},"required":["key","value"]}},
+          {"name":"applyThemeTransform","description":"Shift many of the active theme's colors at once (no need to set them individually). 'op' is one of darken, lighten, saturate, desaturate, contrast; 'amount' is a number from 0 to 1 (e.g. 0.2 = 20%; may be a number or a string). 'target' scopes which colors move: 'all' (default), 'colors' (chrome/editor/terminal backgrounds only), 'tokenColors' or 'semanticTokenColors' (one syntax table), or 'syntax' (both syntax tables). e.g. op 'saturate' amount 0.15 target 'syntax' makes the CODE colors 15% more vivid without touching backgrounds; op 'darken' amount 0.2 target 'all' makes everything 20% darker.","inputSchema":{"type":"object","properties":{"op":{"type":"string"},"amount":{},"target":{"type":"string"}},"required":["op","amount"]}},
           {"name":"removeThemeOverride","description":"Remove the color override(s) for one 'key' from the active theme.","inputSchema":{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}},
           {"name":"undoThemeOverride","description":"Undo the most recent color override on the active theme (pop the last set/transform).","inputSchema":{"type":"object","properties":{}}},
           {"name":"resetTheme","description":"Clear ALL color overrides on the active theme, returning it to its authored colors.","inputSchema":{"type":"object","properties":{}}},

@@ -5,7 +5,15 @@
 // here, so this barrel stays monaco-free and safe to import on the first-paint path.
 
 export { isHexColor, makeTransform, transformHex, type ColorTransform } from "./colors";
-export { resolveColors, type OverrideOp, type SetOp, type TransformOp } from "./overrides";
+export {
+  resolveColors,
+  resolveTheme,
+  type OverrideOp,
+  type OverrideTable,
+  type ResolvedTheme,
+  type SetOp,
+  type TransformOp,
+} from "./overrides";
 export { applyColorsToCssVars, cssVarName } from "./apply";
 export { deriveChromeVars } from "./chrome-vars";
 export { paletteToXtermTheme, type XtermTheme } from "./xterm-theme";

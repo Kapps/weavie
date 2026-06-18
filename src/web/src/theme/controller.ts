@@ -9,7 +9,7 @@ import { onHostMessage } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { deriveChromeVars } from "./chrome-vars";
-import { type OverrideOp, resolveColors } from "./overrides";
+import { type OverrideOp, type ResolvedTheme, resolveTheme } from "./overrides";
 import type { VsCodeColorTheme } from "./vscode-theme";
 import { type XtermTheme, paletteToXtermTheme } from "./xterm-theme";
 
@@ -46,7 +46,7 @@ interface ThemeState {
   id: string;
   base: VsCodeColorTheme;
   ops: OverrideOp[];
-  resolved: Record<string, string>;
+  resolved: ResolvedTheme;
 }
 
 function baseFor(id: string, theme: VsCodeColorTheme | undefined): VsCodeColorTheme {
@@ -54,7 +54,7 @@ function baseFor(id: string, theme: VsCodeColorTheme | undefined): VsCodeColorTh
 }
 
 function computeState(id: string, base: VsCodeColorTheme, ops: OverrideOp[]): ThemeState {
-  return { id, base, ops, resolved: resolveColors(base.colors, ops) };
+  return { id, base, ops, resolved: resolveTheme(base, ops) };
 }
 
 // Seeded synchronously at module load so currentXtermTheme()/currentMonacoTheme() are valid the moment a
@@ -79,13 +79,13 @@ function monacoUpdate(): MonacoThemeUpdate {
     // A Monaco theme settingsId must be a clean token — '#', '/', '.', and spaces break theme lookup — and
     // unique per change so a re-register actually switches. Derive one from the theme id + version counter.
     id: `weavie-theme-${state.id.replace(/[^a-zA-Z0-9]+/g, "-")}-${version}`,
-    theme: { ...state.base, colors: state.resolved },
+    theme: { ...state.base, ...state.resolved },
   };
 }
 
 /** The xterm ITheme for the active theme — read this when creating a terminal. */
 export function currentXtermTheme(): XtermTheme {
-  return paletteToXtermTheme(state.resolved);
+  return paletteToXtermTheme(state.resolved.colors);
 }
 
 /** The Monaco theme to register+apply — read this once the editor services are initialized. */
@@ -111,15 +111,15 @@ export function onMonacoThemeChanged(handler: (update: MonacoThemeUpdate) => voi
 
 /** Applies the active theme to Weavie's chrome (CSS vars). Call once the DOM is mounted; idempotent. */
 export function applyChromeTheme(): void {
-  applyColorsToCssVars(state.resolved);
-  deriveChromeVars(state.resolved);
+  applyColorsToCssVars(state.resolved.colors);
+  deriveChromeVars(state.resolved.colors);
 }
 
 function setActive(id: string, base: VsCodeColorTheme, ops: OverrideOp[]): void {
   version += 1;
   state = computeState(id, base, ops);
   applyChromeTheme();
-  const xterm = paletteToXtermTheme(state.resolved);
+  const xterm = paletteToXtermTheme(state.resolved.colors);
   for (const handler of xtermSubscribers) {
     handler(xterm);
   }

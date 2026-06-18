@@ -72,6 +72,13 @@ public sealed class TerminalController : IDisposable {
 	public string? SettingsFilePath { get; set; }
 
 	/// <summary>
+	/// Path to a text file passed as <c>--append-system-prompt-file</c> when launching claude — the
+	/// embedded-claude guidance that points it at the <c>mcp__weavie__*</c> tools for live app state. Only
+	/// the claude session uses it.
+	/// </summary>
+	public string? SystemPromptFilePath { get; set; }
+
+	/// <summary>
 	/// Launches this session's child (claude via a login shell, or the configured shell) at the given size
 	/// under the supervisor and begins relaying its output. Idempotent: a no-op if already running or restarting.
 	/// </summary>
@@ -206,7 +213,8 @@ public sealed class TerminalController : IDisposable {
 		string claude = _settings.GetString("claude.path") ?? "claude";
 		string mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
 		string settings = string.IsNullOrEmpty(SettingsFilePath) ? string.Empty : $" --settings '{SettingsFilePath}'";
-		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}{settings}"]);
+		string systemPrompt = string.IsNullOrEmpty(SystemPromptFilePath) ? string.Empty : $" --append-system-prompt-file '{SystemPromptFilePath}'";
+		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}{settings}{systemPrompt}"]);
 	}
 
 	/// <summary>

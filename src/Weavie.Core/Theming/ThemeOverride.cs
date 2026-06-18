@@ -14,9 +14,17 @@ namespace Weavie.Core.Theming;
 [JsonDerivedType(typeof(ThemeOverrideTransform), "transform")]
 public abstract record ThemeOverrideOp;
 
-/// <summary>Directly sets one workbench color key (e.g. <c>editor.background</c> → <c>#000000</c>). Last write wins.</summary>
+/// <summary>
+/// Directly sets one color. By default the workbench <c>colors</c> table (e.g. <c>editor.background</c> →
+/// <c>#000000</c>); with <see cref="Table"/> set, a syntax table — a TextMate scope in <c>tokenColors</c> or
+/// a semantic selector in <c>semanticTokenColors</c>. Last write wins.
+/// </summary>
 public sealed record ThemeOverrideSet : ThemeOverrideOp {
-	/// <summary>The workbench color id to set.</summary>
+	/// <summary>Target table: <c>colors</c> (default, omitted), <c>tokenColors</c>, or <c>semanticTokenColors</c>.</summary>
+	[JsonPropertyName("table")]
+	public string? Table { get; init; }
+
+	/// <summary>The color id / scope / selector to set (interpreted per <see cref="Table"/>).</summary>
 	[JsonPropertyName("key")]
 	public required string Key { get; init; }
 

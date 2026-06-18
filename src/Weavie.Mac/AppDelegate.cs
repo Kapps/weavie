@@ -164,6 +164,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay; the observed
 		// stream is logged here (the session change view will consume the same feed).
 		_claude.SettingsFilePath = _ide.WriteSettingsFile();
+		// Orientation: an --append-system-prompt-file telling claude it's embedded in Weavie and to read
+		// live app state (themes/settings/layout) through the mcp__weavie__* tools, not the on-disk config.
+		_claude.SystemPromptFilePath = _ide.WriteSystemPromptFile();
 		_ide.HookBridge.Observed += request => {
 			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
 			Console.Out.Flush();

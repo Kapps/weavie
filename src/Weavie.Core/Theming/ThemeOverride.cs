@@ -43,7 +43,10 @@ public sealed record ThemeOverrideTransform : ThemeOverrideOp {
 	[JsonPropertyName("amount")]
 	public required double Amount { get; init; }
 
-	/// <summary>Which keys to affect; only <c>all</c> for now (defaults to all when null).</summary>
+	/// <summary>
+	/// Which table(s) to affect: <c>all</c> (default when null), <c>colors</c>, <c>tokenColors</c>,
+	/// <c>semanticTokenColors</c>, or <c>syntax</c> (both syntax tables).
+	/// </summary>
 	[JsonPropertyName("target")]
 	public string? Target { get; init; }
 }

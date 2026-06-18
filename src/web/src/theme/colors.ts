@@ -120,9 +120,8 @@ export function transformHex(hex: string, transform: ColorTransform): string {
 }
 
 /**
- * Builds a named perceptual transform. <c>amount</c> is a 0..1 fraction:
- * darken/lighten move lightness, saturate/desaturate scale chroma, and contrast pushes lightness away
- * from (or toward, for negative-feeling use via lighten) mid-grey.
+ * Builds a named perceptual transform. `amount` is a 0..1 fraction: darken/lighten move lightness,
+ * saturate/desaturate scale chroma, and contrast pushes lightness away from mid-grey.
  */
 export function makeTransform(
   op: "darken" | "lighten" | "saturate" | "desaturate" | "contrast",
@@ -143,5 +142,5 @@ export function makeTransform(
   }
 }
 
-/** True if <paramref name="value"/> is a hex color this module can transform. */
+/** True if `value` is a hex color this module can transform. */
 export const isHexColor = (value: string): boolean => parseHex(value) !== null;

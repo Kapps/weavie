@@ -6,7 +6,6 @@
 
 export { isHexColor, makeTransform, transformHex, type ColorTransform } from "./colors";
 export {
-  resolveColors,
   resolveTheme,
   type OverrideOp,
   type OverrideTable,

@@ -7,14 +7,13 @@
 import { type ColorTransform, makeTransform, transformHex } from "./colors";
 import type { SemanticTokenColor, TokenColorRule, VsCodeColorTheme } from "./vscode-theme";
 
-/** Which of a theme's three color tables a `set` op targets (default <c>colors</c>). */
+/** Which of a theme's three color tables a `set` op targets (default `colors`). */
 export type OverrideTable = "colors" | "tokenColors" | "semanticTokenColors";
 
 /**
- * Directly set one color. By default the workbench <c>colors</c> table (e.g. <c>editor.background</c> →
- * <c>#000000</c>); with <c>table</c> set, a syntax table — a TextMate scope in <c>tokenColors</c> (e.g.
- * <c>keyword.control</c>) or a semantic selector in <c>semanticTokenColors</c> (e.g. <c>variable.readonly</c>).
- * Last write wins.
+ * Directly set one color. By default the workbench `colors` table (e.g. `editor.background` → `#000000`);
+ * with `table` set, a syntax table — a TextMate scope in `tokenColors` (e.g. `keyword.control`) or a
+ * semantic selector in `semanticTokenColors` (e.g. `variable.readonly`). Last write wins.
  */
 export interface SetOp {
   kind: "set";
@@ -23,7 +22,7 @@ export interface SetOp {
   value: string;
 }
 
-/** Which table(s) a transform sweeps. <c>syntax</c> = both syntax tables; <c>all</c> = everything (default). */
+/** Which table(s) a transform sweeps. `syntax` = both syntax tables; `all` = everything (default). */
 export type TransformTarget = "all" | "colors" | "tokenColors" | "semanticTokenColors" | "syntax";
 
 /** A parametric op over a chosen slice of the theme's colors, so the user need not hand-edit many keys. */
@@ -32,7 +31,7 @@ export interface TransformOp {
   op: "darken" | "lighten" | "saturate" | "desaturate" | "contrast";
   /** 0..1 fraction (e.g. 0.2 = "20% darker"). */
   amount: number;
-  /** Which table(s) to affect (default <c>all</c>) — so e.g. "saturate the syntax" leaves backgrounds alone. */
+  /** Which table(s) to affect (default `all`) — so e.g. "saturate the syntax" leaves backgrounds alone. */
   target?: TransformTarget;
 }
 
@@ -48,10 +47,10 @@ export interface ResolvedTheme {
 
 /**
  * Resolves the effective theme: the base theme's three color tables with the override ops applied in
- * order. Pure — re-runnable on every change. <c>set</c> writes one key in its target table (a
- * <c>tokenColors</c> set appends a scope rule that wins by being last); <c>transform</c> rewrites every hex
- * across all three tables perceptually (OKLCH) — so "darken everything" dims syntax too — leaving non-hex
- * values and alpha untouched.
+ * order. Pure — re-runnable on every change. `set` writes one key in its target table (a `tokenColors`
+ * set appends a scope rule that wins by being last); `transform` rewrites every hex across all three
+ * tables perceptually (OKLCH) — so "darken everything" dims syntax too — leaving non-hex values and
+ * alpha untouched.
  */
 export function resolveTheme(base: VsCodeColorTheme, ops: readonly OverrideOp[]): ResolvedTheme {
   const colors: Record<string, string> = { ...base.colors };
@@ -78,33 +77,6 @@ export function resolveTheme(base: VsCodeColorTheme, ops: readonly OverrideOp[])
   }
 
   return { colors, tokenColors, semanticTokenColors };
-}
-
-/**
- * Back-compat helper: resolve only the workbench <c>colors</c> table from colors-targeting ops. Kept for
- * callers that need just the palette; the controller uses <see cref="resolveTheme"/> for all three tables.
- */
-export function resolveColors(
-  base: Readonly<Record<string, string>>,
-  ops: readonly OverrideOp[],
-): Record<string, string> {
-  const effective: Record<string, string> = { ...base };
-  for (const op of ops) {
-    if (op.kind === "set") {
-      if ((op.table ?? "colors") === "colors") {
-        effective[op.key] = op.value;
-      }
-      continue;
-    }
-    const target = op.target ?? "all";
-    if (target === "all" || target === "colors") {
-      const transform: ColorTransform = makeTransform(op.op, op.amount);
-      for (const [key, value] of Object.entries(effective)) {
-        effective[key] = transformHex(value, transform);
-      }
-    }
-  }
-  return effective;
 }
 
 function applySet(

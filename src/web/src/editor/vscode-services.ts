@@ -12,8 +12,8 @@
 //    `openEditor` callback below, so weavie keeps full control of its editors and file-opening.
 
 import { initialize } from "@codingame/monaco-vscode-api";
-// TEMP probe imports (throwaway, do not commit) — see the probe block in doInit().
-import { IFileService, getService } from "@codingame/monaco-vscode-api/services";
+// TEMP probe imports (throwaway, do not commit) — see the resolver-wrap block in doInit().
+import { ITextModelService, getService } from "@codingame/monaco-vscode-api/services";
 import getEditorServiceOverride, {
   type OpenEditor,
 } from "@codingame/monaco-vscode-editor-service-override";
@@ -46,21 +46,44 @@ import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/w
 // aliased to @codingame/monaco-vscode-editor-api (see package.json), so this is the vscode editor worker.
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
-let initPromise: Promise<void> | undefined;
-let activeEditor: monaco.editor.IStandaloneCodeEditor | undefined;
+declare global {
+  interface Window {
+    /**
+     * VSCode-service-layer state that must outlive a Vite hot reload. `initialize()` flips
+     * process-global singletons in monaco-vscode-api (lifecycle.js: `servicesInitialized` +
+     * `serviceInitializedBarrier`) that a hot reload never resets. When an edit anywhere in the editor
+     * chunk propagates up to App.tsx's self-accepting SolidJS boundary, THIS module gets a fresh
+     * instance — so a module-local guard would be reset while the library's "already initialized" flag
+     * is not, and the re-init would throw "Services are already initialized" and blank the editor. Keep
+     * the guard on `window` so its lifetime matches what it guards (mirrors the library's own
+     * `window.monacoVscodeApiBuildId`). `activeEditor` lives here too: the editor-service `openEditor`
+     * closure is captured once at first `initialize()` and is never re-registered, so it must read the
+     * current editor from shared state to keep working after a hot reload swaps the editor.
+     */
+    __WEAVIE_EDITOR_SERVICES__?: {
+      initPromise?: Promise<void>;
+      activeEditor?: monaco.editor.IStandaloneCodeEditor;
+    };
+  }
+}
+
+// First module instance creates the state; every later (hot-reloaded) instance reuses the same object.
+window.__WEAVIE_EDITOR_SERVICES__ ??= {};
+const servicesState = window.__WEAVIE_EDITOR_SERVICES__;
 
 /**
  * Registers weavie's editor as the surface the editor service opens files into. Called once the
  * editor is created; until then file-open requests are no-ops.
  */
 export function registerActiveEditor(editor: monaco.editor.IStandaloneCodeEditor): void {
-  activeEditor = editor;
+  servicesState.activeEditor = editor;
 }
 
 // weavie owns layout: when the editor service is asked to open a model (go-to-def, peek, reveal-file),
 // show it in our own editor pane and reveal the requested range. (Single pane for now; a tabbed model
 // can replace this later — the point is the decision stays ours, not VSCode's.)
 const openEditor: OpenEditor = (modelRef, options) => {
+  const activeEditor = servicesState.activeEditor;
   if (activeEditor === undefined) {
     return Promise.resolve(undefined);
   }
@@ -78,10 +101,8 @@ const openEditor: OpenEditor = (modelRef, options) => {
 
 /** Initializes the VSCode services backing Monaco. Idempotent — subsequent calls return the same promise. */
 export function initEditorServices(): Promise<void> {
-  if (initPromise === undefined) {
-    initPromise = doInit();
-  }
-  return initPromise;
+  servicesState.initPromise ??= doInit();
+  return servicesState.initPromise;
 }
 
 async function doInit(): Promise<void> {
@@ -103,22 +124,25 @@ async function doInit(): Promise<void> {
     ...getEditorServiceOverride(openEditor),
   });
 
-  // TEMP probe (throwaway, do not commit): settle the load-bearing unknown — is a `file://` file-system
-  // provider registered, and what else? `listCapabilities()` enumerates every registered scheme (with its
-  // capability bitmask); `hasProvider(file://)` decides which text-model-resolver branch workspace files
-  // take (working-copy vs content-provider). Look for `[probe]` in the host log, then remove this block.
+  // TEMP probe (throwaway, do not commit): the rejection is a REDUNDANT createModelReference(file://…) on
+  // an already-open file, taking the working-copy branch. The async stack hides the synchronous caller, and
+  // the instance from getService is a DIFFERENT container than the caller's — so patch the resolver's
+  // PROTOTYPE (shared by every instance) to log the call site for file:// URIs. Remove after.
   try {
-    const fileService = await getService(IFileService);
-    const schemes = [...fileService.listCapabilities()]
-      .map((c) => `${c.scheme}=${c.capabilities}`)
-      .join(", ");
-    log("info", `[probe] fs providers: ${schemes}`);
-    log(
-      "info",
-      `[probe] hasProvider(file://) = ${fileService.hasProvider(monaco.Uri.file("C:/x.cs"))}`,
-    );
+    const resolver = await getService(ITextModelService);
+    const proto = Object.getPrototypeOf(resolver) as {
+      createModelReference: (uri: monaco.Uri) => unknown;
+    };
+    const original = proto.createModelReference;
+    proto.createModelReference = function wrapped(this: unknown, uri: monaco.Uri): unknown {
+      if (uri.scheme === "file") {
+        log("error", `[probe] createModelReference(${uri.path})\n${new Error("call-site").stack}`);
+      }
+      return original.call(this, uri);
+    };
+    log("info", "[probe] createModelReference (prototype) wrapped");
   } catch (error) {
-    log("error", `[probe] failed: ${String(error)}`);
+    log("error", `[probe] wrap failed: ${String(error)}`);
   }
 
   // Select a dark theme up front, before any editor exists, so the first editor paint is dark instead

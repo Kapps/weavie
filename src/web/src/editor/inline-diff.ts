@@ -59,7 +59,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const diffs = new Map<string, InlineDiffOptions>();
   let decorations: monaco.editor.IEditorDecorationsCollection | undefined;
   let zoneIds: string[] = [];
-  let widget: monaco.editor.IOverlayWidget | undefined;
+  // The floating action bar is a plain DOM child of the editor (not a Monaco overlay widget) so it sits
+  // above sticky-scroll and clear of the minimap, positioned bottom-center via CSS.
+  let toolbarNode: HTMLElement | undefined;
   let renderedUri: string | undefined;
   let recomputeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -74,10 +76,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       });
       zoneIds = [];
     }
-    if (widget !== undefined) {
-      editor.removeOverlayWidget(widget);
-      widget = undefined;
-    }
+    toolbarNode?.remove();
+    toolbarNode = undefined;
     renderedUri = undefined;
   };
 
@@ -105,33 +105,57 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return button;
   };
 
-  // The Accept/Reject(/Undo) toolbar for the active diff, or null for a read-only `view` diff (no actions).
-  const buildToolbar = (options: InlineDiffOptions): HTMLElement | null => {
-    const buttons: HTMLButtonElement[] = [];
+  // The floating action bar: prev/next-change arrows (always, when there are hunks) + the mode's actions
+  // (Keep/Reject for a review, Accept/Undo for an applied turn, none for a read-only view).
+  const buildToolbar = (
+    options: InlineDiffOptions,
+    onPrev: () => void,
+    onNext: () => void,
+  ): HTMLElement => {
+    const bar = document.createElement("div");
+    bar.className = "weavie-inline-toolbar";
+
+    const prev = makeButton("weavie-inline-nav", "↑", onPrev);
+    prev.title = "Previous change";
+    const next = makeButton("weavie-inline-nav", "↓", onNext);
+    next.title = "Next change";
+    bar.append(prev, next);
+
     if (options.mode === "review") {
       if (options.onAccept !== undefined) {
-        buttons.push(makeButton("weavie-inline-accept", "Keep", options.onAccept));
+        bar.appendChild(makeButton("weavie-inline-accept", "Keep", options.onAccept));
       }
       if (options.onReject !== undefined) {
-        buttons.push(makeButton("weavie-inline-reject", "Reject", options.onReject));
+        bar.appendChild(makeButton("weavie-inline-reject", "Reject", options.onReject));
       }
     } else if (options.mode === "applied") {
       if (options.onAccept !== undefined) {
-        buttons.push(makeButton("weavie-inline-accept", "Accept", options.onAccept));
+        bar.appendChild(makeButton("weavie-inline-accept", "Accept", options.onAccept));
       }
       if (options.onUndo !== undefined) {
-        buttons.push(makeButton("weavie-inline-undo", "Undo", options.onUndo));
+        bar.appendChild(makeButton("weavie-inline-undo", "Undo", options.onUndo));
       }
     }
-    if (buttons.length === 0) {
-      return null;
-    }
-    const bar = document.createElement("div");
-    bar.className = "weavie-inline-toolbar";
-    for (const button of buttons) {
-      bar.appendChild(button);
-    }
     return bar;
+  };
+
+  // Jump the cursor/viewport to the previous/next change hunk (by modified-side anchor line), wrapping.
+  const goToChange = (changeLines: number[], direction: 1 | -1): void => {
+    if (changeLines.length === 0) {
+      return;
+    }
+    const current = editor.getPosition()?.lineNumber ?? 1;
+    let target: number;
+    if (direction === 1) {
+      target = changeLines.find((line) => line > current) ?? changeLines[0]!;
+    } else {
+      const before = changeLines.filter((line) => line < current);
+      target =
+        before.length > 0 ? before[before.length - 1]! : changeLines[changeLines.length - 1]!;
+    }
+    editor.revealLineInCenter(target);
+    editor.setPosition({ lineNumber: target, column: 1 });
+    editor.focus();
   };
 
   const render = (uriString: string): void => {
@@ -156,8 +180,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
     const ghosts: { afterLineNumber: number; lines: string[] }[] = [];
+    const changeLines: number[] = [];
 
     for (const change of changes) {
+      changeLines.push(Math.max(1, change.modified.startLineNumber));
       if (!change.modified.isEmpty) {
         deltas.push({
           range: new monaco.Range(
@@ -208,16 +234,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
     });
 
-    const toolbar = buildToolbar(options);
-    if (toolbar !== null) {
-      widget = {
-        getId: () => "weavie.inline-diff.toolbar",
-        getDomNode: () => toolbar,
-        getPosition: () => ({
-          preference: monaco.editor.OverlayWidgetPositionPreference.TOP_RIGHT_CORNER,
-        }),
-      };
-      editor.addOverlayWidget(widget);
+    const editorDom = editor.getDomNode();
+    if (editorDom !== null) {
+      toolbarNode = buildToolbar(
+        options,
+        () => goToChange(changeLines, -1),
+        () => goToChange(changeLines, 1),
+      );
+      editorDom.appendChild(toolbarNode);
     }
     renderedUri = uriString;
   };

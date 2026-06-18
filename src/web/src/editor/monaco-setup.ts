@@ -42,7 +42,10 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   // Back the editor with a real file:// model URI under the workspace. tsserver-family servers (tsgo)
   // give loose inmemory:/untitled: docs only partial service — they publish diagnostics for file://
   // docs, not for in-memory ones — so a file:// URI makes it a project file and squiggles flow.
-  const model = monaco.editor.createModel(SAMPLE_CODE, "typescript", SCRATCH_URI);
+  // Reuse an existing scratch model: a hot reload disposes the prior editor (App's onCleanup) but Monaco
+  // doesn't dispose a model it was handed, so re-creating SCRATCH_URI would throw "model already exists".
+  const existing = SCRATCH_URI !== undefined ? monaco.editor.getModel(SCRATCH_URI) : null;
+  const model = existing ?? monaco.editor.createModel(SAMPLE_CODE, "typescript", SCRATCH_URI);
   // Typography is a user setting resolved by the host (global font.* + editor.font.* overrides),
   // injected before navigation so we mount at the right font, and live-updated below.
   const font = currentFonts().editor;

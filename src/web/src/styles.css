@@ -1124,10 +1124,21 @@ body,
   text-decoration-color: rgba(210, 90, 90, 0.5);
 }
 
+/* Floating action bar for the inline diff: a DOM child of the editor, pinned bottom-center so it clears
+   the minimap (right) and sticky-scroll (top); a high z-index keeps it above both. */
 .weavie-inline-toolbar {
+  position: absolute;
+  bottom: 18px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
   display: flex;
   gap: 6px;
-  margin: 8px 14px 0 0;
+  padding: 4px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
 }
 
 .weavie-inline-toolbar button {
@@ -1136,7 +1147,16 @@ body,
   padding: 3px 12px;
   font: inherit;
   cursor: pointer;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
+}
+
+.weavie-inline-toolbar .weavie-inline-nav {
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.weavie-inline-toolbar .weavie-inline-nav:hover {
+  border-color: var(--accent);
 }
 
 .weavie-inline-toolbar .weavie-inline-accept {

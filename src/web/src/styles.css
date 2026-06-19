@@ -561,6 +561,14 @@ body,
   text-overflow: ellipsis;
 }
 
+/* Unsaved-changes marker: a `*` after the filename, held until the debounced autosave reaches disk. Never
+   shrinks (it sits outside the ellipsised label) so it stays visible on a narrow tab. */
+.editor-tab-dirty {
+  flex: 0 0 auto;
+  margin-left: -0.25em;
+  color: var(--fg);
+}
+
 .editor-tab-close {
   display: inline-flex;
   align-items: center;

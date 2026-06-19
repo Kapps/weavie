@@ -4,7 +4,9 @@ import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { dirtyPaths } from "./dirty-store";
 import type { TabActions } from "./editor-controller";
+import { canonicalFsPath } from "./fs-path";
 import type { EditorSessionEntry } from "./session-types";
 
 // The structural fields the strip renders. Deliberately excludes view state, so the strip doesn't re-render
@@ -13,6 +15,8 @@ interface TabView {
   path: string;
   preview: boolean;
   pinned: boolean;
+  // Unsaved changes: shows a `*` and stays until the (debounced, possibly error-gated) autosave reaches disk.
+  dirty: boolean;
 }
 
 function basename(path: string): string {
@@ -39,16 +43,20 @@ export function TabStrip(props: {
         other !== undefined &&
         tab.path === other.path &&
         tab.preview === other.preview &&
-        tab.pinned === other.pinned
+        tab.pinned === other.pinned &&
+        tab.dirty === other.dirty
       );
     });
   const views = createMemo<TabView[]>(
-    () =>
-      props.tabs().map((tab) => ({
+    () => {
+      const dirty = dirtyPaths();
+      return props.tabs().map((tab) => ({
         path: tab.path,
         preview: tab.preview === true,
         pinned: tab.pinned === true,
-      })),
+        dirty: dirty.has(canonicalFsPath(tab.path)),
+      }));
+    },
     [],
     { equals: sameTabs },
   );
@@ -128,6 +136,11 @@ export function TabStrip(props: {
                   onContextMenu={(event) => openMenu(event, view)}
                 >
                   <span class="editor-tab-label">{basename(view.path)}</span>
+                  <Show when={view.dirty}>
+                    <span class="editor-tab-dirty" aria-label="Unsaved changes">
+                      *
+                    </span>
+                  </Show>
                 </button>
                 <button
                   type="button"

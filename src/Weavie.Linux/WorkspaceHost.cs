@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Weavie.Core;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -8,6 +9,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
@@ -104,10 +106,13 @@ internal sealed class WorkspaceHost {
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
+		// Scratch (untitled) buffers live in a per-workspace dir OUTSIDE the workspace, so they never reach
+		// the file tree, git, or Claude. The file provider serves both the workspace and this dir.
+		string scratchDir = WeaviePaths.WorkspaceScratchDir(WorkspaceId.ForPath(workspace));
 		// Host-backed file:// provider: the editor's working copies read/write the real disk through the
 		// host (fs-stat/fs-read/fs-write), scoped to the workspace. Same Core service the Windows/macOS
 		// hosts use — without it the editor's file reads time out and nothing opens.
-		_fileProvider = new FileProviderService(fileSystem, workspace);
+		_fileProvider = new FileProviderService(fileSystem, workspace, scratchDir);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// the spawned claude what the user is looking at.
@@ -287,7 +292,9 @@ internal sealed class WorkspaceHost {
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_fileOpener?.Open(revealPath, revealLine);
+				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
+					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
+				_fileOpener?.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
 				break;
 			case "active-editor-changed":
 				if (_editor is not null && ActiveEditor.TryParse(root, out var activeEditor) && activeEditor is not null) {

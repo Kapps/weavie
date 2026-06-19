@@ -11,8 +11,11 @@ public enum HookEventKind {
 	/// <summary>Fired when the user submits a prompt — Weavie's turn-start boundary (implicitly accepts the prior turn).</summary>
 	UserPromptSubmit,
 
-	/// <summary>Fired when Claude finishes responding — the turn-end boundary (observed; not acted on yet).</summary>
+	/// <summary>Fired when Claude finishes responding — the turn-end boundary. Drives the session's Idle status.</summary>
 	Stop,
+
+	/// <summary>Fired when Claude needs attention — a permission prompt or an idle "waiting for input" notice. Drives the session's NeedsInput status.</summary>
+	Notification,
 
 	/// <summary>Any other hook event (unrecognized name): observed, never acted on.</summary>
 	Other,

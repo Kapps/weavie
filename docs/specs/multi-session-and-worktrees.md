@@ -95,25 +95,39 @@ iterate; don't let the rest of the feature depend on it.
 
 ### Fork
 
-Fork = new worktree off the current session's `HEAD` + a new Claude seeded with a **handoff brief the
-forking Claude writes itself**: the `fork` command takes a `handoff` argument, Weavie injects it as
-the new session's first prompt. Full context transfer over the public surface only — no reaching into
-Claude's internals. It's lossy on conversation *detail* (a summary, not the transcript), which is the
-accepted v1 tradeoff.
+Two fidelity tiers, same plumbing: new worktree off the source session's `HEAD`, spawn a Claude there.
+
+- **Handoff-brief (robust v1).** The `fork` command takes a `handoff` argument; the forking Claude
+  writes its own summary and Weavie injects it as the new session's first prompt (PTY). Public surface
+  only, version-proof, lossy on conversation *detail*.
+- **Transcript fork (higher fidelity).** `claude --resume <parentSessionId> --fork-session` in the new
+  worktree. `<parentSessionId>` is **captured from `HookRequest.SessionId`** on the source session's
+  hook stream — so we never need a (nonexistent) `--session-id` launch flag. `--fork-session` branches
+  into a new id, leaving the original intact. **Open question:** whether `--resume` *resolves across
+  worktrees of the same repo* (sessions are cwd-scoped at `~/.claude/projects/<cwd-key>/`). The fork
+  seam **tries `--resume <id> --fork-session` and falls back to the handoff-brief** if resume can't
+  find the session in the new cwd. Needs live verification; the deeper fallback is relocating the
+  transcript `.jsonl` (coupled to Claude's storage layout — deferred).
+
+**Mid-turn fork — fork from the last *completed* turn, don't block on the in-flight one.** A true
+transcript fork can only branch from a completed turn: the transcript holds completed turns, and a
+half-finished turn (a pending `tool_use` with no result) isn't resumable — that's why Claude Code's
+`/fork` waits for the turn to finish. Weavie removes the *wait* without the impossible part: it tracks
+turn boundaries via the `Stop` hook, so it forks from the **last completed turn while the source Claude
+keeps running uninterrupted** — the copy just omits the in-flight turn, not the original's progress. A
+**fresh / handoff session** carries none of the source's live state, so it can be seeded at any moment.
 
 > **On "true fork" and the thinking question.** An LLM is stateless between turns: the context *is*
 > the message array, not a hidden mind-state. Extended-thinking blocks are per-turn scratch and aren't
 > needed to continue coherently (the only exception — an unanswered mid-turn `tool_use` keeping its
-> signed thinking block — never applies at a fork's turn boundary). Claude Code's own
-> `--resume`/`--continue` reconstruct a session from its stored transcript and continue fine, so that
-> is the fidelity ceiling. A **transcript-copy fork** (copy the session `.jsonl` into the new
-> worktree's project dir, then `--resume --fork-session`) rides the same mechanism on the same data
-> and reaches that ceiling — it is **not** degraded by "lost thinking." We defer it anyway, for
-> **mechanical** reasons: sessions are **cwd-scoped** (`~/.claude/projects/<cwd-key>/<id>.jsonl`), so
-> a true fork means replicating Claude's project-dir hashing and writing into `~/.claude` internals —
-> version-fragile, and against the "don't touch Claude's global state" rule. Handoff-brief is the
-> robust v1; transcript-copy is a future fidelity upgrade, clearly flagged as coupled to Claude's
-> storage layout — **not** a thinking-loss limitation.
+> signed thinking block — is exactly the half-finished turn the mid-turn rule above forks *before*).
+> Claude Code's own `--resume`/`--continue` reconstruct a session from its stored transcript and
+> continue fine, so that is the fidelity ceiling — the transcript fork rides the same mechanism and
+> reaches it; it is **not** degraded by "lost thinking." The reason handoff-brief is v1 is
+> **mechanical**, not fidelity: cross-worktree `--resume` is unverified, and the deeper fallback
+> (copying the `.jsonl` into the new worktree's project dir) couples Weavie to Claude's project-dir
+> hashing and writes into `~/.claude` internals — version-fragile, against the "don't touch Claude's
+> global state" rule.
 
 ## Per-session Claude status
 

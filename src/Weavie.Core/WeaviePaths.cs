@@ -80,4 +80,22 @@ public static class WeaviePaths {
 	/// <param name="id">The workspace identity (a path-derived digest).</param>
 	/// <returns>The absolute path to that workspace's scratch directory.</returns>
 	public static string WorkspaceScratchDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "scratch");
+
+	/// <summary>
+	/// Where this workspace's per-session git worktrees live: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees</c>.
+	/// Kept under the workspace's state folder (outside the repo) so worktree directories never appear in
+	/// the user's project tree, and so cleanup is scoped per workspace.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's worktrees directory.</returns>
+	public static string WorkspaceWorktreesDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees");
+
+	/// <summary>
+	/// The registry of worktrees Weavie created for this workspace:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/worktrees.json</c>. The backbone of the "no leaked worktrees"
+	/// guarantee — reconciled against <c>git worktree list</c> on every load. See <see cref="Worktrees.WorktreeRegistry"/>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's worktree registry file.</returns>
+	public static string WorkspaceWorktreesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees.json");
 }

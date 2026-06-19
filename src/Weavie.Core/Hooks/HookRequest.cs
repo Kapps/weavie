@@ -44,9 +44,9 @@ public sealed record HookRequest {
 
 			var evt = MapEvent(GetString(root, "hook_event_name"));
 			string? toolName = GetString(root, "tool_name");
-			// Turn-boundary events (UserPromptSubmit/Stop) legitimately carry no tool name; everything else —
-			// tool events and unrecognized junk — needs one, else there's nothing to act on (stay out of the way).
-			bool isTurnEvent = evt is HookEventKind.UserPromptSubmit or HookEventKind.Stop;
+			// Turn-boundary + status events (UserPromptSubmit/Stop/Notification) legitimately carry no tool name;
+			// everything else — tool events and unrecognized junk — needs one, else there's nothing to act on.
+			bool isTurnEvent = evt is HookEventKind.UserPromptSubmit or HookEventKind.Stop or HookEventKind.Notification;
 			if (!isTurnEvent && string.IsNullOrEmpty(toolName)) {
 				return null;
 			}
@@ -70,6 +70,7 @@ public sealed record HookRequest {
 		"PostToolUse" => HookEventKind.PostToolUse,
 		"UserPromptSubmit" => HookEventKind.UserPromptSubmit,
 		"Stop" => HookEventKind.Stop,
+		"Notification" => HookEventKind.Notification,
 		_ => HookEventKind.Other,
 	};
 

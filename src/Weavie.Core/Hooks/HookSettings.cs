@@ -47,6 +47,10 @@ public static class HookSettings {
 			// Turn-start boundary (no matcher — UserPromptSubmit isn't tool-scoped); short timeout since the
 			// handler just resets the per-turn diff baseline in memory.
 			WriteEvent(writer, "UserPromptSubmit", command, timeoutSeconds: 10, matcher: null);
+			// Turn-end + attention boundaries drive the per-session status indicator (Idle / NeedsInput). Not
+			// tool-scoped, so no matcher; short timeouts since the handlers only update in-memory session state.
+			WriteEvent(writer, "Stop", command, timeoutSeconds: 10, matcher: null);
+			WriteEvent(writer, "Notification", command, timeoutSeconds: 10, matcher: null);
 			writer.WriteEndObject();
 			writer.WriteEndObject();
 		}

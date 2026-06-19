@@ -112,9 +112,12 @@ internal sealed class WorkspaceHost {
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// the spawned claude what the user is looking at.
 		_editor = new EditorStore();
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
+		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
+		_changes = new SessionChangeTracker(fileSystem);
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
-			commands: _commands, keybindings: _keybindings);
+			commands: _commands, keybindings: _keybindings, editLocator: _changes.EditLocationFor);
 		_ide.Server.Log += line => Log($"[mcp] {line}");
 		if (_ide.RegistryServer is { } registryServer) {
 			registryServer.Log += line => Log($"[registry] {line}");
@@ -132,8 +135,8 @@ internal sealed class WorkspaceHost {
 
 		// Session change tracking: the same hook stream feeds the tracker (baseline at PreToolUse, new
 		// content at PostToolUse), independent of openDiff and permission mode. Events arrive off the main
-		// thread; marshal before touching the web.
-		_changes = new SessionChangeTracker(fileSystem);
+		// thread; marshal before touching the web. (The tracker itself is built above, before the IDE
+		// server, so EditLocationFor can back the hook bridge's edit jump-links.)
 		_ide.HookBridge.Observed += _changes.Observe;
 		_changes.Changed += () => GtkMain.Invoke(PushChangesToWeb);
 		_changes.FileChanged += path => GtkMain.Invoke(() => PushRefreshToWeb(path));

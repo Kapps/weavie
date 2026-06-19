@@ -72,12 +72,17 @@ internal sealed class HostSession : IAsyncDisposable {
 		// this session's claude what the user is looking at.
 		Editor = new EditorStore();
 
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
+		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
+		Changes = new SessionChangeTracker(fileSystem);
+
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
 		// discovery env so this session's claude connects to us (the SOLE edit feed). The same store backs
 		// the settings MCP tools, so the user can change settings by talking to claude.
 		Ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor,
-			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides);
+			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides,
+			editLocator: Changes.EditLocationFor);
 		Ide.Server.Log += Tagged("[mcp]");
 		Ide.RegistryServer?.Log += Tagged("[registry]");
 
@@ -100,7 +105,6 @@ internal sealed class HostSession : IAsyncDisposable {
 		// Session change tracking: the same hook stream feeds the tracker (baseline at PreToolUse, new
 		// content at PostToolUse). Because hooks fire before the permission check, this records edits in
 		// every mode (default/acceptEdits/bypass) — independent of openDiff.
-		Changes = new SessionChangeTracker(fileSystem);
 		Ide.HookBridge.Observed += Changes.Observe;
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{Ide.Port}; registry on 127.0.0.1:{Ide.RegistryPort}; workspace {workspaceRoot}; lock {Ide.LockFilePath}");
 		Console.Out.Flush();

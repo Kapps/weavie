@@ -33,6 +33,7 @@ internal sealed class WorkspaceHost {
 	private TerminalController? _shell;
 	private McpDiffPresenter? _diffPresenter;
 	private FileOpener? _fileOpener;
+	private FileProviderService? _fileProvider;
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
 	private EditorStore? _editor;
@@ -103,6 +104,10 @@ internal sealed class WorkspaceHost {
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
+		// Host-backed file:// provider: the editor's working copies read/write the real disk through the
+		// host (fs-stat/fs-read/fs-write), scoped to the workspace. Same Core service the Windows/macOS
+		// hosts use — without it the editor's file reads time out and nothing opens.
+		_fileProvider = new FileProviderService(fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// the spawned claude what the user is looking at.
@@ -289,6 +294,26 @@ internal sealed class WorkspaceHost {
 				break;
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
+			case "fs-stat":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-read":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Read(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-write":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Write(
+						FsId(root), FsPath(root),
+						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				}
+
 				break;
 			case "save-buffer":
 				SaveBuffer(
@@ -519,6 +544,14 @@ internal sealed class WorkspaceHost {
 		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
 		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
 	}
+
+	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
+	private static string FsId(JsonElement root) =>
+		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
+
+	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
+	private static string FsPath(JsonElement root) =>
+		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";

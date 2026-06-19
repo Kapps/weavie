@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using CoreGraphics;
 using Foundation;
+using UniformTypeIdentifiers;
 using Weavie.Core;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
@@ -708,17 +709,15 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private Task<string?> PickVsixFileAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource<string?>();
 		InvokeOnMainThread(() => {
-			// CA1422: NSOpenPanel / AllowedFileTypes are AppKit-deprecated on this SDK but still work;
-			// modernizing to OpenPanel / AllowedContentTypes (UTType) is a separate macOS-side change.
-#pragma warning disable CA1422
-			using var panel = new NSOpenPanel {
-				Title = "Install Theme from .vsix",
-				CanChooseFiles = true,
-				CanChooseDirectories = false,
-				AllowsMultipleSelection = false,
-				AllowedFileTypes = ["vsix"],
-			};
-#pragma warning restore CA1422
+			var panel = NSOpenPanel.OpenPanel;
+			panel.Title = "Install Theme from .vsix";
+			panel.CanChooseFiles = true;
+			panel.CanChooseDirectories = false;
+			panel.AllowsMultipleSelection = false;
+			// .vsix has no system-declared UTI, so synthesize a dynamic content type from the extension.
+			if (UTType.CreateFromExtension("vsix") is { } vsixType) {
+				panel.AllowedContentTypes = [vsixType];
+			}
 			completion.SetResult(panel.RunModal() == 1 && panel.Url is { Path: { } path } ? path : null);
 		});
 		return completion.Task;
@@ -751,14 +750,11 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		string content = root.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? string.Empty : string.Empty;
 		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
 
-		string? target;
-		using (var panel = new NSSavePanel {
-			Title = "Save As",
-			NameFieldStringValue = suggested,
-			DirectoryUrl = NSUrl.FromFilename(_workspace),
-		}) {
-			target = panel.RunModal() == 1 && panel.Url is { Path: { } chosen } ? chosen : null;
-		}
+		var panel = NSSavePanel.SavePanel;
+		panel.Title = "Save As";
+		panel.NameFieldStringValue = suggested;
+		panel.DirectoryUrl = NSUrl.FromFilename(_workspace);
+		string? target = panel.RunModal() == 1 && panel.Url is { Path: { } chosen } ? chosen : null;
 
 		if (string.IsNullOrEmpty(target)) {
 			PostScratchSaved(scratchPath, string.Empty, reopen: false); // cancelled
@@ -784,12 +780,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>
 	private void PostScratchSaved(string scratchPath, string savedPath, bool reopen) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "scratch-saved",
-			scratchPath,
-			savedPath,
-			reopen,
-		}));
+		// Built by hand (not JsonSerializer.Serialize, which is trim-unsafe — IL2026 — on the macOS target).
+		_bridge.PostToWeb(
+			$"{{\"type\":\"scratch-saved\",\"scratchPath\":{JsonString(scratchPath)},\"savedPath\":{JsonString(savedPath)},\"reopen\":{(reopen ? "true" : "false")}}}");
 
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {

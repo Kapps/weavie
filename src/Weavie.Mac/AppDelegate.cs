@@ -165,12 +165,10 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
 		};
-		if (_ide.RegistryServer is not null) {
-			_ide.RegistryServer.Log += line => {
-				Console.WriteLine($"[registry] {line}");
-				Console.Out.Flush();
-			};
-		}
+		_ide.RegistryServer?.Log += line => {
+			Console.WriteLine($"[registry] {line}");
+			Console.Out.Flush();
+		};
 
 		_claude.ExtraEnvironment = _ide.EnvironmentVariables;
 		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
@@ -679,6 +677,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private Task<string?> PickVsixFileAsync(CancellationToken ct) {
 		var completion = new TaskCompletionSource<string?>();
 		InvokeOnMainThread(() => {
+			// CA1422: NSOpenPanel / AllowedFileTypes are AppKit-deprecated on this SDK but still work;
+			// modernizing to OpenPanel / AllowedContentTypes (UTType) is a separate macOS-side change.
+#pragma warning disable CA1422
 			using var panel = new NSOpenPanel {
 				Title = "Install Theme from .vsix",
 				CanChooseFiles = true,
@@ -686,6 +687,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 				AllowsMultipleSelection = false,
 				AllowedFileTypes = ["vsix"],
 			};
+#pragma warning restore CA1422
 			completion.SetResult(panel.RunModal() == 1 && panel.Url is { Path: { } path } ? path : null);
 		});
 		return completion.Task;

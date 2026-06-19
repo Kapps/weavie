@@ -79,7 +79,9 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	private bool _disposed;
 
 	/// <summary>Creates the registrar; the application Carbon event handler is installed lazily on first <see cref="Apply"/>.</summary>
-	public MacGlobalHotkeys() => _handler = OnHotKeyEvent;
+	public MacGlobalHotkeys() {
+		_handler = OnHotKeyEvent;
+	}
 
 	/// <inheritdoc/>
 	public event Action<GlobalHotkey>? Pressed;
@@ -178,8 +180,8 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 
 	private void UnregisterAll() {
 		lock (_gate) {
-			foreach (var entry in _registered.Values) {
-				UnregisterHotKey(entry.Ref);
+			foreach (var (hotkeyRef, _) in _registered.Values) {
+				UnregisterHotKey(hotkeyRef);
 			}
 
 			_registered.Clear();
@@ -189,7 +191,7 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	private int OnHotKeyEvent(IntPtr callRef, IntPtr theEvent, IntPtr userData) {
 		int status = GetEventParameter(
 			theEvent, ParamDirectObject, TypeEventHotKeyID, IntPtr.Zero,
-			(nuint)Marshal.SizeOf<EventHotKeyId>(), IntPtr.Zero, out EventHotKeyId hkid);
+			(nuint)Marshal.SizeOf<EventHotKeyId>(), IntPtr.Zero, out var hkid);
 		if (status != 0) {
 			return 0; // noErr — let the event continue
 		}

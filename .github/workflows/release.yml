@@ -1,0 +1,94 @@
+# Release: publish each native shell as a self-contained, startup-optimized build.
+#
+# Startup optimization = ReadyToRun (PublishReadyToRun): IL is precompiled to native so there's
+# little JIT work at launch. Native AOT is NOT usable here — WinForms (and WPF, which Weavie.Win
+# enables for the WebView2 control) and WebView2 rely on reflection/COM that AOT doesn't support —
+# so R2R + self-contained is the right lever. Output is a plain folder (no single-file compression,
+# which would decompress at launch and hurt cold start).
+#
+# Each shell publishes on its own OS (Weavie.Win needs Windows; Weavie.Mac needs the macOS workload)
+# and the result is uploaded as a build artifact. Triggered manually or by pushing a v* tag.
+name: release
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: publish (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            project: src/Weavie.Linux/Weavie.Linux.csproj
+            rid: linux-x64
+            # R2R + self-contained: native-precompiled, no machine .NET dependency.
+            extra: --self-contained -p:PublishReadyToRun=true
+          - name: win-x64
+            os: windows-latest
+            project: src/Weavie.Win/Weavie.Win.csproj
+            rid: win-x64
+            extra: --self-contained -p:PublishReadyToRun=true
+          - name: osx-arm64
+            # macOS 26 (Tahoe) image — ships Xcode 26, which net10.0-macos requires. See ci.yml.
+            os: macos-26
+            project: src/Weavie.Mac/Weavie.Mac.csproj
+            rid: osx-arm64
+            # net10.0-macos publishes a self-contained .app via the macos workload; Release already
+            # enables full trimming (TrimMode=full) for size/startup. R2R isn't the lever here, so
+            # it's left to the workload's Release defaults.
+            extra: ""
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          # Latest 10.0 SDK — see ci.yml: global.json pins "10.0.0", which setup-dotnet 404s on.
+          dotnet-version: '10.0.x'
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # The web UI every shell embeds. Build it first so wwwroot exists (Weavie.Mac hard-errors
+      # without it); the Release publish below also bundles it next to the binary.
+      - name: Build web app
+        working-directory: src/web
+        run: |
+          npm ci
+          npm run build
+
+      - name: Restore macOS workload
+        if: matrix.name == 'osx-arm64'
+        run: dotnet workload restore ${{ matrix.project }}
+
+      - name: Publish
+        run: >
+          dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }}
+          ${{ matrix.extra }} -o artifacts/${{ matrix.name }}
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weavie-${{ matrix.name }}
+          path: artifacts/${{ matrix.name }}
+          if-no-files-found: error

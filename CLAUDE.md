@@ -53,6 +53,16 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
   revert, or investigate them, and don't retry in a tight loop. Wait, then re-run.
 - Only act on failures in files you actually changed.
 
+## File size & single responsibility
+
+Any source file that grows past **300 lines** is a signal to stop and ask whether it's doing too much —
+and, if so, split it along its seams. Length isn't the violation; *mixed responsibilities* are. A file that
+has clearly outgrown one job (e.g. a window/app class that owns bootstrap **and** the web-message bridge
+**and** workspace management **and** JSON building) should be broken into focused files — use `partial`
+classes (mirroring `WorkspaceWindow` + `WorkspaceWindow.WebBridge.cs`) or extracted collaborators. Prefer
+cohesive ~200-line files over one sprawling one. Don't split a file that genuinely does one thing just to
+hit a number.
+
 ## Output conventions
 
 Keep the repo root clean. Do not drop scratch files, findings, or notes in the root.

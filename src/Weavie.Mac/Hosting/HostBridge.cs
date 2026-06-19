@@ -41,7 +41,15 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 		if (NSThread.IsMain) {
 			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error));
 		} else {
-			NSApplication.SharedApplication.InvokeOnMainThread(() =>
+			// Must be async (BeginInvokeOnMainThread = waitUntilDone:false), NOT InvokeOnMainThread.
+			// PTY output arrives on the read thread; the matching input write runs on the main thread.
+			// A *synchronous* hop here blocks the read thread until the main thread is free — but if the
+			// main thread is parked in a blocking write() to a full PTY input buffer, that write can only
+			// drain once the child consumes stdin, which it can't do until its stdout is drained by this
+			// very read thread. That cycle is a hard deadlock (the macOS-only "blank + frozen terminal").
+			// Posting async keeps the read thread draining output unconditionally, mirroring the Windows
+			// HostBridge (webView.BeginInvoke), and the cycle never forms.
+			NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
 				webView.EvaluateJavaScript(script, (_, error) => LogIfError(error)));
 		}
 	}

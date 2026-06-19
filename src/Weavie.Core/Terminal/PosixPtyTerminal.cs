@@ -4,11 +4,12 @@ using static Weavie.Core.Terminal.NativeMethods;
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// Real POSIX PTY (macOS + Linux). Opens a master pseudo-terminal and launches the child with
-/// <c>posix_spawn</c> (+ <c>POSIX_SPAWN_SETSID</c>), reads child output on a background
-/// thread, and writes input to the master. The command must be an absolute path
-/// (<c>posix_spawn</c> does not search PATH) — callers launch a login shell that execs the
-/// real target so env/PATH resolve regardless of how the app was started.
+/// Real POSIX PTY (macOS + Linux). Opens a master pseudo-terminal and launches the child — via
+/// <c>forkpty</c> on macOS (so the child acquires the slave as its controlling terminal) or
+/// <c>posix_spawn</c> (+ <c>POSIX_SPAWN_SETSID</c>) on Linux — then reads child output on a background
+/// thread and writes input to the master. The command must be an absolute path (neither path searches
+/// PATH) — callers launch a login shell that execs the real target so env/PATH resolve regardless of
+/// how the app was started.
 /// </summary>
 public sealed class PosixPtyTerminal : ITerminal {
 	private readonly Lock _gate = new();
@@ -38,43 +39,102 @@ public sealed class PosixPtyTerminal : ITerminal {
 				throw new InvalidOperationException("Terminal already started.");
 			}
 
-			int master = posix_openpt(O_RDWR | O_NOCTTY);
-			if (master < 0) {
-				throw new IOException($"posix_openpt failed (errno {Marshal.GetLastPInvokeError()}).");
-			}
-
-			try {
-				// macOS gets this via POSIX_SPAWN_CLOEXEC_DEFAULT; Linux has no such spawn flag, so mark
-				// the master close-on-exec explicitly to keep it from leaking into the spawned child.
-				if (!OperatingSystem.IsMacOS()) {
-					fcntl(master, F_SETFD, FD_CLOEXEC);
-				}
-
-				if (grantpt(master) != 0) {
-					throw new IOException($"grantpt failed (errno {Marshal.GetLastPInvokeError()}).");
-				}
-				if (unlockpt(master) != 0) {
-					throw new IOException($"unlockpt failed (errno {Marshal.GetLastPInvokeError()}).");
-				}
-
-				nint slavePtr = ptsname(master);
-				string? slavePath = slavePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(slavePtr);
-				if (string.IsNullOrEmpty(slavePath)) {
-					throw new IOException("ptsname returned null.");
-				}
-
-				_pid = SpawnChild(startInfo, slavePath);
-				_masterFd = master;
-				_running = true;
-			} catch {
-				close(master);
-				throw;
-			}
+			(_masterFd, _pid) = OpenAndSpawn(startInfo);
+			_running = true;
 
 			Resize(startInfo.Columns, startInfo.Rows);
 
 			_readThread = new Thread(ReadLoop) { IsBackground = true, Name = "weavie-pty-read" };
 			_readThread.Start();
+		}
+	}
+
+	/// <summary>
+	/// Opens a PTY and launches the child, returning the master fd and child pid. On macOS this goes
+	/// through the native <c>weavie_pty_spawn</c> (forkpty) so the child acquires the slave as its
+	/// controlling terminal — interactive shells such as nushell abort with "no TTY for interactive
+	/// shell" without one, and macOS (unlike Linux) doesn't grant the ctty merely by opening the slave.
+	/// When the shim dylib isn't on the load path (unit tests run outside the .app bundle) it falls back
+	/// to the managed posix_spawn path, which is also what Linux always uses.
+	/// </summary>
+	private static (int Master, int Pid) OpenAndSpawn(TerminalStartInfo startInfo) {
+		if (OperatingSystem.IsMacOS()) {
+			try {
+				return SpawnViaForkpty(startInfo);
+			} catch (DllNotFoundException) {
+				// Shim dylib absent (tests outside the bundle) — fall through to the managed path.
+			}
+		}
+
+		return SpawnViaPosixSpawn(startInfo);
+	}
+
+	/// <summary>macOS: forkpty + execve in the native shim, giving the child a controlling terminal.</summary>
+	private static (int Master, int Pid) SpawnViaForkpty(TerminalStartInfo startInfo) {
+		var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
+		argvItems.AddRange(startInfo.Arguments);
+
+		nint[] argv = ToUtf8PtrArray(argvItems);
+		nint[] envp = ToUtf8PtrArray(BuildEnvironment(startInfo));
+		var argvHandle = GCHandle.Alloc(argv, GCHandleType.Pinned);
+		var envpHandle = GCHandle.Alloc(envp, GCHandleType.Pinned);
+		try {
+			ushort cols = (ushort)Math.Clamp(startInfo.Columns, 1, ushort.MaxValue);
+			ushort rows = (ushort)Math.Clamp(startInfo.Rows, 1, ushort.MaxValue);
+			int rc = weavie_pty_spawn(
+				startInfo.Command,
+				argvHandle.AddrOfPinnedObject(),
+				envpHandle.AddrOfPinnedObject(),
+				string.IsNullOrEmpty(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory,
+				rows,
+				cols,
+				out int master,
+				out int pid);
+			if (rc != 0) {
+				throw new IOException($"weavie_pty_spawn('{startInfo.Command}') failed (errno {-rc}).");
+			}
+
+			return (master, pid);
+		} finally {
+			argvHandle.Free();
+			envpHandle.Free();
+			FreeUtf8PtrArray(argv);
+			FreeUtf8PtrArray(envp);
+		}
+	}
+
+	/// <summary>Linux (and the macOS test fallback): posix_openpt + posix_spawn with POSIX_SPAWN_SETSID.</summary>
+	private static (int Master, int Pid) SpawnViaPosixSpawn(TerminalStartInfo startInfo) {
+		int master = posix_openpt(O_RDWR | O_NOCTTY);
+		if (master < 0) {
+			throw new IOException($"posix_openpt failed (errno {Marshal.GetLastPInvokeError()}).");
+		}
+
+		try {
+			// macOS gets this via POSIX_SPAWN_CLOEXEC_DEFAULT; Linux has no such spawn flag, so mark
+			// the master close-on-exec explicitly to keep it from leaking into the spawned child.
+			if (!OperatingSystem.IsMacOS()) {
+				fcntl(master, F_SETFD, FD_CLOEXEC);
+			}
+
+			if (grantpt(master) != 0) {
+				throw new IOException($"grantpt failed (errno {Marshal.GetLastPInvokeError()}).");
+			}
+			if (unlockpt(master) != 0) {
+				throw new IOException($"unlockpt failed (errno {Marshal.GetLastPInvokeError()}).");
+			}
+
+			nint slavePtr = ptsname(master);
+			string? slavePath = slavePtr == IntPtr.Zero ? null : Marshal.PtrToStringUTF8(slavePtr);
+			if (string.IsNullOrEmpty(slavePath)) {
+				throw new IOException("ptsname returned null.");
+			}
+
+			int pid = SpawnChild(startInfo, slavePath);
+			return (master, pid);
+		} catch {
+			close(master);
+			throw;
 		}
 	}
 
@@ -225,24 +285,71 @@ public sealed class PosixPtyTerminal : ITerminal {
 			return;
 		}
 
-		var ws = new Winsize {
-			ws_col = (ushort)Math.Clamp(columns, 1, ushort.MaxValue),
-			ws_row = (ushort)Math.Clamp(rows, 1, ushort.MaxValue),
-		};
-		ioctl(_masterFd, TIOCSWINSZ, ref ws);
+		ushort cols = (ushort)Math.Clamp(columns, 1, ushort.MaxValue);
+		ushort rowCount = (ushort)Math.Clamp(rows, 1, ushort.MaxValue);
+		SetWindowSize(_masterFd, rowCount, cols);
+	}
+
+	/// <summary>
+	/// Sets the pty's window size. On macOS this goes through the native <c>weavie_set_winsize</c> shim
+	/// (libc's variadic <c>ioctl</c> can't be P/Invoked correctly on arm64-apple — the resize is silently
+	/// dropped, leaving a full-screen TUI like claude blank); elsewhere, and when the shim dylib isn't on
+	/// the load path (unit tests outside the .app bundle), it falls back to the managed <c>ioctl</c>, which
+	/// is correct on Linux and macOS-x64.
+	/// </summary>
+	private static void SetWindowSize(int fd, ushort rows, ushort cols) {
+		if (OperatingSystem.IsMacOS()) {
+			try {
+				weavie_set_winsize(fd, rows, cols);
+				return;
+			} catch (DllNotFoundException) {
+				// The shim dylib isn't present (e.g. tests run outside the bundle); fall back to managed ioctl.
+			}
+		}
+
+		var ws = new Winsize { ws_row = rows, ws_col = cols };
+		ioctl(fd, TIOCSWINSZ, ref ws);
 	}
 
 	/// <inheritdoc/>
 	public void Dispose() {
+		int pid;
+		bool running;
+		Thread? readThread;
 		lock (_gate) {
-			if (_pid > 0 && _running) {
-				kill(_pid, 15); // SIGTERM — child dies, read loop sees EOF and exits
-			}
-			if (_masterFd >= 0) {
+			pid = _pid;
+			running = _running;
+			readThread = _readThread;
+			_running = false;
+		}
+
+		// Terminate the child's whole process GROUP, not just the leader. The child is a session/group leader
+		// (forkpty's login_tty on macOS, POSIX_SPAWN_SETSID on Linux), so its pgid == pid and kill(-pid, …)
+		// reaches the subprocesses it spawned — e.g. claude's node children, which inherit the slave PTY as
+		// their stdio. Killing only the leader leaves them holding the slave open, so the master read() never
+		// sees EOF; macOS's close() then blocks indefinitely waiting for that in-flight read to drain, which
+		// freezes the app on Cmd+Q (the read thread sits in read() while the UI thread sits in close()).
+		// SIGTERM first for a clean exit, escalating to SIGKILL if the read thread — which unwinds once the
+		// dying child releases the slave — hasn't exited in time.
+		if (pid > 0 && running) {
+			kill(-pid, SIGTERM);
+		}
+
+		bool readThreadDone = readThread is null || readThread.Join(TimeSpan.FromMilliseconds(500));
+		if (!readThreadDone && pid > 0 && running) {
+			kill(-pid, SIGKILL);
+			readThreadDone = readThread!.Join(TimeSpan.FromSeconds(1));
+		}
+
+		lock (_gate) {
+			// Close only once no read() is in flight (the read thread has exited): on macOS close() blocks
+			// until a concurrent read() on the same fd returns. If a stray holder outside the group somehow
+			// kept the slave open, skip the close rather than hang teardown — the leaked fd lives on a
+			// background thread and is reclaimed when the process exits, never a frozen UI.
+			if (_masterFd >= 0 && readThreadDone) {
 				close(_masterFd);
 				_masterFd = -1;
 			}
-			_running = false;
 		}
 	}
 

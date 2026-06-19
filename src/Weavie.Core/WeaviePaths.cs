@@ -98,4 +98,13 @@ public static class WeaviePaths {
 	/// <param name="id">The workspace identity (a path-derived digest).</param>
 	/// <returns>The absolute path to that workspace's worktree registry file.</returns>
 	public static string WorkspaceWorktreesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees.json");
+
+	/// <summary>
+	/// This workspace's persisted session set (the sessions and which was active):
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>. Lets a workspace reopen with the same sessions
+	/// bound to the same worktrees. See <see cref="Sessions.SessionStore"/>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's session-set file.</returns>
+	public static string WorkspaceSessionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "sessions.json");
 }

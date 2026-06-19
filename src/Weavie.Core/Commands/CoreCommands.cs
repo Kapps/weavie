@@ -423,5 +423,10 @@ public static class CoreCommands {
 			Description = "Clear ALL color overrides on the active theme, returning it to its authored colors.",
 			Aliases = ["reset theme", "clear theme overrides", "restore theme defaults", "remove all overrides"],
 		});
+
+		// Multi-session + worktree commands. Declarations live here so every trigger sees them; the
+		// Core-handled new/fork/close are wired per host via SessionCommands.RegisterHandlers over the host's
+		// ISessionHost, while next/prev/switch are web-handled by the session rail.
+		SessionCommands.Register(registry);
 	}
 }

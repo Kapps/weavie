@@ -65,6 +65,12 @@ dist/
 .vite/
 *.tsbuildinfo
 
+# Playwright (e2e) output
+test-results/
+playwright-report/
+.playwright/
+.recordings/
+
 # OS
 .DS_Store
 

@@ -2,7 +2,7 @@ using System.Text;
 using System.Text.Json;
 using Weavie.Core.FileSystem;
 
-namespace Weavie.Mac.Hosting;
+namespace Weavie.Hosting;
 
 /// <summary>
 /// Loads a file from disk and pushes its contents to the Monaco editor to reveal at a line.
@@ -10,11 +10,11 @@ namespace Weavie.Mac.Hosting;
 /// resolve against the workspace.
 /// </summary>
 public sealed class FileOpener {
-	private readonly HostBridge _bridge;
+	private readonly IHostBridge _bridge;
 	private readonly IFileSystem _fileSystem;
 
 	/// <summary>Creates an opener that pushes files to Monaco via the bridge, resolving relative paths against <paramref name="workspace"/>.</summary>
-	public FileOpener(HostBridge bridge, IFileSystem fileSystem, string workspace) {
+	public FileOpener(IHostBridge bridge, IFileSystem fileSystem, string workspace) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		_bridge = bridge;

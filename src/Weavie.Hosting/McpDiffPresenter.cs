@@ -1,25 +1,26 @@
 using System.Collections.Concurrent;
+using System.Text;
 using System.Text.Json;
 using Weavie.Core.Diffs;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 
-namespace Weavie.Mac.Hosting;
+namespace Weavie.Hosting;
 
 /// <summary>
 /// Production <see cref="IDiffPresenter"/>: renders an inbound <c>openDiff</c> as an editable Monaco
-/// diff in the webview and blocks until the user resolves it. Each diff gets an id; the webview
+/// diff in the web view and blocks until the user resolves it. Each diff gets an id; the web view
 /// replies with <c>diff-resolved</c>, which completes the awaiting task.
 /// </summary>
 public sealed class McpDiffPresenter : IDiffPresenter {
-	private readonly HostBridge _bridge;
+	private readonly IHostBridge _bridge;
 	private readonly IFileSystem _fileSystem;
 	private readonly FileOpener _fileOpener;
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
 	private int _counter;
 
 	/// <summary>Creates a presenter that renders diffs over the bridge and delegates file opens to <paramref name="fileOpener"/>.</summary>
-	public McpDiffPresenter(HostBridge bridge, IFileSystem fileSystem, FileOpener fileOpener) {
+	public McpDiffPresenter(IHostBridge bridge, IFileSystem fileSystem, FileOpener fileOpener) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(fileOpener);
@@ -29,10 +30,11 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	}
 
 	/// <summary>
-	/// Assigns the proposal an id, pushes a <c>show-diff</c> to the webview, and returns a task that
+	/// Assigns the proposal an id, pushes a <c>show-diff</c> to the web view, and returns a task that
 	/// completes when the user resolves it (or is cancelled, which also closes the diff in the UI).
 	/// </summary>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
+		ArgumentNullException.ThrowIfNull(proposal);
 		string id = $"diff-{Interlocked.Increment(ref _counter)}";
 		var tcs = new TaskCompletionSource<DiffOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_pending[id] = tcs;
@@ -73,7 +75,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
 	}
 
-	/// <summary>Called when the webview replies with the user's Keep/Reject decision.</summary>
+	/// <summary>Called when the web view replies with the user's Keep/Reject decision.</summary>
 	public void Resolve(string id, bool kept, string? finalContents) {
 		if (_pending.TryRemove(id, out var tcs)) {
 			tcs.TrySetResult(kept ? DiffOutcome.Kept(finalContents ?? string.Empty) : DiffOutcome.Rejected());
@@ -93,6 +95,6 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 			writer.WriteEndObject();
 		}
 
-		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 }

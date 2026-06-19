@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Cross-platform host scaffolding shared by the native shells (Weavie.Mac, Weavie.Linux): the bits
+    that only depend on the JS bridge contract (IHostBridge) plus Weavie.Core, with no per-OS UI
+    framework. Each shell supplies its own IHostBridge (WKWebView / WebKitGTK) and native window; this
+    library owns the PTY-backed terminals, the file opener, and the MCP diff presenter.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -4,7 +4,7 @@ using static Weavie.Core.Terminal.NativeMethods;
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// Real macOS PTY. Opens a master pseudo-terminal and launches the child with
+/// Real POSIX PTY (macOS + Linux). Opens a master pseudo-terminal and launches the child with
 /// <c>posix_spawn</c> (+ <c>POSIX_SPAWN_SETSID</c>), reads child output on a background
 /// thread, and writes input to the master. The command must be an absolute path
 /// (<c>posix_spawn</c> does not search PATH) — callers launch a login shell that execs the
@@ -44,6 +44,12 @@ public sealed class PosixPtyTerminal : ITerminal {
 			}
 
 			try {
+				// macOS gets this via POSIX_SPAWN_CLOEXEC_DEFAULT; Linux has no such spawn flag, so mark
+				// the master close-on-exec explicitly to keep it from leaking into the spawned child.
+				if (!OperatingSystem.IsMacOS()) {
+					fcntl(master, F_SETFD, FD_CLOEXEC);
+				}
+
 				if (grantpt(master) != 0) {
 					throw new IOException($"grantpt failed (errno {Marshal.GetLastPInvokeError()}).");
 				}
@@ -87,7 +93,13 @@ public sealed class PosixPtyTerminal : ITerminal {
 			posix_spawn_file_actions_addopen(ref fileActions, 0, slavePath, O_RDWR, 0);
 			posix_spawn_file_actions_adddup2(ref fileActions, 0, 1);
 			posix_spawn_file_actions_adddup2(ref fileActions, 0, 2);
-			posix_spawnattr_setflags(ref attr, POSIX_SPAWN_SETSID | POSIX_SPAWN_CLOEXEC_DEFAULT);
+			// POSIX_SPAWN_CLOEXEC_DEFAULT is Apple-only; on Linux the master is made close-on-exec in Start.
+			short spawnFlags = POSIX_SPAWN_SETSID;
+			if (OperatingSystem.IsMacOS()) {
+				spawnFlags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
+			}
+
+			posix_spawnattr_setflags(ref attr, spawnFlags);
 
 			var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
 			argvItems.AddRange(startInfo.Arguments);

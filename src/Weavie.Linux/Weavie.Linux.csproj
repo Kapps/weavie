@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <!-- Plain (RID-agnostic) net10.0: the GTK/WebKit2GTK glue is raw libc/libgtk/libwebkit2gtk
+         P/Invoke resolved at runtime, so no Linux-specific TFM or workload is needed to build. -->
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <!-- The source-generated LibraryImport marshalling stubs (GTK/WebKit/GLib P/Invoke) require unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+    <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
+  </ItemGroup>
+
+  <!--
+    Release/CI: build the Vite web app as part of the dotnet build so a shippable build needs no
+    manual `npm run build`. Incremental (Inputs/Outputs) — a no-op when web sources are unchanged.
+    Skipped in Debug, where the web app is built once with `npm run build` (keeps the C#-only inner
+    loop fast — no node on every build).
+  -->
+  <ItemGroup>
+    <WebSource Include="$(WebRoot)/src/**/*" />
+    <WebSource Include="$(WebRoot)/index.html" />
+    <WebSource Include="$(WebRoot)/vite.config.ts" />
+    <WebSource Include="$(WebRoot)/tsconfig.json" />
+    <WebSource Include="$(WebRoot)/package.json" />
+  </ItemGroup>
+  <Target Name="BuildWebAssets"
+          Condition="'$(Configuration)' != 'Debug'"
+          BeforeTargets="CopyWebAssets"
+          Inputs="@(WebSource)"
+          Outputs="$(WebRoot)/dist/index.html">
+    <Message Importance="high" Text="weavie: building web app (npm run build) in $(WebRoot)…" />
+    <Exec Command="npm run build" WorkingDirectory="$(WebRoot)" />
+  </Target>
+
+  <!--
+    Copy the built Vite web app next to the host exe under wwwroot/ (the bundled path the
+    app:// scheme handler serves from). Missing assets are a loud warning (not a hard error) so the
+    host still compiles to a runnable exe; the window then shows the scheme handler's fallback page.
+  -->
+  <Target Name="CopyWebAssets" AfterTargets="Build">
+    <ItemGroup Condition="Exists('$(WebRoot)/dist/index.html')">
+      <WebDist Include="$(WebRoot)/dist/**/*" />
+    </ItemGroup>
+    <Copy Condition="Exists('$(WebRoot)/dist/index.html')"
+          SourceFiles="@(WebDist)"
+          DestinationFiles="@(WebDist->'$(OutDir)wwwroot/%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Condition="Exists('$(WebRoot)/dist/index.html')"
+             Importance="high" Text="weavie: copied @(WebDist->Count()) web asset(s) next to the host exe." />
+    <Message Condition="!Exists('$(WebRoot)/dist/index.html')"
+             Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'npm run build' in src/web, then rebuild, so the window has a UI to load." />
+  </Target>
+
+  <!--
+    Publish: carry the bundled web assets into the publish output. CopyWebAssets only populates
+    $(OutDir)wwwroot (the build dir); `dotnet publish` computes its own file set and would otherwise
+    ship an exe with no UI. BuildWebAssets has produced dist by the time the build phase of publish
+    completes, so re-glob it here under wwwroot/ — the same path the scheme handler serves.
+  -->
+  <Target Name="PublishWebAssets"
+          Condition="'$(Configuration)' != 'Debug' And Exists('$(WebRoot)/dist/index.html')"
+          BeforeTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <_WebDistToPublish Include="$(WebRoot)/dist/**/*" />
+      <ResolvedFileToPublish Include="@(_WebDistToPublish)">
+        <RelativePath>wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    <Message Importance="high" Text="weavie: staged @(_WebDistToPublish->Count()) web asset(s) into publish/wwwroot." />
+  </Target>
+
+</Project>

@@ -791,10 +791,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			reopen,
 		}));
 
-	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
-	private void Notify(string level, string message) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
-
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {
 		string? token = root.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;

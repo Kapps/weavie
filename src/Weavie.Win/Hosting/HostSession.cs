@@ -8,6 +8,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
@@ -112,6 +113,13 @@ internal sealed class HostSession : IAsyncDisposable {
 		// content at PostToolUse). Because hooks fire before the permission check, this records edits in
 		// every mode (default/acceptEdits/bypass) — independent of openDiff.
 		Ide.HookBridge.Observed += Changes.Observe;
+
+		// Per-session Claude status (the rail/pane indicator): the same hook stream drives it
+		// (UserPromptSubmit/tool use → Working, Notification → NeedsInput, Stop → Idle), and the claude
+		// supervisor drives crash / crash-loop → Error. Observe runs on the hook accept-loop thread.
+		Status = new SessionStatusMachine();
+		Ide.HookBridge.Observed += Status.Observe;
+		Claude.SupervisorChanged += Status.ObserveSupervisor;
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{Ide.Port}; registry on 127.0.0.1:{Ide.RegistryPort}; workspace {workspaceRoot}; lock {Ide.LockFilePath}");
 		Console.Out.Flush();
 
@@ -181,6 +189,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
+
+	/// <summary>The live status of this session's Claude (Starting/Working/NeedsInput/Idle/Error), for the rail.</summary>
+	public SessionStatusMachine Status { get; }
 
 	/// <summary>The LSP bridge server rooted at this session's cwd.</summary>
 	public LspBridgeServer Lsp { get; }

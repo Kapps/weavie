@@ -81,6 +81,13 @@ public sealed class TerminalController : IDisposable {
 	public string? SystemPromptFilePath { get; set; }
 
 	/// <summary>
+	/// Raised on every supervisor transition for this session's process (start, crash, restart, give-up),
+	/// so a per-session status indicator can map it (crash / crash-loop → Error, post-crash restart →
+	/// Starting). Fires on the supervisor's thread; handlers must not block.
+	/// </summary>
+	public event Action<SupervisorStateChanged>? SupervisorChanged;
+
+	/// <summary>
 	/// Launches this session's child (claude or a shell) in a ConPTY sized to the given columns and
 	/// rows, under the supervisor. Idempotent: a no-op if it is already running or restarting.
 	/// </summary>
@@ -155,6 +162,9 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>Maps supervisor state to pane UI: a real exit the policy won't relaunch, or the crash-loop give-up.</summary>
 	private void OnSupervisorStateChanged(SupervisorStateChanged change) {
+		// Forward every transition for status tracking (the session status machine maps it); the switch
+		// below only drives the pane's own exit/crash notices.
+		SupervisorChanged?.Invoke(change);
 		switch (change.State) {
 			case SupervisorState.Idle when change.ExitCode is int exitedCode:
 				PostExit(exitedCode);

@@ -9,6 +9,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -409,6 +410,20 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		// clear all inline markers when a new turn starts (the prior turn is implicitly accepted).
 		_session.Changes.FileChanged += PushTurnDiffToWeb;
 		_session.Changes.TurnBegan += PushTurnReset;
+
+		// Per-session Claude status → the page's pane/rail indicator. Status changes fire off the UI thread
+		// (the hook accept loop / the supervisor); PostToWeb marshals to the UI thread itself.
+		_session.Status.Changed += status => {
+			string name = status switch {
+				SessionStatus.Starting => "starting",
+				SessionStatus.Working => "working",
+				SessionStatus.NeedsInput => "needsInput",
+				SessionStatus.Idle => "idle",
+				SessionStatus.Error => "error",
+				_ => "idle",
+			};
+			_bridge.PostToWeb($"{{\"type\":\"session-status\",\"session\":\"claude\",\"status\":\"{name}\"}}");
+		};
 
 		// File provider: forward the workspace watcher's on-disk change batches (non-Claude edits — another
 		// editor, a git checkout) to the page's file:// provider so VSCode reloads the affected working copies.

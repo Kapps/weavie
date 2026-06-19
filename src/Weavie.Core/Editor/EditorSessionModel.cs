@@ -16,6 +16,22 @@ public sealed record EditorSessionEntry {
 
 	/// <summary>Opaque Monaco view state (scroll/cursor/folding), or <c>null</c> when none was captured.</summary>
 	public JsonElement? ViewState { get; init; }
+
+	/// <summary>A preview tab (italic, reused by the next preview open). Omitted from disk when false.</summary>
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+	public bool Preview { get; init; }
+
+	/// <summary>A pinned tab (compact, furthest-left, survives bulk-close). Omitted from disk when false.</summary>
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+	public bool Pinned { get; init; }
+
+	/// <summary>
+	/// A scratch (untitled) buffer backed by a temp file in the workspace scratch dir (see
+	/// <see cref="ScratchStore"/>): shown as "Untitled-N", saving prompts for a real name, closing discards it.
+	/// Round-trips so a restored scratch tab keeps its identity. Omitted from disk when false.
+	/// </summary>
+	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
+	public bool Scratch { get; init; }
 }
 
 /// <summary>

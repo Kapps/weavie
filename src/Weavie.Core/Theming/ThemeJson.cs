@@ -70,7 +70,14 @@ public static class ThemeJson {
 					}
 
 					writer.WriteString("key", set.Key);
-					writer.WriteString("value", set.Value);
+					if (set.Value is not null) {
+						writer.WriteString("value", set.Value);
+					}
+
+					if (set.FontStyle is not null) {
+						writer.WriteString("fontStyle", set.FontStyle);
+					}
+
 					break;
 				case ThemeOverrideTransform transform:
 					writer.WriteString("kind", "transform");

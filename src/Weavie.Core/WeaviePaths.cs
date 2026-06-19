@@ -70,4 +70,14 @@ public static class WeaviePaths {
 	/// <param name="id">The workspace identity (a path-derived digest).</param>
 	/// <returns>The absolute path to that workspace's editor-session file.</returns>
 	public static string WorkspaceEditorSessionFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "editor-session.json");
+
+	/// <summary>
+	/// This workspace's scratch (untitled-buffer) directory:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>. New files (<c>Ctrl+N</c>) are backed by a real temp file
+	/// here — outside the workspace, so they never reach the file tree, the index, git, or Claude — until the
+	/// user saves them under a real name. See <see cref="Editor.ScratchStore"/>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's scratch directory.</returns>
+	public static string WorkspaceScratchDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "scratch");
 }

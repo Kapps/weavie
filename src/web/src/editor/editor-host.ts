@@ -20,8 +20,8 @@ import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { canonicalFsPath } from "./fs-path";
 import { createEditor, monaco } from "./monaco-setup";
-import { editorSession, setLocalSession } from "./session-store";
-import { initEditorServices } from "./vscode-services";
+import { captureViewState, editorSession, openTab, promote } from "./session-store";
+import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
 // freed only when no reference remains (so a feature's transient createModelReference never frees our model).
@@ -55,8 +55,27 @@ function nextPaint(): Promise<void> {
 /** The live editor, plus the operations the shell drives it with (open a file, review a diff, tear down). */
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
-  /** Loads a file as a working copy into the editor and reveals `line` (host open-file). */
-  openFile(path: string, line: number): void;
+  /**
+   * Switches the editor to a file working copy. `placement` either reveals a 1-based `line` (a fresh open or
+   * an explicit navigation) or restores the tab's saved Monaco view state (switching back to an open tab).
+   * The single path that swaps the editor to a file — a user open, a tab switch, and a restore all use it.
+   */
+  show(path: string, placement: { line: number } | { viewState: unknown }): void;
+  /**
+   * Closes a tab: flushes its pending save, then releases its refcounted working-copy reference so the model
+   * can be freed. This is the ONLY site that disposes a reference, and it runs only on an explicit user close
+   * — never from dispose() (a hot reload keeps the references alive on window so the rebuilt host re-adopts
+   * them). The caller must switch the editor off this model first (see clear / show), then close.
+   * Pass `discard` to skip the flush (a scratch buffer being discarded or converted on save — its temp file
+   * is deleted host-side, so flushing it would be pointless or re-create it).
+   */
+  closeFile(path: string, discard?: boolean): void;
+  /** The current text of an open file's working copy (for a scratch save / discard check), or undefined. */
+  contentOf(path: string): string | undefined;
+  /** Cancels a file's pending debounced save (so no autosave fires while a scratch save dialog is open). */
+  cancelSave(path: string): void;
+  /** Clears the editor to an empty pane (the last tab was closed). */
+  clear(): void;
   /**
    * Begins an inline review of an openDiff proposal in a transient model (the real file working copy is left
    * untouched), makes it the active editor showing `proposed`, and returns the transient model's URI string
@@ -64,9 +83,11 @@ export interface EditorHost {
    */
   beginReview(path: string, proposed: string, line: number): string;
   /**
-   * Ends an inline review and returns the proposal's final (possibly tweaked) content. Swaps the editor back
-   * to the real file (its working copy reloads to the kept content via the host's fs-change on accept; on
-   * reject it is left at disk content). Disposes the transient review model.
+   * Ends an inline review and returns the proposal's final (possibly tweaked) content. Restores the editor off
+   * the transient review model: to the file's working copy when it's open (it reloads to the kept content via
+   * the host's fs-change on accept, or stays at disk content on reject); when the file isn't open, a kept
+   * proposal keeps showing the proposed content (it becomes a working copy on reopen) and a rejected one
+   * returns to the prior view. Disposes the transient review model.
    */
   endReview(path: string, keep: boolean, original: string): string;
   /**
@@ -153,35 +174,30 @@ export async function createEditorHost(
     editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
   ];
 
-  // Persist the editor session (active file + Monaco view state) so a relaunch — and a hot reload — reopens
-  // the same file at the same scroll/cursor/folding. Debounced like the active-editor emit; scroll feeds it
-  // too (view state includes scroll). Only a real file working copy is captured (isUserFileModel), so an
-  // empty editor or a transient review model persists an empty session. setLocalSession both keeps the live
-  // store fresh (for HMR fidelity) and posts the debounced editor-session-changed to the host. The listeners
-  // join `disposables` so a hot-reloaded host doesn't stack a second set on the surviving models.
-  let sessionTimer: ReturnType<typeof setTimeout> | undefined;
-  const captureSession = (): void => {
+  // Keep the active tab's Monaco view state (scroll/cursor/folding) fresh in the session store so a relaunch —
+  // and a hot reload — reopens it at the same position. Data-only: this updates the active entry IN PLACE via
+  // captureViewState and never changes which tab is active or their order (that flows the other way, store →
+  // host, through show()), so there is no captureViewState↔show loop. Only a real file working copy is
+  // captured (isUserFileModel), so an empty editor or a transient review model is ignored. Debounced like the
+  // active-editor emit; scroll feeds it too (view state includes scroll). The listeners join `disposables` so a
+  // hot-reloaded host doesn't stack a second set on the surviving models.
+  let viewStateTimer: ReturnType<typeof setTimeout> | undefined;
+  const snapshotViewState = (): void => {
     const model = editor.getModel();
     if (model === null || !isUserFileModel(model)) {
       return;
     }
-    const path = model.uri.fsPath;
-    setLocalSession({
-      active: path,
-      // List-shaped (one visible pane today) so it extends cleanly to tabs.
-      open: [{ path, viewState: editor.saveViewState() ?? null }],
-    });
+    captureViewState(model.uri.fsPath, editor.saveViewState() ?? null);
   };
-  const scheduleCaptureSession = (): void => {
-    if (sessionTimer !== undefined) {
-      clearTimeout(sessionTimer);
+  const scheduleSnapshotViewState = (): void => {
+    if (viewStateTimer !== undefined) {
+      clearTimeout(viewStateTimer);
     }
-    sessionTimer = setTimeout(captureSession, 200);
+    viewStateTimer = setTimeout(snapshotViewState, 200);
   };
   disposables.push(
-    editor.onDidChangeModel(scheduleCaptureSession),
-    editor.onDidChangeCursorSelection(scheduleCaptureSession),
-    editor.onDidScrollChange(scheduleCaptureSession),
+    editor.onDidChangeCursorSelection(scheduleSnapshotViewState),
+    editor.onDidScrollChange(scheduleSnapshotViewState),
   );
 
   // Save: the working copy is debounce-flushed to disk through the file provider so the embedded Claude
@@ -225,6 +241,8 @@ export async function createEditorHost(
         if (!textFileService.isDirty(model.uri)) {
           return;
         }
+        // A real edit promotes a preview tab to persistent (no-op once persistent — runs only on the first edit).
+        promote(model.uri.fsPath);
         const delay = editor.getModel() === model ? 250 : 600;
         const pending = saveTimers.get(key);
         if (pending !== undefined) {
@@ -268,8 +286,13 @@ export async function createEditorHost(
   let openSeq = 0;
   const showFile = async (
     uri: monaco.Uri,
-    placement: { line: number } | { viewState: monaco.editor.ICodeEditorViewState | null },
+    placement:
+      | { line: number }
+      | { selection: monaco.IRange }
+      | { viewState: monaco.editor.ICodeEditorViewState | null },
   ): Promise<void> => {
+    // Snapshot the outgoing tab's position before we swap away (data-only store write; never loops back).
+    snapshotViewState();
     const token = ++openSeq;
     try {
       const ref = await ensureRef(uri);
@@ -281,6 +304,10 @@ export async function createEditorHost(
         editor.revealLineInCenter(placement.line);
         editor.setPosition({ lineNumber: placement.line, column: 1 });
         editor.focus();
+      } else if ("selection" in placement) {
+        editor.setSelection(placement.selection);
+        editor.revealRangeInCenterIfOutsideViewport(placement.selection);
+        editor.focus();
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }
@@ -289,9 +316,67 @@ export async function createEditorHost(
     }
   };
 
-  const openFile = (path: string, line: number): void => {
-    void showFile(monaco.Uri.file(canonicalFsPath(path)), { line });
+  const show = (path: string, placement: { line: number } | { viewState: unknown }): void => {
+    const resolved =
+      "line" in placement
+        ? placement
+        : { viewState: placement.viewState as monaco.editor.ICodeEditorViewState | null };
+    void showFile(monaco.Uri.file(canonicalFsPath(path)), resolved);
   };
+
+  // Close a tab: flush any pending save, then release the refcounted working-copy reference so the model can be
+  // freed. The ONLY site that disposes a reference, and it runs only on an explicit user close. dispose() must
+  // NEVER call this — a hot reload rebuilds the widget but keeps the working copies alive on window so the new
+  // host re-adopts them; disposing here would defeat that. The caller switches the editor off this model first.
+  const closeFile = (path: string, discard = false): void => {
+    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+    if (discard) {
+      // A discarded/converted scratch buffer: drop any pending save instead of flushing — its temp file is
+      // being deleted host-side, so a flush would either be wasted or re-create the file we're discarding.
+      const timer = saveTimers.get(key);
+      if (timer !== undefined) {
+        clearTimeout(timer);
+        saveTimers.delete(key);
+      }
+    } else {
+      flushSave(key);
+    }
+    const ref = refs.get(key);
+    if (ref !== undefined) {
+      ref.dispose();
+      refs.delete(key);
+    }
+  };
+
+  // The current text of an open working copy (used to seed a scratch "save as" and to decide whether a
+  // scratch close needs a discard confirm). Undefined when the file isn't open as a working copy.
+  const contentOf = (path: string): string | undefined => {
+    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+    return refs.get(key)?.object.textEditorModel.getValue();
+  };
+
+  // Cancel a file's pending debounced save. Called just before opening the native scratch save dialog so an
+  // in-flight autosave can't re-create the temp file after the host has saved + deleted it.
+  const cancelSave = (path: string): void => {
+    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+    const timer = saveTimers.get(key);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      saveTimers.delete(key);
+    }
+  };
+
+  const clear = (): void => {
+    editor.setModel(null);
+  };
+
+  // Route the editor service's file-opens (go-to-def / peek / references) through the tab store as a PREVIEW
+  // open, then reveal the target range — so navigating reuses the one preview slot instead of piling up tabs.
+  // Re-registered on every host build (it closes over this editor), like the active editor, so it survives HMR.
+  setOpenEditorSink((uri, selection) => {
+    openTab(uri.fsPath, { preview: true });
+    void showFile(uri, selection !== undefined ? { selection } : { line: 1 });
+  });
 
   // Review uses a transient model per file path (one openDiff is live at a time — it blocks). Tracked so
   // endReview can read its final content and dispose it.
@@ -347,18 +432,20 @@ export async function createEditorHost(
         editor.restoreViewState(restore.viewState);
       }
       reviewModel.dispose();
+    } else if (keep) {
+      // Kept, but the file isn't open as a working copy (a brand-new file, or an existing one that wasn't
+      // open): keep showing the proposed content rather than snapping back to whatever was here before —
+      // keeping an edit shouldn't yank the view to a different file. It becomes a real working copy when the
+      // file is next opened, after Claude's write lands. Don't dispose — it's what's visible.
     } else if (restore !== undefined && restore.model !== null && !restore.model.isDisposed()) {
+      // Rejected, no working copy for the file: restore whatever was showing before the review began.
       editor.setModel(restore.model);
       if (restore.viewState !== null) {
         editor.restoreViewState(restore.viewState);
       }
       reviewModel.dispose();
-    } else if (keep) {
-      // A brand-new file was just kept and nothing else was open: keep showing the kept content. It becomes a
-      // real working copy when the user reopens it (after Claude writes the file). Don't dispose — it's all
-      // that's visible.
     } else {
-      // A brand-new file was rejected and nothing else was open: clear the editor and drop the proposal.
+      // Rejected and nothing else was open: clear the editor and drop the proposal.
       editor.setModel(null);
       reviewModel.dispose();
     }
@@ -374,14 +461,15 @@ export async function createEditorHost(
     if (emitTimer !== undefined) {
       clearTimeout(emitTimer);
     }
-    // Flush the live editor session SYNCHRONOUSLY (the debounced timer would be dropped by the teardown). On a
-    // hot reload this lands the exact active file + view state in the HMR-surviving session store, so the
-    // rebuilt host's restoreSession() reopens it precisely — no separate snapshot path needed.
-    if (sessionTimer !== undefined) {
-      clearTimeout(sessionTimer);
-      sessionTimer = undefined;
+    // Flush the active tab's view state SYNCHRONOUSLY (the debounced timer would be dropped by the teardown).
+    // On a hot reload this lands the exact position in the HMR-surviving session store, so the rebuilt host's
+    // restoreSession() reopens it precisely — no separate snapshot path needed. The tab SET itself already
+    // lives in the store (mutated as tabs open/close), so only the active position needs flushing here.
+    if (viewStateTimer !== undefined) {
+      clearTimeout(viewStateTimer);
+      viewStateTimer = undefined;
     }
-    captureSession();
+    snapshotViewState();
     for (const subscription of disposables) {
       subscription.dispose();
     }
@@ -420,7 +508,11 @@ export async function createEditorHost(
   log("info", "editor host ready");
   return {
     editor,
-    openFile,
+    show,
+    closeFile,
+    contentOf,
+    cancelSave,
+    clear,
     beginReview,
     endReview,
     dispose,

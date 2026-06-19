@@ -118,8 +118,11 @@ Overrides are a **sparse, ordered list** of declarative ops applied on top of th
 resolve time:
 
 - **set** — a direct key override:
-  `{ kind: "set", table: "colors"|"tokenColors"|"semanticTokenColors", key, value }`
+  `{ kind: "set", table: "colors"|"tokenColors"|"semanticTokenColors", key, value?, fontStyle? }`
   e.g. `{ set, colors, "editor.background", "#000000" }` → "background pure black". (last-write-wins per key)
+  Carries a foreground `value`, a `fontStyle` (a space-separated subset of `italic bold underline
+  strikethrough`, or `""` to clear — syntax tables only), or both, so e.g. `{ set, semanticTokenColors,
+  "variable", fontStyle: "italic" }` → "italic variables" without recoloring them.
 - **transform** — a parametric op over a group of keys (so you don't hand-edit hundreds of colors):
   `{ kind: "transform", op: "darken"|"lighten"|"saturate"|"desaturate"|"contrast", amount, target }`
   e.g. `{ transform, darken, 0.20, "all" }` → "everything 20% darker".

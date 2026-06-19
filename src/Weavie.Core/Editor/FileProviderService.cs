@@ -14,15 +14,23 @@ namespace Weavie.Core.Editor;
 public sealed class FileProviderService {
 	private readonly IFileSystem _fileSystem;
 	private readonly string _workspaceRoot;
+	private readonly string _scratchRoot;
 
 	/// <summary>Creates the service over <paramref name="fileSystem"/>, constraining all access to <paramref name="workspaceRoot"/>.</summary>
 	/// <param name="fileSystem">The session filesystem to read/write through.</param>
-	/// <param name="workspaceRoot">The session root; access outside it is refused.</param>
-	public FileProviderService(IFileSystem fileSystem, string workspaceRoot) {
+	/// <param name="workspaceRoot">The session root; access outside it (and the scratch root) is refused.</param>
+	/// <param name="scratchRoot">
+	/// The workspace's scratch directory (see <see cref="ScratchStore"/>) — a second allowed root, so the editor
+	/// can read/write untitled buffers that deliberately live outside the workspace. Required: every session has
+	/// one, and an omitted root would silently refuse all scratch reads/writes.
+	/// </param>
+	public FileProviderService(IFileSystem fileSystem, string workspaceRoot, string scratchRoot) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		ArgumentException.ThrowIfNullOrEmpty(scratchRoot);
 		_fileSystem = fileSystem;
 		_workspaceRoot = workspaceRoot;
+		_scratchRoot = scratchRoot;
 	}
 
 	/// <summary>Answers <c>fs-stat</c>: the file's metadata, or <c>exists:false</c> for a missing/out-of-workspace path.</summary>
@@ -73,5 +81,7 @@ public sealed class FileProviderService {
 		}
 	}
 
-	private bool IsAllowed(string path) => BufferStore.IsWithinWorkspace(_workspaceRoot, path);
+	private bool IsAllowed(string path) =>
+		BufferStore.IsWithinWorkspace(_workspaceRoot, path)
+		|| BufferStore.IsWithinWorkspace(_scratchRoot, path);
 }

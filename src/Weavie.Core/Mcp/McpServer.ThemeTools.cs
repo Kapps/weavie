@@ -64,14 +64,8 @@ public sealed partial class McpServer {
 		}
 
 		string? key = GetStringArg(args, "key");
-		string? value = GetStringArg(args, "value");
 		if (string.IsNullOrEmpty(key)) {
 			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'key' (a VS Code color id, e.g. editor.background).", ct).ConfigureAwait(false);
-			return;
-		}
-
-		if (string.IsNullOrEmpty(value)) {
-			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'value' (a hex color, e.g. #000000).", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -81,10 +75,62 @@ public sealed partial class McpServer {
 			return;
 		}
 
+		// An op sets a foreground color ('value'), a font style ('fontStyle'), or both — at least one. An empty
+		// 'value' reads as absent; an empty 'fontStyle' is meaningful (clears inherited styles), so the presence
+		// test for it is null-vs-not, not IsNullOrEmpty.
+		string? value = GetStringArg(args, "value");
+		bool hasValue = !string.IsNullOrEmpty(value);
+		string? fontStyle = GetStringArg(args, "fontStyle");
+		bool hasFontStyle = fontStyle is not null;
+		if (!hasValue && !hasFontStyle) {
+			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'value' (a hex color, e.g. #000000) and/or a 'fontStyle' (e.g. italic).", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (hasFontStyle && table is null or "colors") {
+			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'fontStyle' applies only to syntax; set 'table' to tokenColors or semanticTokenColors.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (hasFontStyle && !IsValidFontStyle(fontStyle!)) {
+			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'fontStyle' must be a space-separated subset of: italic, bold, underline, strikethrough (or \"\" to clear inherited styles).", ct).ConfigureAwait(false);
+			return;
+		}
+
 		string active = ActiveThemeId();
-		_themeOverrides.Append(active, new ThemeOverrideSet { Table = table, Key = key, Value = value });
+		_themeOverrides.Append(active, new ThemeOverrideSet {
+			Table = table,
+			Key = key,
+			Value = hasValue ? value : null,
+			FontStyle = fontStyle,
+		});
+		await SendToolTextAsync(ws, idRaw, DescribeSet(key, value, hasValue, fontStyle, hasFontStyle, table, active), ct).ConfigureAwait(false);
+	}
+
+	// "Set <key> = <color>, fontStyle '<style>' (<table>) on theme '<id>'." — only the parts that were set.
+	private static string DescribeSet(string key, string? value, bool hasValue, string? fontStyle, bool hasFontStyle, string? table, string active) {
+		var parts = new List<string>(2);
+		if (hasValue) {
+			parts.Add($"= {value}");
+		}
+
+		if (hasFontStyle) {
+			parts.Add(fontStyle!.Length == 0 ? "fontStyle cleared" : $"fontStyle '{fontStyle}'");
+		}
+
 		string where = table is null or "colors" ? string.Empty : $" ({table})";
-		await SendToolTextAsync(ws, idRaw, $"Set {key} = {value}{where} on theme '{active}'.", ct).ConfigureAwait(false);
+		return $"Set {key} {string.Join(", ", parts)}{where} on theme '{active}'.";
+	}
+
+	// A valid fontStyle is "" (clear inherited styles) or a space-separated subset of the four TextMate styles.
+	private static bool IsValidFontStyle(string fontStyle) {
+		foreach (string token in fontStyle.Split(' ', StringSplitOptions.RemoveEmptyEntries)) {
+			if (token is not ("italic" or "bold" or "underline" or "strikethrough")) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	private async Task HandleApplyThemeTransformAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {

@@ -89,4 +89,13 @@ public sealed class LocalFileSystem : IFileSystem {
 			File.Move(tmp, path);
 		}
 	}
+
+	/// <inheritdoc/>
+	public void DeleteFile(string path) {
+		try {
+			File.Delete(path);
+		} catch (DirectoryNotFoundException) {
+			// The containing directory is gone, so the file is too — treat as already absent.
+		}
+	}
 }

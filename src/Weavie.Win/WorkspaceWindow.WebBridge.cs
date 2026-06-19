@@ -50,13 +50,18 @@ internal sealed partial class WorkspaceWindow {
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_session?.FileOpener.Open(revealPath, revealLine);
+				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
+					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
+				_session?.FileOpener.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
 				break;
 			case "list-dir":
 				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
 				break;
 			case "active-editor-changed":
 				_session?.UpdateActiveEditor(root);
+				break;
+			case "open-editors-changed":
+				_session?.UpdateOpenEditors(root);
 				break;
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
@@ -125,6 +130,18 @@ internal sealed partial class WorkspaceWindow {
 				break;
 			case "editor-session-changed":
 				HandleEditorSessionChanged(root);
+				break;
+			case "new-scratch":
+				// New File (Ctrl+N): create an untitled buffer + open it as a scratch tab.
+				_session?.OpenNewScratch();
+				break;
+			case "save-scratch-as":
+				// Ctrl+S on a scratch buffer: prompt for a real name (native Save dialog), write it, drop the temp.
+				SaveScratchAs(root);
+				break;
+			case "discard-scratch":
+				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
+				_session?.Scratch.Delete(root.TryGetProperty("path", out var dsEl) ? dsEl.GetString() ?? string.Empty : string.Empty);
 				break;
 			default:
 				// log — surface for diagnostics and unattended capture.
@@ -384,4 +401,63 @@ internal sealed partial class WorkspaceWindow {
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
+
+	/// <summary>
+	/// Saves a scratch (untitled) buffer under a real name: a native <see cref="SaveFileDialog"/> (defaulting to
+	/// the workspace root + the buffer's "Untitled-N" name), writes its content there, deletes the temp file,
+	/// and replies <c>scratch-saved</c>. <c>reopen</c> is true only when the target is inside the workspace, so
+	/// the editor reopens it as a normal working copy; saved elsewhere it's written + the user is warned, but
+	/// the editor can't edit out-of-workspace files, so the scratch tab just drops. OnWebMessage runs on the UI
+	/// thread (WebView2 raises its message event there), so the modal dialog can be shown inline.
+	/// </summary>
+	private void SaveScratchAs(JsonElement root) {
+		if (_session is null) {
+			return;
+		}
+
+		string scratchPath = root.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? string.Empty : string.Empty;
+		string content = root.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? string.Empty : string.Empty;
+		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
+
+		string? target;
+		using (var dialog = new SaveFileDialog {
+			Title = "Save As",
+			InitialDirectory = _workspaceRoot,
+			FileName = suggested,
+			Filter = "All files (*.*)|*.*",
+			OverwritePrompt = true,
+		}) {
+			target = dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
+		}
+
+		if (string.IsNullOrEmpty(target)) {
+			PostScratchSaved(scratchPath, string.Empty, reopen: false); // cancelled
+			return;
+		}
+
+		try {
+			_session.FileSystem.WriteAllText(target, content);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
+			PostScratchSaved(scratchPath, string.Empty, reopen: false);
+			return;
+		}
+
+		_session.Scratch.Delete(scratchPath);
+		bool reopen = BufferStore.IsWithinWorkspace(_workspaceRoot, target);
+		if (!reopen) {
+			Notify("info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
+		}
+
+		PostScratchSaved(scratchPath, target, reopen);
+	}
+
+	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>
+	private void PostScratchSaved(string scratchPath, string savedPath, bool reopen) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "scratch-saved",
+			scratchPath,
+			savedPath,
+			reopen,
+		}));
 }

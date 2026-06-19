@@ -35,6 +35,7 @@ internal sealed class HostSession : IAsyncDisposable {
 		SettingsStore settings,
 		LayoutStore layout,
 		string workspaceRoot,
+		string scratchDir,
 		string pageOrigin,
 		string id,
 		CommandRegistry commandRegistry,
@@ -44,6 +45,7 @@ internal sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
@@ -60,7 +62,11 @@ internal sealed class HostSession : IAsyncDisposable {
 
 		var fileSystem = new LocalFileSystem();
 		FileSystem = fileSystem;
-		FileProvider = new FileProviderService(fileSystem, workspaceRoot);
+		// Scratch (untitled) buffers live in a per-workspace dir OUTSIDE the workspace, so they never reach the
+		// file tree / index / git / Claude. The file provider is told that dir as a second allowed root so the
+		// editor can read/write them as ordinary working copies.
+		Scratch = new ScratchStore(fileSystem, scratchDir);
+		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		FileIndex.Log += Tagged("[index]");
@@ -143,6 +149,9 @@ internal sealed class HostSession : IAsyncDisposable {
 	/// <summary>Serves the editor's host-backed <c>file://</c> provider (workspace-scoped fs-stat/read/write).</summary>
 	public FileProviderService FileProvider { get; }
 
+	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
+	public ScratchStore Scratch { get; }
+
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
 
@@ -201,6 +210,22 @@ internal sealed class HostSession : IAsyncDisposable {
 		if (ActiveEditor.TryParse(message, out var editor) && editor is not null) {
 			Editor.SetActive(editor);
 		}
+	}
+
+	/// <summary>
+	/// Applies an <c>open-editors-changed</c> message from the page: records the full open-tab set so the
+	/// IDE-MCP <c>getOpenEditors</c> / <c>close_tab</c> tools report and target the real tabs.
+	/// </summary>
+	public void UpdateOpenEditors(JsonElement message) =>
+		Editor.SetOpenEditors(OpenEditorTab.ParseList(message));
+
+	/// <summary>
+	/// Creates a new scratch (untitled) buffer and opens it as a scratch tab — the host side of New File
+	/// (<c>Ctrl+N</c>). The empty temp file is created under the workspace scratch dir, then revealed.
+	/// </summary>
+	public void OpenNewScratch() {
+		string path = Scratch.CreateNew();
+		FileOpener.Open(path, 1, preview: false, scratch: true);
 	}
 
 	private static Action<string> Tagged(string tag) => line => {

@@ -65,12 +65,20 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	private Action? _onKeybindingsChanged;
 #if DEBUG
 	private WebDevServer? _webDev;
+	// The Vite dev origin the WebView is pointed at, once resolved (null in Release / when serving the bundle).
+	// Lets OnNavigationCompleted tell a "dev server went away" failure apart from an ordinary navigation, so a
+	// hard reload (Ctrl+F5/Ctrl+R) after the server died recovers instead of dead-ending on Chromium's error page.
+	private string? _devOrigin;
+	// Set while a dev-server-loss recovery navigation is in flight (re-entrancy guard); capped attempts stop a
+	// pathological revive→fail→revive loop before falling back to the bundle.
+	private bool _recoveringDevServer;
+	private int _devRecoveryAttempts;
 #endif
 
 	// The app's dark background, painted on every host surface before the page loads so the ~0.25s of
 	// WebView2 cold-start shows dark instead of the default white. Matches the web splash + styles --bg;
 	// when theme persistence lands the host can swap in the user's resolved theme background here.
-	private static readonly Color StartupBackground = Color.FromArgb(0x1e, 0x1e, 0x1e);
+	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	public WorkspaceWindow(AppController app, string workspaceRoot) {
 		ArgumentNullException.ThrowIfNull(app);
@@ -320,6 +328,11 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		string? devOrigin = await _webDev.StartAsync();
 		if (devOrigin is not null) {
 			pageOrigin = devOrigin;
+			_devOrigin = devOrigin;
+			// Recover a reload that fails because the dev server became unreachable (e.g. a reused server the
+			// user's terminal owned was Ctrl+C'd, then Ctrl+F5). Subscribed before Navigate so even the first
+			// load recovers if Vite dies in the gap. Bundle navigation (https) never hits the failure branch.
+			core.NavigationCompleted += OnNavigationCompleted;
 			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
 		} else {
 			Console.WriteLine("[weavie] dev server unavailable; falling back to bundled wwwroot");
@@ -338,8 +351,14 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		// feed), the LSP bridge, and the file/diff presenters. Created once pageOrigin is known so the LSP
 		// WS origin is pinned correctly.
 		_session = new HostSession(
-			_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8],
+			_bridge, _settings, _layout, _workspaceRoot, WeaviePaths.WorkspaceScratchDir(Id), pageOrigin,
+			Guid.NewGuid().ToString("n")[..8],
 			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
+
+		// Garbage-collect scratch (untitled) temp files orphaned by a crash or a reset session — keep only
+		// those still referenced by the restored editor session (they reopen as their "Untitled-N" tabs).
+		_session.Scratch.GarbageCollect(
+			_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 
 		// Commands: wire this session's dispatcher to the web (so Claude's runCommand of a web command posts
 		// run-command + awaits its ack) and register the Core-side handlers (reopen terminal → restart the
@@ -487,6 +506,59 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
 		}
 	}
+
+#if DEBUG
+	// Recover when a navigation to the Vite dev origin fails because the server is unreachable — the case
+	// behind "localhost could not be reached" on a hard reload (Ctrl+F5/Ctrl+R) after a reused dev server
+	// died. Revive the dev server (StartAsync reuses a live one, else respawns) and reload the fresh content;
+	// if it can't come back, fall back to the always-mapped bundle and log loudly so the loss is observable.
+	// Only wired in Debug (no dev origin in Release), so the shipped app can never reach this branch.
+	private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e) {
+		if (e.IsSuccess) {
+			_devRecoveryAttempts = 0; // a good load ends the burst; the next failure starts a fresh count
+			return;
+		}
+
+		// Act only on connection-class failures (the server is gone) — not user cancels or HTTP errors, which
+		// navigate fine against a live server and would otherwise trigger a needless bundle fallback.
+		if (_devOrigin is null || _recoveringDevServer || _webDev is null
+			|| e.WebErrorStatus is not (
+				CoreWebView2WebErrorStatus.CannotConnect
+				or CoreWebView2WebErrorStatus.ServerUnreachable
+				or CoreWebView2WebErrorStatus.HostNameNotResolved
+				or CoreWebView2WebErrorStatus.ConnectionAborted
+				or CoreWebView2WebErrorStatus.ConnectionReset
+				or CoreWebView2WebErrorStatus.Disconnected
+				or CoreWebView2WebErrorStatus.Timeout)) {
+			return;
+		}
+
+		var core = _webView.CoreWebView2;
+		if (core is null) {
+			return;
+		}
+
+		_recoveringDevServer = true;
+		try {
+			Console.WriteLine($"[weavie] dev server at {_devOrigin} unreachable ({e.WebErrorStatus}); reviving for reload");
+			// Cap revival attempts so a server that comes up then immediately fails again can't spin forever.
+			string? revived = _devRecoveryAttempts < 3 ? await _webDev.StartAsync() : null;
+			if (revived is not null) {
+				_devRecoveryAttempts++;
+				_devOrigin = revived;
+				core.Navigate($"{revived}/index.html");
+			} else {
+				// Dev server is gone for good: stop chasing it and load the bundle that's always mapped.
+				_devOrigin = null;
+				core.NavigationCompleted -= OnNavigationCompleted;
+				Console.WriteLine($"[weavie] dev server could not be revived; loading bundled wwwroot at https://{AppHost}");
+				core.Navigate($"https://{AppHost}/index.html");
+			}
+		} finally {
+			_recoveringDevServer = false;
+		}
+	}
+#endif
 
 	private async Task CaptureSnapshotAsync() {
 		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");

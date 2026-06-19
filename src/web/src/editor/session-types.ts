@@ -10,6 +10,15 @@ export type EditorViewState = unknown;
 export interface EditorSessionEntry {
   path: string;
   viewState: EditorViewState | null;
+  // A preview tab is reused by the next preview open (single-click / go-to-def) and shown italic; promoted
+  // to a persistent tab by editing the file or double-clicking. Absent ⇒ false.
+  preview?: boolean;
+  // A pinned tab is compact, sorted furthest-left, and protected from bulk-close. Absent ⇒ false.
+  pinned?: boolean;
+  // A scratch (untitled) buffer backed by a temp file outside the workspace: shown as "Untitled-N", saving
+  // prompts for a real name, closing discards it. Round-trips so a restored scratch keeps its identity.
+  // Absent ⇒ false.
+  scratch?: boolean;
 }
 
 export interface EditorSession {

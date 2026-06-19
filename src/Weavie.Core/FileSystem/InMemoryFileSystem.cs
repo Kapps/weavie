@@ -111,6 +111,13 @@ public sealed class InMemoryFileSystem : IFileSystem {
 		_mtimes[normalized] = Interlocked.Increment(ref _clock);
 	}
 
+	/// <inheritdoc/>
+	public void DeleteFile(string path) {
+		string normalized = Normalize(path);
+		_files.TryRemove(normalized, out _);
+		_mtimes.TryRemove(normalized, out _);
+	}
+
 	/// <summary>All file paths currently present (normalized), for test assertions.</summary>
 	public IReadOnlyCollection<string> Paths => _files.Keys.ToArray();
 

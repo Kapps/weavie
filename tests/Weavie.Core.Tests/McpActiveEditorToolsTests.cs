@@ -18,6 +18,7 @@ public sealed class McpActiveEditorToolsTests {
 
 	// An OS-native absolute path so PathToFileUri (new Uri(path).AbsoluteUri) yields a real file:// URL.
 	private static readonly string FilePath = OperatingSystem.IsWindows() ? @"C:\workspace\a.cs" : "/workspace/a.cs";
+	private static readonly string OtherPath = OperatingSystem.IsWindows() ? @"C:\workspace\b.cs" : "/workspace/b.cs";
 
 	private static McpServer NewServer(EditorStore editor) =>
 		new(Token, FakeDiffPresenter.AlwaysKeep(), ["/workspace"], "weavie", editor: editor);
@@ -61,12 +62,18 @@ public sealed class McpActiveEditorToolsTests {
 	}
 
 	[Fact]
-	public async Task GetOpenEditors_WithActiveEditor_ReturnsOneActiveTab() {
+	public async Task GetOpenEditors_ReturnsReportedOpenSetWithFlags() {
 		var editor = new EditorStore();
 		await using var server = NewServer(editor);
 		int port = server.Start();
+		// getOpenEditors reflects the open-tab set the page reported; languageId for the active tab is
+		// filled from the active-editor report.
 		editor.SetActive(new ActiveEditor(
 			FilePath, "csharp", string.Empty, new EditorSelection(default, default, IsEmpty: true)));
+		editor.SetOpenEditors([
+			new OpenEditorTab(FilePath, IsActive: true, IsPinned: false, IsPreview: false),
+			new OpenEditorTab(OtherPath, IsActive: false, IsPinned: true, IsPreview: false),
+		]);
 		using var ws = await ConnectAsync(port);
 
 		await SendAsync(ws, Request(3, "tools/call", "{\"name\":\"getOpenEditors\",\"arguments\":{}}"));
@@ -75,10 +82,44 @@ public sealed class McpActiveEditorToolsTests {
 		string text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
 		using var payload = JsonDocument.Parse(text);
 		var tabs = payload.RootElement.GetProperty("tabs");
-		Assert.Equal(1, tabs.GetArrayLength());
+		Assert.Equal(2, tabs.GetArrayLength());
 		Assert.Equal("a.cs", tabs[0].GetProperty("label").GetString());
 		Assert.Equal("csharp", tabs[0].GetProperty("languageId").GetString());
 		Assert.True(tabs[0].GetProperty("isActive").GetBoolean());
+		Assert.False(tabs[0].GetProperty("isPinned").GetBoolean());
+		Assert.False(tabs[1].GetProperty("isActive").GetBoolean());
+		Assert.True(tabs[1].GetProperty("isPinned").GetBoolean());
+	}
+
+	[Fact]
+	public async Task GetOpenEditors_NoReportedSet_ReturnsEmpty() {
+		await using var server = NewServer(new EditorStore());
+		int port = server.Start();
+		using var ws = await ConnectAsync(port);
+
+		await SendAsync(ws, Request(3, "tools/call", "{\"name\":\"getOpenEditors\",\"arguments\":{}}"));
+		using var response = await ReceiveAsync(ws);
+
+		string text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
+		using var payload = JsonDocument.Parse(text);
+		Assert.Equal(0, payload.RootElement.GetProperty("tabs").GetArrayLength());
+	}
+
+	[Fact]
+	public async Task CloseTab_ResolvesNameAndAsksPresenterToClose() {
+		var fake = FakeDiffPresenter.AlwaysKeep();
+		var editor = new EditorStore();
+		await using var server = new McpServer(Token, fake, ["/workspace"], "weavie", editor: editor);
+		int port = server.Start();
+		editor.SetOpenEditors([new OpenEditorTab(FilePath, IsActive: true, IsPinned: false, IsPreview: false)]);
+		using var ws = await ConnectAsync(port);
+
+		// close_tab takes the label; it resolves to the tab's path and asks the presenter to close it.
+		await SendAsync(ws, Request(4, "tools/call", "{\"name\":\"close_tab\",\"arguments\":{\"tab_name\":\"a.cs\"}}"));
+		using var response = await ReceiveAsync(ws);
+
+		Assert.Equal("OK", response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString());
+		Assert.Equal(FilePath, Assert.Single(fake.ClosedTabs));
 	}
 
 	[Fact]

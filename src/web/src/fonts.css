@@ -1,0 +1,15 @@
+/* Bundled UI typeface — Chivo (SIL Open Font License 1.1; license shipped at public/fonts/OFL.txt).
+   A sturdy news-grotesque for Weavie's chrome — tabs, title bar, menus, panels — deliberately NOT the
+   soft system-UI / VS Code (Segoe UI) look, and chosen because it stays crisp/technical at 12–14px text
+   size (where a display grotesque washes out). The single variable woff2 covers the whole 100–900 weight
+   range. Monaco and xterm keep their own monospace (driven by settings), so only chrome adopts this.
+   Lives in public/ and is referenced absolutely so both entries — the workspace (index.html) and the
+   welcome window (welcome.html) — resolve it at the web root under the custom app scheme. Imported by
+   both main.tsx and welcome/index.tsx. */
+@font-face {
+  font-family: "Chivo";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/chivo-variable.woff2") format("woff2");
+}

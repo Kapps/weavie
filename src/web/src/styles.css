@@ -2,17 +2,21 @@
   /* Initial/fallback chrome vars (Weavie Dark). The theme controller overwrites these on the active
      theme's resolved palette at runtime (see theme/chrome-vars.ts); these defaults just avoid any flash
      before it runs and back plain-browser dev. */
-  --bg: #0a0c10;
-  --bar: #11141a;
-  --border: #1b212a;
-  --fg: #d4d9e1;
-  --accent: #4fb0a6;
-  --dim: #7e8794;
+  --bg: #000000;
+  --bar: #101319;
+  --border: #191c21;
+  --fg: #cdd5dc;
+  --accent: #54c6a4;
+  --dim: #6f7884;
+  /* The chrome/UI typeface (tabs, title bar, menus, panels) — bundled Chivo, a sturdy grotesque chosen
+     to read distinctly from the soft system-UI / VS Code look and to stay crisp at small text sizes.
+     @font-face is in fonts.css; code surfaces (Monaco/xterm) keep their own monospace via settings. */
+  --ui-font: "Chivo", system-ui, sans-serif;
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own
      theme stylesheet (injected later) overrides this once the theme is applied. */
-  --vscode-editor-background: #0a0c10;
+  --vscode-editor-background: #000000;
 }
 
 * {
@@ -32,7 +36,10 @@ body,
   height: 100%;
   background: var(--bg);
   color: var(--fg);
-  font: 12px / 1.5 ui-monospace, "SF Mono", Menlo, monospace;
+  /* Chrome default is the UI font (Chivo), NOT monospace — the tab strip, omnibar, menus and panels
+     inherit from here. Regular weight: under the WebView's DirectWrite, Medium reads too bold for chrome,
+     so keep 400. Code surfaces set their own font. */
+  font: 12px / 1.5 var(--ui-font);
 }
 
 .split {
@@ -149,10 +156,20 @@ body,
 
 .editor-surface {
   position: relative;
+  display: flex;
+  flex-direction: column;
   width: 100%;
   height: 100%;
   box-sizing: border-box;
   border: 1px solid var(--border);
+}
+
+/* The Monaco host fills the space below the tab strip. Relative so the editor (inset:0) and the badge
+   position against it, not the whole surface. */
+.editor-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
 }
 
 .split-handle {
@@ -213,6 +230,140 @@ body,
 .editor {
   position: absolute;
   inset: 0;
+}
+
+/* Editor tab strip: chrome inside the editor pane (not a layout pane). Height is content-driven. */
+.editor-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  max-width: 16em;
+  border-right: 1px solid var(--border);
+  color: var(--dim);
+  user-select: none;
+}
+
+.editor-tab:hover {
+  color: var(--fg);
+}
+
+/* The clickable label area (activate / double-click promote / middle-click close / right-click menu). */
+.editor-tab-main {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.5em;
+  padding: 0.4em 0.25em 0.4em 0.75em;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The active tab connects to the editor (matches its background) and carries the accent edge. */
+.editor-tab.active {
+  color: var(--fg);
+  background: var(--bg);
+  box-shadow: inset 0 0.15em 0 var(--accent);
+}
+
+.editor-tab.preview .editor-tab-label {
+  font-style: italic;
+}
+
+/* Pinned tabs are compact and float furthest-left (the store orders them; this just narrows them). */
+.editor-tab.pinned {
+  max-width: 10em;
+}
+
+.editor-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.editor-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.4em;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.editor-tab:hover .editor-tab-close,
+.editor-tab.active .editor-tab-close,
+.editor-tab.pinned .editor-tab-close {
+  opacity: 0.7;
+}
+
+.editor-tab-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+/* Tab right-click context menu (portaled to body; fixed at the cursor). Mirrors the title-bar dropdown look. */
+.tab-ctx-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 12em;
+  padding: 0.25em;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+}
+
+.tab-ctx-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5em;
+  width: 100%;
+  padding: 0.35em 0.6em;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+  cursor: pointer;
+}
+
+.tab-ctx-item:hover {
+  background: var(--accent);
+  color: #042019;
+}
+
+.tab-ctx-keys {
+  color: var(--dim);
+  font-size: 0.9em;
+}
+
+.tab-ctx-item:hover .tab-ctx-keys {
+  color: rgba(6, 35, 29, 0.7);
+}
+
+.tab-ctx-sep {
+  height: 1px;
+  margin: 0.25em 0.4em;
+  background: var(--border);
 }
 
 .term {
@@ -601,9 +752,8 @@ body,
   background: var(--bar);
   border-bottom: 1px solid var(--border);
   user-select: none;
-  /* The UI font (not the app's monospace) — chrome text hints far crisper at this size, like VS Code. */
-  font-family: "Segoe UI", system-ui, sans-serif;
-  font-size: 14px;
+  /* Font intentionally inherited from .app — same UI font (Chivo), weight and 12px size as the rest of
+     the chrome (the menu bar reads better matched to the tabs than enlarged). */
   -webkit-app-region: drag;
   app-region: drag;
 }
@@ -721,7 +871,7 @@ body,
 
 .tb-dropitem:hover {
   background: var(--accent);
-  color: #06231d;
+  color: #042019;
 }
 
 .tb-dropitem.disabled {
@@ -1059,15 +1209,17 @@ body,
   margin-left: 3px;
 }
 
+/* The red marker bar is an INSET box-shadow, not a border, and the rows carry no left padding: both
+   would shift the ghost text rightward, but the live (green) lines aren't shifted, so the deleted text
+   has to start at the same x to line up column-for-column with the code it replaced. */
 .weavie-inline-removed {
   background: rgba(210, 90, 90, 0.14);
-  border-left: 3px solid #d25a5a;
+  box-shadow: inset 3px 0 0 #d25a5a;
   white-space: pre;
-  overflow-x: hidden;
+  overflow: hidden;
 }
 
 .weavie-inline-removed-line {
-  padding-left: 8px;
   color: #d29a9a;
   text-decoration: line-through;
   text-decoration-color: rgba(210, 90, 90, 0.5);
@@ -1178,4 +1330,73 @@ body,
 
 .toast-close:hover {
   color: var(--fg);
+}
+
+/* Modal confirm dialog (e.g. "discard unsaved scratch?"): a dimmed backdrop with a centered card. Above the
+   panels/toolbars but below toasts, so a failed-save toast still shows. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+}
+
+.confirm-dialog {
+  width: min(420px, 86vw);
+  padding: 1em 1.1em;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.confirm-title {
+  font-weight: 600;
+  margin-bottom: 0.5em;
+}
+
+.confirm-body {
+  color: var(--dim);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+  margin-top: 1.1em;
+}
+
+.confirm-btn {
+  padding: 0.4em 0.9em;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+.confirm-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.confirm-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #042019;
+}
+
+.confirm-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.confirm-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }

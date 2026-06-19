@@ -54,4 +54,10 @@ public interface IFileSystem {
 	/// files, where atomic-rename has observable costs (file-watcher churn, broken hardlinks, lost ACLs).
 	/// </summary>
 	void WriteAllTextAtomic(string path, string contents);
+
+	/// <summary>
+	/// Deletes the file at <paramref name="path"/>. A missing file is a no-op (never throws for absence); a
+	/// real delete error (ACLs, in use) propagates so the caller can surface it.
+	/// </summary>
+	void DeleteFile(string path);
 }

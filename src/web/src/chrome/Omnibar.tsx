@@ -1,4 +1,12 @@
-import { Search } from "lucide-solid";
+import { Fzf, byLengthAsc } from "fzf";
+import {
+  ChevronDown,
+  ChevronRight,
+  File as FileIcon,
+  Folder,
+  FolderOpen,
+  Search,
+} from "lucide-solid";
 import {
   For,
   type JSX,
@@ -13,11 +21,12 @@ import { evaluateWhen } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, getCommands, onCommandsChanged } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
-import { fuzzyMatch } from "./fuzzy";
+import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
 
-// Max rows rendered at once. With no query the rendered window is centered on the current file, so the
-// list "centers around" the open file without mounting thousands of rows for a large workspace.
+// Max rows rendered at once — a safety cap so a giant workspace (or a fully expanded tree) never mounts
+// thousands of rows. In tree mode only the current file's ancestor chain is expanded by default, so the
+// visible set stays well under this.
 const VIEW_CAP = 300;
 
 interface Row {
@@ -25,6 +34,9 @@ interface Row {
   rel: string;
   leaf: string;
   dir: string;
+  // Offset of `leaf` within `rel`, so fuzzy-match positions (indices into `rel`) map cleanly onto the
+  // leaf/dir spans when highlighting.
+  leafStart: number;
 }
 
 function splitPath(abs: string, root: string): Row {
@@ -39,13 +51,83 @@ function splitPath(abs: string, root: string): Row {
     rel: norm,
     leaf: slash >= 0 ? norm.slice(slash + 1) : norm,
     dir: slash >= 0 ? norm.slice(0, slash) : "",
+    leafStart: slash >= 0 ? slash + 1 : 0,
   };
 }
 
-// The center omnibar: a VS Code–style quick-open. Default mode is "Go to File" (fuzzy over the workspace
-// file index, opens the file). A leading ">" flips to the command palette (fuzzy over the command catalog,
-// Enter runs the command). Focusing it asks the host for the file index; the focus-omnibar commands open it
-// programmatically (via omnibarRequest) in either mode. Replaces the old floating "Files" button on Windows.
+// A node in the client-side file tree built from the flat file index. Dirs carry `children`; files carry
+// `abs` (the openable path). `key` is the dir's relative path (unique), used as the expansion-state key.
+interface TreeNode {
+  name: string;
+  key: string;
+  isDir: boolean;
+  abs?: string;
+  children?: TreeNode[];
+}
+
+interface TreeRow {
+  node: TreeNode;
+  depth: number;
+}
+
+// Build a sorted tree (dirs first, then files, alpha) from the rows' relative paths. Done in one O(n)
+// pass over all paths — no host round-trips, since the omnibar already holds the whole file index.
+function buildTree(rows: Row[]): TreeNode[] {
+  const root: TreeNode = { name: "", key: "", isDir: true, children: [] };
+  const dirs = new Map<string, TreeNode>([["", root]]);
+  for (const row of rows) {
+    const segs = row.rel.split("/");
+    let parent = root;
+    let prefix = "";
+    for (let i = 0; i < segs.length; i++) {
+      const seg = segs[i] ?? "";
+      const key = prefix === "" ? seg : `${prefix}/${seg}`;
+      if (i === segs.length - 1) {
+        parent.children?.push({ name: seg, key, isDir: false, abs: row.abs });
+      } else {
+        let dir = dirs.get(key);
+        if (dir === undefined) {
+          dir = { name: seg, key, isDir: true, children: [] };
+          dirs.set(key, dir);
+          parent.children?.push(dir);
+        }
+        parent = dir;
+      }
+      prefix = key;
+    }
+  }
+  sortChildren(root);
+  return root.children ?? [];
+}
+
+function sortChildren(node: TreeNode): void {
+  if (node.children === undefined) {
+    return;
+  }
+  node.children.sort((a, b) =>
+    a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name),
+  );
+  for (const child of node.children) {
+    sortChildren(child);
+  }
+}
+
+// The expansion keys for every ancestor directory of a relative path (excludes the file leaf itself).
+function ancestorKeys(rel: string): string[] {
+  const segs = rel.split("/");
+  const keys: string[] = [];
+  let prefix = "";
+  for (let i = 0; i < segs.length - 1; i++) {
+    prefix = prefix === "" ? (segs[i] ?? "") : `${prefix}/${segs[i]}`;
+    keys.push(prefix);
+  }
+  return keys;
+}
+
+// The center omnibar: a VS Code–style quick-open. Default mode is "Go to File": an empty query shows a
+// file tree centered on the current file (its folder expanded); typing flips to a fuzzy-ranked, highlighted
+// flat result list (fzf over the workspace file index). A leading ">" flips to the command palette (fuzzy
+// over the command catalog, Enter runs the command). Focusing it asks the host for the file index.
 export function Omnibar(props: {
   files: string[];
   root: string | null;
@@ -57,6 +139,7 @@ export function Omnibar(props: {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
   const [selected, setSelected] = createSignal(0);
+  const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   let inputRef!: HTMLInputElement;
   let listRef: HTMLUListElement | undefined;
 
@@ -70,95 +153,133 @@ export function Omnibar(props: {
   });
 
   const commandMode = (): boolean => query().startsWith(">");
+  // File mode with an empty query → the tree; with text → the flat ranked list.
+  const treeMode = (): boolean => !commandMode() && query().trim().length === 0;
+  const searchMode = (): boolean => !commandMode() && query().trim().length > 0;
 
-  // The full filtered file list (uncapped): empty query → alpha order; otherwise fuzzy-ranked best-first.
-  const filtered = createMemo<Row[]>(() => {
-    if (commandMode()) {
+  // One fzf finder over the file index, rebuilt only when the index changes (not per keystroke). fzf's
+  // built-in scoring rewards word/segment and camelCase boundaries, so "FSR" ranks FileStreamReader.
+  const fileFinder = createMemo(
+    () => new Fzf(rows(), { selector: (r) => r.rel, tiebreakers: [byLengthAsc] }),
+  );
+
+  interface Scored {
+    row: Row;
+    positions?: Set<number>;
+  }
+
+  // The fuzzy-ranked file matches (search mode only; uncapped, best-first), carrying match positions.
+  const filtered = createMemo<Scored[]>(() => {
+    if (!searchMode()) {
       return [];
     }
-    const q = query().trim();
-    const all = rows();
-    if (q.length === 0) {
-      return [...all].sort((a, b) => a.rel.localeCompare(b.rel));
-    }
-    const scored: { row: Row; score: number }[] = [];
-    for (const row of all) {
-      const m = fuzzyMatch(q, row.rel);
-      if (m !== null) {
-        scored.push({ row, score: m.score });
-      }
-    }
-    scored.sort((a, b) => b.score - a.score);
-    return scored.map((s) => s.row);
+    return fileFinder()
+      .find(query().trim())
+      .map((r) => ({ row: r.item, positions: r.positions }));
   });
 
-  // What actually renders: when unfiltered, a VIEW_CAP window centered on the current file; else top matches.
-  const view = createMemo<Row[]>(() => {
-    const all = filtered();
-    if (all.length <= VIEW_CAP) {
-      return all;
+  const view = createMemo<Scored[]>(() => filtered().slice(0, VIEW_CAP));
+
+  // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
+  const treeNodes = createMemo<TreeNode[]>(() => buildTree(rows()));
+  const visibleRows = createMemo<TreeRow[]>(() => {
+    if (!treeMode()) {
+      return [];
     }
-    if (query().trim().length === 0 && props.currentFile !== null) {
-      const idx = all.findIndex((r) => r.abs === props.currentFile);
-      if (idx >= 0) {
-        const start = Math.max(0, Math.min(idx - Math.floor(VIEW_CAP / 2), all.length - VIEW_CAP));
-        return all.slice(start, start + VIEW_CAP);
+    const exp = expanded();
+    const out: TreeRow[] = [];
+    const walk = (nodes: TreeNode[], depth: number): void => {
+      for (const node of nodes) {
+        out.push({ node, depth });
+        if (node.isDir && exp.has(node.key) && node.children !== undefined) {
+          walk(node.children, depth + 1);
+        }
+        if (out.length >= VIEW_CAP) {
+          return;
+        }
       }
-    }
-    return all.slice(0, VIEW_CAP);
+    };
+    walk(treeNodes(), 0);
+    return out.slice(0, VIEW_CAP);
   });
 
-  // The palette: visible commands whose `when` passes, fuzzy-ranked over the query after the ">".
-  const commandView = createMemo<CommandInfo[]>(() => {
+  interface ScoredCommand {
+    cmd: CommandInfo;
+    positions?: Set<number>;
+  }
+
+  // The palette: visible commands whose `when` passes, fuzzy-ranked (with positions) over the text after ">".
+  const commandView = createMemo<ScoredCommand[]>(() => {
     if (!commandMode()) {
       return [];
     }
     const all = commandList().filter((c) => c.showInPalette && evaluateWhen(c.when));
     const q = query().slice(1).trim();
     if (q.length === 0) {
-      return [...all].sort(
-        (a, b) =>
-          (a.category ?? "").localeCompare(b.category ?? "") || a.title.localeCompare(b.title),
-      );
+      return [...all]
+        .sort(
+          (a, b) =>
+            (a.category ?? "").localeCompare(b.category ?? "") || a.title.localeCompare(b.title),
+        )
+        .map((cmd) => ({ cmd }));
     }
-    const scored: { cmd: CommandInfo; score: number }[] = [];
-    for (const cmd of all) {
-      const m = fuzzyMatch(q, [cmd.title, cmd.category ?? "", ...cmd.aliases].join(" "));
-      if (m !== null) {
-        scored.push({ cmd, score: m.score });
-      }
-    }
-    scored.sort((a, b) => b.score - a.score);
-    return scored.map((s) => s.cmd);
+    const fzf = new Fzf(all, {
+      selector: (c) => [c.title, c.category ?? "", ...c.aliases].join(" "),
+      tiebreakers: [byLengthAsc],
+    });
+    return fzf.find(q).map((r) => ({ cmd: r.item, positions: r.positions }));
   });
 
-  const activeLen = (): number => (commandMode() ? commandView().length : view().length);
-  const hiddenCount = (): number => Math.max(0, filtered().length - view().length);
+  const activeLen = (): number =>
+    commandMode() ? commandView().length : treeMode() ? visibleRows().length : view().length;
+  const hiddenCount = (): number =>
+    searchMode() ? Math.max(0, filtered().length - view().length) : 0;
 
   const scrollToSelected = (block: ScrollLogicalPosition): void => {
     (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
   };
 
-  // On open with no query, preselect + center the current file (file mode only).
+  // Expand the current file's folder chain and center the selection on it — the contextual "reveal".
+  const focusCurrentInTree = (): void => {
+    const cf = props.currentFile;
+    if (cf !== null) {
+      const row = rows().find((r) => r.abs === cf);
+      if (row !== undefined) {
+        setExpanded(new Set(ancestorKeys(row.rel)));
+      }
+    }
+    queueMicrotask(() => {
+      const idx = cf !== null ? visibleRows().findIndex((r) => r.node.abs === cf) : -1;
+      setSelected(idx >= 0 ? idx : 0);
+      scrollToSelected("center");
+    });
+  };
+
+  // On open: command mode → top; file mode → reveal+center the current file in the tree.
   createEffect(
     on(open, (isOpen) => {
       if (!isOpen) {
         return;
       }
-      const v = view();
-      const idx = props.currentFile !== null ? v.findIndex((r) => r.abs === props.currentFile) : -1;
-      setSelected(idx >= 0 ? idx : 0);
-      queueMicrotask(() => scrollToSelected("center"));
+      if (commandMode()) {
+        setSelected(0);
+        return;
+      }
+      focusCurrentInTree();
     }),
   );
 
-  // Reset to the top whenever the query changes (deferred so it doesn't fight the open-centering above).
+  // On query change: empty file query re-reveals the current file; otherwise reset to the top.
   createEffect(
     on(
       query,
       () => {
-        setSelected(0);
-        queueMicrotask(() => scrollToSelected("nearest"));
+        if (treeMode()) {
+          focusCurrentInTree();
+        } else {
+          setSelected(0);
+          queueMicrotask(() => scrollToSelected("nearest"));
+        }
       },
       { defer: true },
     ),
@@ -187,11 +308,11 @@ export function Omnibar(props: {
     inputRef.blur();
   };
 
-  const choose = (row: Row | undefined): void => {
-    if (row === undefined) {
+  const openFile = (abs: string | undefined): void => {
+    if (abs === undefined) {
       return;
     }
-    props.onOpenFile(row.abs);
+    props.onOpenFile(abs);
     close();
   };
 
@@ -203,6 +324,78 @@ export function Omnibar(props: {
     close();
   };
 
+  const toggleDir = (key: string): void => {
+    setExpanded((s) => {
+      const next = new Set(s);
+      if (next.has(key)) {
+        next.delete(key);
+      } else {
+        next.add(key);
+      }
+      return next;
+    });
+    // The visible list grew/shrank — keep the selection in range.
+    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, visibleRows().length - 1))));
+  };
+
+  // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at
+  // the same-or-shallower depth (the next sibling/uncle). Left: collapse an expanded dir, else jump up to
+  // the parent row.
+  const treeMoveLevel = (dir: 1 | -1): void => {
+    const rowsV = visibleRows();
+    const i = selected();
+    const cur = rowsV[i];
+    if (cur === undefined) {
+      return;
+    }
+    if (dir === 1) {
+      if (cur.node.isDir && !expanded().has(cur.node.key)) {
+        toggleDir(cur.node.key);
+        return;
+      }
+      for (let j = i + 1; j < rowsV.length; j++) {
+        if ((rowsV[j]?.depth ?? 0) <= cur.depth) {
+          setSelected(j);
+          scrollToSelected("nearest");
+          return;
+        }
+      }
+      setSelected(rowsV.length - 1);
+    } else {
+      if (cur.node.isDir && expanded().has(cur.node.key)) {
+        toggleDir(cur.node.key);
+        return;
+      }
+      for (let j = i - 1; j >= 0; j--) {
+        if ((rowsV[j]?.depth ?? 0) < cur.depth) {
+          setSelected(j);
+          scrollToSelected("nearest");
+          return;
+        }
+      }
+      setSelected(0);
+    }
+    scrollToSelected("nearest");
+  };
+
+  const activate = (): void => {
+    if (commandMode()) {
+      runCommand(commandView()[selected()]?.cmd);
+    } else if (treeMode()) {
+      const r = visibleRows()[selected()];
+      if (r === undefined) {
+        return;
+      }
+      if (r.node.isDir) {
+        toggleDir(r.node.key);
+      } else {
+        openFile(r.node.abs);
+      }
+    } else {
+      openFile(view()[selected()]?.row.abs);
+    }
+  };
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
@@ -212,13 +405,15 @@ export function Omnibar(props: {
       e.preventDefault();
       setSelected((i) => Math.max(i - 1, 0));
       scrollToSelected("nearest");
+    } else if (e.key === "ArrowRight" && treeMode()) {
+      e.preventDefault();
+      treeMoveLevel(1);
+    } else if (e.key === "ArrowLeft" && treeMode()) {
+      e.preventDefault();
+      treeMoveLevel(-1);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      if (commandMode()) {
-        runCommand(commandView()[selected()]);
-      } else {
-        choose(view()[selected()]);
-      }
+      activate();
     } else if (e.key === "Escape") {
       e.preventDefault();
       setOpen(false);
@@ -267,7 +462,7 @@ export function Omnibar(props: {
               >
                 <ul class="tb-omnibar-list" ref={listRef}>
                   <For each={commandView()}>
-                    {(cmd, i) => (
+                    {(item, i) => (
                       <li>
                         <button
                           type="button"
@@ -276,15 +471,19 @@ export function Omnibar(props: {
                           onMouseDown={(e) => {
                             e.preventDefault();
                             setSelected(i());
-                            runCommand(cmd);
+                            runCommand(item.cmd);
                           }}
                         >
-                          <span class="tb-row-leaf">{cmd.title}</span>
-                          <Show when={cmd.category}>
-                            <span class="tb-row-dir">{cmd.category}</span>
+                          <span class="tb-row-leaf">
+                            {highlightSlice(item.cmd.title, item.positions, 0)}
+                          </span>
+                          <Show when={item.cmd.category}>
+                            <span class="tb-row-dir">{item.cmd.category}</span>
                           </Show>
-                          <Show when={cmd.keys.length > 0}>
-                            <span class="tb-row-keys">{cmd.keys.map(formatKey).join(" / ")}</span>
+                          <Show when={item.cmd.keys.length > 0}>
+                            <span class="tb-row-keys">
+                              {item.cmd.keys.map(formatKey).join(" / ")}
+                            </span>
                           </Show>
                         </button>
                       </li>
@@ -295,39 +494,96 @@ export function Omnibar(props: {
             }
           >
             <Show
-              when={view().length > 0}
-              fallback={<div class="tb-omnibar-empty">No matching files</div>}
+              when={treeMode()}
+              fallback={
+                <Show
+                  when={view().length > 0}
+                  fallback={<div class="tb-omnibar-empty">No matching files</div>}
+                >
+                  <ul class="tb-omnibar-list" ref={listRef}>
+                    <For each={view()}>
+                      {(item, i) => (
+                        <li>
+                          <button
+                            type="button"
+                            class="tb-omnibar-row"
+                            classList={{
+                              selected: i() === selected(),
+                              current: item.row.abs === props.currentFile,
+                            }}
+                            onMouseDown={(e) => {
+                              // mousedown (not click) fires before the input's focusout closes the popover.
+                              e.preventDefault();
+                              setSelected(i());
+                              openFile(item.row.abs);
+                            }}
+                          >
+                            <span class="tb-row-leaf">
+                              {highlightSlice(item.row.leaf, item.positions, item.row.leafStart)}
+                            </span>
+                            <Show when={item.row.dir.length > 0}>
+                              <span class="tb-row-dir">
+                                {highlightSlice(item.row.dir, item.positions, 0)}
+                              </span>
+                            </Show>
+                          </button>
+                        </li>
+                      )}
+                    </For>
+                  </ul>
+                  <Show when={hiddenCount() > 0}>
+                    <div class="tb-omnibar-more">+{hiddenCount()} more — type to filter</div>
+                  </Show>
+                </Show>
+              }
             >
-              <ul class="tb-omnibar-list" ref={listRef}>
-                <For each={view()}>
-                  {(row, i) => (
-                    <li>
-                      <button
-                        type="button"
-                        class="tb-omnibar-row"
-                        classList={{
-                          selected: i() === selected(),
-                          current: row.abs === props.currentFile,
-                        }}
-                        onMouseDown={(e) => {
-                          // mousedown (not click) fires before the input's focusout closes the popover.
-                          e.preventDefault();
-                          setSelected(i());
-                          choose(row);
-                        }}
-                      >
-                        <span class="tb-row-leaf">{row.leaf}</span>
-                        <Show when={row.dir.length > 0}>
-                          <span class="tb-row-dir">{row.dir}</span>
-                        </Show>
-                      </button>
-                    </li>
-                  )}
-                </For>
-              </ul>
-            </Show>
-            <Show when={hiddenCount() > 0}>
-              <div class="tb-omnibar-more">+{hiddenCount()} more — type to filter</div>
+              <Show
+                when={visibleRows().length > 0}
+                fallback={<div class="tb-omnibar-empty">No files</div>}
+              >
+                <ul class="tb-omnibar-list" ref={listRef}>
+                  <For each={visibleRows()}>
+                    {(r, i) => (
+                      <li>
+                        <button
+                          type="button"
+                          class="tb-omnibar-row tb-tree-row"
+                          classList={{
+                            selected: i() === selected(),
+                            current: r.node.abs === props.currentFile,
+                          }}
+                          style={`padding-left: ${10 + r.depth * 14}px`}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setSelected(i());
+                            if (r.node.isDir) {
+                              toggleDir(r.node.key);
+                            } else {
+                              openFile(r.node.abs);
+                            }
+                          }}
+                        >
+                          <span class="tb-tree-twisty" aria-hidden="true">
+                            <Show when={r.node.isDir}>
+                              <Show when={expanded().has(r.node.key)} fallback={<ChevronRight />}>
+                                <ChevronDown />
+                              </Show>
+                            </Show>
+                          </span>
+                          <span class="tb-tree-icon" aria-hidden="true">
+                            <Show when={r.node.isDir} fallback={<FileIcon />}>
+                              <Show when={expanded().has(r.node.key)} fallback={<Folder />}>
+                                <FolderOpen />
+                              </Show>
+                            </Show>
+                          </span>
+                          <span class="tb-row-leaf">{r.node.name}</span>
+                        </button>
+                      </li>
+                    )}
+                  </For>
+                </ul>
+              </Show>
             </Show>
           </Show>
         </div>

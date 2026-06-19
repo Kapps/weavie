@@ -79,27 +79,36 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	private static int SpawnChild(TerminalStartInfo startInfo, string slavePath) {
-		nint fileActions = IntPtr.Zero;
-		nint attr = IntPtr.Zero;
-		posix_spawn_file_actions_init(ref fileActions);
-		posix_spawnattr_init(ref attr);
+		// posix_spawn_file_actions_t / posix_spawnattr_t are opaque pointers on macOS but large by-value structs
+		// on glibc/Linux (~80 / ~336 bytes, which libc initializes in place). Hand libc a generously-sized,
+		// zeroed native buffer for each so it has room for either kernel's struct. (Passing the address of a
+		// bare 8-byte IntPtr — the old `ref IntPtr` — overflows the slot on Linux, corrupting the struct so
+		// posix_spawn fails and the host crashes.) 1 KiB dwarfs both kernels' structs on every supported arch.
+		const int spawnStructBytes = 1024;
+		nint fileActions = Marshal.AllocHGlobal(spawnStructBytes);
+		nint attr = Marshal.AllocHGlobal(spawnStructBytes);
+		byte[] zero = new byte[spawnStructBytes];
+		Marshal.Copy(zero, 0, fileActions, spawnStructBytes);
+		Marshal.Copy(zero, 0, attr, spawnStructBytes);
+		posix_spawn_file_actions_init(fileActions);
+		posix_spawnattr_init(attr);
 		try {
 			// Child: chdir into the workspace (if any), then make the slave tty fd 0/1/2
 			// (after setsid -> controlling terminal).
 			if (!string.IsNullOrEmpty(startInfo.WorkingDirectory)) {
-				posix_spawn_file_actions_addchdir_np(ref fileActions, startInfo.WorkingDirectory);
+				posix_spawn_file_actions_addchdir_np(fileActions, startInfo.WorkingDirectory);
 			}
 
-			posix_spawn_file_actions_addopen(ref fileActions, 0, slavePath, O_RDWR, 0);
-			posix_spawn_file_actions_adddup2(ref fileActions, 0, 1);
-			posix_spawn_file_actions_adddup2(ref fileActions, 0, 2);
+			posix_spawn_file_actions_addopen(fileActions, 0, slavePath, O_RDWR, 0);
+			posix_spawn_file_actions_adddup2(fileActions, 0, 1);
+			posix_spawn_file_actions_adddup2(fileActions, 0, 2);
 			// POSIX_SPAWN_CLOEXEC_DEFAULT is Apple-only; on Linux the master is made close-on-exec in Start.
 			short spawnFlags = POSIX_SPAWN_SETSID;
 			if (OperatingSystem.IsMacOS()) {
 				spawnFlags |= POSIX_SPAWN_CLOEXEC_DEFAULT;
 			}
 
-			posix_spawnattr_setflags(ref attr, spawnFlags);
+			posix_spawnattr_setflags(attr, spawnFlags);
 
 			var argvItems = new List<string>(1 + startInfo.Arguments.Count) { startInfo.Command };
 			argvItems.AddRange(startInfo.Arguments);
@@ -113,8 +122,8 @@ public sealed class PosixPtyTerminal : ITerminal {
 				int rc = posix_spawn(
 					out int pid,
 					startInfo.Command,
-					ref fileActions,
-					ref attr,
+					fileActions,
+					attr,
 					argvHandle.AddrOfPinnedObject(),
 					envpHandle.AddrOfPinnedObject());
 				if (rc != 0) {
@@ -129,8 +138,10 @@ public sealed class PosixPtyTerminal : ITerminal {
 				FreeUtf8PtrArray(envp);
 			}
 		} finally {
-			posix_spawn_file_actions_destroy(ref fileActions);
-			posix_spawnattr_destroy(ref attr);
+			posix_spawn_file_actions_destroy(fileActions);
+			posix_spawnattr_destroy(attr);
+			Marshal.FreeHGlobal(fileActions);
+			Marshal.FreeHGlobal(attr);
 		}
 	}
 

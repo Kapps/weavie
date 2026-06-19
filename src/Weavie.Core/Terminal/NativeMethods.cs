@@ -48,35 +48,41 @@ internal static partial class NativeMethods {
 	[LibraryImport("libc", SetLastError = true)]
 	internal static partial IntPtr ptsname(int fd);
 
+	// posix_spawn_file_actions_t and posix_spawnattr_t are passed BY ADDRESS as a caller-owned native buffer
+	// (an IntPtr), NOT as a `ref IntPtr`. They are opaque pointers on macOS (libc malloc's its state and stores
+	// the handle in the first word) but LARGE by-value structs on glibc/Linux (~80 and ~336 bytes, which libc
+	// initializes in place). Modeling them as a single 8-byte `ref IntPtr` works on macOS but overflows the
+	// caller's slot on Linux — corrupting the stack so posix_spawn fails. The caller allocates a buffer large
+	// enough for either kernel's struct (see PosixPtyTerminal.SpawnChild).
 	[LibraryImport("libc", SetLastError = true)]
-	internal static partial int posix_spawn_file_actions_init(ref IntPtr fileActions);
+	internal static partial int posix_spawn_file_actions_init(IntPtr fileActions);
 
 	[LibraryImport("libc", SetLastError = true)]
-	internal static partial int posix_spawn_file_actions_destroy(ref IntPtr fileActions);
+	internal static partial int posix_spawn_file_actions_destroy(IntPtr fileActions);
 
 	[LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial int posix_spawn_file_actions_addopen(
-		ref IntPtr fileActions, int filedes, string path, int oflag, uint mode);
+		IntPtr fileActions, int filedes, string path, int oflag, uint mode);
 
 	[LibraryImport("libc", SetLastError = true)]
 	internal static partial int posix_spawn_file_actions_adddup2(
-		ref IntPtr fileActions, int filedes, int newfiledes);
+		IntPtr fileActions, int filedes, int newfiledes);
 
 	[LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
-	internal static partial int posix_spawn_file_actions_addchdir_np(ref IntPtr fileActions, string path);
+	internal static partial int posix_spawn_file_actions_addchdir_np(IntPtr fileActions, string path);
 
 	[LibraryImport("libc", SetLastError = true)]
-	internal static partial int posix_spawnattr_init(ref IntPtr attr);
+	internal static partial int posix_spawnattr_init(IntPtr attr);
 
 	[LibraryImport("libc", SetLastError = true)]
-	internal static partial int posix_spawnattr_destroy(ref IntPtr attr);
+	internal static partial int posix_spawnattr_destroy(IntPtr attr);
 
 	[LibraryImport("libc", SetLastError = true)]
-	internal static partial int posix_spawnattr_setflags(ref IntPtr attr, short flags);
+	internal static partial int posix_spawnattr_setflags(IntPtr attr, short flags);
 
 	[LibraryImport("libc", SetLastError = true, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial int posix_spawn(
-		out int pid, string path, ref IntPtr fileActions, ref IntPtr attr, IntPtr argv, IntPtr envp);
+		out int pid, string path, IntPtr fileActions, IntPtr attr, IntPtr argv, IntPtr envp);
 
 	[LibraryImport("libc", SetLastError = true)]
 	internal static partial nint read(int fd, byte[] buffer, nuint count);

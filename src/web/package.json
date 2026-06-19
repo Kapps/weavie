@@ -3,7 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "packageManager": "pnpm@11.8.0",
   "scripts": {
+    "preinstall": "node -e \"if (!(process.env.npm_config_user_agent || '').startsWith('pnpm')) { console.error('This project uses pnpm. Run: corepack pnpm install (not npm/yarn).'); process.exit(1); }\"",
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
@@ -12,7 +14,7 @@
     "verify": "tsc --noEmit && biome check .",
     "e2e": "vite build && playwright test",
     "e2e:install": "playwright install chromium",
-    "capture": "npm install && npm run build && node e2e/capture.mjs"
+    "capture": "pnpm install && pnpm run build && node e2e/capture.mjs"
   },
   "dependencies": {
     "@codingame/monaco-vscode-api": "25.1.2",
@@ -37,6 +39,7 @@
     "monaco-languageclient": "10.7.0",
     "solid-js": "1.9.3",
     "tm-grammars": "1.31.15",
+    "vscode-languageclient": "9.0.1",
     "vscode-ws-jsonrpc": "3.5.0"
   },
   "devDependencies": {

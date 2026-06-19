@@ -9,7 +9,7 @@ import { expect, test } from "@playwright/test";
 
 // Integration test against the REAL headless host (src/Weavie.Headless) rather than the MockHost: spawn the
 // built host, point a real browser at it, and prove the WebSocket bridge round-trips into the C# session.
-// Skipped when the host hasn't been built (so the web-only `npm run e2e` still runs); CI that builds the
+// Skipped when the host hasn't been built (so the web-only `pnpm run e2e` still runs); CI that builds the
 // solution exercises it. This is the end-to-end guard for the browser <-> WebSocket <-> Weavie.Core path.
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");

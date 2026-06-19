@@ -10,7 +10,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
-      `built app not found at ${distDir}; run \`npm run build\` before the e2e tests`,
+      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
     );
   }
 });

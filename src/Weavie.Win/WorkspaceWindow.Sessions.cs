@@ -84,8 +84,68 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 		var registry = new WorktreeRegistry(new LocalFileSystem(), WeaviePaths.WorkspaceWorktreesFile(Id));
 		registry.Log += line => Console.WriteLine($"[worktrees] {line}");
-		return new WorktreeManager(git, registry, _workspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id));
+
+		// Runs worktree.setupCommand/teardownCommand around create/discard. The command strings are read
+		// live from settings; progress + results surface as toasts (and full output to the console).
+		var provisioner = new ShellWorktreeProvisioner(
+			() => _settings.GetString("worktree.setupCommand"),
+			() => _settings.GetString("worktree.teardownCommand"));
+		provisioner.Starting += OnWorktreeCommandStarting;
+		provisioner.Finished += OnWorktreeCommandFinished;
+		_worktreeProvisioner = provisioner;
+
+		return new WorktreeManager(git, registry, _workspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id), provisioner);
 	}
+
+	/// <summary>Kicks off the worktree setup command in the background so the new session opens immediately;
+	/// progress + failures surface via the provisioner's events. No-op when the workspace isn't a git repo.</summary>
+	private void StartWorktreeSetup(string worktreePath) {
+		if (_worktreeProvisioner is null) {
+			return;
+		}
+
+		_ = Task.Run(async () => {
+			try {
+				// Not tied to the create command's lifetime — a returning command must not cancel the install.
+				await _worktreeProvisioner.RunSetupAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
+			} catch (Exception ex) {
+				Console.WriteLine($"[weavie] worktree setup command failed to run: {ex}");
+			}
+		});
+	}
+
+	private void OnWorktreeCommandStarting(WorktreeCommandEvent e) {
+		string label = WorktreeLabel(e.WorktreePath);
+		string message = e.Phase == WorktreeCommandPhase.Setup
+			? $"Setting up worktree '{label}'… ({e.Command})"
+			: $"Cleaning up worktree '{label}'… ({e.Command})";
+		RunOnUi(() => Notify("info", message));
+	}
+
+	private void OnWorktreeCommandFinished(WorktreeCommandEvent e) {
+		var result = e.Result!;
+		string label = WorktreeLabel(e.WorktreePath);
+		string phase = e.Phase == WorktreeCommandPhase.Setup ? "setup" : "teardown";
+		string output = string.Join(
+			Environment.NewLine,
+			new[] { result.StdOut, result.StdErr }.Where(s => !string.IsNullOrWhiteSpace(s)));
+		if (output.Length > 0) {
+			Console.WriteLine($"[worktree-{phase}] {e.Command} (exit {result.ExitCode}) in {e.WorktreePath}{Environment.NewLine}{output}");
+		}
+
+		RunOnUi(() => {
+			if (result.Succeeded) {
+				Notify("info", e.Phase == WorktreeCommandPhase.Setup
+					? $"Worktree '{label}' is ready."
+					: $"Worktree '{label}' cleaned up.");
+			} else {
+				Notify("error", $"Worktree {phase} command failed (exit {result.ExitCode}) — see console.");
+			}
+		});
+	}
+
+	private static string WorktreeLabel(string path) =>
+		Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
 	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with <see cref="_session"/>.</summary>
 	private void AddPrimarySlot(string label) {
@@ -331,6 +391,10 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't create the worktree: {ex.Message}");
 		}
+
+		// Run the user's setup command (e.g. `pnpm install`) in the background so the session opens now;
+		// it toasts "setting up… → ready/failed" as it goes.
+		StartWorktreeSetup(record.Path);
 
 		var result = new TaskCompletionSource<CommandResult>();
 		RunOnUi(() => {

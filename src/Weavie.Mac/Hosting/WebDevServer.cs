@@ -42,7 +42,7 @@ internal sealed class WebDevServer : IDisposable {
 		}
 
 		// Reuse a dev server already serving the port instead of spawning a second one. Vite uses
-		// strictPort, so a second `npm run dev` would only collide ("Port 5173 already in use") and
+		// strictPort, so a second `pnpm run dev` would only collide ("Port 5173 already in use") and
 		// exit, leaving the WebView bound to a server this instance neither owns nor reaps — and when
 		// that foreign server later dies the page breaks (ERR_CONNECTION_REFUSED) with no fallback.
 		// A hand-started server, or one from a not-yet-reaped prior run, is reused as-is; _process
@@ -57,7 +57,7 @@ internal sealed class WebDevServer : IDisposable {
 		try {
 			_process = new Process {
 				StartInfo = new ProcessStartInfo {
-					// Spawn Vite directly rather than via `npm run dev`. The npm shim exits as soon as
+					// Spawn Vite directly rather than via `pnpm run dev`. The pnpm shim exits as soon as
 					// Vite is up, severing the parent→child chain Kill(entireProcessTree) walks on
 					// teardown — so node(vite)/esbuild would orphan (holding port 5173, keeping the run
 					// session alive). Launching Vite's entry with node makes _process the actual Vite

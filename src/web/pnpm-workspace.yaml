@@ -1,0 +1,15 @@
+# pnpm settings for the Weavie web app.
+#
+# allowBuilds: pnpm 10+ does not run a dependency's install/build scripts unless it is allowlisted.
+# biome and esbuild fetch their platform binaries that way, so the `biome check` lint and the
+# Vite/esbuild build need them approved.
+#
+# overrides: vite pulls esbuild 0.24.x while @codingame/esbuild-import-meta-url-plugin pulls 0.28.x;
+# npm's flat tree collapsed them to one, but pnpm keeps both, so the plugin's esbuild `Plugin` type
+# stops matching vite's in vite.config.ts. Pin the single version vite uses (the plugin's API is stable
+# across these releases).
+allowBuilds:
+  '@biomejs/biome': true
+  esbuild: true
+overrides:
+  esbuild: 0.24.2

@@ -449,7 +449,7 @@ export function onHostMessage(handler: WebMessageHandler): () => void {
 // Reads a config value the C# host injects as a window.__WEAVIE_*__ global before navigation. In the
 // shipped app the host always injects these before the web loads, so an absent value means the host
 // failed to wire it — we throw loudly instead of silently mounting with dev defaults that can drift from
-// Core's. In plain-browser dev (`npm run dev`, no host) there is legitimately no host, so the dev fallback
+// Core's. In plain-browser dev (`pnpm run dev`, no host) there is legitimately no host, so the dev fallback
 // is used. `name` is the global's name, for the error message.
 export function hostInjected<T>(name: string, value: T | undefined, devFallback: T): T {
   if (value !== undefined) {

@@ -40,4 +40,29 @@ public sealed class LineDiffTests {
 		Assert.Equal(0, added);
 		Assert.Equal(0, removed);
 	}
+
+	[Fact]
+	public void FirstChangedLine_Identical_ReturnsNull() =>
+		Assert.Null(LineDiff.FirstChangedLine("a\nb\nc", "a\nb\nc"));
+
+	[Fact]
+	public void FirstChangedLine_ModifiedMiddleLine_ReturnsThatLine() =>
+		Assert.Equal(2, LineDiff.FirstChangedLine("a\nb\nc", "a\nB\nc"));
+
+	[Fact]
+	public void FirstChangedLine_TrailingInsertion_ReturnsFirstAddedLine() =>
+		Assert.Equal(3, LineDiff.FirstChangedLine("a\nb", "a\nb\nc\nd"));
+
+	[Fact]
+	// A trailing deletion has no differing line within the shared prefix; the target clamps into range.
+	public void FirstChangedLine_TrailingDeletion_ClampsIntoAfterRange() =>
+		Assert.Equal(2, LineDiff.FirstChangedLine("a\nb\nc\nd", "a\nb"));
+
+	[Fact]
+	public void FirstChangedLine_CreatedFromEmpty_ReturnsOne() =>
+		Assert.Equal(1, LineDiff.FirstChangedLine("", "hello\nworld"));
+
+	[Fact]
+	public void FirstChangedLine_IgnoresLineEndingStyle() =>
+		Assert.Null(LineDiff.FirstChangedLine("a\r\nb", "a\nb"));
 }

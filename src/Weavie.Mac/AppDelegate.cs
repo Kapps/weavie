@@ -167,9 +167,13 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// the spawned claude what the user is looking at.
 		_editor = new EditorStore();
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
+		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
+		_changes = new SessionChangeTracker(fileSystem);
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
-			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides);
+			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides,
+			editLocator: _changes.EditLocationFor);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -202,7 +206,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// content at PostToolUse), independent of openDiff and permission mode. Changed pushes the change
 		// list; FileChanged pushes a targeted live-refresh of the one edited file. Events arrive off the
 		// main thread; marshal before touching the web.
-		_changes = new SessionChangeTracker(fileSystem);
 		_ide.HookBridge.Observed += _changes.Observe;
 		_changes.Changed += () => InvokeOnMainThread(PushChangesToWeb);
 		_changes.FileChanged += path => InvokeOnMainThread(() => PushRefreshToWeb(path));
@@ -787,10 +790,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			savedPath,
 			reopen,
 		}));
-
-	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
-	private void Notify(string level, string message) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
 
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {

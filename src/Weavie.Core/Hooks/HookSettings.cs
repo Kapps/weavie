@@ -17,12 +17,19 @@ public static class HookSettings {
 	/// <summary>
 	/// Renders the settings JSON. The hook command launches the running host executable in relay mode
 	/// (<c>"&lt;host&gt;" --hook-relay</c>), which dials the pipe named by <see cref="HookProtocol.PipeEnvVar"/>.
+	/// When the host runs framework-dependent under the <c>dotnet</c> muxer (a dev <c>dotnet App.dll</c> run),
+	/// <paramref name="hostEntryAssembly"/> is the managed entry <c>.dll</c> the muxer needs as its first
+	/// argument — without it the command is a bare <c>"dotnet" --hook-relay</c>, which the muxer cannot launch.
+	/// An apphost/self-contained build (Windows/macOS, and a published Linux exe) passes <see langword="null"/>.
 	/// </summary>
 	/// <param name="hostExecutablePath">Absolute path to the Weavie host executable (the relay).</param>
-	public static string BuildJson(string hostExecutablePath) {
+	/// <param name="hostEntryAssembly">The managed entry assembly to run when <paramref name="hostExecutablePath"/> is the dotnet muxer; otherwise <see langword="null"/>.</param>
+	public static string BuildJson(string hostExecutablePath, string? hostEntryAssembly = null) {
 		ArgumentException.ThrowIfNullOrEmpty(hostExecutablePath);
 
-		string command = $"\"{hostExecutablePath}\" --hook-relay";
+		string command = string.IsNullOrEmpty(hostEntryAssembly)
+			? $"\"{hostExecutablePath}\" --hook-relay"
+			: $"\"{hostExecutablePath}\" \"{hostEntryAssembly}\" --hook-relay";
 		var buffer = new ArrayBufferWriter<byte>();
 		using (var writer = new Utf8JsonWriter(buffer)) {
 			writer.WriteStartObject();

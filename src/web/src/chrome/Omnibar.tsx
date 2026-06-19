@@ -112,6 +112,14 @@ function sortChildren(node: TreeNode): void {
   }
 }
 
+// True if two absolute paths name the same file. The file index carries host paths (real drive-letter
+// case, OS separators) while the editor reports the current file as Monaco's URI.fsPath, which
+// lowercases the Windows drive letter — so a raw `===` misses (C: vs c:). Compare normalized, the same
+// way splitPath lowercases for root stripping.
+function samePath(a: string, b: string): boolean {
+  return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
+}
+
 // The expansion keys for every ancestor directory of a relative path (excludes the file leaf itself).
 function ancestorKeys(rel: string): string[] {
   const segs = rel.split("/");
@@ -239,34 +247,66 @@ export function Omnibar(props: {
     (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
   };
 
+  // True while an open tree-mode session still needs to center on the current file. The omnibar opens
+  // and asks the host for the file index in the same tick, so the first reveal usually runs against an
+  // empty/stale `rows()`; this lets the later file-index arrival finish the reveal.
+  const [pendingReveal, setPendingReveal] = createSignal(false);
+
   // Expand the current file's folder chain and center the selection on it — the contextual "reveal".
-  const focusCurrentInTree = (): void => {
+  // Returns false when there is a current file but it isn't in the index yet (the host's file-index
+  // reply is still in flight); the caller re-attempts once `rows()` arrives.
+  const focusCurrentInTree = (): boolean => {
     const cf = props.currentFile;
+    let revealed = true;
     if (cf !== null) {
-      const row = rows().find((r) => r.abs === cf);
+      const row = rows().find((r) => samePath(r.abs, cf));
       if (row !== undefined) {
         setExpanded(new Set(ancestorKeys(row.rel)));
+      } else {
+        revealed = false;
       }
     }
     queueMicrotask(() => {
-      const idx = cf !== null ? visibleRows().findIndex((r) => r.node.abs === cf) : -1;
+      const idx =
+        cf !== null
+          ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
+          : -1;
       setSelected(idx >= 0 ? idx : 0);
       scrollToSelected("center");
     });
+    return revealed;
   };
 
   // On open: command mode → top; file mode → reveal+center the current file in the tree.
   createEffect(
     on(open, (isOpen) => {
       if (!isOpen) {
+        setPendingReveal(false);
         return;
       }
       if (commandMode()) {
         setSelected(0);
         return;
       }
-      focusCurrentInTree();
+      setPendingReveal(!focusCurrentInTree());
     }),
+  );
+
+  // The file index arrives asynchronously — the host replies to onRequestIndex after we've already
+  // opened — so the first reveal usually runs against an empty `rows()`, leaving the current file's
+  // folders collapsed. Finish the reveal once the index lands, then stop (it's now loaded, so later
+  // manual expand/collapse must stand).
+  createEffect(
+    on(
+      rows,
+      () => {
+        if (open() && treeMode() && pendingReveal()) {
+          focusCurrentInTree();
+          setPendingReveal(false);
+        }
+      },
+      { defer: true },
+    ),
   );
 
   // On query change: empty file query re-reveals the current file; otherwise reset to the top.
@@ -275,7 +315,7 @@ export function Omnibar(props: {
       query,
       () => {
         if (treeMode()) {
-          focusCurrentInTree();
+          setPendingReveal(!focusCurrentInTree());
         } else {
           setSelected(0);
           queueMicrotask(() => scrollToSelected("nearest"));

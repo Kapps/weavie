@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { type SessionStatusName, type TermSession, onHostMessage, postToHost } from "./bridge";
 import type { ChangeFile } from "./changes/ChangesPanel";
+import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
@@ -53,10 +54,15 @@ const FileBrowser = lazy(() => import("./files/FileBrowser"));
 // session via the host's file-index pushes (see indexRoot). Null in plain-browser dev (no host).
 const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
-// Host-injected shell config (Windows custom title bar). Absent on macOS / plain-browser dev, where the
-// web title bar isn't rendered and the floating Files/Changes buttons remain the panel toggles.
+// Host-injected shell config. Windows injects titleBar "custom" (the frameless web title bar with its own
+// window controls); macOS injects titleBar "mac" (the omnibar strip below the native title bar + system
+// menu). Absent in plain-browser dev, where neither bar renders and the floating Files/Changes buttons are
+// the panel toggles.
 const SHELL = window.__WEAVIE_SHELL__;
 const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
+const MAC_TITLEBAR = SHELL?.titleBar === "mac";
+// Either title-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
+const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
@@ -402,6 +408,18 @@ export default function App(): JSX.Element {
       <Show when={CUSTOM_TITLEBAR}>
         <ResizeFrame maximized={maximized()} />
       </Show>
+      <Show when={MAC_TITLEBAR}>
+        <MacTitleBar
+          files={fileIndex()}
+          root={indexRoot()}
+          currentFile={currentFile()}
+          workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
+          onToggleFiles={toggleBrowser}
+          onToggleChanges={() => setChangesOpen((open) => !open)}
+          onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
+          onRequestIndex={() => postToHost({ type: "request-file-index" })}
+        />
+      </Show>
       <div class="app-body">
         <SessionRail
           sessions={sessions()}
@@ -419,7 +437,7 @@ export default function App(): JSX.Element {
           onCancel={() => setNewSessionOpen(false)}
         />
       </Show>
-      <Show when={changeFiles().length > 0 && !CUSTOM_TITLEBAR}>
+      <Show when={changeFiles().length > 0 && !HAS_TITLEBAR}>
         <button
           type="button"
           class="changes-toggle"
@@ -442,7 +460,7 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Show when={indexRoot() !== null && !CUSTOM_TITLEBAR}>
+      <Show when={indexRoot() !== null && !HAS_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>
           Files
         </button>

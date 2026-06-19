@@ -82,8 +82,11 @@ public static class CoreCommands {
 	/// <summary>Installs a color theme from a local <c>.vsix</c> file (arg <c>path</c>, or a native picker if omitted).</summary>
 	public const string InstallThemeFromFile = "weavie.theme.installFromFile";
 
-	/// <summary>Switches the active color theme (arg <c>id</c>).</summary>
+	/// <summary>Switches the theme for a polarity and flips the mode to match (arg <c>id</c>).</summary>
 	public const string SelectTheme = "weavie.theme.select";
+
+	/// <summary>Cycles the appearance mode system → light → dark → system.</summary>
+	public const string CycleThemeMode = "weavie.theme.cycleMode";
 
 	/// <summary>Pops the most recent color override on the active theme.</summary>
 	public const string UndoThemeOverride = "weavie.theme.undoOverride";
@@ -399,11 +402,24 @@ public static class CoreCommands {
 			Title = "Select Theme",
 			RunsIn = CommandLocation.Core,
 			Category = "Theme",
-			Description = "Switch the active color theme. 'id' must be a built-in or installed theme id (use the "
-				+ "listThemes tool to see them; never guess). Overrides are remembered per theme.",
+			Description = "Switch to a color theme. 'id' must be a built-in or installed theme id (use the listThemes "
+				+ "tool to see them; never guess). A light theme is stored as your light theme and a dark theme as "
+				+ "your dark theme, and the appearance mode flips to match so it shows immediately. Overrides are "
+				+ "remembered per theme.",
 			Aliases = ["select theme", "switch theme", "change theme", "set theme", "use theme", "activate theme"],
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CycleThemeMode,
+			Title = "Cycle Theme Mode",
+			RunsIn = CommandLocation.Core,
+			Category = "Theme",
+			Description = "Cycle the appearance mode: system (match OS) → light → dark → system. Light mode shows "
+				+ "your light theme (theme.light), dark shows your dark theme (theme.dark), system follows the OS.",
+			Aliases = ["cycle theme mode", "toggle light dark", "toggle dark mode", "switch appearance", "light dark mode", "toggle theme mode"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+m" }],
 		});
 
 		registry.Register(new CommandDefinition {

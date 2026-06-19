@@ -51,6 +51,14 @@ public sealed partial class McpServer {
 		string json = WriteJson(writer => {
 			writer.WriteString("active", active);
 			writer.WriteString("label", ThemeLabel(active));
+			// Appearance is decoupled: report the mode + the theme chosen for each polarity, so the model can
+			// reason about light/dark without re-deriving it. 'active' is the concrete theme overrides apply to.
+			if (_settings is not null) {
+				writer.WriteString("mode", ThemeSettings.Mode(_settings));
+				writer.WriteString("lightTheme", ThemeSettings.LightThemeId(_settings));
+				writer.WriteString("darkTheme", ThemeSettings.DarkThemeId(_settings));
+			}
+
 			writer.WritePropertyName("overrides");
 			ThemeJson.WriteOps(writer, overrides);
 		});
@@ -186,7 +194,8 @@ public sealed partial class McpServer {
 		await SendToolTextAsync(ws, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
-	private string ActiveThemeId() => _settings?.GetString("theme.active") ?? ThemeSettings.DefaultThemeId;
+	private string ActiveThemeId() =>
+		_settings is null ? ThemeSettings.DefaultThemeId : ThemeSettings.ResolveActiveThemeId(_settings);
 
 	private static string ThemeLabel(string id) {
 		foreach (var (builtInId, label, _) in BuiltInThemes.All) {

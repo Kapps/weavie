@@ -1029,6 +1029,50 @@ body,
   color: var(--dim);
 }
 
+/* macOS title-bar strip: the omnibar + Files/Changes toggles, rendered below the native window title bar
+   (which carries the traffic lights + system menu bar). No `app-region: drag` — the native title bar owns
+   window dragging — and no window controls. Only rendered on macOS (gated on the injected shell config). */
+.mac-titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.mac-tb-left,
+.mac-tb-right {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  /* Equal min-widths on both ends keep the center omnibar visually centered in the bar. */
+  min-width: 160px;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.mac-tb-right {
+  justify-content: flex-end;
+}
+
+.mac-tb-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mac-tb-btn:hover {
+  /* Theme-adaptive subtle hover: a hint of the foreground over the bar, so it works on dark + light. */
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
 .titlebar.blurred .tb-icon {
   opacity: 0.6;
 }

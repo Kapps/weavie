@@ -17,6 +17,7 @@ export { applyColorsToCssVars, cssVarName } from "./apply";
 export { deriveChromeVars } from "./chrome-vars";
 export { paletteToXtermTheme, type XtermTheme } from "./xterm-theme";
 export { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
+export { WEAVIE_LIGHT, WEAVIE_LIGHT_ID } from "./builtin/weavie-light";
 export type { VsCodeColorTheme, TokenColorRule, SemanticTokenColor } from "./vscode-theme";
 export {
   applyChromeTheme,

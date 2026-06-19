@@ -7,20 +7,22 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Builds the active-theme payload the host injects (<c>window.__WEAVIE_THEME__</c>) and pushes
+/// Builds the theme payload the host injects (<c>window.__WEAVIE_THEME__</c>) and pushes
 /// (<c>{ "type": "theme" }</c>) to the web — the theming analogue of <see cref="FontSettings"/>.BuildJson.
-/// Shape (matches the web controller + bridge): <c>{ id, ops, theme? }</c> where <c>id</c> is the active
-/// theme id (a setting), <c>ops</c> is that theme's ordered override stack, and <c>theme</c> is the merged
-/// VS Code theme JSON — present only for INSTALLED themes (built-ins like <c>weavie-dark</c> ship in the web
-/// bundle, so only their id is sent). Written with <see cref="Utf8JsonWriter"/> for trim/AOT safety (the
-/// macOS host can't use reflection-based <c>JsonSerializer.Serialize</c>).
+/// Appearance is decoupled into a mode + a theme per polarity, so the payload carries BOTH themes: shape
+/// (matches the web controller + bridge) is <c>{ mode, light: Slot, dark: Slot }</c> where each
+/// <c>Slot</c> is <c>{ id, ops, theme? }</c> — the selected theme id, its ordered override stack, and the
+/// merged VS Code theme JSON (present only for INSTALLED themes; built-ins like <c>weavie-dark</c> ship in
+/// the web bundle, so only their id is sent). The web resolves <c>system</c> against the live OS setting and
+/// renders the matching slot — shipping both makes a light↔dark switch instant and flash-free. Written with
+/// <see cref="Utf8JsonWriter"/> for trim/AOT safety (the macOS host can't use reflection-based serialization).
 /// </summary>
 public static class ThemeJson {
 	/// <summary>
 	/// Builds the theme payload as a JSON string. With <paramref name="messageType"/> null it's the bare
-	/// object for injection; non-null adds a <c>"type"</c> field for a bridge push. A failure to load the
-	/// active installed theme is logged via <paramref name="log"/> (observable, never silent) and the
-	/// <c>theme</c> field is omitted, so the web falls back to the built-in default rather than a blank UI.
+	/// object for injection; non-null adds a <c>"type"</c> field for a bridge push. A failure to load a
+	/// selected installed theme is logged via <paramref name="log"/> (observable, never silent) and that
+	/// slot's <c>theme</c> field is omitted, so the web falls back to the built-in default rather than a blank UI.
 	/// </summary>
 	public static string Build(
 		SettingsStore settings,
@@ -30,10 +32,6 @@ public static class ThemeJson {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(overrides);
 
-		string id = settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId;
-		var ops = overrides.Get(id);
-		var themeJson = ResolveInstalledThemeJson(id, log);
-
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
 			writer.WriteStartObject();
@@ -41,18 +39,31 @@ public static class ThemeJson {
 				writer.WriteString("type", messageType);
 			}
 
-			writer.WriteString("id", id);
-			writer.WritePropertyName("ops");
-			WriteOps(writer, ops);
-			if (themeJson is not null) {
-				writer.WritePropertyName("theme");
-				themeJson.WriteTo(writer);
-			}
+			writer.WriteString("mode", ThemeSettings.Mode(settings));
+			WriteSlot(writer, "light", ThemeSettings.LightThemeId(settings), overrides, log);
+			WriteSlot(writer, "dark", ThemeSettings.DarkThemeId(settings), overrides, log);
 
 			writer.WriteEndObject();
 		}
 
 		return Encoding.UTF8.GetString(stream.ToArray());
+	}
+
+	// Writes one polarity slot: { id, ops, theme? }. The theme JSON is shipped only for installed themes.
+	private static void WriteSlot(
+		Utf8JsonWriter writer, string name, string id, ThemeOverridesStore overrides, Action<string>? log) {
+		writer.WritePropertyName(name);
+		writer.WriteStartObject();
+		writer.WriteString("id", id);
+		writer.WritePropertyName("ops");
+		WriteOps(writer, overrides.Get(id));
+		var themeJson = ResolveInstalledThemeJson(id, log);
+		if (themeJson is not null) {
+			writer.WritePropertyName("theme");
+			themeJson.WriteTo(writer);
+		}
+
+		writer.WriteEndObject();
 	}
 
 	// Serializes the override op list to exactly the web's OverrideOp shape (kind-discriminated), by hand so

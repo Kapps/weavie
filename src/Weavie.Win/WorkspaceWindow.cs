@@ -9,10 +9,10 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
-using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
+using Weavie.Core.Worktrees;
 using Weavie.Win.Hosting;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
@@ -54,6 +54,13 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
 	private HostSession? _session;
+	// Multi-session: the session set (v1 starts with one). _session is the active one (reassigned on switch);
+	// _primarySession can't be closed; _worktrees backs worktree-per-session creation; _pageOrigin is reused
+	// when spawning later sessions.
+	private SessionManager? _sessions;
+	private HostSession? _primarySession;
+	private WorktreeManager? _worktrees;
+	private string _pageOrigin = "https://weavie.app";
 	// Drives the custom title bar: parses its window-control/menu-action/file-index messages (built once
 	// the session exists). _focused backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private ShellController? _shell;
@@ -357,78 +364,33 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		// shell), the IDE-MCP server + lock file (so the spawned claude connects to us as the SOLE edit
 		// feed), the LSP bridge, and the file/diff presenters. Created once pageOrigin is known so the LSP
 		// WS origin is pinned correctly.
+		_pageOrigin = pageOrigin;
 		_session = new HostSession(
 			_bridge, _settings, _layout, _workspaceRoot, WeaviePaths.WorkspaceScratchDir(Id), pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
 			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
+		_primarySession = _session;
+		_sessionLabels[_session.Id] = await ResolvePrimaryLabelAsync();
 
 		// Garbage-collect scratch (untitled) temp files orphaned by a crash or a reset session — keep only
 		// those still referenced by the restored editor session (they reopen as their "Untitled-N" tabs).
 		_session.Scratch.GarbageCollect(
 			_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 
-		// Commands: wire this session's dispatcher to the web (so Claude's runCommand of a web command posts
-		// run-command + awaits its ack) and register the Core-side handlers (reopen terminal → restart the
-		// shell pane, marshaled to the UI thread).
-		_session.Commands.WebInvoker = InvokeWebCommandAsync;
-		_session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
-			if (InvokeRequired) {
-				BeginInvoke(() => _session?.Shell.Restart());
-			} else {
-				_session?.Shell.Restart();
-			}
-
-			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
-		});
-
-		// Toggle this window. The global ctrl+` hotkey toggles the frontmost window app-side (AppController);
-		// this per-window handler is what Claude's runCommand / the palette invoke to toggle the window that asked.
-		_session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
-			if (InvokeRequired) {
-				BeginInvoke(() => WindowFocus.Toggle(this));
-			} else {
-				WindowFocus.Toggle(this);
-			}
-
-			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
-		});
-
-		// Theme verb commands (install / install-from-file / select / undo / reset): Core handlers over the
-		// app-global theme stores, with a native ".vsix" picker for install-from-file invoked with no path.
-		ThemeCommands.RegisterHandlers(_session.Commands, _settings, _app.ThemeOverrides, PickVsixFileAsync);
-
 		// Custom title bar: route its window-control / menu-action / file-index messages (handled in
 		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
 		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
 
-		// Session changes: push the updated change list to the page whenever a tracked file changes, and a
-		// targeted live-refresh of the one edited file so its open editor model updates in place (every
-		// permission mode). The events fire off the UI thread (the hook accept loop); PostToWeb marshals.
-		_session.Changes.Changed += PushChangesToWeb;
-		_session.Changes.FileChanged += PushRefreshToWeb;
-		// Inline diff: push the edited file's per-turn diff so the page can render it in the live editor, and
-		// clear all inline markers when a new turn starts (the prior turn is implicitly accepted).
-		_session.Changes.FileChanged += PushTurnDiffToWeb;
-		_session.Changes.TurnBegan += PushTurnReset;
-
-		// Per-session Claude status → the page's pane/rail indicator. Status changes fire off the UI thread
-		// (the hook accept loop / the supervisor); PostToWeb marshals to the UI thread itself.
-		_session.Status.Changed += status => {
-			string name = status switch {
-				SessionStatus.Starting => "starting",
-				SessionStatus.Working => "working",
-				SessionStatus.NeedsInput => "needsInput",
-				SessionStatus.Idle => "idle",
-				SessionStatus.Error => "error",
-				_ => "idle",
-			};
-			_bridge.PostToWeb($"{{\"type\":\"session-status\",\"session\":\"claude\",\"status\":\"{name}\"}}");
-		};
-
-		// File provider: forward the workspace watcher's on-disk change batches (non-Claude edits — another
-		// editor, a git checkout) to the page's file:// provider so VSCode reloads the affected working copies.
-		// Claude's own edits reach the provider via PushRefreshToWeb above.
-		_session.Lsp.FileChanges += PushWatcherChangesToWeb;
+		// Sessions: build the worktree manager + session set, wire this (primary) session's handlers + gated
+		// push subscriptions (for one session the gate is always true → identical behavior), reconcile any
+		// pre-existing worktrees so none go unsurfaced, and seed the rail's session list. See
+		// WorkspaceWindow.Sessions.cs and docs/specs/multi-session-and-worktrees.md.
+		_worktrees = await BuildWorktreeManagerAsync();
+		_sessions = new SessionManager(_worktrees);
+		_sessions.Add(_session, activate: true);
+		WireSession(_session);
+		await ReconcileWorktreesOnOpenAsync();
+		PushSessionList();
 
 		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
 		// lazily start a monaco-languageclient per language on first matching document.
@@ -666,7 +628,11 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		}
 
 		_pendingWebCommands.Clear();
-		_session?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		if (_sessions is not null) {
+			_sessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		} else {
+			_session?.DisposeAsync().AsTask().GetAwaiter().GetResult();
+		}
 #if DEBUG
 		_webDev?.Dispose();
 #endif

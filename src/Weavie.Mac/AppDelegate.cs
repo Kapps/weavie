@@ -752,6 +752,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
 
 		string? target;
+		// CA1422: NSSavePanel is AppKit-deprecated on this SDK but still works; modernizing to SavePanel
+		// (out-of-process) is a separate macOS-side change.
+#pragma warning disable CA1422
 		using (var panel = new NSSavePanel {
 			Title = "Save As",
 			NameFieldStringValue = suggested,
@@ -759,6 +762,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}) {
 			target = panel.RunModal() == 1 && panel.Url is { Path: { } chosen } ? chosen : null;
 		}
+#pragma warning restore CA1422
 
 		if (string.IsNullOrEmpty(target)) {
 			PostScratchSaved(scratchPath, string.Empty, reopen: false); // cancelled
@@ -784,12 +788,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>
 	private void PostScratchSaved(string scratchPath, string savedPath, bool reopen) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "scratch-saved",
-			scratchPath,
-			savedPath,
-			reopen,
-		}));
+		// Built by hand (not JsonSerializer.Serialize, which is trim-unsafe — IL2026 — on the macOS target).
+		_bridge.PostToWeb(
+			$"{{\"type\":\"scratch-saved\",\"scratchPath\":{JsonString(scratchPath)},\"savedPath\":{JsonString(savedPath)},\"reopen\":{(reopen ? "true" : "false")}}}");
 
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {

@@ -38,7 +38,8 @@ jobs:
             rid: win-x64
             extra: --self-contained -p:PublishReadyToRun=true
           - name: osx-arm64
-            os: macos-latest
+            # macOS 26 (Tahoe) image — ships Xcode 26, which net10.0-macos requires. See ci.yml.
+            os: macos-26
             project: src/Weavie.Mac/Weavie.Mac.csproj
             rid: osx-arm64
             # net10.0-macos publishes a self-contained .app via the macos workload; Release already

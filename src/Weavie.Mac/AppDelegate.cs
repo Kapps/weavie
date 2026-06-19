@@ -554,8 +554,16 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
+	/// <summary>
+	/// Pushes one file's per-turn diff so the page renders it inline in the live editor. Only in an auto-keep
+	/// mode (acceptEdits/bypass), where the applied turn-markers are the review surface; in default mode openDiff
+	/// is the per-edit review, so a second applied marker would just demand a redundant Accept — suppress it.
+	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
+		if (_settings is null || !PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
+			return;
+		}
+
 		if (_changes?.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}

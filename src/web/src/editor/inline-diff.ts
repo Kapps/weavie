@@ -28,6 +28,14 @@ export interface InlineDiffOptions {
   /** The baseline/original text the live model is diffed against. */
   original: string;
   /**
+   * The content Claude produced — the on-disk version for an applied turn, the proposal for a review. Lines in
+   * the live model that differ from THIS are the user's own typing (not Claude's), and render in a fainter
+   * green so a person's edits read as distinct from Claude's pending changes (which the diff is for reviewing).
+   * Right after a reload the model equals this, so nothing reads as "user" until you type. Omitted → no fade
+   * (every changed line is treated as Claude's).
+   */
+  claudeVersion?: string;
+  /**
    * review = a pending openDiff proposal (Keep/Reject gate); applied = a turn's already-applied changes
    * (Accept clears the markers, Undo reverts the set); view = a read-only diff (e.g. browsing a session
    * change), no toolbar.
@@ -277,6 +285,25 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return; // no net change (e.g. a turn that reverted itself) — nothing to render
     }
 
+    // Lines the USER typed render fainter than Claude's: diff the live model against `claudeVersion` (what
+    // Claude produced), and any line that differs is the person's own edit. Empty when claudeVersion is
+    // omitted or the model still matches it (just-reloaded), so it only lights up as you type over a change.
+    const userLines = new Set<number>();
+    if (options.claudeVersion !== undefined) {
+      const userDiff = linesDiffComputers
+        .getDefault()
+        .computeDiff(splitLines(options.claudeVersion), modified, DIFF_OPTIONS);
+      for (const change of userDiff.changes) {
+        for (
+          let ln = change.modified.startLineNumber;
+          ln < change.modified.endLineNumberExclusive;
+          ln++
+        ) {
+          userLines.add(ln);
+        }
+      }
+    }
+
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
     const ghosts: { afterLineNumber: number; lines: string[] }[] = [];
     const changeLines: number[] = [];
@@ -284,25 +311,35 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     for (const change of changes) {
       changeLines.push(Math.max(1, change.modified.startLineNumber));
       if (!change.modified.isEmpty) {
-        deltas.push({
-          range: new monaco.Range(
-            change.modified.startLineNumber,
-            1,
-            change.modified.endLineNumberExclusive - 1,
-            1,
-          ),
-          options: {
-            isWholeLine: true,
-            className: "weavie-inline-added",
-            linesDecorationsClassName: "weavie-inline-added-gutter",
-            overviewRuler: {
-              color: "rgba(78, 201, 120, 0.7)",
-              position: monaco.editor.OverviewRulerLane.Left,
+        // Per-line (not one whole-range decoration) so a block that mixes Claude's lines with the user's
+        // tweaks paints each in its own shade.
+        for (
+          let ln = change.modified.startLineNumber;
+          ln < change.modified.endLineNumberExclusive;
+          ln++
+        ) {
+          const fromUser = userLines.has(ln);
+          deltas.push({
+            range: new monaco.Range(ln, 1, ln, 1),
+            options: {
+              isWholeLine: true,
+              className: fromUser ? "weavie-inline-user" : "weavie-inline-added",
+              linesDecorationsClassName: fromUser
+                ? "weavie-inline-user-gutter"
+                : "weavie-inline-added-gutter",
+              overviewRuler: {
+                color: fromUser ? "rgba(78, 201, 120, 0.3)" : "rgba(78, 201, 120, 0.7)",
+                position: monaco.editor.OverviewRulerLane.Left,
+              },
             },
-          },
-        });
+          });
+        }
         for (const inner of change.innerChanges ?? []) {
           const r = inner.modifiedRange;
+          // Char-level emphasis is for reviewing Claude's edits; skip it on the user's own (faint) lines.
+          if (userLines.has(r.startLineNumber)) {
+            continue;
+          }
           const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
           if (!empty) {
             deltas.push({ range: r, options: { inlineClassName: "weavie-inline-added-text" } });

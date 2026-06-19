@@ -4,6 +4,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
+using Weavie.Core.Mcp;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
@@ -226,8 +227,17 @@ internal sealed partial class WorkspaceWindow {
 		}
 	}
 
-	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
+	/// <summary>
+	/// Pushes one file's per-turn diff so the page renders it inline in the live editor. Only in an auto-keep
+	/// mode (acceptEdits/bypass): there the applied turn-markers are the review surface. In default mode every
+	/// edit is reviewed via the blocking openDiff Keep/Reject, so a second applied marker would just demand a
+	/// redundant Accept — suppress it.
+	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
+		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
+			return;
+		}
+
 		if (_session?.Changes.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}

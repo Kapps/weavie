@@ -5,6 +5,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
@@ -41,6 +42,26 @@ internal sealed partial class WorkspaceWindow {
 			case "term-ready":
 				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
+			case "switch-session": {
+				string switchId = root.TryGetProperty("id", out var ssEl) ? ssEl.GetString() ?? string.Empty : string.Empty;
+				if (_sessions?.Find(switchId) is { } target) {
+					SwitchToSession(target);
+				}
+
+				break;
+			}
+
+			case "new-session": {
+				string? branch = root.TryGetProperty("branch", out var nsEl) ? nsEl.GetString() : null;
+				_ = NewSessionAsync(new NewSessionRequest { Branch = branch }, CancellationToken.None);
+				break;
+			}
+
+			case "close-session": {
+				string closeId = root.TryGetProperty("id", out var csEl) ? csEl.GetString() ?? string.Empty : string.Empty;
+				_ = CloseSessionAsync(closeId, CancellationToken.None);
+				break;
+			}
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();

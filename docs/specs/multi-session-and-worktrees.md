@@ -263,10 +263,11 @@ once N>1. This is load-bearing for both this spec's status feature and the exist
 
 ## Implementation status (2026-06-19)
 
-The **Core layer + per-session status are built and tested/verified** (Core + host committed; the web
-status render verified but uncommitted); the **session switcher + worktree-creation UI remain**.
-Critically, **worktree *creation* is intentionally not wired yet**, so nothing can leak in the interim —
-the anti-leak machinery below is complete and ready for when the host calls it.
+The **Core layer, per-session status, and the session switcher + worktree creation are implemented**
+(all host-side committed; the web rail + status render verified with tsc+biome but uncommitted). What
+remains is **runtime/GUI verification** and the per-session editor/LSP swap polish. Worktree creation
+goes through the tested `WorktreeManager` and is reconciled on open, so worktrees are surfaced — never
+silently leaked.
 
 **Done — `Weavie.Core` (46 new tests; full suite green at 364), committed (`35c40a7`, `725f453`):**
 - `Git/` — `IGitService` + `GitService` (worktree add/list/remove; branch/HEAD/default/merged/dirty;
@@ -295,17 +296,29 @@ the anti-leak machinery below is complete and ready for when the host calls it.
   entangle that work. The four web files (`bridge.ts`, `App.tsx`, `theme/chrome-vars.ts`, `styles.css`)
   are a clean follow-up commit once that refactor lands.
 
-**Remaining — the session switcher + worktree creation (the GUI-heavy part):**
-- **Win host**: a `SessionManager` per `WorkspaceWindow` owning N `HostSession`s; active-session switch
-  (slot rebinding + per-session message routing); implement `ISessionHost` over `WorktreeManager`
-  (+ reconcile-on-open and a worktree surface); call `SessionCommands.RegisterHandlers`.
-- **Web**: the session rail (chip from `SessionIdentity`, status overlay, active accent); the
-  `next`/`prev`/`switch` web handlers + omnibar session mode; generalize the hardcoded two-session
-  vocabulary (`TermSession`, `LayoutView`'s `KINDS`, `App.renderPane`).
+**Done — session switcher + worktree creation (compile/verify-level; host committed, web verified):**
+- **Win host** (committed `11072f9`, `165a5c8`): `SessionManager` owns N `HostSession`s; `ISessionHost`
+  implements new/fork/close (worktree-backed via the tested `WorktreeManager`); `WireSession` gates
+  per-session pushes so only the active session drives the page (single-session = identical behavior);
+  `SwitchToSession` mutes the previous session's terminals (they keep running) and resets the page's
+  xterms; reconcile-on-open surfaces worktrees (toast); the bridge routes `switch`/`new`/`close-session`;
+  `SessionCommands.RegisterHandlers` wired. Win build green; missing-git guarded.
+- **Web** (verified tsc + biome; uncommitted with the status files, pending the `bridge.ts` parallel
+  refactor): `chrome/SessionRail.tsx` — a left rail of chips (deterministic hue + monogram via
+  `SessionIdentity`, a status dot, an active accent, hidden ≤1 session, "+" to create); the
+  `session-list` / `switch`/`new`/`close-session` bridge messages; App wiring.
+
+**Remaining — runtime verification + polish:**
+- **Run the app** to verify switching, worktree create/close, the rail, and status colors end-to-end
+  (not autonomously testable here).
+- **Per-session editor/LSP on switch**: terminals + status swap on switch, but the editor tabs and the
+  LSP websocket don't yet re-bind to the new session (they follow the active session's *backend* via
+  routing; the page's view isn't re-pushed) — clearing/repushing per session is the next refinement.
+  Plus `next`/`prev` cycle + omnibar session mode, and a worktree-cleanup surface. PTY first-prompt
+  seeding is wired but experimental (TUI-readiness timing).
+- **Commit the web** (`bridge.ts`, `App.tsx`, `chrome/SessionRail.tsx`, `theme/chrome-vars.ts`,
+  `styles.css`) once the parallel `hostInjected` refactor lands, so it isn't entangled.
 - **macOS host**: mirror the Win wiring (needs the parent spec's HostSession-per-window split first).
-- This step is large, GUI-dependent (not autonomously verifiable), and entangles the same web files
-  (`App.tsx`/`bridge.ts`/layout) an active parallel refactor is rewriting — best done on a stable tree
-  with the app running to eyeball switching + the status colors.
 
 ## Build sequence
 

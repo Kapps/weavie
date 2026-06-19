@@ -3,6 +3,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
+using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
 
@@ -35,7 +36,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		LayoutStore? layout = null,
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null) {
+		KeybindingStore? keybindings = null,
+		ThemeOverridesStore? themeOverrides = null) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
@@ -56,7 +58,7 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		if (settings is not null) {
 			RegistryServer = new McpServer(
 				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout,
-				commands: commands, keybindings: keybindings);
+				commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
 			RegistryPort = RegistryServer.Start();
 		}
 	}
@@ -129,6 +131,24 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
 		File.WriteAllText(path, HookSettings.BuildJson(host));
+		return path;
+	}
+
+	/// <summary>
+	/// Writes the embedded-claude system-prompt appendix (<see cref="EmbeddedClaudeGuidance"/>) for the
+	/// spawned claude's <c>--append-system-prompt-file</c>, and returns its path. Port-scoped filename, like
+	/// the MCP config. Returns <c>null</c> when there is no registry server — the appendix points claude at
+	/// the <c>mcp__weavie__*</c> tools, which only exist when that server is wired.
+	/// </summary>
+	public string? WriteSystemPromptFile() {
+		if (RegistryServer is null) {
+			return null;
+		}
+
+		string directory = WeaviePaths.Internal("mcp");
+		Directory.CreateDirectory(directory);
+		string path = Path.Combine(directory, $"weavie-{RegistryPort}.system-prompt.txt");
+		File.WriteAllText(path, EmbeddedClaudeGuidance.SystemPromptAppendix);
 		return path;
 	}
 

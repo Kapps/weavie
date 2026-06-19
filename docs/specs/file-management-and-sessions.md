@@ -113,6 +113,17 @@ sequenceDiagram
   end
 ```
 
+## Editor buffers (working copies)
+
+The editor's open files are real VSCode **working copies** backed by a host-`file://` provider, not
+hand-created Monaco models: the page opens a file via `createModelReference` (resolved over a correlated
+`fs-read`/`fs-stat` bridge → `IFileSystem`), saves it via `fs-write` on weavie's debounce, and reloads it
+when the host pushes `fs-change` (Claude edits via the change tracker; external edits via the
+`WorkspaceWatcher`). Logic lives in Core (`Editor/FileProvider{Protocol,Service}.cs`,
+`IFileSystem.TryGetStat`); the hosts only parse the bridge messages and call the service (workspace-scoped
+via `BufferStore.IsWithinWorkspace`). This replaced the old `save-buffer` autosave + `refresh-file`
+live-refresh messages. Details and rationale: [theming-and-lsp.md](theming-and-lsp.md) §9.
+
 ## Window lifecycle
 
 - **Launch:** reopen the **last** workspace; if there is no history, show the welcome window.

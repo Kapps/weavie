@@ -4,12 +4,13 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
-using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Shell;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Win.Hosting;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -24,7 +25,7 @@ namespace Weavie.Win;
 /// hosts exactly one session; multiple sessions per window come later. Windows analogue of the macOS
 /// per-window wiring in <c>AppDelegate</c>; created and tracked by <see cref="AppController"/>.
 /// </summary>
-internal sealed class WorkspaceWindow : Form, IShellWindow {
+internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin
 	// context (workers + Event Timing API behave), mirroring the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
@@ -48,6 +49,7 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
 	private readonly LayoutStore _layout;
+	private readonly EditorSessionStore _editorSession;
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
 	private HostSession? _session;
@@ -87,6 +89,16 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// (size / position / maximized) before the handle is created; a missing or off-screen saved state
 		// falls back to a centered 1280x840 default.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
+
+		// Per-workspace editor session: the open files + per-file Monaco view state under
+		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
+		// scroll/cursor on launch. Web-written (the user opens files / moves the cursor); pushed back on ready.
+		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
+		_editorSession.Log += line => {
+			Console.WriteLine($"[weavie] {line}");
+			Console.Out.Flush();
+		};
+
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
 
@@ -327,7 +339,7 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// WS origin is pinned correctly.
 		_session = new HostSession(
 			_bridge, _settings, _layout, _workspaceRoot, pageOrigin, Guid.NewGuid().ToString("n")[..8],
-			_app.CommandRegistry, _app.Keybindings);
+			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
 
 		// Commands: wire this session's dispatcher to the web (so Claude's runCommand of a web command posts
 		// run-command + awaits its ack) and register the Core-side handlers (reopen terminal → restart the
@@ -343,6 +355,22 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
 
+		// Toggle this window. The global ctrl+` hotkey toggles the frontmost window app-side (AppController);
+		// this per-window handler is what Claude's runCommand / the palette invoke to toggle the window that asked.
+		_session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			if (InvokeRequired) {
+				BeginInvoke(() => WindowFocus.Toggle(this));
+			} else {
+				WindowFocus.Toggle(this);
+			}
+
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+
+		// Theme verb commands (install / install-from-file / select / undo / reset): Core handlers over the
+		// app-global theme stores, with a native ".vsix" picker for install-from-file invoked with no path.
+		ThemeCommands.RegisterHandlers(_session.Commands, _settings, _app.ThemeOverrides, PickVsixFileAsync);
+
 		// Custom title bar: route its window-control / menu-action / file-index messages (handled in
 		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
 		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
@@ -357,6 +385,11 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		_session.Changes.FileChanged += PushTurnDiffToWeb;
 		_session.Changes.TurnBegan += PushTurnReset;
 
+		// File provider: forward the workspace watcher's on-disk change batches (non-Claude edits — another
+		// editor, a git checkout) to the page's file:// provider so VSCode reloads the affected working copies.
+		// Claude's own edits reach the provider via PushRefreshToWeb above.
+		_session.Lsp.FileChanges += PushWatcherChangesToWeb;
+
 		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
 		// lazily start a monaco-languageclient per language on first matching document.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {_session.LspConfigJson};");
@@ -364,6 +397,11 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+
+		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
+		// before navigation so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync(
+			$"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _app.ThemeOverrides, log: line => Console.WriteLine(line))};");
 
 		// Commands + keybindings: inject the catalog + resolved bindings before navigation so the web's
 		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
@@ -392,6 +430,20 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 		_settings.SettingChanged += change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+		};
+
+		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
+		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
+		// the UI thread and the stores are thread-safe, so the off-thread events can call it directly.
+		_settings.SettingChanged += change => {
+			if (change.Key == "theme.active") {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+		_app.ThemeOverrides.Changed += themeId => {
+			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
 			}
 		};
 
@@ -434,325 +486,6 @@ internal sealed class WorkspaceWindow : Form, IShellWindow {
 			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
 		}
-
-		// Dev aid: render a sample openDiff so the Monaco diff UI can be screenshotted without
-		// driving claude. Gated on WEAVIE_DEMO_DIFF; never fires in normal use.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEMO_DIFF"))) {
-			ScheduleOnce(2.5, PostDemoDiff);
-		}
-	}
-
-	private void OnWebMessage(string json) {
-		string type;
-		JsonElement root;
-		try {
-			using var doc = JsonDocument.Parse(json);
-			root = doc.RootElement.Clone();
-			type = root.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty;
-		} catch (JsonException) {
-			Console.WriteLine($"[weavie] (unparsed) {json}");
-			return;
-		}
-
-		switch (type) {
-			case "term-input":
-				byte[] input = Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty);
-				if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEBUG_INPUT"))) {
-					string printable = string.Concat(input.Select(b => b is >= 0x20 and < 0x7f ? ((char)b).ToString() : $"\\x{b:x2}"));
-					Console.WriteLine($"[weavie] term-input <- xterm ({input.Length}B): {printable}");
-					Console.Out.Flush();
-				}
-				TerminalFor(root)?.Write(input);
-				break;
-			case "term-resize":
-				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
-				break;
-			case "term-ready":
-				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
-				break;
-			case "diff-resolved":
-				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
-				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
-				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
-				_session?.DiffPresenter.Resolve(diffId, kept, finalContents);
-				break;
-			case "reveal-file":
-				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
-				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_session?.FileOpener.Open(revealPath, revealLine);
-				break;
-			case "list-dir":
-				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
-				break;
-			case "active-editor-changed":
-				_session?.UpdateActiveEditor(root);
-				break;
-			case "get-change-diff":
-				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
-				break;
-			case "save-buffer":
-				SaveBuffer(
-					root.GetProperty("path").GetString() ?? string.Empty,
-					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
-				break;
-			case "accept-turn":
-				AcceptTurn();
-				break;
-			case "undo-turn":
-				UndoTurn();
-				break;
-			case "invoke-command":
-				// A keybinding/palette in the web invoked a Core command — run it here (fire-and-forget; the
-				// web doesn't await a result for its own triggers).
-				InvokeCommandFromWeb(
-					root.TryGetProperty("id", out var ciEl) ? ciEl.GetString() ?? string.Empty : string.Empty,
-					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null);
-				break;
-			case "command-ack":
-				// The web finished a run-command (a web command Claude invoked over MCP) — settle the pending await.
-				CompleteWebCommand(root);
-				break;
-			case "window-control":
-				_shell?.HandleWindowControl(root);
-				break;
-			case "window-resize":
-				_shell?.HandleWindowResize(root);
-				break;
-			case "menu-action":
-				_shell?.HandleMenuAction(root);
-				break;
-			case "request-file-index":
-				_shell?.PushFileIndex();
-				break;
-			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
-				// the initial window state so the title bar's maximize glyph + blur dim start correct.
-				PushLayoutToWeb();
-				PushWindowState();
-				Console.WriteLine($"[weavie] {json}");
-				Console.Out.Flush();
-				break;
-			case "layout-changed":
-				HandleLayoutChanged(root);
-				break;
-			default:
-				// log — surface for diagnostics and unattended capture.
-				Console.WriteLine($"[weavie] {json}");
-				Console.Out.Flush();
-				break;
-		}
-	}
-
-	/// <summary>Routes a terminal message to the controller for its <c>session</c> pane (default: claude).</summary>
-	private TerminalController? TerminalFor(JsonElement root) {
-		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;
-		return pane == "shell" ? _session?.Shell : _session?.Claude;
-	}
-
-	/// <summary>Applies a layout the web sent (split/focus change) through the store, which validates + persists it.</summary>
-	private void HandleLayoutChanged(JsonElement root) {
-		if (!root.TryGetProperty("document", out var documentElement)) {
-			return;
-		}
-
-		if (!LayoutSerialization.TryDeserialize(documentElement.GetRawText(), out var document, out string? error)
-			|| document is null) {
-			Console.WriteLine($"[weavie] layout-changed: bad document ({error})");
-			return;
-		}
-
-		try {
-			_layout.SetPanes(document.Root, document.Focused, LayoutSource.User);
-		} catch (LayoutValidationException ex) {
-			Console.WriteLine($"[weavie] layout-changed rejected: {ex.Message}");
-		}
-	}
-
-	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
-	private void PushLayoutToWeb() {
-		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
-		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
-	}
-
-	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
-	private void PushChangesToWeb() {
-		if (_session is not null) {
-			_bridge.PostToWeb(ChangeMessages.SessionChanges(_session.Changes));
-		}
-	}
-
-	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
-	private void PushChangeDiffToWeb(string path) {
-		if (_session?.Changes.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.ChangeDiff(change));
-		}
-	}
-
-	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
-	private void PushRefreshToWeb(string path) {
-		if (_session?.Changes.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
-		}
-	}
-
-	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
-	private void PushTurnDiffToWeb(string path) {
-		if (_session?.Changes.GetTurn(path) is { } turn) {
-			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
-		}
-	}
-
-	/// <summary>Clears all inline turn markers on a turn boundary (the prior turn is implicitly accepted).</summary>
-	private void PushTurnReset() => _bridge.PostToWeb(ChangeMessages.TurnReset());
-
-	/// <summary>Accepts the whole turn's changes: resets the per-turn baseline and clears the page's inline markers.</summary>
-	private void AcceptTurn() {
-		if (_session is null) {
-			return;
-		}
-
-		_session.Changes.AcceptTurn();
-		_bridge.PostToWeb(ChangeMessages.TurnReset());
-	}
-
-	/// <summary>
-	/// Undoes the whole turn's changes: reverts every file touched this turn to its turn baseline on disk and
-	/// live-refreshes the editor. Files created this turn truncate to empty (not deleted) — surfaced via a toast.
-	/// </summary>
-	private void UndoTurn() {
-		if (_session is null) {
-			return;
-		}
-
-		var truncated = new List<string>();
-		foreach (var change in _session.Changes.TurnChanges()) {
-			try {
-				if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, change.Path, change.BaselineText)) {
-					Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
-					continue;
-				}
-
-				if (change.BaselineText.Length == 0) {
-					truncated.Add(Path.GetFileName(change.Path));
-				}
-
-				// Re-read disk (now the baseline) into the tracker → fires FileChanged → refresh + empty turn diff.
-				_session.Changes.RecordChange(change.Path);
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
-			}
-		}
-
-		if (truncated.Count > 0) {
-			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
-		}
-	}
-
-	/// <summary>
-	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
-	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
-	/// path outside the workspace, which is a bug in the page) surfaces to the user as an error toast — an
-	/// autosave must never silently lose the user's work.
-	/// </summary>
-	private void SaveBuffer(string path, string content) {
-		// The session is created before the page can post any message — so a null here is a broken
-		// invariant, not a runtime condition to absorb. Fail loud rather than silently drop the save.
-		if (_session is null) {
-			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
-		}
-
-		try {
-			if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, path, content)) {
-				Notify("error", $"Couldn't save {Path.GetFileName(path)}: path is outside the workspace.");
-			}
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't save {Path.GetFileName(path)}: {ex.Message}");
-		}
-	}
-
-	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
-	private void Notify(string level, string message) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
-
-	/// <summary>
-	/// Runs a Core command the web asked for (its keybinding/palette resolved to a <see cref="CommandLocation.Core"/>
-	/// command). Fire-and-forget: the web doesn't await a result for its own triggers; failures are logged.
-	/// </summary>
-	private void InvokeCommandFromWeb(string id, string? argsJson) {
-		if (_session is null || string.IsNullOrEmpty(id)) {
-			return;
-		}
-
-		_ = RunCommandSafeAsync(id, argsJson);
-	}
-
-	private async Task RunCommandSafeAsync(string id, string? argsJson) {
-		try {
-			var result = await _session!.Commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
-			if (!result.Ok) {
-				Console.WriteLine($"[weavie] invoke-command {id} failed: {result.Error}");
-			}
-		} catch (Exception ex) when (ex is UnknownCommandException or InvalidOperationException) {
-			Console.WriteLine($"[weavie] invoke-command {id} error: {ex.Message}");
-		}
-	}
-
-	/// <summary>
-	/// The dispatcher's web invoker: posts a <c>run-command</c> to the page and awaits its <c>command-ack</c>
-	/// (or a 5s timeout). This is how Claude's <c>runCommand</c> of a <see cref="CommandLocation.Web"/> command
-	/// reaches the UI and gets an honest invoked/failed result back.
-	/// </summary>
-	private async Task<CommandResult> InvokeWebCommandAsync(string id, string? argsJson, CancellationToken ct) {
-		string token = Guid.NewGuid().ToString("n");
-		var completion = new TaskCompletionSource<CommandResult>(TaskCreationOptions.RunContinuationsAsynchronously);
-		_pendingWebCommands[token] = completion;
-		try {
-			string argsPart = string.IsNullOrEmpty(argsJson) ? "null" : argsJson;
-			_bridge.PostToWeb(
-				$"{{\"type\":\"run-command\",\"id\":{JsonString(id)},\"args\":{argsPart},\"token\":{JsonString(token)}}}");
-
-			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-			timeout.CancelAfter(TimeSpan.FromSeconds(5));
-			await using (timeout.Token.Register(() => completion.TrySetResult(
-				CommandResult.Failure($"Command '{id}' was dispatched but the UI didn't acknowledge within 5s."))).ConfigureAwait(false)) {
-				return await completion.Task.ConfigureAwait(false);
-			}
-		} finally {
-			_pendingWebCommands.TryRemove(token, out _);
-		}
-	}
-
-	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
-	private void CompleteWebCommand(JsonElement root) {
-		string? token = root.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
-		if (string.IsNullOrEmpty(token) || !_pendingWebCommands.TryGetValue(token, out var completion)) {
-			return;
-		}
-
-		bool ok = root.TryGetProperty("ok", out var okEl) && okEl.ValueKind is JsonValueKind.True or JsonValueKind.False && okEl.GetBoolean();
-		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
-		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
-	}
-
-	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
-	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
-
-	private void PostDemoDiff() {
-		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
-		const string proposed = "export function greet(name: string): string {\n  // weavie openDiff demo\n  return `hello, ${name}!`;\n}\n";
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
-			writer.WriteString("type", "show-diff");
-			writer.WriteString("id", "demo");
-			writer.WriteString("path", @"C:\src\weavie\demo\greet.ts");
-			writer.WriteString("tabName", "✻ [Claude Code] greet.ts");
-			writer.WriteString("original", original);
-			writer.WriteString("proposed", proposed);
-			writer.WriteEndObject();
-		}
-
-		_bridge.PostToWeb(Encoding.UTF8.GetString(stream.ToArray()));
 	}
 
 	private async Task CaptureSnapshotAsync() {

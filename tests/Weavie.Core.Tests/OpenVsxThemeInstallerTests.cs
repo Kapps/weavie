@@ -62,4 +62,28 @@ public sealed class OpenVsxThemeInstallerTests {
 		Assert.Empty(OpenVsxThemeInstaller.ParseThemeContributions("""{ "contributes": {} }""", Path.GetTempPath()));
 		Assert.Empty(OpenVsxThemeInstaller.ParseThemeContributions("{}", Path.GetTempPath()));
 	}
+
+	[Fact]
+	public void ParseExtensionIdentity_ReadsPublisherNameVersion() {
+		const string packageJson = """
+		{ "publisher": "dracula-theme", "name": "theme-dracula", "version": "2.24.0",
+		  "contributes": { "themes": [] } }
+		""";
+
+		var (publisher, name, version) = OpenVsxThemeInstaller.ParseExtensionIdentity(packageJson);
+		Assert.Equal("dracula-theme", publisher);
+		Assert.Equal("theme-dracula", name);
+		Assert.Equal("2.24.0", version);
+	}
+
+	[Fact]
+	public void ParseExtensionIdentity_ThrowsWhenIncomplete() {
+		// A local .vsix install needs all three coordinates; any missing one is not a valid extension.
+		Assert.Throws<InvalidOperationException>(() =>
+			OpenVsxThemeInstaller.ParseExtensionIdentity("""{ "name": "theme-x", "version": "1.0.0" }"""));
+		Assert.Throws<InvalidOperationException>(() =>
+			OpenVsxThemeInstaller.ParseExtensionIdentity("""{ "publisher": "p", "version": "1.0.0" }"""));
+		Assert.Throws<InvalidOperationException>(() =>
+			OpenVsxThemeInstaller.ParseExtensionIdentity("""{ "publisher": "p", "name": "theme-x" }"""));
+	}
 }

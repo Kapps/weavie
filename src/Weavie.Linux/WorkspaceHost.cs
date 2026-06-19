@@ -369,10 +369,13 @@ internal sealed class WorkspaceHost {
 		}
 	}
 
-	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	/// <summary>
+	/// Pushes a targeted live-refresh of one edited file: an <c>fs-change</c> so the page reloads the
+	/// non-dirty model from disk (matching the macOS host's file-provider-driven reload).
+	/// </summary>
 	private void PushRefreshToWeb(string path) {
 		if (_changes?.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+			_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "updated"));
 		}
 	}
 

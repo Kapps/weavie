@@ -35,15 +35,6 @@ public static class ChangeMessages {
 		});
 	}
 
-	/// <summary>A live-refresh push: replace the open editor model for <paramref name="path"/> with <paramref name="content"/>.</summary>
-	/// <param name="path">Absolute path of the file Claude edited.</param>
-	/// <param name="content">The file's new content (read from disk after the edit landed).</param>
-	public static string RefreshFile(string path, string content) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		ArgumentNullException.ThrowIfNull(content);
-		return JsonSerializer.Serialize(new { type = "refresh-file", path, content });
-	}
-
 	/// <summary>
 	/// One file's <em>turn</em> diff (this turn's baseline vs. current), for the inline diff in the live editor.
 	/// An equal baseline/current pair means "no markers" (the file was accepted or reverted this turn).

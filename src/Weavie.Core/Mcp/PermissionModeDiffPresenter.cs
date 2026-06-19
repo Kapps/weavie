@@ -18,7 +18,8 @@ namespace Weavie.Core.Mcp;
 /// See <c>docs/specs/permission-modes-and-change-tracking.md</c>.
 /// </summary>
 public sealed class PermissionModeDiffPresenter : IDiffPresenter {
-	private const string ModeKey = "claude.permissionMode";
+	/// <summary>The settings key for Claude's edit-permission mode (<c>default</c>/<c>acceptEdits</c>/<c>bypassPermissions</c>).</summary>
+	public const string ModeKey = "claude.permissionMode";
 
 	private readonly IDiffPresenter _inner;
 	private readonly SettingsStore _settings;
@@ -31,10 +32,22 @@ public sealed class PermissionModeDiffPresenter : IDiffPresenter {
 		_settings = settings;
 	}
 
+	/// <summary>
+	/// True when the current mode auto-keeps edits (<c>acceptEdits</c>/<c>bypassPermissions</c>) — i.e. there is
+	/// NO blocking openDiff review. The hosts use this to decide whether to surface the inline applied
+	/// turn-markers: they are the review surface only when edits auto-apply; in <c>default</c> mode openDiff is
+	/// the per-edit review, so a second applied marker would just demand a redundant Accept.
+	/// </summary>
+	/// <param name="settings">The settings store to read the mode from.</param>
+	public static bool AutoKeepsEdits(SettingsStore settings) {
+		ArgumentNullException.ThrowIfNull(settings);
+		return settings.GetString(ModeKey) is "acceptEdits" or "bypassPermissions";
+	}
+
 	/// <inheritdoc/>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
 		ArgumentNullException.ThrowIfNull(proposal);
-		if (_settings.GetString(ModeKey) is "acceptEdits" or "bypassPermissions") {
+		if (AutoKeepsEdits(_settings)) {
 			// Auto-keep: report the proposed contents as kept. openDiff returns them and Claude writes —
 			// no blocking review, but the edit still flowed through openDiff so it can be recorded.
 			return Task.FromResult(DiffOutcome.Kept(proposal.NewFileContents));

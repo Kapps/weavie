@@ -4,6 +4,18 @@ namespace Weavie.Core.FileSystem;
 public readonly record struct DirectoryEntry(string Name, bool IsDirectory);
 
 /// <summary>
+/// A file's existence + metadata snapshot, used by the editor's host-backed <c>file://</c> provider to build
+/// a stat/etag for VSCode working copies. <paramref name="MtimeMs"/> and <paramref name="Size"/> together are
+/// the conflict/etag check — both MUST change when the file's content changes.
+/// </summary>
+/// <param name="Exists">Whether anything exists at the path.</param>
+/// <param name="IsDirectory">Whether the path is a directory (vs. a file).</param>
+/// <param name="MtimeMs">Last-write time in milliseconds since the Unix epoch (0 when absent).</param>
+/// <param name="CtimeMs">Creation time in milliseconds since the Unix epoch (0 when absent).</param>
+/// <param name="Size">Size in bytes (0 for directories / absent).</param>
+public readonly record struct FileStat(bool Exists, bool IsDirectory, long MtimeMs, long CtimeMs, long Size);
+
+/// <summary>
 /// The filesystem seam. Injected so tests can run entirely in memory
 /// (see the vault Build Philosophy + Headless &amp; Testing notes).
 /// One real implementation (<see cref="LocalFileSystem"/>) and one
@@ -15,6 +27,14 @@ public interface IFileSystem {
 
 	/// <summary>Returns whether a directory exists at <paramref name="path"/>.</summary>
 	bool DirectoryExists(string path);
+
+	/// <summary>
+	/// Tries to read <paramref name="path"/>'s metadata (existence, kind, mtime/ctime in ms since the Unix
+	/// epoch, size). Returns <see langword="true"/> with a populated <paramref name="stat"/> when something
+	/// exists there; <see langword="false"/> with a default <paramref name="stat"/> for a missing or
+	/// unreadable path. Never throws for a missing/denied path.
+	/// </summary>
+	bool TryGetStat(string path, out FileStat stat);
 
 	/// <summary>
 	/// Lists the immediate entries (files + subdirectories) of <paramref name="path"/>. Returns empty when

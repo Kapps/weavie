@@ -13,6 +13,30 @@ public sealed class LocalFileSystem : IFileSystem {
 	public bool DirectoryExists(string path) => Directory.Exists(path);
 
 	/// <inheritdoc/>
+	public bool TryGetStat(string path, out FileStat stat) {
+		try {
+			if (File.Exists(path)) {
+				var info = new FileInfo(path);
+				stat = new FileStat(true, false, ToUnixMs(info.LastWriteTimeUtc), ToUnixMs(info.CreationTimeUtc), info.Length);
+				return true;
+			}
+
+			if (Directory.Exists(path)) {
+				var info = new DirectoryInfo(path);
+				stat = new FileStat(true, true, ToUnixMs(info.LastWriteTimeUtc), ToUnixMs(info.CreationTimeUtc), 0);
+				return true;
+			}
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
+			// A path we can't stat (race with a delete, ACLs, malformed) reports as absent rather than throwing.
+		}
+
+		stat = default;
+		return false;
+	}
+
+	private static long ToUnixMs(DateTime utc) => new DateTimeOffset(utc).ToUnixTimeMilliseconds();
+
+	/// <inheritdoc/>
 	public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) {
 		if (!Directory.Exists(path)) {
 			return [];

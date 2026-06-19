@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using CoreGraphics;
 using Foundation;
+using Weavie.Core;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -9,6 +10,8 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Theming;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Mac.Hosting;
 using WebKit;
@@ -31,15 +34,19 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private FileOpener? _fileOpener;
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
+	private ThemeOverridesStore? _themeOverrides;
 	private EditorStore? _editor;
+	private EditorSessionStore? _editorSession;
 	private SessionChangeTracker? _changes;
 	private LocalFileSystem? _fileSystem;
+	private FileProviderService? _fileProvider;
 	private string? _workspace;
 	private NSWindow? _window;
 	private WKWebView? _webView;
 	private CommandRegistry? _commandRegistry;
 	private KeybindingStore? _keybindings;
 	private CommandDispatcher? _commands;
+	private GlobalHotkeyService? _hotkeyService;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
 	// the web's command-ack (or a 5s timeout).
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
@@ -91,10 +98,24 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		};
 		_commands = new CommandDispatcher(_commandRegistry);
 
+		// Per-theme color overrides (~/.weavie/theme-overrides.json); the active theme itself is a setting.
+		_themeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		_themeOverrides.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Typography: inject the resolved editor + terminal fonts at document start so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		config.UserContentController.AddUserScript(new WKUserScript(
 			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};"),
+			WKUserScriptInjectionTime.AtDocumentStart,
+			isForMainFrameOnly: true));
+
+		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
+		// at document start so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
+		config.UserContentController.AddUserScript(new WKUserScript(
+			new NSString($"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, log: line => Console.WriteLine(line))};"),
 			WKUserScriptInjectionTime.AtDocumentStart,
 			isForMainFrameOnly: true));
 
@@ -119,8 +140,19 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_workspace = workspace;
+		_fileProvider = new FileProviderService(fileSystem, workspace);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
+
+		// Per-workspace editor session: the open files + per-file Monaco view state under
+		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
+		// scroll/cursor on launch. Web-written; pushed back on ready. Keyed by the workspace path's id so it
+		// is per-folder even though the macOS layout store is still the legacy single-window file.
+		_editorSession = new EditorSessionStore(fileSystem, WeaviePaths.WorkspaceEditorSessionFile(WorkspaceId.ForPath(workspace)));
+		_editorSession.Log += line => {
+			Console.WriteLine($"[weavie] {line}");
+			Console.Out.Flush();
+		};
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
@@ -128,7 +160,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_editor = new EditorStore();
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
-			commands: _commands, keybindings: _keybindings);
+			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides);
 		_ide.Server.Log += line => {
 			Console.WriteLine($"[mcp] {line}");
 			Console.Out.Flush();
@@ -147,6 +179,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay; the observed
 		// stream is logged here (the session change view will consume the same feed).
 		_claude.SettingsFilePath = _ide.WriteSettingsFile();
+		// Orientation: an --append-system-prompt-file telling claude it's embedded in Weavie and to read
+		// live app state (themes/settings/layout) through the mcp__weavie__* tools, not the on-disk config.
+		_claude.SystemPromptFilePath = _ide.WriteSystemPromptFile();
 		_ide.HookBridge.Observed += request => {
 			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
 			Console.Out.Flush();
@@ -182,6 +217,20 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			}
 		};
 
+		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
+		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
+		// the main thread and the stores are thread-safe, so the off-thread events can call it directly.
+		_settings.SettingChanged += change => {
+			if (change.Key == "theme.active") {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+		_themeOverrides.Changed += themeId => {
+			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
+			}
+		};
+
 		// Layout: push the canonical document to the web when the store changes (a reconciled web edit or
 		// a future MCP setLayout). Change events arrive off the main thread.
 		_layout.Changed += _ => InvokeOnMainThread(PushLayoutToWeb);
@@ -194,6 +243,29 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			InvokeOnMainThread(() => _shell?.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
+		// Toggle the window — the handler behind the global ctrl+` hotkey, and Claude's runCommand / the palette.
+		_commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			InvokeOnMainThread(ToggleWindow);
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+
+		// Global hotkeys (e.g. ctrl+` → focus Weavie). The Carbon registrar registers them app-wide so they
+		// fire even when Weavie is unfocused; the service reads the global bindings from _keybindings and
+		// re-applies on edit. Disposed in WillTerminate (which unregisters the OS hotkeys).
+		var hotkeyRegistrar = new MacGlobalHotkeys();
+		hotkeyRegistrar.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+		_hotkeyService = new GlobalHotkeyService(_keybindings, _commands, hotkeyRegistrar);
+		_hotkeyService.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
+		// Theme verb commands (install / install-from-file / select / undo / reset): Core handlers over the
+		// app-global theme stores, with a native ".vsix" picker (NSOpenPanel) for install-from-file.
+		ThemeCommands.RegisterHandlers(_commands, _settings, _themeOverrides, PickVsixFileAsync);
 
 		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
 		// web rebuilds its resolver + palette live. PostToWeb marshals to the main thread itself.
@@ -235,12 +307,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
 		}
-
-		// Dev aid: render a sample openDiff so the Monaco diff UI can be screenshotted without
-		// driving claude. Gated on WEAVIE_DEMO_DIFF; never fires in normal use.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEMO_DIFF"))) {
-			NSTimer.CreateScheduledTimer(2.5, repeats: false, _ => PostDemoDiff());
-		}
 	}
 
 	/// <summary>Quits the app when its last (only) window is closed.</summary>
@@ -254,11 +320,28 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			pending.TrySetResult(CommandResult.Failure("The app is terminating before the command completed."));
 		}
 
+		_hotkeyService?.Dispose(); // unregisters the OS global hotkeys + removes the Carbon handler
 		_claude?.Dispose();
 		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		_keybindings?.Dispose();
 		_settings?.Dispose();
+	}
+
+	/// <summary>
+	/// Toggles Weavie — the handler behind the global hotkey and <c>weavie.window.toggle</c>. When the app is
+	/// active, hide it (focus returns to the previous app); otherwise activate + raise it. <c>Activate</c>
+	/// cooperates with the window server (macOS 14+) and unhides a hidden app; <c>Hide</c> is the idiomatic
+	/// macOS "send to background" (Cmd+H). Must run on the main thread.
+	/// </summary>
+	private void ToggleWindow() {
+		var app = NSApplication.SharedApplication;
+		if (app.Active) {
+			app.Hide(this);
+		} else {
+			app.Activate();
+			_window?.MakeKeyAndOrderFront(null);
+		}
 	}
 
 	private void SaveWindowState() {
@@ -337,10 +420,25 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
-			case "save-buffer":
-				SaveBuffer(
-					root.GetProperty("path").GetString() ?? string.Empty,
-					root.TryGetProperty("content", out var bufEl) ? bufEl.GetString() ?? string.Empty : string.Empty);
+			case "fs-stat":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-read":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Read(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-write":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Write(
+						FsId(root), FsPath(root),
+						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				}
+
 				break;
 			case "accept-turn":
 				AcceptTurn();
@@ -359,13 +457,18 @@ public sealed class AppDelegate : NSApplicationDelegate {
 				CompleteWebCommand(root);
 				break;
 			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch.
+				// The page's bridge listener is live; push the persisted layout so it restores on launch, and
+				// the persisted editor session so the editor reopens its files.
 				PushLayoutToWeb();
+				PushEditorSessionToWeb();
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
+				break;
+			case "editor-session-changed":
+				HandleEditorSessionChanged(root);
 				break;
 			default:
 				// log — surface for diagnostics and unattended capture.
@@ -404,6 +507,28 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
 	}
 
+	/// <summary>Applies an editor session the web sent (open files + view state) through the store, which persists it.</summary>
+	private void HandleEditorSessionChanged(JsonElement root) {
+		if (_editorSession is null || !root.TryGetProperty("session", out var sessionElement)) {
+			return;
+		}
+
+		if (!EditorSessionSerialization.TryDeserialize(sessionElement.GetRawText(), out var session, out string? error)
+			|| session is null) {
+			Console.WriteLine($"[weavie] editor-session-changed: bad session ({error})");
+			return;
+		}
+
+		_editorSession.Update(session);
+	}
+
+	/// <summary>Pushes the persisted editor session (with each open file's on-disk content) for launch restore.</summary>
+	private void PushEditorSessionToWeb() {
+		if (_editorSession is not null) {
+			_bridge.PostToWeb(_editorSession.BuildRestoreJson());
+		}
+	}
+
 	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
 	private void PushChangesToWeb() {
 		if (_changes is not null) {
@@ -418,15 +543,28 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
-	/// <summary>Pushes a targeted live-refresh of one edited file so its open editor model updates in place.</summary>
+	/// <summary>
+	/// Pushes a live-refresh of one edited file. The editor's file models are VSCode working copies behind the
+	/// host-backed <c>file://</c> provider, so the reload is driven by an <c>fs-change</c> push (the provider
+	/// fires its change event → VSCode reloads the non-dirty model from disk). The legacy <c>refresh-file</c>
+	/// message is no longer sent.
+	/// </summary>
 	private void PushRefreshToWeb(string path) {
 		if (_changes?.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.RefreshFile(change.Path, change.CurrentText));
+			_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "updated"));
 		}
 	}
 
-	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
+	/// <summary>
+	/// Pushes one file's per-turn diff so the page renders it inline in the live editor. Only in an auto-keep
+	/// mode (acceptEdits/bypass), where the applied turn-markers are the review surface; in default mode openDiff
+	/// is the per-edit review, so a second applied marker would just demand a redundant Accept — suppress it.
+	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
+		if (_settings is null || !PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
+			return;
+		}
+
 		if (_changes?.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}
@@ -474,28 +612,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		if (truncated.Count > 0) {
 			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
-		}
-	}
-
-	/// <summary>
-	/// Autosave write: persists the editor buffer for <paramref name="path"/> to disk (constrained to the
-	/// workspace) so the embedded claude sees the user's current state. A write that genuinely fails (or a
-	/// path outside the workspace, which is a bug in the page) surfaces to the user as an error toast — an
-	/// autosave must never silently lose the user's work.
-	/// </summary>
-	private void SaveBuffer(string path, string content) {
-		// The session is wired in DidFinishLaunching, before the page can post any message — so a null here
-		// is a broken invariant, not a runtime condition to absorb. Fail loud rather than drop the save.
-		if (_fileSystem is null || _workspace is null) {
-			throw new InvalidOperationException("save-buffer arrived before the session was initialized.");
-		}
-
-		try {
-			if (!BufferStore.Save(_fileSystem, _workspace, path, content)) {
-				Notify("error", $"Couldn't save {Path.GetFileName(path)}: path is outside the workspace.");
-			}
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't save {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
 
@@ -555,6 +671,26 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
+	/// <summary>
+	/// Native <c>.vsix</c> picker for the install-from-file theme command (NSOpenPanel on the main thread).
+	/// Returns the chosen path, or null if the user cancelled. Called off the main thread by the command
+	/// dispatcher, so the modal is marshaled onto it.
+	/// </summary>
+	private Task<string?> PickVsixFileAsync(CancellationToken ct) {
+		var completion = new TaskCompletionSource<string?>();
+		InvokeOnMainThread(() => {
+			using var panel = new NSOpenPanel {
+				Title = "Install Theme from .vsix",
+				CanChooseFiles = true,
+				CanChooseDirectories = false,
+				AllowsMultipleSelection = false,
+				AllowedFileTypes = ["vsix"],
+			};
+			completion.SetResult(panel.RunModal() == 1 && panel.Url is { Path: { } path } ? path : null);
+		});
+		return completion.Task;
+	}
+
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {
 		string? token = root.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
@@ -570,28 +706,18 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
 
+	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
+	private static string FsId(JsonElement root) =>
+		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
+
+	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
+	private static string FsPath(JsonElement root) =>
+		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
+
 	/// <summary>Routes a terminal message to the controller for its <c>session</c> (default: claude).</summary>
 	private TerminalController? TerminalFor(JsonElement root) {
 		string? session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
 		return session == "shell" ? _shell : _claude;
-	}
-
-	private void PostDemoDiff() {
-		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
-		const string proposed = "export function greet(name: string): string {\n  // weavie openDiff demo\n  return `hello, ${name}!`;\n}\n";
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
-			writer.WriteString("type", "show-diff");
-			writer.WriteString("id", "demo");
-			writer.WriteString("path", "/Users/kapps/src/weavie/demo/greet.ts");
-			writer.WriteString("tabName", "✻ [Claude Code] greet.ts");
-			writer.WriteString("original", original);
-			writer.WriteString("proposed", proposed);
-			writer.WriteEndObject();
-		}
-
-		_bridge.PostToWeb(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
 	}
 
 	private void CaptureSnapshot() {

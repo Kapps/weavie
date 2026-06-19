@@ -9,30 +9,33 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { type TermSession, log, onHostMessage, postToHost } from "./bridge";
+import { type TermSession, onHostMessage, postToHost } from "./bridge";
 import type { ChangeFile } from "./changes/ChangesPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { setContext } from "./commands/context";
+import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
-import { registerCommand } from "./commands/registry";
+import { dispatchCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
-import type { EditorHost } from "./editor/editor-host";
-import { type InlineDiff, createInlineDiff } from "./editor/inline-diff";
+import { createEditorController } from "./editor/editor-controller";
+// Side-effect import: registers the editor session store's set-editor-session listener at top-level module
+// load — BEFORE main.tsx posts "ready" and the host replies with its one-shot restore push. The store
+// otherwise lives only in the dynamically-imported editor chunk (via editor-host), which loads seconds
+// later, so the push would arrive with no listener and be dropped — launch/Ctrl+R restore would silently
+// no-op. Importing it here (like layout/store) also keeps the signal alive across HMR.
+import "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
-import { layoutDocument, sendLayout } from "./layout/store";
+import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
-import { type Toast, Toasts } from "./notify/Toasts";
-import { dismissSplash } from "./splash";
+import { Toasts, createToasts } from "./notify/Toasts";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
-import { DEFAULT_DARK_PALETTE, applyColorsToCssVars, resolveColors } from "./theme";
+import { applyChromeTheme } from "./theme";
 
-// The Monaco editor and its VSCode service layer are the heaviest code in the app. They live behind a
-// dynamic import (see onMount → editor-host) so the entry chunk — and thus first paint — carries none of it.
 const ChangesPanel = lazy(() => import("./changes/ChangesPanel"));
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 
@@ -48,69 +51,47 @@ const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
 
-// The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the Claude
-// and shell terminals beside the editor, 40/60. Shown until the host pushes the persisted layout.
-const DEFAULT_ROOT: LayoutNode = {
-  type: "split",
-  dir: "row",
-  weights: [0.4, 0.6],
-  children: [
-    {
-      type: "split",
-      dir: "column",
-      weights: [0.5, 0.5],
-      children: [
-        { type: "pane", id: "p_claude", kind: "terminal:claude" },
-        { type: "pane", id: "p_shell", kind: "terminal:shell" },
-      ],
-    },
-    { type: "pane", id: "p_editor", kind: "editor" },
-  ],
-};
-
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
   // The live pane layout tree: seeded with the default, replaced when the host pushes the persisted
   // layout, and updated optimistically while the user drags a splitter.
-  const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_ROOT);
+  const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_LAYOUT_ROOT);
   // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
   const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
-  // A terminal registers its focus fn here on mount (the editor focuses via its host directly).
+  // A terminal registers its focus fn here on mount (the editor focuses via the controller directly).
   const terminalFocus = new Map<string, () => void>();
-  const focusPane = (kind: string): void => {
-    if (kind === "editor") {
-      host?.editor.focus();
-      return;
-    }
-    terminalFocus.get(kind)?.();
-  };
+
   const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
   const [changesOpen, setChangesOpen] = createSignal(false);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
-  // User-facing toasts (e.g. an autosave write that failed). Auto-dismissed after a few seconds, or by
-  // the user; a failed save surfaces here rather than being silently dropped.
-  const [toasts, setToasts] = createSignal<Toast[]>([]);
-  let nextToastId = 0;
-  const dismissToast = (id: number): void => {
-    setToasts((list) => list.filter((t) => t.id !== id));
-  };
-  const addToast = (level: Toast["level"], message: string): void => {
-    const id = ++nextToastId;
-    setToasts((list) => [...list, { id, level, message }]);
-    window.setTimeout(() => dismissToast(id), 6000);
-  };
+  // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
+  const { toasts, addToast, dismissToast } = createToasts();
   // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, and the flat
   // workspace file index the omnibar's "Go to File" filters over (root may differ from WORKSPACE_ROOT).
   const [maximized, setMaximized] = createSignal(false);
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
   const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
+
+  // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
+  const editor = createEditorController({
+    onSaveError: (message) => addToast("error", message),
+    onCurrentFileChanged: setCurrentFile,
+  });
+
+  const focusPane = (kind: string): void => {
+    if (kind === "editor") {
+      editor.focusEditor();
+      return;
+    }
+    terminalFocus.get(kind)?.();
+  };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
   // layout, so we never overwrite the saved state with the default before it has loaded.
@@ -176,45 +157,6 @@ export default function App(): JSX.Element {
     );
   };
 
-  // The openDiff currently under inline review (default mode). openDiff blocks per-edit, so at most one is
-  // live at a time — a plain var (not a signal) is enough; the controller's toolbar drives accept/reject.
-  let activeReview: { id: string; path: string; original: string } | undefined;
-
-  const resolveReview = (keep: boolean): void => {
-    const review = activeReview;
-    if (review === undefined) {
-      return;
-    }
-    activeReview = undefined;
-    // endReview reverts the buffer to `original` on reject and returns the final content; on keep that's the
-    // (possibly tweaked) proposal Claude then writes on FILE_SAVED.
-    const finalContents = host?.endReview(review.path, keep, review.original) ?? "";
-    inlineDiff?.clear(review.path);
-    postToHost({
-      type: "diff-resolved",
-      id: review.id,
-      kept: keep,
-      finalContents: keep ? finalContents : "",
-    });
-  };
-
-  // The Monaco editor host, set once its chunk has loaded and the editor is created (see onMount).
-  let host: EditorHost | undefined;
-  // The inline-diff controller (Cursor-style diff inside the live editor), created with the host's editor.
-  let inlineDiff: InlineDiff | undefined;
-  // An open-file request that arrived before the editor was ready; replayed when it is (last wins).
-  let pendingOpen: { path: string; content: string; line: number } | undefined;
-
-  const openFileInEditor = (path: string, content: string, line: number): void => {
-    setCurrentFile(path);
-    if (host !== undefined) {
-      host.openFile(path, content, line);
-    } else {
-      // Editor chunk not loaded yet — remember the request and replay it once the host is ready.
-      pendingOpen = { path, content, line };
-    }
-  };
-
   const toggleBrowser = (): void => {
     setBrowserOpen((open) => !open);
   };
@@ -228,105 +170,24 @@ export default function App(): JSX.Element {
   });
 
   onMount(() => {
-    // Theme chrome from the default palette (spec §6 application surface). Override ops layer here once
-    // wired to settings/MCP; for now this publishes --weavie-* CSS vars for the chrome to consume.
-    applyColorsToCssVars(resolveColors(DEFAULT_DARK_PALETTE, []));
+    // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
+    // active theme + override ops and also drives Monaco + xterm; this pushes the chrome's CSS vars.
+    applyChromeTheme();
     mark("shell-mounted");
 
-    // The terminal panes are already in the tree and mount now — emitting term-ready, which spawns
-    // claude — without waiting on Monaco. The editor (and its VSCode service layer) is a separate chunk
-    // loaded here, off the first-paint path; the pane shows a placeholder until it resolves.
-    // The splash is held over everything until the editor is ready, then faded once — so the editor's
-    // first paint happens *under* the splash and the reveal shows a settled UI. We fade it on a
-    // DETERMINISTIC outcome only: editor ready, or a real failure. A failure — chunk load, editor crash,
-    // or an init that never settles within EDITOR_INIT_MS — rejects LOUDLY (logged as an error), then
-    // frees the splash so the already-working terminals aren't trapped. No silent timer that dismisses
-    // while pretending success.
-    const EDITOR_INIT_MS = 15_000; // generous: only a genuine hang trips it, not a slow cold start.
-    let initTimer: number | undefined;
-    const editorReady = import("./editor/editor-host").then(({ createEditorHost }) =>
-      createEditorHost(editorContainer),
-    );
-    const initDeadline = new Promise<never>((_, reject) => {
-      initTimer = window.setTimeout(
-        () => reject(new Error(`editor init did not settle within ${EDITOR_INIT_MS}ms`)),
-        EDITOR_INIT_MS,
-      );
-    });
-    void Promise.race([editorReady, initDeadline])
-      .then((created) => {
-        host = created;
-        inlineDiff = createInlineDiff(created.editor);
-        if (pendingOpen !== undefined) {
-          created.openFile(pendingOpen.path, pendingOpen.content, pendingOpen.line);
-          pendingOpen = undefined;
-        }
-        // Reflect whatever file the editor ended up showing — a replayed pending-open, or a hot-reload
-        // restore of the previously-open file — in the app's current-file state so the browser/title track it.
-        const model = created.editor.getModel();
-        if (model !== null && model.uri.scheme === "file") {
-          setCurrentFile(model.uri.fsPath);
-        }
-        postToHost({ type: "monaco-ready" });
-        mark("editor-ready");
-      })
-      .catch((error: unknown) => log("error", `editor init failed: ${String(error)}`))
-      .finally(() => {
-        window.clearTimeout(initTimer);
-        dismissSplash();
-      });
+    // The terminal panes are already in the tree and mount now — spawning claude — without waiting on
+    // Monaco. The editor (a separate chunk, off the first-paint path) is brought up here; the pane shows a
+    // placeholder until it resolves, with the splash held over everything until it settles.
+    editor.start(editorContainer);
 
     const offHost = onHostMessage((message) => {
-      if (message.type === "show-diff") {
-        // Render Claude's openDiff proposal INLINE in the live editor (no standalone diff viewer): the buffer
-        // shows `proposed` (autosave suppressed), with the diff vs `original` and a Keep/Reject toolbar.
-        activeReview = { id: message.id, path: message.path, original: message.original };
-        host?.beginReview(message.path, message.proposed, 1);
-        inlineDiff?.set(message.path, {
-          original: message.original,
-          mode: "review",
-          onAccept: () => resolveReview(true),
-          onReject: () => resolveReview(false),
-        });
-      } else if (message.type === "close-diff") {
-        // Host cancelled the openDiff: tear the review down (revert buffer) without replying — the host's
-        // awaiting task is already cancelled.
-        if (activeReview?.id === message.id) {
-          host?.endReview(activeReview.path, false, activeReview.original);
-          inlineDiff?.clear(activeReview.path);
-          activeReview = undefined;
-        }
-      } else if (message.type === "open-file") {
-        openFileInEditor(message.path, message.content, message.line);
-      } else if (message.type === "refresh-file") {
-        // Claude edited this file (any permission mode) — live-update its model in place if open.
-        host?.applyExternalEdit(message.path, message.content);
-      } else if (message.type === "turn-diff") {
-        // Inline diff of this turn's changes, shown in the live editor. Equal baseline/current = no markers.
-        if (message.baseline === message.current) {
-          inlineDiff?.clear(message.path);
-        } else {
-          inlineDiff?.set(message.path, {
-            original: message.baseline,
-            mode: "applied",
-            onAccept: () => postToHost({ type: "accept-turn" }),
-            onUndo: () => postToHost({ type: "undo-turn" }),
-          });
-        }
-      } else if (message.type === "turn-reset") {
-        inlineDiff?.clearAll();
-      } else if (message.type === "notify") {
+      if (editor.handleMessage(message)) {
+        return;
+      }
+      if (message.type === "notify") {
         addToast(message.level, message.message);
       } else if (message.type === "session-changes") {
         setChangeFiles(message.files);
-      } else if (message.type === "change-diff") {
-        // A file picked in the Changes navigator: show its whole-session diff inline in the live editor
-        // (read-only view — the file is opened via reveal-file alongside this request).
-        if (message.baseline === message.current) {
-          inlineDiff?.clear(message.path);
-        } else {
-          inlineDiff?.set(message.path, { original: message.baseline, mode: "view" });
-        }
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "window-state") {
@@ -339,8 +200,8 @@ export default function App(): JSX.Element {
     });
 
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. The
-    // migrated Ctrl+1–9 (focus pane by index), the omnibar focus shortcuts, and the view toggles all resolve
-    // through it; Core commands (reopen terminal) route to the host. See docs/specs/commands.md.
+    // migrated Ctrl+1–9 (focus pane by index), the omnibar focus shortcuts, the view toggles, and the
+    // inline-diff actions all resolve through it; Core commands route to the host. See docs/specs/commands.md.
     const offCommands = [
       // focus-pane-by-index returns false when there's no pane at that number, so an unbound Ctrl+digit
       // still falls through to the focused xterm/Monaco (preserving the old behavior).
@@ -360,16 +221,18 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleChanges, () => setChangesOpen((open) => !open)),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
-      // Inline-diff navigation + actions — the floating diff toolbar buttons route through these same
-      // handlers, so keybindings / the palette / Claude's runCommand drive the active diff identically.
-      // Return the action's result so an unmatched keybinding (no active diff) falls through to the editor.
-      registerCommand(CommandIds.nextChange, () => inlineDiff?.nextChange() ?? false),
-      registerCommand(CommandIds.prevChange, () => inlineDiff?.prevChange() ?? false),
-      registerCommand(CommandIds.acceptChange, () => inlineDiff?.accept() ?? false),
-      registerCommand(CommandIds.rejectChange, () => inlineDiff?.reject() ?? false),
-      registerCommand(CommandIds.undoChange, () => inlineDiff?.undo() ?? false),
+      // The floating diff toolbar buttons route through these same actions, so keybindings / the palette /
+      // Claude's runCommand drive the active diff identically. Each returns whether it acted, so an
+      // unmatched keybinding (no active diff) falls through to the editor.
+      registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),
+      registerCommand(CommandIds.prevChange, () => editor.inline.prevChange()),
+      registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
+      registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
+      registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
     ];
     const offKeybindings = installKeybindings();
+    // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
+    const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
 
     // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight, and publish it as a
     // `when`-context key so command guards (e.g. terminalFocused) can read it.
@@ -386,13 +249,13 @@ export default function App(): JSX.Element {
     onCleanup(() => {
       window.clearTimeout(persistTimer);
       offKeybindings();
+      offDoubleShift();
       for (const off of offCommands) {
         off();
       }
       document.removeEventListener("focusin", onFocusIn);
       offHost();
-      inlineDiff?.dispose();
-      host?.dispose();
+      editor.dispose();
     });
   });
 

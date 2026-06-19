@@ -32,6 +32,14 @@ public sealed record CommandKeybinding {
 
 	/// <summary>Optional raw-JSON argument object for this binding, e.g. <c>{"index":1}</c>.</summary>
 	public string? ArgsJson { get; init; }
+
+	/// <summary>
+	/// When true, this is an OS-level <em>global</em> hotkey: the host registers it with the operating
+	/// system so it fires even when Weavie isn't the focused application (e.g. <c>ctrl+`</c> → focus the
+	/// window). The web keydown resolver ignores global bindings — the OS owns them — so they never
+	/// double-fire while Weavie is focused. See <c>docs/specs/commands.md</c>.
+	/// </summary>
+	public bool Global { get; init; }
 }
 
 /// <summary>

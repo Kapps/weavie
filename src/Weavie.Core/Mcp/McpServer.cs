@@ -8,6 +8,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
 using Weavie.Core.Layout;
+using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
 
@@ -18,7 +19,7 @@ namespace Weavie.Core.Mcp;
 /// (mitigating CVE-2025-52882). The protocol is reverse-engineered (coder/claudecode.nvim)
 /// and verified empirically against the installed CLI.
 /// </summary>
-public sealed class McpServer : IAsyncDisposable {
+public sealed partial class McpServer : IAsyncDisposable {
 	private readonly string _authToken;
 	private readonly IDiffPresenter _presenter;
 	private readonly IReadOnlyList<string> _workspaceFolders;
@@ -27,6 +28,7 @@ public sealed class McpServer : IAsyncDisposable {
 	private readonly EditorStore? _editor;
 	private readonly CommandDispatcher? _commands;
 	private readonly KeybindingStore? _keybindings;
+	private readonly ThemeOverridesStore? _themeOverrides;
 	private readonly string _toolsListJson;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -54,7 +56,8 @@ public sealed class McpServer : IAsyncDisposable {
 		LayoutStore? layout = null,
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null) {
+		KeybindingStore? keybindings = null,
+		ThemeOverridesStore? themeOverrides = null) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -70,15 +73,10 @@ public sealed class McpServer : IAsyncDisposable {
 		_editor = editor;
 		_commands = commands;
 		_keybindings = keybindings;
-		if (editor is not null) {
-			// Push an unsolicited selection_changed to the connected client whenever the user's active
-			// file/selection changes, so the embedded claude always knows what they're looking at.
-			// IDE0031's suggested fix (editor?.Changed += ...) is illegal on event accessors, so the
-			// explicit guard stays and the false-positive is suppressed locally.
-#pragma warning disable IDE0031
-			editor.Changed += OnActiveEditorChanged;
-#pragma warning restore IDE0031
-		}
+		_themeOverrides = themeOverrides;
+		// Push an unsolicited selection_changed to the connected client whenever the user's active
+		// file/selection changes, so the embedded claude always knows what they're looking at.
+		editor?.Changed += OnActiveEditorChanged;
 
 		// Registry mode advertises ONLY the capability tools (settings + layout + commands) — this is the
 		// model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
@@ -93,6 +91,10 @@ public sealed class McpServer : IAsyncDisposable {
 
 			if (commands is not null) {
 				parts.Add(CommandToolEntries);
+			}
+
+			if (themeOverrides is not null) {
+				parts.Add(ThemeToolEntries);
 			}
 
 			entries = string.Join(",", parts);
@@ -151,10 +153,14 @@ public sealed class McpServer : IAsyncDisposable {
 			client.NoDelay = true;
 			var stream = client.GetStream();
 			try {
-				var headers = await ReadHttpHeadersAsync(stream, ct).ConfigureAwait(false);
+				var request = await WebSocketHandshake.ReadRequestAsync(stream, ct).ConfigureAwait(false);
+				if (request is null) {
+					return;
+				}
 
+				var headers = request.Value.Headers;
 				if (!headers.TryGetValue("sec-websocket-key", out string? wsKey)) {
-					await WriteStatusAsync(stream, "400 Bad Request", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "400 Bad Request", ct).ConfigureAwait(false);
 					return;
 				}
 
@@ -171,18 +177,11 @@ public sealed class McpServer : IAsyncDisposable {
 				if (!string.Equals(ideToken, _authToken, StringComparison.Ordinal)
 					&& !string.Equals(bearer, _authToken, StringComparison.Ordinal)) {
 					Emit("rejected connection: missing/invalid auth token");
-					await WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 					return;
 				}
 
-				string accept = IdeLockFile.ComputeWebSocketAccept(wsKey);
-				string response =
-					"HTTP/1.1 101 Switching Protocols\r\n" +
-					"Upgrade: websocket\r\n" +
-					"Connection: Upgrade\r\n" +
-					$"Sec-WebSocket-Accept: {accept}\r\n\r\n";
-				await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
-				await stream.FlushAsync(ct).ConfigureAwait(false);
+				await WebSocketHandshake.WriteUpgradeAsync(stream, wsKey, ct).ConfigureAwait(false);
 
 				using var ws = WebSocket.CreateFromStream(
 					stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(30));
@@ -350,6 +349,21 @@ public sealed class McpServer : IAsyncDisposable {
 				break;
 			case "runCommand":
 				await HandleRunCommandAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "listThemes":
+				await HandleListThemesAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "describeTheme":
+				await HandleDescribeThemeAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "setThemeOverride":
+				await HandleSetThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "applyThemeTransform":
+				await HandleApplyThemeTransformAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
+			case "removeThemeOverride":
+				await HandleRemoveThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			default:
 				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
@@ -679,7 +693,7 @@ public sealed class McpServer : IAsyncDisposable {
 		writer.WriteEndObject();
 	}
 
-	// Builds a JSON object string: opens/closes the root object around <paramref name="body"/>.
+	// Builds a JSON object string: opens/closes the root object around `body`.
 	private static string WriteJson(Action<Utf8JsonWriter> body) {
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
@@ -714,48 +728,6 @@ public sealed class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private static async Task<Dictionary<string, string>> ReadHttpHeadersAsync(NetworkStream stream, CancellationToken ct) {
-		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		var sb = new StringBuilder();
-		byte[] one = new byte[1];
-		int matched = 0; // counts the "\r\n\r\n" terminator
-		while (matched < 4) {
-			int n = await stream.ReadAsync(one.AsMemory(0, 1), ct).ConfigureAwait(false);
-			if (n == 0) {
-				break;
-			}
-
-			char c = (char)one[0];
-			sb.Append(c);
-			matched = c switch {
-				'\r' when matched is 0 or 2 => matched + 1,
-				'\n' when matched is 1 or 3 => matched + 1,
-				_ => 0,
-			};
-
-			if (sb.Length > 64 * 1024) {
-				break; // header flood guard
-			}
-		}
-
-		string[] lines = sb.ToString().Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
-		foreach (string? line in lines.Skip(1)) // skip the request line
-		{
-			int colon = line.IndexOf(':', StringComparison.Ordinal);
-			if (colon > 0) {
-				headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
-			}
-		}
-
-		return headers;
-	}
-
-	private static async Task WriteStatusAsync(NetworkStream stream, string status, CancellationToken ct) {
-		string response = $"HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
-		await stream.FlushAsync(ct).ConfigureAwait(false);
-	}
-
 	private void Emit(string message) => Log?.Invoke(message);
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
@@ -763,11 +735,7 @@ public sealed class McpServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-#pragma warning disable IDE0031 // null-propagation fix is illegal on event accessors
-		if (_editor is not null) {
-			_editor.Changed -= OnActiveEditorChanged;
-		}
-#pragma warning restore IDE0031
+		_editor?.Changed -= OnActiveEditorChanged;
 
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);
@@ -778,39 +746,4 @@ public sealed class McpServer : IAsyncDisposable {
 		_sendLock.Dispose();
 	}
 
-	// tools/list entries. openDiff is the star (blocking review); the rest give Claude IDE context.
-	// Wrapped in {"tools":[...]} (plus the settings entries when a store is present) by the constructor.
-	private const string IdeToolEntries =
-		"""
-          {"name":"openDiff","description":"Open an editable diff for the user to review proposed changes to a file. Blocks until the user accepts (FILE_SAVED) or rejects (DIFF_REJECTED).","inputSchema":{"type":"object","properties":{"old_file_path":{"type":"string"},"new_file_path":{"type":"string"},"new_file_contents":{"type":"string"},"tab_name":{"type":"string"}},"required":["old_file_path","new_file_path","new_file_contents","tab_name"]}},
-          {"name":"openFile","description":"Open/reveal a file in the editor.","inputSchema":{"type":"object","properties":{"filePath":{"type":"string"},"preview":{"type":"boolean"},"startText":{"type":"string"},"endText":{"type":"string"}},"required":["filePath"]}},
-          {"name":"getWorkspaceFolders","description":"Get the workspace folders open in the IDE.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"getOpenEditors","description":"Get the list of open editor tabs.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"getCurrentSelection","description":"Get the current text selection in the active editor.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"getDiagnostics","description":"Get language diagnostics from the IDE.","inputSchema":{"type":"object","properties":{"uri":{"type":"string"}}}},
-          {"name":"close_tab","description":"Close a tab by name.","inputSchema":{"type":"object","properties":{"tab_name":{"type":"string"}},"required":["tab_name"]}},
-          {"name":"closeAllDiffTabs","description":"Close all open diff tabs.","inputSchema":{"type":"object","properties":{}}}
-        """;
-
-	// Settings tools (the Claude-facing editing surface), advertised only when a SettingsStore is wired.
-	private const string SettingsToolEntries =
-		"""
-          {"name":"listSettings","description":"List all weavie settings with each one's current value, source (environment/userFile/default), default, description, aliases, and any allowed values. Call this FIRST to find the exact key before changing a setting.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"getSetting","description":"Get one weavie setting's resolved value and where it came from.","inputSchema":{"type":"object","properties":{"key":{"type":"string"}},"required":["key"]}},
-          {"name":"setSetting","description":"Change a weavie setting. Call listSettings first to find the exact key; never guess keys. 'value' should match the setting's declared type (string/bool/int/path); int and bool values may be sent as a JSON number/boolean or as a string (e.g. 16 or \"16\", true or \"true\").","inputSchema":{"type":"object","properties":{"key":{"type":"string"},"value":{}},"required":["key","value"]}}
-        """;
-
-	// Layout tools (model-facing), advertised on the registry server only when a LayoutStore is wired.
-	private const string LayoutToolEntries =
-		"""
-          {"name":"getLayout","description":"Get the current weavie window layout as a JSON tree of nested row/column splits and leaf panes.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"setLayout","description":"Replace the weavie window layout. 'root' is a layout tree where each node is a split (type 'split', with 'dir' 'row' or 'column', a 'weights' number array, and a 'children' node array) or a pane (type 'pane', with a unique 'id' and a 'kind'). Pane kinds: editor, terminal:claude, terminal:shell. Weights are relative. Optionally set 'focused' to a pane id. Call getLayout first to see the current shape.","inputSchema":{"type":"object","properties":{"root":{"type":"object"},"focused":{"type":"string"}},"required":["root"]}}
-        """;
-
-	// Command tools (model-facing), advertised on the registry server only when a CommandDispatcher is wired.
-	private const string CommandToolEntries =
-		"""
-          {"name":"listCommands","description":"List all weavie commands (actions like focusing a pane, toggling the diff layout, or reopening the terminal) with each one's id, title, category, description, aliases, and current keybinding(s). Call this FIRST to find the exact id before running a command.","inputSchema":{"type":"object","properties":{}}},
-          {"name":"runCommand","description":"Run a weavie command by id. Call listCommands first to find the exact id; never guess ids. 'args' is an optional object whose shape depends on the command (e.g. {\"index\":3} to focus the third pane).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object"}},"required":["id"]}}
-        """;
 }

@@ -18,7 +18,9 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   const font = currentFonts().editor;
   const editor = monaco.editor.create(container, {
     model: null,
-    theme: "vs-dark",
+    // No `theme` here on purpose: the active theme is global and owned by the theme controller (registered
+    // + applied in vscode-services before any editor is created). Passing a `theme` option re-calls setTheme
+    // and would clobber the active theme back to that value — which is exactly what left Monaco on vs-dark.
     fontSize: font.size,
     fontFamily: font.family,
     fontWeight: font.weight,

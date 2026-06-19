@@ -1,10 +1,28 @@
-// Public surface of the theming subsystem (spec §6). It owns the override schema, the resolver +
-// color-math, and the live application to CSS vars (and, as it grows, xterm + Monaco). Persistence of
-// the selected theme and the override op list is a user setting owned elsewhere; the MCP tools that let
-// Claude drive overrides plug into the capability registry. This module stays pure + framework-free so
-// those layers can call it freely.
+// Public surface of the theming subsystem (spec §6). It owns the VS Code theme shape, the override schema
+// + resolver + color-math, the built-in themes, and the runtime controller that drives all three render
+// surfaces (Monaco, xterm, chrome) off one resolved palette. The Monaco-specific registration lives in
+// ./monaco-theme (it pulls in monaco) and is imported directly from the editor chunk — never re-exported
+// here, so this barrel stays monaco-free and safe to import on the first-paint path.
 
 export { isHexColor, makeTransform, transformHex, type ColorTransform } from "./colors";
-export { resolveColors, type OverrideOp, type SetOp, type TransformOp } from "./overrides";
+export {
+  resolveTheme,
+  type OverrideOp,
+  type OverrideTable,
+  type ResolvedTheme,
+  type SetOp,
+  type TransformOp,
+} from "./overrides";
 export { applyColorsToCssVars, cssVarName } from "./apply";
-export { DEFAULT_DARK_PALETTE } from "./default-palette";
+export { deriveChromeVars } from "./chrome-vars";
+export { paletteToXtermTheme, type XtermTheme } from "./xterm-theme";
+export { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
+export type { VsCodeColorTheme, TokenColorRule, SemanticTokenColor } from "./vscode-theme";
+export {
+  applyChromeTheme,
+  currentXtermTheme,
+  onXtermThemeChanged,
+  currentMonacoTheme,
+  onMonacoThemeChanged,
+  type MonacoThemeUpdate,
+} from "./controller";

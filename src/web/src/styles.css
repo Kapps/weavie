@@ -1,15 +1,18 @@
 :root {
-  --bg: #1e1e1e;
-  --bar: #252526;
-  --border: #333;
-  --fg: #d4d4d4;
-  --accent: #4ec9b0;
-  --dim: #808080;
+  /* Initial/fallback chrome vars (Weavie Dark). The theme controller overwrites these on the active
+     theme's resolved palette at runtime (see theme/chrome-vars.ts); these defaults just avoid any flash
+     before it runs and back plain-browser dev. */
+  --bg: #0a0c10;
+  --bar: #11141a;
+  --border: #1b212a;
+  --fg: #d4d9e1;
+  --accent: #4fb0a6;
+  --dim: #7e8794;
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own
-     theme stylesheet (injected later) overrides this once the dark theme is applied. */
-  --vscode-editor-background: #1e1e1e;
+     theme stylesheet (injected later) overrides this once the theme is applied. */
+  --vscode-editor-background: #0a0c10;
 }
 
 * {
@@ -1042,6 +1045,18 @@ body,
 
 .weavie-inline-added-text {
   background: rgba(46, 160, 67, 0.32);
+}
+
+/* The user's OWN typing over a changed file — a washed-out green, much fainter than Claude's solid added
+   lines, so a person's edits read as theirs (not something to "review/accept" like Claude's changes). */
+.weavie-inline-user {
+  background: rgba(46, 160, 67, 0.05);
+}
+
+.weavie-inline-user-gutter {
+  background: rgba(46, 160, 67, 0.4);
+  width: 3px !important;
+  margin-left: 3px;
 }
 
 .weavie-inline-removed {

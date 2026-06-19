@@ -1,6 +1,7 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Win.Hosting;
@@ -19,6 +20,11 @@ namespace Weavie.Win.Hosting;
 internal sealed class AppController : ApplicationContext {
 	private readonly List<WorkspaceWindow> _windows = [];
 	private readonly WorkspaceManager _manager;
+	// App-level command dispatcher + global-hotkey plumbing. The global hotkey (ctrl+` → focus) isn't tied to
+	// any one window, so its handler lives here and focuses the most-recently-active window.
+	private readonly CommandDispatcher _globalCommands;
+	private readonly GlobalHotkeyService _hotkeys;
+	private WorkspaceWindow? _lastActiveWindow;
 	private WelcomeWindow? _welcome;
 	private bool _exiting;
 
@@ -45,6 +51,23 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
+		// App-level dispatcher for commands a global hotkey invokes (the toggle command isn't bound to any one
+		// window). The matching per-window handler lives on each session dispatcher, so MCP/palette can toggle
+		// the window whose Claude asked. Here, toggle the most-recently-active window.
+		_globalCommands = new CommandDispatcher(CommandRegistry);
+		_globalCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			ToggleFrontmostWindow();
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+
+		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global like settings so a change
+		// reaches every window; the active theme itself is a normal setting (theme.active).
+		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		ThemeOverrides.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe so the logic isn't duplicated on macOS.
 		var recents = new RecentWorkspaces(new LocalFileSystem());
@@ -58,6 +81,21 @@ internal sealed class AppController : ApplicationContext {
 		if (initial is null || OpenOrFocus(initial) is null) {
 			ShowWelcome();
 		}
+
+		// Global hotkeys (e.g. ctrl+` → focus Weavie). Created last, after a window exists: constructing a
+		// control installs the WinForms SynchronizationContext that WindowsGlobalHotkeys captures + marshals
+		// its RegisterHotKey calls onto. The service reads the global bindings from Keybindings and re-applies
+		// on edit; the registrar posts the actual registration to run once the message loop starts pumping.
+		var registrar = new WindowsGlobalHotkeys();
+		registrar.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+		_hotkeys = new GlobalHotkeyService(Keybindings, _globalCommands, registrar);
+		_hotkeys.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
 	}
 
 	/// <summary>The single app-global settings store, shared by every workspace window.</summary>
@@ -71,6 +109,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>The recent-workspaces store, for the Open Recent menu and the welcome window.</summary>
 	public RecentWorkspaces Recents => _manager.Recents;
+
+	/// <summary>The app-global per-theme color overrides store (theme-overrides.json), shared by every window.</summary>
+	public ThemeOverridesStore ThemeOverrides { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if that folder is already
@@ -87,13 +128,16 @@ internal sealed class AppController : ApplicationContext {
 		var opened = _manager.Open(root);
 		var existing = _windows.FirstOrDefault(w => w.Id == opened.Id);
 		if (existing is not null) {
+			_lastActiveWindow = existing;
 			Activate(existing);
 			return existing;
 		}
 
 		var window = new WorkspaceWindow(this, opened.Root);
 		_windows.Add(window);
+		window.Activated += (_, _) => _lastActiveWindow = window;
 		window.FormClosed += (_, _) => OnWorkspaceWindowClosed(window);
+		_lastActiveWindow = window;
 		window.Show();
 		CloseWelcome();
 		return window;
@@ -141,8 +185,33 @@ internal sealed class AppController : ApplicationContext {
 		window.BringToFront();
 	}
 
+	/// <summary>
+	/// Toggles the most-recently-active workspace window (else the welcome window) — the handler behind the
+	/// global hotkey and <c>weavie.window.toggle</c>: focus it when it's behind, or drop it behind (handing
+	/// focus back to the previously focused window) when it's already in front. A no-op when nothing is open.
+	/// Marshals onto the target window's UI thread.
+	/// </summary>
+	private void ToggleFrontmostWindow() {
+		Form? target = _lastActiveWindow is not null && _windows.Contains(_lastActiveWindow)
+			? _lastActiveWindow
+			: _windows.Count > 0 ? _windows[^1] : _welcome;
+		if (target is null) {
+			return;
+		}
+
+		if (target.InvokeRequired) {
+			target.BeginInvoke(() => WindowFocus.Toggle(target));
+		} else {
+			WindowFocus.Toggle(target);
+		}
+	}
+
 	private void OnWorkspaceWindowClosed(WorkspaceWindow window) {
 		_windows.Remove(window);
+		if (_lastActiveWindow == window) {
+			_lastActiveWindow = _windows.Count > 0 ? _windows[^1] : null;
+		}
+
 		_manager.Close(window.Id);
 		if (_exiting) {
 			if (_windows.Count == 0) {
@@ -216,6 +285,7 @@ internal sealed class AppController : ApplicationContext {
 	/// <inheritdoc/>
 	protected override void Dispose(bool disposing) {
 		if (disposing) {
+			_hotkeys.Dispose(); // unregisters the OS hotkeys + tears down the message window
 			Settings.Dispose();
 			Keybindings.Dispose();
 		}

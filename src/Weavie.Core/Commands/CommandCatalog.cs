@@ -86,6 +86,12 @@ public static class CommandCatalog {
 					writer.WriteString("when", binding.When);
 				}
 
+				// Emit `global` only when set (absent ⇒ false), keeping the array lean. The web resolver
+				// skips global bindings — the host registers them with the OS instead.
+				if (binding.Global) {
+					writer.WriteBoolean("global", true);
+				}
+
 				writer.WriteEndObject();
 			}
 

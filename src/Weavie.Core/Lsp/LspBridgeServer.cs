@@ -59,6 +59,14 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	/// <summary>Diagnostic log line (connections, spawns, server stderr, teardown).</summary>
 	public event Action<string>? Log;
 
+	/// <summary>
+	/// Raised with each debounced batch of on-disk changes the workspace watcher reports — the same batch sent
+	/// to the language servers — so the host can also forward them to the editor's <c>file://</c> provider in
+	/// the page (covering non-Claude on-disk edits). Fires whether or not any LSP server is currently
+	/// connected, as long as the watcher is running. Invoked off the UI thread.
+	/// </summary>
+	public event Action<IReadOnlyList<WatchedFileChange>>? FileChanges;
+
 	/// <summary>The loopback port the server is listening on; 0 until <see cref="Start"/> is called.</summary>
 	public int Port { get; private set; }
 
@@ -98,7 +106,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 			client.NoDelay = true;
 			var stream = client.GetStream();
 			try {
-				var request = await ReadRequestAsync(stream, ct).ConfigureAwait(false);
+				var request = await WebSocketHandshake.ReadRequestAsync(stream, ct).ConfigureAwait(false);
 				if (request is null) {
 					return;
 				}
@@ -106,7 +114,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 				var (target, headers) = request.Value;
 
 				if (!headers.TryGetValue("sec-websocket-key", out string? wsKey)) {
-					await WriteStatusAsync(stream, "400 Bad Request", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "400 Bad Request", ct).ConfigureAwait(false);
 					return;
 				}
 
@@ -114,7 +122,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 				if (!string.Equals(token, _authToken, StringComparison.Ordinal)) {
 					Emit("rejected: missing/invalid token");
-					await WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 					return;
 				}
 
@@ -122,21 +130,21 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 					&& headers.TryGetValue("origin", out string? origin)
 					&& !string.Equals(origin, _allowedOrigin, StringComparison.Ordinal)) {
 					Emit($"rejected: origin {origin}");
-					await WriteStatusAsync(stream, "403 Forbidden", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "403 Forbidden", ct).ConfigureAwait(false);
 					return;
 				}
 
 				var descriptor = string.IsNullOrEmpty(selector) ? null : _resolveDescriptor(selector);
 				if (descriptor is null) {
 					Emit($"no server recipe for selector '{selector}'");
-					await WriteStatusAsync(stream, "404 Not Found", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "404 Not Found", ct).ConfigureAwait(false);
 					return;
 				}
 
 				var command = ServerResolver.Resolve(descriptor);
 				if (command is null) {
 					Emit($"{descriptor.DisplayName}: no server found on PATH (tried {string.Join(", ", descriptor.Candidates.Select(c => c.Command))})");
-					await WriteStatusAsync(stream, "503 Service Unavailable", ct).ConfigureAwait(false);
+					await WebSocketHandshake.WriteStatusAsync(stream, "503 Service Unavailable", ct).ConfigureAwait(false);
 					return;
 				}
 
@@ -149,14 +157,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 	private async Task UpgradeAndProxyAsync(
 		NetworkStream stream, string wsKey, LanguageServerDescriptor descriptor, ResolvedCommand command, CancellationToken ct) {
-		string accept = IdeLockFile.ComputeWebSocketAccept(wsKey);
-		string response =
-			"HTTP/1.1 101 Switching Protocols\r\n" +
-			"Upgrade: websocket\r\n" +
-			"Connection: Upgrade\r\n" +
-			$"Sec-WebSocket-Accept: {accept}\r\n\r\n";
-		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
-		await stream.FlushAsync(ct).ConfigureAwait(false);
+		await WebSocketHandshake.WriteUpgradeAsync(stream, wsKey, ct).ConfigureAwait(false);
 
 		Process process;
 		try {
@@ -193,9 +194,15 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	}
 
 	// Forward a debounced batch of on-disk changes (incl. Claude/MCP edits) to every live server as a
-	// single workspace/didChangeWatchedFiles notification, so diagnostics/types don't go stale (§9).
+	// single workspace/didChangeWatchedFiles notification, so diagnostics/types don't go stale (§9). The same
+	// batch is mirrored to the page's file:// provider via FileChanges (independent of LSP connection state).
 	private void BroadcastFileChanges(IReadOnlyList<WatchedFileChange> changes) {
-		if (_connections.IsEmpty || changes.Count == 0) {
+		if (changes.Count == 0) {
+			return;
+		}
+
+		FileChanges?.Invoke(changes);
+		if (_connections.IsEmpty) {
 			return;
 		}
 
@@ -259,54 +266,6 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		}
 
 		return null;
-	}
-
-	private static async Task<(string Target, Dictionary<string, string> Headers)?> ReadRequestAsync(NetworkStream stream, CancellationToken ct) {
-		var sb = new StringBuilder();
-		byte[] one = new byte[1];
-		int matched = 0; // counts the "\r\n\r\n" terminator
-		while (matched < 4) {
-			int n = await stream.ReadAsync(one.AsMemory(0, 1), ct).ConfigureAwait(false);
-			if (n == 0) {
-				return null;
-			}
-
-			char c = (char)one[0];
-			sb.Append(c);
-			matched = c switch {
-				'\r' when matched is 0 or 2 => matched + 1,
-				'\n' when matched is 1 or 3 => matched + 1,
-				_ => 0,
-			};
-
-			if (sb.Length > 64 * 1024) {
-				return null; // header flood guard
-			}
-		}
-
-		string[] lines = sb.ToString().Split("\r\n", StringSplitOptions.RemoveEmptyEntries);
-		if (lines.Length == 0) {
-			return null;
-		}
-
-		string[] requestParts = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
-		string target = requestParts.Length >= 2 ? requestParts[1] : "/";
-
-		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		foreach (string? line in lines.Skip(1)) {
-			int colon = line.IndexOf(':', StringComparison.Ordinal);
-			if (colon > 0) {
-				headers[line[..colon].Trim()] = line[(colon + 1)..].Trim();
-			}
-		}
-
-		return (target, headers);
-	}
-
-	private static async Task WriteStatusAsync(NetworkStream stream, string status, CancellationToken ct) {
-		string response = $"HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
-		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
-		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}
 
 	private void Emit(string message) => Log?.Invoke(message);

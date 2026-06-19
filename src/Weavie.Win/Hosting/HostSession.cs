@@ -8,6 +8,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Win.Hosting;
@@ -37,7 +38,8 @@ internal sealed class HostSession : IAsyncDisposable {
 		string pageOrigin,
 		string id,
 		CommandRegistry commandRegistry,
-		KeybindingStore keybindings) {
+		KeybindingStore keybindings,
+		ThemeOverridesStore themeOverrides) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
@@ -45,6 +47,7 @@ internal sealed class HostSession : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
+		ArgumentNullException.ThrowIfNull(themeOverrides);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
@@ -57,6 +60,7 @@ internal sealed class HostSession : IAsyncDisposable {
 
 		var fileSystem = new LocalFileSystem();
 		FileSystem = fileSystem;
+		FileProvider = new FileProviderService(fileSystem, workspaceRoot);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		FileIndex.Log += Tagged("[index]");
@@ -73,11 +77,9 @@ internal sealed class HostSession : IAsyncDisposable {
 		// the settings MCP tools, so the user can change settings by talking to claude.
 		Ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor,
-			commands: Commands, keybindings: keybindings);
+			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides);
 		Ide.Server.Log += Tagged("[mcp]");
-		if (Ide.RegistryServer is not null) {
-			Ide.RegistryServer.Log += Tagged("[registry]");
-		}
+		Ide.RegistryServer?.Log += Tagged("[registry]");
 
 		Claude.ExtraEnvironment = Ide.EnvironmentVariables;
 		// Capability registry: hand the spawned claude an --mcp-config pointing at the registry server
@@ -86,6 +88,9 @@ internal sealed class HostSession : IAsyncDisposable {
 		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay. The observed
 		// stream is logged here; the session change view consumes the same feed.
 		Claude.SettingsFilePath = Ide.WriteSettingsFile();
+		// Orientation: an --append-system-prompt-file telling claude it's embedded in Weavie and to read
+		// live app state (themes/settings/layout) through the mcp__weavie__* tools, not the on-disk config.
+		Claude.SystemPromptFilePath = Ide.WriteSystemPromptFile();
 		Ide.HookBridge.Observed += request => {
 			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
 			Console.Out.Flush();
@@ -130,6 +135,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>The session's filesystem, used to persist the editor's autosaved buffers to disk.</summary>
 	public IFileSystem FileSystem { get; }
+
+	/// <summary>Serves the editor's host-backed <c>file://</c> provider (workspace-scoped fs-stat/read/write).</summary>
+	public FileProviderService FileProvider { get; }
 
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }

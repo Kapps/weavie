@@ -1,9 +1,8 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Registers Weavie's built-in settings and is the home for the per-platform resolution logic that
-/// used to live inline in the two <c>TerminalController</c>s (workspace / shell / claude discovery).
-/// Centralizing it here means Windows and macOS share one path: the registry's
+/// Registers Weavie's built-in settings and owns the per-platform resolution logic for workspace /
+/// shell / claude discovery, so Windows and macOS share one path through the registry's
 /// <see cref="SettingDefinition.ComputeDefault"/> and <see cref="SettingDefinition.Validate"/>.
 /// </summary>
 public static class CoreSettings {
@@ -72,6 +71,7 @@ public static class CoreSettings {
 		});
 
 		FontSettings.Register(registry);
+		ThemeSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",

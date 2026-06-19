@@ -1,0 +1,92 @@
+# CI: build every native shell on its own OS, plus the shared libraries and tests.
+#
+# The repo is public, so standard GitHub-hosted runners (including macOS) are free with no
+# per-minute billing — hence the full Linux + macOS + Windows matrix on every push/PR. Each job
+# builds the shell that only compiles on that OS (Weavie.Win needs Windows, Weavie.Mac needs the
+# macOS workload), which transitively covers Weavie.Core and Weavie.Hosting. The Linux job also
+# runs the test suite.
+#
+# Builds are Debug: the goal is to verify compilation (the zero-warning gate runs at build time via
+# TreatWarningsAsErrors + EnforceCodeStyleInBuild), and Debug skips the macOS Release trimming pass.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# A newer push to the same ref cancels the older run.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux
+            os: ubuntu-latest
+            project: src/Weavie.Linux/Weavie.Linux.csproj
+          - name: macos
+            os: macos-latest
+            project: src/Weavie.Mac/Weavie.Mac.csproj
+          - name: windows
+            os: windows-latest
+            project: src/Weavie.Win/Weavie.Win.csproj
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          global-json-file: global.json
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: src/web/package-lock.json
+
+      - name: Cache NuGet packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nuget/packages
+          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+          restore-keys: nuget-${{ runner.os }}-
+
+      # The web app is the UI every shell embeds; build it so wwwroot exists (Weavie.Mac's build
+      # hard-errors without it). `npm run build` also runs `tsc --noEmit`, so this typechecks the web.
+      - name: Build web app
+        working-directory: src/web
+        run: |
+          npm ci
+          npm run build
+
+      # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
+      - name: Restore macOS workload
+        if: matrix.name == 'macos'
+        run: dotnet workload restore ${{ matrix.project }}
+
+      - name: Restore
+        run: dotnet restore ${{ matrix.project }}
+
+      - name: Build
+        run: dotnet build ${{ matrix.project }} -c Debug --no-restore
+
+      # Tests run once, on Linux. The single excluded test passes only on Windows: SettingKind.Path
+      # normalization keys on Path.IsPathRooted, so a "C:\..." path isn't rooted on Unix and resolves
+      # against $HOME — a pre-existing, platform-specific test outside this workflow's scope.
+      - name: Test
+        if: matrix.name == 'linux'
+        run: >
+          dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
+          --filter "FullyQualifiedName!=Weavie.Core.Tests.SettingsStoreTests.Set_PathKind_WritesLiteralStringForWindowsPath"

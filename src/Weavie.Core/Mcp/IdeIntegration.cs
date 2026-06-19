@@ -1,3 +1,4 @@
+using System.Reflection;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -134,10 +135,21 @@ public sealed class IdeIntegration : IAsyncDisposable {
 			return null;
 		}
 
+		// Framework-dependent dev runs (`dotnet App.dll`) report the dotnet muxer as ProcessPath, so the relay
+		// command must pass the managed entry assembly as the muxer's first arg — a bare `"dotnet" --hook-relay`
+		// can't launch. An apphost/self-contained exe (Windows/macOS, published Linux) is the relay directly.
+		string? entryAssembly = null;
+		if (Path.GetFileNameWithoutExtension(host).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) {
+			string? entry = Assembly.GetEntryAssembly()?.Location;
+			if (!string.IsNullOrEmpty(entry) && entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) {
+				entryAssembly = entry;
+			}
+		}
+
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
-		File.WriteAllText(path, HookSettings.BuildJson(host));
+		File.WriteAllText(path, HookSettings.BuildJson(host, entryAssembly));
 		return path;
 	}
 

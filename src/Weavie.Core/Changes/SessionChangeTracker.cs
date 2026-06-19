@@ -20,6 +20,10 @@ public sealed class SessionChangeTracker {
 	// Per-TURN baseline: each file's content at the start of the current turn. Reset on UserPromptSubmit
 	// (the prior turn is implicitly accepted). The inline diff renders against this, not the session baseline.
 	private readonly Dictionary<string, string> _turnBaseline = new(StringComparer.Ordinal);
+	// Per-EDIT pre-state: each file's content captured at the PreToolUse of the most recent edit, overwritten
+	// every edit (unlike the session/turn baselines, which stick). Diffed against the post-edit content in
+	// EditLocationFor to point at the line THIS edit changed, even on the 2nd+ edit of a file within a turn.
+	private readonly Dictionary<string, string> _preEdit = new(StringComparer.Ordinal);
 
 	/// <summary>Creates a tracker that reads file content through <paramref name="fileSystem"/>.</summary>
 	/// <param name="fileSystem">The filesystem seam used to snapshot baseline + current content.</param>
@@ -88,13 +92,13 @@ public sealed class SessionChangeTracker {
 	public void CaptureBaseline(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
-			// Read once; seed both the session baseline (first touch ever) and the turn baseline (first touch
-			// this turn) if either is missing. Disk content here = the file before this edit = the right baseline.
-			if (!_baseline.ContainsKey(path) || !_turnBaseline.ContainsKey(path)) {
-				string content = ReadOrEmpty(path);
-				_baseline.TryAdd(path, content);
-				_turnBaseline.TryAdd(path, content);
-			}
+			// Disk content here = the file before this edit. Seed the session baseline (first touch ever) and
+			// the turn baseline (first touch this turn) if either is missing, and always record it as the
+			// per-edit pre-state (overwritten each edit) so EditLocationFor can pinpoint this edit's line.
+			string content = ReadOrEmpty(path);
+			_baseline.TryAdd(path, content);
+			_turnBaseline.TryAdd(path, content);
+			_preEdit[path] = content;
 		}
 	}
 
@@ -109,6 +113,40 @@ public sealed class SessionChangeTracker {
 		}
 		Changed?.Invoke();
 		FileChanged?.Invoke(path);
+	}
+
+	/// <summary>
+	/// A workspace-relative <c>path:line</c> reference to the first line a just-recorded edit changed, for
+	/// surfacing as a clickable jump target after the edit lands (the terminal makes <c>path:line</c> tokens
+	/// clickable). Call after <see cref="Observe"/> has folded in the PostToolUse event. Returns
+	/// <see langword="null"/> for non-edit / non-PostToolUse events, for notebooks (no meaningful text line),
+	/// and when the edit changed no line. Paths use <c>/</c> separators so the reference is clickable on every
+	/// platform.
+	/// </summary>
+	/// <param name="request">The observed hook event (only PostToolUse edits yield a location).</param>
+	public string? EditLocationFor(HookRequest request) {
+		ArgumentNullException.ThrowIfNull(request);
+		if (request.Event != HookEventKind.PostToolUse
+			|| request.ToolName is not ("Edit" or "Write" or "MultiEdit")) {
+			return null;
+		}
+
+		string? path = ExtractEditPath(request);
+		if (path is null) {
+			return null;
+		}
+
+		string before, after;
+		lock (_gate) {
+			if (!_current.TryGetValue(path, out string? current)) {
+				return null;
+			}
+			after = current;
+			before = _preEdit.GetValueOrDefault(path, string.Empty);
+		}
+
+		int? line = LineDiff.FirstChangedLine(before, after);
+		return line is null ? null : $"{Relativize(path, request.Cwd)}:{line}";
 	}
 
 	/// <summary>The files whose current content differs from their session baseline.</summary>
@@ -219,4 +257,17 @@ public sealed class SessionChangeTracker {
 
 	private static string Resolve(string path, string? cwd) =>
 		Path.IsPathRooted(path) || string.IsNullOrEmpty(cwd) ? path : Path.GetFullPath(path, cwd);
+
+	// Render an absolute path relative to cwd (the workspace), with '/' separators so the terminal's
+	// file:line link detection (forward-slash only) catches it on Windows too. Falls back to the absolute
+	// path when the file sits outside cwd (a "../" escape) or cwd is unknown.
+	private static string Relativize(string absolutePath, string? cwd) {
+		if (string.IsNullOrEmpty(cwd)) {
+			return absolutePath.Replace('\\', '/');
+		}
+
+		string relative = Path.GetRelativePath(cwd, absolutePath);
+		bool escapes = relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative);
+		return (escapes ? absolutePath : relative).Replace('\\', '/');
+	}
 }

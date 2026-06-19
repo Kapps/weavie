@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Weavie.Core;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -8,6 +9,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
@@ -33,6 +35,7 @@ internal sealed class WorkspaceHost {
 	private TerminalController? _shell;
 	private McpDiffPresenter? _diffPresenter;
 	private FileOpener? _fileOpener;
+	private FileProviderService? _fileProvider;
 	private IdeIntegration? _ide;
 	private LayoutStore? _layout;
 	private EditorStore? _editor;
@@ -59,7 +62,7 @@ internal sealed class WorkspaceHost {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 
 		// Restore the saved window geometry when present and sane, else a 1280x840 default.
-		_layout = LayoutPanes.CreateStore();
+		_layout = LayoutPanes.CreateStore(filePath: null);
 		var savedWindow = _layout.Current.Window;
 		bool usedSaved = savedWindow is { Width: > 0, Height: > 0 };
 		int width = usedSaved ? savedWindow!.Width : 1280;
@@ -77,14 +80,14 @@ internal sealed class WorkspaceHost {
 
 		// User settings (shell / workspace / claude path) resolved from ~/.weavie/settings.toml; the
 		// store is the change hub the host reacts to (e.g. a shell change reopens the shell pane).
-		_settings = CoreSettings.CreateStore();
+		_settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		_settings.Log += Log;
 
 		// Commands + keybindings: the app's command catalog (CoreCommands) and the user keybindings resolved
 		// from ~/.weavie/keybindings.json over the defaults. The dispatcher routes runCommand (MCP) +
 		// invoke-command (web) to Core/web handlers; the WebInvoker + Core handlers are wired below.
 		_commandRegistry = CoreCommands.CreateRegistry();
-		_keybindings = new KeybindingStore(_commandRegistry);
+		_keybindings = new KeybindingStore(_commandRegistry, filePath: null, enableWatcher: true);
 		_keybindings.Log += Log;
 		_commands = new CommandDispatcher(_commandRegistry);
 
@@ -103,13 +106,23 @@ internal sealed class WorkspaceHost {
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
+		// Scratch (untitled) buffers live in a per-workspace dir OUTSIDE the workspace, so they never reach
+		// the file tree, git, or Claude. The file provider serves both the workspace and this dir.
+		string scratchDir = WeaviePaths.WorkspaceScratchDir(WorkspaceId.ForPath(workspace));
+		// Host-backed file:// provider: the editor's working copies read/write the real disk through the
+		// host (fs-stat/fs-read/fs-write), scoped to the workspace. Same Core service the Windows/macOS
+		// hosts use — without it the editor's file reads time out and nothing opens.
+		_fileProvider = new FileProviderService(fileSystem, workspace, scratchDir);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// the spawned claude what the user is looking at.
 		_editor = new EditorStore();
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
+		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
+		_changes = new SessionChangeTracker(fileSystem);
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
-			commands: _commands, keybindings: _keybindings);
+			commands: _commands, keybindings: _keybindings, themeOverrides: null, editLocator: _changes.EditLocationFor);
 		_ide.Server.Log += line => Log($"[mcp] {line}");
 		if (_ide.RegistryServer is { } registryServer) {
 			registryServer.Log += line => Log($"[registry] {line}");
@@ -127,8 +140,8 @@ internal sealed class WorkspaceHost {
 
 		// Session change tracking: the same hook stream feeds the tracker (baseline at PreToolUse, new
 		// content at PostToolUse), independent of openDiff and permission mode. Events arrive off the main
-		// thread; marshal before touching the web.
-		_changes = new SessionChangeTracker(fileSystem);
+		// thread; marshal before touching the web. (The tracker itself is built above, before the IDE
+		// server, so EditLocationFor can back the hook bridge's edit jump-links.)
 		_ide.HookBridge.Observed += _changes.Observe;
 		_changes.Changed += () => GtkMain.Invoke(PushChangesToWeb);
 		_changes.FileChanged += path => GtkMain.Invoke(() => PushRefreshToWeb(path));
@@ -171,7 +184,7 @@ internal sealed class WorkspaceHost {
 		// Typography + command/keybinding catalog: inject at document start so both surfaces mount at the
 		// user's font (no default-font flash) and the keybinding resolver / palette are populated at mount.
 		// Live changes are pushed by the subscriptions above.
-		InjectAtDocumentStart($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+		InjectAtDocumentStart($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};");
 		InjectAtDocumentStart(
 			$"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()}; "
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};");
@@ -279,7 +292,9 @@ internal sealed class WorkspaceHost {
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_fileOpener?.Open(revealPath, revealLine);
+				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
+					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
+				_fileOpener?.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
 				break;
 			case "active-editor-changed":
 				if (_editor is not null && ActiveEditor.TryParse(root, out var activeEditor) && activeEditor is not null) {
@@ -289,6 +304,26 @@ internal sealed class WorkspaceHost {
 				break;
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
+			case "fs-stat":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-read":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Read(FsId(root), FsPath(root)));
+				}
+
+				break;
+			case "fs-write":
+				if (_fileProvider is not null) {
+					_bridge.PostToWeb(_fileProvider.Write(
+						FsId(root), FsPath(root),
+						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				}
+
 				break;
 			case "save-buffer":
 				SaveBuffer(
@@ -519,6 +554,14 @@ internal sealed class WorkspaceHost {
 		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
 		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
 	}
+
+	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
+	private static string FsId(JsonElement root) =>
+		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
+
+	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
+	private static string FsPath(JsonElement root) =>
+		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";

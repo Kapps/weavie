@@ -1,6 +1,7 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
+using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Theming;
@@ -40,6 +41,7 @@ internal static class TestMcp {
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) =>
-		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides);
+		ThemeOverridesStore? themeOverrides = null,
+		Func<HookRequest, string?>? editLocator = null) =>
+		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides, editLocator);
 }

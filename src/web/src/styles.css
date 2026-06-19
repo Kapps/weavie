@@ -1050,6 +1050,39 @@ body,
   text-overflow: ellipsis;
 }
 
+/* The fuzzy-matched characters within a result — accent-colored, not the browser's default yellow box. */
+.tb-hl {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* On the current/selected row the leaf already goes accent; keep matched chars distinguishable. */
+.tb-omnibar-row.current .tb-hl,
+.tb-omnibar-row.selected .tb-hl {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Tree mode: a twisty + file/folder icon precede the name; rows indent via inline padding-left per depth. */
+.tb-tree-row {
+  gap: 4px;
+}
+
+.tb-tree-twisty,
+.tb-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  color: var(--dim);
+}
+
+.tb-tree-twisty svg,
+.tb-tree-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
 /* Command-palette row: the keybinding hint sits flush right, dimmed and monospaced. */
 .tb-row-keys {
   margin-left: auto;

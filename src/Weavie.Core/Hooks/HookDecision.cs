@@ -28,6 +28,13 @@ public sealed record HookDecision {
 	/// <summary>A reason surfaced to Claude (for allow/deny); <see langword="null"/> for pass-through.</summary>
 	public string? Reason { get; init; }
 
+	/// <summary>
+	/// An optional line of text Claude surfaces to the user in the TUI (the top-level <c>systemMessage</c>
+	/// hook field, valid on any event). Weavie sets it on PostToolUse edits to a clickable <c>file:line</c>
+	/// jump target. Independent of <see cref="Kind"/> — a pass-through decision can still carry one.
+	/// </summary>
+	public string? SystemMessage { get; init; }
+
 	/// <summary>Defer to Claude's normal flow.</summary>
 	public static HookDecision PassThrough { get; } = new() { Kind = HookDecisionKind.PassThrough };
 
@@ -40,25 +47,35 @@ public sealed record HookDecision {
 	public static HookDecision Deny(string reason) => new() { Kind = HookDecisionKind.Deny, Reason = reason };
 
 	/// <summary>
-	/// Renders the <c>hookSpecificOutput</c> JSON Claude expects on a PreToolUse hook's stdout, or
-	/// <see langword="null"/> for <see cref="HookDecisionKind.PassThrough"/> (and for non-PreToolUse events,
-	/// which carry no permission decision) — in which case the relay writes nothing.
+	/// Renders the JSON Claude reads from the hook's stdout: a <c>hookSpecificOutput</c> permission block for
+	/// an allow/deny on a PreToolUse event, and/or a top-level <c>systemMessage</c> when
+	/// <see cref="SystemMessage"/> is set. Returns <see langword="null"/> when there is nothing to say (a
+	/// pass-through with no message) — in which case the relay writes nothing and Claude takes its normal flow.
 	/// </summary>
 	/// <param name="evt">The event being decided.</param>
 	public string? ToHookOutputJson(HookEventKind evt) {
-		if (Kind == HookDecisionKind.PassThrough || evt != HookEventKind.PreToolUse) {
+		bool emitDecision = Kind != HookDecisionKind.PassThrough && evt == HookEventKind.PreToolUse;
+		bool emitMessage = !string.IsNullOrEmpty(SystemMessage);
+		if (!emitDecision && !emitMessage) {
 			return null;
 		}
 
-		string decision = Kind == HookDecisionKind.Allow ? "allow" : "deny";
 		var buffer = new ArrayBufferWriter<byte>();
 		using (var writer = new Utf8JsonWriter(buffer)) {
 			writer.WriteStartObject();
-			writer.WriteStartObject("hookSpecificOutput");
-			writer.WriteString("hookEventName", "PreToolUse");
-			writer.WriteString("permissionDecision", decision);
-			writer.WriteString("permissionDecisionReason", Reason ?? string.Empty);
-			writer.WriteEndObject();
+			if (emitMessage) {
+				writer.WriteString("systemMessage", SystemMessage);
+			}
+
+			if (emitDecision) {
+				string decision = Kind == HookDecisionKind.Allow ? "allow" : "deny";
+				writer.WriteStartObject("hookSpecificOutput");
+				writer.WriteString("hookEventName", "PreToolUse");
+				writer.WriteString("permissionDecision", decision);
+				writer.WriteString("permissionDecisionReason", Reason ?? string.Empty);
+				writer.WriteEndObject();
+			}
+
 			writer.WriteEndObject();
 		}
 

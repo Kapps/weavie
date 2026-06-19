@@ -1,3 +1,4 @@
+using System.Reflection;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -37,7 +38,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		EditorStore? editor,
 		CommandDispatcher? commands,
 		KeybindingStore? keybindings,
-		ThemeOverridesStore? themeOverrides) {
+		ThemeOverridesStore? themeOverrides,
+		Func<HookRequest, string?>? editLocator) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
@@ -54,7 +56,13 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		// stream + the permission gate (bypassPermissions → auto-allow), read live from the settings store.
 		HookBridge = new HookBridgeServer(
 			HookProtocol.PipeName(Port),
-			request => HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default"));
+			request => {
+				var decision = HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default");
+				// On a landed edit, attach a clickable file:line jump target as the hook's systemMessage so
+				// Claude prints it in the TUI (the terminal turns path:line tokens into Monaco reveals).
+				string? location = editLocator?.Invoke(request);
+				return location is null ? decision : decision with { SystemMessage = location };
+			});
 		HookBridge.Start();
 
 		if (settings is not null) {
@@ -129,10 +137,21 @@ public sealed class IdeIntegration : IAsyncDisposable {
 			return null;
 		}
 
+		// Framework-dependent dev runs (`dotnet App.dll`) report the dotnet muxer as ProcessPath, so the relay
+		// command must pass the managed entry assembly as the muxer's first arg — a bare `"dotnet" --hook-relay`
+		// can't launch. An apphost/self-contained exe (Windows/macOS, published Linux) is the relay directly.
+		string? entryAssembly = null;
+		if (Path.GetFileNameWithoutExtension(host).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) {
+			string? entry = Assembly.GetEntryAssembly()?.Location;
+			if (!string.IsNullOrEmpty(entry) && entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) {
+				entryAssembly = entry;
+			}
+		}
+
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
-		File.WriteAllText(path, HookSettings.BuildJson(host));
+		File.WriteAllText(path, HookSettings.BuildJson(host, entryAssembly));
 		return path;
 	}
 

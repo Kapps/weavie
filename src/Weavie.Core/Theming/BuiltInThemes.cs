@@ -10,6 +10,7 @@ public static class BuiltInThemes {
 	/// <summary>The built-in themes: stable id, display label, base type (<c>dark</c>/<c>light</c>).</summary>
 	public static IReadOnlyList<(string Id, string Label, string Type)> All { get; } = [
 		("weavie-dark", "Weavie Dark", "dark"),
+		("weavie-light", "Weavie Light", "light"),
 	];
 
 	/// <summary>True if <paramref name="id"/> is a built-in theme id.</summary>

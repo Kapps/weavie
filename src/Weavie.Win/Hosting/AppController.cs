@@ -61,7 +61,7 @@ internal sealed class AppController : ApplicationContext {
 		});
 
 		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global like settings so a change
-		// reaches every window; the active theme itself is a normal setting (theme.active).
+		// reaches every window; appearance itself is normal settings (theme.mode/theme.light/theme.dark).
 		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
 		ThemeOverrides.Log += line => {
 			Console.WriteLine(line);

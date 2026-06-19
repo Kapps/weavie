@@ -37,28 +37,66 @@ const viewport = { width: 1280, height: 800 };
 // Go-to-File opening a file into the editor) is just a placeholder — replace it with the steps that exercise
 // your feature/fix.
 async function tour(page) {
+  const settle = (ms) => page.waitForTimeout(ms);
+
   // The splash sits over the app until the editor is ready; wait so we record the settled UI.
   await page
     .locator("#splash")
     .waitFor({ state: "detached", timeout: 45_000 })
     .catch(() => {});
-  await page.waitForTimeout(2000);
+  await settle(1200);
 
-  const omnibar = page.locator(".tb-omnibar-input");
-  if (await omnibar.count()) {
+  // Start in DARK. The appearance mode defaults to `system`, so the web resolves the active polarity from the
+  // OS `prefers-color-scheme` — emulating a dark OS renders Weavie Dark.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await settle(1400);
+
+  // Open a couple of workspace files through the Omnibar "Go to File" so the editor shows real,
+  // syntax-highlighted code: the new light-theme source (TypeScript) and the hook protocol (C#).
+  async function openFile(query) {
+    const omnibar = page.locator(".tb-omnibar-input");
+    if (!(await omnibar.count())) return;
     await omnibar.click();
-    for (const ch of "Omnibar") {
-      await omnibar.press(ch);
-      await page.waitForTimeout(110);
-    }
-    await page.waitForTimeout(800);
+    await omnibar.fill("");
+    await omnibar.pressSequentially(query, { delay: 70 });
+    await settle(750);
     const row = page.locator(".tb-omnibar-row").first();
     if (await row.isVisible().catch(() => false)) {
       await row.click();
+      await settle(1100);
+    } else {
+      await page.keyboard.press("Escape").catch(() => {});
     }
   }
+  await openFile("weavie-light.ts");
+  await openFile("HookProtocol.cs");
 
-  await page.waitForTimeout(3000);
+  // Reveal the file tree (left-docked browser overlay) so "files and such" sit on screen with the editor.
+  const filesBtn = page.locator(".browser-toggle");
+  if (await filesBtn.isVisible().catch(() => false)) {
+    await filesBtn.click();
+    await settle(900);
+    // Expand the first top-level folder to make the tree look lived-in.
+    const firstFolder = page.locator(".browser-row").first();
+    if (await firstFolder.isVisible().catch(() => false)) {
+      await firstFolder.click().catch(() => {});
+    }
+    await settle(900);
+  }
+
+  // Hold on dark so the before-state is clear.
+  await settle(1600);
+
+  // Flip the OS to LIGHT. With `theme.mode: system`, the controller's matchMedia listener re-themes the editor,
+  // terminal, chrome, and file tree to Weavie Light in place — no reload. This is the feature under test.
+  await page.emulateMedia({ colorScheme: "light" });
+  await settle(3500);
+
+  // Toggle dark → light once more so the live switch is unmistakable; end on light.
+  await page.emulateMedia({ colorScheme: "dark" });
+  await settle(1800);
+  await page.emulateMedia({ colorScheme: "light" });
+  await settle(3500);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

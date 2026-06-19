@@ -9,7 +9,7 @@
 
 import type { VsCodeColorTheme } from "../vscode-theme";
 
-/** Stable id Monaco/`setTheme` and `theme.active` reference this built-in by. */
+/** Stable id Monaco/`setTheme` and the `theme.light`/`theme.dark` settings reference this built-in by. */
 export const WEAVIE_DARK_ID = "weavie-dark";
 
 export const WEAVIE_DARK: VsCodeColorTheme = {

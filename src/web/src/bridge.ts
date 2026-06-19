@@ -12,6 +12,18 @@ import type { LayoutDocument } from "./layout/types";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
+// Appearance mode: follow the OS (`system`), or force a polarity. Resolved against `prefers-color-scheme`
+// in the theme controller when `system`.
+export type ThemeMode = "system" | "light" | "dark";
+
+// One polarity's theme in a pushed/injected theme payload: the selected theme id, its ordered override
+// stack, and — for installed themes only — the converted VS Code theme JSON (built-ins resolve by id).
+export interface ThemeSlot {
+  id: string;
+  ops?: OverrideOp[];
+  theme?: VsCodeColorTheme;
+}
+
 // The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
 // and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
 // the host can route it to the right PTY and the page can route output back to the right xterm pane.
@@ -186,10 +198,11 @@ export type WebBoundMessage =
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
-  // Host pushes the active theme (a theme switch or an override edit): its id, override ops, and — for
-  // installed themes — the converted VS Code theme JSON (built-ins carry only the id). Re-themes the
-  // editor, terminal, and chrome live.
-  | { type: "theme"; id: string; ops: OverrideOp[]; theme?: VsCodeColorTheme }
+  // Host pushes the appearance mode + the theme for each polarity (a mode/theme switch or an override edit).
+  // Both themes are shipped so the web can resolve `system` against the live OS setting and switch
+  // light↔dark instantly + flash-free. Each slot is { id, ops, theme? } — the converted VS Code theme JSON
+  // is present only for installed themes (built-ins carry only the id). Re-themes editor, terminal, chrome live.
+  | { type: "theme"; mode: ThemeMode; light: ThemeSlot; dark: ThemeSlot }
   // Host pushes the session change list (each tracked file's path + added/removed line counts).
   | {
       type: "session-changes";

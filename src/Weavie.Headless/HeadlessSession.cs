@@ -8,6 +8,8 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Shell;
+using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 
@@ -41,6 +43,9 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 	private CommandRegistry? _commandRegistry;
 	private KeybindingStore? _keybindings;
 	private CommandDispatcher? _commands;
+	private WorkspaceFileIndex? _fileIndex;
+	private WorkspaceBrowser? _browser;
+	private ThemeOverridesStore? _themeOverrides;
 	private string? _workspace;
 
 	/// <summary>Creates the session over <paramref name="bridge"/>; call <see cref="Start"/> to build the graph.</summary>
@@ -85,6 +90,14 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 
 		_fileProvider = new FileProviderService(fileSystem, workspace);
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
+
+		// Path services for the Windows-style chrome, all rooted at the SESSION root (workspace) so they
+		// track the active session's worktree: the omnibar's Go-to-File index and the file browser's tree.
+		_fileIndex = new WorkspaceFileIndex(fileSystem, workspace);
+		_fileIndex.Log += line => Log($"[index] {line}");
+		_browser = new WorkspaceBrowser(fileSystem, workspace);
+		// Backs the injected __WEAVIE_THEME__: the active theme id + the user's per-theme override ops.
+		_themeOverrides = new ThemeOverridesStore(fileSystem);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		_editor = new EditorStore();
 
@@ -152,11 +165,33 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		string fonts = _settings is null ? "undefined" : FontSettings.BuildJson(_settings);
 		string commands = _keybindings is null ? "[]" : _keybindings.BuildCommandsJson();
 		string keybindings = _keybindings is null ? "[]" : _keybindings.BuildKeybindingsJson();
+		// Active theme + per-theme overrides, so the chrome/editor/terminal mount themed (no default-asset
+		// fetch, no flash) — the native shells inject the same __WEAVIE_THEME__ before navigation.
+		string theme = _settings is null || _themeOverrides is null
+			? "undefined"
+			: ThemeJson.Build(_settings, _themeOverrides, log: Log);
+		// A browser has no native window chrome, so — like the Windows shell — render Weavie's custom title
+		// bar (icon + File/View menus + Omnibar + window controls). The window controls are cosmetic here
+		// (no OS window to drive); the value is the Omnibar Go-to-File and the menus.
+		string workspaceLabel = string.IsNullOrEmpty(_workspace) ? "weavie" : new DirectoryInfo(_workspace).Name;
+		string shell = ShellProtocol.BuildConfigScript("web", "custom", workspaceLabel, []);
+		// File-browser discovery: only the session root is needed in Phase 1. The LSP bridge isn't tunneled
+		// yet, so the server list is empty and the editor's language client never tries to connect. Rooted at
+		// the session root (_workspace) so the browser tracks the active session's worktree.
+		string lsp = JsonSerializer.Serialize(new {
+			url = string.Empty,
+			token = string.Empty,
+			workspace = _workspace ?? string.Empty,
+			servers = Array.Empty<object>(),
+		});
 		return
 			"window.__WEAVIE_BRIDGE_WS__ = \"auto\";"
 			+ $"window.__WEAVIE_FONTS__ = {fonts};"
+			+ $"window.__WEAVIE_THEME__ = {theme};"
+			+ $"window.__WEAVIE_LSP__ = {lsp};"
 			+ $"window.__WEAVIE_COMMANDS__ = {commands};"
-			+ $"window.__WEAVIE_KEYBINDINGS__ = {keybindings};";
+			+ $"window.__WEAVIE_KEYBINDINGS__ = {keybindings};"
+			+ shell;
 	}
 
 	/// <inheritdoc/>
@@ -208,6 +243,21 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
 				_fileOpener?.Open(revealPath, revealLine);
+				break;
+			case "request-file-index":
+				if (_fileIndex is not null) {
+					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List()));
+				}
+
+				break;
+			case "list-dir":
+				ListDirectory(root.TryGetProperty("path", out var ldEl) ? ldEl.GetString() ?? string.Empty : string.Empty);
+				break;
+			// Custom title bar in a browser: there's no OS window to minimize/maximize/close or resize, and the
+			// session's workspace is fixed, so these chrome messages are cosmetic no-ops here (logged, not acted on).
+			case "window-control":
+			case "window-resize":
+			case "menu-action":
 				break;
 			case "active-editor-changed":
 				if (_editor is not null && ActiveEditor.TryParse(root, out var activeEditor) && activeEditor is not null) {
@@ -296,6 +346,22 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 
 		string documentJson = LayoutSerialization.SerializeCompact(_layout.Current);
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
+	}
+
+	/// <summary>Lists <paramref name="requestedPath"/> under the session root and pushes a <c>dir-listing</c>
+	/// reply (directories first) for the file browser; an empty path means the workspace root.</summary>
+	private void ListDirectory(string requestedPath) {
+		if (_browser is null) {
+			return;
+		}
+
+		var entries = _browser.List(requestedPath);
+		string json = JsonSerializer.Serialize(new {
+			type = "dir-listing",
+			path = string.IsNullOrEmpty(requestedPath) ? _browser.Root : requestedPath,
+			entries = entries.Select(e => new { name = e.Name, path = e.Path, isDir = e.IsDirectory }),
+		});
+		_bridge.PostToWeb(json);
 	}
 
 	private void HandleEditorSessionChanged(JsonElement root) {

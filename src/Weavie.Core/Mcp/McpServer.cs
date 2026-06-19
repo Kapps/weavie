@@ -50,14 +50,14 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string authToken,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie",
-		SettingsStore? settings = null,
-		bool registryMode = false,
-		LayoutStore? layout = null,
-		EditorStore? editor = null,
-		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) {
+		string ideName,
+		SettingsStore? settings,
+		bool registryMode,
+		LayoutStore? layout,
+		EditorStore? editor,
+		CommandDispatcher? commands,
+		KeybindingStore? keybindings,
+		ThemeOverridesStore? themeOverrides) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -303,7 +303,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "openFile":
 				string? path = args.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
 				if (!string.IsNullOrEmpty(path)) {
-					await _presenter.OpenFileAsync(path, ct).ConfigureAwait(false);
+					// `preview` defaults to false (a persistent tab). Coerced leniently — embedded Claude sends
+					// scalar args as JSON strings ("true"), like env vars at this boundary.
+					await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ct).ConfigureAwait(false);
 				}
 
 				await SendToolTextAsync(ws, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
@@ -312,9 +314,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await SendToolTextAsync(ws, idRaw, BuildWorkspaceFoldersJson(), ct).ConfigureAwait(false);
 				break;
 			case "getOpenEditors":
-				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). We report the one
-				// active editor the page told us about (empty list until then), with the correct object shape.
-				await SendToolTextAsync(ws, idRaw, BuildOpenEditorsResult(_editor?.Active), ct).ConfigureAwait(false);
+				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). The page reports the
+				// real open-tab set via open-editors-changed; empty until it does.
+				await SendToolTextAsync(ws, idRaw, BuildOpenEditorsResult(_editor?.OpenEditors, _editor?.Active), ct).ConfigureAwait(false);
 				break;
 			case "getCurrentSelection":
 			case "getLatestSelection":
@@ -325,6 +327,16 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await SendResultAsync(ws, idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}", ct).ConfigureAwait(false);
 				break;
 			case "close_tab":
+				// Resolve the tab name (label or path) against the reported open set, then ask the page to
+				// close it. Acknowledge "OK" regardless (an unknown tab is a no-op, not an error).
+				string? closeName = args.TryGetProperty("tab_name", out var tnEl) ? tnEl.GetString() : null;
+				string? closePath = ResolveTabPath(closeName, _editor?.OpenEditors);
+				if (closePath is not null) {
+					await _presenter.CloseTabAsync(closePath, ct).ConfigureAwait(false);
+				}
+
+				await SendToolTextAsync(ws, idRaw, "OK", ct).ConfigureAwait(false);
+				break;
 			case "closeAllDiffTabs":
 			case "saveDocument":
 				await SendToolTextAsync(ws, idRaw, "OK", ct).ConfigureAwait(false);
@@ -658,25 +670,71 @@ public sealed partial class McpServer : IAsyncDisposable {
 		WriteSelection(writer, active.Selection);
 	});
 
-	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty}] } — the one
-	// active editor the page reported, or an empty list until it reports one.
-	private static string BuildOpenEditorsResult(ActiveEditor? active) => WriteJson(writer => {
-		writer.WriteStartArray("tabs");
-		if (active is not null) {
-			writer.WriteStartObject();
-			writer.WriteString("uri", PathToFileUri(active.FilePath));
-			writer.WriteBoolean("isActive", true);
-			writer.WriteString("label", Path.GetFileName(active.FilePath));
-			if (active.LanguageId is not null) {
-				writer.WriteString("languageId", active.LanguageId);
+	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty,isPinned,isPreview}] }
+	// — the real open-tab set the page reported, or an empty list until it reports one. languageId is filled
+	// for the active tab from the active-editor report; isDirty is false (Weavie auto-saves on a debounce).
+	private static string BuildOpenEditorsResult(IReadOnlyList<OpenEditorTab>? tabs, ActiveEditor? active) =>
+		WriteJson(writer => {
+			writer.WriteStartArray("tabs");
+			foreach (var tab in tabs ?? []) {
+				writer.WriteStartObject();
+				writer.WriteString("uri", PathToFileUri(tab.FilePath));
+				writer.WriteBoolean("isActive", tab.IsActive);
+				writer.WriteString("label", Path.GetFileName(tab.FilePath));
+				if (tab.IsActive && active?.LanguageId is { } languageId) {
+					writer.WriteString("languageId", languageId);
+				}
+
+				writer.WriteBoolean("isDirty", false);
+				writer.WriteBoolean("isPinned", tab.IsPinned);
+				writer.WriteBoolean("isPreview", tab.IsPreview);
+				writer.WriteEndObject();
 			}
 
-			writer.WriteBoolean("isDirty", false);
-			writer.WriteEndObject();
+			writer.WriteEndArray();
+		});
+
+	// Resolves a close_tab `tab_name` (a label or full path) to the open tab's path: exact path first, then
+	// basename (label), preferring the active tab on a label tie. Null when nothing matches.
+	private static string? ResolveTabPath(string? tabName, IReadOnlyList<OpenEditorTab>? tabs) {
+		if (string.IsNullOrEmpty(tabName) || tabs is null || tabs.Count == 0) {
+			return null;
 		}
 
-		writer.WriteEndArray();
-	});
+		foreach (var tab in tabs) {
+			if (string.Equals(tab.FilePath, tabName, StringComparison.Ordinal)) {
+				return tab.FilePath;
+			}
+		}
+
+		OpenEditorTab? labelMatch = null;
+		foreach (var tab in tabs) {
+			if (string.Equals(Path.GetFileName(tab.FilePath), tabName, StringComparison.Ordinal)) {
+				if (tab.IsActive) {
+					return tab.FilePath;
+				}
+
+				labelMatch ??= tab;
+			}
+		}
+
+		return labelMatch?.FilePath;
+	}
+
+	// Reads a boolean MCP arg leniently: a real bool, or the string "true"/"false" (embedded Claude sends
+	// scalar args as JSON strings). Absent or anything else → false.
+	private static bool ReadLenientBool(JsonElement args, string name) {
+		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(name, out var value)) {
+			return false;
+		}
+
+		return value.ValueKind switch {
+			JsonValueKind.True => true,
+			JsonValueKind.False => false,
+			JsonValueKind.String => string.Equals(value.GetString(), "true", StringComparison.OrdinalIgnoreCase),
+			_ => false,
+		};
+	}
 
 	private static void WriteSelection(Utf8JsonWriter writer, EditorSelection selection) {
 		writer.WriteStartObject("selection");

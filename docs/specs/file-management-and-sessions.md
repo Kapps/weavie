@@ -173,6 +173,9 @@ existing Core, using the Windows host (`Weavie.Win/Hosting/`) as the template.
 
 ## Open questions / deferred
 
+> The worktree-per-session, session switcher, multi-session creation, and per-session status items
+> below are now specced in [multi-session-and-worktrees.md](multi-session-and-worktrees.md).
+
 - **Worktree-per-session + multi-root / re-rooted LSP.** The `Session.WorkingDirectory` seam is
   defined now, but worktree creation and an LSP that follows a session's worktree are later. The LSP
   `WorkspaceWatcher` is constructor-injected and not currently mutable.

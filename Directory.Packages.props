@@ -19,6 +19,12 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Roslyn: builds the in-repo Weavie.Analyzers (compile-time only, never shipped). Pinned below
+         the SDK's bundled compiler so the analyzer always loads against an equal-or-newer Roslyn. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- Windows host: Edge WebView2 (Chromium) embedding. Pinned to the SDK matching the
          installed Evergreen runtime (149.x = 1.0.4022.*). -->
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.4022.49" />

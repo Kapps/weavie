@@ -8,10 +8,11 @@ namespace Weavie.Core.Tests;
 
 /// <summary>The session change tracker fed by the hook stream: baseline at PreToolUse, current at PostToolUse.</summary>
 public sealed class SessionChangeTrackerTests {
-	private static HookRequest Edit(HookEventKind evt, string path) => new() {
+	private static HookRequest Edit(HookEventKind evt, string path, string? cwd = null) => new() {
 		Event = evt,
 		ToolName = "Edit",
 		ToolInputJson = $$"""{"file_path":{{JsonSerializer.Serialize(path)}}}""",
+		Cwd = cwd,
 	};
 
 	[Fact]
@@ -160,6 +161,59 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Equal("/w/a.txt", summary.Path);
 		Assert.Equal(1, summary.Added);   // "d"
 		Assert.Equal(1, summary.Removed); // "b"
+	}
+
+	[Fact]
+	public void EditLocationFor_PostEdit_ReturnsWorkspaceRelativePathAndChangedLine() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/src/a.txt", "one\ntwo\nthree\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/src/a.txt", cwd: "/w"));
+		fileSystem.WriteAllText("/w/src/a.txt", "one\nTWO\nthree\n"); // line 2 changed
+		var post = Edit(HookEventKind.PostToolUse, "/w/src/a.txt", cwd: "/w");
+		tracker.Observe(post);
+
+		Assert.Equal("src/a.txt:2", tracker.EditLocationFor(post));
+	}
+
+	[Fact]
+	public void EditLocationFor_PinpointsThisEdit_NotTheTurnsFirstChange() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "1\n2\n3\n4\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+
+		// First edit this turn changes line 1; the turn baseline now sticks at "1\n2\n3\n4\n".
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w"));
+		fileSystem.WriteAllText("/w/a.txt", "X\n2\n3\n4\n");
+		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt", cwd: "/w"));
+
+		// Second edit changes line 4 — the per-edit pre-state, not the turn baseline, locates it.
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w"));
+		fileSystem.WriteAllText("/w/a.txt", "X\n2\n3\nY\n");
+		var post = Edit(HookEventKind.PostToolUse, "/w/a.txt", cwd: "/w");
+		tracker.Observe(post);
+
+		Assert.Equal("a.txt:4", tracker.EditLocationFor(post));
+	}
+
+	[Fact]
+	public void EditLocationFor_PreToolUse_ReturnsNull() {
+		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
+		Assert.Null(tracker.EditLocationFor(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w")));
+	}
+
+	[Fact]
+	public void EditLocationFor_NoNetChange_ReturnsNull() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "same\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w"));
+		var post = Edit(HookEventKind.PostToolUse, "/w/a.txt", cwd: "/w"); // content unchanged
+		tracker.Observe(post);
+
+		Assert.Null(tracker.EditLocationFor(post));
 	}
 
 	[Fact]

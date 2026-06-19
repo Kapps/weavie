@@ -30,7 +30,7 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	private int _nextId;
 	private Task? _receiveLoop;
 
-	public LspTestClient(IReadOnlyList<string> workspaceFolders, Action<string> log, bool debug = false, JsonNode? defaultSettings = null) {
+	public LspTestClient(IReadOnlyList<string> workspaceFolders, Action<string> log, bool debug, JsonNode? defaultSettings) {
 		_workspaceFolders = workspaceFolders;
 		_defaultSettings = defaultSettings;
 		_log = log;

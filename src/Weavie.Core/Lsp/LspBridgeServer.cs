@@ -42,8 +42,8 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	public LspBridgeServer(
 		string authToken,
 		string workspaceRoot,
-		string? allowedOrigin = "https://weavie.app",
-		Func<string, LanguageServerDescriptor?>? resolveDescriptor = null) {
+		string? allowedOrigin,
+		Func<string, LanguageServerDescriptor?>? resolveDescriptor) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 
@@ -188,7 +188,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 				return;
 			}
 
-			_watcher = new WorkspaceWatcher(_workspaceRoot, _watchedExtensions, BroadcastFileChanges, Emit);
+			_watcher = new WorkspaceWatcher(_workspaceRoot, _watchedExtensions, BroadcastFileChanges, Emit, debounceMs: 250);
 			_watcher.Start();
 		}
 	}

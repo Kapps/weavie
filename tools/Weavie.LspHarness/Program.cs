@@ -55,7 +55,7 @@ Console.WriteLine($"[lsp-harness] workspace: {workspace}");
 
 string token = IdeLockFile.NewAuthToken();
 // allowedOrigin: null — the harness is a native client and sends no Origin header; the token is the gate.
-await using var bridge = new LspBridgeServer(token, workspace!, allowedOrigin: null);
+await using var bridge = new LspBridgeServer(token, workspace!, allowedOrigin: null, resolveDescriptor: null);
 bool watchBroadcast = false;
 bridge.Log += line => {
 	Console.WriteLine($"[bridge] {line}");

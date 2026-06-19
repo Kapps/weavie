@@ -80,6 +80,9 @@ public sealed class EditorSessionStore {
 			open.Add(new {
 				path = entry.Path,
 				viewState = entry.ViewState,
+				preview = entry.Preview,
+				pinned = entry.Pinned,
+				scratch = entry.Scratch,
 			});
 		}
 

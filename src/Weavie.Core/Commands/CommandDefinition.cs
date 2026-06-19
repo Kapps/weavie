@@ -14,8 +14,11 @@ public enum CommandLocation {
 
 /// <summary>The outcome of running a command — reported to Claude by <c>runCommand</c> and honored by the caller.</summary>
 public readonly record struct CommandResult(bool Ok, string? Message, string? Error) {
-	/// <summary>A successful run, optionally carrying a human-readable confirmation.</summary>
-	public static CommandResult Success(string? message = null) => new(true, message, null);
+	/// <summary>A successful run with no message.</summary>
+	public static CommandResult Success() => new(true, null, null);
+
+	/// <summary>A successful run carrying the human-readable confirmation <paramref name="message"/>.</summary>
+	public static CommandResult Success(string? message) => new(true, message, null);
 
 	/// <summary>A failed run carrying the reason <paramref name="error"/>.</summary>
 	public static CommandResult Failure(string error) => new(false, null, error);

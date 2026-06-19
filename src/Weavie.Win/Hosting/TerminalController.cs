@@ -48,7 +48,8 @@ public sealed class TerminalController : IDisposable {
 			StartTerminal,
 			StopTerminal,
 			new SupervisionOptions { Policy = RestartPolicy.Always },
-			LogSupervisor);
+			LogSupervisor,
+			clock: null);
 		_supervisor.StateChanged += OnSupervisorStateChanged;
 	}
 

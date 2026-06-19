@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import { postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { Welcome } from "./Welcome";
+import "../fonts.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. No bridge listeners, layout, editor, or

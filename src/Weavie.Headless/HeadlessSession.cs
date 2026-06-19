@@ -63,13 +63,13 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 	/// editor-session stores, and change tracking. Safe to call once, before any page connects.
 	/// </summary>
 	public void Start(string workspaceOverride) {
-		_layout = LayoutPanes.CreateStore();
+		_layout = LayoutPanes.CreateStore(filePath: null);
 
-		_settings = CoreSettings.CreateStore();
+		_settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		_settings.Log += Log;
 
 		_commandRegistry = CoreCommands.CreateRegistry();
-		_keybindings = new KeybindingStore(_commandRegistry);
+		_keybindings = new KeybindingStore(_commandRegistry, filePath: null, enableWatcher: true);
 		_keybindings.Log += Log;
 		_commands = new CommandDispatcher(_commandRegistry);
 
@@ -88,7 +88,10 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		_shell = new TerminalController(_bridge, "shell", _settings) { Workspace = workspace };
 		_claude.Workspace = workspace;
 
-		_fileProvider = new FileProviderService(fileSystem, workspace);
+		// Scratch (untitled) buffers live in a per-workspace dir OUTSIDE the workspace, served by the file
+		// provider alongside it — keyed off the session root so it tracks the active session's worktree.
+		string scratchDir = WeaviePaths.WorkspaceScratchDir(WorkspaceId.ForPath(workspace));
+		_fileProvider = new FileProviderService(fileSystem, workspace, scratchDir);
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 
 		// Path services for the Windows-style chrome, all rooted at the SESSION root (workspace) so they
@@ -97,7 +100,7 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		_fileIndex.Log += line => Log($"[index] {line}");
 		_browser = new WorkspaceBrowser(fileSystem, workspace);
 		// Backs the injected __WEAVIE_THEME__: the active theme id + the user's per-theme override ops.
-		_themeOverrides = new ThemeOverridesStore(fileSystem);
+		_themeOverrides = new ThemeOverridesStore(fileSystem, path: null);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		_editor = new EditorStore();
 
@@ -105,9 +108,12 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		_editorSession = new EditorSessionStore(fileSystem, WeaviePaths.WorkspaceEditorSessionFile(WorkspaceId.ForPath(workspace)));
 		_editorSession.Log += line => Log($"[editor-session] {line}");
 
+		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links.
+		_changes = new SessionChangeTracker(fileSystem);
 		_ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
-			commands: _commands, keybindings: _keybindings);
+			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides,
+			editLocator: _changes.EditLocationFor);
 		_ide.Server.Log += line => Log($"[mcp] {line}");
 		if (_ide.RegistryServer is { } registryServer) {
 			registryServer.Log += line => Log($"[registry] {line}");
@@ -121,7 +127,6 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		_ide.HookBridge.Log += line => Log($"[hook] {line}");
 
 		// Session change tracking off the same hook stream (baseline at PreToolUse, content at PostToolUse).
-		_changes = new SessionChangeTracker(fileSystem);
 		_ide.HookBridge.Observed += _changes.Observe;
 		_changes.Changed += PushChangesToWeb;
 		_changes.FileChanged += PushRefreshToWeb;
@@ -162,14 +167,14 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 	/// <c>AddUserScript</c> document-start injections the native shells do.
 	/// </summary>
 	public string BuildBootstrapScript() {
-		string fonts = _settings is null ? "undefined" : FontSettings.BuildJson(_settings);
+		string fonts = _settings is null ? "undefined" : FontSettings.BuildJson(_settings, messageType: null);
 		string commands = _keybindings is null ? "[]" : _keybindings.BuildCommandsJson();
 		string keybindings = _keybindings is null ? "[]" : _keybindings.BuildKeybindingsJson();
 		// Active theme + per-theme overrides, so the chrome/editor/terminal mount themed (no default-asset
 		// fetch, no flash) — the native shells inject the same __WEAVIE_THEME__ before navigation.
 		string theme = _settings is null || _themeOverrides is null
 			? "undefined"
-			: ThemeJson.Build(_settings, _themeOverrides, log: Log);
+			: ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log);
 		// A browser has no native window chrome, so — like the Windows shell — render Weavie's custom title
 		// bar (icon + File/View menus + Omnibar + window controls). The window controls are cosmetic here
 		// (no OS window to drive); the value is the Omnibar Go-to-File and the menus.
@@ -242,11 +247,11 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_fileOpener?.Open(revealPath, revealLine);
+				_fileOpener?.Open(revealPath, revealLine, preview: false, scratch: false);
 				break;
 			case "request-file-index":
 				if (_fileIndex is not null) {
-					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List()));
+					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List(WorkspaceFileIndex.DefaultCap)));
 				}
 
 				break;

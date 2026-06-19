@@ -30,6 +30,7 @@
     "@xterm/addon-fit": "0.10.0",
     "@xterm/addon-webgl": "0.18.0",
     "@xterm/xterm": "5.5.0",
+    "fzf": "^0.5.2",
     "linguist-languages": "9.4.0",
     "lucide-solid": "^1.20.0",
     "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@25.1.2",

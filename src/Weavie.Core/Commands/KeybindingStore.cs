@@ -29,7 +29,7 @@ public sealed class KeybindingStore : IDisposable {
 	/// loading + merging now and—unless <paramref name="enableWatcher"/> is false—watching the file for
 	/// external edits. The parent directory is created so the watcher can attach.
 	/// </summary>
-	public KeybindingStore(CommandRegistry registry, string? filePath = null, bool enableWatcher = true) {
+	public KeybindingStore(CommandRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
 		_registry = registry;
 		FilePath = filePath ?? WeaviePaths.KeybindingsFile;

@@ -75,20 +75,62 @@ public sealed record ActiveEditor(string FilePath, string? LanguageId, string Se
 }
 
 /// <summary>
-/// Per-session editor-state hub: tracks which editor the user is looking at so the IDE-MCP server can
-/// tell the embedded Claude what the user is working with. The web editor pushes changes over the bridge
-/// (<c>active-editor-changed</c>); the server reads <see cref="Active"/> for
-/// <c>getCurrentSelection</c>/<c>getOpenEditors</c> and reacts to <see cref="Changed"/> by pushing a
-/// <c>selection_changed</c> notification. Sibling of <c>LayoutStore</c>; a tabbed model can later add the
-/// full set of open editors alongside the active one.
+/// One open editor tab the page reported (via <c>open-editors-changed</c>): its file <see cref="FilePath"/>
+/// plus whether it is the active / pinned / preview tab. The full set backs the MCP <c>getOpenEditors</c>
+/// tool. <see cref="FilePath"/> is the web's own tab key (a native path), echoed back verbatim by
+/// <c>close_tab</c> so the page can match it exactly.
+/// </summary>
+public sealed record OpenEditorTab(string FilePath, bool IsActive, bool IsPinned, bool IsPreview) {
+	/// <summary>
+	/// Parses an <c>open-editors-changed</c> bridge message's <c>editors</c> array into tabs (skipping any
+	/// entry without a path). Returns an empty list for a malformed/empty message.
+	/// </summary>
+	public static IReadOnlyList<OpenEditorTab> ParseList(JsonElement message) {
+		if (message.ValueKind != JsonValueKind.Object
+			|| !message.TryGetProperty("editors", out var editors)
+			|| editors.ValueKind != JsonValueKind.Array) {
+			return [];
+		}
+
+		var list = new List<OpenEditorTab>(editors.GetArrayLength());
+		foreach (var entry in editors.EnumerateArray()) {
+			if (entry.ValueKind != JsonValueKind.Object
+				|| !entry.TryGetProperty("path", out var pathElement)
+				|| pathElement.GetString() is not { Length: > 0 } path) {
+				continue;
+			}
+
+			list.Add(new OpenEditorTab(path, ReadBool(entry, "isActive"), ReadBool(entry, "isPinned"), ReadBool(entry, "isPreview")));
+		}
+
+		return list;
+	}
+
+	private static bool ReadBool(JsonElement entry, string name) =>
+		entry.TryGetProperty(name, out var value)
+		&& value.ValueKind is JsonValueKind.True or JsonValueKind.False
+		&& value.GetBoolean();
+}
+
+/// <summary>
+/// Per-session editor-state hub: tracks which editor the user is looking at (and the full set of open tabs)
+/// so the IDE-MCP server can tell the embedded Claude what the user is working with. The web editor pushes
+/// changes over the bridge (<c>active-editor-changed</c> + <c>open-editors-changed</c>); the server reads
+/// <see cref="Active"/> for <c>getCurrentSelection</c>, <see cref="OpenEditors"/> for <c>getOpenEditors</c>,
+/// and reacts to <see cref="Changed"/> by pushing a <c>selection_changed</c> notification. Sibling of
+/// <c>LayoutStore</c>.
 /// </summary>
 public sealed class EditorStore {
 	// A single immutable snapshot reference: volatile is enough (reference reads/writes are atomic) and
 	// lets the MCP accept task read Active while the host thread writes it, with no lock.
 	private volatile ActiveEditor? _active;
+	private volatile IReadOnlyList<OpenEditorTab> _openEditors = [];
 
 	/// <summary>The editor the user is currently looking at, or <c>null</c> until the page reports one.</summary>
 	public ActiveEditor? Active => _active;
+
+	/// <summary>The full set of open editor tabs, in display order; empty until the page reports them.</summary>
+	public IReadOnlyList<OpenEditorTab> OpenEditors => _openEditors;
 
 	/// <summary>Raised when the active file or selection changes, so the server can notify Claude.</summary>
 	public event Action<ActiveEditor>? Changed;
@@ -98,5 +140,15 @@ public sealed class EditorStore {
 		ArgumentNullException.ThrowIfNull(editor);
 		_active = editor;
 		Changed?.Invoke(editor);
+	}
+
+	/// <summary>
+	/// Records the full set of open tabs (from <c>open-editors-changed</c>). Pull-based: <c>getOpenEditors</c>
+	/// reads <see cref="OpenEditors"/> on demand, so this does not raise <see cref="Changed"/> (which exists
+	/// only to push <c>selection_changed</c>).
+	/// </summary>
+	public void SetOpenEditors(IReadOnlyList<OpenEditorTab> editors) {
+		ArgumentNullException.ThrowIfNull(editors);
+		_openEditors = editors;
 	}
 }

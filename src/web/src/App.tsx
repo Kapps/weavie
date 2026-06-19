@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { type TermSession, onHostMessage, postToHost } from "./bridge";
 import type { ChangeFile } from "./changes/ChangesPanel";
+import { MacTitleBar } from "./chrome/MacTitleBar";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
@@ -19,13 +20,16 @@ import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
 import { dispatchCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
+import { ConfirmDialog } from "./editor/ConfirmDialog";
+import { TabStrip } from "./editor/TabStrip";
 import { createEditorController } from "./editor/editor-controller";
 // Side-effect import: registers the editor session store's set-editor-session listener at top-level module
 // load — BEFORE main.tsx posts "ready" and the host replies with its one-shot restore push. The store
 // otherwise lives only in the dynamically-imported editor chunk (via editor-host), which loads seconds
 // later, so the push would arrive with no listener and be dropped — launch/Ctrl+R restore would silently
 // no-op. Importing it here (like layout/store) also keeps the signal alive across HMR.
-import "./editor/session-store";
+// Named import keeps session-store loaded at top level (out of the editor chunk) so it survives HMR.
+import { activePath, openTabs } from "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
@@ -43,10 +47,15 @@ const FileBrowser = lazy(() => import("./files/FileBrowser"));
 // here. Null in plain-browser dev (no host) — the browser toggle is hidden in that case.
 const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
-// Host-injected shell config (Windows custom title bar). Absent on macOS / plain-browser dev, where the
-// web title bar isn't rendered and the floating Files/Changes buttons remain the panel toggles.
+// Host-injected shell config. Windows injects titleBar "custom" (the frameless web title bar with its own
+// window controls); macOS injects titleBar "mac" (the omnibar strip below the native title bar + system
+// menu). Absent in plain-browser dev, where neither bar renders and the floating Files/Changes buttons are
+// the panel toggles.
 const SHELL = window.__WEAVIE_SHELL__;
 const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
+const MAC_TITLEBAR = SHELL?.titleBar === "mac";
+// Either title-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
+const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
@@ -72,6 +81,21 @@ export default function App(): JSX.Element {
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
   const { toasts, addToast, dismissToast } = createToasts();
+  // A pending "discard unsaved scratch?" confirm: the names to discard + the promise resolver the dialog
+  // settles. The editor controller routes every tab close through this guard (confirmDiscard below).
+  const [confirmReq, setConfirmReq] = createSignal<{
+    names: string[];
+    resolve: (ok: boolean) => void;
+  } | null>(null);
+  const confirmDiscard = (names: string[]): Promise<boolean> =>
+    new Promise<boolean>((resolve) => setConfirmReq({ names, resolve }));
+  const settleConfirm = (ok: boolean): void => {
+    const req = confirmReq();
+    if (req !== null) {
+      setConfirmReq(null);
+      req.resolve(ok);
+    }
+  };
   // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, and the flat
   // workspace file index the omnibar's "Go to File" filters over (root may differ from WORKSPACE_ROOT).
   const [maximized, setMaximized] = createSignal(false);
@@ -83,6 +107,7 @@ export default function App(): JSX.Element {
   const editor = createEditorController({
     onSaveError: (message) => addToast("error", message),
     onCurrentFileChanged: setCurrentFile,
+    confirmDiscard,
   });
 
   const focusPane = (kind: string): void => {
@@ -132,7 +157,11 @@ export default function App(): JSX.Element {
           classList={{ active: focusedKind() === "editor" }}
           data-kind="editor"
         >
-          <div class="editor" ref={editorContainer} />
+          <TabStrip tabs={openTabs} activePath={activePath} actions={editor.tabs} />
+          <div class="editor-pane">
+            <div class="editor" ref={editorContainer} />
+          </div>
+          {/* Pane-switch badge: top-right of the PANE (over the tab strip), not over the editor content. */}
           <span class="pane-shortcut editor-badge">
             {CTRL_LABEL}
             {numberOf("editor")}
@@ -202,6 +231,11 @@ export default function App(): JSX.Element {
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. The
     // migrated Ctrl+1–9 (focus pane by index), the omnibar focus shortcuts, the view toggles, and the
     // inline-diff actions all resolve through it; Core commands route to the host. See docs/specs/commands.md.
+    // A tab command's optional `path` arg (sent by the tab context menu); absent ⇒ act on the active tab.
+    const tabPath = (args: unknown): string | undefined => {
+      const path = (args as { path?: unknown } | undefined)?.path;
+      return typeof path === "string" ? path : undefined;
+    };
     const offCommands = [
       // focus-pane-by-index returns false when there's no pane at that number, so an unbound Ctrl+digit
       // still falls through to the focused xterm/Monaco (preserving the old behavior).
@@ -229,6 +263,22 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
       registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
       registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      // Editor tabs. The targeted commands take an optional `path` (the tab context menu passes the
+      // right-clicked tab; keyboard / palette omit it to act on the active tab). next/prev return whether they
+      // stepped, so $mod+Tab falls through to the editor when there are <2 tabs.
+      registerCommand(CommandIds.closeTab, (args) => editor.tabs.close(tabPath(args))),
+      registerCommand(CommandIds.nextTab, () => editor.tabs.next()),
+      registerCommand(CommandIds.prevTab, () => editor.tabs.prev()),
+      registerCommand(CommandIds.closeAllTabs, () => editor.tabs.closeAll()),
+      registerCommand(CommandIds.closeOtherTabs, (args) => editor.tabs.closeOthers(tabPath(args))),
+      registerCommand(CommandIds.closeTabsToLeft, (args) => editor.tabs.closeToLeft(tabPath(args))),
+      registerCommand(CommandIds.closeTabsToRight, (args) =>
+        editor.tabs.closeToRight(tabPath(args)),
+      ),
+      registerCommand(CommandIds.togglePinTab, (args) => editor.tabs.togglePin(tabPath(args))),
+      // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
+      registerCommand(CommandIds.newFile, () => editor.newFile()),
+      registerCommand(CommandIds.saveFile, () => editor.save()),
     ];
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
@@ -285,8 +335,20 @@ export default function App(): JSX.Element {
       <Show when={CUSTOM_TITLEBAR}>
         <ResizeFrame maximized={maximized()} />
       </Show>
+      <Show when={MAC_TITLEBAR}>
+        <MacTitleBar
+          files={fileIndex()}
+          root={indexRoot()}
+          currentFile={currentFile()}
+          workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
+          onToggleFiles={toggleBrowser}
+          onToggleChanges={() => setChangesOpen((open) => !open)}
+          onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
+          onRequestIndex={() => postToHost({ type: "request-file-index" })}
+        />
+      </Show>
       <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
-      <Show when={changeFiles().length > 0 && !CUSTOM_TITLEBAR}>
+      <Show when={changeFiles().length > 0 && !HAS_TITLEBAR}>
         <button
           type="button"
           class="changes-toggle"
@@ -309,7 +371,7 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Show when={WORKSPACE_ROOT !== null && !CUSTOM_TITLEBAR}>
+      <Show when={WORKSPACE_ROOT !== null && !HAS_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>
           Files
         </button>
@@ -327,6 +389,22 @@ export default function App(): JSX.Element {
         </Suspense>
       </Show>
       <Toasts toasts={toasts()} onDismiss={dismissToast} />
+      <Show when={confirmReq()}>
+        {(req) => (
+          <ConfirmDialog
+            title={req().names.length > 1 ? "Discard unsaved files?" : "Discard unsaved file?"}
+            body={
+              req().names.length > 1
+                ? `${req().names.length} unsaved scratch files will be discarded: ${req().names.join(", ")}.`
+                : `"${req().names[0]}" has unsaved changes and isn't saved to a file yet. Discard it?`
+            }
+            confirmLabel="Discard"
+            cancelLabel="Cancel"
+            onConfirm={() => settleConfirm(true)}
+            onCancel={() => settleConfirm(false)}
+          />
+        )}
+      </Show>
     </div>
   );
 }

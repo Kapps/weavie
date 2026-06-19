@@ -17,7 +17,7 @@ public sealed class WorkspaceFileIndexTests {
 		fs.WriteAllText("/w/src/sub/c.ts", "");
 		var index = new WorkspaceFileIndex(fs, "/w");
 
-		var files = index.List();
+		var files = index.List(WorkspaceFileIndex.DefaultCap);
 
 		string[] expected = [Full("/w/a.txt"), Full("/w/src/b.cs"), Full("/w/src/sub/c.ts")];
 		Array.Sort(expected, StringComparer.OrdinalIgnoreCase);
@@ -33,7 +33,7 @@ public sealed class WorkspaceFileIndexTests {
 		fs.WriteAllText("/w/bin/out.dll", "");
 		var index = new WorkspaceFileIndex(fs, "/w");
 
-		var files = index.List();
+		var files = index.List(WorkspaceFileIndex.DefaultCap);
 
 		Assert.Equal([Full("/w/keep.cs")], files);
 	}
@@ -59,6 +59,6 @@ public sealed class WorkspaceFileIndexTests {
 	public void List_MissingRoot_IsEmpty() {
 		var index = new WorkspaceFileIndex(new InMemoryFileSystem(), "/nope");
 
-		Assert.Empty(index.List());
+		Assert.Empty(index.List(WorkspaceFileIndex.DefaultCap));
 	}
 }

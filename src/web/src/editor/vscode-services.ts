@@ -77,8 +77,20 @@ declare global {
     __WEAVIE_EDITOR_SERVICES__?: {
       initPromise?: Promise<void>;
       activeEditor?: monaco.editor.IStandaloneCodeEditor;
+      openSink?: OpenEditorSink;
     };
   }
+}
+
+// How weavie opens a file the editor service asked for (go-to-def / peek / references). The editor host
+// registers this so those targets flow through the tab store as a PREVIEW open (and reveal the range),
+// instead of a bare setModel — keeping navigation from piling up persistent tabs. Re-registered per host
+// build (it closes over the current editor), like `activeEditor`, so it survives a hot reload.
+export type OpenEditorSink = (uri: monaco.Uri, selection: monaco.IRange | undefined) => void;
+
+/** Registers the sink the editor service routes file-opens through (called once the editor host is up). */
+export function setOpenEditorSink(sink: OpenEditorSink): void {
+  servicesState.openSink = sink;
 }
 
 // First module instance creates the state; every later (hot-reloaded) instance reuses the same object.
@@ -101,14 +113,21 @@ const openEditor: OpenEditor = (modelRef, options) => {
   if (activeEditor === undefined) {
     return Promise.resolve(undefined);
   }
-
-  activeEditor.setModel(modelRef.object.textEditorModel);
   const selection = (options as { selection?: monaco.IRange } | undefined)?.selection;
+
+  // When the editor host has registered its sink, route through the tab store (preview open + range reveal).
+  const sink = servicesState.openSink;
+  if (sink !== undefined) {
+    sink(modelRef.object.textEditorModel.uri, selection);
+    return Promise.resolve(activeEditor);
+  }
+
+  // Fallback before the host is up / in plain-browser dev: bare setModel.
+  activeEditor.setModel(modelRef.object.textEditorModel);
   if (selection !== undefined) {
     activeEditor.setSelection(selection);
     activeEditor.revealRangeInCenterIfOutsideViewport(selection);
   }
-
   activeEditor.focus();
   return Promise.resolve(activeEditor);
 };

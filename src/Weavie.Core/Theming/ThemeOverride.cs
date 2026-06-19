@@ -15,9 +15,10 @@ namespace Weavie.Core.Theming;
 public abstract record ThemeOverrideOp;
 
 /// <summary>
-/// Directly sets one color. By default the workbench <c>colors</c> table (e.g. <c>editor.background</c> →
+/// Directly styles one entry. By default the workbench <c>colors</c> table (e.g. <c>editor.background</c> →
 /// <c>#000000</c>); with <see cref="Table"/> set, a syntax table — a TextMate scope in <c>tokenColors</c> or
-/// a semantic selector in <c>semanticTokenColors</c>. Last write wins.
+/// a semantic selector in <c>semanticTokenColors</c>. Sets a foreground color (<see cref="Value"/>), a font
+/// style (<see cref="FontStyle"/>, syntax tables only), or both; at least one is present. Last write wins.
 /// </summary>
 public sealed record ThemeOverrideSet : ThemeOverrideOp {
 	/// <summary>Target table: <c>colors</c> (default, omitted), <c>tokenColors</c>, or <c>semanticTokenColors</c>.</summary>
@@ -28,9 +29,17 @@ public sealed record ThemeOverrideSet : ThemeOverrideOp {
 	[JsonPropertyName("key")]
 	public required string Key { get; init; }
 
-	/// <summary>The hex color to set it to.</summary>
+	/// <summary>The hex color to set it to. Null when the op only changes <see cref="FontStyle"/>.</summary>
 	[JsonPropertyName("value")]
-	public required string Value { get; init; }
+	public string? Value { get; init; }
+
+	/// <summary>
+	/// The font style to set — a space-separated subset of <c>italic bold underline strikethrough</c>, or
+	/// <c>""</c> to clear inherited styles. Only meaningful on the <c>tokenColors</c>/<c>semanticTokenColors</c>
+	/// syntax tables; null leaves the style untouched.
+	/// </summary>
+	[JsonPropertyName("fontStyle")]
+	public string? FontStyle { get; init; }
 }
 
 /// <summary>A parametric op over the whole palette, so the user need not hand-edit hundreds of keys.</summary>

@@ -48,6 +48,16 @@ export const CommandIds = {
   acceptChange: "weavie.diff.accept",
   rejectChange: "weavie.diff.reject",
   undoChange: "weavie.diff.undo",
+  closeTab: "weavie.editor.closeTab",
+  nextTab: "weavie.editor.nextTab",
+  prevTab: "weavie.editor.prevTab",
+  closeAllTabs: "weavie.editor.closeAll",
+  closeOtherTabs: "weavie.editor.closeOthers",
+  closeTabsToLeft: "weavie.editor.closeToLeft",
+  closeTabsToRight: "weavie.editor.closeToRight",
+  togglePinTab: "weavie.editor.togglePin",
+  newFile: "weavie.editor.newFile",
+  saveFile: "weavie.editor.save",
 } as const;
 
 declare global {

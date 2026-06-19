@@ -30,4 +30,16 @@
     <Deterministic>true</Deterministic>
   </PropertyGroup>
 
+  <!--
+    In-repo analyzers apply to every production project (no holes). WV0001 bans optional/
+    default-valued parameters so adding a parameter is a compile error at each call site, forcing
+    every caller to decide rather than silently inheriting a default. Excludes the analyzer project
+    itself (it cannot reference its own output) and *.Tests projects (test helpers may use defaults).
+  -->
+  <ItemGroup Condition="'$(MSBuildProjectName)' != 'Weavie.Analyzers' AND !$(MSBuildProjectName.EndsWith('.Tests'))">
+    <ProjectReference Include="$(MSBuildThisFileDirectory)src\Weavie.Analyzers\Weavie.Analyzers.csproj"
+                      OutputItemType="Analyzer"
+                      ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

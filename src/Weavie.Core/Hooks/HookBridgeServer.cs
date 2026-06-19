@@ -24,7 +24,7 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 	/// Maps an observed request to a decision (the active-mode policy); defaults to pass-through, so a server
 	/// constructed without one is a pure recorder.
 	/// </param>
-	public HookBridgeServer(string pipeName, Func<HookRequest, HookDecision>? decide = null) {
+	public HookBridgeServer(string pipeName, Func<HookRequest, HookDecision>? decide) {
 		ArgumentException.ThrowIfNullOrEmpty(pipeName);
 		_pipeName = pipeName;
 		_decide = decide ?? (static _ => HookDecision.PassThrough);

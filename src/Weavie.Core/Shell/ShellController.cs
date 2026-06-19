@@ -78,7 +78,7 @@ public sealed class ShellController {
 	}
 
 	/// <summary>Walks the workspace and pushes the <c>file-index</c> reply for the omnibar quick-open.</summary>
-	public void PushFileIndex() => _postToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List()));
+	public void PushFileIndex() => _postToWeb(ShellProtocol.BuildFileIndex(_fileIndex.Root, _fileIndex.List(WorkspaceFileIndex.DefaultCap)));
 
 	/// <summary>Pushes the current window state (maximized + focused) so the title bar updates its glyph and dim.</summary>
 	public void PushWindowState(bool maximized, bool focused) => _postToWeb(ShellProtocol.BuildWindowState(maximized, focused));

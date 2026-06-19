@@ -1,3 +1,4 @@
+using System.Reflection;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -31,19 +32,22 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	public IdeIntegration(
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie",
-		SettingsStore? settings = null,
-		LayoutStore? layout = null,
-		EditorStore? editor = null,
-		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) {
+		string ideName,
+		SettingsStore? settings,
+		LayoutStore? layout,
+		EditorStore? editor,
+		CommandDispatcher? commands,
+		KeybindingStore? keybindings,
+		ThemeOverridesStore? themeOverrides,
+		Func<HookRequest, string?>? editLocator) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
 		// The IDE server (not the registry) carries the active-editor context: getCurrentSelection/
 		// getOpenEditors + the pushed selection_changed notification all live on the IDE connection.
-		Server = new McpServer(AuthToken, presenter, workspaceFolders, ideName, editor: editor);
+		Server = new McpServer(
+			AuthToken, presenter, workspaceFolders, ideName, settings: null, registryMode: false, layout: null,
+			editor: editor, commands: null, keybindings: null, themeOverrides: null);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
@@ -52,13 +56,19 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		// stream + the permission gate (bypassPermissions → auto-allow), read live from the settings store.
 		HookBridge = new HookBridgeServer(
 			HookProtocol.PipeName(Port),
-			request => HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default"));
+			request => {
+				var decision = HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default");
+				// On a landed edit, attach a clickable file:line jump target as the hook's systemMessage so
+				// Claude prints it in the TUI (the terminal turns path:line tokens into Monaco reveals).
+				string? location = editLocator?.Invoke(request);
+				return location is null ? decision : decision with { SystemMessage = location };
+			});
 		HookBridge.Start();
 
 		if (settings is not null) {
 			RegistryServer = new McpServer(
 				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout,
-				commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
+				editor: null, commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
 			RegistryPort = RegistryServer.Start();
 		}
 	}
@@ -127,10 +137,21 @@ public sealed class IdeIntegration : IAsyncDisposable {
 			return null;
 		}
 
+		// Framework-dependent dev runs (`dotnet App.dll`) report the dotnet muxer as ProcessPath, so the relay
+		// command must pass the managed entry assembly as the muxer's first arg — a bare `"dotnet" --hook-relay`
+		// can't launch. An apphost/self-contained exe (Windows/macOS, published Linux) is the relay directly.
+		string? entryAssembly = null;
+		if (Path.GetFileNameWithoutExtension(host).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) {
+			string? entry = Assembly.GetEntryAssembly()?.Location;
+			if (!string.IsNullOrEmpty(entry) && entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) {
+				entryAssembly = entry;
+			}
+		}
+
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
-		File.WriteAllText(path, HookSettings.BuildJson(host));
+		File.WriteAllText(path, HookSettings.BuildJson(host, entryAssembly));
 		return path;
 	}
 

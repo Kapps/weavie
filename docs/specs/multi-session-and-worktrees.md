@@ -263,11 +263,12 @@ once N>1. This is load-bearing for both this spec's status feature and the exist
 
 ## Implementation status (2026-06-19)
 
-The **Core layer is built, tested, and committed** (`35c40a7`, `725f453`); the **host + web UI is not
-yet wired**. Critically, **worktree *creation* is intentionally not wired yet**, so nothing can leak in
-the interim — the anti-leak machinery below is complete and ready for when the host calls it.
+The **Core layer + per-session status are built and tested/verified** (Core + host committed; the web
+status render verified but uncommitted); the **session switcher + worktree-creation UI remain**.
+Critically, **worktree *creation* is intentionally not wired yet**, so nothing can leak in the interim —
+the anti-leak machinery below is complete and ready for when the host calls it.
 
-**Done — `Weavie.Core` (46 new tests; full suite green at 364):**
+**Done — `Weavie.Core` (46 new tests; full suite green at 364), committed (`35c40a7`, `725f453`):**
 - `Git/` — `IGitService` + `GitService` (worktree add/list/remove; branch/HEAD/default/merged/dirty;
   pure porcelain parser).
 - `Worktrees/` — `WorktreeRegistry` (per-workspace `worktrees.json`) + `WorktreeManager`: create, and
@@ -283,18 +284,28 @@ the interim — the anti-leak machinery below is complete and ready for when the
   handler wiring to `ISessionHost`. `Hooks` — `HookEventKind.Notification` added and Stop/Notification
   registered so Claude fires the relay for them.
 
-**Remaining (host + web), all seams ready:**
+**Done — per-session status, end-to-end, verified both sides:**
+- **Host (committed `8e2c197`, Win build green):** `TerminalController.SupervisorChanged` →
+  `HostSession.SessionStatusMachine` (hook stream + supervisor) → `WorkspaceWindow` pushes a
+  `session-status` message to the page.
+- **Web (complete, tsc + biome green; uncommitted):** a `session-status` bridge message + a status dot
+  in the Claude pane head, colored by `--ok/--warn/--bad/--busy` theme vars derived in `chrome-vars.ts`.
+  Left uncommitted only because `bridge.ts` is mid a large unrelated parallel refactor (`hostInjected`
+  used across `registry.ts`/`editor-options.ts`/`fonts.ts`/`controller.ts`) — committing it would
+  entangle that work. The four web files (`bridge.ts`, `App.tsx`, `theme/chrome-vars.ts`, `styles.css`)
+  are a clean follow-up commit once that refactor lands.
+
+**Remaining — the session switcher + worktree creation (the GUI-heavy part):**
 - **Win host**: a `SessionManager` per `WorkspaceWindow` owning N `HostSession`s; active-session switch
   (slot rebinding + per-session message routing); implement `ISessionHost` over `WorktreeManager`
-  (+ reconcile-on-open and a worktree surface); push `SessionStatusMachine.Changed` to the web; call
-  `SessionCommands.RegisterHandlers`. *Not attempted in this build: the Win host files were under an
-  unrelated heavy parallel refactor (`HostSession`'s constructor was changing), so touching them would
-  have clobbered that work and couldn't be verified.*
-- **Web**: the session rail (chip from `SessionIdentity`, status overlay, active accent); a
-  `session-status` bridge message + render; the `next`/`prev`/`switch` web handlers + omnibar session
-  mode; `--ok/--warn/--bad` theme vars in `chrome-vars.ts` (from `terminal.ansiGreen`/`ansiYellow`/
-  `errorForeground`).
+  (+ reconcile-on-open and a worktree surface); call `SessionCommands.RegisterHandlers`.
+- **Web**: the session rail (chip from `SessionIdentity`, status overlay, active accent); the
+  `next`/`prev`/`switch` web handlers + omnibar session mode; generalize the hardcoded two-session
+  vocabulary (`TermSession`, `LayoutView`'s `KINDS`, `App.renderPane`).
 - **macOS host**: mirror the Win wiring (needs the parent spec's HostSession-per-window split first).
+- This step is large, GUI-dependent (not autonomously verifiable), and entangles the same web files
+  (`App.tsx`/`bridge.ts`/layout) an active parallel refactor is rewriting — best done on a stable tree
+  with the app running to eyeball switching + the status colors.
 
 ## Build sequence
 

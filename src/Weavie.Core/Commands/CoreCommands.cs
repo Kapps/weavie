@@ -46,6 +46,36 @@ public static class CoreCommands {
 	/// <summary>Undoes the current turn's inline changes (acceptEdits/bypass mode).</summary>
 	public const string UndoChange = "weavie.diff.undo";
 
+	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
+	public const string CloseTab = "weavie.editor.closeTab";
+
+	/// <summary>Activates the next editor tab in visual order, wrapping; bound to <c>$mod+Tab</c>.</summary>
+	public const string NextTab = "weavie.editor.nextTab";
+
+	/// <summary>Activates the previous editor tab in visual order, wrapping; bound to <c>$mod+Shift+Tab</c>.</summary>
+	public const string PrevTab = "weavie.editor.prevTab";
+
+	/// <summary>Closes all non-pinned editor tabs.</summary>
+	public const string CloseAllTabs = "weavie.editor.closeAll";
+
+	/// <summary>Closes every non-pinned editor tab except the target (the active tab, or <c>path</c>).</summary>
+	public const string CloseOtherTabs = "weavie.editor.closeOthers";
+
+	/// <summary>Closes non-pinned editor tabs to the left of the target (the active tab, or <c>path</c>).</summary>
+	public const string CloseTabsToLeft = "weavie.editor.closeToLeft";
+
+	/// <summary>Closes non-pinned editor tabs to the right of the target (the active tab, or <c>path</c>).</summary>
+	public const string CloseTabsToRight = "weavie.editor.closeToRight";
+
+	/// <summary>Pins or unpins an editor tab (the active tab, or <c>path</c>).</summary>
+	public const string TogglePinTab = "weavie.editor.togglePin";
+
+	/// <summary>Opens a new scratch (untitled) editor buffer; bound to <c>$mod+n</c>.</summary>
+	public const string NewFile = "weavie.editor.newFile";
+
+	/// <summary>Saves the active editor; a scratch buffer prompts for a name. Bound to <c>$mod+s</c>.</summary>
+	public const string SaveFile = "weavie.editor.save";
+
 	/// <summary>Installs a color theme from the Open VSX registry (args <c>namespace</c>/<c>name</c>/<c>version</c>).</summary>
 	public const string InstallTheme = "weavie.theme.install";
 
@@ -213,6 +243,126 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Revert the current turn's changes (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn"],
+		});
+
+		// Editor tabs. closeTab / nextTab / prevTab carry the keyboard bindings and are gated to editor focus
+		// (a tab key shouldn't act while a terminal holds focus). next/prev DECLINE when there are <2 tabs, so
+		// $mod+Tab still falls through to the editor. The bulk closes + pin are palette- and context-menu-driven
+		// (no ergonomic chord-free key, and the resolver has no chord support); they take an optional `path` so
+		// the tab context menu can target the right-clicked tab while the palette acts on the active one.
+		string tabPathArgs = "{\"path\":{\"type\":\"string\",\"description\":\"Absolute path of the target tab; omit to act on the active tab\"}}";
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTab,
+			Title = "Close Editor",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Close the active editor tab (or the tab named in 'path').",
+			Aliases = ["close tab", "close editor", "close file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+w" }],
+			When = "editorFocused",
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NextTab,
+			Title = "Next Editor",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Activate the next editor tab (wraps around).",
+			Aliases = ["next tab", "next editor", "next file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Tab" }],
+			When = "editorFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = PrevTab,
+			Title = "Previous Editor",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Activate the previous editor tab (wraps around).",
+			Aliases = ["previous tab", "prev tab", "previous editor", "previous file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Tab" }],
+			When = "editorFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseAllTabs,
+			Title = "Close All Editors",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Close all editor tabs except pinned ones.",
+			Aliases = ["close all tabs", "close all editors", "close all files"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseOtherTabs,
+			Title = "Close Other Editors",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Close every editor tab except the target one and pinned tabs.",
+			Aliases = ["close other tabs", "close others", "close other editors"],
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTabsToLeft,
+			Title = "Close Editors to the Left",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Close non-pinned editor tabs to the left of the target tab.",
+			Aliases = ["close tabs to the left", "close left", "close editors to the left"],
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CloseTabsToRight,
+			Title = "Close Editors to the Right",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Close non-pinned editor tabs to the right of the target tab.",
+			Aliases = ["close tabs to the right", "close right", "close editors to the right"],
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = TogglePinTab,
+			Title = "Pin / Unpin Editor",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Pin or unpin an editor tab. Pinned tabs are compact, stay furthest-left, and survive "
+				+ "Close All / Close Others.",
+			Aliases = ["pin tab", "unpin tab", "pin editor", "unpin editor", "toggle pin"],
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		// New File / Save. New File opens a scratch (untitled) buffer; it's gated to "!terminalFocused" rather
+		// than "editorFocused" so $mod+n works from anywhere except a terminal (where Ctrl+N is readline's
+		// next-history) — including when no tab is open yet. Save is gated to editorFocused: a scratch buffer
+		// prompts for a real name (a native save dialog), a real file is already autosaved so $mod+s is a no-op
+		// that just consumes the key (so the terminal keeps Ctrl+S = XOFF when it has focus).
+		registry.Register(new CommandDefinition {
+			Id = NewFile,
+			Title = "New File",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Open a new scratch (untitled) editor buffer. It persists like any open file; saving "
+				+ "prompts for a name and location.",
+			Aliases = ["new file", "new scratch", "untitled", "create file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+n" }],
+			When = "!terminalFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SaveFile,
+			Title = "Save",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Save the active editor. Real files autosave continuously; a scratch (untitled) buffer "
+				+ "prompts for a name and location.",
+			Aliases = ["save", "save file", "save as", "save editor"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+s" }],
+			When = "editorFocused",
 		});
 
 		// Theme verb actions (handlers wired in Core by ThemeCommands over the app-global theme stores). These

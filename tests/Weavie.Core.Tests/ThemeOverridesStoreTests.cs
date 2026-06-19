@@ -55,6 +55,32 @@ public sealed class ThemeOverridesStoreTests {
 	}
 
 	[Fact]
+	public void Persistence_RoundTrips_FontStyleSet_WithNoColor() {
+		var fs = new InMemoryFileSystem();
+		string path = TempPath();
+		var store = new ThemeOverridesStore(fs, path);
+		// A style-only override (italic variables) carries a fontStyle and no foreground value.
+		store.Append("weavie-dark", new ThemeOverrideSet {
+			Table = "semanticTokenColors", Key = "variable", FontStyle = "italic",
+		});
+		// And one that sets both color + style.
+		store.Append("weavie-dark", new ThemeOverrideSet {
+			Table = "tokenColors", Key = "comment", Value = "#6a6a6a", FontStyle = "italic",
+		});
+
+		var reloaded = new ThemeOverridesStore(fs, path);
+		var ops = reloaded.Get("weavie-dark");
+		Assert.Equal(2, ops.Count);
+		var styleOnly = Assert.IsType<ThemeOverrideSet>(ops[0]);
+		Assert.Null(styleOnly.Value);
+		Assert.Equal("italic", styleOnly.FontStyle);
+		Assert.Equal("semanticTokenColors", styleOnly.Table);
+		var both = Assert.IsType<ThemeOverrideSet>(ops[1]);
+		Assert.Equal("#6a6a6a", both.Value);
+		Assert.Equal("italic", both.FontStyle);
+	}
+
+	[Fact]
 	public void UndoLast_RemovesLastOp_AndReportsWhetherAnythingWasThere() {
 		var store = new ThemeOverridesStore(new InMemoryFileSystem(), TempPath());
 		store.Append("t", new ThemeOverrideSet { Key = "a", Value = "#111111" });

@@ -8,7 +8,7 @@ import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/edito
 import { formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { currentFonts, onFontsChanged } from "../fonts";
+import { onFontsChanged } from "../fonts";
 import { canonicalFsPath } from "./fs-path";
 import { monaco } from "./monaco-setup";
 
@@ -121,9 +121,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const buildGhost = (lines: string[]): HTMLElement => {
     const node = document.createElement("div");
     node.className = "weavie-inline-removed";
-    const font = currentFonts().editor;
-    node.style.fontFamily = font.family;
-    node.style.fontSize = `${font.size}px`;
+    // Match the editor's RESOLVED metrics, not the raw font setting: a view zone reserves exactly
+    // `lines.length * fontInfo.lineHeight` px, so the ghost rows must use that same line height (which
+    // Monaco derives from the font size — the editor never sets one explicitly). Inheriting the chrome's
+    // line-height instead made N rows overflow the N-line zone and overlap the code above/below.
+    const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
+    node.style.fontFamily = fontInfo.fontFamily;
+    node.style.fontSize = `${fontInfo.fontSize}px`;
+    node.style.lineHeight = `${fontInfo.lineHeight}px`;
     // Render tabs at the editor's tab width (CSS `tab-size` defaults to 8) so a removed line's leading
     // indentation lines up with the live code above/below it instead of being doubled.
     node.style.tabSize = String(editor.getModel()?.getOptions().tabSize ?? 4);

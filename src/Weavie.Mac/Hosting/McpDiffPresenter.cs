@@ -49,10 +49,28 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		return tcs.Task;
 	}
 
-	/// <summary>Reveals the file in Monaco (at line 1) in response to the MCP <c>openFile</c> tool.</summary>
-	public Task OpenFileAsync(string filePath, CancellationToken cancellationToken) {
-		_fileOpener.Open(filePath, line: 1);
+	/// <summary>Reveals the file in Monaco in response to the MCP <c>openFile</c> tool (preview or persistent).</summary>
+	public Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken) {
+		_fileOpener.Open(filePath, line: 1, preview: preview, scratch: false);
 		return Task.CompletedTask;
+	}
+
+	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>
+	public Task CloseTabAsync(string filePath, CancellationToken cancellationToken) {
+		_bridge.PostToWeb(BuildCloseTab(filePath));
+		return Task.CompletedTask;
+	}
+
+	private static string BuildCloseTab(string path) {
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream)) {
+			writer.WriteStartObject();
+			writer.WriteString("type", "close-tab");
+			writer.WriteString("path", path);
+			writer.WriteEndObject();
+		}
+
+		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
 	}
 
 	/// <summary>Called when the webview replies with the user's Keep/Reject decision.</summary>

@@ -11,15 +11,22 @@ import type { SemanticTokenColor, TokenColorRule, VsCodeColorTheme } from "./vsc
 export type OverrideTable = "colors" | "tokenColors" | "semanticTokenColors";
 
 /**
- * Directly set one color. By default the workbench `colors` table (e.g. `editor.background` → `#000000`);
+ * Directly style one entry. By default the workbench `colors` table (e.g. `editor.background` → `#000000`);
  * with `table` set, a syntax table — a TextMate scope in `tokenColors` (e.g. `keyword.control`) or a
- * semantic selector in `semanticTokenColors` (e.g. `variable.readonly`). Last write wins.
+ * semantic selector in `semanticTokenColors` (e.g. `variable.readonly`). Sets a foreground `value`, a
+ * `fontStyle` (syntax tables only), or both — at least one is present. Last write wins.
  */
 export interface SetOp {
   kind: "set";
   table?: OverrideTable;
   key: string;
-  value: string;
+  /** Foreground hex. Optional when the op only sets `fontStyle`. */
+  value?: string;
+  /**
+   * Space-separated subset of "italic bold underline strikethrough", or "" to clear inherited styles.
+   * Only meaningful on the syntax tables (`tokenColors`/`semanticTokenColors`); ignored for `colors`.
+   */
+  fontStyle?: string;
 }
 
 /** Which table(s) a transform sweeps. `syntax` = both syntax tables; `all` = everything (default). */
@@ -87,19 +94,42 @@ function applySet(
 ): void {
   switch (op.table ?? "colors") {
     case "colors":
-      colors[op.key] = op.value;
+      // Workbench colors carry no style; a `fontStyle`-only op on this table is a no-op.
+      if (op.value !== undefined) {
+        colors[op.key] = op.value;
+      }
       return;
-    case "semanticTokenColors":
-      semanticTokenColors[op.key] = op.value;
+    case "semanticTokenColors": {
+      // Merge over the current entry so a style-only op keeps the existing foreground (and vice-versa).
+      const prev = semanticTokenColors[op.key];
+      const prevForeground = typeof prev === "string" ? prev : prev?.foreground;
+      const foreground = op.value ?? prevForeground;
+      if (op.fontStyle === undefined) {
+        // Color-only op: keep the bare-hex form themes author the common case in.
+        if (foreground !== undefined) {
+          semanticTokenColors[op.key] = foreground;
+        }
+        return;
+      }
+      semanticTokenColors[op.key] =
+        foreground === undefined
+          ? { fontStyle: op.fontStyle }
+          : { foreground, fontStyle: op.fontStyle };
       return;
-    case "tokenColors":
+    }
+    case "tokenColors": {
       // Append a rule for the exact scope; appended last so it wins for that scope (TextMate last-rule-wins).
-      tokenColors.push({
-        name: `override:${op.key}`,
-        scope: op.key,
-        settings: { foreground: op.value },
-      });
+      // A rule omitting `foreground` styles the scope without recoloring it (earlier rules' color stands).
+      const settings: TokenColorRule["settings"] = {};
+      if (op.value !== undefined) {
+        settings.foreground = op.value;
+      }
+      if (op.fontStyle !== undefined) {
+        settings.fontStyle = op.fontStyle;
+      }
+      tokenColors.push({ name: `override:${op.key}`, scope: op.key, settings });
       return;
+    }
   }
 }
 

@@ -39,6 +39,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private SessionChangeTracker? _changes;
 	private LocalFileSystem? _fileSystem;
 	private FileProviderService? _fileProvider;
+	private ScratchStore? _scratch;
 	private string? _workspace;
 	private NSWindow? _window;
 	private WKWebView? _webView;
@@ -139,7 +140,12 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		string workspace = _settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_workspace = workspace;
-		_fileProvider = new FileProviderService(fileSystem, workspace);
+		var workspaceId = WorkspaceId.ForPath(workspace);
+		// Scratch (untitled) buffers live in a per-workspace dir OUTSIDE the workspace, so they never reach the
+		// file tree / index / git / Claude; the file provider is told it as a second allowed root.
+		string scratchDir = WeaviePaths.WorkspaceScratchDir(workspaceId);
+		_scratch = new ScratchStore(fileSystem, scratchDir);
+		_fileProvider = new FileProviderService(fileSystem, workspace, scratchDir);
 		_claude.Workspace = workspace;
 		_shell.Workspace = workspace;
 
@@ -147,11 +153,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
 		// scroll/cursor on launch. Web-written; pushed back on ready. Keyed by the workspace path's id so it
 		// is per-folder even though the macOS layout store is still the legacy single-window file.
-		_editorSession = new EditorSessionStore(fileSystem, WeaviePaths.WorkspaceEditorSessionFile(WorkspaceId.ForPath(workspace)));
+		_editorSession = new EditorSessionStore(fileSystem, WeaviePaths.WorkspaceEditorSessionFile(workspaceId));
 		_editorSession.Log += line => {
 			Console.WriteLine($"[weavie] {line}");
 			Console.Out.Flush();
 		};
+		// Garbage-collect scratch (untitled) temp files orphaned by a crash or a reset session — keep only those
+		// still referenced by the restored editor session (they reopen as their "Untitled-N" tabs).
+		_scratch.GarbageCollect(_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 		_fileOpener = new FileOpener(_bridge, fileSystem, workspace);
 		_diffPresenter = new McpDiffPresenter(_bridge, fileSystem, _fileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
@@ -408,13 +417,30 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
 				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				_fileOpener?.Open(revealPath, revealLine);
+				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
+					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
+				_fileOpener?.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
 				break;
 			case "active-editor-changed":
 				if (_editor is not null && ActiveEditor.TryParse(root, out var activeEditor) && activeEditor is not null) {
 					_editor.SetActive(activeEditor);
 				}
 
+				break;
+			case "open-editors-changed":
+				_editor?.SetOpenEditors(OpenEditorTab.ParseList(root));
+				break;
+			case "new-scratch":
+				// New File (Ctrl+N): create an untitled buffer + open it as a scratch tab.
+				OpenNewScratch();
+				break;
+			case "save-scratch-as":
+				// Ctrl+S on a scratch buffer: prompt for a real name (native Save panel), write it, drop the temp.
+				SaveScratchAs(root);
+				break;
+			case "discard-scratch":
+				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
+				_scratch?.Delete(root.TryGetProperty("path", out var dsEl) ? dsEl.GetString() ?? string.Empty : string.Empty);
 				break;
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
@@ -560,7 +586,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	/// is the per-edit review, so a second applied marker would just demand a redundant Accept — suppress it.
 	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
-		if (_settings is null || !PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
+		// _settings is set in DidFinishLaunching, before the change feed that drives this is ever wired, so it is
+		// non-null by here — assert that (a violation throws loudly) rather than silently skipping the push.
+		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings!)) {
 			return;
 		}
 
@@ -689,6 +717,77 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		});
 		return completion.Task;
 	}
+
+	/// <summary>Creates a new scratch (untitled) buffer and opens it as a scratch tab — the host side of New File (Ctrl+N).</summary>
+	private void OpenNewScratch() {
+		if (_scratch is null || _fileOpener is null) {
+			return;
+		}
+
+		string path = _scratch.CreateNew();
+		_fileOpener.Open(path, 1, preview: false, scratch: true);
+	}
+
+	/// <summary>
+	/// Saves a scratch (untitled) buffer under a real name: a native <see cref="NSSavePanel"/> (defaulting to
+	/// the workspace + the buffer's "Untitled-N" name), writes its content there, deletes the temp file, and
+	/// replies <c>scratch-saved</c>. <c>reopen</c> is true only when the target is inside the workspace, so the
+	/// editor reopens it as a normal working copy; saved elsewhere it's written + the user warned, but the editor
+	/// can't edit out-of-workspace files, so the scratch tab just drops. The WKWebView raises script messages on
+	/// the main thread, so the panel runs inline.
+	/// </summary>
+	private void SaveScratchAs(JsonElement root) {
+		if (_scratch is null || _fileSystem is null || _workspace is null) {
+			return;
+		}
+
+		string scratchPath = root.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? string.Empty : string.Empty;
+		string content = root.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? string.Empty : string.Empty;
+		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
+
+		string? target;
+		using (var panel = new NSSavePanel {
+			Title = "Save As",
+			NameFieldStringValue = suggested,
+			DirectoryUrl = NSUrl.FromFilename(_workspace),
+		}) {
+			target = panel.RunModal() == 1 && panel.Url is { Path: { } chosen } ? chosen : null;
+		}
+
+		if (string.IsNullOrEmpty(target)) {
+			PostScratchSaved(scratchPath, string.Empty, reopen: false); // cancelled
+			return;
+		}
+
+		try {
+			_fileSystem.WriteAllText(target, content);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
+			PostScratchSaved(scratchPath, string.Empty, reopen: false);
+			return;
+		}
+
+		_scratch.Delete(scratchPath);
+		bool reopen = BufferStore.IsWithinWorkspace(_workspace, target);
+		if (!reopen) {
+			Notify("info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
+		}
+
+		PostScratchSaved(scratchPath, target, reopen);
+	}
+
+	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>
+	private void PostScratchSaved(string scratchPath, string savedPath, bool reopen) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "scratch-saved",
+			scratchPath,
+			savedPath,
+			reopen,
+		}));
+
+	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
+	private void Notify(string level, string message) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
 
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {

@@ -51,9 +51,27 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	}
 
 	/// <inheritdoc/>
-	public Task OpenFileAsync(string filePath, CancellationToken cancellationToken) {
-		_fileOpener.Open(filePath, line: 1);
+	public Task OpenFileAsync(string filePath, bool preview, CancellationToken cancellationToken) {
+		_fileOpener.Open(filePath, line: 1, preview: preview, scratch: false);
 		return Task.CompletedTask;
+	}
+
+	/// <inheritdoc/>
+	public Task CloseTabAsync(string filePath, CancellationToken cancellationToken) {
+		_bridge.PostToWeb(BuildCloseTab(filePath));
+		return Task.CompletedTask;
+	}
+
+	private static string BuildCloseTab(string path) {
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream)) {
+			writer.WriteStartObject();
+			writer.WriteString("type", "close-tab");
+			writer.WriteString("path", path);
+			writer.WriteEndObject();
+		}
+
+		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
 	/// <summary>Called when the webview replies with the user's Keep/Reject decision.</summary>

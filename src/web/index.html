@@ -10,13 +10,13 @@
          dismissSplash() only once the editor is ready — one clean reveal instead of a relay of
          placeholders. Inline (no external CSS) so it costs zero requests and paints immediately. -->
     <style>
-      html, body { height: 100%; margin: 0; background: #1e1e1e; color: #d4d4d4; }
+      html, body { height: 100%; margin: 0; background: #000000; color: #cdd5dc; }
       #root { height: 100%; }
       #splash {
         position: fixed; inset: 0; z-index: 9999;
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
         font: 600 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-        letter-spacing: 0.08em; color: #4ec9b0; background: #1e1e1e;
+        letter-spacing: 0.08em; color: #54c6a4; background: #000000;
         transition: opacity 0.18s ease;
       }
       #splash.hide { opacity: 0; }

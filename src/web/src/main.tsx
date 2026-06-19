@@ -2,6 +2,7 @@ import { render } from "solid-js/web";
 import App from "./App";
 import { postToHost } from "./bridge";
 import { mark } from "./startup-timing";
+import "./fonts.css";
 import "./styles.css";
 
 mark("module-eval");

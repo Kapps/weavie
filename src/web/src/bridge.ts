@@ -48,8 +48,9 @@ export type HostBoundMessage =
   | { type: "term-resize"; session: TermSession; cols: number; rows: number }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
-  // Clickable file:line in the terminal -> ask the host to load + reveal the file.
-  | { type: "reveal-file"; path: string; line: number }
+  // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
+  // reusable preview tab (single-click / go-to-def); omitted/false opens a persistent tab.
+  | { type: "reveal-file"; path: string; line: number; preview?: boolean }
   // The changes view asks the host for one file's session diff (baseline vs current text).
   | { type: "get-change-diff"; path: string }
   // Host-backed file:// provider: the editor's VSCode working copies read/write the real disk through the
@@ -71,6 +72,15 @@ export type HostBoundMessage =
   // The editor session changed (file opened, cursor moved, scrolled); debounced; host persists it. Carries
   // the open-list + active + per-file view state, NEVER file contents (the host reads those from disk).
   | { type: "editor-session-changed"; session: EditorSession }
+  // New File (Ctrl+N): ask the host to create a fresh scratch buffer (an "Untitled-N" temp file in the
+  // workspace scratch dir) and push it back as an open-file with `scratch: true`.
+  | { type: "new-scratch" }
+  // Save a scratch buffer under a real name: the host opens a native Save dialog (default filename
+  // `suggestedName`, default dir = workspace root), writes `content` to the chosen path, deletes the temp
+  // file, and replies with `scratch-saved`. `path` is the scratch temp path being saved.
+  | { type: "save-scratch-as"; path: string; content: string; suggestedName: string }
+  // Discard a scratch buffer the user closed: delete its temp file. (The web has already dropped the tab.)
+  | { type: "discard-scratch"; path: string }
   // The editor's active file or selection changed -> host updates the editor store, which tells the
   // embedded Claude what the user is looking at (selection_changed). Positions are 0-based.
   | {
@@ -83,6 +93,13 @@ export type HostBoundMessage =
         end: { line: number; character: number };
         isEmpty: boolean;
       };
+    }
+  // The set of open editor tabs changed (opened / closed / activated / pinned / promoted) -> host updates the
+  // editor store so Claude's getOpenEditors reports the real tab set. `path` is the web's own tab key (a
+  // native path); the host derives the uri/label and echoes the path back verbatim on close-tab. No content.
+  | {
+      type: "open-editors-changed";
+      editors: { path: string; isActive: boolean; isPinned: boolean; isPreview: boolean }[];
     }
   // Custom title bar (Windows): the min / maximize-restore / close buttons.
   | { type: "window-control"; action: "minimize" | "maximize-toggle" | "close" }
@@ -118,8 +135,23 @@ export type WebBoundMessage =
       proposed: string;
     }
   | { type: "close-diff"; id: string }
-  // Host delivers a file's contents to load + reveal in the Monaco editor.
-  | { type: "open-file"; path: string; content: string; line: number }
+  // Host delivers a file's contents to load + reveal in the Monaco editor. `preview` opens it as a reusable
+  // preview tab; omitted/false opens a persistent tab. `scratch` marks an untitled buffer (New File / a
+  // restored scratch). (Content is ignored — the working copy reads disk.)
+  | {
+      type: "open-file";
+      path: string;
+      content: string;
+      line: number;
+      preview?: boolean;
+      scratch?: boolean;
+    }
+  // Host's reply to save-scratch-as. `savedPath` is the chosen target ("" if the user cancelled the dialog).
+  // `reopen` is true when the target is inside the workspace (so the editor reopens it as a normal working
+  // copy); false when saved elsewhere (the host warned via a toast and the editor just drops the scratch tab).
+  | { type: "scratch-saved"; scratchPath: string; savedPath: string; reopen: boolean }
+  // Host (driven by Claude's close_tab MCP tool) asks the web to close the tab for this file path.
+  | { type: "close-tab"; path: string }
   // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
   | { type: "set-layout"; document: LayoutDocument }
   // Host pushes the persisted editor session to restore on launch/Ctrl+R. Carries NO file content — the

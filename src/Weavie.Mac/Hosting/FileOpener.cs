@@ -28,9 +28,11 @@ public sealed class FileOpener {
 	/// <summary>
 	/// Reads the file (relative paths resolve against <see cref="Workspace"/>) and pushes an
 	/// <c>open-file</c> message so Monaco loads it and reveals the given 1-based line; logs and
-	/// returns if the file does not exist.
+	/// returns if the file does not exist. Opens a reusable preview tab when <paramref name="preview"/>
+	/// is set; otherwise a persistent tab. <paramref name="scratch"/> marks an untitled buffer (a fresh
+	/// New File, or a restored scratch) so the editor shows it as "Untitled-N".
 	/// </summary>
-	public void Open(string path, int line) {
+	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
 		if (!_fileSystem.FileExists(resolved)) {
 			Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
@@ -45,6 +47,8 @@ public sealed class FileOpener {
 			writer.WriteString("path", resolved);
 			writer.WriteString("content", content);
 			writer.WriteNumber("line", Math.Max(1, line));
+			writer.WriteBoolean("preview", preview);
+			writer.WriteBoolean("scratch", scratch);
 			writer.WriteEndObject();
 		}
 

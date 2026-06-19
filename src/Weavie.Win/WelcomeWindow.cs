@@ -37,13 +37,19 @@ internal sealed class WelcomeWindow : Form {
 
 	// The welcome page's dark background, painted on the host surfaces before the page loads so the
 	// WebView2 cold-start shows dark instead of white. Matches welcome.html's pre-JS splash.
-	private static readonly Color StartupBackground = Color.FromArgb(0x18, 0x1a, 0x1b);
+	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	private readonly AppController _app;
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
 	private bool _webViewTornDown;
 	private string? _recentsScriptId;
+#if DEBUG
+	// The reused Vite dev origin, if one was serving at launch (null when serving the bundle). Lets
+	// OnNavigationCompleted recover a reload that fails because that server went away — the welcome never
+	// starts its own, so it falls back to the always-mapped bundle rather than dead-ending on Chromium's page.
+	private string? _devOrigin;
+#endif
 
 	public WelcomeWindow(AppController app) {
 		ArgumentNullException.ThrowIfNull(app);
@@ -127,6 +133,9 @@ internal sealed class WelcomeWindow : Form {
 		string? devOrigin = await ReachableDevOriginAsync();
 		if (devOrigin is not null) {
 			origin = devOrigin;
+			_devOrigin = devOrigin;
+			// Recover a reload that fails because the workspace that owned this dev server closed, killing it.
+			core.NavigationCompleted += OnNavigationCompleted;
 			Console.WriteLine($"[weavie] welcome: reusing dev server at {devOrigin}");
 		}
 #endif
@@ -198,6 +207,35 @@ internal sealed class WelcomeWindow : Form {
 	}
 
 #if DEBUG
+	/// <summary>
+	/// If a reload of the reused Vite dev origin fails because the server went away (the workspace that
+	/// started it closed), don't dead-end on Chromium's "localhost could not be reached" page — the welcome
+	/// never starts its own server, so fall back to the always-mapped bundle. One-shot: unsubscribes after.
+	/// </summary>
+	private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e) {
+		if (e.IsSuccess || _devOrigin is null
+			|| e.WebErrorStatus is not (
+				CoreWebView2WebErrorStatus.CannotConnect
+				or CoreWebView2WebErrorStatus.ServerUnreachable
+				or CoreWebView2WebErrorStatus.HostNameNotResolved
+				or CoreWebView2WebErrorStatus.ConnectionAborted
+				or CoreWebView2WebErrorStatus.ConnectionReset
+				or CoreWebView2WebErrorStatus.Disconnected
+				or CoreWebView2WebErrorStatus.Timeout)) {
+			return;
+		}
+
+		var core = _webView.CoreWebView2;
+		if (core is null) {
+			return;
+		}
+
+		_devOrigin = null;
+		core.NavigationCompleted -= OnNavigationCompleted;
+		Console.WriteLine($"[weavie] welcome: dev server unreachable ({e.WebErrorStatus}); loading bundled wwwroot at https://{AppHost}");
+		core.Navigate($"https://{AppHost}/welcome.html");
+	}
+
 	/// <summary>Returns the Vite dev origin if one is already serving, else null. Never starts a server.</summary>
 	private static async Task<string?> ReachableDevOriginAsync() {
 		using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(1) };

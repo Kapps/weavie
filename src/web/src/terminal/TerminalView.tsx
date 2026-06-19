@@ -81,19 +81,32 @@ export function TerminalView(props: {
       term.options.theme = theme;
     });
 
-    // WebGL renderer with self-healing: a lost GL context (driver churn, or DOM/style mutation from
-    // an HMR swap in dev) otherwise leaves the canvas blank. On loss, drop the addon so xterm falls
-    // back to the always-painting DOM renderer, then repaint.
-    try {
-      const webgl = new WebglAddon();
-      webgl.onContextLoss(() => {
-        webgl.dispose();
-        refit();
-      });
-      term.loadAddon(webgl);
-    } catch (error) {
-      log("warn", `WebGL terminal renderer unavailable, using fallback: ${String(error)}`);
-    }
+    // WebGL renderer with self-healing. xterm draws into a <canvas> backed by a GPU context; on
+    // macOS/WKWebView that context can be lost — driver churn, or the recompositing pass WebKit runs
+    // after an HMR DOM swap in dev — leaving the canvas blank. The catch is it often does so WITHOUT
+    // firing `webglcontextlost`, so neither the loss handler below nor a same-size `refresh()` recovers
+    // it: the canvas backing store is only reallocated by an actual size change (which is why a manual
+    // OS-window resize "fixes" it). When the loss IS reported we drop the addon and let xterm fall back
+    // to its always-painting DOM renderer; the silent case is handled by rebuilding on HMR (see below).
+    let webgl: WebglAddon | null = null;
+    const mountWebgl = (): void => {
+      try {
+        const addon = new WebglAddon();
+        addon.onContextLoss(() => {
+          if (webgl === addon) {
+            webgl = null;
+          }
+          addon.dispose();
+          refit();
+        });
+        term.loadAddon(addon);
+        webgl = addon;
+      } catch (error) {
+        webgl = null;
+        log("warn", `WebGL terminal renderer unavailable, using fallback: ${String(error)}`);
+      }
+    };
+    mountWebgl();
     // OSC 8 hyperlinks Claude emits (file:// URIs) -> reveal in Monaco.
     term.options.linkHandler = {
       activate: (_event, uri) => {
@@ -170,11 +183,27 @@ export function TerminalView(props: {
     // resize — i.e. the claude TUI never learns the window changed size.
     window.addEventListener("resize", refit);
 
-    // After an HMR update (e.g. a CSS/theme hot-swap) there's no size change to trigger a refit, yet
-    // the WebGL canvas can be left blank — so refit + repaint explicitly. Dev-only: `import.meta.hot`
-    // is undefined in the production build, so this is tree-shaken out.
+    // After an HMR update there's no size change to trigger a refit, and on macOS/WKWebView the
+    // recompositing pass can silently blank the WebGL canvas (see mountWebgl) — a state a same-size
+    // refit can't repaint out of. So when we're on the WebGL renderer, rebuild it: dispose the dead
+    // addon and mount a fresh one, whose brand-new canvas + GL context WebKit allocates and composites
+    // cleanly. Do it on the NEXT frame, after WebKit has run its own post-update layout — rebuilding
+    // synchronously here races that pass and the replacement canvas can blank too (the intermittent case
+    // where a manual resize is still needed). If we've already fallen back to the DOM renderer, a plain
+    // refit repaints it. Dev-only: `import.meta.hot` is undefined in the production build, so this is
+    // tree-shaken out.
+    const onHmrUpdate = (): void => {
+      requestAnimationFrame(() => {
+        if (webgl !== null) {
+          webgl.dispose();
+          webgl = null;
+          mountWebgl();
+        }
+        refit();
+      });
+    };
     if (import.meta.hot) {
-      import.meta.hot.on("vite:afterUpdate", refit);
+      import.meta.hot.on("vite:afterUpdate", onHmrUpdate);
     }
 
     const offHost = onHostMessage((message) => {
@@ -209,7 +238,7 @@ export function TerminalView(props: {
       resizeObserver.disconnect();
       window.removeEventListener("resize", refit);
       if (import.meta.hot) {
-        import.meta.hot.off("vite:afterUpdate", refit);
+        import.meta.hot.off("vite:afterUpdate", onHmrUpdate);
       }
       term.dispose();
     });

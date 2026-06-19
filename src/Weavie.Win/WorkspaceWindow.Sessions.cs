@@ -237,6 +237,11 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		PushFileIndexToWeb();
 		PostSessionStatus(session.Status.Status);
 		PushSessionList();
+		// Land keyboard focus in the new session's Claude pane. Pushed last so it wins over the editor rebind
+		// above, and after term-reset so the (persistent) claude xterm is the one focused. Every switch path —
+		// new session, rail click, next/prev, Ctrl+Shift+N select, and the close→primary fallback — routes
+		// through here, so each drops the user straight into the agent rather than leaving focus nowhere.
+		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
 	}
 
 	/// <summary>

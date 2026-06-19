@@ -211,13 +211,18 @@ file / close tab).
 | `weavie.session.next` | Next Session | Web | `$mod+Shift+]` | — |
 | `weavie.session.prev` | Previous Session | Web | `$mod+Shift+[` | — |
 | `weavie.session.switch` | Switch Session… | Web | — (palette) | — |
+| `weavie.session.selectByIndex` | Switch to Session by Number | Web | `$mod+Shift+1–9` | `{ index }` (1-based, rail order) |
 | `weavie.session.close` | Close Session | Core | — (rail menu + palette) | `{ id? }` (default: active) |
 
 Notes: the GUI `+` invokes `weavie.session.new` with **only** `branch` (no `prompt`) — fresh Claude.
 `base` defaults to `current` (the session you're branching from); `main` is the alternate. Args
 follow the embedded-Claude scalar-coercion convention (lenient at the MCP boundary —
-[embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`$mod+Shift+1–9`) is deferred to
-keep v1's chord surface small; cycle + palette cover it.
+[embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`$mod+Shift+1–9` →
+`weavie.session.selectByIndex`) mirrors the pane-focus `$mod+1–9`: a chord with no session at that
+rail number falls through (declines), and the rail chip's tooltip advertises its number (read from the
+catalog, never hardcoded). Every switch path — new, rail click, cycle, and direct-index — ends with the
+host pushing a `focus-pane` (`terminal:claude`) so the user lands in the new session's Claude rather than
+with focus nowhere.
 
 ## Worktree lifecycle
 

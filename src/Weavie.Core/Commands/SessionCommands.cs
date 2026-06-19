@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Sessions;
 
@@ -27,6 +28,9 @@ public static class SessionCommands {
 
 	/// <summary>Opens the omnibar to pick a session to switch to.</summary>
 	public const string SwitchSession = "weavie.session.switch";
+
+	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>$mod+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
+	public const string SelectSessionByIndex = "weavie.session.selectByIndex";
 
 	/// <summary>Closes a session (the active one, or the <c>id</c> arg), keeping its worktree on disk.</summary>
 	public const string CloseSession = "weavie.session.close";
@@ -100,6 +104,28 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Open the omnibar to pick a session to switch to.",
 			Aliases = ["switch session", "go to session", "change session", "pick session"],
+		});
+
+		// $mod+Shift+1..9 → switch to the Nth session on the rail (the session analogue of the pane-focus
+		// Ctrl+1..9). Keybinding-only + hidden from the palette: "switch to session 3" is no clearer a palette
+		// row than the pane equivalent, and the human-facing picker is Switch Session… Each default binding
+		// carries its own 1-based index argument; the web rail switches to that session if one exists there.
+		var indexBindings = new List<CommandKeybinding>(9);
+		for (int i = 1; i <= 9; i++) {
+			string n = i.ToString(CultureInfo.InvariantCulture);
+			indexBindings.Add(new CommandKeybinding { Key = $"$mod+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
+		}
+
+		registry.Register(new CommandDefinition {
+			Id = SelectSessionByIndex,
+			Title = "Switch to Session by Number",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Switch to the Nth session on the rail (1-based, in rail order).",
+			Aliases = ["switch to session", "select session", "go to session number"],
+			DefaultKeybindings = indexBindings,
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based session number in rail order\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

@@ -6,7 +6,14 @@
     <!-- This machine is macOS 26; floor at 14.0 so modern (non-deprecated) AppKit APIs
          pass the CA1422 obsolete-API gate. -->
     <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
-    <TrimMode Condition="'$(Configuration)' == 'Release'">full</TrimMode>
+    <!-- Do NOT trim. Weavie.Core (de)serializes its own model types through the reflection-based
+         System.Text.Json overloads (JsonSerializer.Serialize/Deserialize with JsonSerializerOptions),
+         which the trimmer can't statically analyze: every call raises IL2026, and under the repo's
+         zero-warning gate (TreatWarningsAsErrors) that fails the Release publish (NETSDK1144). Even if
+         forced through, full trimming could strip the very members being serialized and break at
+         runtime. The macOS SDK enables trimming by default in Release, so disable it explicitly —
+         matching the Win/Linux shells, which publish self-contained without trimming. -->
+    <PublishTrimmed Condition="'$(Configuration)' == 'Release'">false</PublishTrimmed>
     <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
   </PropertyGroup>
 

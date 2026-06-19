@@ -119,7 +119,7 @@ public static class FontSettings {
 	/// written first (for a bridge push); when null, the bare object is produced (for the injected
 	/// <c>window.__WEAVIE_FONTS__</c> global).
 	/// </summary>
-	public static string BuildJson(SettingsStore store, string? messageType = null) {
+	public static string BuildJson(SettingsStore store, string? messageType) {
 		ArgumentNullException.ThrowIfNull(store);
 		var editor = ResolveEditor(store);
 		var terminal = ResolveTerminal(store);
@@ -175,8 +175,8 @@ public static class FontSettings {
 	private static ResolvedFont Resolve(SettingsStore store, string familyKey, string sizeKey, string weightKey) {
 		string family = FirstNonEmpty(store.GetString(familyKey), store.GetString(GlobalFamily)) ?? DefaultFamily;
 
-		long sizeOverride = store.GetInt(sizeKey);
-		long size = sizeOverride > 0 ? sizeOverride : PositiveOr(store.GetInt(GlobalSize), DefaultSize);
+		long sizeOverride = store.GetInt(sizeKey, 0);
+		long size = sizeOverride > 0 ? sizeOverride : PositiveOr(store.GetInt(GlobalSize, 0), DefaultSize);
 
 		string? weightOverride = store.GetString(weightKey);
 		string weight = !string.IsNullOrEmpty(weightOverride) && weightOverride != InheritWeight

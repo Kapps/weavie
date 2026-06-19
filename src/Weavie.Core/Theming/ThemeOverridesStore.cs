@@ -23,7 +23,7 @@ public sealed class ThemeOverridesStore {
 	private readonly Dictionary<string, List<ThemeOverrideOp>> _overrides;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/theme-overrides.json</c>), loading it now.</summary>
-	public ThemeOverridesStore(IFileSystem fileSystem, string? path = null) {
+	public ThemeOverridesStore(IFileSystem fileSystem, string? path) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		_fileSystem = fileSystem;
 		FilePath = path ?? WeaviePaths.ThemeOverridesFile;

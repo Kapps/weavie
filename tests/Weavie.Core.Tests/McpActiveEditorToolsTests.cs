@@ -21,7 +21,7 @@ public sealed class McpActiveEditorToolsTests {
 	private static readonly string OtherPath = OperatingSystem.IsWindows() ? @"C:\workspace\b.cs" : "/workspace/b.cs";
 
 	private static McpServer NewServer(EditorStore editor) =>
-		new(Token, FakeDiffPresenter.AlwaysKeep(), ["/workspace"], "weavie", editor: editor);
+		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), ["/workspace"], "weavie", editor: editor);
 
 	[Fact]
 	public async Task GetCurrentSelection_NoActiveEditor_ReturnsSuccessFalse() {
@@ -109,7 +109,7 @@ public sealed class McpActiveEditorToolsTests {
 	public async Task CloseTab_ResolvesNameAndAsksPresenterToClose() {
 		var fake = FakeDiffPresenter.AlwaysKeep();
 		var editor = new EditorStore();
-		await using var server = new McpServer(Token, fake, ["/workspace"], "weavie", editor: editor);
+		await using var server = TestMcp.Server(Token, fake, ["/workspace"], "weavie", editor: editor);
 		int port = server.Start();
 		editor.SetOpenEditors([new OpenEditorTab(FilePath, IsActive: true, IsPinned: false, IsPreview: false)]);
 		using var ws = await ConnectAsync(port);

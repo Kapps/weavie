@@ -26,7 +26,7 @@ public static class LayoutPanes {
 	}
 
 	/// <summary>Creates a layout store backed by the built-in pane registry over <paramref name="filePath"/>.</summary>
-	public static LayoutStore CreateStore(string? filePath = null) =>
+	public static LayoutStore CreateStore(string? filePath) =>
 		new(new LocalFileSystem(), CreateRegistry(), filePath);
 
 	/// <summary>Registers the built-in pane kinds into <paramref name="registry"/>.</summary>

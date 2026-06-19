@@ -15,7 +15,7 @@ public sealed class HookBridgeServerTests {
 	[Fact]
 	public async Task PreToolUse_RaisesObserved_AndPassesThrough() {
 		string pipe = UniquePipe();
-		await using var server = new HookBridgeServer(pipe);
+		await using var server = new HookBridgeServer(pipe, decide: null);
 		var observed = new TaskCompletionSource<HookRequest>(TaskCreationOptions.RunContinuationsAsynchronously);
 		server.Observed += request => observed.TrySetResult(request);
 		server.Start();

@@ -46,7 +46,7 @@ public sealed class LayoutStore {
 	private LayoutDocument _current;
 
 	/// <summary>Creates a store over <paramref name="path"/> (default <c>~/.weavie/layout.json</c>), loading and reconciling now.</summary>
-	public LayoutStore(IFileSystem fileSystem, PaneRegistry registry, string? path = null) {
+	public LayoutStore(IFileSystem fileSystem, PaneRegistry registry, string? path) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(registry);
 		_fileSystem = fileSystem;
@@ -102,7 +102,7 @@ public sealed class LayoutStore {
 	}
 
 	/// <summary>Records that the user explicitly closed pane <paramref name="kind"/>: removes it and tombstones it so it isn't reinjected.</summary>
-	public LayoutResult DismissPane(string kind, LayoutSource source = LayoutSource.User) {
+	public LayoutResult DismissPane(string kind, LayoutSource source) {
 		ArgumentException.ThrowIfNullOrEmpty(kind);
 		LayoutChange change;
 		lock (_gate) {

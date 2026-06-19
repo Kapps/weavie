@@ -120,7 +120,7 @@ public sealed class FontSettingsTests : IDisposable {
 		using var store = NewStore();
 		store.Set(FontSettings.TerminalSize, Json("11"));
 
-		using var bare = JsonDocument.Parse(FontSettings.BuildJson(store));
+		using var bare = JsonDocument.Parse(FontSettings.BuildJson(store, messageType: null));
 		Assert.False(bare.RootElement.TryGetProperty("type", out _));
 		var editor = bare.RootElement.GetProperty("editor");
 		Assert.Equal(13, editor.GetProperty("size").GetInt32());

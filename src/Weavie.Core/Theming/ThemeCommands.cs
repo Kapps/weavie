@@ -31,7 +31,7 @@ public static class ThemeCommands {
 		CommandDispatcher dispatcher,
 		SettingsStore settings,
 		ThemeOverridesStore overrides,
-		VsixFilePicker? pickVsixFile = null) {
+		VsixFilePicker? pickVsixFile) {
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(overrides);
@@ -59,7 +59,7 @@ public static class ThemeCommands {
 		}
 
 		try {
-			var installer = new OpenVsxThemeInstaller();
+			var installer = new OpenVsxThemeInstaller(http: null, registry: OpenVsxThemeInstaller.DefaultRegistry);
 			var installed = await installer.InstallAsync(ns, name, string.IsNullOrEmpty(version) ? null : version, ct).ConfigureAwait(false);
 			return DescribeInstall(installed, $"{ns}.{name}", settings, autoSelectSingle: false);
 		} catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException) {
@@ -91,7 +91,7 @@ public static class ThemeCommands {
 		}
 
 		try {
-			var installer = new OpenVsxThemeInstaller();
+			var installer = new OpenVsxThemeInstaller(http: null, registry: OpenVsxThemeInstaller.DefaultRegistry);
 			var installed = await installer.InstallFromVsixAsync(path, ct).ConfigureAwait(false);
 			return DescribeInstall(installed, Path.GetFileName(path), settings, autoSelectSingle: interactive);
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException or UnauthorizedAccessException) {

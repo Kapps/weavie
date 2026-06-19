@@ -25,8 +25,8 @@ public static class ThemeJson {
 	public static string Build(
 		SettingsStore settings,
 		ThemeOverridesStore overrides,
-		string? messageType = null,
-		Action<string>? log = null) {
+		string? messageType,
+		Action<string>? log) {
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(overrides);
 

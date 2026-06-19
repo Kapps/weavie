@@ -78,6 +78,19 @@ internal sealed class WelcomeWindow : Form {
 		NativeChrome.UseDarkTitleBar(Handle);
 	}
 
+	/// <summary>
+	/// Drops bare Alt/F10 menu-bar activation, as the workspace window does: this window has no menu bar
+	/// (just the web welcome screen), so entering menu mode would only freeze input and beep. Alt+Space still
+	/// opens the system menu.
+	/// </summary>
+	protected override void WndProc(ref Message m) {
+		if (CustomChrome.HandleSysKeyMenu(ref m)) {
+			return;
+		}
+
+		base.WndProc(ref m);
+	}
+
 	private async void OnLoad(object? sender, EventArgs e) {
 		SizeToScreen();
 		try {

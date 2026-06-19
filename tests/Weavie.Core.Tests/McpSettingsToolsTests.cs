@@ -35,7 +35,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	private SettingsStore NewStore() => CoreSettings.CreateStore(FilePath, enableWatcher: false);
 
 	private McpServer NewServer(SettingsStore store) =>
-		new(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
+		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
 
 	// A shell guaranteed to validate on this machine — prefer nushell (the acceptance target) when present.
 	private static string PresentShell() {

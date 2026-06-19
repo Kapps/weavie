@@ -31,19 +31,21 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	public IdeIntegration(
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie",
-		SettingsStore? settings = null,
-		LayoutStore? layout = null,
-		EditorStore? editor = null,
-		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) {
+		string ideName,
+		SettingsStore? settings,
+		LayoutStore? layout,
+		EditorStore? editor,
+		CommandDispatcher? commands,
+		KeybindingStore? keybindings,
+		ThemeOverridesStore? themeOverrides) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
 		// The IDE server (not the registry) carries the active-editor context: getCurrentSelection/
 		// getOpenEditors + the pushed selection_changed notification all live on the IDE connection.
-		Server = new McpServer(AuthToken, presenter, workspaceFolders, ideName, editor: editor);
+		Server = new McpServer(
+			AuthToken, presenter, workspaceFolders, ideName, settings: null, registryMode: false, layout: null,
+			editor: editor, commands: null, keybindings: null, themeOverrides: null);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
@@ -58,7 +60,7 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		if (settings is not null) {
 			RegistryServer = new McpServer(
 				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout,
-				commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
+				editor: null, commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
 			RegistryPort = RegistryServer.Start();
 		}
 	}

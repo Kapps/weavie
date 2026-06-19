@@ -50,14 +50,14 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string authToken,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie",
-		SettingsStore? settings = null,
-		bool registryMode = false,
-		LayoutStore? layout = null,
-		EditorStore? editor = null,
-		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) {
+		string ideName,
+		SettingsStore? settings,
+		bool registryMode,
+		LayoutStore? layout,
+		EditorStore? editor,
+		CommandDispatcher? commands,
+		KeybindingStore? keybindings,
+		ThemeOverridesStore? themeOverrides) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);

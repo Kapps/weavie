@@ -33,7 +33,7 @@ public sealed class McpLayoutToolsTests : IDisposable {
 
 	private McpServer NewRegistryServer(LayoutStore layout) {
 		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
-		return new McpServer(
+		return TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings, registryMode: true, layout: layout);
 	}
 

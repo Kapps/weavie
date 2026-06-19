@@ -38,6 +38,30 @@ export interface FontSpec {
   weight: string;
 }
 
+// Resolved editor-behavior options (Monaco IEditorOptions surfaced as Weavie settings — see Core's
+// EditorSettings). The host injects them as window.__WEAVIE_EDITOR_OPTIONS__ before navigation and
+// re-pushes a { type: "editorOptions" } message whenever one changes. Keys are short camelCase names
+// the editor maps onto Monaco's nested option shape (editor-options.ts); `suggestExpandDocs` is the
+// one non-option, mapped to a custom behavior since Monaco has no setting for it.
+export interface EditorOptionsSpec {
+  inlayHints: "on" | "off" | "offUnlessPressed" | "onUnlessPressed";
+  minimap: boolean;
+  bracketPairColorization: boolean;
+  smoothScrolling: boolean;
+  cursorSmoothCaretAnimation: "off" | "on" | "explicit";
+  renderWhitespace: "none" | "boundary" | "selection" | "trailing" | "all";
+  scrollBeyondLastLine: boolean;
+  wordWrap: "off" | "on" | "wordWrapColumn" | "bounded";
+  lineNumbers: "on" | "off" | "relative" | "interval";
+  cursorBlinking: "blink" | "smooth" | "phase" | "expand" | "solid";
+  renderLineHighlight: "none" | "gutter" | "line" | "all";
+  stickyScroll: boolean;
+  fontLigatures: boolean;
+  indentGuides: boolean;
+  hoverDelay: number;
+  suggestExpandDocs: boolean;
+}
+
 export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
@@ -159,6 +183,9 @@ export type WebBoundMessage =
   | { type: "set-editor-session"; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
+  // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
+  // editor.updateOptions (plus the suggest-docs custom behavior).
+  | { type: "editorOptions"; options: EditorOptionsSpec }
   // Host pushes the active theme (a theme switch or an override edit): its id, override ops, and — for
   // installed themes — the converted VS Code theme JSON (built-ins carry only the id). Re-themes the
   // editor, terminal, and chrome live.

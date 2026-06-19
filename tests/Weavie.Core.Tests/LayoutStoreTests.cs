@@ -90,7 +90,7 @@ public sealed class LayoutStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = NewStore(fs);
 
-		store.DismissPane(LayoutPanes.TerminalShell);
+		store.DismissPane(LayoutPanes.TerminalShell, LayoutSource.User);
 
 		Assert.Contains(LayoutPanes.TerminalShell, store.Current.Dismissed);
 		Assert.DoesNotContain(LayoutPanes.TerminalShell, KindsOf(store.Current.Root));

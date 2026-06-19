@@ -23,6 +23,11 @@ internal static class CustomChrome {
 	private const int WmNcCalcSize = 0x0083;
 	private const int WmNcHitTest = 0x0084;
 	private const int WmNcLButtonDown = 0x00A1;
+	private const int WmSysCommand = 0x0112;
+
+	// System command for keyboard menu-bar activation (Alt / F10). The low 4 bits are reserved, so compare
+	// against the upper bits with the 0xFFF0 mask.
+	private const int ScKeyMenu = 0xF100;
 
 	private const int HtClient = 1;
 	private const int HtLeft = 10;
@@ -188,6 +193,29 @@ internal static class CustomChrome {
 			_ => HtClient,
 		};
 		message.Result = (IntPtr)hit;
+		return true;
+	}
+
+	/// <summary>
+	/// Swallows the keyboard menu-bar activation (<c>WM_SYSCOMMAND</c> / <c>SC_KEYMENU</c> with no mnemonic)
+	/// that bare <c>Alt</c> and <c>F10</c> generate. This window is frameless and has no native menu bar — the
+	/// File/View menus live in the web title bar — so letting Windows enter menu mode here focuses a menu that
+	/// isn't there: input freezes until another keypress, which then beeps. Everything reachable from that menu
+	/// is also a command (palette + keybindings), so the activation buys nothing and we drop it.
+	/// <para>
+	/// Only the bare activation (<c>lParam == 0</c>) is consumed. <c>Alt+Space</c> arrives as <c>SC_KEYMENU</c>
+	/// with the space mnemonic in <c>lParam</c>, so it falls through to the default handler and still opens the
+	/// window's system menu (Move/Size/Maximize/Close) for keyboard users. Returns true when it consumed the message.
+	/// </para>
+	/// </summary>
+	public static bool HandleSysKeyMenu(ref Message message) {
+		if (message.Msg != WmSysCommand
+			|| (message.WParam.ToInt64() & 0xFFF0) != ScKeyMenu
+			|| message.LParam != IntPtr.Zero) {
+			return false;
+		}
+
+		message.Result = IntPtr.Zero;
 		return true;
 	}
 

@@ -70,7 +70,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		// Restore the saved window geometry (size / position / zoomed) when present and on-screen, else
 		// fall back to a centered 1280x840 default.
-		_layout = LayoutPanes.CreateStore();
+		_layout = LayoutPanes.CreateStore(filePath: null);
 		var savedWindow = _layout.Current.Window;
 		bool usedSaved = savedWindow is not null
 			&& IsOnScreen(new CGRect(savedWindow.X, savedWindow.Y, savedWindow.Width, savedWindow.Height));
@@ -82,7 +82,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 
 		// User settings (shell / workspace / claude path) resolved from ~/.weavie/settings.toml; the
 		// store is the change hub the host reacts to (e.g. a shell change reopens the shell pane).
-		_settings = CoreSettings.CreateStore();
+		_settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		_settings.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
@@ -92,7 +92,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// from ~/.weavie/keybindings.json over the defaults. The dispatcher routes runCommand (MCP) +
 		// invoke-command (web) to Core/web handlers; the WebInvoker + Core handlers are wired below.
 		_commandRegistry = CoreCommands.CreateRegistry();
-		_keybindings = new KeybindingStore(_commandRegistry);
+		_keybindings = new KeybindingStore(_commandRegistry, filePath: null, enableWatcher: true);
 		_keybindings.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
@@ -100,7 +100,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_commands = new CommandDispatcher(_commandRegistry);
 
 		// Per-theme color overrides (~/.weavie/theme-overrides.json); the active theme itself is a setting.
-		_themeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		_themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
 		_themeOverrides.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
@@ -109,14 +109,21 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Typography: inject the resolved editor + terminal fonts at document start so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
 		config.UserContentController.AddUserScript(new WKUserScript(
-			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};"),
+			new NSString($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};"),
+			WKUserScriptInjectionTime.AtDocumentStart,
+			isForMainFrameOnly: true));
+
+		// Editor behavior: inject the resolved editor.* options at document start so the editor mounts with
+		// the user's options (inlay hints, word wrap, hover delay, …); live changes are pushed below.
+		config.UserContentController.AddUserScript(new WKUserScript(
+			new NSString($"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};"),
 			WKUserScriptInjectionTime.AtDocumentStart,
 			isForMainFrameOnly: true));
 
 		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
 		// at document start so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
 		config.UserContentController.AddUserScript(new WKUserScript(
-			new NSString($"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, log: line => Console.WriteLine(line))};"),
+			new NSString($"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: line => Console.WriteLine(line))};"),
 			WKUserScriptInjectionTime.AtDocumentStart,
 			isForMainFrameOnly: true));
 
@@ -221,6 +228,14 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		_settings.SettingChanged += change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+		};
+
+		// Editor options (ApplyMode.Live): any editor.* change re-pushes the resolved options so the web
+		// applies them via updateOptions in place.
+		_settings.SettingChanged += change => {
+			if (EditorSettings.Keys.Contains(change.Key)) {
+				_bridge.PostToWeb(EditorSettings.BuildJson(_settings, "editorOptions"));
 			}
 		};
 

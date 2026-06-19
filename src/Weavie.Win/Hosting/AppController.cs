@@ -35,7 +35,7 @@ internal sealed class AppController : ApplicationContext {
 
 		// User settings (shell / workspace / claude path / fonts) resolved from ~/.weavie/settings.toml;
 		// the store is the change hub windows react to (e.g. a shell change reopens the shell pane).
-		Settings = CoreSettings.CreateStore();
+		Settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		Settings.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
@@ -45,7 +45,7 @@ internal sealed class AppController : ApplicationContext {
 		// resolved from ~/.weavie/keybindings.json over the command defaults. Both are shared across windows;
 		// each window injects them into its web app and re-pushes when the keybindings file changes.
 		CommandRegistry = CoreCommands.CreateRegistry();
-		Keybindings = new KeybindingStore(CommandRegistry);
+		Keybindings = new KeybindingStore(CommandRegistry, filePath: null, enableWatcher: true);
 		Keybindings.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
@@ -62,7 +62,7 @@ internal sealed class AppController : ApplicationContext {
 
 		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global like settings so a change
 		// reaches every window; the active theme itself is a normal setting (theme.active).
-		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem());
+		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
 		ThemeOverrides.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
@@ -70,7 +70,7 @@ internal sealed class AppController : ApplicationContext {
 
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe so the logic isn't duplicated on macOS.
-		var recents = new RecentWorkspaces(new LocalFileSystem());
+		var recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 		recents.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();

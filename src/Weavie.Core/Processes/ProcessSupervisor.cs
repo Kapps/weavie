@@ -57,8 +57,8 @@ public sealed class ProcessSupervisor : IDisposable {
 		Action<int> start,
 		Action stop,
 		SupervisionOptions options,
-		Action<SupervisorLogEntry>? log = null,
-		ISupervisorClock? clock = null) {
+		Action<SupervisorLogEntry>? log,
+		ISupervisorClock? clock) {
 		ArgumentException.ThrowIfNullOrEmpty(name);
 		ArgumentNullException.ThrowIfNull(start);
 		ArgumentNullException.ThrowIfNull(stop);

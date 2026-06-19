@@ -13,7 +13,8 @@ namespace Weavie.Core.Theming;
 /// The raw theme JSON is kept as the lossless source of truth; conversion happens at load (web side).
 /// </summary>
 public sealed class OpenVsxThemeInstaller {
-	private const string DefaultRegistry = "https://open-vsx.org";
+	/// <summary>The public Open VSX registry base URL used when no other registry is supplied.</summary>
+	public const string DefaultRegistry = "https://open-vsx.org";
 	private const string IndexFileName = "index.json";
 
 	private readonly HttpClient _http;
@@ -22,7 +23,7 @@ public sealed class OpenVsxThemeInstaller {
 	/// <summary>Creates the installer. Pass an <see cref="HttpClient"/> to share/mock; one is created otherwise.</summary>
 	/// <param name="http">HTTP client used for registry calls; a default is created if null.</param>
 	/// <param name="registry">Registry base URL; defaults to the public Open VSX.</param>
-	public OpenVsxThemeInstaller(HttpClient? http = null, string registry = DefaultRegistry) {
+	public OpenVsxThemeInstaller(HttpClient? http, string registry) {
 		_http = http ?? new HttpClient();
 		_registry = registry.TrimEnd('/');
 	}

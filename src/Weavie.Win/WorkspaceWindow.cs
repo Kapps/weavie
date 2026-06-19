@@ -169,6 +169,12 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	/// default behavior. The styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
 	/// </summary>
 	protected override void WndProc(ref Message m) {
+		// Drop bare Alt/F10 menu-bar activation: there's no native menu bar to focus (it's in the web title
+		// bar), so entering menu mode would just freeze input and beep. Alt+Space still opens the system menu.
+		if (CustomChrome.HandleSysKeyMenu(ref m)) {
+			return;
+		}
+
 		// IsMaximized (live WS_MAXIMIZE), not WindowState: WinForms updates WindowState on WM_SIZE, which
 		// fires after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal here and the
 		// frame inset would be skipped — clipping the top of the title bar.
@@ -343,7 +349,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 
 		// Off-by-default diagnostic (a real setting, not a buried env var): when on, the host logs its
 		// launch phases below and tells the web app to log its own via ?startuptiming.
-		bool startupTiming = _settings.GetBool("diagnostics.startupTiming");
+		bool startupTiming = _settings.GetBool("diagnostics.startupTiming", false);
 		_bridge.MessageReceived += OnWebMessage;
 
 		// Session: the live, workspace-scoped backend this window hosts — the two terminals (claude +
@@ -415,12 +421,17 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 
 		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
 		// mount at the user's font with no default-font flash; live changes are pushed below.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings)};");
+		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};");
+
+		// Editor behavior: inject the resolved editor.* options before navigation so the editor mounts with
+		// the user's options (inlay hints, word wrap, hover delay, …); live changes are pushed below.
+		await core.AddScriptToExecuteOnDocumentCreatedAsync(
+			$"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};");
 
 		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
 		// before navigation so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(
-			$"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _app.ThemeOverrides, log: line => Console.WriteLine(line))};");
+			$"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _app.ThemeOverrides, messageType: null, log: line => Console.WriteLine(line))};");
 
 		// Commands + keybindings: inject the catalog + resolved bindings before navigation so the web's
 		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
@@ -449,6 +460,14 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		_settings.SettingChanged += change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+		};
+
+		// Editor options (ApplyMode.Live): any editor.* change re-pushes the resolved options so the web
+		// applies them via updateOptions in place.
+		_settings.SettingChanged += change => {
+			if (EditorSettings.Keys.Contains(change.Key)) {
+				_bridge.PostToWeb(EditorSettings.BuildJson(_settings, "editorOptions"));
 			}
 		};
 

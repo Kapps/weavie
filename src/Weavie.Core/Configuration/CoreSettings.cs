@@ -6,7 +6,7 @@ namespace Weavie.Core.Configuration;
 /// <see cref="SettingDefinition.ComputeDefault"/> and <see cref="SettingDefinition.Validate"/>.
 /// </summary>
 public static class CoreSettings {
-	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, fonts, diagnostics).</summary>
+	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, fonts, editor, theme, diagnostics).</summary>
 	public static SettingsRegistry CreateRegistry() {
 		var registry = new SettingsRegistry();
 		Register(registry);
@@ -14,10 +14,10 @@ public static class CoreSettings {
 	}
 
 	/// <summary>Creates a store backed by the core registry over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>).</summary>
-	public static SettingsStore CreateStore(string? filePath = null, bool enableWatcher = true) =>
+	public static SettingsStore CreateStore(string? filePath, bool enableWatcher) =>
 		new(CreateRegistry(), filePath, enableWatcher);
 
-	/// <summary>Registers the built-in settings (workspace, shell, claude path, fonts, diagnostics) into <paramref name="registry"/>.</summary>
+	/// <summary>Registers the built-in settings (workspace, shell, claude path, fonts, editor, theme, diagnostics) into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
@@ -71,6 +71,7 @@ public static class CoreSettings {
 		});
 
 		FontSettings.Register(registry);
+		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {

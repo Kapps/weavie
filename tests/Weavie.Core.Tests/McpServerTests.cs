@@ -14,7 +14,7 @@ public sealed class McpServerTests {
 	private const string Token = "0123456789abcdef0123456789abcdef";
 
 	private static McpServer NewServer(IDiffPresenter presenter) =>
-		new(Token, presenter, ["/workspace"]);
+		TestMcp.Server(Token, presenter, ["/workspace"]);
 
 	private static async Task<ClientWebSocket> ConnectAsync(int port, string? token) {
 		var client = new ClientWebSocket();

@@ -52,7 +52,7 @@ public sealed class WorkspaceWatcher : IDisposable {
 		IReadOnlySet<string> extensions,
 		Action<IReadOnlyList<WatchedFileChange>> onChanges,
 		Action<string> log,
-		int debounceMs = 250) {
+		int debounceMs) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		ArgumentNullException.ThrowIfNull(extensions);
 		ArgumentNullException.ThrowIfNull(onChanges);

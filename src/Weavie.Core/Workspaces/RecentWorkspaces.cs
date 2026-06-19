@@ -20,7 +20,7 @@ public sealed class RecentWorkspaces {
 	private readonly List<string> _items;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/recents.json</c>), loading it now.</summary>
-	public RecentWorkspaces(IFileSystem fileSystem, string? path = null) {
+	public RecentWorkspaces(IFileSystem fileSystem, string? path) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		_fileSystem = fileSystem;
 		FilePath = path ?? WeaviePaths.RecentsFile;

@@ -117,7 +117,7 @@ internal sealed class HostSession : IAsyncDisposable {
 		// mirrors the IDE-MCP loopback + token posture (bind 127.0.0.1, require the token on the WS upgrade;
 		// origin pinned to the app).
 		string lspToken = IdeLockFile.NewAuthToken();
-		Lsp = new LspBridgeServer(lspToken, workspaceRoot, allowedOrigin: pageOrigin);
+		Lsp = new LspBridgeServer(lspToken, workspaceRoot, allowedOrigin: pageOrigin, resolveDescriptor: null);
 		Lsp.Log += Tagged("[lsp]");
 		int lspPort = Lsp.Start();
 		// Advertise the catalog so the page can lazily start a client per language (on first matching

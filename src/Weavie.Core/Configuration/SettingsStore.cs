@@ -55,7 +55,7 @@ public sealed class SettingsStore : IDisposable {
 	/// loading current values and—unless <paramref name="enableWatcher"/> is false—watching the file
 	/// for external edits. The parent directory is created so the watcher can attach.
 	/// </summary>
-	public SettingsStore(SettingsRegistry registry, string? filePath = null, bool enableWatcher = true) {
+	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
 		_registry = registry;
 		FilePath = filePath ?? WeaviePaths.SettingsFile;
@@ -109,10 +109,10 @@ public sealed class SettingsStore : IDisposable {
 	public string? GetString(string key) => Resolve(key).Value as string;
 
 	/// <summary>Resolves <paramref name="key"/> as a bool (<paramref name="fallback"/> if absent or not a bool).</summary>
-	public bool GetBool(string key, bool fallback = false) => Resolve(key).Value is bool b ? b : fallback;
+	public bool GetBool(string key, bool fallback) => Resolve(key).Value is bool b ? b : fallback;
 
 	/// <summary>Resolves <paramref name="key"/> as an integer (<paramref name="fallback"/> if absent or not an int).</summary>
-	public long GetInt(string key, long fallback = 0) => Resolve(key).Value is long l ? l : fallback;
+	public long GetInt(string key, long fallback) => Resolve(key).Value is long l ? l : fallback;
 
 	/// <summary>
 	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> (a JSON value from MCP)

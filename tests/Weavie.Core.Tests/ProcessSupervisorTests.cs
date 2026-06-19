@@ -252,7 +252,7 @@ public sealed class ProcessSupervisorTests {
 
 		public Harness(SupervisionOptions options, params int[] throwOnAttempts) {
 			_throwOn = [.. throwOnAttempts];
-			Sup = new ProcessSupervisor("test", OnStart, OnStop, options, clock: Clock);
+			Sup = new ProcessSupervisor("test", OnStart, OnStop, options, log: null, clock: Clock);
 			Sup.StateChanged += c => {
 				lock (_gate) {
 					Changes.Add(c);

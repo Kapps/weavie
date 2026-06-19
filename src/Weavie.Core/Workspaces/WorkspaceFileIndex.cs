@@ -34,7 +34,7 @@ public sealed class WorkspaceFileIndex {
 	/// Walks the tree and returns every file's absolute path, sorted case-insensitively, pruning ignored
 	/// directories and stopping once <paramref name="cap"/> files are collected (logging the truncation).
 	/// </summary>
-	public IReadOnlyList<string> List(int cap = DefaultCap) {
+	public IReadOnlyList<string> List(int cap) {
 		if (cap <= 0 || !_fileSystem.DirectoryExists(Root)) {
 			return [];
 		}

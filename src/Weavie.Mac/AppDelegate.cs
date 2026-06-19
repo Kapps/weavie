@@ -45,6 +45,7 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private CommandRegistry? _commandRegistry;
 	private KeybindingStore? _keybindings;
 	private CommandDispatcher? _commands;
+	private GlobalHotkeyService? _hotkeyService;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
 	// the web's command-ack (or a 5s timeout).
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
@@ -241,6 +242,29 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			InvokeOnMainThread(() => _shell?.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
+		// Toggle the window — the handler behind the global ctrl+` hotkey, and Claude's runCommand / the palette.
+		_commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			InvokeOnMainThread(ToggleWindow);
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+
+		// Global hotkeys (e.g. ctrl+` → focus Weavie). The Carbon registrar registers them app-wide so they
+		// fire even when Weavie is unfocused; the service reads the global bindings from _keybindings and
+		// re-applies on edit. Disposed in WillTerminate (which unregisters the OS hotkeys).
+		var hotkeyRegistrar = new MacGlobalHotkeys();
+		hotkeyRegistrar.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+		_hotkeyService = new GlobalHotkeyService(_keybindings, _commands, hotkeyRegistrar);
+		_hotkeyService.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
+		// Theme verb commands (install / install-from-file / select / undo / reset): Core handlers over the
+		// app-global theme stores, with a native ".vsix" picker (NSOpenPanel) for install-from-file.
+		ThemeCommands.RegisterHandlers(_commands, _settings, _themeOverrides, PickVsixFileAsync);
 
 		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
 		// web rebuilds its resolver + palette live. PostToWeb marshals to the main thread itself.
@@ -282,12 +306,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
 		}
-
-		// Dev aid: render a sample openDiff so the Monaco diff UI can be screenshotted without
-		// driving claude. Gated on WEAVIE_DEMO_DIFF; never fires in normal use.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEMO_DIFF"))) {
-			NSTimer.CreateScheduledTimer(2.5, repeats: false, _ => PostDemoDiff());
-		}
 	}
 
 	/// <summary>Quits the app when its last (only) window is closed.</summary>
@@ -301,11 +319,28 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			pending.TrySetResult(CommandResult.Failure("The app is terminating before the command completed."));
 		}
 
+		_hotkeyService?.Dispose(); // unregisters the OS global hotkeys + removes the Carbon handler
 		_claude?.Dispose();
 		_shell?.Dispose();
 		_ide?.DisposeAsync().AsTask().GetAwaiter().GetResult();
 		_keybindings?.Dispose();
 		_settings?.Dispose();
+	}
+
+	/// <summary>
+	/// Toggles Weavie — the handler behind the global hotkey and <c>weavie.window.toggle</c>. When the app is
+	/// active, hide it (focus returns to the previous app); otherwise activate + raise it. <c>Activate</c>
+	/// cooperates with the window server (macOS 14+) and unhides a hidden app; <c>Hide</c> is the idiomatic
+	/// macOS "send to background" (Cmd+H). Must run on the main thread.
+	/// </summary>
+	private void ToggleWindow() {
+		var app = NSApplication.SharedApplication;
+		if (app.Active) {
+			app.Hide(this);
+		} else {
+			app.Activate();
+			_window?.MakeKeyAndOrderFront(null);
+		}
 	}
 
 	private void SaveWindowState() {
@@ -627,6 +662,26 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		}
 	}
 
+	/// <summary>
+	/// Native <c>.vsix</c> picker for the install-from-file theme command (NSOpenPanel on the main thread).
+	/// Returns the chosen path, or null if the user cancelled. Called off the main thread by the command
+	/// dispatcher, so the modal is marshaled onto it.
+	/// </summary>
+	private Task<string?> PickVsixFileAsync(CancellationToken ct) {
+		var completion = new TaskCompletionSource<string?>();
+		InvokeOnMainThread(() => {
+			using var panel = new NSOpenPanel {
+				Title = "Install Theme from .vsix",
+				CanChooseFiles = true,
+				CanChooseDirectories = false,
+				AllowsMultipleSelection = false,
+				AllowedFileTypes = ["vsix"],
+			};
+			completion.SetResult(panel.RunModal() == 1 && panel.Url is { Path: { } path } ? path : null);
+		});
+		return completion.Task;
+	}
+
 	/// <summary>Settles the pending web-command await for a <c>command-ack</c> message (by token).</summary>
 	private void CompleteWebCommand(JsonElement root) {
 		string? token = root.TryGetProperty("token", out var tokenEl) ? tokenEl.GetString() : null;
@@ -654,24 +709,6 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private TerminalController? TerminalFor(JsonElement root) {
 		string? session = root.TryGetProperty("session", out var s) ? s.GetString() : null;
 		return session == "shell" ? _shell : _claude;
-	}
-
-	private void PostDemoDiff() {
-		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
-		const string proposed = "export function greet(name: string): string {\n  // weavie openDiff demo\n  return `hello, ${name}!`;\n}\n";
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
-			writer.WriteString("type", "show-diff");
-			writer.WriteString("id", "demo");
-			writer.WriteString("path", "/Users/kapps/src/weavie/demo/greet.ts");
-			writer.WriteString("tabName", "✻ [Claude Code] greet.ts");
-			writer.WriteString("original", original);
-			writer.WriteString("proposed", proposed);
-			writer.WriteEndObject();
-		}
-
-		_bridge.PostToWeb(System.Text.Encoding.UTF8.GetString(stream.ToArray()));
 	}
 
 	private void CaptureSnapshot() {

@@ -24,6 +24,7 @@ import {
   registerFileSystemOverlay,
 } from "@codingame/monaco-vscode-files-service-override";
 import { type WebBoundMessage, onHostMessage, postToHost } from "../bridge";
+import { canonicalFsPath } from "./fs-path";
 
 // A correlated request can't wedge a model resolve forever: if the host never replies (a dropped message, a
 // host fault) the promise rejects after this, surfacing the failure rather than hanging the editor.
@@ -173,7 +174,10 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   fireChanges(changes: { path: string; kind: "updated" | "added" | "deleted" }[]): void {
     const events: IFileChange[] = changes.map((change) => ({
       type: mapChangeType(change.kind),
-      resource: URI.file(change.path),
+      // Same drive-case canonicalization as the editor's open path (see canonicalFsPath): the host sends an
+      // uppercase-drive `C:\…`, the open working copy is `file:///c%3A/…`, and `file://` matching is
+      // case-sensitive — without this the change never matches the model and the working copy never reloads.
+      resource: URI.file(canonicalFsPath(change.path)),
     }));
     if (events.length > 0) {
       this._onDidChangeFile.fire(events);

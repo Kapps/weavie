@@ -114,6 +114,52 @@ public sealed class KeybindingStoreTests : IDisposable {
 		Assert.Equal("editorFocused", added.GetProperty("when").GetString());
 	}
 
+	// A registry whose one command carries a default GLOBAL binding, for the global-flag tests below.
+	private static CommandRegistry GlobalRegistry() {
+		var registry = new CommandRegistry();
+		registry.Register(new CommandDefinition {
+			Id = "weavie.window.toggle",
+			Title = "Toggle Window",
+			RunsIn = CommandLocation.Core,
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+`", Global = true }],
+		});
+		return registry;
+	}
+
+	[Fact]
+	public void Default_GlobalBinding_IsSeededGlobal() {
+		using var store = new KeybindingStore(GlobalRegistry(), FilePath, enableWatcher: false);
+		var binding = Assert.Single(store.Resolved);
+		Assert.Equal("ctrl+`", binding.Key);
+		Assert.True(binding.Global);
+	}
+
+	[Fact]
+	public void NonGlobal_Default_IsNotGlobal() {
+		using var store = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
+		Assert.All(store.Resolved, b => Assert.False(b.Global));
+	}
+
+	[Fact]
+	public void UserEntry_ParsesGlobalFlag() {
+		File.WriteAllText(FilePath,
+			"""[{"key":"ctrl+alt+w","command":"weavie.terminal.reopen","global":true}]""");
+		using var store = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
+		var added = Assert.Single(store.Resolved, b => b.Key == "ctrl+alt+w");
+		Assert.True(added.Global);
+	}
+
+	[Fact]
+	public void BuildKeybindingsJson_EmitsGlobalOnlyWhenSet() {
+		using var store = new KeybindingStore(GlobalRegistry(), FilePath, enableWatcher: false);
+		var entry = Assert.Single(Parse(store.BuildKeybindingsJson()));
+		Assert.True(entry.GetProperty("global").GetBoolean());
+
+		// A non-global binding omits the property entirely (kept lean; absent ⇒ false on the web).
+		using var plain = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
+		Assert.All(Parse(plain.BuildKeybindingsJson()), e => Assert.False(e.TryGetProperty("global", out _)));
+	}
+
 	[Fact]
 	public void BuildCommandsJson_IncludesKeysPerCommand() {
 		using var store = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);

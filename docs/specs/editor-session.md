@@ -4,10 +4,8 @@
 
 When a workspace window opens, Weavie restores the editor to the file the user had open, at the same
 scroll/cursor/folding position they left it — the way VS Code reopens your editors when you reopen a
-folder. The session is persisted per workspace, host-side, so it survives a full relaunch and `Ctrl+R`.
-(Hot-reload (HMR) restore is handled separately by the editor host's own surviving working-copy snapshot
-— see [file management & sessions](file-management-and-sessions.md) — so a dev hot reload stays seamless
-without re-reading the persisted session.)
+folder. The session is persisted per workspace, host-side, so it survives a full relaunch and `Ctrl+R` —
+and the **same** `restoreSession()` covers a dev hot reload (HMR), so there is one restore path, not two.
 
 This is the editor-state analogue of [window layout](layout.md), and it deliberately mirrors that
 feature end-to-end: a Core store that loads/persists/serves a per-workspace JSON file, a host that
@@ -18,19 +16,22 @@ bridges both directions, and a **top-level web module store** seeded by a host p
 `ready` is emitted once at page load from `main.tsx`, **not** from `App`'s `onMount`. On HMR, `main.tsx`
 is not re-run, so the host never re-pushes. The layout nonetheless survives HMR purely because
 `layout/store.ts` is a top-level module signal that isn't reloaded when `App` or the editor chunk
-hot-swaps. The editor session does the same: a top-level web store (`editor/session-store.ts`), seeded by
-a host push at load and kept live by the editor host. That gives:
+hot-swaps. The editor session does the same: a top-level web store (`editor/session-store.ts`, imported at
+top level by `App.tsx`), seeded by a host push at load and kept live by the editor host. That gives **one**
+restore path — `restoreSession()` reads the store on every fresh build of the editor widget — across:
 
-- **launch restore** — host reads the persisted session, pushes `set-editor-session` on `ready`, and the
-  editor host's `restoreSession()` reopens the active file from it on create;
-- **`Ctrl+R` restore** — same path (a reload re-runs `main.tsx` → `ready`).
+- **launch restore** — host reads the persisted session, pushes `set-editor-session` on `ready`, and
+  `restoreSession()` reopens the active file from it on create;
+- **`Ctrl+R` restore** — same path (a reload re-runs `main.tsx` → `ready`);
+- **HMR restore** — the store survives the hot-swap, so `restoreSession()` reads it directly. The host does
+  *not* re-push (no `ready`), so on teardown the old host **synchronously flushes** the live state into the
+  store (`dispose()` → `captureSession()`), and the open file *working copies* are kept alive on `window`
+  (`__WEAVIE_EDITOR_REFS__`). The rebuilt host's `restoreSession()` → `showFile()` → `ensureRef()` re-adopts
+  the surviving working copy (no disk re-read, unsaved edits intact) at the flushed view state.
 
-HMR restore is **not** driven by this store — the editor host keeps the live working copies and the active
-doc's view state alive on `window` across the hot-swap (`__WEAVIE_EDITOR_DOC__` / `__WEAVIE_EDITOR_REFS__`)
-and reattaches them directly, so the hot reload restores the *exact live* position. The session store still
-survives HMR (the open/cursor/scroll hooks keep writing to it), so the next persist reflects the live state;
-it just isn't the restore path for a hot reload. `restoreSession()` therefore runs only on a fresh page,
-where that window snapshot is absent.
+The synchronous flush is what lets HMR share the launch path instead of needing its own snapshot: the
+open/cursor/scroll hooks write the store on a debounce, which the teardown would otherwise drop, so
+`dispose()` flushes it once more before the widget dies.
 
 ## Scope
 
@@ -111,12 +112,15 @@ which persists. Mirrors `PushLayoutToWeb` / `HandleLayoutChanged` exactly.
   at module load) plus `setLocalSession(...)` which keeps the signal live (HMR fidelity) and posts the
   debounced `editor-session-changed`. Imported at top level by `App.tsx` so it isn't only in the editor
   chunk (or it would reload with that chunk and lose state).
-- `editor/editor-host.ts` — on host create, `restoreSession()` reopens the active file as a working copy
-  via `ensureRef(monaco.Uri.file(path))` (the shared resolve-or-reuse helper that reads the file from disk
-  through the host file provider and wires its save listener), then `setModel` + `restoreViewState`. It runs
-  on a fresh page (launch / `Ctrl+R`); a hot reload is covered by the surviving `__WEAVIE_EDITOR_DOC__`
-  snapshot path instead. The open/cursor/scroll hooks (collected into the host's `disposables`) call
-  `setLocalSession(...)` so the store always holds the live state.
+- `editor/editor-host.ts` — on host create, `restoreSession()` reopens the active file through `showFile()`,
+  the **one** path that swaps the editor's file (a user open and a restore differ only in placement: reveal a
+  line vs. restore a view state). `showFile()` → `ensureRef(monaco.Uri.file(path))` (the shared resolve-or-reuse
+  helper that reads the file from disk through the host file provider and wires its save listener) → `setModel`,
+  whose `onDidChangeModel` drives the active-editor notification to Claude — so a restored file is opened
+  identically to a clicked one. It runs on every fresh widget build (launch / `Ctrl+R` / HMR). The
+  open/cursor/scroll hooks (collected into the host's `disposables`) call `setLocalSession(...)` so the store
+  always holds the live state, and `dispose()` flushes one final `captureSession()` synchronously so a hot
+  reload restores the exact teardown position.
 - `App.tsx` — after `createEditorHost`, the restored active file flows into `setCurrentFile(...)` (read from
   the session store, not Monaco, to keep the editor chunk out of the shell); a `pendingOpen` user request
   that arrived during load still wins.

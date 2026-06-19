@@ -6,9 +6,10 @@ using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
 
-// The model-facing theming tools (registry server): list/describe/select themes, layer color overrides on
-// the active theme, and install themes from Open VSX. Overrides persist per theme in
-// ~/.weavie/theme-overrides.json. Split out of McpServer.cs as a partial to keep the core server focused.
+// The model-facing theming tools (registry server): the data-shaped operations — list/describe the active
+// theme and edit its individual color overrides (set/transform/remove), which persist per theme in
+// ~/.weavie/theme-overrides.json. The verb actions (install / install-from-file / select / undo / reset) are
+// COMMANDS instead (see ThemeCommands), reached via runCommand. Split from McpServer.cs to keep it focused.
 public sealed partial class McpServer {
 	private async Task HandleListThemesAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
 		string active = ActiveThemeId();
@@ -54,33 +55,6 @@ public sealed partial class McpServer {
 			ThemeJson.WriteOps(writer, overrides);
 		});
 		await SendToolTextAsync(ws, idRaw, json, ct).ConfigureAwait(false);
-	}
-
-	private async Task HandleSelectThemeAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string? id = GetStringArg(args, "id");
-		if (string.IsNullOrEmpty(id)) {
-			await SendToolErrorAsync(ws, idRaw, "selectTheme requires an 'id'. Call listThemes to see available themes.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		if (!BuiltInThemes.Contains(id) && OpenVsxThemeInstaller.ListInstalled().All(theme => theme.Id != id)) {
-			await SendToolErrorAsync(ws, idRaw, $"Unknown theme '{id}'. Call listThemes to see available themes.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		try {
-			using var doc = JsonDocument.Parse(JsonString(id));
-			_settings.Set("theme.active", doc.RootElement);
-			await SendToolTextAsync(ws, idRaw, $"Active theme is now '{id}'.", ct).ConfigureAwait(false);
-			Emit($"selectTheme {id}");
-		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
-		}
 	}
 
 	private async Task HandleSetThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -164,59 +138,6 @@ public sealed partial class McpServer {
 
 		_themeOverrides.SetOps(active, kept);
 		await SendToolTextAsync(ws, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
-	}
-
-	private async Task HandleUndoThemeOverrideAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string active = ActiveThemeId();
-		bool undone = _themeOverrides.UndoLast(active);
-		await SendToolTextAsync(
-			ws, idRaw,
-			undone ? $"Undid the last override on theme '{active}'." : $"Theme '{active}' has no overrides to undo.",
-			ct).ConfigureAwait(false);
-	}
-
-	private async Task HandleResetThemeAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string active = ActiveThemeId();
-		bool cleared = _themeOverrides.Clear(active);
-		await SendToolTextAsync(
-			ws, idRaw,
-			cleared ? $"Cleared all overrides on theme '{active}'." : $"Theme '{active}' had no overrides.",
-			ct).ConfigureAwait(false);
-	}
-
-	private async Task HandleInstallThemeAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		string? ns = GetStringArg(args, "namespace");
-		string? name = GetStringArg(args, "name");
-		string? version = GetStringArg(args, "version");
-		if (string.IsNullOrEmpty(ns) || string.IsNullOrEmpty(name)) {
-			await SendToolErrorAsync(ws, idRaw, "installTheme requires 'namespace' and 'name' (the Open VSX publisher and extension, e.g. dracula-theme / theme-dracula).", ct).ConfigureAwait(false);
-			return;
-		}
-
-		try {
-			var installer = new OpenVsxThemeInstaller();
-			var installed = await installer.InstallAsync(ns, name, string.IsNullOrEmpty(version) ? null : version, ct).ConfigureAwait(false);
-			if (installed.Count == 0) {
-				await SendToolTextAsync(ws, idRaw, $"Installed {ns}.{name}, but it contributed no color themes.", ct).ConfigureAwait(false);
-				return;
-			}
-
-			string ids = string.Join(", ", installed.Select(theme => $"'{theme.Id}'"));
-			await SendToolTextAsync(ws, idRaw, $"Installed {installed.Count} theme(s) from {ns}.{name}: {ids}. Use selectTheme to switch to one.", ct).ConfigureAwait(false);
-			Emit($"installTheme {ns}.{name} -> {installed.Count} theme(s)");
-		} catch (Exception ex) when (ex is HttpRequestException or IOException or InvalidOperationException) {
-			await SendToolErrorAsync(ws, idRaw, $"installTheme failed: {ex.Message}", ct).ConfigureAwait(false);
-		}
 	}
 
 	private string ActiveThemeId() => _settings?.GetString("theme.active") ?? ThemeSettings.DefaultThemeId;

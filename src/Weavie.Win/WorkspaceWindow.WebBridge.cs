@@ -343,6 +343,35 @@ internal sealed partial class WorkspaceWindow {
 		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
 	}
 
+	/// <summary>
+	/// Native <c>.vsix</c> picker for the install-from-file theme command (a WinForms <see cref="OpenFileDialog"/>
+	/// on the UI thread). Returns the chosen path, or null if the user cancelled. The command dispatcher calls
+	/// this off the UI thread (a runCommand/palette invocation), so the dialog is marshaled onto it.
+	/// </summary>
+	private Task<string?> PickVsixFileAsync(CancellationToken ct) {
+		var completion = new TaskCompletionSource<string?>();
+		void Show() {
+			try {
+				using var dialog = new OpenFileDialog {
+					Title = "Install Theme from .vsix",
+					Filter = "VS Code extension (*.vsix)|*.vsix|All files (*.*)|*.*",
+					CheckFileExists = true,
+				};
+				completion.SetResult(dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null);
+			} catch (Exception ex) {
+				completion.SetException(ex);
+			}
+		}
+
+		if (InvokeRequired) {
+			BeginInvoke(Show);
+		} else {
+			Show();
+		}
+
+		return completion.Task;
+	}
+
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
 	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
 }

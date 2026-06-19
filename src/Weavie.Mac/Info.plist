@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>CFBundleName</key>
-	<string>Weavie.Mac</string>
+	<string>Weavie</string>
 	<key>CFBundleIdentifier</key>
-	<string>com.companyname.Weavie.Mac</string>
+	<string>io.github.kapps.weavie</string>
 	<key>CFBundleShortVersionString</key>
 	<string>1.0</string>
 	<key>CFBundleVersion</key>

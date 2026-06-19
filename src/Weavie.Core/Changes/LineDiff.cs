@@ -6,7 +6,7 @@ namespace Weavie.Core.Changes;
 /// session changes summary; the full visual diff is rendered by the editor's diff view.
 /// </summary>
 public static class LineDiff {
-	// Above this (rows × cols) the O(n·m) LCS is too costly; fall back to a coarse line-count delta.
+	// Past this (rows × cols) the O(n·m) LCS gets too expensive; fall back to a coarse line-count delta.
 	private const long LcsCellCap = 4_000_000;
 
 	/// <summary>Returns the (added, removed) line counts turning <paramref name="before"/> into <paramref name="after"/>.</summary>

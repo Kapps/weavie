@@ -18,4 +18,10 @@ public sealed record ResolvedKeybinding {
 
 	/// <summary>Optional context-key guard; the web only fires the binding when it evaluates true.</summary>
 	public string? When { get; init; }
+
+	/// <summary>
+	/// When true, the host registers this as an OS-level global hotkey (fires even when Weavie is
+	/// unfocused) and the web keydown resolver skips it. See <see cref="CommandKeybinding.Global"/>.
+	/// </summary>
+	public bool Global { get; init; }
 }

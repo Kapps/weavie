@@ -18,6 +18,7 @@ import {
 } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
+import { canonicalFsPath } from "./fs-path";
 import { createEditor, monaco } from "./monaco-setup";
 import { editorSession, setLocalSession } from "./session-store";
 import { initEditorServices } from "./vscode-services";
@@ -31,20 +32,15 @@ type ModelRef = Awaited<ReturnType<ITextModelService["createModelReference"]>>;
 // notification filters scheme "file") — so a review can't dirty/collide with the real file working copy.
 const REVIEW_SCHEME = "weavie-review";
 
-// Editor-session state that must survive a Vite hot reload. A hot reload rebuilds the editor widget (App is
-// the HMR boundary — see vscode-services.ts), but the open file *working copies* live in the global VSCode
-// model/text-file services and persist. Stash which file + view state was active (DOC) and keep the model
-// references alive across the rebuild (REFS) so the new host adopts them — the refcount never hits 0, so the
-// surviving working copies aren't torn down. Production never hot-reloads, so this is written once on teardown
-// and read once on the next build.
+// The open file *working copies* must survive a Vite hot reload. A hot reload rebuilds the editor widget (App
+// is the HMR boundary — see vscode-services.ts), but the working copies live in the global VSCode model/text-
+// file services. Keep their model references alive across the rebuild on `window` so the new host re-adopts
+// them — the refcount never hits 0, so they aren't torn down (unsaved edits survive, no disk re-read). WHICH
+// file was active + its position is NOT stashed here: dispose() flushes the live state into the (HMR-surviving)
+// session store, so restoreSession() reopens it on the next build exactly as it does on relaunch. Dev-only —
+// production never hot-reloads.
 declare global {
   interface Window {
-    __WEAVIE_EDITOR_DOC__?:
-      | {
-          uri: string;
-          viewState: monaco.editor.ICodeEditorViewState | null;
-        }
-      | undefined;
     __WEAVIE_EDITOR_REFS__?: Map<string, ModelRef>;
   }
 }
@@ -261,23 +257,40 @@ export async function createEditorHost(
     return ref;
   };
 
-  // open-file requests can arrive faster than they resolve (createModelReference is async); only the latest
-  // wins so a slow resolve can't clobber a newer open.
+  // THE single path that swaps the editor to a file working copy — a host/user open AND a session /
+  // hot-reload restore all go through here, so a restored file is opened *identically* to one the user
+  // clicked. `placement` is the only difference: reveal a `line` (open) or restore a saved Monaco view
+  // state (restore). Crucially, setting the model fires onDidChangeModel, which is what drives the
+  // active-editor notification to Claude (active-editor-changed) and App's currentFile tracking — so that
+  // happens by construction on every open, with no path needing to re-send it. Opens can arrive faster than
+  // they resolve (createModelReference is async); openSeq makes the latest win, so a slow resolve can't
+  // clobber a newer open — and a user's open during launch supersedes the in-flight restore.
   let openSeq = 0;
-  const openFile = (path: string, line: number): void => {
-    const uri = monaco.Uri.file(path);
+  const showFile = async (
+    uri: monaco.Uri,
+    placement: { line: number } | { viewState: monaco.editor.ICodeEditorViewState | null },
+  ): Promise<void> => {
     const token = ++openSeq;
-    void ensureRef(uri)
-      .then((ref) => {
-        if (token !== openSeq) {
-          return; // superseded by a newer open
-        }
-        editor.setModel(ref.object.textEditorModel);
-        editor.revealLineInCenter(line);
-        editor.setPosition({ lineNumber: line, column: 1 });
+    try {
+      const ref = await ensureRef(uri);
+      if (token !== openSeq) {
+        return; // superseded by a newer open
+      }
+      editor.setModel(ref.object.textEditorModel);
+      if ("line" in placement) {
+        editor.revealLineInCenter(placement.line);
+        editor.setPosition({ lineNumber: placement.line, column: 1 });
         editor.focus();
-      })
-      .catch((error: unknown) => log("error", `open-file failed for ${path}: ${String(error)}`));
+      } else if (placement.viewState !== null) {
+        editor.restoreViewState(placement.viewState);
+      }
+    } catch (error) {
+      log("error", `open failed for ${uri.toString()}: ${String(error)}`);
+    }
+  };
+
+  const openFile = (path: string, line: number): void => {
+    void showFile(monaco.Uri.file(canonicalFsPath(path)), { line });
   };
 
   // Review uses a transient model per file path (one openDiff is live at a time — it blocks). Tracked so
@@ -292,7 +305,7 @@ export async function createEditorHost(
     | undefined;
 
   const beginReview = (path: string, proposed: string, line: number): string => {
-    const fileUri = monaco.Uri.file(path);
+    const fileUri = monaco.Uri.file(canonicalFsPath(path));
     // A non-file URI whose path still ends in the real filename, so Monaco infers the language (syntax
     // highlighting) from the extension while the scheme keeps it out of the file-service / working-copy world.
     const reviewUri = monaco.Uri.from({ scheme: REVIEW_SCHEME, path: fileUri.path });
@@ -311,7 +324,7 @@ export async function createEditorHost(
   };
 
   const endReview = (path: string, keep: boolean, original: string): string => {
-    const fileUri = monaco.Uri.file(path);
+    const fileUri = monaco.Uri.file(canonicalFsPath(path));
     const reviewModel = reviewModels.get(path);
     reviewModels.delete(path);
     const finalContents = reviewModel?.getValue() ?? (keep ? "" : original);
@@ -352,18 +365,7 @@ export async function createEditorHost(
     return finalContents;
   };
 
-  // Snapshot the active file + view state for the next (hot-reloaded) host to restore. Only a real user file
-  // is worth remembering; an empty editor (or a transient review model) clears it.
-  const rememberActiveDoc = (): void => {
-    const model = editor.getModel();
-    window.__WEAVIE_EDITOR_DOC__ =
-      model !== null && isUserFileModel(model)
-        ? { uri: model.uri.toString(), viewState: editor.saveViewState() }
-        : undefined;
-  };
-
   const dispose = (): void => {
-    rememberActiveDoc();
     // Best-effort flush of any pending edit before teardown (fire-and-forget; on a hot reload the working
     // copy survives anyway, on a real unload the browser is going away).
     for (const key of [...saveTimers.keys()]) {
@@ -372,9 +374,14 @@ export async function createEditorHost(
     if (emitTimer !== undefined) {
       clearTimeout(emitTimer);
     }
+    // Flush the live editor session SYNCHRONOUSLY (the debounced timer would be dropped by the teardown). On a
+    // hot reload this lands the exact active file + view state in the HMR-surviving session store, so the
+    // rebuilt host's restoreSession() reopens it precisely — no separate snapshot path needed.
     if (sessionTimer !== undefined) {
       clearTimeout(sessionTimer);
+      sessionTimer = undefined;
     }
+    captureSession();
     for (const subscription of disposables) {
       subscription.dispose();
     }
@@ -383,11 +390,13 @@ export async function createEditorHost(
     // (after a hot reload) reattaches to the same working copies and the refcount never hits 0.
   };
 
-  // Restore the editor across a relaunch / Ctrl+R: the host reads the persisted session off disk and pushes
-  // set-editor-session on `ready`, seeding the (HMR-surviving) session store before this heavy editor chunk
-  // finishes loading. Reopen the active file as a real working copy — ensureRef resolves it from disk through
-  // the host file provider, so no file content needs to ride along on the wire — at its saved view state.
-  // Non-active entries are left to reopen lazily (no eager LSP spin-up for invisible files).
+  // Restore the editor on every fresh build of the widget — relaunch, Ctrl+R, AND hot reload. The session
+  // store is seeded from disk by the host's set-editor-session push on `ready` (relaunch / Ctrl+R) or carried
+  // live across the hot-swap (HMR; dispose() flushed the exact state into it), so the same read covers all
+  // three. Reopen the active file through the SAME open path as a user open (showFile) — disk is read through
+  // the host file provider (no content on the wire), Claude is told the active editor, and a surviving working
+  // copy is re-adopted via ensureRef rather than re-read — at its saved view state. Non-active entries reopen
+  // lazily (no eager LSP spin-up for invisible files).
   const restoreSession = async (): Promise<void> => {
     const session = editorSession();
     if (session === null || session.active === null) {
@@ -397,35 +406,12 @@ export async function createEditorHost(
     if (entry === undefined) {
       return;
     }
-    try {
-      const ref = await ensureRef(monaco.Uri.file(entry.path));
-      editor.setModel(ref.object.textEditorModel);
-      if (entry.viewState != null) {
-        editor.restoreViewState(entry.viewState as monaco.editor.ICodeEditorViewState);
-      }
-    } catch (error) {
-      log("error", `session restore failed for ${entry.path}: ${String(error)}`);
-    }
+    await showFile(monaco.Uri.file(canonicalFsPath(entry.path)), {
+      viewState: (entry.viewState ?? null) as monaco.editor.ICodeEditorViewState | null,
+    });
   };
 
-  // Hot-reload restore: the freshly-built widget comes up with no model. If a file was open before the reload
-  // its working-copy reference survived on window — reattach it with its scroll/cursor so the reload is
-  // seamless rather than blank, and re-wire its save listener. On a fresh page (launch / Ctrl+R) that snapshot
-  // is absent, so fall back to the persisted editor session instead.
-  const lastDoc = window.__WEAVIE_EDITOR_DOC__;
-  if (lastDoc !== undefined) {
-    try {
-      const ref = await ensureRef(monaco.Uri.parse(lastDoc.uri));
-      editor.setModel(ref.object.textEditorModel);
-      if (lastDoc.viewState !== null) {
-        editor.restoreViewState(lastDoc.viewState);
-      }
-    } catch (error) {
-      log("error", `hot-reload restore failed for ${lastDoc.uri}: ${String(error)}`);
-    }
-  } else {
-    await restoreSession();
-  }
+  await restoreSession();
 
   // Wait for Monaco's first real paint before resolving. The caller fades the splash on resolution, so
   // this keeps the editor's initial layout/paint hidden under the splash rather than flashing into view.

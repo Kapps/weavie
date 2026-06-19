@@ -149,6 +149,7 @@ public sealed class KeybindingStore : IDisposable {
 					Command = definition.Id,
 					ArgsJson = binding.ArgsJson,
 					When = definition.When,
+					Global = binding.Global,
 				});
 			}
 		}
@@ -166,6 +167,7 @@ public sealed class KeybindingStore : IDisposable {
 					Command = entry.Command,
 					ArgsJson = entry.ArgsJson,
 					When = entry.When,
+					Global = entry.Global,
 				});
 			}
 		}
@@ -239,10 +241,11 @@ public sealed class KeybindingStore : IDisposable {
 			? a.GetRawText()
 			: null;
 		string? when = element.TryGetProperty("when", out var w) && w.ValueKind == JsonValueKind.String ? w.GetString() : null;
+		bool global = element.TryGetProperty("global", out var g) && g.ValueKind == JsonValueKind.True;
 
-		entry = new UserBinding(key, targetId, argsJson, when, isUnbind);
+		entry = new UserBinding(key, targetId, argsJson, when, global, isUnbind);
 		return true;
 	}
 
-	private readonly record struct UserBinding(string Key, string Command, string? ArgsJson, string? When, bool IsUnbind);
+	private readonly record struct UserBinding(string Key, string Command, string? ArgsJson, string? When, bool Global, bool IsUnbind);
 }

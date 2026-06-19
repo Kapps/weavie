@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Added/removed line counts via the LCS of lines, line-ending-insensitive.</summary>
+/// <summary>Verifies added/removed line counts from the line-level LCS, ignoring CRLF vs LF differences.</summary>
 public sealed class LineDiffTests {
 	[Fact]
 	public void Count_AddedLines() {
@@ -20,6 +20,7 @@ public sealed class LineDiffTests {
 	}
 
 	[Fact]
+	// test
 	public void Count_ModifiedLine_CountsAsAddAndRemove() {
 		var (added, removed) = LineDiff.Count("a\nb\nc", "a\nB\nc");
 		Assert.Equal(1, added);

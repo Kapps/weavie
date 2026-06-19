@@ -2,7 +2,9 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
+using Weavie.Core.Theming;
 using Xunit;
 
 namespace Weavie.Core.Tests;
@@ -63,6 +65,33 @@ public sealed class RegistryMcpTests : IDisposable {
 		await Assert.ThrowsAsync<WebSocketException>(() => ConnectBearerAsync(port, "wrong-token"));
 		using var ws = await ConnectBearerAsync(port, Token); // correct token connects
 		Assert.Equal(WebSocketState.Open, ws.State);
+	}
+
+	[Fact]
+	public async Task RegistryMode_ThemeTools_AdvertiseQueriesAndEditors_NotVerbs() {
+		using var store = NewStore();
+		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		await using var server = new McpServer(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, themeOverrides: overrides);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "tools/list", "{}"));
+		using var response = await ReceiveAsync(ws);
+
+		var names = response.RootElement.GetProperty("result").GetProperty("tools")
+			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
+		// The data-shaped operations stay MCP tools: the read-only queries and the per-color override editors.
+		Assert.Contains("listThemes", names);
+		Assert.Contains("describeTheme", names);
+		Assert.Contains("setThemeOverride", names);
+		Assert.Contains("applyThemeTransform", names);
+		Assert.Contains("removeThemeOverride", names);
+		// The verb actions became commands (reached via runCommand), so they are NOT advertised as theme tools.
+		Assert.DoesNotContain("installTheme", names);
+		Assert.DoesNotContain("selectTheme", names);
+		Assert.DoesNotContain("resetTheme", names);
+		Assert.DoesNotContain("undoThemeOverride", names);
 	}
 
 	[Fact]

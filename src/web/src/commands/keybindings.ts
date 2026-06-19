@@ -73,7 +73,11 @@ function matches(chord: Chord, event: KeyboardEvent): boolean {
 let compiled: { chord: Chord; binding: ResolvedKeybinding }[] = [];
 
 function rebuild(): void {
-  compiled = getKeybindings().map((binding) => ({ chord: parseChord(binding.key), binding }));
+  // Skip global bindings: the host registers them with the OS so they fire even when Weavie is unfocused.
+  // Resolving them here too would double-fire them while Weavie IS focused, so the OS owns them outright.
+  compiled = getKeybindings()
+    .filter((binding) => binding.global !== true)
+    .map((binding) => ({ chord: parseChord(binding.key), binding }));
 }
 
 /** Installs the capture-phase keybinding resolver; returns a teardown function. */

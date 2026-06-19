@@ -240,6 +240,37 @@ xterm/Monaco, but `preventDefault` fires **only when a binding actually matches*
 `Ctrl+digit` still passes through to the terminal/editor, preserving current behavior. `tinykeys`
 parses/normalizes the key strings (including `$mod`); on a match we evaluate `when`, then dispatch.
 
+### Global hotkeys
+
+A binding may set `"global": true` (declared via `CommandKeybinding.Global`, carried through to the
+resolved list and the `keybindings.json` schema). A global hotkey is registered with the **operating
+system**, so it fires even when Weavie isn't the focused application — the only way to bind an action
+like "show/hide Weavie" (`weavie.window.toggle`, default `ctrl+\``). Because the OS owns it, the
+**web keydown resolver skips global bindings** (`keybindings.ts` filters `global === true`) — otherwise
+they'd double-fire while Weavie *is* focused.
+
+The mechanism splits Core/host the same way commands do:
+
+- **`GlobalHotkeyService`** (Core, app-scoped) reads the global bindings out of `KeybindingStore`, parses
+  each chord (`ChordParser` — mirrors the web's `parseChord`, with `$mod` left as an unresolved flag), and
+  hands the set to a per-OS registrar. It re-applies on every `keybindings.json` edit. When the registrar
+  reports a press, it invokes the bound command through the `CommandDispatcher` — a global hotkey is just
+  another *trigger*, like a keybinding or the palette.
+- **`IGlobalHotkeyRegistrar`** (Core seam) is implemented per platform: `WindowsGlobalHotkeys`
+  (`RegisterHotKey` + `WM_HOTKEY` on a hidden message-only window) and `MacGlobalHotkeys` (Carbon
+  `RegisterEventHotKey` + one application event handler — the API that needs no Accessibility permission
+  and fires while unfocused). Each resolves `$mod` (Ctrl on Windows, Cmd on macOS) and maps the key token
+  to its native virtual-key code. Registration failures (a chord another app already owns, an unmappable
+  key) are logged loudly, never silently dropped.
+
+`ctrl+\`` is used **literally** (not `$mod`) so the default is the same on Windows and macOS, where `Cmd+\``
+is already the system "cycle windows" shortcut. The command runs in Core (the action is per-OS) and **toggles**:
+it focuses Weavie when another app is in front, and — when Weavie is already focused — hands focus back to the
+previously focused window so Weavie drops behind it (Windows: walk the Z-order to the window beneath ours and
+`SetForegroundWindow` it — no minimize; macOS: `NSApplication.Hide`). The app-level dispatcher's handler
+toggles the most-recently-active window; each session's dispatcher also handles it so MCP/palette toggle the
+window that asked.
+
 ## `when` contexts
 
 A minimal context-key layer maintained web-side (focus is already tracked via `focusin` in
@@ -312,6 +343,12 @@ that already exist in the web:
 | `weavie.omnibar.focusFiles` | Web | `$mod+p` | yes | focus omnibar (Go to File) |
 | `weavie.omnibar.focusCommands` | Web | `$mod+shift+p` | yes | focus omnibar in `>` mode |
 | `weavie.terminal.reopen` | Core | — | yes | `TerminalController.Restart()` (exists) |
+| `weavie.window.toggle` | Core | `ctrl+\`` (**global**) | no | show/hide (toggle) the window from anywhere |
+
+Double-tapping **Shift** also triggers `weavie.omnibar.focusFiles` (Go to File), IntelliJ-style. This is a
+*gesture*, not a keybinding: a bare modifier double-tap can't be expressed as a chord (the resolver never
+matches a modifiers-only binding), so it lives in a dedicated capture-phase detector (`commands/double-shift.ts`,
+wired in `App.tsx`) that dispatches the command directly. It is not yet user-configurable.
 
 > The spec originally named `weavie.diff.toggleLayout` (inline/side-by-side diff toggle). That toggle was
 > removed when the diff view became inline-only (`editor/inline-diff.ts`), so the two view-panel toggles
@@ -331,8 +368,17 @@ Weavie.Core/
     CommandDispatcher.cs    // handler map (Core) + route-to-web; InvokeAsync
     CoreCommands.cs         // registers core + web command declarations; wires core handlers
     KeybindingStore.cs      // load/merge/watch ~/.weavie/keybindings.json → resolved list
+    ChordParser.cs          // chord string → modifiers + key token (mirrors the web parser)
+    IGlobalHotkeyRegistrar.cs // per-OS seam: Apply(global hotkeys) + Pressed; GlobalHotkey record
+    GlobalHotkeyService.cs  // app-scoped: resolved global bindings → registrar; press → dispatcher
   Mcp/
     McpServer.cs            // + listCommands / runCommand (CommandToolEntries, registry server)
+
+src/Weavie.Win/Hosting/
+  WindowsGlobalHotkeys.cs   // RegisterHotKey + WM_HOTKEY on a message-only window
+  WindowFocus.cs            // SetForegroundWindow helper (focus from another app's foreground)
+src/Weavie.Mac/Hosting/
+  MacGlobalHotkeys.cs       // Carbon RegisterEventHotKey + one application event handler
 
 src/web/src/commands/
   registry.ts               // consume __WEAVIE_COMMANDS__; register web handlers; lookup

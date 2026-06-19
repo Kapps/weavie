@@ -5,7 +5,11 @@
 // Claude edit). The layer owns only its decorations/zones/widget — it NEVER disposes the host-owned live model.
 
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
+import { formatKey } from "../commands/keybindings";
+import { findCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { currentFonts, onFontsChanged } from "../fonts";
+import { canonicalFsPath } from "./fs-path";
 import { monaco } from "./monaco-setup";
 
 const DIFF_OPTIONS = {
@@ -112,6 +116,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const font = currentFonts().editor;
     node.style.fontFamily = font.family;
     node.style.fontSize = `${font.size}px`;
+    // Render tabs at the editor's tab width (CSS `tab-size` defaults to 8) so a removed line's leading
+    // indentation lines up with the live code above/below it instead of being doubled.
+    node.style.tabSize = String(editor.getModel()?.getOptions().tabSize ?? 4);
     for (const line of lines) {
       const row = document.createElement("div");
       row.className = "weavie-inline-removed-line";
@@ -121,13 +128,28 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return node;
   };
 
-  const makeButton = (className: string, label: string, onClick: () => void): HTMLButtonElement => {
+  const makeButton = (
+    className: string,
+    label: string,
+    title: string,
+    onClick: () => void,
+  ): HTMLButtonElement => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = className;
     button.textContent = label;
+    button.title = title;
     button.addEventListener("click", () => onClick());
     return button;
+  };
+
+  // Weavie nudges users toward the keyboard, so every toolbar button advertises its shortcut on hover:
+  // "<label> (<shortcut>)", using the command's currently-bound keys (defaults merged with the user's
+  // keybindings.json). Unbound commands (e.g. Undo, which ships without a default binding) show just the
+  // label. Falls back to the bare label in plain-browser dev where the host hasn't injected a catalog.
+  const withShortcut = (label: string, commandId: string): string => {
+    const keys = findCommand(commandId)?.keys ?? [];
+    return keys.length > 0 ? `${label} (${keys.map(formatKey).join(" / ")})` : label;
   };
 
   // Jump the cursor/viewport to the previous/next change hunk (by modified-side anchor line), wrapping.
@@ -175,25 +197,61 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const bar = document.createElement("div");
     bar.className = "weavie-inline-toolbar";
 
-    const prev = makeButton("weavie-inline-nav", "↑", prevChange);
-    prev.title = "Previous change";
-    const next = makeButton("weavie-inline-nav", "↓", nextChange);
-    next.title = "Next change";
+    const prev = makeButton(
+      "weavie-inline-nav",
+      "↑",
+      withShortcut("Previous change", CommandIds.prevChange),
+      prevChange,
+    );
+    const next = makeButton(
+      "weavie-inline-nav",
+      "↓",
+      withShortcut("Next change", CommandIds.nextChange),
+      nextChange,
+    );
     bar.append(prev, next);
 
     if (options.mode === "review") {
       if (options.onAccept !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-accept", "Keep", accept));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-accept",
+            "Keep",
+            withShortcut("Keep this change", CommandIds.acceptChange),
+            accept,
+          ),
+        );
       }
       if (options.onReject !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-reject", "Reject", reject));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-reject",
+            "Reject",
+            withShortcut("Reject this change", CommandIds.rejectChange),
+            reject,
+          ),
+        );
       }
     } else if (options.mode === "applied") {
       if (options.onAccept !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-accept", "Accept", accept));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-accept",
+            "Accept",
+            withShortcut("Accept these changes", CommandIds.acceptChange),
+            accept,
+          ),
+        );
       }
       if (options.onUndo !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-undo", "Undo", undo));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-undo",
+            "Undo",
+            withShortcut("Undo these changes", CommandIds.undoChange),
+            undo,
+          ),
+        );
       }
     }
     return bar;
@@ -328,10 +386,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   return {
     set(path, options) {
-      setByUri(monaco.Uri.file(path).toString(), options);
+      setByUri(monaco.Uri.file(canonicalFsPath(path)).toString(), options);
     },
     clear(path) {
-      clearByUri(monaco.Uri.file(path).toString());
+      clearByUri(monaco.Uri.file(canonicalFsPath(path)).toString());
     },
     setByUri,
     clearByUri,

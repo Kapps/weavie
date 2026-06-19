@@ -53,26 +53,26 @@ public sealed class OpenVsxThemeInstaller {
 		}
 
 		byte[] vsix = await _http.GetByteArrayAsync(downloadUrl, ct).ConfigureAwait(false);
-		string extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{resolvedVersion}");
-		if (Directory.Exists(extractDir)) {
-			Directory.Delete(extractDir, recursive: true);
+		return await ExtractAndIndexAsync(ns, name, resolvedVersion, vsix, ct).ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Installs a VS Code color theme from a local <c>.vsix</c> file — the same ZIP an Open VSX download is —
+	/// returning the themes it contributes. The extension's identity (publisher / name / version) is read
+	/// from the vsix's own manifest, so a re-install (from file or Open VSX) replaces the prior copy of that
+	/// extension and the resulting theme ids match either install path.
+	/// </summary>
+	/// <param name="vsixPath">Absolute path to a <c>.vsix</c> file.</param>
+	/// <param name="ct">Cancellation token.</param>
+	public async Task<IReadOnlyList<InstalledTheme>> InstallFromVsixAsync(string vsixPath, CancellationToken ct) {
+		ArgumentException.ThrowIfNullOrEmpty(vsixPath);
+		if (!File.Exists(vsixPath)) {
+			throw new FileNotFoundException($"No .vsix file at '{vsixPath}'.", vsixPath);
 		}
 
-		Directory.CreateDirectory(extractDir);
-		using (var archive = new ZipArchive(new MemoryStream(vsix), ZipArchiveMode.Read)) {
-			archive.ExtractToDirectory(extractDir); // .NET guards against zip-slip path traversal
-		}
-
-		// .vsix lays the extension out under "extension/"; theme paths in the manifest are relative to it.
-		string extensionDir = Path.Combine(extractDir, "extension");
-		string manifestPath = Path.Combine(extensionDir, "package.json");
-		var contributions = ParseThemeContributions(await File.ReadAllTextAsync(manifestPath, ct).ConfigureAwait(false), extensionDir);
-
-		var installed = contributions
-			.Select(c => new InstalledTheme($"{ns}.{name}/{c.Label}", c.Label, c.UiTheme, ns, name, resolvedVersion, c.Path))
-			.ToList();
-		MergeIntoIndex(ns, name, installed);
-		return installed;
+		byte[] vsix = await File.ReadAllBytesAsync(vsixPath, ct).ConfigureAwait(false);
+		var (publisher, name, version) = ParseExtensionIdentity(ReadExtensionManifest(vsix));
+		return await ExtractAndIndexAsync(publisher, name, version, vsix, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>Lists the themes recorded in the index (empty if nothing is installed yet).</summary>
@@ -135,6 +135,63 @@ public sealed class OpenVsxThemeInstaller {
 		}
 
 		return result;
+	}
+
+	/// <summary>
+	/// Reads an extension's identity (<c>publisher</c>, <c>name</c>, <c>version</c>) from its
+	/// <c>package.json</c> — the coordinates a local-file install needs (an Open VSX install gets them from
+	/// the registry instead). Throws <see cref="InvalidOperationException"/> if any are missing. Pure.
+	/// </summary>
+	/// <param name="packageJson">The extension's <c>package.json</c> contents.</param>
+	public static (string Publisher, string Name, string Version) ParseExtensionIdentity(string packageJson) {
+		using var doc = JsonDocument.Parse(packageJson);
+		var root = doc.RootElement;
+		string? publisher = root.TryGetProperty("publisher", out var pub) ? pub.GetString() : null;
+		string? name = root.TryGetProperty("name", out var n) ? n.GetString() : null;
+		string? version = root.TryGetProperty("version", out var v) ? v.GetString() : null;
+		if (string.IsNullOrEmpty(publisher) || string.IsNullOrEmpty(name) || string.IsNullOrEmpty(version)) {
+			throw new InvalidOperationException(
+				"The .vsix manifest is missing a publisher, name, or version; it is not a valid VS Code extension.");
+		}
+
+		return (publisher, name, version);
+	}
+
+	// Shared install tail for both the Open VSX download and a local-file install: extract the .vsix into the
+	// themes root under a per-extension directory (replacing any prior copy), read the manifest's contributed
+	// themes, record them in the index, and return them.
+	private static async Task<IReadOnlyList<InstalledTheme>> ExtractAndIndexAsync(
+		string ns, string name, string version, byte[] vsix, CancellationToken ct) {
+		string extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{version}");
+		if (Directory.Exists(extractDir)) {
+			Directory.Delete(extractDir, recursive: true);
+		}
+
+		Directory.CreateDirectory(extractDir);
+		using (var archive = new ZipArchive(new MemoryStream(vsix), ZipArchiveMode.Read)) {
+			archive.ExtractToDirectory(extractDir); // .NET guards against zip-slip path traversal
+		}
+
+		// .vsix lays the extension out under "extension/"; theme paths in the manifest are relative to it.
+		string extensionDir = Path.Combine(extractDir, "extension");
+		string manifestPath = Path.Combine(extensionDir, "package.json");
+		var contributions = ParseThemeContributions(await File.ReadAllTextAsync(manifestPath, ct).ConfigureAwait(false), extensionDir);
+
+		var installed = contributions
+			.Select(c => new InstalledTheme($"{ns}.{name}/{c.Label}", c.Label, c.UiTheme, ns, name, version, c.Path))
+			.ToList();
+		MergeIntoIndex(ns, name, installed);
+		return installed;
+	}
+
+	// Reads the extension's package.json straight out of the .vsix ZIP (entries use forward slashes), so a
+	// local-file install can learn the extension's coordinates before choosing an extract directory.
+	private static string ReadExtensionManifest(byte[] vsix) {
+		using var archive = new ZipArchive(new MemoryStream(vsix), ZipArchiveMode.Read);
+		var entry = archive.GetEntry("extension/package.json")
+			?? throw new InvalidOperationException("Not a VS Code extension: the .vsix has no extension/package.json.");
+		using var reader = new StreamReader(entry.Open());
+		return reader.ReadToEnd();
 	}
 
 	private static void MergeIntoIndex(string ns, string name, IReadOnlyList<InstalledTheme> installed) {

@@ -261,6 +261,41 @@ once N>1. This is load-bearing for both this spec's status feature and the exist
 **verify it before multi-session lands** (see [hook-bridge concept](../concepts/hook-bridge.md) and
 [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md)).
 
+## Implementation status (2026-06-19)
+
+The **Core layer is built, tested, and committed** (`35c40a7`, `725f453`); the **host + web UI is not
+yet wired**. Critically, **worktree *creation* is intentionally not wired yet**, so nothing can leak in
+the interim — the anti-leak machinery below is complete and ready for when the host calls it.
+
+**Done — `Weavie.Core` (46 new tests; full suite green at 364):**
+- `Git/` — `IGitService` + `GitService` (worktree add/list/remove; branch/HEAD/default/merged/dirty;
+  pure porcelain parser).
+- `Worktrees/` — `WorktreeRegistry` (per-workspace `worktrees.json`) + `WorktreeManager`: create, and
+  `ListAsync`/`ReconcileAsync` that reconcile the registry against live `git worktree list` and classify
+  every worktree (managed / primary / orphan / untracked / dirty / merged / safe-to-remove). Removal is
+  dirty-guarded (`WorktreeDirtyException`). **This is the "no leaked worktrees" guarantee** — proven by
+  real-git integration tests (externally-removed → orphan → reconcile prunes it; externally-created →
+  surfaced as untracked; dirty → removal refused without force).
+- `Sessions/` — `SessionStatus` + `SessionStatusMachine` (hook stream + supervisor → status);
+  `SessionId` / `SessionDescriptor` / `SessionStore` (per-workspace `sessions.json` + active pointer);
+  `SessionIdentity` (deterministic branch → hue + monogram); the `ISessionHost` host seam.
+- `Commands/SessionCommands` — the six commands declared (new/fork/next/prev/switch/close) + Core
+  handler wiring to `ISessionHost`. `Hooks` — `HookEventKind.Notification` added and Stop/Notification
+  registered so Claude fires the relay for them.
+
+**Remaining (host + web), all seams ready:**
+- **Win host**: a `SessionManager` per `WorkspaceWindow` owning N `HostSession`s; active-session switch
+  (slot rebinding + per-session message routing); implement `ISessionHost` over `WorktreeManager`
+  (+ reconcile-on-open and a worktree surface); push `SessionStatusMachine.Changed` to the web; call
+  `SessionCommands.RegisterHandlers`. *Not attempted in this build: the Win host files were under an
+  unrelated heavy parallel refactor (`HostSession`'s constructor was changing), so touching them would
+  have clobbered that work and couldn't be verified.*
+- **Web**: the session rail (chip from `SessionIdentity`, status overlay, active accent); a
+  `session-status` bridge message + render; the `next`/`prev`/`switch` web handlers + omnibar session
+  mode; `--ok/--warn/--bad` theme vars in `chrome-vars.ts` (from `terminal.ansiGreen`/`ansiYellow`/
+  `errorForeground`).
+- **macOS host**: mirror the Win wiring (needs the parent spec's HostSession-per-window split first).
+
 ## Build sequence
 
 Each phase: build + unit tests + drive the live app to validate, then commit. Windows-first; the

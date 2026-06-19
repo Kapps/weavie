@@ -65,6 +65,33 @@ Weavie follows this:
 - Optionally, a later **"appearance preset"** may *reference* one color theme + one typography set
   for one-click looks — but as a convenience bundle, never the source of truth.
 
+### Appearance mode (light / dark / system) — decoupled from the theme
+
+Light/dark is **not** a property of "the active theme." It is a separate axis: an appearance **mode**
+plus a theme **per polarity**. Three live settings drive it:
+
+- `theme.mode` — `system` (follow the OS `prefers-color-scheme`, the default), `light`, or `dark`.
+- `theme.light` — the theme shown when the active polarity is light (default `weavie-light`).
+- `theme.dark` — the theme shown when the active polarity is dark (default `weavie-dark`).
+
+**Verb commands** (palette / keybinding / Claude `runCommand`):
+
+- `weavie.theme.select` (`id`) routes by the theme's polarity — a light theme fills `theme.light`, a
+  dark theme fills `theme.dark` — **and flips `theme.mode` to that polarity**, so picking a theme shows
+  it immediately.
+- `weavie.theme.cycleMode` steps `system → light → dark → system` (default `$mod+Shift+m`).
+
+**Who resolves what.** The host injects/pushes **both** themes as a pair —
+`{ mode, light: {id,ops,theme?}, dark: {id,ops,theme?} }` (see `ThemeJson.Build`). The **web** is
+authoritative for *rendering*: the theme controller resolves `system` against the live
+`matchMedia('(prefers-color-scheme: dark)')` and renders the matching slot, re-theming all three
+surfaces in place on an OS flip with no host round-trip (both palettes are already resolved). It also
+mirrors the active polarity onto the document's `color-scheme`. **Core** can't see
+`prefers-color-scheme`, so for per-theme *override targeting* (`describe/set/transform/remove/undo/reset`
+all act on the "active theme") it resolves `system` to the **dark** slot — Weavie's default polarity
+(`ThemeSettings.ResolveActiveThemeId`). After any `select` the mode is concrete, so this is exact; the
+only soft spot is editing overrides while in `system` mode under a light OS, which targets the dark theme.
+
 **Known bug to fix when this lands:** `editor/monaco-setup.ts` currently hardcodes a macOS-only stack
 (`ui-monospace, "SF Mono", Menlo, monospace`) which silently falls back to generic `monospace`
 (Consolas) on Windows. Either drop the override (let Monaco pick per-OS defaults, like VS Code) or set

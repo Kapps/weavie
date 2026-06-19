@@ -243,16 +243,17 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			}
 		};
 
-		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
-		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
-		// the main thread and the stores are thread-safe, so the off-thread events can call it directly.
+		// Theme (ApplyMode.Live): a mode/theme switch (theme.mode|theme.light|theme.dark) or an override edit on
+		// either selected theme re-pushes the resolved theme pair so the web re-themes the editor, terminal, and
+		// chrome in place. PostToWeb marshals to the main thread and the stores are thread-safe, so the
+		// off-thread events can call it directly.
 		_settings.SettingChanged += change => {
-			if (change.Key == "theme.active") {
+			if (ThemeSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
 			}
 		};
 		_themeOverrides.Changed += themeId => {
-			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
 				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", line => Console.WriteLine(line)));
 			}
 		};

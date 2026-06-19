@@ -1,7 +1,7 @@
 import { For, type JSX, Show } from "solid-js";
 import type { SessionChip } from "../bridge";
 import { formatKey } from "../commands/keybindings";
-import { findCommand } from "../commands/registry";
+import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
 // The left session rail: one chip per session (a deterministic hashed hue + the branch monogram), with a
@@ -21,20 +21,36 @@ export function SessionRail(props: {
     const keys = findCommand(CommandIds.newSessionPrompt)?.keys ?? [];
     return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
   };
+  // The Ctrl+Shift+<number> switch shortcut for the chip at `index` (0-based), read from the resolved
+  // keybindings (never hardcoded) by matching the binding whose index arg is this rail position. Only the
+  // first 9 chips have a number binding; the rest (and plain-browser dev with no catalog) get "".
+  const switchShortcut = (index: number): string => {
+    const match = getKeybindings().find(
+      (binding) =>
+        binding.command === CommandIds.selectSessionByIndex &&
+        (binding.args as { index?: unknown } | undefined)?.index === index + 1,
+    );
+    return match !== undefined ? formatKey(match.key) : "";
+  };
+  // The chip's hover tooltip: its label + status (or unloaded hint), with the switch shortcut appended so
+  // the keyboard path is discoverable from the mouse.
+  const chipTitle = (session: SessionChip, index: number): string => {
+    const base = session.loaded
+      ? `${session.label} — ${session.status}`
+      : `${session.label} — unloaded (click to load)`;
+    const shortcut = switchShortcut(index);
+    return shortcut !== "" ? `${base} (${shortcut})` : base;
+  };
   return (
     <div class="session-rail">
       <For each={props.sessions}>
-        {(session) => (
+        {(session, index) => (
           <button
             type="button"
             class={`session-chip status-${session.status}${session.active ? " active" : ""}${
               session.loaded ? "" : " unloaded"
             }`}
-            title={
-              session.loaded
-                ? `${session.label} — ${session.status}`
-                : `${session.label} — unloaded (click to load)`
-            }
+            title={chipTitle(session, index())}
             ref={(el) => el.style.setProperty("--chip-hue", String(session.hue))}
             onClick={() => props.onSwitch(session.id)}
           >

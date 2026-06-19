@@ -190,6 +190,9 @@ export type WebBoundMessage =
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
+  // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
+  // session switch so a new / selected session lands focus in Claude rather than nowhere.
+  | { type: "focus-pane"; kind: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

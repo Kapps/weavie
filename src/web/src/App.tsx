@@ -275,6 +275,11 @@ export default function App(): JSX.Element {
       }
       if (message.type === "notify") {
         addToast(message.level, message.message);
+      } else if (message.type === "focus-pane") {
+        // The host switched the active session (new / select / close) and asks us to land keyboard focus
+        // in a pane — Claude by default, so a switch drops the user straight into the agent. The terminal
+        // xterms are persistent across switches, so focusing the slot is valid even mid-respawn.
+        focusPane(message.kind);
       } else if (message.type === "session-changes") {
         setChangeFiles(message.files);
       } else if (message.type === "dir-listing") {
@@ -352,6 +357,24 @@ export default function App(): JSX.Element {
       // Next / Previous Session (Ctrl+Shift+] / Ctrl+Shift+[): cycle the rail, wrapping around.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
+      // Ctrl+Shift+1–9 → switch to the Nth session on the rail (the session analogue of Ctrl+1–9 for
+      // panes). Returns false when there's no session at that number, so an unbound chord falls through to
+      // the focused xterm/Monaco; consumes the key (returns true) when one exists, even if it's already
+      // active (then it's a no-op — the host already focuses Claude on a real switch).
+      registerCommand(CommandIds.selectSessionByIndex, (args) => {
+        const index = Number((args as { index?: unknown } | undefined)?.index);
+        if (!Number.isFinite(index)) {
+          return false;
+        }
+        const target = sessions()[index - 1];
+        if (target === undefined) {
+          return false;
+        }
+        if (!target.active) {
+          switchToSession(target.id);
+        }
+        return true;
+      }),
     ];
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.

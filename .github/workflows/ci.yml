@@ -95,3 +95,21 @@ jobs:
         run: >
           dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
           --filter "FullyQualifiedName!=Weavie.Core.Tests.SettingsStoreTests.Set_PathKind_WritesLiteralStringForWindowsPath"
+
+      # Headless host (browser-connectable Weavie): built and exercised on Linux, where it runs. Building it
+      # copies the web app built above into its wwwroot. The web e2e then drives the bridge transport against
+      # a mock host (bridge.spec) AND the real Weavie.Headless over a WebSocket (headless-host.spec) — the
+      # only place the host↔web path is verified, since the native shells can't run headless in CI.
+      - name: Build headless host
+        if: matrix.name == 'linux'
+        run: dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
+
+      - name: Install Playwright Chromium
+        if: matrix.name == 'linux'
+        working-directory: src/web
+        run: npx playwright install --with-deps chromium
+
+      - name: Web e2e (bridge + real headless host)
+        if: matrix.name == 'linux'
+        working-directory: src/web
+        run: npm run e2e

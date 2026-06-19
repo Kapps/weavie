@@ -6,9 +6,10 @@
     <link rel="icon" type="image/svg+xml" href="/weavie.svg" />
     <title>weavie</title>
     <!-- Painted before any JS loads: a dark canvas + centered wordmark so the WebView's first frame is
-         intentional, not a white flash. The splash stays on top of the whole app and is faded out by
-         dismissSplash() only once the editor is ready — one clean reveal instead of a relay of
-         placeholders. Inline (no external CSS) so it costs zero requests and paints immediately. -->
+         intentional, not a white flash. The splash stays on top of the whole app and is removed by
+         dismissSplash() in one step once the editor is ready — one clean reveal instead of a relay of
+         placeholders, and no fade (a fade is pure startup latency). Inline (no external CSS) so it costs
+         zero requests and paints immediately. -->
     <style>
       html, body { height: 100%; margin: 0; background: #000000; color: #cdd5dc; }
       #root { height: 100%; }
@@ -17,9 +18,7 @@
         display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px;
         font: 600 13px/1.5 ui-monospace, "SF Mono", Menlo, Consolas, monospace;
         letter-spacing: 0.08em; color: #54c6a4; background: #000000;
-        transition: opacity 0.18s ease;
       }
-      #splash.hide { opacity: 0; }
     </style>
     <!-- Boot error capture. A CLASSIC inline script, run outside the ES-module graph: if a module fails
          to load or link (e.g. a bad import), main.tsx — and the error handlers it would install — never

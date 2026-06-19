@@ -272,16 +272,138 @@ type WebMessageHandler = (msg: WebBoundMessage) => void;
 
 const listeners = new Set<WebMessageHandler>();
 
-export function postToHost(message: HostBoundMessage): void {
-  const handler = window.webkit?.messageHandlers?.weavie;
-  if (handler === undefined) {
+// Parse one inbound host->web JSON line and fan it out to the registered listeners. Shared by every
+// transport (the native `window.__weavieReceive` callback and the WebSocket transport below) so the
+// dispatch — and the loud-on-bad-JSON contract — is identical however the bytes arrived.
+function deliverFromHost(raw: string): void {
+  let parsed: WebBoundMessage;
+  try {
+    parsed = JSON.parse(raw) as WebBoundMessage;
+  } catch {
+    log("error", `bridge: bad JSON from host: ${raw.slice(0, 200)}`);
     return;
   }
-  try {
-    handler.postMessage(JSON.stringify(message));
-  } catch {
-    // The host channel is best-effort; never let instrumentation break the app.
+  for (const listener of listeners) {
+    listener(parsed);
   }
+}
+
+// One way to push bytes to the host. The bridge speaks the same HostBound/WebBound JSON regardless of
+// how they travel; only the pipe differs.
+interface BridgeTransport {
+  send(json: string): void;
+}
+
+// The native desktop shells (Win/Mac/Linux) inject `window.webkit.messageHandlers.weavie` and call
+// `window.__weavieReceive` — the in-process script-message channel. Best-effort: a throwing channel
+// must never break the app (this also carries diagnostic logs).
+const nativeTransport: BridgeTransport = {
+  send(json: string): void {
+    const handler = window.webkit?.messageHandlers?.weavie;
+    if (handler === undefined) {
+      return;
+    }
+    try {
+      handler.postMessage(json);
+    } catch {
+      // The host channel is best-effort; never let instrumentation break the app.
+    }
+  },
+};
+
+// Remote/web Weavie: no native shell, but a headless "serve" host exposes the same bridge protocol
+// over a WebSocket. Outbound messages sent before the socket opens (notably the initial "ready") are
+// buffered and flushed on open; a dropped socket reconnects with capped backoff. Inbound frames go
+// through the shared `deliverFromHost`, so the page can't tell a WebSocket host from a native one.
+class WebSocketTransport implements BridgeTransport {
+  private socket: WebSocket | null = null;
+  private readonly outbox: string[] = [];
+  private reconnectDelayMs = 500;
+
+  constructor(private readonly url: string) {
+    this.connect();
+  }
+
+  send(json: string): void {
+    if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(json);
+      return;
+    }
+    this.outbox.push(json);
+  }
+
+  private connect(): void {
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(this.url);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    this.socket = socket;
+    socket.onopen = (): void => {
+      this.reconnectDelayMs = 500;
+      const pending = this.outbox.splice(0, this.outbox.length);
+      for (const message of pending) {
+        socket.send(message);
+      }
+    };
+    socket.onmessage = (event: MessageEvent): void => {
+      if (typeof event.data === "string") {
+        deliverFromHost(event.data);
+      }
+    };
+    socket.onclose = (): void => {
+      this.socket = null;
+      this.scheduleReconnect();
+    };
+    socket.onerror = (): void => {
+      // onerror is always followed by onclose, which drives the reconnect. Close defensively and
+      // swallow so a transport blip never surfaces as an uncaught error.
+      socket.close();
+    };
+  }
+
+  private scheduleReconnect(): void {
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 10_000);
+    setTimeout(() => this.connect(), delay);
+  }
+}
+
+// Resolve the remote bridge URL, if any: a `?weavie-bridge=` query override (handy for manual testing)
+// wins, else the host-injected `window.__WEAVIE_BRIDGE_WS__`. The literal "auto" derives a same-origin
+// `ws(s)://<host>/weavie-bridge` — the common case when the serve host also serves the page.
+function resolveBridgeWsUrl(): string | null {
+  const override = new URLSearchParams(window.location.search).get("weavie-bridge");
+  const configured = override ?? window.__WEAVIE_BRIDGE_WS__ ?? "";
+  if (configured === "") {
+    return null;
+  }
+  if (configured === "auto") {
+    const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${scheme}//${window.location.host}/weavie-bridge`;
+  }
+  return configured;
+}
+
+// Pick the transport once, at module load. A native shell always wins (its in-process channel is
+// lower-latency and already trusted). Otherwise, if a serve host advertised a WebSocket, use it. With
+// neither — a plain browser opened against the dev server — outbound is a no-op and nothing is ever
+// received, exactly as before: the bridge degrades silently, never throws.
+const transport: BridgeTransport | null = (() => {
+  if (window.webkit?.messageHandlers?.weavie !== undefined) {
+    return nativeTransport;
+  }
+  const wsUrl = resolveBridgeWsUrl();
+  return wsUrl === null ? null : new WebSocketTransport(wsUrl);
+})();
+
+export function postToHost(message: HostBoundMessage): void {
+  if (transport === null) {
+    return;
+  }
+  transport.send(JSON.stringify(message));
 }
 
 export function log(level: "info" | "warn" | "error", message: string): void {
@@ -295,15 +417,6 @@ export function onHostMessage(handler: WebMessageHandler): () => void {
   };
 }
 
-window.__weavieReceive = (raw: string): void => {
-  let parsed: WebBoundMessage;
-  try {
-    parsed = JSON.parse(raw) as WebBoundMessage;
-  } catch {
-    log("error", `__weavieReceive: bad JSON: ${raw.slice(0, 200)}`);
-    return;
-  }
-  for (const listener of listeners) {
-    listener(parsed);
-  }
-};
+// The native shells push messages by calling this; the WebSocket transport feeds the same dispatcher
+// directly. Kept for the native channel even when a WebSocket transport is active (harmless, unused).
+window.__weavieReceive = deliverFromHost;

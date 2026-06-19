@@ -1,0 +1,225 @@
+// A faithful-enough stand-in for the headless "serve" host, for end-to-end testing the web app's
+// remote bridge transport in a real browser. It does two jobs the real serve host will do:
+//
+//   1. serves the built web app (dist/) over HTTP, so the page loads exactly as it will in production;
+//   2. speaks the bridge protocol over a WebSocket at /weavie-bridge — the same HostBound/WebBound JSON
+//      the native shells exchange over their in-process channel.
+//
+// It is deliberately minimal: it records everything the page sends, lets a test push any web-bound
+// message, and answers the host-backed file:// provider (fs-stat / fs-read / fs-write) out of an
+// in-memory file map so the editor can open files. It is NOT the product host — there is no claude,
+// no real filesystem, no LSP — just enough of the contract to drive the web from a test.
+
+import { readFile } from "node:fs/promises";
+import { type Server, createServer } from "node:http";
+import { extname, join, normalize } from "node:path";
+import { type WebSocket, WebSocketServer } from "ws";
+
+/** A bridge message in either direction — kept loose on purpose; the web side owns the real types. */
+type Message = { type: string } & Record<string, unknown>;
+
+const MIME: Record<string, string> = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".mjs": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".json": "application/json; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".wasm": "application/wasm",
+  ".woff": "font/woff",
+  ".woff2": "font/woff2",
+  ".ttf": "font/ttf",
+  ".map": "application/json; charset=utf-8",
+};
+
+export interface MockHostOptions {
+  /** Absolute path to the built web app (the Vite `dist/` directory) to serve. */
+  distDir: string;
+  /** Seed files the host-backed file provider can read, keyed by absolute native path. */
+  files?: Record<string, string>;
+}
+
+/** A running mock host: an HTTP server for the app plus a WebSocket bridge endpoint. */
+export class MockHost {
+  /** Every message the page sent to the host, in arrival order. */
+  readonly received: Message[] = [];
+  /** Files the fs-* provider serves, keyed by path; tests can mutate between steps. */
+  readonly files: Map<string, string>;
+
+  private readonly distDir: string;
+  private readonly http: Server;
+  private readonly wss: WebSocketServer;
+  private socket: WebSocket | null = null;
+  private readonly waiters: { type: string; resolve: (m: Message) => void }[] = [];
+  private port = 0;
+
+  private constructor(distDir: string, files: Record<string, string>) {
+    this.distDir = distDir;
+    this.files = new Map(Object.entries(files));
+    this.http = createServer((req, res) => void this.serveStatic(req.url ?? "/", res));
+    this.wss = new WebSocketServer({ server: this.http, path: "/weavie-bridge" });
+    this.wss.on("connection", (ws) => this.onConnection(ws));
+  }
+
+  /** Starts a mock host on an ephemeral port and resolves once it is accepting connections. */
+  static async start(options: MockHostOptions): Promise<MockHost> {
+    const host = new MockHost(options.distDir, options.files ?? {});
+    await new Promise<void>((resolve) => host.http.listen(0, "127.0.0.1", resolve));
+    const address = host.http.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("mock host failed to bind a TCP port");
+    }
+    host.port = address.port;
+    return host;
+  }
+
+  /** The HTTP base, e.g. http://127.0.0.1:54321. */
+  get url(): string {
+    return `http://127.0.0.1:${this.port}`;
+  }
+
+  /** The bridge WebSocket URL to hand the page via `?weavie-bridge=`. */
+  get bridgeUrl(): string {
+    return `ws://127.0.0.1:${this.port}/weavie-bridge`;
+  }
+
+  /** The full page URL with the bridge transport wired in (the way a test should navigate). */
+  pageUrl(path = "/"): string {
+    return `${this.url}${path}?weavie-bridge=${encodeURIComponent(this.bridgeUrl)}`;
+  }
+
+  /** Pushes a web-bound message (host -> page) over the live bridge socket. */
+  pushToWeb(message: Message): void {
+    if (this.socket === null || this.socket.readyState !== this.socket.OPEN) {
+      throw new Error("pushToWeb: no page is connected to the bridge yet");
+    }
+    this.socket.send(JSON.stringify(message));
+  }
+
+  /** Resolves with the next (or already-received) host-bound message of the given type. */
+  waitForMessage(type: string, timeoutMs = 15_000): Promise<Message> {
+    const existing = this.received.find((m) => m.type === type);
+    if (existing !== undefined) {
+      return Promise.resolve(existing);
+    }
+    return new Promise<Message>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`timed out after ${timeoutMs}ms waiting for "${type}"`)),
+        timeoutMs,
+      );
+      this.waiters.push({
+        type,
+        resolve: (m) => {
+          clearTimeout(timer);
+          resolve(m);
+        },
+      });
+    });
+  }
+
+  /** Stops the HTTP + WebSocket servers. */
+  async close(): Promise<void> {
+    this.socket?.close();
+    await new Promise<void>((resolve) => this.wss.close(() => resolve()));
+    await new Promise<void>((resolve) => this.http.close(() => resolve()));
+  }
+
+  private onConnection(ws: WebSocket): void {
+    this.socket = ws;
+    ws.on("message", (data) => this.onMessage(String(data)));
+  }
+
+  private onMessage(raw: string): void {
+    let message: Message;
+    try {
+      message = JSON.parse(raw) as Message;
+    } catch {
+      return;
+    }
+    this.received.push(message);
+
+    const waiter = this.waiters.find((w) => w.type === message.type);
+    if (waiter !== undefined) {
+      this.waiters.splice(this.waiters.indexOf(waiter), 1);
+      waiter.resolve(message);
+    }
+
+    this.answerFileProvider(message);
+  }
+
+  // Answer the host-backed file:// provider so the editor can open working copies. Only the three
+  // request shapes the provider issues are handled; everything else is recorded but not replied to.
+  private answerFileProvider(message: Message): void {
+    if (message.type === "fs-stat") {
+      const content = this.files.get(String(message.path));
+      this.pushToWeb(
+        content === undefined
+          ? {
+              type: "fs-stat-result",
+              id: message.id,
+              ok: true,
+              exists: false,
+              isDir: false,
+              mtimeMs: 0,
+              ctimeMs: 0,
+              size: 0,
+            }
+          : {
+              type: "fs-stat-result",
+              id: message.id,
+              ok: true,
+              exists: true,
+              isDir: false,
+              mtimeMs: 1,
+              ctimeMs: 1,
+              size: content.length,
+            },
+      );
+    } else if (message.type === "fs-read") {
+      const content = this.files.get(String(message.path));
+      this.pushToWeb(
+        content === undefined
+          ? { type: "fs-read-result", id: message.id, ok: false, code: "FileNotFound" }
+          : {
+              type: "fs-read-result",
+              id: message.id,
+              ok: true,
+              content,
+              mtimeMs: 1,
+              size: content.length,
+            },
+      );
+    } else if (message.type === "fs-write") {
+      this.files.set(String(message.path), String(message.content ?? ""));
+      this.pushToWeb({
+        type: "fs-write-result",
+        id: message.id,
+        ok: true,
+        mtimeMs: 2,
+        size: String(message.content ?? "").length,
+      });
+    }
+  }
+
+  private async serveStatic(
+    rawUrl: string,
+    res: import("node:http").ServerResponse,
+  ): Promise<void> {
+    const pathname = decodeURIComponent(rawUrl.split("?")[0]);
+    const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
+    // Contain the served path inside distDir — a normalized path that escapes is a 403.
+    const resolved = normalize(join(this.distDir, relative));
+    if (!resolved.startsWith(normalize(this.distDir))) {
+      res.writeHead(403).end("forbidden");
+      return;
+    }
+    try {
+      const body = await readFile(resolved);
+      res
+        .writeHead(200, { "content-type": MIME[extname(resolved)] ?? "application/octet-stream" })
+        .end(body);
+    } catch {
+      res.writeHead(404).end("not found");
+    }
+  }
+}

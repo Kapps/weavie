@@ -10,6 +10,13 @@ intercepts:
 2. The **hook bridge** (this doc) — sees *every* mutating tool call (Bash + edits), is the **change-recording
    stream**, and is the seam where a Weavie-side "bypass" returns `allow` per tool.
 
+The hook bridge also returns, on each landed edit (`PostToolUse` for `Edit`/`Write`/`MultiEdit`), a top-level
+`systemMessage` carrying a workspace-relative `path:line` of the first line that edit changed. Claude prints
+it in the TUI, and the terminal pane already turns `path:line` tokens into Monaco reveals
+(`TerminalView.tsx`), so the user can click straight to the edit. The line is computed from the per-edit
+pre-state vs. post-edit content held by `SessionChangeTracker` (`EditLocationFor`), so it pinpoints *this*
+edit even on the 2nd+ edit of a file within a turn.
+
 ## How it's wired
 
 Claude Code `command` hooks run an arbitrary program per tool call: the event JSON arrives on the hook's
@@ -33,9 +40,9 @@ sequenceDiagram
     C->>R: spawn hook, tool event JSON on stdin
     R->>S: connect pipe (WEAVIE_HOOK_PIPE), framed request
     S->>W: Observed(HookRequest) — record the change
-    S->>R: framed decision (empty = pass-through)
+    S->>R: framed decision (empty = pass-through; PostToolUse edit = systemMessage path:line)
     R->>C: decision on stdout (or nothing)
-    C->>C: proceed / openDiff / terminal prompt
+    C->>C: proceed / openDiff / terminal prompt; print clickable path:line
 ```
 
 ## Security model
@@ -62,8 +69,9 @@ Two invariants keep it safe:
 
 - `HookProtocol` — pipe name (`weavie-hook-<port>`), env var, length-prefixed framing.
 - `HookRequest` — parses the stdin JSON (event, tool, raw `tool_input`, session, cwd).
-- `HookDecision` / `HookPolicy` — the verdict + its `hookSpecificOutput` serialization; `Decide` is the gate
-  seam (today always `PassThrough`; `bypassPermissions` will return `Allow`).
+- `HookDecision` / `HookPolicy` — the verdict + its stdout JSON serialization (`hookSpecificOutput` permission
+  block and/or top-level `systemMessage`); `Decide` is the gate seam (today always `PassThrough`;
+  `bypassPermissions` will return `Allow`). `IdeIntegration` attaches the edit jump-link `systemMessage`.
 - `HookBridgeServer` — the in-process pipe listener; raises `Observed`, replies with the decision.
 - `HookRelayClient` — the `--hook-relay` side: stdin → pipe → stdout, fail-open.
 - `HookSettings` — builds the `--settings` hooks JSON.

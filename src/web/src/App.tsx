@@ -9,17 +9,23 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { type TermSession, onHostMessage, postToHost } from "./bridge";
+import { type SessionStatusName, type TermSession, onHostMessage, postToHost } from "./bridge";
 import type { ChangeFile } from "./changes/ChangesPanel";
+import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { ResizeFrame } from "./chrome/ResizeFrame";
+import { SessionRail } from "./chrome/SessionRail";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
+// Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
+// rail + active-session status survive HMR, the same way layout/store and editor/session-store do.
+import { claudeStatus, sessions } from "./chrome/session-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
 import { dispatchCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
+import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
 import { createEditorController } from "./editor/editor-controller";
 // Side-effect import: registers the editor session store's set-editor-session listener at top-level module
@@ -28,7 +34,7 @@ import { createEditorController } from "./editor/editor-controller";
 // later, so the push would arrive with no listener and be dropped — launch/Ctrl+R restore would silently
 // no-op. Importing it here (like layout/store) also keeps the signal alive across HMR.
 // Named import keeps session-store loaded at top level (out of the editor chunk) so it survives HMR.
-import { activePath, openTabs } from "./editor/session-store";
+import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
@@ -42,8 +48,9 @@ import { applyChromeTheme } from "./theme";
 const ChangesPanel = lazy(() => import("./changes/ChangesPanel"));
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 
-// The session's workspace root (host-injected before navigation); the file browser's tree is rooted
-// here. Null in plain-browser dev (no host) — the browser toggle is hidden in that case.
+// The PRIMARY session's workspace root (host-injected before navigation). Used to SEED the active-root
+// signal (indexRoot) and as the "is there a host workspace at all" check; the live root follows the active
+// session via the host's file-index pushes (see indexRoot). Null in plain-browser dev (no host).
 const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
 // Host-injected shell config (Windows custom title bar). Absent on macOS / plain-browser dev, where the
@@ -53,6 +60,15 @@ const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
 
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
+
+// Human-readable tooltip for each Claude status, shown on the pane-head status dot.
+const STATUS_LABEL: Record<SessionStatusName, string> = {
+  starting: "Claude is starting",
+  working: "Claude is working",
+  needsInput: "Claude needs your input",
+  idle: "Claude is idle",
+  error: "Claude crashed",
+};
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
@@ -68,6 +84,11 @@ export default function App(): JSX.Element {
   const terminalFocus = new Map<string, () => void>();
 
   const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
+  // The active session's Claude status (pane-head dot) and the window's sessions (left rail) both live in
+  // chrome/session-store as top-level signals so they survive HMR — see that module. The host pushes
+  // session-status / session-list on `ready` and on every change; an HMR re-posts neither.
+  // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
+  const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [changesOpen, setChangesOpen] = createSignal(false);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
@@ -90,8 +111,10 @@ export default function App(): JSX.Element {
       req.resolve(ok);
     }
   };
-  // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, and the flat
-  // workspace file index the omnibar's "Go to File" filters over (root may differ from WORKSPACE_ROOT).
+  // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, plus the flat
+  // workspace file index the omnibar's "Go to File" filters over and the file browser's tree. indexRoot is
+  // the ACTIVE session's worktree root — it follows session switches (the host re-pushes file-index on each),
+  // seeded from the primary's WORKSPACE_ROOT until the first push. Both the omnibar and the browser root here.
   const [maximized, setMaximized] = createSignal(false);
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
@@ -110,6 +133,31 @@ export default function App(): JSX.Element {
       return;
     }
     terminalFocus.get(kind)?.();
+  };
+
+  // Switch to a session by id. Flushes the outgoing session's pending (debounced) editor session before
+  // the switch so its tab set isn't lost; the host processes both messages in order on the still-active
+  // session. Used by the rail (click) and the next/prev keyboard commands alike.
+  const switchToSession = (id: string): void => {
+    flushEditorSession();
+    postToHost({ type: "switch-session", id });
+  };
+
+  // Step the active session to the next/prev chip on the rail (delta ±1, wraps around). Cycles over all
+  // chips — including dormant ones, which load on switch just like a click. Returns whether it stepped, so
+  // with <2 sessions (nothing to switch to) the keystroke falls through, matching tab next/prev.
+  const stepSession = (delta: number): boolean => {
+    const list = sessions();
+    const current = list.findIndex((s) => s.active);
+    if (list.length < 2 || current < 0) {
+      return false;
+    }
+    const target = list[(current + delta + list.length) % list.length];
+    if (target === undefined) {
+      return false;
+    }
+    switchToSession(target.id);
+    return true;
   };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
@@ -154,6 +202,10 @@ export default function App(): JSX.Element {
           <TabStrip tabs={openTabs} activePath={activePath} actions={editor.tabs} />
           <div class="editor-pane">
             <div class="editor" ref={editorContainer} />
+            {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
+            <Show when={openTabs().length === 0}>
+              <EditorEmptyState />
+            </Show>
           </div>
           {/* Pane-switch badge: top-right of the PANE (over the tab strip), not over the editor content. */}
           <span class="pane-shortcut editor-badge">
@@ -168,6 +220,12 @@ export default function App(): JSX.Element {
       <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
         <div class="pane-head">
           <span class="pane-label">{kind === "terminal:claude" ? "Claude Code" : "Terminal"}</span>
+          <Show when={kind === "terminal:claude" && claudeStatus() !== undefined}>
+            <span
+              class={`session-status status-${claudeStatus()}`}
+              title={STATUS_LABEL[claudeStatus() as SessionStatusName]}
+            />
+          </Show>
           <span class="pane-shortcut">
             {CTRL_LABEL}
             {numberOf(kind)}
@@ -184,11 +242,13 @@ export default function App(): JSX.Element {
     setBrowserOpen((open) => !open);
   };
 
-  // Whenever the browser is open and the workspace root listing hasn't loaded, request it; the current
-  // file's ancestor folders then cascade open from there. Driven by state, so it loads however it opened.
+  // Whenever the browser is open and the active session's root listing hasn't loaded, request it; the current
+  // file's ancestor folders then cascade open from there. Keyed on indexRoot() (the ACTIVE session's worktree,
+  // re-pushed by the host on a switch), not the page-load primary root — so the browser follows the session.
   createEffect(() => {
-    if (browserOpen() && WORKSPACE_ROOT !== null && dirListings()[WORKSPACE_ROOT] === undefined) {
-      postToHost({ type: "list-dir", path: WORKSPACE_ROOT });
+    const root = indexRoot();
+    if (browserOpen() && root !== null && dirListings()[root] === undefined) {
+      postToHost({ type: "list-dir", path: root });
     }
   });
 
@@ -217,9 +277,17 @@ export default function App(): JSX.Element {
         setMaximized(message.maximized);
         setWindowFocused(message.focused);
       } else if (message.type === "file-index") {
+        // A switch re-pushes the index rooted at the new session's worktree. When the root changes, drop the
+        // previous session's cached directory listings so the file browser re-lists the new worktree's tree
+        // instead of showing the old one (listings are keyed by absolute path, so they'd otherwise linger).
+        if (message.root !== indexRoot()) {
+          setDirListings({});
+        }
         setIndexRoot(message.root);
         setFileIndex(message.files);
       }
+      // session-status + session-list are owned by chrome/session-store (registered at module load so they
+      // survive HMR); they're intentionally not handled here.
     });
 
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. The
@@ -273,6 +341,11 @@ export default function App(): JSX.Element {
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
+      // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
+      registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
+      // Next / Previous Session (Ctrl+Shift+] / Ctrl+Shift+[): cycle the rail, wrapping around.
+      registerCommand(CommandIds.nextSession, () => stepSession(1)),
+      registerCommand(CommandIds.prevSession, () => stepSession(-1)),
     ];
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
@@ -329,7 +402,23 @@ export default function App(): JSX.Element {
       <Show when={CUSTOM_TITLEBAR}>
         <ResizeFrame maximized={maximized()} />
       </Show>
-      <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+      <div class="app-body">
+        <SessionRail
+          sessions={sessions()}
+          onSwitch={switchToSession}
+          onNew={() => setNewSessionOpen(true)}
+        />
+        <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+      </div>
+      <Show when={newSessionOpen()}>
+        <NewSessionPrompt
+          onCreate={(branch, base) => {
+            setNewSessionOpen(false);
+            postToHost({ type: "new-session", branch, base });
+          }}
+          onCancel={() => setNewSessionOpen(false)}
+        />
+      </Show>
       <Show when={changeFiles().length > 0 && !CUSTOM_TITLEBAR}>
         <button
           type="button"
@@ -353,15 +442,15 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Show when={WORKSPACE_ROOT !== null && !CUSTOM_TITLEBAR}>
+      <Show when={indexRoot() !== null && !CUSTOM_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>
           Files
         </button>
       </Show>
-      <Show when={browserOpen() && WORKSPACE_ROOT !== null}>
+      <Show when={browserOpen() && indexRoot() !== null}>
         <Suspense>
           <FileBrowser
-            root={WORKSPACE_ROOT!}
+            root={indexRoot()!}
             listings={dirListings()}
             currentFile={currentFile()}
             onExpand={(path) => postToHost({ type: "list-dir", path })}

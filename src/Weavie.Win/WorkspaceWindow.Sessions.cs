@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Commands;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Sessions;
@@ -10,15 +11,14 @@ using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
 
-// Multi-session + worktree wiring for the workspace window: per-session command/push wiring (gated so only
-// the active session drives the page), the SessionManager + WorktreeManager construction, reconcile-on-open
-// (so no worktree goes unsurfaced), the session-list push that feeds the web rail, and the ISessionHost
-// implementation (new / fork / close) that Claude's runCommand + the rail invoke. v1 caveats: switching
-// swaps the terminals + status; the editor/LSP follow the active session's backend but the page's editor
-// tabs and LSP connection don't yet re-bind on switch (documented in docs/specs/multi-session-and-worktrees.md).
+// Multi-session + worktree wiring for the workspace window. The rail surfaces one SessionSlot per worktree
+// (plus the primary checkout); a slot is either LOADED (a live HostSession — terminals/IDE-MCP/LSP) or
+// UNLOADED (dormant, shown faded), so a worktree left on disk from a past run is always visible rather than
+// leaking. Clicking a dormant chip loads it on demand; closing a session unloads it (the chip stays). The
+// active session's backend drives the page (pushes gated on IsActiveSession); switching swaps terminals +
+// repaints, rebinds the editor to the slot's worktree tabs, and re-pushes status + the rail. LSP doesn't yet
+// re-bind on switch. See docs/specs/multi-session-and-worktrees.md.
 internal sealed partial class WorkspaceWindow : ISessionHost {
-	private readonly Dictionary<string, string> _sessionLabels = new(StringComparer.Ordinal);
-
 	/// <summary>
 	/// Wires a session's command handlers + its change/status/diff push subscriptions. The push
 	/// subscriptions are gated on <see cref="IsActiveSession"/> so only the active session updates the page;
@@ -87,52 +87,73 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		return new WorktreeManager(git, registry, _workspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id));
 	}
 
+	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with <see cref="_session"/>.</summary>
+	private void AddPrimarySlot(string label) {
+		_sessions?.Add(new SessionSlot {
+			Id = _session!.Id,
+			Label = label,
+			WorktreePath = _workspaceRoot,
+			IsPrimary = true,
+			Session = _session,
+			LastActiveUtc = DateTimeOffset.UtcNow,
+		}, activate: true);
+	}
+
 	/// <summary>
-	/// On open, reconcile the worktree registry against real git so a crash or an external removal can't
-	/// leave a worktree unsurfaced; tell the user (a toast) when extra worktrees exist for this workspace.
+	/// On open, reconcile the worktree registry against real git so a crash or an external removal can't leave
+	/// a worktree unsurfaced, then add an UNLOADED (dormant) slot for every existing non-primary worktree so it
+	/// appears on the rail (faded) instead of leaking invisibly. Orphans (managed but gone) are skipped.
 	/// </summary>
 	private async Task ReconcileWorktreesOnOpenAsync() {
-		if (_worktrees is null) {
+		if (_worktrees is null || _sessions is null) {
 			return;
 		}
 
 		try {
 			var report = await _worktrees.ReconcileAsync().ConfigureAwait(true);
-			int extra = report.Statuses.Count(s => !s.IsPrimary && s.Exists);
-			if (extra > 0) {
-				_bridge.PostToWeb(JsonSerializer.Serialize(new {
-					type = "notify",
-					level = "info",
-					message = $"{extra} git worktree(s) are tracked for this workspace — open the session rail to manage them.",
-				}));
+			foreach (var status in report.Statuses) {
+				if (!status.Exists || status.IsPrimary) {
+					continue;
+				}
+
+				string label = status.Branch ?? Path.GetFileName(
+					status.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+				if (_sessions.Find(label) is not null) {
+					continue; // already surfaced
+				}
+
+				_sessions.Add(new SessionSlot {
+					Id = label,
+					Label = label,
+					WorktreePath = status.Path,
+					IsPrimary = false,
+					Session = null,
+				}, activate: false);
 			}
+
+			PushSessionList();
 		} catch (GitException ex) {
 			Console.WriteLine($"[weavie] worktree reconcile failed: {ex.Message}");
 		}
 	}
 
-	/// <summary>Pushes the session list (id, label, active, status, identity) to the page's rail.</summary>
+	/// <summary>Pushes the session list (id, label, active, loaded, status, identity) to the page's rail.</summary>
 	private void PushSessionList() {
 		if (_sessions is null) {
 			return;
 		}
 
-		var sessions = _sessions.Sessions.Select(s => {
-			string label = SessionLabel(s);
-			return new {
-				id = s.Id,
-				label,
-				active = ReferenceEquals(_session, s),
-				status = StatusName(s.Status.Status),
-				hue = SessionIdentity.Hue(label),
-				monogram = SessionIdentity.Monogram(label),
-			};
+		var sessions = _sessions.Slots.Select(slot => new {
+			id = slot.Id,
+			label = slot.Label,
+			active = ReferenceEquals(_sessions.ActiveSlot, slot),
+			loaded = slot.Loaded,
+			status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
+			hue = SessionIdentity.Hue(slot.Label),
+			monogram = SessionIdentity.Monogram(slot.Label),
 		});
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-list", sessions }));
 	}
-
-	private string SessionLabel(HostSession session) =>
-		_sessionLabels.TryGetValue(session.Id, out string? label) ? label : session.Id;
 
 	private async Task<string> ResolvePrimaryLabelAsync() {
 		try {
@@ -162,24 +183,34 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		_ => "idle",
 	};
 
-	/// <summary>Creates + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> labeled <paramref name="label"/>.</summary>
-	private HostSession CreateSession(string cwd, string label) {
+	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
+	private HostSession CreateSession(string cwd) {
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
 			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
-		_sessionLabels[session.Id] = label;
 		WireSession(session);
-		_sessions?.Add(session, activate: false);
 		return session;
 	}
 
+	/// <summary>Brings up the backend for an unloaded (dormant) slot: builds + wires its HostSession. No-op if already loaded.</summary>
+	private void LoadSlot(SessionSlot slot) {
+		if (!slot.Loaded) {
+			slot.Session = CreateSession(slot.WorktreePath);
+		}
+	}
+
 	/// <summary>
-	/// Binds the page to <paramref name="session"/>: mutes the previous session's terminals (they keep
-	/// running in the background), unmutes the new one's, and resets the page's xterms so they re-emit
-	/// term-ready and the new session's terminals start/resize. Then re-pushes status + the rail.
+	/// Binds the page to <paramref name="slot"/>, loading its backend first if it was dormant: mutes the
+	/// previous session's terminals (they keep running in the background), unmutes the new one's, and resets
+	/// the page's xterms so they re-emit term-ready and the new session's terminals start/repaint. Rebinds the
+	/// editor to this slot's worktree tabs, then re-pushes status + the rail. Records the slot's last-active
+	/// time (the signal a future idle-unload sweep reads).
 	/// </summary>
-	private void SwitchToSession(HostSession session) {
+	private void SwitchToSlot(SessionSlot slot) {
+		LoadSlot(slot);
+		var session = slot.Session!;
+
 		var previous = _session;
 		if (previous is not null && !ReferenceEquals(previous, session)) {
 			previous.Claude.OutputActive = false;
@@ -187,17 +218,36 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		}
 
 		_session = session;
-		_sessions?.SetActive(session);
+		_sessions?.SetActive(slot);
+		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 		session.Claude.OutputActive = true;
 		session.Shell.OutputActive = true;
 
 		// Clear the page's xterms; the page re-emits term-ready, which routes to the now-active session's
-		// terminals (Start spawns a freshly-created session's PTYs; a resize repaints an existing TUI).
+		// terminals (OnReady spawns a freshly-created session's PTYs; an already-live TUI is repainted).
 		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"claude\"}");
 		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"shell\"}");
+		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
+		// session's working copies and reopens this one's. fs-read/write + active-editor already route to the
+		// active session, so edits land in the right worktree the moment _session is swapped above.
+		PushSessionEditorToWeb(session);
+		// Re-root the omnibar quick-open + file browser to this session's worktree. Without this they keep
+		// listing the previous session's files, and opening one fails — the new session's file provider refuses
+		// to read a path outside its worktree (it surfaces as "nonexistent file").
+		PushFileIndexToWeb();
 		PostSessionStatus(session.Status.Status);
 		PushSessionList();
 	}
+
+	/// <summary>
+	/// Pushes a session's open editor tabs (a <c>set-editor-session</c>) so the page rebinds the editor to
+	/// that session's worktree files. Built from the session's in-memory <see cref="HostSession.EditorSession"/>
+	/// against its own filesystem (so missing files are dropped). The primary's tabs are kept in sync with the
+	/// persisted store via <c>editor-session-changed</c>; secondary sessions accumulate theirs in memory.
+	/// </summary>
+	private void PushSessionEditorToWeb(HostSession session) =>
+		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
+			session.EditorSession, session.FileSystem, line => Console.WriteLine($"[weavie] {line}")));
 
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
@@ -214,27 +264,24 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 	/// <inheritdoc/>
 	public Task<CommandResult> CloseSessionAsync(string? sessionId, CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? _session : _sessions?.Find(sessionId);
+		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
 		if (target is null) {
 			return Task.FromResult(CommandResult.Failure("No such session."));
 		}
 
-		if (ReferenceEquals(target, _primarySession)) {
+		if (target.IsPrimary) {
 			return Task.FromResult(CommandResult.Failure("The primary session can't be closed; close the window instead."));
+		}
+
+		if (!target.Loaded) {
+			return Task.FromResult(CommandResult.Success("That session is already unloaded."));
 		}
 
 		var result = new TaskCompletionSource<CommandResult>();
 		RunOnUi(async () => {
 			try {
-				if (ReferenceEquals(_session, target) && _primarySession is not null) {
-					SwitchToSession(_primarySession);
-				}
-
-				_sessions?.Remove(target);
-				_sessionLabels.Remove(target.Id);
-				await target.DisposeAsync().ConfigureAwait(true);
-				PushSessionList();
-				result.SetResult(CommandResult.Success("Closed the session (its worktree is kept and can be reopened)."));
+				await UnloadSlotAsync(target).ConfigureAwait(true);
+				result.SetResult(CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload)."));
 			} catch (Exception ex) {
 				result.SetException(ex);
 			}
@@ -242,12 +289,35 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		return result.Task;
 	}
 
+	/// <summary>
+	/// Tears down a slot's live backend, leaving it dormant (a faded chip): if it was active, binds the primary
+	/// first, then disposes its <see cref="HostSession"/> while keeping the slot so the worktree stays
+	/// surfaced. The path a future idle-unload sweep reuses; deleting the worktree itself is separate.
+	/// </summary>
+	private async Task UnloadSlotAsync(SessionSlot slot) {
+		if (slot.Session is not { } session) {
+			return;
+		}
+
+		if (ReferenceEquals(_sessions?.ActiveSlot, slot) && PrimarySlot() is { } primary) {
+			SwitchToSlot(primary);
+		}
+
+		slot.Session = null;
+		await session.DisposeAsync().ConfigureAwait(true);
+		PushSessionList();
+	}
+
+	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
+
 	private async Task<CommandResult> CreateWorktreeSessionAsync(string? requestedBranch, string? baseSpec, string? prompt, CancellationToken ct) {
 		if (_worktrees is null) {
 			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
 		}
 
-		string branch = string.IsNullOrWhiteSpace(requestedBranch) ? DeriveBranchName(prompt) : requestedBranch.Trim();
+		string branch = string.IsNullOrWhiteSpace(requestedBranch)
+			? await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(true)
+			: requestedBranch.Trim();
 		string baseRef;
 		try {
 			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(true);
@@ -265,10 +335,17 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		var result = new TaskCompletionSource<CommandResult>();
 		RunOnUi(() => {
 			try {
-				var session = CreateSession(record.Path, branch);
-				SwitchToSession(session);
+				var slot = new SessionSlot {
+					Id = branch,
+					Label = branch,
+					WorktreePath = record.Path,
+					IsPrimary = false,
+					Session = CreateSession(record.Path),
+				};
+				_sessions?.Add(slot, activate: false);
+				SwitchToSlot(slot);
 				if (!string.IsNullOrWhiteSpace(prompt)) {
-					SeedFirstPrompt(session, prompt);
+					SeedFirstPrompt(slot.Session!, prompt);
 				}
 
 				result.SetResult(CommandResult.Success($"Created session on branch '{branch}' at {record.Path}."));
@@ -291,7 +368,32 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		return await git.GetHeadCommitAsync(cwd, ct).ConfigureAwait(true);
 	}
 
-	private string DeriveBranchName(string? prompt) {
+	/// <summary>
+	/// Derives a unique branch name for an auto-named session: a slug from the first prompt (or "session"),
+	/// suffixed -2/-3/… until it collides with neither an existing slot label nor an existing worktree branch.
+	/// Checking the live worktrees avoids the "branch already exists" failure when a prior session's worktree
+	/// was left on disk (the leak the user can't otherwise see).
+	/// </summary>
+	private async Task<string> DeriveUniqueBranchNameAsync(string? prompt, CancellationToken ct) {
+		var taken = new HashSet<string>(StringComparer.Ordinal);
+		if (_sessions is not null) {
+			foreach (var slot in _sessions.Slots) {
+				taken.Add(slot.Label);
+			}
+		}
+
+		if (_worktrees is not null) {
+			try {
+				foreach (var status in await _worktrees.ListAsync(ct).ConfigureAwait(true)) {
+					if (status.Branch is { } existing) {
+						taken.Add(existing);
+					}
+				}
+			} catch (GitException) {
+				// Best-effort: fall back to slot-label uniqueness; CreateAsync still rejects a true collision.
+			}
+		}
+
 		string slug = "session";
 		if (!string.IsNullOrWhiteSpace(prompt)) {
 			char[] chars = [.. prompt.Trim().ToLowerInvariant().Take(40).Select(c => char.IsLetterOrDigit(c) ? c : '-')];
@@ -301,10 +403,9 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 			}
 		}
 
-		// Ensure uniqueness against existing session labels.
 		string candidate = slug;
 		int n = 2;
-		while (_sessionLabels.Values.Contains(candidate, StringComparer.Ordinal)) {
+		while (taken.Contains(candidate)) {
 			candidate = $"{slug}-{n}";
 			n++;
 		}

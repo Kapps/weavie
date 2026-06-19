@@ -77,9 +77,17 @@ export interface EditorHost {
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
+   * Rebinds the editor to the (already-updated) session store after a session switch: flushes + releases
+   * every open working copy from the previous session, then reopens the new active tab from the session
+   * signal (non-active tabs reopen lazily, exactly as on launch). The session store's set-editor-session
+   * listener has already flipped the signal to the incoming session before this runs.
+   */
+  rebindSession(): Promise<void>;
+  /**
    * Begins an inline review of an openDiff proposal in a transient model (the real file working copy is left
-   * untouched), makes it the active editor showing `proposed`, and returns the transient model's URI string
-   * so the caller can render the inline diff over it.
+   * untouched), makes it the active editor showing `proposed` revealed at `line` (1-based — the proposal's
+   * first changed hunk), and returns the transient model's URI string so the caller can render the inline diff
+   * over it.
    */
   beginReview(path: string, proposed: string, line: number): string;
   /**
@@ -370,6 +378,20 @@ export async function createEditorHost(
     editor.setModel(null);
   };
 
+  // Release EVERY open working copy: flush each real file's pending save (a scratch buffer flushes to its
+  // temp file — not discarded), drop its refcounted reference so the model can be freed, then empty the
+  // editor. Used by rebindSession on a session switch to let go of the previous session's worktree files
+  // before the incoming session's are opened. Unlike dispose() this DOES release the refs — a switch is not
+  // a hot reload, so the previous session's models must actually be torn down.
+  const releaseAll = (): void => {
+    for (const [key, ref] of [...refs]) {
+      flushSave(key);
+      ref.dispose();
+      refs.delete(key);
+    }
+    editor.setModel(null);
+  };
+
   // Route the editor service's file-opens (go-to-def / peek / references) through the tab store as a PREVIEW
   // open, then reveal the target range — so navigating reuses the one preview slot instead of piling up tabs.
   // Re-registered on every host build (it closes over this editor), like the active editor, so it survives HMR.
@@ -501,6 +523,14 @@ export async function createEditorHost(
 
   await restoreSession();
 
+  // Rebind to a different session on a switch: let go of the previous session's working copies, then reopen
+  // the incoming session's active tab from the (already-updated) session signal — reusing restoreSession so a
+  // switched-in file opens identically to a launch restore. Non-active tabs reopen lazily when clicked.
+  const rebindSession = async (): Promise<void> => {
+    releaseAll();
+    await restoreSession();
+  };
+
   // Wait for Monaco's first real paint before resolving. The caller fades the splash on resolution, so
   // this keeps the editor's initial layout/paint hidden under the splash rather than flashing into view.
   await nextPaint();
@@ -513,6 +543,7 @@ export async function createEditorHost(
     contentOf,
     cancelSave,
     clear,
+    rebindSession,
     beginReview,
     endReview,
     dispose,

@@ -19,6 +19,61 @@ interface Chord {
   key: string;
 }
 
+// The US/ANSI "shifted" punctuation glyph folded back to the base (unshifted) key on the same physical key.
+// KeyboardEvent.key reports the *shifted* glyph, so pressing Ctrl+Shift+] yields key "}", not "]". Specs are
+// authored with the base char ("$mod+Shift+]") and Shift is matched separately, so without this fold a
+// Shift+symbol binding can never match — it requires Shift held, yet Shift turns "]" into "}". (Letters need
+// no entry: they fold via toLowerCase. Layout caveat: this is the US/ANSI shift layer, like the rest of the
+// matcher.)
+const SHIFTED_TO_BASE: Record<string, string> = {
+  "~": "`",
+  "!": "1",
+  "@": "2",
+  "#": "3",
+  $: "4",
+  "%": "5",
+  "^": "6",
+  "&": "7",
+  "*": "8",
+  "(": "9",
+  ")": "0",
+  _: "-",
+  "+": "=",
+  "{": "[",
+  "}": "]",
+  "|": "\\",
+  ":": ";",
+  '"': "'",
+  "<": ",",
+  ">": ".",
+  "?": "/",
+};
+
+// The browser's KeyboardEvent.key spells some keys with long names ("ArrowUp", "Escape", " ") that don't match
+// the short tokens specs are written with ("Up", "Esc", "Space"). Fold both onto one canonical token so e.g.
+// "$mod+Up" matches a real Ctrl+ArrowUp keydown. Without this, arrow-key bindings silently never match and the
+// keystroke falls through to whatever has focus (Monaco scroll-line, xterm), so the binding looks "stolen".
+function normalizeKey(key: string): string {
+  const k = key.toLowerCase();
+  switch (k) {
+    case "arrowup":
+      return "up";
+    case "arrowdown":
+      return "down";
+    case "arrowleft":
+      return "left";
+    case "arrowright":
+      return "right";
+    case "escape":
+      return "esc";
+    case " ":
+    case "spacebar":
+      return "space";
+    default:
+      return SHIFTED_TO_BASE[k] ?? k;
+  }
+}
+
 function parseChord(spec: string): Chord {
   const chord: Chord = { mod: false, ctrl: false, shift: false, alt: false, meta: false, key: "" };
   for (const part of spec
@@ -49,7 +104,7 @@ function parseChord(spec: string): Chord {
         chord.meta = true;
         break;
       default:
-        chord.key = part.toLowerCase();
+        chord.key = normalizeKey(part);
     }
   }
   return chord;
@@ -66,7 +121,7 @@ function matches(chord: Chord, event: KeyboardEvent): boolean {
     event.metaKey === wantMeta &&
     event.shiftKey === chord.shift &&
     event.altKey === chord.alt &&
-    event.key.toLowerCase() === chord.key
+    normalizeKey(event.key) === chord.key
   );
 }
 

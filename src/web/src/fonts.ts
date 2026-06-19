@@ -6,7 +6,7 @@
 //   2. re-pushed as a { type: "fonts" } bridge message whenever a font setting changes (ApplyMode.Live).
 // Consumers read currentFonts() at creation and subscribe via onFontsChanged() to apply live updates.
 
-import { type FontSpec, onHostMessage } from "./bridge";
+import { type FontSpec, hostInjected, onHostMessage } from "./bridge";
 
 export type { FontSpec };
 
@@ -23,8 +23,9 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (no host injection). Mirrors the host's defaults: one cross-platform
-// monospace stack, size 13, weight normal — both surfaces inherit the same global.
+// Plain-browser dev fallback (no host injection). Used only under `npm run dev`; in the shipped app the
+// host always injects __WEAVIE_FONTS__ and a missing value throws (see hostInjected). Mirrors the host's
+// defaults: one cross-platform monospace stack, size 13, weight normal — both surfaces inherit the global.
 const DEFAULT_SPEC: FontSpec = {
   family: 'ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace',
   size: 13,
@@ -33,7 +34,7 @@ const DEFAULT_SPEC: FontSpec = {
 
 const DEFAULT_CONFIG: FontConfig = { editor: DEFAULT_SPEC, terminal: DEFAULT_SPEC };
 
-let current: FontConfig = window.__WEAVIE_FONTS__ ?? DEFAULT_CONFIG;
+let current: FontConfig = hostInjected("__WEAVIE_FONTS__", window.__WEAVIE_FONTS__, DEFAULT_CONFIG);
 
 const subscribers = new Set<(config: FontConfig) => void>();
 

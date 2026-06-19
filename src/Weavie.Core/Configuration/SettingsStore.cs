@@ -115,6 +115,24 @@ public sealed class SettingsStore : IDisposable {
 	public long GetInt(string key, long fallback) => Resolve(key).Value is long l ? l : fallback;
 
 	/// <summary>
+	/// Resolves <paramref name="key"/> as a bool, trusting the registered default (env → file → default,
+	/// see <see cref="Resolve"/>). Unlike <see cref="GetBool"/> it takes no literal fallback: the default
+	/// lives only in the setting's registration. Throws if the resolved value isn't a bool, which can only
+	/// happen if the setting was registered with a non-bool default — a programming error surfaced loudly
+	/// rather than papered over with a stale literal.
+	/// </summary>
+	public bool RequireBool(string key) => Resolve(key).Value is bool b ? b : throw WrongKind(key, "bool");
+
+	/// <summary>As <see cref="RequireBool"/>, for an integer setting.</summary>
+	public long RequireInt(string key) => Resolve(key).Value is long l ? l : throw WrongKind(key, "int");
+
+	/// <summary>As <see cref="RequireBool"/>, for a string setting.</summary>
+	public string RequireString(string key) => Resolve(key).Value is string s ? s : throw WrongKind(key, "string");
+
+	private static InvalidOperationException WrongKind(string key, string kind) =>
+		new($"setting '{key}' did not resolve to a {kind}; check the default it was registered with.");
+
+	/// <summary>
 	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> (a JSON value from MCP)
 	/// to the user file, raising <see cref="SettingChanged"/> if the effective value changed. Throws
 	/// <see cref="UnknownSettingException"/>, <see cref="SettingValidationException"/>, or

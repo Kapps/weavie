@@ -5,7 +5,7 @@
 // seeded synchronously from a host-injected global so the terminal/editor read the right theme at creation,
 // and one permanent bridge listener fans live host pushes out to every surface.
 
-import { onHostMessage } from "../bridge";
+import { hostInjected, onHostMessage } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { deriveChromeVars } from "./chrome-vars";
@@ -61,10 +61,11 @@ function computeState(id: string, base: VsCodeColorTheme, ops: OverrideOp[]): Th
 // terminal or the editor is created (which happens before any host push).
 let version = 1;
 let state: ThemeState = (() => {
-  const injected = window.__WEAVIE_THEME__;
-  if (injected === undefined) {
-    return computeState(WEAVIE_DARK_ID, WEAVIE_DARK, []);
-  }
+  // Dev fallback is the built-in Weavie Dark (id only — baseFor resolves the JSON from BUILTIN_THEMES);
+  // in the shipped app the host always injects __WEAVIE_THEME__, and a missing value throws.
+  const injected = hostInjected<InjectedTheme>("__WEAVIE_THEME__", window.__WEAVIE_THEME__, {
+    id: WEAVIE_DARK_ID,
+  });
   return computeState(injected.id, baseFor(injected.id, injected.theme), injected.ops ?? []);
 })();
 

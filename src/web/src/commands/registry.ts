@@ -3,15 +3,19 @@
 // the omnibar command palette (Omnibar.tsx), and the host's run-command (a web command Claude invoked over
 // MCP, which we run + ack). Core commands are forwarded to the host as invoke-command. See docs/specs/commands.md.
 
-import { log, onHostMessage, postToHost } from "../bridge";
+import { hostInjected, log, onHostMessage, postToHost } from "../bridge";
 import type { CommandInfo, ResolvedKeybinding } from "./types";
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through to the
 // editor/terminal); anything else — including a Promise or undefined — consumes the event.
 export type CommandHandler = (args: unknown) => void | boolean | Promise<void>;
 
-let commands: CommandInfo[] = window.__WEAVIE_COMMANDS__ ?? [];
-let keybindings: ResolvedKeybinding[] = window.__WEAVIE_KEYBINDINGS__ ?? [];
+let commands: CommandInfo[] = hostInjected("__WEAVIE_COMMANDS__", window.__WEAVIE_COMMANDS__, []);
+let keybindings: ResolvedKeybinding[] = hostInjected(
+  "__WEAVIE_KEYBINDINGS__",
+  window.__WEAVIE_KEYBINDINGS__,
+  [],
+);
 const handlers = new Map<string, CommandHandler>();
 const changeSubscribers = new Set<() => void>();
 

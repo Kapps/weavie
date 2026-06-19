@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Win.Hosting;
 
@@ -42,11 +43,16 @@ public sealed class FileOpener {
 		}
 
 		string content = _fileSystem.ReadAllText(resolved);
+		// Hand the editor the canonical (lowercase-drive) spelling it keys working copies / tabs by, so a file
+		// already open under Monaco's `fsPath` spelling is reused instead of opening a second copy — this is the
+		// single `open-file` chokepoint, so it covers reveal-file (omnibar / file browser / terminal links), the
+		// MCP openFile tool, and scratch buffers alike. See WorkspacePaths.CanonicalFsPath / editor/fs-path.ts.
+		string canonical = WorkspacePaths.CanonicalFsPath(resolved);
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
 			writer.WriteStartObject();
 			writer.WriteString("type", "open-file");
-			writer.WriteString("path", resolved);
+			writer.WriteString("path", canonical);
 			writer.WriteString("content", content);
 			writer.WriteNumber("line", Math.Max(1, line));
 			writer.WriteBoolean("preview", preview);

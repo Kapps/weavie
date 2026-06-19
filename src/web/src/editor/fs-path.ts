@@ -11,3 +11,30 @@
 export function canonicalFsPath(path: string): string {
   return path.replace(/^([A-Za-z]):/, (_match, drive: string) => `${drive.toLowerCase()}:`);
 }
+
+// A looser IDENTITY KEY for "do these two strings name the same file?" — distinct from canonicalFsPath, which
+// produces a REAL, openable fs-path for building a file:// URI (it only lowercases the drive so the on-disk
+// filename case and separators survive). normalizePath is NEVER used to open, read, display, or persist a file
+// — only to compare — so it can be aggressive: it folds the WSL `/mnt/<drive>/` mount onto `<drive>:`, unifies
+// `\`/`/` separators, drops a trailing slash, and lowercases the whole path. (Lowercasing could in theory
+// conflate `Foo.cs` and `foo.cs` on a case-sensitive filesystem, but it only ever merges two tabs for
+// same-named files — it never reaches disk — and Weavie's primary target is case-insensitive Windows.)
+export function normalizePath(path: string): string {
+  return (
+    path
+      .replace(/\\/g, "/")
+      // WSL drive mount: `/mnt/c/Users/...` names the same file as `C:\Users\...` ⇒ fold to `c:/Users/...`. The
+      // lookahead keeps a real directory like `/mnt/claude` (letters past the first) from being mistaken for one.
+      .replace(/^\/mnt\/([a-zA-Z])(?=\/|$)/, (_match, drive: string) => `${drive}:`)
+      // A file path never ends in a slash; folding `C:\foo\` onto `C:\foo` keeps trailing-slash variants matching.
+      .replace(/\/+$/, "")
+      .toLowerCase()
+  );
+}
+
+/// True when both strings name the same on-disk file, ignoring drive-letter case, separator style, the WSL
+/// `/mnt/<drive>/` mount prefix, a trailing slash, and (on case-insensitive Windows) filename case. Use this for
+/// every "is this file already open?" comparison so one file maps to one tab however its path was spelled.
+export function samePath(a: string, b: string): boolean {
+  return normalizePath(a) === normalizePath(b);
+}

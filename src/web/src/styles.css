@@ -8,6 +8,11 @@
   --fg: #cdd5dc;
   --accent: #54c6a4;
   --dim: #6f7884;
+  /* Session-status accents (pane/rail indicator); overwritten by the theme controller at runtime. */
+  --ok: #6fdc66;
+  --warn: #ffb74d;
+  --bad: #e07a7a;
+  --busy: #5fa9f0;
   /* The chrome/UI typeface (tabs, title bar, menus, panels) — bundled Chivo, a sturdy grotesque chosen
      to read distinctly from the soft system-UI / VS Code look and to stay crisp at small text sizes.
      @font-face is in fonts.css; code surfaces (Monaco/xterm) keep their own monospace via settings. */
@@ -43,6 +48,14 @@ body,
 }
 
 .split {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The body row below the title bar: the session rail on the left + the pane layout filling the rest. A
+   real flex row (not an overlay) so the rail takes its own width and the panes start to its right. */
+.app-body {
   display: flex;
   flex: 1 1 auto;
   min-height: 0;
@@ -106,6 +119,129 @@ body,
 .pane-label {
   color: var(--dim);
   font-weight: 600;
+}
+
+/* Left session rail: one chip per session, always present (the "+" is how sessions are discovered).
+   A strip in the body row's flow — it takes its own width so the panes start to its right rather than
+   being clipped under an overlay. Chips carry a deterministic hue + monogram + status. */
+.session-rail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 40px;
+  padding: 8px 0;
+  background: var(--bar);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.session-chip {
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: hsl(var(--chip-hue, 200) 45% 38%);
+  color: #fff;
+  font: 600 11px var(--ui-font);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.session-chip.active {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* A dormant (unloaded) worktree: surfaced so it can't leak, but no live backend — rendered faded, with no
+   status dot. Hovering brings it most of the way back so it reads as clickable (click loads it). */
+.session-chip.unloaded {
+  opacity: 0.35;
+}
+.session-chip.unloaded:hover {
+  opacity: 0.75;
+}
+.session-chip-mono {
+  pointer-events: none;
+}
+.session-chip-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--bar);
+  border-radius: 50%;
+  background: transparent;
+}
+.session-chip.status-idle .session-chip-dot {
+  background: var(--ok);
+}
+.session-chip.status-needsInput .session-chip-dot {
+  background: var(--warn);
+}
+.session-chip.status-error .session-chip-dot {
+  background: var(--bad);
+}
+.session-chip.status-working .session-chip-dot {
+  background: var(--busy);
+  animation: weavie-status-pulse 1.2s ease-in-out infinite;
+}
+.session-chip.status-starting .session-chip-dot {
+  background: var(--busy);
+}
+.session-rail-add {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.session-rail-add:hover {
+  color: var(--fg);
+  border-color: var(--dim);
+}
+
+/* Per-session Claude status dot in the pane head: a small filled circle whose color tracks status
+   (idle = calm green, working = pulsing busy, needsInput = amber, error = red, starting = faint). */
+.session-status {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.session-status.status-idle {
+  background: var(--ok);
+}
+.session-status.status-needsInput {
+  background: var(--warn);
+}
+.session-status.status-error {
+  background: var(--bad);
+}
+.session-status.status-working {
+  background: var(--busy);
+  animation: weavie-status-pulse 1.2s ease-in-out infinite;
+}
+.session-status.status-starting {
+  background: var(--busy);
+  opacity: 0.6;
+}
+@keyframes weavie-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
 }
 
 .left-pane.active .pane-label {
@@ -230,6 +366,137 @@ body,
 .editor {
   position: absolute;
   inset: 0;
+}
+
+/* Editor empty state: covers the blank Monaco host when no file is open. Opaque background so the void
+   underneath never shows; centered identity + keyboard-first starter actions. Relative sizing (em/%) so it
+   scales with the pane and reads at any split width. */
+.editor-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 2em;
+  /* Faint brand glow off the top, over the editor background — distinct from a flat empty pane. */
+  background: radial-gradient(120% 80% at 50% -10%, rgb(84 198 164 / 7%) 0%, transparent 55%),
+    var(--bg);
+  color: var(--fg);
+}
+
+.editor-empty-inner {
+  display: flex;
+  flex-direction: column;
+  width: min(28em, 100%);
+}
+
+.editor-empty-head {
+  display: flex;
+  align-items: center;
+  gap: 0.85em;
+  margin-bottom: 1.75em;
+}
+
+.editor-empty-mark {
+  display: inline-flex;
+  font-size: 2.4em; /* WeavieIcon defaults to 1em, so it tracks this */
+  line-height: 1;
+}
+
+.editor-empty-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-empty-wordmark {
+  margin: 0;
+  font-size: 1.7em;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.editor-empty-tagline {
+  margin: 0.15em 0 0;
+  font-size: 0.95em;
+  color: var(--dim);
+}
+
+.editor-empty-actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+
+.editor-empty-action {
+  display: flex;
+  align-items: center;
+  gap: 0.85em;
+  width: 100%;
+  padding: 0.6em 0.7em;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.5em;
+  color: var(--dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.editor-empty-action:hover {
+  background: var(--bar);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.editor-empty-action:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.editor-empty-action > svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.editor-empty-action-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.editor-empty-action-label {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.editor-empty-action-hint {
+  font-size: 0.8em;
+  color: var(--dim);
+}
+
+/* The action's shortcut badge — keyboard-first: read from the command catalog, never hardcoded. */
+.editor-empty-keys {
+  flex: none;
+  margin-left: auto;
+  padding: 0.15em 0.5em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bar);
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 0.78em;
+  white-space: nowrap;
 }
 
 /* Editor tab strip: chrome inside the editor pane (not a layout pane). Height is content-driven. */
@@ -1067,13 +1334,20 @@ body,
 /* Tree mode: a twisty + file/folder icon precede the name; rows indent via inline padding-left per depth. */
 .tb-tree-row {
   gap: 4px;
+  /* Center the chevron/icon with the name. The base row aligns to the text baseline (correct for the
+     flat leaf+dir search rows), which in tree mode drops the icons off the name's vertical center. */
+  align-items: center;
 }
 
 .tb-tree-twisty,
 .tb-tree-icon {
   display: inline-flex;
   align-items: center;
+  justify-content: center;
   flex: 0 0 auto;
+  /* Reserve the column even when empty: file rows have no chevron, so without a fixed width the
+     twisty collapses and pushes their icons ~14px left of the folder icons at the same depth. */
+  min-width: 14px;
   color: var(--dim);
 }
 
@@ -1081,6 +1355,35 @@ body,
 .tb-tree-icon svg {
   width: 14px;
   height: 14px;
+}
+
+/* Air between the icon and the name so rows don't read cramped — the row's own gap (4px) stays tight
+   for the chevron→icon cluster, this opens up only the icon→name side. */
+.tb-tree-icon {
+  margin-right: 5px;
+}
+
+/* ── EXPERIMENT (omnibar variant 3 + caps names): accent outline folder glyphs ──────────────────
+   Folder names keep the all-caps section-label styling; the folder glyph is an unfilled outline in
+   the UI accent (--accent, teal). Files keep the default foreground.
+   Revert: delete this block + the `dir` class on .tb-tree-row in Omnibar.tsx. */
+
+/* Folder names: all-caps section-label styling, bright with generous tracking. */
+.tb-tree-row.dir .tb-row-leaf {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+/* File names: a little tracking so the dense camelCase doesn't read cramped. */
+.tb-tree-row:not(.dir) .tb-row-leaf {
+  letter-spacing: 0.02em;
+}
+
+/* Folder glyph: unfilled outline in the UI accent (teal) under the caps names. */
+.tb-tree-row.dir .tb-tree-icon {
+  color: var(--accent);
 }
 
 /* Command-palette row: the keybinding hint sits flush right, dimmed and monospaced. */
@@ -1378,6 +1681,13 @@ body,
   align-items: center;
   justify-content: center;
   background: rgba(0, 0, 0, 0.5);
+  /* Softly defocus the workspace behind the modal so the dialog reads as a floating layer. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  /* Modals render through a Portal to <body>, OUTSIDE the .app font scope — without this they fall back
+     to the WebView's default serif and render fuzzily. Re-assert the chrome UI font (Chivo) here so the
+     dialog text is crisp. 13px reads a touch larger than the 12px chrome, which suits a focused dialog. */
+  font: 13px / 1.5 var(--ui-font);
 }
 
 .confirm-dialog {
@@ -1435,4 +1745,133 @@ body,
 .confirm-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+/* New-session prompt — a branch-name field plus the "branch from" choices, each button carrying its
+   keyboard shortcut as a faint sublabel. Scoped overrides on the shared .confirm-dialog shell: a roomier
+   card, a prominent input, and filled (not ghost) buttons so the secondary actions read as buttons. */
+.session-prompt {
+  /* Everything inside is sized in em, so bumping the dialog's own font-size scales the whole modal up
+     proportionally — a more generous, substantial card than the chrome's 13px. */
+  font-size: 16px;
+  width: min(496px, 92vw);
+  padding: 2em 2.1em 1.8em;
+  border-radius: 13px;
+}
+
+.session-prompt .confirm-title {
+  font-size: 1.2em;
+  margin-bottom: 0.45em;
+}
+
+.session-prompt .confirm-body {
+  font-size: 0.92em;
+  line-height: 1.55;
+}
+
+.session-prompt-input {
+  width: 100%;
+  margin-top: 1.4em;
+  padding: 0.7em 0.8em;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* A branch name is an identifier, so type it in the code/mono font — it reads as a value and ties the
+     field to the editor/terminal surfaces. (The chrome elsewhere is Chivo; only this value field is mono.) */
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.95em;
+  transition: border-color 120ms ease;
+}
+
+.session-prompt-input::placeholder {
+  color: var(--dim);
+}
+
+/* Just an accent border on focus — a single clean ring, no extra box-shadow glow. */
+.session-prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Actions: Cancel anchored to the left edge (via margin-right:auto on the first child), the two create
+   actions grouped at the right. Both ends are anchored, so the footer reads as balanced — the buttons keep
+   their natural, content-sized width (not stretched to fill, which made them wide squat bars). */
+.session-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6em;
+  margin-top: 2em;
+}
+
+.session-prompt-btn:first-child {
+  margin-right: auto;
+}
+
+/* Two-line button: action label on top, its shortcut faintly below (keyboard-first discoverability).
+   min-width keeps the trio uniform; content + horizontal padding gives a proper ~2:1 button, not a bar. */
+.session-prompt-btn {
+  flex: 0 0 auto;
+  min-width: 7.8em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28em;
+  padding: 0.58em 1.2em;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  /* A subtle fill so the secondary actions read as buttons, not bare text (the ghost-transparent look made
+     them near-invisible against the dialog surface). */
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg);
+  /* font-family (not the `font` shorthand) so the button adopts the dialog font but the label/key keep the
+     smaller sizes set below — a native button would otherwise fall back to the UA font. */
+  font-family: inherit;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.session-prompt-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.session-prompt-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.session-prompt-btn-label {
+  font-size: 0.88em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.session-prompt-btn-key {
+  font-size: 0.68em;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Primary (the Enter default) follows the app's house style for "active": an accent border + accent text
+   on a faintly accent-tinted dark surface — not a loud solid fill, which read as too in-your-face. The
+   color-mix tint stays theme-safe (re-derives from --accent), so a re-theme tints it without hardcoding. */
+.session-prompt-btn-primary {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.session-prompt-btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+
+.session-prompt-btn-primary .session-prompt-btn-key {
+  color: var(--accent);
+  opacity: 0.7;
 }

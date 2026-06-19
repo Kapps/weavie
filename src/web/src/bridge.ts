@@ -17,6 +17,25 @@ import type { VsCodeColorTheme } from "./theme/vscode-theme";
 // the host can route it to the right PTY and the page can route output back to the right xterm pane.
 export type TermSession = "claude" | "shell";
 
+// The live state of a session's embedded Claude, derived host-side from its hook stream + process
+// supervisor and shown on the pane/rail: working (turn in progress), needsInput (permission/idle
+// prompt), idle (turn ended), error (crashed), starting (launching).
+export type SessionStatusName = "starting" | "working" | "needsInput" | "idle" | "error";
+
+// One session's chip on the rail, pushed by the host in a session-list message. `hue` (0-359) and
+// `monogram` are derived deterministically from the branch so a session looks the same across restarts.
+// `loaded` is false for a dormant worktree (surfaced so it can't leak, but with no live backend) — the
+// rail renders it faded; clicking it asks the host to load it. `status` is only meaningful when loaded.
+export interface SessionChip {
+  id: string;
+  label: string;
+  active: boolean;
+  loaded: boolean;
+  status: SessionStatusName;
+  hue: number;
+  monogram: string;
+}
+
 // A frameless-window resize edge/corner the user grabbed (Windows custom chrome). The web draws the grab
 // handles and names the edge; the host maps it to the matching native resize. Mirrors Core's ResizeEdge.
 export type ResizeEdge =
@@ -70,6 +89,12 @@ export type HostBoundMessage =
   | { type: "term-ready"; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; session: TermSession; dataB64: string }
   | { type: "term-resize"; session: TermSession; cols: number; rows: number }
+  // Session rail → host: switch to an existing session, create a new (worktree) session, or close one.
+  // new-session carries the branch name and the base to branch from: "head" (the active session's HEAD) or
+  // "main". The host surfaces a failure (e.g. the branch already exists) as a toast.
+  | { type: "switch-session"; id: string }
+  | { type: "new-session"; branch?: string; base?: "head" | "main" }
+  | { type: "close-session"; id: string }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -149,6 +174,10 @@ export type WebBoundMessage =
   // Host tore down this session's PTY (e.g. the shell setting changed): clear the pane and
   // re-emit term-ready so the host relaunches the child with the new setting.
   | { type: "term-reset"; session: TermSession }
+  // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
+  | { type: "session-status"; session: TermSession; status: SessionStatusName }
+  // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
+  | { type: "session-list"; sessions: SessionChip[] }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";
@@ -280,6 +309,23 @@ export function onHostMessage(handler: WebMessageHandler): () => void {
   return () => {
     listeners.delete(handler);
   };
+}
+
+// Reads a config value the C# host injects as a window.__WEAVIE_*__ global before navigation. In the
+// shipped app the host always injects these before the web loads, so an absent value means the host
+// failed to wire it — we throw loudly instead of silently mounting with dev defaults that can drift from
+// Core's. In plain-browser dev (`npm run dev`, no host) there is legitimately no host, so the dev fallback
+// is used. `name` is the global's name, for the error message.
+export function hostInjected<T>(name: string, value: T | undefined, devFallback: T): T {
+  if (value !== undefined) {
+    return value;
+  }
+  if (import.meta.env.DEV) {
+    return devFallback;
+  }
+  throw new Error(
+    `${name} was not injected by the host before navigation; the host must set it before the web app loads.`,
+  );
 }
 
 window.__weavieReceive = (raw: string): void => {

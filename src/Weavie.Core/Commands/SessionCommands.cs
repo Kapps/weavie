@@ -10,8 +10,11 @@ namespace Weavie.Core.Commands;
 /// handlers once it has a session host. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
-	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); <c>$mod+Shift+n</c>.</summary>
+	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry (Claude). The interactive UI uses <see cref="NewSessionPrompt"/>.</summary>
 	public const string NewSession = "weavie.session.new";
+
+	/// <summary>Opens the interactive new-session prompt (branch name + base) in the UI; <c>$mod+Shift+n</c>.</summary>
+	public const string NewSessionPrompt = "weavie.session.newPrompt";
 
 	/// <summary>Forks the current session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
 	public const string ForkSession = "weavie.session.fork";
@@ -38,11 +41,24 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Create a new session on its own git worktree + branch. With no 'branch' the host "
-				+ "prompts for a name. 'base' is 'current' (the active session's HEAD; the default) or 'main'. An "
-				+ "optional 'prompt' is sent to the new session's Claude as its first message.",
+				+ "auto-names one (avoiding existing branches). 'base' is 'current' (the active session's HEAD; the "
+				+ "default) or 'main'. An optional 'prompt' is sent to the new session's Claude as its first message. "
+				+ "This is the programmatic entry (for Claude); the interactive UI uses 'New Session…' (weavie.session.newPrompt).",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
+			// No default keybinding + hidden from the palette: the human-facing entry is the interactive prompt
+			// (NewSessionPrompt, bound to $mod+Shift+n). Still reachable by Claude via listCommands/runCommand.
+			ShowInPalette = false,
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"prompt\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NewSessionPrompt,
+			Title = "New Session…",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Open the new-session prompt: name a branch, then branch off the current session's HEAD "
+				+ "(Enter) or main (Shift+Enter). The interactive counterpart of weavie.session.new.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
 		});
 
 		registry.Register(new CommandDefinition {

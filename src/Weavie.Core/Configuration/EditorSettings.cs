@@ -147,7 +147,7 @@ public static class EditorSettings {
 				+ "signature show automatically without pressing Ctrl+Space.",
 			["suggestion docs", "completion documentation", "expand suggestion docs", "autocomplete docs",
 				"show completion documentation"],
-			false));
+			true));
 	}
 
 	/// <summary>
@@ -175,24 +175,28 @@ public static class EditorSettings {
 		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
+	// Values are read with the fallback-free Require* accessors: the resolved value already carries the
+	// registered default (env → file → default), so re-stating a literal default here would just be a
+	// second source that can drift. A misregistered setting throws rather than silently serializing a stale
+	// literal.
 	private static void WriteOptions(Utf8JsonWriter writer, SettingsStore store) {
 		writer.WriteStartObject();
-		writer.WriteString("inlayHints", store.GetString(InlayHints) ?? "on");
-		writer.WriteBoolean("minimap", store.GetBool(Minimap, true));
-		writer.WriteBoolean("bracketPairColorization", store.GetBool(BracketPairColorization, true));
-		writer.WriteBoolean("smoothScrolling", store.GetBool(SmoothScrolling, false));
-		writer.WriteString("cursorSmoothCaretAnimation", store.GetString(CursorSmoothCaretAnimation) ?? "off");
-		writer.WriteString("renderWhitespace", store.GetString(RenderWhitespace) ?? "none");
-		writer.WriteBoolean("scrollBeyondLastLine", store.GetBool(ScrollBeyondLastLine, true));
-		writer.WriteString("wordWrap", store.GetString(WordWrap) ?? "off");
-		writer.WriteString("lineNumbers", store.GetString(LineNumbers) ?? "on");
-		writer.WriteString("cursorBlinking", store.GetString(CursorBlinking) ?? "blink");
-		writer.WriteString("renderLineHighlight", store.GetString(RenderLineHighlight) ?? "line");
-		writer.WriteBoolean("stickyScroll", store.GetBool(StickyScroll, true));
-		writer.WriteBoolean("fontLigatures", store.GetBool(FontLigatures, false));
-		writer.WriteBoolean("indentGuides", store.GetBool(IndentGuides, true));
-		writer.WriteNumber("hoverDelay", store.GetInt(HoverDelay, 0));
-		writer.WriteBoolean("suggestExpandDocs", store.GetBool(SuggestExpandDocs, false));
+		writer.WriteString("inlayHints", store.RequireString(InlayHints));
+		writer.WriteBoolean("minimap", store.RequireBool(Minimap));
+		writer.WriteBoolean("bracketPairColorization", store.RequireBool(BracketPairColorization));
+		writer.WriteBoolean("smoothScrolling", store.RequireBool(SmoothScrolling));
+		writer.WriteString("cursorSmoothCaretAnimation", store.RequireString(CursorSmoothCaretAnimation));
+		writer.WriteString("renderWhitespace", store.RequireString(RenderWhitespace));
+		writer.WriteBoolean("scrollBeyondLastLine", store.RequireBool(ScrollBeyondLastLine));
+		writer.WriteString("wordWrap", store.RequireString(WordWrap));
+		writer.WriteString("lineNumbers", store.RequireString(LineNumbers));
+		writer.WriteString("cursorBlinking", store.RequireString(CursorBlinking));
+		writer.WriteString("renderLineHighlight", store.RequireString(RenderLineHighlight));
+		writer.WriteBoolean("stickyScroll", store.RequireBool(StickyScroll));
+		writer.WriteBoolean("fontLigatures", store.RequireBool(FontLigatures));
+		writer.WriteBoolean("indentGuides", store.RequireBool(IndentGuides));
+		writer.WriteNumber("hoverDelay", store.RequireInt(HoverDelay));
+		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
 		writer.WriteEndObject();
 	}
 

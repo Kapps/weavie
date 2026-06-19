@@ -7,7 +7,8 @@ import { type WebBoundMessage, log, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { EditorHost } from "./editor-host";
-import { type InlineDiff, createInlineDiff } from "./inline-diff";
+import { samePath } from "./fs-path";
+import { type InlineDiff, createInlineDiff, firstChangedLine } from "./inline-diff";
 import {
   type ActivateResult,
   activateTab,
@@ -124,7 +125,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     // what's under review), but the editor is showing the TRANSIENT review model keyed by its own URI —
     // re-showing the file's working copy here would drop the diff. The guard lets that tab become/stay active
     // without a model swap; the review model is restored off the editor only by resolveReview → endReview.
-    if (activeReview !== undefined && activeReview.path === result.path) {
+    if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
       return;
     }
     host?.show(result.path, result.placement);
@@ -207,17 +208,19 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const closeTabAction = async (path: string): Promise<void> => {
-    const entry = openTabs().find((tab) => tab.path === path);
-    if (entry === undefined || !(await guardDiscard([path]))) {
+    // `path` may arrive from the host (Claude's close_tab) spelled differently than the stored key, so match by
+    // normalized identity, then operate on the entry's own stored path for every downstream lookup.
+    const entry = openTabs().find((tab) => samePath(tab.path, path));
+    if (entry === undefined || !(await guardDiscard([entry.path]))) {
       return;
     }
     const scratch = entry.scratch === true;
     const wasActive = activePath();
-    const result = closeTab(path);
+    const result = closeTab(entry.path);
     if (result === null) {
       return;
     }
-    if (path === wasActive) {
+    if (entry.path === wasActive) {
       applyOrClear(result.next);
     }
     releaseClosed(result.disposed, scratch);
@@ -384,8 +387,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Render Claude's openDiff proposal INLINE over a TRANSIENT review model (the real file working copy
         // is never touched): the editor shows `proposed`, diffed vs `original`, with a Keep/Reject toolbar.
         const priorActive = activePath();
-        const wasOpen = openTabs().some((tab) => tab.path === message.path);
-        const reviewUri = host?.beginReview(message.path, message.proposed, 1);
+        const wasOpen = openTabs().some((tab) => samePath(tab.path, message.path));
+        // Reveal the proposal at its first changed hunk, not the top of the file (a one-line tweak deep in a
+        // long file would otherwise open scrolled to line 1, hiding the change).
+        const reviewUri = host?.beginReview(
+          message.path,
+          message.proposed,
+          firstChangedLine(message.original, message.proposed),
+        );
         activeReview = {
           id: message.id,
           path: message.path,
@@ -423,6 +432,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             dropReviewTab(review.path, review.priorActive);
           }
           deps.onCurrentFileChanged(activePath());
+        }
+        return true;
+      case "set-editor-session":
+        // A session switch pushed a different session's tab set. The session store (imported at App's top
+        // level) has already flipped its signal to the incoming session, so rebind the editor: release the
+        // previous session's working copies and reopen the new active tab. On launch this message arrives
+        // before the editor chunk is up (host === undefined) — restoreSession in createEditorHost covers
+        // that case, so there's nothing to do here.
+        if (host !== undefined) {
+          void host.rebindSession().then(() => deps.onCurrentFileChanged(activePath()));
         }
         return true;
       case "open-file":

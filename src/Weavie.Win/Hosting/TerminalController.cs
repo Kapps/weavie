@@ -88,6 +88,13 @@ public sealed class TerminalController : IDisposable {
 	public event Action<SupervisorStateChanged>? SupervisorChanged;
 
 	/// <summary>
+	/// When false, output from this PTY is not posted to the page — the child keeps running (so a background
+	/// session's claude stays live), its bytes just aren't shown. The session switcher sets this per session
+	/// so only the active session feeds the page's xterm. Defaults true (single-session = always shown).
+	/// </summary>
+	public bool OutputActive { get; set; } = true;
+
+	/// <summary>
 	/// Launches this session's child (claude or a shell) in a ConPTY sized to the given columns and
 	/// rows, under the supervisor. Idempotent: a no-op if it is already running or restarting.
 	/// </summary>
@@ -197,6 +204,10 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
+		if (!OutputActive) {
+			return;
+		}
+
 		string base64 = Convert.ToBase64String(data);
 		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
 	}

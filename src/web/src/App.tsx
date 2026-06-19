@@ -15,10 +15,17 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { setContext } from "./commands/context";
+import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
-import { registerCommand } from "./commands/registry";
+import { dispatchCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { createEditorController } from "./editor/editor-controller";
+// Side-effect import: registers the editor session store's set-editor-session listener at top-level module
+// load — BEFORE main.tsx posts "ready" and the host replies with its one-shot restore push. The store
+// otherwise lives only in the dynamically-imported editor chunk (via editor-host), which loads seconds
+// later, so the push would arrive with no listener and be dropped — launch/Ctrl+R restore would silently
+// no-op. Importing it here (like layout/store) also keeps the signal alive across HMR.
+import "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
@@ -224,6 +231,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
     ];
     const offKeybindings = installKeybindings();
+    // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
+    const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
 
     // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight, and publish it as a
     // `when`-context key so command guards (e.g. terminalFocused) can read it.
@@ -240,6 +249,7 @@ export default function App(): JSX.Element {
     onCleanup(() => {
       window.clearTimeout(persistTimer);
       offKeybindings();
+      offDoubleShift();
       for (const off of offCommands) {
         off();
       }

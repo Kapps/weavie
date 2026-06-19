@@ -28,6 +28,9 @@ public static class CoreCommands {
 	/// <summary>Reopens (restarts) the shell terminal pane. The one Core-side command in the initial set.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
 
+	/// <summary>Toggles Weavie's window (focus it / minimize it); bound by default to the global hotkey <c>ctrl+`</c>.</summary>
+	public const string ToggleWindow = "weavie.window.toggle";
+
 	/// <summary>Jumps to the next change hunk in the inline diff.</summary>
 	public const string NextChange = "weavie.diff.nextChange";
 
@@ -42,6 +45,21 @@ public static class CoreCommands {
 
 	/// <summary>Undoes the current turn's inline changes (acceptEdits/bypass mode).</summary>
 	public const string UndoChange = "weavie.diff.undo";
+
+	/// <summary>Installs a color theme from the Open VSX registry (args <c>namespace</c>/<c>name</c>/<c>version</c>).</summary>
+	public const string InstallTheme = "weavie.theme.install";
+
+	/// <summary>Installs a color theme from a local <c>.vsix</c> file (arg <c>path</c>, or a native picker if omitted).</summary>
+	public const string InstallThemeFromFile = "weavie.theme.installFromFile";
+
+	/// <summary>Switches the active color theme (arg <c>id</c>).</summary>
+	public const string SelectTheme = "weavie.theme.select";
+
+	/// <summary>Pops the most recent color override on the active theme.</summary>
+	public const string UndoThemeOverride = "weavie.theme.undoOverride";
+
+	/// <summary>Clears all color overrides on the active theme.</summary>
+	public const string ResetTheme = "weavie.theme.reset";
 
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
@@ -123,6 +141,26 @@ public static class CoreCommands {
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
 		});
 
+		// Toggle Weavie's window in/out of the foreground. Bound by default to the GLOBAL hotkey ctrl+`
+		// (Global = true): the host registers it with the OS so it fires even when another app is focused —
+		// the point of the command (an in-app keydown can't reach an unfocused window). Pressing it focuses
+		// Weavie when it's behind, and — when it's already in front — hands focus back to the previously
+		// focused window, dropping Weavie behind (Windows; macOS hides the app). No minimize. ctrl+` is used
+		// literally (not $mod) so it's the same on Win + macOS, where Cmd+` is already the system "cycle
+		// windows" shortcut. Not in the palette — toggling the window you're already typing in is meaningless
+		// there — but reachable by Claude over runCommand.
+		registry.Register(new CommandDefinition {
+			Id = ToggleWindow,
+			Title = "Toggle Weavie Window",
+			RunsIn = CommandLocation.Core,
+			Category = "View",
+			Description = "Toggle the Weavie window: bring it to the foreground when another app is in front, "
+				+ "or hand focus back to the previously focused window (dropping Weavie behind) when it's already focused.",
+			Aliases = ["toggle weavie", "show or hide weavie", "focus weavie", "hide weavie", "bring to front", "raise window"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+`", Global = true }],
+			ShowInPalette = false,
+		});
+
 		// Inline-diff navigation + actions (the floating diff toolbar). All web-handled; the toolbar buttons
 		// and these keybindings/palette entries route to the same handlers. The web handlers DECLINE (let the
 		// key fall through to the editor) when no diff is active, so these reuse familiar editor chords safely:
@@ -175,6 +213,65 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Revert the current turn's changes (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn"],
+		});
+
+		// Theme verb actions (handlers wired in Core by ThemeCommands over the app-global theme stores). These
+		// are the theming actions that became commands so they're reachable from the palette, a keybinding, and
+		// Claude's runCommand alike; the data-shaped override editors + queries stay MCP tools. install/select
+		// carry args and have no meaningful no-arg palette row, so they're keybinding/runCommand-only;
+		// install-from-file IS palette-visible (no args → it opens a native .vsix picker).
+		registry.Register(new CommandDefinition {
+			Id = InstallTheme,
+			Title = "Install Theme from Open VSX",
+			RunsIn = CommandLocation.Core,
+			Category = "Theme",
+			Description = "Install a VS Code color theme from the Open VSX registry by 'namespace' (publisher) "
+				+ "and 'name' (extension), optionally a 'version'. e.g. namespace 'dracula-theme' name "
+				+ "'theme-dracula'. After installing, run weavie.theme.select to switch to it.",
+			Aliases = ["install theme", "add theme", "install from open vsx", "download theme"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"namespace\":{\"type\":\"string\"},\"name\":{\"type\":\"string\"},\"version\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = InstallThemeFromFile,
+			Title = "Install Theme from File…",
+			RunsIn = CommandLocation.Core,
+			Category = "Theme",
+			Description = "Install a VS Code color theme from a local .vsix file. With no 'path', opens a file "
+				+ "picker to choose one; pass 'path' (an absolute .vsix path) to install without prompting.",
+			Aliases = ["install theme from file", "install vsix", "install local theme", "open vsix", "install theme from disk"],
+			ArgsSchemaJson = "{\"path\":{\"type\":\"string\",\"description\":\"Absolute path to a .vsix file; omit to choose interactively\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectTheme,
+			Title = "Select Theme",
+			RunsIn = CommandLocation.Core,
+			Category = "Theme",
+			Description = "Switch the active color theme. 'id' must be a built-in or installed theme id (use the "
+				+ "listThemes tool to see them; never guess). Overrides are remembered per theme.",
+			Aliases = ["select theme", "switch theme", "change theme", "set theme", "use theme", "activate theme"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = UndoThemeOverride,
+			Title = "Undo Theme Override",
+			RunsIn = CommandLocation.Core,
+			Category = "Theme",
+			Description = "Undo the most recent color override on the active theme (pop the last set/transform).",
+			Aliases = ["undo theme override", "undo last color", "revert theme tweak", "undo color change"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ResetTheme,
+			Title = "Reset Theme Overrides",
+			RunsIn = CommandLocation.Core,
+			Category = "Theme",
+			Description = "Clear ALL color overrides on the active theme, returning it to its authored colors.",
+			Aliases = ["reset theme", "clear theme overrides", "restore theme defaults", "remove all overrides"],
 		});
 	}
 }

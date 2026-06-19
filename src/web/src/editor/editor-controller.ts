@@ -138,6 +138,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (reviewUri !== undefined) {
           inlineDiff?.setByUri(reviewUri, {
             original: message.original,
+            claudeVersion: message.proposed,
             mode: "review",
             onAccept: () => resolveReview(true),
             onReject: () => resolveReview(false),
@@ -166,6 +167,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         } else {
           inlineDiff?.set(message.path, {
             original: message.baseline,
+            claudeVersion: message.current,
             mode: "applied",
             onAccept: () => postToHost({ type: "accept-turn" }),
             onUndo: () => postToHost({ type: "undo-turn" }),
@@ -181,7 +183,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (message.baseline === message.current) {
           inlineDiff?.clear(message.path);
         } else {
-          inlineDiff?.set(message.path, { original: message.baseline, mode: "view" });
+          inlineDiff?.set(message.path, {
+            original: message.baseline,
+            claudeVersion: message.current,
+            mode: "view",
+          });
         }
         return true;
       default:

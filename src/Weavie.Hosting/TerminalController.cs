@@ -3,7 +3,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Processes;
 using Weavie.Core.Terminal;
 
-namespace Weavie.Mac.Hosting;
+namespace Weavie.Hosting;
 
 /// <summary>
 /// Ties one real PTY to an xterm.js pane over the bridge. Each controller drives a single
@@ -15,10 +15,10 @@ namespace Weavie.Mac.Hosting;
 /// <see cref="RestartPolicy.Always"/>: a pane is a permanent fixture, so any exit (clean or crash) relaunches
 /// it — only the crash-loop breaker leaves a stopped pane. The session id tags every
 /// <c>term-output</c>/<c>term-exit</c> message so the page routes it to the matching pane. Only the claude
-/// session optionally tees raw PTY bytes to WEAVIE_PTY_LOG for debugging (e.g. the IDE-MCP handshake in step 3).
+/// session optionally tees raw PTY bytes to WEAVIE_PTY_LOG for debugging (e.g. the IDE-MCP handshake).
 /// </summary>
 public sealed class TerminalController : IDisposable {
-	private readonly HostBridge _bridge;
+	private readonly IHostBridge _bridge;
 	private readonly string _session;
 	private readonly SettingsStore _settings;
 	private readonly object _gate = new();
@@ -33,7 +33,7 @@ public sealed class TerminalController : IDisposable {
 	/// shell/claude/workspace from <paramref name="settings"/>. <paramref name="session"/> is the pane
 	/// this controller feeds: <c>"claude"</c> or <c>"shell"</c>.
 	/// </summary>
-	public TerminalController(HostBridge bridge, string session, SettingsStore settings) {
+	public TerminalController(IHostBridge bridge, string session, SettingsStore settings) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentException.ThrowIfNullOrEmpty(session);
 		ArgumentNullException.ThrowIfNull(settings);
@@ -230,10 +230,17 @@ public sealed class TerminalController : IDisposable {
 		return (command, arguments);
 	}
 
-	/// <summary>The system login shell used to wrap claude: <c>$SHELL</c> if it exists, else <c>/bin/zsh</c>.</summary>
+	/// <summary>
+	/// The system login shell used to wrap claude: <c>$SHELL</c> if it exists, else the per-OS default
+	/// (<c>/bin/zsh</c> on macOS, <c>/bin/bash</c> elsewhere).
+	/// </summary>
 	private static string LoginShell() {
 		string? shell = Environment.GetEnvironmentVariable("SHELL");
-		return !string.IsNullOrEmpty(shell) && File.Exists(shell) ? shell : "/bin/zsh";
+		if (!string.IsNullOrEmpty(shell) && File.Exists(shell)) {
+			return shell;
+		}
+
+		return OperatingSystem.IsMacOS() ? "/bin/zsh" : "/bin/bash";
 	}
 
 	/// <summary>Tears down the supervised PTY child process and closes the optional PTY debug log.</summary>

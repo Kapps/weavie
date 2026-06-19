@@ -1047,6 +1047,18 @@ body,
   background: rgba(46, 160, 67, 0.32);
 }
 
+/* The user's OWN typing over a changed file — a washed-out green, much fainter than Claude's solid added
+   lines, so a person's edits read as theirs (not something to "review/accept" like Claude's changes). */
+.weavie-inline-user {
+  background: rgba(46, 160, 67, 0.05);
+}
+
+.weavie-inline-user-gutter {
+  background: rgba(46, 160, 67, 0.4);
+  width: 3px !important;
+  margin-left: 3px;
+}
+
 .weavie-inline-removed {
   background: rgba(210, 90, 90, 0.14);
   border-left: 3px solid #d25a5a;

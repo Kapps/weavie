@@ -4,6 +4,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
+using Weavie.Core.Mcp;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
@@ -226,8 +227,17 @@ internal sealed partial class WorkspaceWindow {
 		}
 	}
 
-	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
+	/// <summary>
+	/// Pushes one file's per-turn diff so the page renders it inline in the live editor. Only in an auto-keep
+	/// mode (acceptEdits/bypass): there the applied turn-markers are the review surface. In default mode every
+	/// edit is reviewed via the blocking openDiff Keep/Reject, so a second applied marker would just demand a
+	/// redundant Accept — suppress it.
+	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
+		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
+			return;
+		}
+
 		if (_session?.Changes.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}
@@ -341,6 +351,35 @@ internal sealed partial class WorkspaceWindow {
 		bool ok = root.TryGetProperty("ok", out var okEl) && okEl.ValueKind is JsonValueKind.True or JsonValueKind.False && okEl.GetBoolean();
 		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
 		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
+	}
+
+	/// <summary>
+	/// Native <c>.vsix</c> picker for the install-from-file theme command (a WinForms <see cref="OpenFileDialog"/>
+	/// on the UI thread). Returns the chosen path, or null if the user cancelled. The command dispatcher calls
+	/// this off the UI thread (a runCommand/palette invocation), so the dialog is marshaled onto it.
+	/// </summary>
+	private Task<string?> PickVsixFileAsync(CancellationToken ct) {
+		var completion = new TaskCompletionSource<string?>();
+		void Show() {
+			try {
+				using var dialog = new OpenFileDialog {
+					Title = "Install Theme from .vsix",
+					Filter = "VS Code extension (*.vsix)|*.vsix|All files (*.*)|*.*",
+					CheckFileExists = true,
+				};
+				completion.SetResult(dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null);
+			} catch (Exception ex) {
+				completion.SetException(ex);
+			}
+		}
+
+		if (InvokeRequired) {
+			BeginInvoke(Show);
+		} else {
+			Show();
+		}
+
+		return completion.Task;
 	}
 
 	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>

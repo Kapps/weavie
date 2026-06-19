@@ -122,8 +122,8 @@ export type WebBoundMessage =
   | { type: "open-file"; path: string; content: string; line: number }
   // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
   | { type: "set-layout"; document: LayoutDocument }
-  // Host pushes the persisted editor session to restore on launch/Ctrl+R. Each open entry carries the
-  // file's on-disk `content` so the web can create models that don't exist yet on a fresh page.
+  // Host pushes the persisted editor session to restore on launch/Ctrl+R. Carries NO file content — the
+  // web reopens each file as a working copy resolved from disk through the host file:// provider.
   | { type: "set-editor-session"; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }

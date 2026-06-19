@@ -355,6 +355,22 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
 
+		// Toggle this window. The global ctrl+` hotkey toggles the frontmost window app-side (AppController);
+		// this per-window handler is what Claude's runCommand / the palette invoke to toggle the window that asked.
+		_session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			if (InvokeRequired) {
+				BeginInvoke(() => WindowFocus.Toggle(this));
+			} else {
+				WindowFocus.Toggle(this);
+			}
+
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+
+		// Theme verb commands (install / install-from-file / select / undo / reset): Core handlers over the
+		// app-global theme stores, with a native ".vsix" picker for install-from-file invoked with no path.
+		ThemeCommands.RegisterHandlers(_session.Commands, _settings, _app.ThemeOverrides, PickVsixFileAsync);
+
 		// Custom title bar: route its window-control / menu-action / file-index messages (handled in
 		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
 		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
@@ -470,30 +486,6 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
 		}
-
-		// Dev aid: render a sample openDiff so the Monaco diff UI can be screenshotted without
-		// driving claude. Gated on WEAVIE_DEMO_DIFF; never fires in normal use.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_DEMO_DIFF"))) {
-			ScheduleOnce(2.5, PostDemoDiff);
-		}
-	}
-
-	private void PostDemoDiff() {
-		const string original = "export function greet(name) {\n  return 'hi ' + name;\n}\n";
-		const string proposed = "export function greet(name: string): string {\n  // weavie openDiff demo\n  return `hello, ${name}!`;\n}\n";
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
-			writer.WriteString("type", "show-diff");
-			writer.WriteString("id", "demo");
-			writer.WriteString("path", @"C:\src\weavie\demo\greet.ts");
-			writer.WriteString("tabName", "✻ [Claude Code] greet.ts");
-			writer.WriteString("original", original);
-			writer.WriteString("proposed", proposed);
-			writer.WriteEndObject();
-		}
-
-		_bridge.PostToWeb(Encoding.UTF8.GetString(stream.ToArray()));
 	}
 
 	private async Task CaptureSnapshotAsync() {

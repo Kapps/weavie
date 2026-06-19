@@ -5,7 +5,11 @@
 // Claude edit). The layer owns only its decorations/zones/widget — it NEVER disposes the host-owned live model.
 
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
+import { formatKey } from "../commands/keybindings";
+import { findCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { currentFonts, onFontsChanged } from "../fonts";
+import { canonicalFsPath } from "./fs-path";
 import { monaco } from "./monaco-setup";
 
 const DIFF_OPTIONS = {
@@ -23,6 +27,14 @@ export type InlineDiffMode = "review" | "applied" | "view";
 export interface InlineDiffOptions {
   /** The baseline/original text the live model is diffed against. */
   original: string;
+  /**
+   * The content Claude produced — the on-disk version for an applied turn, the proposal for a review. Lines in
+   * the live model that differ from THIS are the user's own typing (not Claude's), and render in a fainter
+   * green so a person's edits read as distinct from Claude's pending changes (which the diff is for reviewing).
+   * Right after a reload the model equals this, so nothing reads as "user" until you type. Omitted → no fade
+   * (every changed line is treated as Claude's).
+   */
+  claudeVersion?: string;
   /**
    * review = a pending openDiff proposal (Keep/Reject gate); applied = a turn's already-applied changes
    * (Accept clears the markers, Undo reverts the set); view = a read-only diff (e.g. browsing a session
@@ -112,6 +124,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const font = currentFonts().editor;
     node.style.fontFamily = font.family;
     node.style.fontSize = `${font.size}px`;
+    // Render tabs at the editor's tab width (CSS `tab-size` defaults to 8) so a removed line's leading
+    // indentation lines up with the live code above/below it instead of being doubled.
+    node.style.tabSize = String(editor.getModel()?.getOptions().tabSize ?? 4);
     for (const line of lines) {
       const row = document.createElement("div");
       row.className = "weavie-inline-removed-line";
@@ -121,13 +136,28 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return node;
   };
 
-  const makeButton = (className: string, label: string, onClick: () => void): HTMLButtonElement => {
+  const makeButton = (
+    className: string,
+    label: string,
+    title: string,
+    onClick: () => void,
+  ): HTMLButtonElement => {
     const button = document.createElement("button");
     button.type = "button";
     button.className = className;
     button.textContent = label;
+    button.title = title;
     button.addEventListener("click", () => onClick());
     return button;
+  };
+
+  // Weavie nudges users toward the keyboard, so every toolbar button advertises its shortcut on hover:
+  // "<label> (<shortcut>)", using the command's currently-bound keys (defaults merged with the user's
+  // keybindings.json). Unbound commands (e.g. Undo, which ships without a default binding) show just the
+  // label. Falls back to the bare label in plain-browser dev where the host hasn't injected a catalog.
+  const withShortcut = (label: string, commandId: string): string => {
+    const keys = findCommand(commandId)?.keys ?? [];
+    return keys.length > 0 ? `${label} (${keys.map(formatKey).join(" / ")})` : label;
   };
 
   // Jump the cursor/viewport to the previous/next change hunk (by modified-side anchor line), wrapping.
@@ -175,25 +205,61 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const bar = document.createElement("div");
     bar.className = "weavie-inline-toolbar";
 
-    const prev = makeButton("weavie-inline-nav", "↑", prevChange);
-    prev.title = "Previous change";
-    const next = makeButton("weavie-inline-nav", "↓", nextChange);
-    next.title = "Next change";
+    const prev = makeButton(
+      "weavie-inline-nav",
+      "↑",
+      withShortcut("Previous change", CommandIds.prevChange),
+      prevChange,
+    );
+    const next = makeButton(
+      "weavie-inline-nav",
+      "↓",
+      withShortcut("Next change", CommandIds.nextChange),
+      nextChange,
+    );
     bar.append(prev, next);
 
     if (options.mode === "review") {
       if (options.onAccept !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-accept", "Keep", accept));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-accept",
+            "Keep",
+            withShortcut("Keep this change", CommandIds.acceptChange),
+            accept,
+          ),
+        );
       }
       if (options.onReject !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-reject", "Reject", reject));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-reject",
+            "Reject",
+            withShortcut("Reject this change", CommandIds.rejectChange),
+            reject,
+          ),
+        );
       }
     } else if (options.mode === "applied") {
       if (options.onAccept !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-accept", "Accept", accept));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-accept",
+            "Accept",
+            withShortcut("Accept these changes", CommandIds.acceptChange),
+            accept,
+          ),
+        );
       }
       if (options.onUndo !== undefined) {
-        bar.appendChild(makeButton("weavie-inline-undo", "Undo", undo));
+        bar.appendChild(
+          makeButton(
+            "weavie-inline-undo",
+            "Undo",
+            withShortcut("Undo these changes", CommandIds.undoChange),
+            undo,
+          ),
+        );
       }
     }
     return bar;
@@ -219,6 +285,25 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return; // no net change (e.g. a turn that reverted itself) — nothing to render
     }
 
+    // Lines the USER typed render fainter than Claude's: diff the live model against `claudeVersion` (what
+    // Claude produced), and any line that differs is the person's own edit. Empty when claudeVersion is
+    // omitted or the model still matches it (just-reloaded), so it only lights up as you type over a change.
+    const userLines = new Set<number>();
+    if (options.claudeVersion !== undefined) {
+      const userDiff = linesDiffComputers
+        .getDefault()
+        .computeDiff(splitLines(options.claudeVersion), modified, DIFF_OPTIONS);
+      for (const change of userDiff.changes) {
+        for (
+          let ln = change.modified.startLineNumber;
+          ln < change.modified.endLineNumberExclusive;
+          ln++
+        ) {
+          userLines.add(ln);
+        }
+      }
+    }
+
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
     const ghosts: { afterLineNumber: number; lines: string[] }[] = [];
     const changeLines: number[] = [];
@@ -226,25 +311,35 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     for (const change of changes) {
       changeLines.push(Math.max(1, change.modified.startLineNumber));
       if (!change.modified.isEmpty) {
-        deltas.push({
-          range: new monaco.Range(
-            change.modified.startLineNumber,
-            1,
-            change.modified.endLineNumberExclusive - 1,
-            1,
-          ),
-          options: {
-            isWholeLine: true,
-            className: "weavie-inline-added",
-            linesDecorationsClassName: "weavie-inline-added-gutter",
-            overviewRuler: {
-              color: "rgba(78, 201, 120, 0.7)",
-              position: monaco.editor.OverviewRulerLane.Left,
+        // Per-line (not one whole-range decoration) so a block that mixes Claude's lines with the user's
+        // tweaks paints each in its own shade.
+        for (
+          let ln = change.modified.startLineNumber;
+          ln < change.modified.endLineNumberExclusive;
+          ln++
+        ) {
+          const fromUser = userLines.has(ln);
+          deltas.push({
+            range: new monaco.Range(ln, 1, ln, 1),
+            options: {
+              isWholeLine: true,
+              className: fromUser ? "weavie-inline-user" : "weavie-inline-added",
+              linesDecorationsClassName: fromUser
+                ? "weavie-inline-user-gutter"
+                : "weavie-inline-added-gutter",
+              overviewRuler: {
+                color: fromUser ? "rgba(78, 201, 120, 0.3)" : "rgba(78, 201, 120, 0.7)",
+                position: monaco.editor.OverviewRulerLane.Left,
+              },
             },
-          },
-        });
+          });
+        }
         for (const inner of change.innerChanges ?? []) {
           const r = inner.modifiedRange;
+          // Char-level emphasis is for reviewing Claude's edits; skip it on the user's own (faint) lines.
+          if (userLines.has(r.startLineNumber)) {
+            continue;
+          }
           const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
           if (!empty) {
             deltas.push({ range: r, options: { inlineClassName: "weavie-inline-added-text" } });
@@ -328,10 +423,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   return {
     set(path, options) {
-      setByUri(monaco.Uri.file(path).toString(), options);
+      setByUri(monaco.Uri.file(canonicalFsPath(path)).toString(), options);
     },
     clear(path) {
-      clearByUri(monaco.Uri.file(path).toString());
+      clearByUri(monaco.Uri.file(canonicalFsPath(path)).toString());
     },
     setByUri,
     clearByUri,

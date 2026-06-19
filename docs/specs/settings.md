@@ -369,7 +369,7 @@ session.
 
 **Dev/debug toggles stay raw env vars** and are intentionally *not* registered — not user-facing,
 should not appear in `listSettings`: `WEAVIE_PTY_LOG`, `WEAVIE_AUTOBENCH`, `WEAVIE_FPSPROBE`,
-`WEAVIE_SHOT_*`, `WEAVIE_DEMO_DIFF`, `WEAVIE_DEBUG_INPUT`.
+`WEAVIE_SHOT_*`, `WEAVIE_DEBUG_INPUT`.
 
 ### Typography (fonts)
 

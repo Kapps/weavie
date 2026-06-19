@@ -27,6 +27,11 @@ export interface ResolvedKeybinding {
   command: string;
   args?: unknown;
   when?: string;
+  /**
+   * When true this is an OS-level global hotkey: the host registers it with the operating system (so it
+   * fires even when Weavie is unfocused) and the web keydown resolver skips it — see keybindings.ts.
+   */
+  global?: boolean;
 }
 
 /** The built-in command ids (kept in sync with CoreCommands.cs), so call sites avoid magic strings. */
@@ -37,6 +42,7 @@ export const CommandIds = {
   focusOmnibarFiles: "weavie.omnibar.focusFiles",
   focusOmnibarCommands: "weavie.omnibar.focusCommands",
   reopenTerminal: "weavie.terminal.reopen",
+  toggleWindow: "weavie.window.toggle",
   nextChange: "weavie.diff.nextChange",
   prevChange: "weavie.diff.prevChange",
   acceptChange: "weavie.diff.accept",

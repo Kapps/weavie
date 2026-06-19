@@ -356,9 +356,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "describeTheme":
 				await HandleDescribeThemeAsync(ws, idRaw, ct).ConfigureAwait(false);
 				break;
-			case "selectTheme":
-				await HandleSelectThemeAsync(ws, args, idRaw, ct).ConfigureAwait(false);
-				break;
 			case "setThemeOverride":
 				await HandleSetThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
 				break;
@@ -367,15 +364,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case "removeThemeOverride":
 				await HandleRemoveThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "undoThemeOverride":
-				await HandleUndoThemeOverrideAsync(ws, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "resetTheme":
-				await HandleResetThemeAsync(ws, idRaw, ct).ConfigureAwait(false);
-				break;
-			case "installTheme":
-				await HandleInstallThemeAsync(ws, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			default:
 				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);

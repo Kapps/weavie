@@ -30,6 +30,14 @@ public static class WeaviePaths {
 	/// <summary>The persisted most-recently-opened workspace list: <c>~/.weavie/recents.json</c>.</summary>
 	public static string RecentsFile { get; } = Path.Combine(Root, "recents.json");
 
+	/// <summary>
+	/// The Claude session id Weavie assigned to each working directory: <c>~/.weavie/claude-sessions.json</c>.
+	/// Lets a reopened session resume its previous Claude conversation instead of cold-starting one. App-global
+	/// (keyed by directory, which is per-session) rather than per-workspace, so any host shares one map. See
+	/// <see cref="Sessions.ClaudeSessionStore"/>.
+	/// </summary>
+	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
+
 	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, like layout — never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 

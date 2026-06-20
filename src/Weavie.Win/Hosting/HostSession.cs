@@ -41,7 +41,8 @@ internal sealed class HostSession : IAsyncDisposable {
 		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
-		ThemeOverridesStore themeOverrides) {
+		ThemeOverridesStore themeOverrides,
+		ClaudeSessionStore claudeSessions) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
@@ -51,6 +52,7 @@ internal sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
+		ArgumentNullException.ThrowIfNull(claudeSessions);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
@@ -71,7 +73,11 @@ internal sealed class HostSession : IAsyncDisposable {
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		FileIndex.Log += Tagged("[index]");
-		Claude = new TerminalController(bridge, "claude", settings) { Workspace = workspaceRoot };
+		Claude = new TerminalController(bridge, "claude", settings) {
+			Workspace = workspaceRoot,
+			// Resume this session's worktree's previous Claude conversation across launches (gated by the setting).
+			ClaudeSessions = claudeSessions,
+		};
 		Shell = new TerminalController(bridge, "shell", settings) { Workspace = workspaceRoot };
 		FileOpener = new FileOpener(bridge, fileSystem, workspaceRoot);
 		DiffPresenter = new McpDiffPresenter(bridge, fileSystem, FileOpener);

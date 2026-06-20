@@ -56,8 +56,7 @@ async function tour(page) {
   // session and never pushes a `session-list`. So we feed the rail through the SAME seam the native shells
   // use — `window.__weavieReceive`, the host→web message sink — to populate it and to answer the delete
   // classification, then drive the REAL components (SessionRail → ContextMenu → DeleteSessionDialog).
-  const receive = (msg) =>
-    page.evaluate((m) => window.__weavieReceive(JSON.stringify(m)), msg);
+  const receive = (msg) => page.evaluate((m) => window.__weavieReceive(JSON.stringify(m)), msg);
 
   // 1. Populate the rail: the workspace's primary checkout + a deletable worktree session ("feat/login").
   const primary = {

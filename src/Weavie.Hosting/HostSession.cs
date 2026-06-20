@@ -275,8 +275,13 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		Claude.Dispose();
-		Shell.Dispose();
+		// Terminal disposal now blocks until the PTY children have actually exited (so a worktree delete that
+		// follows teardown can't race a process still rooted at the worktree). Run it off the calling (often UI)
+		// thread so a slow-closing child can't freeze the app during teardown.
+		await Task.Run(() => {
+			Claude.Dispose();
+			Shell.Dispose();
+		}).ConfigureAwait(false);
 		await Ide.DisposeAsync().ConfigureAwait(false);
 		await Lsp.DisposeAsync().ConfigureAwait(false);
 	}

@@ -260,12 +260,21 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>Tears down the current PTY child and its optional log; the supervisor calls this on stop/dispose.</summary>
 	private void StopTerminal() {
+		// Detach under the gate, then dispose OUTSIDE it. Disposing a ConPTY now blocks until its child has
+		// actually exited (so a worktree delete that follows teardown can't race a still-open handle); during
+		// that wait the child's final output can fire OnOutput → ObserveClaudeStartup, which itself takes _gate.
+		// Holding the gate across Dispose would deadlock the two — detach-then-dispose tears down fully without it.
+		ITerminal? terminal;
+		FileStream? ptyLog;
 		lock (_gate) {
-			_terminal?.Dispose();
+			terminal = _terminal;
 			_terminal = null;
-			_ptyLog?.Dispose();
+			ptyLog = _ptyLog;
 			_ptyLog = null;
 		}
+
+		terminal?.Dispose();
+		ptyLog?.Dispose();
 	}
 
 	/// <summary>Maps supervisor state to pane UI: a real exit the policy won't relaunch, or the crash-loop give-up.</summary>

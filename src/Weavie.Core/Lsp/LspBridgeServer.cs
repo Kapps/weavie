@@ -25,12 +25,16 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	private readonly string? _allowedOrigin;
 	private readonly Func<string, LanguageServerDescriptor?> _resolveDescriptor;
 	private readonly ConcurrentDictionary<LspConnection, byte> _connections = new();
+	// Every in-flight client-handling task (handshake → proxy → process teardown). Tracked so DisposeAsync
+	// can await them and guarantee each spawned server process is killed and reaped before it returns.
+	private readonly ConcurrentDictionary<Task, byte> _clientTasks = new();
 	private readonly IReadOnlySet<string> _watchedExtensions;
 	private readonly Lock _watcherLock = new();
 
 	private TcpListener? _listener;
 	private CancellationTokenSource? _cts;
 	private WorkspaceWatcher? _watcher;
+	private Task? _acceptLoop;
 
 	/// <summary>
 	/// Creates the bridge. Call <see cref="Start"/> to begin listening.
@@ -80,7 +84,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		_listener.Start();
 		Port = ((IPEndPoint)_listener.LocalEndpoint).Port;
 		_cts = new CancellationTokenSource();
-		_ = AcceptLoopAsync(_cts.Token);
+		_acceptLoop = AcceptLoopAsync(_cts.Token);
 		Emit($"listening on 127.0.0.1:{Port}; workspace {_workspaceRoot}");
 		return Port;
 	}
@@ -97,8 +101,15 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 				break;
 			}
 
-			_ = HandleClientAsync(client, ct);
+			TrackClient(HandleClientAsync(client, ct));
 		}
+	}
+
+	// Hold a reference to each client task so DisposeAsync can await it; drop it once it finishes so the
+	// set only ever holds live connections.
+	private void TrackClient(Task task) {
+		_clientTasks[task] = 1;
+		_ = task.ContinueWith(t => _clientTasks.TryRemove(t, out _), TaskScheduler.Default);
 	}
 
 	private async Task HandleClientAsync(TcpClient client, CancellationToken ct) {
@@ -272,16 +283,35 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+		// Stop accepting, then cancel: in-flight connections observe the cancel, unwind their pumps, and
+		// kill + reap their spawned server process (LspConnection.TerminateProcessAsync, which kills the
+		// whole process tree). We await the accept loop and every client task so no language server is still
+		// alive — and so no handle is still held on the workspace directory — by the time this returns. That
+		// determinism is what lets a session's worktree be removed right after disposal without losing a race
+		// to a still-running server (on Windows a live cwd/handle makes `git worktree remove` fail with
+		// "Directory not empty").
+		_listener?.Stop();
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);
-			_cts.Dispose();
 		}
+
+		try {
+			if (_acceptLoop is not null) {
+				await _acceptLoop.ConfigureAwait(false);
+			}
+
+			await Task.WhenAll([.. _clientTasks.Keys]).ConfigureAwait(false);
+		} catch (Exception ex) {
+			// Teardown is best-effort but must remain observable: a connection that faulted on its way down
+			// is logged, never swallowed silently, and never rethrown out of dispose.
+			Emit($"teardown error draining connections: {ex.Message}");
+		}
+
+		_cts?.Dispose();
 
 		lock (_watcherLock) {
 			_watcher?.Dispose();
 			_watcher = null;
 		}
-
-		_listener?.Stop();
 	}
 }

@@ -18,6 +18,12 @@ namespace Weavie.Win.Terminal;
 /// <see cref="TerminalStartInfo.RemoveEnvironment"/>, plus <see cref="TerminalStartInfo.Environment"/>).
 /// </summary>
 internal sealed class WindowsConPtyTerminal : ITerminal {
+	// How long Dispose waits for the child to exit on its own after the pseudo console is closed, then how long
+	// it waits after force-terminating. Bounded so teardown can't hang; the force step keeps it deterministic
+	// (the child is killed, not silently abandoned) rather than a silent give-up.
+	private static readonly TimeSpan GracefulExitTimeout = TimeSpan.FromSeconds(3);
+	private static readonly TimeSpan ForcedExitTimeout = TimeSpan.FromSeconds(2);
+
 	private readonly Lock _gate = new();
 	private readonly Lock _writeGate = new();
 	private nint _hPC;
@@ -308,13 +314,33 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 	}
 
 	public void Dispose() {
+		nint process;
+		Thread? readThread;
 		lock (_gate) {
-			// Closing the pseudo console signals the child to exit; the read loop then sees EOF.
+			// Closing the pseudo console signals the child to exit gracefully — claude/the shell shut down and,
+			// in turn, tear down their own descendants; the read loop then sees EOF and RaiseExited reaps the child.
 			if (_hPC != 0) {
 				ClosePseudoConsole(_hPC);
 				_hPC = 0;
 			}
 
+			process = _hProcess;
+			readThread = _readThread;
+		}
+
+		// Block until the child has actually exited before returning, so a worktree removal that follows a
+		// session teardown can't race a process that still has the worktree as its cwd. The read loop's
+		// RaiseExited waits on the process and ends the thread; if the child ignores the console close, force it
+		// so teardown stays bounded instead of hanging. Done off _gate so the read loop's final OnOutput can run,
+		// and skipped if we somehow are the read thread (a forced exit re-enters here) to avoid self-joining.
+		if (readThread is { IsAlive: true } && Environment.CurrentManagedThreadId != readThread.ManagedThreadId) {
+			if (!readThread.Join(GracefulExitTimeout) && process != 0) {
+				TerminateProcess(process, 1);
+				readThread.Join(ForcedExitTimeout);
+			}
+		}
+
+		lock (_gate) {
 			if (_hProcess != 0) {
 				CloseHandle(_hProcess);
 				_hProcess = 0;

@@ -79,7 +79,7 @@ ownership question. Requires directory enumeration added to `IFileSystem` (Phase
 
 | State | Scope | Location | Notes |
 |---|---|---|---|
-| Global prefs (fonts, theme, `claude.path`, `terminal.shell`, `claude.permissionMode`, diagnostics) | App | `~/.weavie/settings.toml` | Stays one file, one in-memory store. |
+| Global prefs (fonts, theme, `claude.path`, `terminal.shell`, `claude.allowAllTools`, diagnostics) | App | `~/.weavie/settings.toml` | Stays one file, one in-memory store. |
 | Pane layout + window geometry | Workspace | `~/.weavie/workspaces/<id>/layout.json` | `LayoutStore` stops being a singleton; keyed per workspace. `<id>` = hash of the normalized absolute path. |
 | Recent workspaces + last-opened | App | `~/.weavie/recents.json` | New store, `LayoutStore` conventions (atomic write, malformed → `.bad` + reset, `Changed` event). |
 | Active workspace root | Session | (in `recents.json` / per-workspace) | The `workspace` *setting* is **demoted** from a global setting to session state; kept readable as a migration source so existing configs still open. |

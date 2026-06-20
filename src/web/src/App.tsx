@@ -10,7 +10,6 @@ import {
   onMount,
 } from "solid-js";
 import { type SessionStatusName, type TermSession, onHostMessage, postToHost } from "./bridge";
-import type { ChangeFile } from "./changes/ChangesPanel";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
@@ -29,7 +28,7 @@ import { CommandIds } from "./commands/types";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
-import { createEditorController } from "./editor/editor-controller";
+import { type ReviewFile, createEditorController } from "./editor/editor-controller";
 // Side-effect import: registers the editor session store's set-editor-session listener at top-level module
 // load — BEFORE main.tsx posts "ready" and the host replies with its one-shot restore push. The store
 // otherwise lives only in the dynamically-imported editor chunk (via editor-host), which loads seconds
@@ -47,7 +46,6 @@ import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
 import { applyChromeTheme } from "./theme";
 
-const ChangesPanel = lazy(() => import("./changes/ChangesPanel"));
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 
 // The PRIMARY session's workspace root (host-injected before navigation). Used to SEED the active-root
@@ -90,13 +88,15 @@ export default function App(): JSX.Element {
   // A terminal registers its focus fn here on mount (the editor focuses via the controller directly).
   const terminalFocus = new Map<string, () => void>();
 
-  const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
   // The active session's Claude status (pane-head dot) and the window's sessions (left rail) both live in
   // chrome/session-store as top-level signals so they survive HMR — see that module. The host pushes
   // session-status / session-list on `ready` and on every change; an HMR re-posts neither.
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
-  const [changesOpen, setChangesOpen] = createSignal(false);
+  // The post-turn review set: the files Claude changed since the last review (auto-keep modes only — the host
+  // gates the turn-changes push). There is NO panel — review is the inline diff toolbar walked file-by-file
+  // (← / →). This signal exists only to (a) feed the editor controller's file walk and (b) drive auto-arm.
+  const [reviewFiles, setReviewFiles] = createSignal<ReviewFile[]>([]);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
@@ -286,6 +286,23 @@ export default function App(): JSX.Element {
     }
   });
 
+  // Auto-arm review: when the active session's Claude goes idle (turn end — the Stop hook drives Idle) and
+  // there are auto-applied changes to review, open the first changed file landed on its first change, so the
+  // review surface (the inline diff toolbar) is just THERE with no shortcut to summon it. `armedThisIdle`
+  // makes it fire once per idle period — re-running on a later turn-changes push handles the case where the
+  // final change lands just after the idle status — and resets when Claude starts working again.
+  let armedThisIdle = false;
+  createEffect(() => {
+    if (claudeStatus() !== "idle") {
+      armedThisIdle = false;
+      return;
+    }
+    if (!armedThisIdle && reviewFiles().length > 0) {
+      armedThisIdle = true;
+      editor.openFirstReviewFile();
+    }
+  });
+
   onMount(() => {
     // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
     // active theme + override ops and also drives Monaco + xterm; this pushes the chrome's CSS vars.
@@ -308,8 +325,11 @@ export default function App(): JSX.Element {
         // in a pane — Claude by default, so a switch drops the user straight into the agent. The terminal
         // xterms are persistent across switches, so focusing the slot is valid even mid-respawn.
         focusPane(message.kind);
-      } else if (message.type === "session-changes") {
-        setChangeFiles(message.files);
+      } else if (message.type === "turn-changes") {
+        // The review set (auto-keep modes). Feed the editor controller's ← / → file walk and keep a copy for
+        // the auto-arm effect. No panel renders it — review is the inline toolbar in the editor.
+        setReviewFiles(message.files);
+        editor.setReviewFiles(message.files);
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "window-state") {
@@ -356,7 +376,6 @@ export default function App(): JSX.Element {
         return true;
       }),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
-      registerCommand(CommandIds.toggleChanges, () => setChangesOpen((open) => !open)),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       // The floating diff toolbar buttons route through these same actions, so keybindings / the palette /
@@ -367,6 +386,13 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
       registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
       registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      // Post-turn review (acceptEdits/bypass): there's no panel — these drive the inline toolbar's file axis.
+      // reviewOpen jumps to the first changed file; next/prev step the review set. next/prev DECLINE (return
+      // false → fall through to the editor) when no multi-file review is active, so $mod+Left/Right keep their
+      // editor word-nav meaning outside a review.
+      registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
+      registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
+      registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
       // Editor tabs. The targeted commands take an optional `path` (the tab context menu passes the
       // right-clicked tab; keyboard / palette omit it to act on the active tab). next/prev return whether they
       // stepped, so $mod+Tab falls through to the editor when there are <2 tabs.
@@ -457,7 +483,6 @@ export default function App(): JSX.Element {
             )
           }
           onToggleFiles={toggleBrowser}
-          onToggleChanges={() => setChangesOpen((open) => !open)}
           onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
           onRequestIndex={() => postToHost({ type: "request-file-index" })}
         />
@@ -472,7 +497,6 @@ export default function App(): JSX.Element {
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
           onToggleFiles={toggleBrowser}
-          onToggleChanges={() => setChangesOpen((open) => !open)}
           onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
           onRequestIndex={() => postToHost({ type: "request-file-index" })}
         />
@@ -493,29 +517,6 @@ export default function App(): JSX.Element {
           }}
           onCancel={() => setNewSessionOpen(false)}
         />
-      </Show>
-      <Show when={changeFiles().length > 0 && !HAS_TITLEBAR}>
-        <button
-          type="button"
-          class="changes-toggle"
-          onClick={() => setChangesOpen((open) => !open)}
-        >
-          Changes {changeFiles().length}
-        </button>
-      </Show>
-      <Show when={changesOpen()}>
-        <Suspense>
-          <ChangesPanel
-            files={changeFiles()}
-            currentFile={currentFile()}
-            onSelect={(path) => {
-              // Open the file in the live editor and request its session diff, shown inline (no diff viewer).
-              postToHost({ type: "reveal-file", path, line: 1 });
-              postToHost({ type: "get-change-diff", path });
-            }}
-            onClose={() => setChangesOpen(false)}
-          />
-        </Suspense>
       </Show>
       <Show when={indexRoot() !== null && !HAS_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>

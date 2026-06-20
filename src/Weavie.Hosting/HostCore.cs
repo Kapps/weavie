@@ -32,6 +32,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly CommandRegistry _commandRegistry;
 	private readonly KeybindingStore _keybindings;
 	private readonly ThemeOverridesStore _themeOverrides;
+	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
+	private readonly ClaudeSessionStore _claudeSessions;
 	private readonly LayoutStore _layout;
 	private readonly EditorSessionStore _editorSession;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
@@ -76,6 +78,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_commandRegistry = services.CommandRegistry;
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
+		_claudeSessions = services.ClaudeSessions;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 

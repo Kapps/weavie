@@ -25,6 +25,14 @@ public sealed record HookRequest {
 	public string? Cwd { get; init; }
 
 	/// <summary>
+	/// Claude Code's own permission mode at the time of the event (<c>default</c>/<c>acceptEdits</c>/<c>plan</c>/
+	/// <c>bypassPermissions</c>), when the payload carries it. Claude OWNS this (the user cycles it with
+	/// Shift+Tab); Weavie only OBSERVES it here to know whether edits are auto-applying. Absent on payloads
+	/// that don't report it.
+	/// </summary>
+	public string? PermissionMode { get; init; }
+
+	/// <summary>
 	/// Parses a hook stdin payload. Returns <see langword="null"/> if the JSON is malformed, or for a
 	/// <em>tool</em> event missing its tool name — the caller treats that as "no opinion", leaving Claude's
 	/// normal flow untouched. Non-tool events (turn boundaries) parse with an empty tool name.
@@ -59,6 +67,7 @@ public sealed record HookRequest {
 				ToolInputJson = toolInput,
 				SessionId = GetString(root, "session_id"),
 				Cwd = GetString(root, "cwd"),
+				PermissionMode = GetString(root, "permission_mode"),
 			};
 		} catch (JsonException) {
 			return null;

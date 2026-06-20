@@ -98,8 +98,8 @@ function Node(props: {
 }
 
 // The contextual file browser: a fixed overlay (not a layout pane) rooted at the session's workspace
-// directory. Surfaced on demand; folders expand lazily; clicking a file opens it in the editor. Mirrors
-// the ChangesPanel overlay so it never collides with the editor or the pane tree.
+// directory. Surfaced on demand; folders expand lazily; clicking a file opens it in the editor. Sits as
+// a fixed overlay above the editor and pane tree so it never collides with them.
 export default function FileBrowser(props: {
   root: string;
   listings: DirListings;

@@ -111,7 +111,6 @@ internal static class MacAppMenu {
 		menu.AddItem(CommandItem("Go to File…", CoreCommands.FocusOmnibarFiles, runCommand, resolveChord));
 		menu.AddItem(NSMenuItem.SeparatorItem);
 		menu.AddItem(CommandItem("Toggle Files", CoreCommands.ToggleFileBrowser, runCommand, resolveChord));
-		menu.AddItem(CommandItem("Toggle Changes", CoreCommands.ToggleChanges, runCommand, resolveChord));
 		menu.AddItem(NSMenuItem.SeparatorItem);
 		menu.AddItem(CommandItem("Reopen Terminal", CoreCommands.ReopenTerminal, runCommand, resolveChord));
 		return Submenu("View", menu);

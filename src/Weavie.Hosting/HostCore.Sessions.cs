@@ -37,6 +37,7 @@ public sealed partial class HostCore {
 		session.Changes.Changed += () => {
 			if (IsActiveSession(session)) {
 				PushChangesToWeb();
+				PushTurnChangesToWeb();
 			}
 		};
 		session.Changes.FileChanged += path => {
@@ -48,6 +49,7 @@ public sealed partial class HostCore {
 		session.Changes.TurnBegan += () => {
 			if (IsActiveSession(session)) {
 				PushTurnReset();
+				PushTurnChangesToWeb();
 			}
 		};
 		session.Status.Changed += status => {
@@ -252,7 +254,7 @@ public sealed partial class HostCore {
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher);
+			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
 		WireSession(session);
 		return session;
 	}

@@ -1,6 +1,7 @@
 using System.Text;
 using Weavie.Core.Configuration;
 using Weavie.Core.Processes;
+using Weavie.Core.Sessions;
 using Weavie.Core.Terminal;
 
 namespace Weavie.Hosting;
@@ -82,6 +83,14 @@ public sealed class TerminalController : IDisposable {
 	/// the claude session uses it.
 	/// </summary>
 	public string? SystemPromptFilePath { get; set; }
+
+	/// <summary>
+	/// When set (claude session only), the store that assigns this session's <see cref="Workspace"/> a stable
+	/// Claude session id so the spawned claude resumes its previous conversation across launches/restarts
+	/// (<c>--resume</c>) instead of cold-starting — created fresh the first time with <c>--session-id</c>.
+	/// Honored only while the <c>claude.resumeSession</c> setting is on. Null disables the feature.
+	/// </summary>
+	public ClaudeSessionStore? ClaudeSessions { get; set; }
 
 	/// <summary>
 	/// Raised on every supervisor transition for this session's process (start, crash, restart, give-up),
@@ -175,6 +184,7 @@ public sealed class TerminalController : IDisposable {
 				SettingsFilePath = SettingsFilePath,
 				SystemPromptFilePath = SystemPromptFilePath,
 				ExtraEnvironment = ExtraEnvironment,
+				ClaudeSessionArguments = isClaude ? ResolveClaudeSessionArgs() : [],
 			});
 
 			var terminal = _launcher.CreateTerminal();
@@ -197,6 +207,22 @@ public sealed class TerminalController : IDisposable {
 		if (attempt > 0) {
 			PostNotice($"\r\n[weavie] {_session} exited - restarting...\r\n");
 		}
+	}
+
+	/// <summary>
+	/// The claude session-resume flag pair for this launch — <c>["--resume", &lt;id&gt;]</c> to reattach to this
+	/// directory's previous Claude conversation, or <c>["--session-id", &lt;id&gt;]</c> to create it the first
+	/// time. Empty when resume is unconfigured (<see cref="ClaudeSessions"/> null) or turned off via
+	/// <c>claude.resumeSession</c> (claude then picks its own id). The resume <em>policy</em> lives here, shared
+	/// across hosts; each <see cref="IPtyLauncher"/> just formats these args for its OS.
+	/// </summary>
+	private IReadOnlyList<string> ResolveClaudeSessionArgs() {
+		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
+			return [];
+		}
+
+		var launch = store.Resolve(Workspace);
+		return [launch.Resume ? "--resume" : "--session-id", launch.SessionId];
 	}
 
 	/// <summary>Tears down the current PTY child and its optional log; the supervisor calls this on stop/dispose.</summary>

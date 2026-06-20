@@ -339,7 +339,6 @@ that already exist in the web:
 |----|--------|-------------|---------|-------------------|
 | `weavie.pane.focusByIndex` | Web | `$mod+1`…`$mod+9` (args `{index}`) | no | hardcoded Ctrl+1–9 (`App.tsx`) |
 | `weavie.view.toggleFileBrowser` | Web | `$mod+b` | yes | `toggleBrowser` (`App.tsx`) |
-| `weavie.view.toggleChanges` | Web | — | yes | `setChangesOpen` (`App.tsx`) |
 | `weavie.omnibar.focusFiles` | Web | `$mod+p` | yes | focus omnibar (Go to File) |
 | `weavie.omnibar.focusCommands` | Web | `$mod+shift+p` | yes | focus omnibar in `>` mode |
 | `weavie.terminal.reopen` | Core | — | yes | `TerminalController.Restart()` (exists) |

@@ -38,7 +38,6 @@ export interface ResolvedKeybinding {
 export const CommandIds = {
   focusPaneByIndex: "weavie.pane.focusByIndex",
   toggleFileBrowser: "weavie.view.toggleFileBrowser",
-  toggleChanges: "weavie.view.toggleChanges",
   focusOmnibarFiles: "weavie.omnibar.focusFiles",
   focusOmnibarCommands: "weavie.omnibar.focusCommands",
   reopenTerminal: "weavie.terminal.reopen",
@@ -48,6 +47,9 @@ export const CommandIds = {
   acceptChange: "weavie.diff.accept",
   rejectChange: "weavie.diff.reject",
   undoChange: "weavie.diff.undo",
+  reviewOpen: "weavie.review.open",
+  reviewNextFile: "weavie.review.nextFile",
+  reviewPrevFile: "weavie.review.prevFile",
   closeTab: "weavie.editor.closeTab",
   nextTab: "weavie.editor.nextTab",
   prevTab: "weavie.editor.prevTab",

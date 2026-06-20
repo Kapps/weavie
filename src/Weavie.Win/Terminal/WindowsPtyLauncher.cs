@@ -53,6 +53,9 @@ internal sealed class WindowsPtyLauncher : IPtyLauncher {
 			claudeArgs.Add(request.SystemPromptFilePath);
 		}
 
+		// Session resume (--resume/--session-id <id>), already resolved by the controller; empty when off.
+		claudeArgs.AddRange(request.ClaudeSessionArguments);
+
 		string ext = Path.GetExtension(claude).ToLowerInvariant();
 		if (ext is ".cmd" or ".bat") {
 			string comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";

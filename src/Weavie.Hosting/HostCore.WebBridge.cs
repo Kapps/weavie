@@ -100,6 +100,9 @@ public sealed partial class HostCore {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
+			case "get-turn-diff":
+				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
 			case "fs-stat":
 				if (_session is not null) {
 					_bridge.PostToWeb(_session.FileProvider.Stat(FsId(root), FsPath(root)));
@@ -264,6 +267,17 @@ public sealed partial class HostCore {
 		}
 	}
 
+	/// <summary>
+	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
+	/// review navigator. Only in an auto-keep mode (acceptEdits/bypass): that's where post-turn review is the
+	/// surface — default mode reviews each edit via the blocking openDiff, so there's nothing to list.
+	/// </summary>
+	private void PushTurnChangesToWeb() {
+		if (_session is { } session && session.ObservedMode.AutoAppliesEdits) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
+		}
+	}
+
 	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
 	private void PushChangeDiffToWeb(string path) {
 		if (_session?.Changes.Get(path) is { } change) {
@@ -294,11 +308,8 @@ public sealed partial class HostCore {
 	/// the per-edit review, so a second applied marker would just demand a redundant Accept — suppress it.
 	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
-		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
-			return;
-		}
-
-		if (_session?.Changes.GetTurn(path) is { } turn) {
+		if (_session is { } session && session.ObservedMode.AutoAppliesEdits
+			&& session.Changes.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}
 	}

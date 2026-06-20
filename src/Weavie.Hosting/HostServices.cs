@@ -1,6 +1,8 @@
+using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 
 namespace Weavie.Hosting;
@@ -25,6 +27,12 @@ public sealed record HostServices {
 	public required ThemeOverridesStore ThemeOverrides { get; init; }
 
 	/// <summary>
+	/// The Claude-session-id map (<c>~/.weavie/claude-sessions.json</c>), keyed by working directory — app-global
+	/// so every window/session resumes its own directory's previous Claude conversation across launches.
+	/// </summary>
+	public required ClaudeSessionStore ClaudeSessions { get; init; }
+
+	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for the hosts that own exactly one workspace per process (Mac/Linux/Headless).
 	/// </summary>
@@ -36,11 +44,14 @@ public sealed record HostServices {
 		keybindings.Log += Log;
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
 		themeOverrides.Log += Log;
+		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
+		claudeSessions.Log += Log;
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
+			ClaudeSessions = claudeSessions,
 		};
 	}
 

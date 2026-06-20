@@ -89,6 +89,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			CommandRegistry = _app.CommandRegistry,
 			Keybindings = _app.Keybindings,
 			ThemeOverrides = _app.ThemeOverrides,
+			ClaudeSessions = _app.ClaudeSessions,
 		}, workspaceRoot);
 		// On the page's `ready`, push the initial native window state (maximize glyph + blur dim) the core can't know.
 		_core.Ready += OnPageReady;

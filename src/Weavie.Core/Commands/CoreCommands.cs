@@ -16,9 +16,6 @@ public static class CoreCommands {
 	/// <summary>Shows/hides the workspace file browser.</summary>
 	public const string ToggleFileBrowser = "weavie.view.toggleFileBrowser";
 
-	/// <summary>Shows/hides the session changes panel.</summary>
-	public const string ToggleChanges = "weavie.view.toggleChanges";
-
 	/// <summary>Focuses the omnibar in file-search ("Go to File") mode.</summary>
 	public const string FocusOmnibarFiles = "weavie.omnibar.focusFiles";
 
@@ -45,6 +42,15 @@ public static class CoreCommands {
 
 	/// <summary>Undoes the current turn's inline changes (acceptEdits/bypass mode).</summary>
 	public const string UndoChange = "weavie.diff.undo";
+
+	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; bound to <c>$mod+Shift+r</c>.</summary>
+	public const string ReviewOpen = "weavie.review.open";
+
+	/// <summary>Walks to the next changed file in the review set; bound to <c>$mod+Right</c>.</summary>
+	public const string ReviewNextFile = "weavie.review.nextFile";
+
+	/// <summary>Walks to the previous changed file in the review set; bound to <c>$mod+Left</c>.</summary>
+	public const string ReviewPrevFile = "weavie.review.prevFile";
 
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
@@ -134,15 +140,6 @@ public static class CoreCommands {
 			Description = "Show or hide the workspace file browser.",
 			Aliases = ["file browser", "files panel", "explorer", "toggle files"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+b" }],
-		});
-
-		registry.Register(new CommandDefinition {
-			Id = ToggleChanges,
-			Title = "Toggle Changes Panel",
-			RunsIn = CommandLocation.Web,
-			Category = "View",
-			Description = "Show or hide the session changes panel (files changed this session).",
-			Aliases = ["changes", "changes panel", "diff panel", "toggle changes"],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -246,6 +243,42 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Revert the current turn's changes (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn"],
+		});
+
+		// Post-turn review (acceptEdits/bypass mode): there is no panel — review happens inline in the editor
+		// via the hovering diff toolbar, which is a 2D navigator (Up/Down = hunks, Left/Right = files). These
+		// are web-handled; the handlers DECLINE (fall through to the editor) when no review diff is active, so
+		// $mod+Left/Right keep their editor meaning (word nav) outside a review. ReviewOpen jumps into the walk
+		// at the first changed file; nextFile/prevFile step the file axis.
+		registry.Register(new CommandDefinition {
+			Id = ReviewOpen,
+			Title = "Review Changes",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Jump into the post-turn review (acceptEdits/bypass mode) at the first changed file, "
+				+ "landed on its first change. Walk hunks with Next/Previous Change and files with Next/Previous File.",
+			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+r" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewNextFile,
+			Title = "Next File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Walk to the next changed file in the post-turn review set, landed on its first change.",
+			Aliases = ["next file in review", "next changed file", "next review file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Right" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewPrevFile,
+			Title = "Previous File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
+			Aliases = ["previous file in review", "previous changed file", "prev review file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Left" }],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab carry the keyboard bindings and are gated to editor focus

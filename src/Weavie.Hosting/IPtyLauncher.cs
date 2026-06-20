@@ -37,6 +37,13 @@ public sealed record PtyLaunchRequest {
 
 	/// <summary>The MCP discovery environment injected into claude (empty for the shell).</summary>
 	public required IReadOnlyDictionary<string, string> ExtraEnvironment { get; init; }
+
+	/// <summary>
+	/// The claude session-resume flag pair (<c>["--resume", &lt;id&gt;]</c> or <c>["--session-id", &lt;id&gt;]</c>),
+	/// already resolved by the controller from the <c>claude.resumeSession</c> policy; empty when disabled or for
+	/// the shell. The launcher just appends these to claude's command line in whatever form its OS needs.
+	/// </summary>
+	public IReadOnlyList<string> ClaudeSessionArguments { get; init; } = [];
 }
 
 /// <summary>A resolved launch spec: what to spawn and with which environment overrides.</summary>

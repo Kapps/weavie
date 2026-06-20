@@ -399,6 +399,9 @@ class WebSocketTransport implements BridgeTransport {
   constructor(
     private readonly backendId: string,
     private readonly url: string,
+    // Re-sent on every (re)connect, so a backend re-pushes its state after a dropped link (e.g. Tailscale
+    // blip). Remotes pass `ready`; the local backend leaves it undefined (main.tsx sends its initial ready).
+    private readonly hello?: string,
   ) {
     this.connect();
   }
@@ -422,6 +425,9 @@ class WebSocketTransport implements BridgeTransport {
     this.socket = socket;
     socket.onopen = (): void => {
       this.reconnectDelayMs = 500;
+      if (this.hello !== undefined) {
+        socket.send(this.hello);
+      }
       const pending = this.outbox.splice(0, this.outbox.length);
       for (const message of pending) {
         socket.send(message);
@@ -519,10 +525,10 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
   if (backends.has(id)) {
     return;
   }
-  const transport = new WebSocketTransport(id, wsUrl);
+  // `ready` is the hello, re-sent on every (re)connect so its session-list comes back after a drop.
+  const transport = new WebSocketTransport(id, wsUrl, JSON.stringify({ type: "ready" }));
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
-  transport.send(JSON.stringify({ type: "ready" }));
 }
 
 /** The connected backends (local + remotes), for the location picker and rail labels. */

@@ -39,46 +39,81 @@ const viewport = { width: 1280, height: 800 };
 async function tour(page) {
   const settle = (ms) => page.waitForTimeout(ms);
 
-  // THE FIX: the headless host now injects __WEAVIE_EDITOR_OPTIONS__ in its bootstrap script (it was the one
-  // host-injected global it omitted). Without it, the production build throws at boot (bridge.ts hostInjected)
-  // and renders nothing — no splash teardown, no editor. So simply reaching a settled UI with a working editor
-  // here IS the proof the fix works: the app boots in the browser-only headless host.
+  // The splash sits over the app until the editor is ready; wait so we record the settled UI.
   await page
     .locator("#splash")
     .waitFor({ state: "detached", timeout: 45_000 })
     .catch(() => {});
   await settle(1200);
 
-  // Open a real workspace file through the Omnibar "Go to File" so the editor mounts and renders syntax-
-  // highlighted code — exercising the editor-options path that the injected global feeds.
-  const omnibar = page.locator(".tb-omnibar-input");
-  if (await omnibar.count()) {
-    await omnibar.click();
-    await omnibar.fill("");
-    await omnibar.pressSequentially("HeadlessSession.cs", { delay: 70 });
-    await settle(900);
-    const row = page.locator(".tb-omnibar-row").first();
-    if (await row.isVisible().catch(() => false)) {
-      await row.click();
-      await settle(1400);
-    } else {
-      await page.keyboard.press("Escape").catch(() => {});
-    }
-  }
+  // Record in DARK (the appearance mode defaults to `system`, resolved from the OS `prefers-color-scheme`).
+  await page.emulateMedia({ colorScheme: "dark" });
+  await settle(1200);
 
-  // Reveal the file tree so the booted, working app is unmistakable on screen.
-  const filesBtn = page.locator(".browser-toggle");
-  if (await filesBtn.isVisible().catch(() => false)) {
-    await filesBtn.click();
-    await settle(900);
-    const firstFolder = page.locator(".browser-row").first();
-    if (await firstFolder.isVisible().catch(() => false)) {
-      await firstFolder.click().catch(() => {});
-    }
+  // ── FEATURE UNDER TEST: session context menu + worktree deletion ──────────────────────────────────────────
+  // This PR adds the rail's right-click menu (Load/Unload + Delete…) and the guarded Delete-session dialog.
+  // The multi-session backend is a native-shell (Win/Mac) host capability; the headless host runs a single
+  // session and never pushes a `session-list`. So we feed the rail through the SAME seam the native shells
+  // use — `window.__weavieReceive`, the host→web message sink — to populate it and to answer the delete
+  // classification, then drive the REAL components (SessionRail → ContextMenu → DeleteSessionDialog).
+  const receive = (msg) => page.evaluate((m) => window.__weavieReceive(JSON.stringify(m)), msg);
+
+  // 1. Populate the rail: the workspace's primary checkout + a deletable worktree session ("feat/login").
+  const primary = {
+    id: "primary",
+    label: "weavie",
+    active: true,
+    loaded: true,
+    primary: true,
+    status: "idle",
+    hue: 210,
+    monogram: "we",
+  };
+  const worktree = {
+    id: "s-login",
+    label: "feat/login",
+    active: false,
+    loaded: true,
+    primary: false,
+    status: "working",
+    hue: 28,
+    monogram: "fl",
+  };
+  await receive({ type: "session-list", sessions: [primary, worktree] });
+  const chip = page.locator(".session-chip").nth(1);
+  await chip.waitFor({ state: "visible", timeout: 10_000 });
+  await settle(1600);
+
+  // 2. Right-click the worktree chip → the shared command-driven context menu (Unload session / Delete…).
+  await chip.click({ button: "right" });
+  await page.locator(".context-menu").waitFor({ timeout: 5_000 });
+  await settle(1800);
+
+  // 3. Click "Delete…" (the danger row). The page posts delete-session-request; the host normally classifies
+  //    the worktree and replies with session-delete-prompt. We answer with "modified" so the dialog shows its
+  //    escalated confirm (the "uncommitted changes would be lost" checkbox gate).
+  await page.locator(".context-menu-item.danger").click();
+  await settle(400);
+  await receive({
+    type: "session-delete-prompt",
+    id: "s-login",
+    label: "feat/login",
+    state: "modified",
+  });
+
+  // 4. Show the guarded "Delete session?" dialog, tick the acknowledgement, then commit via the danger button.
+  await page.locator(".confirm-dialog .confirm-title").waitFor({ timeout: 5_000 });
+  await settle(1600);
+  const ack = page.locator(".confirm-check input[type=checkbox]");
+  if (await ack.count()) {
+    await ack.check().catch(() => {});
     await settle(900);
   }
+  await page.locator(".confirm-btn-danger").click();
+  await settle(700);
 
-  // Hold on the settled, fully-booted editor.
+  // 5. The host would now remove the worktree and re-push the list; emulate that so the chip drops off the rail.
+  await receive({ type: "session-list", sessions: [primary] });
   await settle(2500);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -145,6 +180,8 @@ async function main() {
       recordVideo: { dir: outDir, size: viewport },
     });
     const page = await context.newPage();
+    page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
+    page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
     await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
 
     await tour(page);

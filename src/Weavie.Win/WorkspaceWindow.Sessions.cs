@@ -203,15 +203,22 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 			return;
 		}
 
-		var sessions = _sessions.Slots.Select(slot => new {
-			id = slot.Id,
-			label = slot.Label,
-			active = ReferenceEquals(_sessions.ActiveSlot, slot),
-			loaded = slot.Loaded,
-			status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
-			hue = SessionIdentity.Hue(slot.Label),
-			monogram = SessionIdentity.Monogram(slot.Label),
-		});
+		// Loaded sessions first (in creation order), dormant ones sorted to the bottom — a parked session
+		// shouldn't sit between two live ones. OrderByDescending is a stable sort, so order within each group
+		// is preserved; the primary is always loaded, so it stays at the top. The web renders this order as-is
+		// and skips dormant chips when cycling.
+		var sessions = _sessions.Slots
+			.OrderByDescending(slot => slot.Loaded)
+			.Select(slot => new {
+				id = slot.Id,
+				label = slot.Label,
+				active = ReferenceEquals(_sessions.ActiveSlot, slot),
+				loaded = slot.Loaded,
+				primary = slot.IsPrimary,
+				status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
+				hue = SessionIdentity.Hue(slot.Label),
+				monogram = SessionIdentity.Monogram(slot.Label),
+			});
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-list", sessions }));
 	}
 
@@ -258,6 +265,31 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		if (!slot.Loaded) {
 			slot.Session = CreateSession(slot.WorktreePath);
 		}
+	}
+
+	/// <summary>
+	/// Loads a dormant slot's backend IN THE BACKGROUND — creates its <see cref="HostSession"/> and starts its
+	/// terminals at the default size so its Claude actually runs and reports status — WITHOUT binding the page to
+	/// it. The session stays muted (<see cref="TerminalController.OutputActive"/> false) until the user switches
+	/// to it, at which point <see cref="TerminalController.OnReady"/> resizes the live child to the real pane.
+	/// This is the rail's "Load session" (load, don't open). No-op if already loaded.
+	/// </summary>
+	private void LoadSlotInBackground(SessionSlot slot) {
+		if (slot.Loaded) {
+			return;
+		}
+
+		LoadSlot(slot);
+		var session = slot.Session!;
+		// Not the visible session: don't stream its PTY output to the page's xterm (bound to the active session).
+		session.Claude.OutputActive = false;
+		session.Shell.OutputActive = false;
+		// Start the backends now so Claude runs in the background; the page never sent term-ready for this slot,
+		// so without this the child would never spawn.
+		session.Claude.EnsureStarted();
+		session.Shell.EnsureStarted();
+		slot.LastActiveUtc = DateTimeOffset.UtcNow;
+		PushSessionList();
 	}
 
 	/// <summary>
@@ -328,14 +360,41 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 	}
 
 	/// <inheritdoc/>
-	public Task<CommandResult> CloseSessionAsync(string? sessionId, CancellationToken ct) {
+	public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct) {
+		if (string.IsNullOrWhiteSpace(sessionId)) {
+			return Task.FromResult(CommandResult.Failure("Load needs a session id; the active session is already loaded."));
+		}
+
+		var target = _sessions?.Find(sessionId);
+		if (target is null) {
+			return Task.FromResult(CommandResult.Failure("No such session."));
+		}
+
+		if (target.Loaded) {
+			return Task.FromResult(CommandResult.Success("That session is already loaded."));
+		}
+
+		var result = new TaskCompletionSource<CommandResult>();
+		RunOnUi(() => {
+			try {
+				LoadSlotInBackground(target);
+				result.SetResult(CommandResult.Success($"Loaded session '{target.Label}' in the background."));
+			} catch (Exception ex) {
+				result.SetException(ex);
+			}
+		});
+		return result.Task;
+	}
+
+	/// <inheritdoc/>
+	public Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct) {
 		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
 		if (target is null) {
 			return Task.FromResult(CommandResult.Failure("No such session."));
 		}
 
 		if (target.IsPrimary) {
-			return Task.FromResult(CommandResult.Failure("The primary session can't be closed; close the window instead."));
+			return Task.FromResult(CommandResult.Failure("The primary session can't be unloaded; close the window instead."));
 		}
 
 		if (!target.Loaded) {
@@ -349,6 +408,55 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 				result.SetResult(CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload)."));
 			} catch (Exception ex) {
 				result.SetException(ex);
+			}
+		});
+		return result.Task;
+	}
+
+	/// <inheritdoc/>
+	public Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct) {
+		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
+		if (target is null) {
+			return Task.FromResult(CommandResult.Failure("No such session."));
+		}
+
+		if (target.IsPrimary) {
+			return Task.FromResult(CommandResult.Failure("The primary session can't be deleted; close the window instead."));
+		}
+
+		if (_worktrees is not { } worktrees) {
+			return Task.FromResult(CommandResult.Failure("This workspace isn't a git repository, so it has no worktree to delete."));
+		}
+
+		string worktreePath = target.WorktreePath;
+		string label = target.Label;
+
+		var result = new TaskCompletionSource<CommandResult>();
+		RunOnUi(async () => {
+			try {
+				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
+				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under force:false.)
+				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(true)) {
+					result.SetResult(CommandResult.Failure(
+						$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
+					return;
+				}
+
+				// Tear the live backend down first so no process keeps a handle on the worktree dir (Windows file
+				// locks), then remove the worktree — keeping the branch — and drop the chip from the rail.
+				if (target.Loaded) {
+					await UnloadSlotAsync(target).ConfigureAwait(true);
+				}
+
+				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, ct).ConfigureAwait(true);
+				_sessions?.Remove(target);
+				PushSessionList();
+				result.SetResult(CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept."));
+			} catch (WorktreeDirtyException) {
+				result.SetResult(CommandResult.Failure(
+					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
+			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
 			}
 		});
 		return result.Task;

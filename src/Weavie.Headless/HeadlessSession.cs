@@ -137,10 +137,14 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
 		_settings.Subscribe("terminal.shell", _ => _shell?.Restart());
 
-		// Fonts (ApplyMode.Live): re-push resolved editor + terminal fonts when a font setting changes.
+		// Fonts + editor options (ApplyMode.Live): re-push resolved values when a matching setting changes.
 		_settings.SettingChanged += change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+
+			if (EditorSettings.Keys.Contains(change.Key)) {
+				_bridge.PostToWeb(EditorSettings.BuildJson(_settings, "editorOptions"));
 			}
 		};
 
@@ -168,6 +172,9 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 	/// </summary>
 	public string BuildBootstrapScript() {
 		string fonts = _settings is null ? "undefined" : FontSettings.BuildJson(_settings, messageType: null);
+		// Resolved editor options (Monaco IEditorOptions) — the editor reads __WEAVIE_EDITOR_OPTIONS__
+		// synchronously at creation and throws if it's absent, so the headless host injects it like the
+		// native shells do (Win's WorkspaceWindow / Mac's AppDelegate).
 		string editorOptions = _settings is null ? "undefined" : EditorSettings.BuildJson(_settings, messageType: null);
 		string commands = _keybindings is null ? "[]" : _keybindings.BuildCommandsJson();
 		string keybindings = _keybindings is null ? "[]" : _keybindings.BuildKeybindingsJson();

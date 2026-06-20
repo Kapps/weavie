@@ -73,6 +73,24 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task GetChangeState_ClassifiesCleanUntrackedAndModified() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("changes", "main");
+
+		// Fresh worktree off a commit: clean.
+		Assert.Equal(WorktreeChangeState.Clean, await _git.GetChangeStateAsync(record.Path));
+
+		// A new file that git doesn't know about: untracked-only.
+		File.WriteAllText(Path.Combine(record.Path, "temp.txt"), "scratch\n");
+		Assert.Equal(WorktreeChangeState.UntrackedOnly, await _git.GetChangeStateAsync(record.Path));
+
+		// Editing a tracked file (readme.txt came from the initial commit) is a tracked change, even with the
+		// untracked file still present — the stronger classification wins.
+		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
+		Assert.Equal(WorktreeChangeState.Modified, await _git.GetChangeStateAsync(record.Path));
+	}
+
+	[Fact]
 	public async Task ExternallyRemovedWorktree_SurfacedAsOrphan_AndReconciled() {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("ghost", "main");

@@ -112,6 +112,23 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
+		var result = await RunCheckedAsync(worktreeDirectory, ["status", "--porcelain"], ct).ConfigureAwait(false);
+		string[] lines = result.StdOut.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries);
+		if (lines.Length == 0) {
+			return WorktreeChangeState.Clean;
+		}
+
+		// Porcelain marks an untracked path with a leading "??"; any other status code is a tracked change
+		// (modified/staged/deleted/renamed). All untracked ⇒ untracked-only; otherwise tracked changes exist.
+		return lines.All(line => line.StartsWith("??", StringComparison.Ordinal))
+			? WorktreeChangeState.UntrackedOnly
+			: WorktreeChangeState.Modified;
+	}
+
+	/// <inheritdoc/>
 	public async Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(branch);

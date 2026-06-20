@@ -30,4 +30,11 @@ export function deriveChromeVars(colors: Readonly<Record<string, string>>): void
   set("--fg", pick("editor.foreground", "foreground"));
   set("--accent", pick("focusBorder", "button.background"));
   set("--dim", pick("descriptionForeground", "editorLineNumber.foreground"));
+
+  // Session-status accents for the pane/rail indicator, mapped to the ANSI/error palette so they
+  // re-theme live: --ok (idle/done), --warn (needs input), --bad (error), --busy (working/starting).
+  set("--ok", pick("terminal.ansiGreen", "charts.green", "gitDecoration.addedResourceForeground"));
+  set("--warn", pick("terminal.ansiYellow", "charts.yellow", "editorWarning.foreground"));
+  set("--bad", pick("errorForeground", "terminal.ansiRed", "editorError.foreground"));
+  set("--busy", pick("terminal.ansiBlue", "charts.blue", "focusBorder"));
 }

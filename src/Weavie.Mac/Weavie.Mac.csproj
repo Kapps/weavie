@@ -6,7 +6,16 @@
     <!-- This machine is macOS 26; floor at 14.0 so modern (non-deprecated) AppKit APIs
          pass the CA1422 obsolete-API gate. -->
     <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>
-    <TrimMode Condition="'$(Configuration)' == 'Release'">full</TrimMode>
+    <!-- LibraryImport (objc_msgSend SPI for the WebKit refresh-rate feature flag) needs unsafe. -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- Do NOT trim. Weavie.Core (de)serializes its own model types through the reflection-based
+         System.Text.Json overloads (JsonSerializer.Serialize/Deserialize with JsonSerializerOptions),
+         which the trimmer can't statically analyze: every call raises IL2026, and under the repo's
+         zero-warning gate (TreatWarningsAsErrors) that fails the Release publish (NETSDK1144). Even if
+         forced through, full trimming could strip the very members being serialized and break at
+         runtime. The macOS SDK enables trimming by default in Release, so disable it explicitly —
+         matching the Win/Linux shells, which publish self-contained without trimming. -->
+    <PublishTrimmed Condition="'$(Configuration)' == 'Release'">false</PublishTrimmed>
     <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
   </PropertyGroup>
 
@@ -15,21 +24,71 @@
     <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>
 
+  <!-- Debug only: tell the host where the web sources live so it can launch the Vite dev server
+       (hot reload) itself — no second terminal. Release bundles wwwroot instead (BuildWebAssets). -->
+  <ItemGroup Condition="'$(Configuration)' == 'Debug'">
+    <AssemblyMetadata Include="WeavieWebDevDir" Value="$(WebRoot)" />
+  </ItemGroup>
+
   <!--
-    Copy the built Vite web app into the app bundle's Resources/wwwroot.
-    The web app is built separately (`npm run build` in src/web) — kept out of the
-    dotnet build so C# iteration stays fast. Fails loudly if assets are missing.
+    Release/CI: build the Vite web app as part of the dotnet build so a shippable build needs no
+    manual `npm run build`. Incremental (Inputs/Outputs) — a no-op when web sources are unchanged.
+    Skipped in Debug, where the host runs the Vite dev server (hot reload) instead, keeping the
+    C#-only inner loop fast (no node on every build).
+  -->
+  <ItemGroup>
+    <WebSource Include="$(WebRoot)/src/**/*" />
+    <WebSource Include="$(WebRoot)/index.html" />
+    <WebSource Include="$(WebRoot)/vite.config.ts" />
+    <WebSource Include="$(WebRoot)/tsconfig.json" />
+    <WebSource Include="$(WebRoot)/package.json" />
+  </ItemGroup>
+  <Target Name="BuildWebAssets"
+          Condition="'$(Configuration)' != 'Debug'"
+          BeforeTargets="CopyWebAssets"
+          Inputs="@(WebSource)"
+          Outputs="$(WebRoot)/dist/index.html">
+    <Message Importance="high" Text="weavie: building web app (npm run build) in $(WebRoot)…" />
+    <Exec Command="npm run build" WorkingDirectory="$(WebRoot)" />
+  </Target>
+
+  <!--
+    Copy the built Vite web app into the app bundle's Resources/wwwroot. In Release BuildWebAssets
+    (above) has just produced dist; in Debug it's whatever dist exists — the host serves the Vite
+    dev server instead, so a missing dist is a warning, not an error (the C# build still produces a
+    runnable .app).
   -->
   <Target Name="CopyWebAssets" AfterTargets="Build">
-    <Error Condition="!Exists('$(WebRoot)/dist/index.html')"
-           Text="Web assets not found at $(WebRoot)/dist. Run 'npm run build' in src/web first." />
-    <ItemGroup>
+    <ItemGroup Condition="Exists('$(WebRoot)/dist/index.html')">
       <WebDist Include="$(WebRoot)/dist/**/*" />
     </ItemGroup>
-    <Copy SourceFiles="@(WebDist)"
+    <Copy Condition="Exists('$(WebRoot)/dist/index.html')"
+          SourceFiles="@(WebDist)"
           DestinationFiles="@(WebDist->'$(OutDir)$(AssemblyName).app/Contents/Resources/wwwroot/%(RecursiveDir)%(Filename)%(Extension)')"
           SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="weavie: copied @(WebDist->Count()) web asset(s) into the app bundle." />
+    <Message Condition="Exists('$(WebRoot)/dist/index.html')"
+             Importance="high" Text="weavie: copied @(WebDist->Count()) web asset(s) into the app bundle." />
+    <Message Condition="!Exists('$(WebRoot)/dist/index.html')"
+             Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'npm run build' in src/web (or use the Debug Vite dev server) so the window has a UI to load." />
+  </Target>
+
+  <!--
+    Compile the native PTY shim (libweavie_pty.dylib) into the app bundle next to the other native
+    libraries. weavie_pty.c issues the variadic TIOCSWINSZ ioctl that managed code cannot call
+    correctly on arm64-apple (see Weavie.Core/Terminal/NativeMethods.cs). Universal (arm64 + x86_64)
+    so it matches whichever slice the app is built for, and ad-hoc signed so it loads inside the
+    bundle. Only the live-resize path P/Invokes it; the open path uses openpty, so the unit tests
+    (which run outside the bundle) never need this dylib.
+  -->
+  <Target Name="BuildPtyShim" AfterTargets="Build"
+          Inputs="$(MSBuildProjectDirectory)/native/weavie_pty.c"
+          Outputs="$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib">
+    <PropertyGroup>
+      <PtyShimPath>$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib</PtyShimPath>
+    </PropertyGroup>
+    <Exec Command="clang -dynamiclib -O2 -arch arm64 -arch x86_64 -o &quot;$(PtyShimPath)&quot; &quot;$(MSBuildProjectDirectory)/native/weavie_pty.c&quot;" />
+    <Exec Command="codesign --force --sign - &quot;$(PtyShimPath)&quot;" />
+    <Message Importance="high" Text="weavie: built native PTY shim libweavie_pty.dylib" />
   </Target>
 
 </Project>

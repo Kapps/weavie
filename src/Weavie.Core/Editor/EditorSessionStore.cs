@@ -7,7 +7,7 @@ namespace Weavie.Core.Editor;
 /// Loads, persists, and serves the per-workspace editor session at
 /// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The host owns one per workspace window; the
 /// web is the only writer (the user opens files / moves the cursor → debounced <c>editor-session-changed</c>
-/// → <see cref="Update"/>), and on launch the host reads disk and pushes <see cref="BuildRestoreJson"/> so
+/// → <see cref="Update"/>), and on launch the host reads disk and pushes <see cref="BuildRestoreJson()"/> so
 /// the editor reopens its files at their saved positions. Writes are atomic; a malformed file is backed up
 /// to <c>editor-session.json.bad</c> and reset. Modeled on <c>LayoutStore</c>; sibling of
 /// <see cref="EditorStore"/>. See <c>docs/specs/editor-session.md</c>.
@@ -69,10 +69,26 @@ public sealed class EditorSessionStore {
 			session = _current;
 		}
 
+		return BuildRestoreJson(session, _fileSystem, line => Log?.Invoke(line));
+	}
+
+	/// <summary>
+	/// Builds the host→web <c>set-editor-session</c> message for an arbitrary <paramref name="session"/>:
+	/// open file paths + opaque view state, no file content (the web reopens each as a working copy read
+	/// from disk through the host file provider). Files that no longer exist (checked against
+	/// <paramref name="fileSystem"/>) are skipped and logged via <paramref name="log"/>; if the active file
+	/// was skipped, <c>active</c> is nulled. Static so a per-session switch can build the message for a
+	/// session's in-memory <see cref="EditorSession"/> without its own store.
+	/// </summary>
+	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, Action<string>? log) {
+		ArgumentNullException.ThrowIfNull(session);
+		ArgumentNullException.ThrowIfNull(fileSystem);
+
 		var open = new List<object>();
 		var surviving = new HashSet<string>(StringComparer.Ordinal);
 		foreach (var entry in session.Open) {
-			if (!FileSurvives(entry.Path)) {
+			if (!fileSystem.FileExists(entry.Path)) {
+				log?.Invoke($"[editor-session] open file no longer exists; skipping {entry.Path}");
 				continue;
 			}
 
@@ -115,15 +131,6 @@ public sealed class EditorSessionStore {
 		}
 
 		return parsed;
-	}
-
-	private bool FileSurvives(string path) {
-		if (_fileSystem.FileExists(path)) {
-			return true;
-		}
-
-		Log?.Invoke($"[editor-session] open file no longer exists; skipping {path}");
-		return false;
 	}
 
 	private void BackupBadFileLocked(string text) {

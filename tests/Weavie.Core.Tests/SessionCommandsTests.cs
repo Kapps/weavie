@@ -27,6 +27,21 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
+	public void Register_SelectSessionByIndex_HasNineShiftBindings() {
+		var registry = new CommandRegistry();
+		SessionCommands.Register(registry);
+
+		Assert.True(registry.TryGet(SessionCommands.SelectSessionByIndex, out var select));
+		Assert.Equal(CommandLocation.Web, select!.RunsIn);
+		Assert.False(select.ShowInPalette);
+		Assert.Equal(9, select.DefaultKeybindings.Count);
+		Assert.Equal("$mod+Shift+1", select.DefaultKeybindings[0].Key);
+		Assert.Equal("{\"index\":1}", select.DefaultKeybindings[0].ArgsJson);
+		Assert.Equal("$mod+Shift+9", select.DefaultKeybindings[8].Key);
+		Assert.Equal("{\"index\":9}", select.DefaultKeybindings[8].ArgsJson);
+	}
+
+	[Fact]
 	public async Task NewSession_ParsesArgs_AndInvokesHost() {
 		var (dispatcher, host) = NewWired();
 

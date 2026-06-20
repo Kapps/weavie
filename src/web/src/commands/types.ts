@@ -59,6 +59,10 @@ export const CommandIds = {
   togglePinTab: "weavie.editor.togglePin",
   newFile: "weavie.editor.newFile",
   saveFile: "weavie.editor.save",
+  newSessionPrompt: "weavie.session.newPrompt",
+  nextSession: "weavie.session.next",
+  prevSession: "weavie.session.prev",
+  selectSessionByIndex: "weavie.session.selectByIndex",
 } as const;
 
 declare global {

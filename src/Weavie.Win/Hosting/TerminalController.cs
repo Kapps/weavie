@@ -95,21 +95,38 @@ public sealed class TerminalController : IDisposable {
 	public bool OutputActive { get; set; } = true;
 
 	/// <summary>
-	/// Launches this session's child (claude or a shell) in a ConPTY sized to the given columns and
-	/// rows, under the supervisor. Idempotent: a no-op if it is already running or restarting.
+	/// Handles the page's <c>term-ready</c> for this pane. If the child isn't running yet (first mount,
+	/// after a <see cref="Restart"/>, or a brand-new session) it launches it in a ConPTY sized to the given
+	/// columns and rows, and the child paints itself. If the child is <em>already</em> live — a session
+	/// switch re-announced readiness after the page reset the xterm — it instead nudges the pseudo console
+	/// size (one row shorter, then back) to force the running TUI to redraw into the now-blank pane,
+	/// reproducing the redraw a manual resize triggers; otherwise the pane stays blank until the user
+	/// resizes. The decision and the nudge happen under the same lock, so the live child can't slip away
+	/// between them; the start (which must not hold the gate — the supervisor's start callback takes it)
+	/// runs after the lock only on the not-running branch.
 	/// </summary>
-	public void Start(int columns, int rows) {
+	public void OnReady(int columns, int rows) {
+		bool start;
 		lock (_gate) {
 			_columns = columns;
 			_rows = rows;
+			if (_terminal is null) {
+				start = true;
+			} else {
+				start = false;
+				_terminal.Resize(_columns, Math.Max(1, _rows - 1));
+				_terminal.Resize(_columns, _rows);
+			}
 		}
 
-		_supervisor.Start();
+		if (start) {
+			_supervisor.Start();
+		}
 	}
 
 	/// <summary>
 	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane
-	/// (which re-emits <c>term-ready</c> → <see cref="Start"/>), so a changed shell takes effect live.
+	/// (which re-emits <c>term-ready</c> → <see cref="OnReady"/>), so a changed shell takes effect live.
 	/// </summary>
 	public void Restart() {
 		_supervisor.Stop();

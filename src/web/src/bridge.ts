@@ -12,10 +12,41 @@ import type { LayoutDocument } from "./layout/types";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
+// Appearance mode: follow the OS (`system`), or force a polarity. Resolved against `prefers-color-scheme`
+// in the theme controller when `system`.
+export type ThemeMode = "system" | "light" | "dark";
+
+// One polarity's theme in a pushed/injected theme payload: the selected theme id, its ordered override
+// stack, and — for installed themes only — the converted VS Code theme JSON (built-ins resolve by id).
+export interface ThemeSlot {
+  id: string;
+  ops?: OverrideOp[];
+  theme?: VsCodeColorTheme;
+}
+
 // The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
 // and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
 // the host can route it to the right PTY and the page can route output back to the right xterm pane.
 export type TermSession = "claude" | "shell";
+
+// The live state of a session's embedded Claude, derived host-side from its hook stream + process
+// supervisor and shown on the pane/rail: working (turn in progress), needsInput (permission/idle
+// prompt), idle (turn ended), error (crashed), starting (launching).
+export type SessionStatusName = "starting" | "working" | "needsInput" | "idle" | "error";
+
+// One session's chip on the rail, pushed by the host in a session-list message. `hue` (0-359) and
+// `monogram` are derived deterministically from the branch so a session looks the same across restarts.
+// `loaded` is false for a dormant worktree (surfaced so it can't leak, but with no live backend) — the
+// rail renders it faded; clicking it asks the host to load it. `status` is only meaningful when loaded.
+export interface SessionChip {
+  id: string;
+  label: string;
+  active: boolean;
+  loaded: boolean;
+  status: SessionStatusName;
+  hue: number;
+  monogram: string;
+}
 
 // A frameless-window resize edge/corner the user grabbed (Windows custom chrome). The web draws the grab
 // handles and names the edge; the host maps it to the matching native resize. Mirrors Core's ResizeEdge.
@@ -70,6 +101,12 @@ export type HostBoundMessage =
   | { type: "term-ready"; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; session: TermSession; dataB64: string }
   | { type: "term-resize"; session: TermSession; cols: number; rows: number }
+  // Session rail → host: switch to an existing session, create a new (worktree) session, or close one.
+  // new-session carries the branch name and the base to branch from: "head" (the active session's HEAD) or
+  // "main". The host surfaces a failure (e.g. the branch already exists) as a toast.
+  | { type: "switch-session"; id: string }
+  | { type: "new-session"; branch?: string; base?: "head" | "main" }
+  | { type: "close-session"; id: string }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -152,6 +189,13 @@ export type WebBoundMessage =
   // Host tore down this session's PTY (e.g. the shell setting changed): clear the pane and
   // re-emit term-ready so the host relaunches the child with the new setting.
   | { type: "term-reset"; session: TermSession }
+  // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
+  | { type: "session-status"; session: TermSession; status: SessionStatusName }
+  // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
+  | { type: "session-list"; sessions: SessionChip[] }
+  // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
+  // session switch so a new / selected session lands focus in Claude rather than nowhere.
+  | { type: "focus-pane"; kind: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";
@@ -189,10 +233,11 @@ export type WebBoundMessage =
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
-  // Host pushes the active theme (a theme switch or an override edit): its id, override ops, and — for
-  // installed themes — the converted VS Code theme JSON (built-ins carry only the id). Re-themes the
-  // editor, terminal, and chrome live.
-  | { type: "theme"; id: string; ops: OverrideOp[]; theme?: VsCodeColorTheme }
+  // Host pushes the appearance mode + the theme for each polarity (a mode/theme switch or an override edit).
+  // Both themes are shipped so the web can resolve `system` against the live OS setting and switch
+  // light↔dark instantly + flash-free. Each slot is { id, ops, theme? } — the converted VS Code theme JSON
+  // is present only for installed themes (built-ins carry only the id). Re-themes editor, terminal, chrome live.
+  | { type: "theme"; mode: ThemeMode; light: ThemeSlot; dark: ThemeSlot }
   // Host pushes the session change list (each tracked file's path + added/removed line counts).
   | {
       type: "session-changes";
@@ -268,16 +313,138 @@ type WebMessageHandler = (msg: WebBoundMessage) => void;
 
 const listeners = new Set<WebMessageHandler>();
 
-export function postToHost(message: HostBoundMessage): void {
-  const handler = window.webkit?.messageHandlers?.weavie;
-  if (handler === undefined) {
+// Parse one inbound host->web JSON line and fan it out to the registered listeners. Shared by every
+// transport (the native `window.__weavieReceive` callback and the WebSocket transport below) so the
+// dispatch — and the loud-on-bad-JSON contract — is identical however the bytes arrived.
+function deliverFromHost(raw: string): void {
+  let parsed: WebBoundMessage;
+  try {
+    parsed = JSON.parse(raw) as WebBoundMessage;
+  } catch {
+    log("error", `bridge: bad JSON from host: ${raw.slice(0, 200)}`);
     return;
   }
-  try {
-    handler.postMessage(JSON.stringify(message));
-  } catch {
-    // The host channel is best-effort; never let instrumentation break the app.
+  for (const listener of listeners) {
+    listener(parsed);
   }
+}
+
+// One way to push bytes to the host. The bridge speaks the same HostBound/WebBound JSON regardless of
+// how they travel; only the pipe differs.
+interface BridgeTransport {
+  send(json: string): void;
+}
+
+// The native desktop shells (Win/Mac/Linux) inject `window.webkit.messageHandlers.weavie` and call
+// `window.__weavieReceive` — the in-process script-message channel. Best-effort: a throwing channel
+// must never break the app (this also carries diagnostic logs).
+const nativeTransport: BridgeTransport = {
+  send(json: string): void {
+    const handler = window.webkit?.messageHandlers?.weavie;
+    if (handler === undefined) {
+      return;
+    }
+    try {
+      handler.postMessage(json);
+    } catch {
+      // The host channel is best-effort; never let instrumentation break the app.
+    }
+  },
+};
+
+// Remote/web Weavie: no native shell, but a headless "serve" host exposes the same bridge protocol
+// over a WebSocket. Outbound messages sent before the socket opens (notably the initial "ready") are
+// buffered and flushed on open; a dropped socket reconnects with capped backoff. Inbound frames go
+// through the shared `deliverFromHost`, so the page can't tell a WebSocket host from a native one.
+class WebSocketTransport implements BridgeTransport {
+  private socket: WebSocket | null = null;
+  private readonly outbox: string[] = [];
+  private reconnectDelayMs = 500;
+
+  constructor(private readonly url: string) {
+    this.connect();
+  }
+
+  send(json: string): void {
+    if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
+      this.socket.send(json);
+      return;
+    }
+    this.outbox.push(json);
+  }
+
+  private connect(): void {
+    let socket: WebSocket;
+    try {
+      socket = new WebSocket(this.url);
+    } catch {
+      this.scheduleReconnect();
+      return;
+    }
+    this.socket = socket;
+    socket.onopen = (): void => {
+      this.reconnectDelayMs = 500;
+      const pending = this.outbox.splice(0, this.outbox.length);
+      for (const message of pending) {
+        socket.send(message);
+      }
+    };
+    socket.onmessage = (event: MessageEvent): void => {
+      if (typeof event.data === "string") {
+        deliverFromHost(event.data);
+      }
+    };
+    socket.onclose = (): void => {
+      this.socket = null;
+      this.scheduleReconnect();
+    };
+    socket.onerror = (): void => {
+      // onerror is always followed by onclose, which drives the reconnect. Close defensively and
+      // swallow so a transport blip never surfaces as an uncaught error.
+      socket.close();
+    };
+  }
+
+  private scheduleReconnect(): void {
+    const delay = this.reconnectDelayMs;
+    this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 10_000);
+    setTimeout(() => this.connect(), delay);
+  }
+}
+
+// Resolve the remote bridge URL, if any: a `?weavie-bridge=` query override (handy for manual testing)
+// wins, else the host-injected `window.__WEAVIE_BRIDGE_WS__`. The literal "auto" derives a same-origin
+// `ws(s)://<host>/weavie-bridge` — the common case when the serve host also serves the page.
+function resolveBridgeWsUrl(): string | null {
+  const override = new URLSearchParams(window.location.search).get("weavie-bridge");
+  const configured = override ?? window.__WEAVIE_BRIDGE_WS__ ?? "";
+  if (configured === "") {
+    return null;
+  }
+  if (configured === "auto") {
+    const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+    return `${scheme}//${window.location.host}/weavie-bridge`;
+  }
+  return configured;
+}
+
+// Pick the transport once, at module load. A native shell always wins (its in-process channel is
+// lower-latency and already trusted). Otherwise, if a serve host advertised a WebSocket, use it. With
+// neither — a plain browser opened against the dev server — outbound is a no-op and nothing is ever
+// received, exactly as before: the bridge degrades silently, never throws.
+const transport: BridgeTransport | null = (() => {
+  if (window.webkit?.messageHandlers?.weavie !== undefined) {
+    return nativeTransport;
+  }
+  const wsUrl = resolveBridgeWsUrl();
+  return wsUrl === null ? null : new WebSocketTransport(wsUrl);
+})();
+
+export function postToHost(message: HostBoundMessage): void {
+  if (transport === null) {
+    return;
+  }
+  transport.send(JSON.stringify(message));
 }
 
 export function log(level: "info" | "warn" | "error", message: string): void {
@@ -291,15 +458,23 @@ export function onHostMessage(handler: WebMessageHandler): () => void {
   };
 }
 
-window.__weavieReceive = (raw: string): void => {
-  let parsed: WebBoundMessage;
-  try {
-    parsed = JSON.parse(raw) as WebBoundMessage;
-  } catch {
-    log("error", `__weavieReceive: bad JSON: ${raw.slice(0, 200)}`);
-    return;
+// Reads a config value the C# host injects as a window.__WEAVIE_*__ global before navigation. In the
+// shipped app the host always injects these before the web loads, so an absent value means the host
+// failed to wire it — we throw loudly instead of silently mounting with dev defaults that can drift from
+// Core's. In plain-browser dev (`npm run dev`, no host) there is legitimately no host, so the dev fallback
+// is used. `name` is the global's name, for the error message.
+export function hostInjected<T>(name: string, value: T | undefined, devFallback: T): T {
+  if (value !== undefined) {
+    return value;
   }
-  for (const listener of listeners) {
-    listener(parsed);
+  if (import.meta.env.DEV) {
+    return devFallback;
   }
-};
+  throw new Error(
+    `${name} was not injected by the host before navigation; the host must set it before the web app loads.`,
+  );
+}
+
+// The native shells push messages by calling this; the WebSocket transport feeds the same dispatcher
+// directly. Kept for the native channel even when a WebSocket transport is active (harmless, unused).
+window.__weavieReceive = deliverFromHost;

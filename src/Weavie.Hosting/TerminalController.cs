@@ -119,6 +119,22 @@ public sealed class TerminalController : IDisposable {
 				: null;
 
 			var (command, arguments) = isClaude ? ResolveClaudeLauncher() : ResolveShellLauncher();
+
+			// The web pane is xterm.js, which emulates xterm-256color and renders 24-bit colour. Tell the
+			// child explicitly so colour + capability detection work no matter how the host app was launched
+			// — a Finder/`open` launch inherits no TERM at all, and an inherited TERM may not match the
+			// emulator, which leaves claude and the shell monochrome. Claude additionally needs its MCP
+			// discovery env (ExtraEnvironment), layered on top.
+			var environment = new Dictionary<string, string>(StringComparer.Ordinal) {
+				["TERM"] = "xterm-256color",
+				["COLORTERM"] = "truecolor",
+			};
+			if (isClaude) {
+				foreach (var (key, value) in ExtraEnvironment) {
+					environment[key] = value;
+				}
+			}
+
 			var terminal = new PosixPtyTerminal();
 			terminal.Output += OnOutput;
 			terminal.Exited += _supervisor.NotifyExited;
@@ -128,7 +144,7 @@ public sealed class TerminalController : IDisposable {
 				WorkingDirectory = workspace,
 				// Only the claude session needs the key stripped + the MCP discovery env injected.
 				RemoveEnvironment = isClaude ? ["ANTHROPIC_API_KEY"] : [],
-				Environment = isClaude ? ExtraEnvironment : new Dictionary<string, string>(StringComparer.Ordinal),
+				Environment = environment,
 				Columns = _columns,
 				Rows = _rows,
 			});

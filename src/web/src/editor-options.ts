@@ -8,7 +8,7 @@
 // Consumers read currentEditorOptions() at creation and subscribe via onEditorOptionsChanged() to apply
 // live updates (monaco-setup.ts maps these onto editor.updateOptions + the suggest-docs behavior).
 
-import { type EditorOptionsSpec, onHostMessage } from "./bridge";
+import { type EditorOptionsSpec, hostInjected, onHostMessage } from "./bridge";
 
 export type { EditorOptionsSpec };
 
@@ -19,8 +19,9 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (no host injection). Mirrors the host's defaults in Core's EditorSettings,
-// including Monaco's standard 300ms hover delay (hoverDelay 300).
+// Plain-browser dev fallback (no host injection). Used only under `npm run dev`; in the shipped app the
+// host always injects __WEAVIE_EDITOR_OPTIONS__ and a missing value throws (see hostInjected). Mirrors the
+// host's defaults in Core's EditorSettings, including Monaco's standard 300ms hover delay (hoverDelay 300).
 const DEFAULT_OPTIONS: EditorOptionsSpec = {
   inlayHints: "on",
   minimap: true,
@@ -37,10 +38,14 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   fontLigatures: false,
   indentGuides: true,
   hoverDelay: 300,
-  suggestExpandDocs: false,
+  suggestExpandDocs: true,
 };
 
-let current: EditorOptionsSpec = window.__WEAVIE_EDITOR_OPTIONS__ ?? DEFAULT_OPTIONS;
+let current: EditorOptionsSpec = hostInjected(
+  "__WEAVIE_EDITOR_OPTIONS__",
+  window.__WEAVIE_EDITOR_OPTIONS__,
+  DEFAULT_OPTIONS,
+);
 
 const subscribers = new Set<(options: EditorOptionsSpec) => void>();
 

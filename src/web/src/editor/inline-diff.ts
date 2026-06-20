@@ -85,6 +85,20 @@ function splitLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").split("\n");
 }
 
+/**
+ * The modified-side line (1-based) of the FIRST change between `original` and `modified`, or 1 when they're
+ * identical. Used to reveal an openDiff review at its first hunk rather than the top of the file. Computed with
+ * the same diff machinery (and anchor rule) `render` uses for change navigation, so "reveal first change" and
+ * the first "next change" land on the same line.
+ */
+export function firstChangedLine(original: string, modified: string): number {
+  const { changes } = linesDiffComputers
+    .getDefault()
+    .computeDiff(splitLines(original), splitLines(modified), DIFF_OPTIONS);
+  const first = changes[0];
+  return first === undefined ? 1 : Math.max(1, first.modified.startLineNumber);
+}
+
 /** Creates an inline-diff controller bound to `editor`. */
 export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): InlineDiff {
   const diffs = new Map<string, InlineDiffOptions>();

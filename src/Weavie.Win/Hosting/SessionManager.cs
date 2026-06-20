@@ -3,14 +3,13 @@ using Weavie.Core.Worktrees;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// Owns the set of <see cref="HostSession"/>s in one workspace window and which one is <see cref="Active"/>
-/// (what the page is bound to), plus the workspace's <see cref="WorktreeManager"/>. v1 starts with a single
-/// primary session — identical to before, since <see cref="Active"/> is then always that one session;
-/// additional sessions are created on git worktrees and the window re-routes the page to the active one on
-/// switch. A pure holder: the window owns construction, per-session wiring, and switch orchestration.
+/// Owns the rail's <see cref="SessionSlot"/>s for one workspace window — the primary checkout plus every
+/// surfaced worktree, each either loaded (a live <see cref="HostSession"/>) or unloaded (dormant) — and which
+/// one is <see cref="ActiveSlot"/> (what the page is bound to), plus the workspace's <see cref="WorktreeManager"/>.
+/// A pure holder: the window owns slot construction, per-session wiring, load/unload, and switch orchestration.
 /// </summary>
 internal sealed class SessionManager : IAsyncDisposable {
-	private readonly List<HostSession> _sessions = [];
+	private readonly List<SessionSlot> _slots = [];
 	private readonly Lock _gate = new();
 
 	/// <summary>Creates the manager over <paramref name="worktrees"/> (the workspace's worktree manager, or <c>null</c> when the root is not a git repo).</summary>
@@ -21,67 +20,70 @@ internal sealed class SessionManager : IAsyncDisposable {
 	/// <summary>The workspace's worktree manager, or <c>null</c> when the workspace root is not a git repo.</summary>
 	public WorktreeManager? Worktrees { get; }
 
-	/// <summary>The currently bound session (what the page shows), or <c>null</c> before the first is added.</summary>
-	public HostSession? Active { get; private set; }
+	/// <summary>The currently bound slot (what the page shows), or <c>null</c> before the first is added.</summary>
+	public SessionSlot? ActiveSlot { get; private set; }
 
-	/// <summary>Snapshot of all sessions, in creation order. Safe to enumerate.</summary>
-	public IReadOnlyList<HostSession> Sessions {
+	/// <summary>Snapshot of all slots, in creation order. Safe to enumerate.</summary>
+	public IReadOnlyList<SessionSlot> Slots {
 		get {
 			lock (_gate) {
-				return [.. _sessions];
+				return [.. _slots];
 			}
 		}
 	}
 
-	/// <summary>Adds <paramref name="session"/>; makes it active when <paramref name="activate"/> is set (or it's the first).</summary>
-	public void Add(HostSession session, bool activate) {
-		ArgumentNullException.ThrowIfNull(session);
+	/// <summary>Adds <paramref name="slot"/>; makes it active when <paramref name="activate"/> is set (or it's the first).</summary>
+	public void Add(SessionSlot slot, bool activate) {
+		ArgumentNullException.ThrowIfNull(slot);
+
 		lock (_gate) {
-			_sessions.Add(session);
-			if (activate || Active is null) {
-				Active = session;
+			_slots.Add(slot);
+			if (activate || ActiveSlot is null) {
+				ActiveSlot = slot;
 			}
 		}
 	}
 
-	/// <summary>Marks <paramref name="session"/> as the active (bound) session.</summary>
-	public void SetActive(HostSession session) {
-		ArgumentNullException.ThrowIfNull(session);
+	/// <summary>Marks <paramref name="slot"/> as the active (bound) slot.</summary>
+	public void SetActive(SessionSlot slot) {
+		ArgumentNullException.ThrowIfNull(slot);
 		lock (_gate) {
-			Active = session;
+			ActiveSlot = slot;
 		}
 	}
 
-	/// <summary>Finds a session by its id, or <c>null</c>.</summary>
-	public HostSession? Find(string id) {
+	/// <summary>Finds a slot by its id, or <c>null</c>.</summary>
+	public SessionSlot? Find(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		lock (_gate) {
-			return _sessions.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal));
+			return _slots.FirstOrDefault(s => string.Equals(s.Id, id, StringComparison.Ordinal));
 		}
 	}
 
-	/// <summary>Removes <paramref name="session"/>; if it was active, the most-recent remaining session becomes active.</summary>
-	public void Remove(HostSession session) {
-		ArgumentNullException.ThrowIfNull(session);
+	/// <summary>Removes <paramref name="slot"/> entirely (e.g. its worktree was deleted); if it was active, the most-recent remaining slot becomes active.</summary>
+	public void Remove(SessionSlot slot) {
+		ArgumentNullException.ThrowIfNull(slot);
 		lock (_gate) {
-			_sessions.Remove(session);
-			if (ReferenceEquals(Active, session)) {
-				Active = _sessions.Count > 0 ? _sessions[^1] : null;
+			_slots.Remove(slot);
+			if (ReferenceEquals(ActiveSlot, slot)) {
+				ActiveSlot = _slots.Count > 0 ? _slots[^1] : null;
 			}
 		}
 	}
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		HostSession[] snapshot;
+		SessionSlot[] snapshot;
 		lock (_gate) {
-			snapshot = [.. _sessions];
-			_sessions.Clear();
-			Active = null;
+			snapshot = [.. _slots];
+			_slots.Clear();
+			ActiveSlot = null;
 		}
 
-		foreach (var session in snapshot) {
-			await session.DisposeAsync().ConfigureAwait(false);
+		foreach (var slot in snapshot) {
+			if (slot.Session is { } session) {
+				await session.DisposeAsync().ConfigureAwait(false);
+			}
 		}
 	}
 }

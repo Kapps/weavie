@@ -26,4 +26,23 @@ public static class WorkspacePaths {
 
 		return false;
 	}
+
+	/// <summary>
+	/// Lowercases a leading Windows drive letter (<c>C:\…</c> → <c>c:\…</c>), leaving every other path
+	/// untouched. The editor's host-backed <c>file://</c> provider matches URIs case-SENSITIVELY, and the web
+	/// canonicalizes native paths this same way before building a <c>file://</c> URI (mirrors
+	/// <c>editor/fs-path.ts</c> <c>canonicalFsPath</c>) — Monaco's <c>model.uri.fsPath</c> also lowercases the
+	/// drive. So every native path the host hands the editor (e.g. an <c>open-file</c> message) must carry the
+	/// SAME spelling, or the same on-disk file reaches the editor as two distinct URIs: a second working copy
+	/// opens and the active-file/tab tracking can't tell it's already open. Only the drive letter is folded
+	/// (the on-disk filename case and separators survive), so the result stays a real, openable path.
+	/// </summary>
+	public static string CanonicalFsPath(string path) {
+		ArgumentNullException.ThrowIfNull(path);
+		if (path.Length >= 2 && path[1] == ':' && char.IsAsciiLetter(path[0])) {
+			return char.ToLowerInvariant(path[0]) + path[1..];
+		}
+
+		return path;
+	}
 }

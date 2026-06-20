@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import { onHostMessage, postToHost } from "../bridge";
+import { samePath } from "./fs-path";
 import type { EditorSession, EditorSessionEntry, EditorViewState } from "./session-types";
 
 // The live editor session — the canonical, ordered set of open tabs (active + per-file view state). Seeded by
@@ -94,6 +95,21 @@ export interface CloseResult {
 // the exact current tab set) AND posts the debounced editor-session-changed. Never sends file content — disk
 // is the source of truth.
 let postTimer: ReturnType<typeof setTimeout> | undefined;
+
+// Send a session to the host as editor-session-changed (the persistence/per-session-rebind channel). Never
+// sends file content — disk is the source of truth. Normalizes each entry to the on-the-wire shape (path +
+// opaque view state + flags); flags are omitted when false so old files round-trip.
+function sendEditorSession(s: EditorSession): void {
+  const open = s.open.map((entry) => ({
+    path: entry.path,
+    viewState: entry.viewState ?? null,
+    ...(entry.preview ? { preview: true } : {}),
+    ...(entry.pinned ? { pinned: true } : {}),
+    ...(entry.scratch ? { scratch: true } : {}),
+  }));
+  postToHost({ type: "editor-session-changed", session: { active: s.active, open } });
+}
+
 function commit(next: EditorSession): void {
   setSession(next);
   if (postTimer !== undefined) {
@@ -101,22 +117,28 @@ function commit(next: EditorSession): void {
   }
   postTimer = setTimeout(() => {
     postTimer = undefined;
-    // Normalize each entry to the on-the-wire shape (path + opaque view state + flags); the host persists this
-    // verbatim and reads file contents from disk itself. Flags are omitted when false so old files round-trip.
-    const open = next.open.map((entry) => ({
-      path: entry.path,
-      viewState: entry.viewState ?? null,
-      ...(entry.preview ? { preview: true } : {}),
-      ...(entry.pinned ? { pinned: true } : {}),
-      ...(entry.scratch ? { scratch: true } : {}),
-    }));
-    postToHost({ type: "editor-session-changed", session: { active: next.active, open } });
+    sendEditorSession(next);
   }, 300);
 
   // Push the open-tab set immediately when it changes (a new/closed/activated/pinned/promoted tab) — but not
   // on a view-state-only commit (cursor/scroll), which leaves the structure key unchanged.
   if (structureKey(next) !== lastStructure) {
     emitOpenEditors(next);
+  }
+}
+
+/// Sends any pending (debounced) editor-session-changed to the host immediately. Called before a session
+/// switch so the outgoing session's latest tab set is recorded host-side — on the still-active session,
+/// since the host processes this before the switch-session message — before the switch rebinds the editor.
+export function flushEditorSession(): void {
+  if (postTimer === undefined) {
+    return;
+  }
+  clearTimeout(postTimer);
+  postTimer = undefined;
+  const current = session();
+  if (current !== null) {
+    sendEditorSession(current);
   }
 }
 
@@ -133,16 +155,18 @@ export function openTab(
   // A scratch (untitled) buffer is always a persistent tab, never a preview slot.
   const scratch = opts.scratch === true;
   const preview = !scratch && opts.preview === true;
-  const existing = current.open.find((entry) => entry.path === path);
+  const existing = current.open.find((entry) => samePath(entry.path, path));
   if (existing !== undefined) {
-    // Already open: activate it. A persistent (non-preview) open promotes a currently-preview tab.
+    // Already open (matched by normalized identity, so a differently-spelled path — drive case, separators, the
+    // WSL /mnt mount — reuses the tab instead of duplicating it): activate it, keeping its original stored path
+    // so the editor URI / display stay stable. A persistent (non-preview) open promotes a currently-preview tab.
     const open =
       existing.preview && !preview
-        ? current.open.map((entry) => (entry.path === path ? { ...entry, preview: false } : entry))
+        ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
         : current.open;
-    commit({ active: path, open });
+    commit({ active: existing.path, open });
     const placement: Placement = line > 1 ? { line } : { viewState: existing.viewState ?? null };
-    return { path, placement };
+    return { path: existing.path, placement };
   }
   let open: EditorSessionEntry[];
   if (preview) {
@@ -170,12 +194,12 @@ export function activateTab(path: string): ActivateResult | null {
   if (current === null) {
     return null;
   }
-  const entry = current.open.find((open) => open.path === path);
+  const entry = current.open.find((open) => samePath(open.path, path));
   if (entry === undefined) {
     return null;
   }
-  commit({ active: path, open: current.open });
-  return { path, placement: { viewState: entry.viewState ?? null } };
+  commit({ active: entry.path, open: current.open });
+  return { path: entry.path, placement: { viewState: entry.viewState ?? null } };
 }
 
 // Picks the tab to activate after some tabs close: keep the current active if it survived, else the survivor
@@ -214,14 +238,18 @@ function entryPlacement(open: EditorSessionEntry[], path: string | null): Activa
 /// the next tab to activate, or null if the tab wasn't open.
 export function closeTab(path: string): CloseResult | null {
   const current = session();
-  if (current === null || !current.open.some((entry) => entry.path === path)) {
+  if (current === null) {
     return null;
   }
-  const closed = new Set([path]);
-  const open = current.open.filter((entry) => entry.path !== path);
+  const target = current.open.find((entry) => samePath(entry.path, path));
+  if (target === undefined) {
+    return null;
+  }
+  const closed = new Set([target.path]);
+  const open = current.open.filter((entry) => entry !== target);
   const nextActive = nearestSurvivor(current.open, closed, current.active);
   commit({ active: nextActive, open });
-  return { disposed: path, next: entryPlacement(open, nextActive) };
+  return { disposed: target.path, next: entryPlacement(open, nextActive) };
 }
 
 /// Drops a tab that was opened only to host an openDiff review proposal (see the editor controller), restoring
@@ -230,12 +258,16 @@ export function closeTab(path: string): CloseResult | null {
 /// transient model, and a rejected brand-new file was never created. No-op if `path` isn't open.
 export function dropReviewTab(path: string, fallback: string | null): void {
   const current = session();
-  if (current === null || !current.open.some((entry) => entry.path === path)) {
+  if (current === null) {
     return;
   }
-  const open = current.open.filter((entry) => entry.path !== path);
+  const target = current.open.find((entry) => samePath(entry.path, path));
+  if (target === undefined) {
+    return;
+  }
+  const open = current.open.filter((entry) => entry !== target);
   const active =
-    current.active === path
+    current.active === target.path
       ? fallback !== null && open.some((entry) => entry.path === fallback)
         ? fallback
         : null
@@ -256,13 +288,11 @@ export function convertScratch(scratchPath: string, savedPath: string): Activate
   if (idx === -1) {
     return null;
   }
-  const existing = current.open.find(
-    (entry) => entry.path === savedPath && entry.path !== scratchPath,
-  );
+  const existing = current.open.find((entry, i) => i !== idx && samePath(entry.path, savedPath));
   if (existing !== undefined) {
     const open = current.open.filter((entry) => entry.path !== scratchPath);
-    commit({ active: savedPath, open: normalize(open) });
-    return { path: savedPath, placement: { viewState: existing.viewState ?? null } };
+    commit({ active: existing.path, open: normalize(open) });
+    return { path: existing.path, placement: { viewState: existing.viewState ?? null } };
   }
   const open = current.open.map((entry, i) =>
     i === idx
@@ -303,7 +333,7 @@ export function togglePin(path: string): void {
     return;
   }
   const open = current.open.map((entry) => {
-    if (entry.path !== path) {
+    if (!samePath(entry.path, path)) {
       return entry;
     }
     // Pinning promotes a preview tab (a pinned tab is never preview); unpinning leaves preview untouched.
@@ -320,7 +350,7 @@ export function promote(path: string): void {
   }
   let changed = false;
   const open = current.open.map((entry) => {
-    if (entry.path === path && entry.preview) {
+    if (entry.preview && samePath(entry.path, path)) {
       changed = true;
       return { ...entry, preview: false };
     }
@@ -340,7 +370,7 @@ export function captureViewState(path: string, viewState: EditorViewState | null
   }
   let changed = false;
   const open = current.open.map((entry) => {
-    if (entry.path === path) {
+    if (samePath(entry.path, path)) {
       changed = true;
       return { ...entry, viewState };
     }

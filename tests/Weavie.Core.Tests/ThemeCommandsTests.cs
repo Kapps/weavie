@@ -39,10 +39,37 @@ public sealed class ThemeCommandsTests : IDisposable {
 		_dispatcher.InvokeAsync(id, argsJson, CancellationToken.None);
 
 	[Fact]
-	public async Task Select_BuiltIn_SetsActiveTheme() {
+	public async Task Select_DarkBuiltIn_SetsDarkSlotAndMode() {
 		var result = await Run(CoreCommands.SelectTheme, "{\"id\":\"weavie-dark\"}");
 		Assert.True(result.Ok);
-		Assert.Equal("weavie-dark", _settings.GetString("theme.active"));
+		Assert.Equal("weavie-dark", _settings.GetString("theme.dark"));
+		Assert.Equal("dark", _settings.GetString("theme.mode"));
+	}
+
+	[Fact]
+	public async Task Select_LightBuiltIn_SetsLightSlotAndMode() {
+		var result = await Run(CoreCommands.SelectTheme, "{\"id\":\"weavie-light\"}");
+		Assert.True(result.Ok);
+		Assert.Equal("weavie-light", _settings.GetString("theme.light"));
+		Assert.Equal("light", _settings.GetString("theme.mode"));
+		// The dark slot is left untouched at its default.
+		Assert.Equal("weavie-dark", _settings.GetString("theme.dark"));
+	}
+
+	[Fact]
+	public async Task CycleMode_StepsSystemLightDarkSystem() {
+		// Default mode is system; cycle steps system → light → dark → system.
+		Assert.Equal("system", _settings.GetString("theme.mode"));
+
+		await Run(CoreCommands.CycleThemeMode);
+		Assert.Equal("light", _settings.GetString("theme.mode"));
+
+		await Run(CoreCommands.CycleThemeMode);
+		Assert.Equal("dark", _settings.GetString("theme.mode"));
+
+		var back = await Run(CoreCommands.CycleThemeMode);
+		Assert.True(back.Ok);
+		Assert.Equal("system", _settings.GetString("theme.mode"));
 	}
 
 	[Fact]

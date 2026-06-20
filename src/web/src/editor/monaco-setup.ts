@@ -39,6 +39,14 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     fontFamily: font.family,
     fontWeight: font.weight,
     automaticLayout: true,
+    // Render overflow widgets (suggest list, parameter hints, hover) in a viewport-fixed DOM node instead
+    // of inside the editor's overflow-guard. Without this they're clipped at the editor pane's edge: in a
+    // split layout the docs flyout flips to the left of the suggest list, runs past the pane boundary, and
+    // gets sheared off (see the JsonSerializer hint). These popovers are transient and only appear while the
+    // user is actively editing, so letting them overlay the neighboring terminal/changes pane is the right
+    // trade — exactly how VSCode behaves. Safe here because panes are tiled with absolute left/top (no
+    // transform ancestor that would trap the fixed-position node).
+    fixedOverflowWidgets: true,
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — every one is a typed Weavie
     // setting now (Core EditorSettings), not a hardcoded constant.
     ...toMonacoOptions(editorOptions),

@@ -6,6 +6,8 @@ using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
+using Weavie.Core.Shell;
+using Weavie.Core.Workspaces;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
@@ -40,12 +42,12 @@ internal sealed partial class WorkspaceWindow {
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "term-ready":
-				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "switch-session": {
 				string switchId = root.TryGetProperty("id", out var ssEl) ? ssEl.GetString() ?? string.Empty : string.Empty;
-				if (_sessions?.Find(switchId) is { } target) {
-					SwitchToSession(target);
+				if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
+					SwitchToSlot(target);
 				}
 
 				break;
@@ -53,7 +55,13 @@ internal sealed partial class WorkspaceWindow {
 
 			case "new-session": {
 				string? branch = root.TryGetProperty("branch", out var nsEl) ? nsEl.GetString() : null;
-				_ = NewSessionAsync(new NewSessionRequest { Branch = branch }, CancellationToken.None);
+				// The page sends base "head" (the active session's HEAD) or "main"; ResolveBaseRefAsync treats
+				// anything other than "main" as the current session's HEAD, so normalize to "current"/"main".
+				string? baseSpec = root.TryGetProperty("base", out var nbEl) ? nbEl.GetString() : null;
+				string? resolvedBase = baseSpec is null
+					? null
+					: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
+				_ = CreateSessionFromWebAsync(branch, resolvedBase);
 				break;
 			}
 
@@ -137,14 +145,19 @@ internal sealed partial class WorkspaceWindow {
 				_shell?.HandleMenuAction(root);
 				break;
 			case "request-file-index":
-				_shell?.PushFileIndex();
+				// Build the omnibar's quick-open index from the ACTIVE session's worktree (not the primary's),
+				// so switching sessions re-roots "Go to File" to the files that session can actually open.
+				PushFileIndexToWeb();
 				break;
 			case "ready":
 				// The page's bridge listener is live; push the persisted layout so it restores on launch, the
-				// persisted editor session so the editor reopens its files, and the initial window state so the
-				// title bar's maximize glyph + blur dim start correct.
+				// persisted editor session so the editor reopens its files, the session list so the rail shows
+				// the primary session (+ the "+"), and the initial window state so the title bar's maximize
+				// glyph + blur dim start correct. These must go on `ready`, NOT during init — PostToWeb before
+				// navigation no-ops (window.__weavieReceive doesn't exist yet).
 				PushLayoutToWeb();
 				PushEditorSessionToWeb();
+				PushSessionList();
 				PushWindowState();
 				Console.WriteLine($"[weavie] {json}");
 				Console.Out.Flush();
@@ -226,11 +239,43 @@ internal sealed partial class WorkspaceWindow {
 			return;
 		}
 
-		_editorSession.Update(session);
+		// Record on the active session so a switch can rebind the editor to its worktree's tabs. The primary
+		// also mirrors to the persisted per-workspace store (for launch restore); secondary worktree sessions
+		// are in-memory only for now.
+		if (_session is { } active) {
+			active.EditorSession = session;
+			if (ReferenceEquals(active, _primarySession)) {
+				_editorSession.Update(session);
+			}
+		}
 	}
 
 	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore.</summary>
 	private void PushEditorSessionToWeb() => _bridge.PostToWeb(_editorSession.BuildRestoreJson());
+
+	/// <summary>
+	/// Re-walks the ACTIVE session's worktree and pushes its <c>file-index</c> (root + every file's absolute
+	/// path) so the omnibar's "Go to File" and the file browser re-root to the active session. Built from the
+	/// active session's <see cref="HostSession.FileIndex"/>, so after a switch quick-open lists the worktree's
+	/// own files — never the primary's, which the worktree's file provider would refuse to read (an out-of-root
+	/// path surfaces as "nonexistent file"). Runs the walk off the UI thread (up to
+	/// <see cref="WorkspaceFileIndex.DefaultCap"/> files), and drops the result if the user switched again
+	/// before it finished, so a slow walk from a stale session can't clobber the page's index. Called on the
+	/// omnibar's request-file-index and on every session switch.
+	/// </summary>
+	private void PushFileIndexToWeb() {
+		if (_session is not { } session) {
+			return;
+		}
+
+		_ = Task.Run(() => {
+			var files = session.FileIndex.List(WorkspaceFileIndex.DefaultCap);
+			// Only the still-active session may drive the page's index (a reference read is atomic).
+			if (ReferenceEquals(_session, session)) {
+				_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
+			}
+		});
+	}
 
 	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
 	private void PushChangesToWeb() {
@@ -350,6 +395,18 @@ internal sealed partial class WorkspaceWindow {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
 
 	/// <summary>
+	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast. The
+	/// rail's "+" is fire-and-forget, so without this a "branch already exists" error would only reach the log.
+	/// </summary>
+	private async Task CreateSessionFromWebAsync(string? branch, string? baseSpec) {
+		var result = await NewSessionAsync(
+			new NewSessionRequest { Branch = branch, Base = baseSpec }, CancellationToken.None).ConfigureAwait(true);
+		if (!result.Ok) {
+			Notify("error", result.Error ?? "Couldn't create the session.");
+		}
+	}
+
+	/// <summary>
 	/// Runs a Core command the web asked for (its keybinding/palette resolved to a <see cref="CommandLocation.Core"/>
 	/// command). Fire-and-forget: the web doesn't await a result for its own triggers; failures are logged.
 	/// </summary>
@@ -458,13 +515,22 @@ internal sealed partial class WorkspaceWindow {
 		string content = root.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? string.Empty : string.Empty;
 		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
 
+		// Default the dialog to the ACTIVE session's worktree (not the primary checkout), so saving from a
+		// worktree session lands in that worktree and the reopen check below recognizes it as in-workspace.
+		// GetFullPath normalizes it (no trailing separator / forward slashes) so the native dialog reliably
+		// honors it as the initial folder rather than falling back to the OS's last-used folder.
+		string sessionRoot = Path.GetFullPath(_session.WorkspaceRoot);
+
 		string? target;
 		using (var dialog = new SaveFileDialog {
 			Title = "Save As",
-			InitialDirectory = _workspaceRoot,
-			FileName = suggested,
+			InitialDirectory = sessionRoot,
+			// A rooted FileName forces the dialog open at the session root even when the OS would otherwise
+			// reopen its remembered last-used folder; the leaf is what shows in the name box.
+			FileName = Path.Combine(sessionRoot, suggested),
 			Filter = "All files (*.*)|*.*",
 			OverwritePrompt = true,
+			RestoreDirectory = true,
 		}) {
 			target = dialog.ShowDialog(this) == DialogResult.OK ? dialog.FileName : null;
 		}

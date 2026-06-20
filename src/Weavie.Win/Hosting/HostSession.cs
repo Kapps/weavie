@@ -187,6 +187,15 @@ internal sealed class HostSession : IAsyncDisposable {
 	/// <summary>Tracks the editor's active file + selection so claude knows what the user is looking at.</summary>
 	public EditorStore Editor { get; }
 
+	/// <summary>
+	/// This session's open editor tabs (paths + opaque view state), held in memory for the window's
+	/// lifetime. The page is the sole writer (debounced <c>editor-session-changed</c>); the window pushes
+	/// it as a <c>set-editor-session</c> on a switch so the editor rebinds to this session's worktree
+	/// files. The primary session also mirrors this to the persisted per-workspace store; secondary
+	/// (worktree) sessions are in-memory only for now.
+	/// </summary>
+	public EditorSession EditorSession { get; set; } = EditorSession.Empty;
+
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
 

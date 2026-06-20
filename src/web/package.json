@@ -9,7 +9,10 @@
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
-    "verify": "tsc --noEmit && biome check ."
+    "verify": "tsc --noEmit && biome check .",
+    "e2e": "vite build && playwright test",
+    "e2e:install": "playwright install chromium",
+    "capture": "npm install && npm run build && node e2e/capture.mjs"
   },
   "dependencies": {
     "@codingame/monaco-vscode-api": "25.1.2",
@@ -39,8 +42,11 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@codingame/esbuild-import-meta-url-plugin": "^1.0.3",
+    "@playwright/test": "1.56.1",
+    "@types/ws": "^8.5.13",
     "typescript": "5.7.2",
     "vite": "6.0.7",
-    "vite-plugin-solid": "2.11.0"
+    "vite-plugin-solid": "2.11.0",
+    "ws": "^8.18.0"
   }
 }

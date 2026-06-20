@@ -21,6 +21,7 @@ import { evaluateWhen } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, getCommands, onCommandsChanged } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
+import { canonicalFsPath, samePath } from "../editor/fs-path";
 import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
 
@@ -112,14 +113,6 @@ function sortChildren(node: TreeNode): void {
   }
 }
 
-// True if two absolute paths name the same file. The file index carries host paths (real drive-letter
-// case, OS separators) while the editor reports the current file as Monaco's URI.fsPath, which
-// lowercases the Windows drive letter — so a raw `===` misses (C: vs c:). Compare normalized, the same
-// way splitPath lowercases for root stripping.
-function samePath(a: string, b: string): boolean {
-  return a.replace(/\\/g, "/").toLowerCase() === b.replace(/\\/g, "/").toLowerCase();
-}
-
 // The expansion keys for every ancestor directory of a relative path (excludes the file leaf itself).
 function ancestorKeys(rel: string): string[] {
   const segs = rel.split("/");
@@ -149,7 +142,14 @@ export function Omnibar(props: {
   const [selected, setSelected] = createSignal(0);
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   let inputRef!: HTMLInputElement;
+  let rootRef!: HTMLDivElement;
   let listRef: HTMLUListElement | undefined;
+
+  // The element that held focus when the omnibar opened (the editor's Monaco textarea, an xterm, …). On
+  // close we hand focus back to it — both because that's where the keyboard belongs, and because the
+  // `when`-context (editorFocused/terminalFocused) is derived from focusin; blurring to <body> would leave
+  // it false, so editor-gated chords like Ctrl+Tab would silently stop matching. See App's onFocusIn.
+  let priorFocus: HTMLElement | null = null;
 
   // The command catalog, kept live as the host pushes keybinding/catalog changes.
   const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
@@ -342,17 +342,32 @@ export function Omnibar(props: {
     ),
   );
 
+  // Return focus to wherever it was before we opened, so the keyboard lands back in the editor/terminal and
+  // its `when`-context is restored. Falls back to blurring the input if there's nothing valid to return to.
+  const restorePriorFocus = (): void => {
+    const target = priorFocus;
+    priorFocus = null;
+    if (target?.isConnected && target !== document.body) {
+      target.focus();
+    } else {
+      inputRef.blur();
+    }
+  };
+
   const close = (): void => {
     setOpen(false);
     setQuery("");
-    inputRef.blur();
+    restorePriorFocus();
   };
 
   const openFile = (abs: string | undefined): void => {
     if (abs === undefined) {
       return;
     }
-    props.onOpenFile(abs);
+    // Open with the canonical (lowercase-drive) form the editor keys its working copies / tabs by, so a
+    // file already open under Monaco's `fsPath` spelling is reused instead of opening a second editor for
+    // the same on-disk file (the file:// provider matches URIs case-sensitively). See editor/fs-path.ts.
+    props.onOpenFile(canonicalFsPath(abs));
     close();
   };
 
@@ -456,8 +471,7 @@ export function Omnibar(props: {
       activate();
     } else if (e.key === "Escape") {
       e.preventDefault();
-      setOpen(false);
-      inputRef.blur();
+      close();
     }
   };
 
@@ -470,7 +484,7 @@ export function Omnibar(props: {
   };
 
   return (
-    <div class="tb-omnibar" onFocusOut={onFocusOut}>
+    <div class="tb-omnibar" ref={rootRef} onFocusOut={onFocusOut}>
       <div class="tb-omnibar-box" classList={{ open: open() }}>
         <span class="tb-omnibar-icon" aria-hidden="true">
           <Search />
@@ -483,7 +497,14 @@ export function Omnibar(props: {
           placeholder={props.workspaceLabel}
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
-          onFocus={() => {
+          onFocus={(e) => {
+            // Remember the element we're stealing focus from (the focus event's relatedTarget) so close can
+            // hand it back. Fires for both a click and the programmatic inputRef.focus() (double-shift / the
+            // focus command). Ignore a target inside the omnibar itself so re-entry never overwrites it.
+            const from = e.relatedTarget as HTMLElement | null;
+            if (from !== null && !rootRef.contains(from)) {
+              priorFocus = from;
+            }
             setOpen(true);
             props.onRequestIndex();
           }}
@@ -549,7 +570,9 @@ export function Omnibar(props: {
                             class="tb-omnibar-row"
                             classList={{
                               selected: i() === selected(),
-                              current: item.row.abs === props.currentFile,
+                              current:
+                                props.currentFile !== null &&
+                                samePath(item.row.abs, props.currentFile),
                             }}
                             onMouseDown={(e) => {
                               // mousedown (not click) fires before the input's focusout closes the popover.
@@ -589,8 +612,12 @@ export function Omnibar(props: {
                           type="button"
                           class="tb-omnibar-row tb-tree-row"
                           classList={{
+                            dir: r.node.isDir,
                             selected: i() === selected(),
-                            current: r.node.abs === props.currentFile,
+                            current:
+                              props.currentFile !== null &&
+                              r.node.abs !== undefined &&
+                              samePath(r.node.abs, props.currentFile),
                           }}
                           style={`padding-left: ${10 + r.depth * 14}px`}
                           onMouseDown={(e) => {

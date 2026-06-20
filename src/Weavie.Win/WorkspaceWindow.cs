@@ -370,7 +370,10 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 			Guid.NewGuid().ToString("n")[..8],
 			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
 		_primarySession = _session;
-		_sessionLabels[_session.Id] = await ResolvePrimaryLabelAsync();
+		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
+		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
+		_primarySession.EditorSession = _editorSession.Current;
+		string primaryLabel = await ResolvePrimaryLabelAsync();
 
 		// Garbage-collect scratch (untitled) temp files orphaned by a crash or a reset session — keep only
 		// those still referenced by the restored editor session (they reopen as their "Untitled-N" tabs).
@@ -381,16 +384,15 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
 		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
 
-		// Sessions: build the worktree manager + session set, wire this (primary) session's handlers + gated
-		// push subscriptions (for one session the gate is always true → identical behavior), reconcile any
-		// pre-existing worktrees so none go unsurfaced, and seed the rail's session list. See
-		// WorkspaceWindow.Sessions.cs and docs/specs/multi-session-and-worktrees.md.
+		// Sessions: build the worktree manager + slot set, add the primary (always-loaded) slot, wire its
+		// handlers + gated push subscriptions, then reconcile pre-existing worktrees into dormant (unloaded)
+		// slots so none leak. The rail's session list is pushed on the page's `ready` message (PostToWeb
+		// before navigation no-ops). See WorkspaceWindow.Sessions.cs and docs/specs/multi-session-and-worktrees.md.
 		_worktrees = await BuildWorktreeManagerAsync();
 		_sessions = new SessionManager(_worktrees);
-		_sessions.Add(_session, activate: true);
+		AddPrimarySlot(primaryLabel);
 		WireSession(_session);
 		await ReconcileWorktreesOnOpenAsync();
-		PushSessionList();
 
 		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
 		// lazily start a monaco-languageclient per language on first matching document.
@@ -448,16 +450,17 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 			}
 		};
 
-		// Theme (ApplyMode.Live): a theme switch (theme.active) or an override edit re-pushes the resolved
-		// active theme so the web re-themes the editor, terminal, and chrome in place. PostToWeb marshals to
-		// the UI thread and the stores are thread-safe, so the off-thread events can call it directly.
+		// Theme (ApplyMode.Live): a mode/theme switch (theme.mode|theme.light|theme.dark) or an override edit on
+		// either selected theme re-pushes the resolved theme pair so the web re-themes the editor, terminal, and
+		// chrome in place. PostToWeb marshals to the UI thread and the stores are thread-safe, so the off-thread
+		// events can call it directly.
 		_settings.SettingChanged += change => {
-			if (change.Key == "theme.active") {
+			if (ThemeSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
 			}
 		};
 		_app.ThemeOverrides.Changed += themeId => {
-			if (themeId == (_settings.GetString("theme.active") ?? ThemeSettings.DefaultThemeId)) {
+			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
 				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
 			}
 		};

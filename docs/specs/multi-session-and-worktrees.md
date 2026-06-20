@@ -211,13 +211,18 @@ file / close tab).
 | `weavie.session.next` | Next Session | Web | `$mod+Shift+]` | — |
 | `weavie.session.prev` | Previous Session | Web | `$mod+Shift+[` | — |
 | `weavie.session.switch` | Switch Session… | Web | — (palette) | — |
+| `weavie.session.selectByIndex` | Switch to Session by Number | Web | `$mod+Shift+1–9` | `{ index }` (1-based, rail order) |
 | `weavie.session.close` | Close Session | Core | — (rail menu + palette) | `{ id? }` (default: active) |
 
 Notes: the GUI `+` invokes `weavie.session.new` with **only** `branch` (no `prompt`) — fresh Claude.
 `base` defaults to `current` (the session you're branching from); `main` is the alternate. Args
 follow the embedded-Claude scalar-coercion convention (lenient at the MCP boundary —
-[embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`$mod+Shift+1–9`) is deferred to
-keep v1's chord surface small; cycle + palette cover it.
+[embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`$mod+Shift+1–9` →
+`weavie.session.selectByIndex`) mirrors the pane-focus `$mod+1–9`: a chord with no session at that
+rail number falls through (declines), and the rail chip's tooltip advertises its number (read from the
+catalog, never hardcoded). Every switch path — new, rail click, cycle, and direct-index — ends with the
+host pushing a `focus-pane` (`terminal:claude`) so the user lands in the new session's Claude rather than
+with focus nowhere.
 
 ## Worktree lifecycle
 
@@ -311,10 +316,18 @@ silently leaked.
 **Remaining — runtime verification + polish:**
 - **Run the app** to verify switching, worktree create/close, the rail, and status colors end-to-end
   (not autonomously testable here).
-- **Per-session editor/LSP on switch**: terminals + status swap on switch, but the editor tabs and the
-  LSP websocket don't yet re-bind to the new session (they follow the active session's *backend* via
-  routing; the page's view isn't re-pushed) — clearing/repushing per session is the next refinement.
-  Plus `next`/`prev` cycle + omnibar session mode, and a worktree-cleanup surface. PTY first-prompt
+- **Per-session file surfaces on switch — DONE.** Switching re-roots every file-related surface to the
+  active session's worktree: the editor tabs rebind (`set-editor-session` → `host.rebindSession()` releases
+  the previous worktree's working copies and reopens the new one's), and the host re-pushes a `file-index`
+  built from the **active** session's `WorkspaceFileIndex` so the omnibar "Go to File" and the file browser
+  list the worktree's own files. Before this, both stayed pinned to the primary checkout, so opening a file
+  in a worktree session failed — the worktree's file provider refuses an out-of-root (primary) path, which
+  surfaces as "Unable to resolve nonexistent file". `SaveScratchAs` also defaults to / validates against the
+  active session's root. (`reveal-file`, `fs-read/write`, `list-dir`, change tracking already routed through
+  the active session.)
+- **Per-session LSP on switch (still deferred):** the LSP websocket doesn't yet re-bind to the new session,
+  so semantic features point at the primary worktree in a secondary session — tracked with the other LSP/idle
+  deferrals. Plus `next`/`prev` cycle + omnibar session mode, and a worktree-cleanup surface. PTY first-prompt
   seeding is wired but experimental (TUI-readiness timing).
 - **Commit the web** (`bridge.ts`, `App.tsx`, `chrome/SessionRail.tsx`, `theme/chrome-vars.ts`,
   `styles.css`) once the parallel `hostInjected` refactor lands, so it isn't entangled.

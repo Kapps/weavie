@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using Weavie.Core.Sessions;
 
@@ -10,8 +11,11 @@ namespace Weavie.Core.Commands;
 /// handlers once it has a session host. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
-	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); <c>$mod+Shift+n</c>.</summary>
+	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry (Claude). The interactive UI uses <see cref="NewSessionPrompt"/>.</summary>
 	public const string NewSession = "weavie.session.new";
+
+	/// <summary>Opens the interactive new-session prompt (branch name + base) in the UI; <c>$mod+Shift+n</c>.</summary>
+	public const string NewSessionPrompt = "weavie.session.newPrompt";
 
 	/// <summary>Forks the current session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
 	public const string ForkSession = "weavie.session.fork";
@@ -24,6 +28,9 @@ public static class SessionCommands {
 
 	/// <summary>Opens the omnibar to pick a session to switch to.</summary>
 	public const string SwitchSession = "weavie.session.switch";
+
+	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>$mod+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
+	public const string SelectSessionByIndex = "weavie.session.selectByIndex";
 
 	/// <summary>Closes a session (the active one, or the <c>id</c> arg), keeping its worktree on disk.</summary>
 	public const string CloseSession = "weavie.session.close";
@@ -38,11 +45,24 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Create a new session on its own git worktree + branch. With no 'branch' the host "
-				+ "prompts for a name. 'base' is 'current' (the active session's HEAD; the default) or 'main'. An "
-				+ "optional 'prompt' is sent to the new session's Claude as its first message.",
+				+ "auto-names one (avoiding existing branches). 'base' is 'current' (the active session's HEAD; the "
+				+ "default) or 'main'. An optional 'prompt' is sent to the new session's Claude as its first message. "
+				+ "This is the programmatic entry (for Claude); the interactive UI uses 'New Session…' (weavie.session.newPrompt).",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
+			// No default keybinding + hidden from the palette: the human-facing entry is the interactive prompt
+			// (NewSessionPrompt, bound to $mod+Shift+n). Still reachable by Claude via listCommands/runCommand.
+			ShowInPalette = false,
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"prompt\":{\"type\":\"string\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NewSessionPrompt,
+			Title = "New Session…",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Open the new-session prompt: name a branch, then branch off the current session's HEAD "
+				+ "(Enter) or main (Shift+Enter). The interactive counterpart of weavie.session.new.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -84,6 +104,28 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Open the omnibar to pick a session to switch to.",
 			Aliases = ["switch session", "go to session", "change session", "pick session"],
+		});
+
+		// $mod+Shift+1..9 → switch to the Nth session on the rail (the session analogue of the pane-focus
+		// Ctrl+1..9). Keybinding-only + hidden from the palette: "switch to session 3" is no clearer a palette
+		// row than the pane equivalent, and the human-facing picker is Switch Session… Each default binding
+		// carries its own 1-based index argument; the web rail switches to that session if one exists there.
+		var indexBindings = new List<CommandKeybinding>(9);
+		for (int i = 1; i <= 9; i++) {
+			string n = i.ToString(CultureInfo.InvariantCulture);
+			indexBindings.Add(new CommandKeybinding { Key = $"$mod+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
+		}
+
+		registry.Register(new CommandDefinition {
+			Id = SelectSessionByIndex,
+			Title = "Switch to Session by Number",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Switch to the Nth session on the rail (1-based, in rail order).",
+			Aliases = ["switch to session", "select session", "go to session number"],
+			DefaultKeybindings = indexBindings,
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based session number in rail order\"}}",
 		});
 
 		registry.Register(new CommandDefinition {

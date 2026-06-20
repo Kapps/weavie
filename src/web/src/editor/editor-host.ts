@@ -18,6 +18,7 @@ import {
 } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
+import { setDirtyPath } from "./dirty-store";
 import { canonicalFsPath } from "./fs-path";
 import { createEditor, monaco } from "./monaco-setup";
 import { captureViewState, editorSession, openTab, promote } from "./session-store";
@@ -77,9 +78,17 @@ export interface EditorHost {
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
+   * Rebinds the editor to the (already-updated) session store after a session switch: flushes + releases
+   * every open working copy from the previous session, then reopens the new active tab from the session
+   * signal (non-active tabs reopen lazily, exactly as on launch). The session store's set-editor-session
+   * listener has already flipped the signal to the incoming session before this runs.
+   */
+  rebindSession(): Promise<void>;
+  /**
    * Begins an inline review of an openDiff proposal in a transient model (the real file working copy is left
-   * untouched), makes it the active editor showing `proposed`, and returns the transient model's URI string
-   * so the caller can render the inline diff over it.
+   * untouched), makes it the active editor showing `proposed` revealed at `line` (1-based — the proposal's
+   * first changed hunk), and returns the transient model's URI string so the caller can render the inline diff
+   * over it.
    */
   beginReview(path: string, proposed: string, line: number): string;
   /**
@@ -174,6 +183,20 @@ export async function createEditorHost(
     editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
   ];
 
+  // Mirror each file working copy's dirty state into the (HMR-surviving) dirty store so the tab strip can show
+  // an unsaved-changes `*`. With autosave the dirty window is brief — a debounced flush clears it — but the
+  // error gate below can hold a flush back, so the marker is the user's signal that an edit hasn't reached
+  // disk yet. Seed from the models already in memory first (covers a hot reload re-adopting working copies),
+  // then track changes; the listener joins `disposables` so a rebuilt host doesn't stack a second one.
+  for (const model of textFileService.files.models) {
+    setDirtyPath(model.resource.fsPath, model.isDirty());
+  }
+  disposables.push(
+    textFileService.files.onDidChangeDirty((model) => {
+      setDirtyPath(model.resource.fsPath, model.isDirty());
+    }),
+  );
+
   // Keep the active tab's Monaco view state (scroll/cursor/folding) fresh in the session store so a relaunch —
   // and a hot reload — reopens it at the same position. Data-only: this updates the active entry IN PLACE via
   // captureViewState and never changes which tab is active or their order (that flows the other way, store →
@@ -208,6 +231,25 @@ export async function createEditorHost(
   const saveAttached = new WeakSet<monaco.editor.ITextModel>();
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
+  // Error gate (no-errors → errors): we don't want to push a buffer to disk the instant an edit makes it
+  // syntactically broken, because the embedded Claude reads disk directly. So a flush is HELD while the file
+  // currently shows error markers AND its last saved state was clean — but only up to ERROR_HOLD_MS, after
+  // which it saves anyway (we never let disk diverge from the working copy indefinitely). A file that was
+  // ALREADY erroring keeps saving normally: withholding can't un-break what's already on disk, and the held
+  // edit is released the moment the errors clear (onDidChangeMarkers below). This is best-effort: LSP
+  // diagnostics lag the keystroke, so a flush firing before they catch up can still persist a just-broken
+  // edit. It reliably catches the case that matters — pausing in a broken state long enough to be flagged.
+  const ERROR_HOLD_MS = 1500;
+  // Whether the last flush we performed for a key persisted erroring content (default clean) — drives the
+  // no-errors → errors transition test. And, per held key, when we first started withholding its flush.
+  const savedHadErrors = new Map<string, boolean>();
+  const holdingSince = new Map<string, number>();
+
+  const hasErrors = (uri: monaco.Uri): boolean =>
+    monaco.editor
+      .getModelMarkers({ resource: uri })
+      .some((marker) => marker.severity === monaco.MarkerSeverity.Error);
+
   const flushSave = (key: string): void => {
     const timer = saveTimers.get(key);
     if (timer !== undefined) {
@@ -216,8 +258,26 @@ export async function createEditorHost(
     }
     const uri = monaco.Uri.parse(key);
     if (!textFileService.isDirty(uri)) {
+      holdingSince.delete(key);
       return;
     }
+    const errored = hasErrors(uri);
+    if (errored && !(savedHadErrors.get(key) ?? false)) {
+      // Clean → erroring: hold the flush, bounded by ERROR_HOLD_MS. onDidChangeMarkers retries the moment the
+      // errors clear; this timer is the fallback that saves anyway if they don't.
+      const since = holdingSince.get(key) ?? Date.now();
+      holdingSince.set(key, since);
+      const elapsed = Date.now() - since;
+      if (elapsed < ERROR_HOLD_MS) {
+        saveTimers.set(
+          key,
+          setTimeout(() => flushSave(key), ERROR_HOLD_MS - elapsed),
+        );
+        return;
+      }
+    }
+    holdingSince.delete(key);
+    savedHadErrors.set(key, errored);
     void textFileService
       .save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true })
       .catch((error: unknown) => {
@@ -227,6 +287,19 @@ export async function createEditorHost(
         onSaveError?.(message);
       });
   };
+
+  // Release a held flush as soon as a file's errors clear (rather than waiting for the next keystroke or the
+  // ERROR_HOLD_MS fallback). Only touches files we're actively holding, so it's cheap on every marker update.
+  disposables.push(
+    monaco.editor.onDidChangeMarkers((resources) => {
+      for (const resource of resources) {
+        const key = resource.toString();
+        if (holdingSince.has(key) && !hasErrors(resource)) {
+          flushSave(key);
+        }
+      }
+    }),
+  );
 
   const attachSave = (model: monaco.editor.ITextModel): void => {
     if (saveAttached.has(model) || !isUserFileModel(model)) {
@@ -259,6 +332,8 @@ export async function createEditorHost(
           clearTimeout(pending);
           saveTimers.delete(key);
         }
+        holdingSince.delete(key);
+        savedHadErrors.delete(key);
       }),
     );
   };
@@ -338,6 +413,7 @@ export async function createEditorHost(
         clearTimeout(timer);
         saveTimers.delete(key);
       }
+      holdingSince.delete(key);
     } else {
       flushSave(key);
     }
@@ -364,9 +440,24 @@ export async function createEditorHost(
       clearTimeout(timer);
       saveTimers.delete(key);
     }
+    holdingSince.delete(key);
   };
 
   const clear = (): void => {
+    editor.setModel(null);
+  };
+
+  // Release EVERY open working copy: flush each real file's pending save (a scratch buffer flushes to its
+  // temp file — not discarded), drop its refcounted reference so the model can be freed, then empty the
+  // editor. Used by rebindSession on a session switch to let go of the previous session's worktree files
+  // before the incoming session's are opened. Unlike dispose() this DOES release the refs — a switch is not
+  // a hot reload, so the previous session's models must actually be torn down.
+  const releaseAll = (): void => {
+    for (const [key, ref] of [...refs]) {
+      flushSave(key);
+      ref.dispose();
+      refs.delete(key);
+    }
     editor.setModel(null);
   };
 
@@ -501,6 +592,14 @@ export async function createEditorHost(
 
   await restoreSession();
 
+  // Rebind to a different session on a switch: let go of the previous session's working copies, then reopen
+  // the incoming session's active tab from the (already-updated) session signal — reusing restoreSession so a
+  // switched-in file opens identically to a launch restore. Non-active tabs reopen lazily when clicked.
+  const rebindSession = async (): Promise<void> => {
+    releaseAll();
+    await restoreSession();
+  };
+
   // Wait for Monaco's first real paint before resolving. The caller fades the splash on resolution, so
   // this keeps the editor's initial layout/paint hidden under the splash rather than flashing into view.
   await nextPaint();
@@ -513,6 +612,7 @@ export async function createEditorHost(
     contentOf,
     cancelSave,
     clear,
+    rebindSession,
     beginReview,
     endReview,
     dispose,

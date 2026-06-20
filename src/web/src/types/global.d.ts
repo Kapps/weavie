@@ -30,6 +30,13 @@ interface Window {
   };
   /** Entry point the C# host calls via EvaluateJavaScript to push messages into the page. */
   __weavieReceive?: (raw: string) => void;
+  /**
+   * Remote/web Weavie: a headless "serve" host advertises its bridge WebSocket here (set before
+   * navigation, like __WEAVIE_FONTS__). A concrete `ws://host:port/path` URL, or the literal "auto"
+   * to derive it same-origin from `location`. Absent in the native shells (they use the in-process
+   * `webkit.messageHandlers` channel) and in plain-browser dev (where the bridge stays a no-op).
+   */
+  __WEAVIE_BRIDGE_WS__?: string;
   /** Custom-chrome config injected by the Windows host; drives the web title bar. */
   __WEAVIE_SHELL__?: WeavieShellConfig;
   /** Recents injected by the host for the standalone welcome window (welcome.html). */

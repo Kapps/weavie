@@ -45,9 +45,17 @@ app.UseWebSockets();
 
 // Serve index.html ourselves so we can inject the bootstrap globals (bridge URL + fonts + commands) before
 // the module graph runs — must run before the static middleware, which would otherwise serve it verbatim.
+// On a tokenized (network-exposed) host the document is gated too: the bootstrap carries per-session
+// loopback LSP/MCP config, so an unauthenticated caller gets nothing — not even the shell. The standalone
+// flow reaches it as `…/?token=<t>`; the remote-runner flow never loads it (it opens only the bridge).
 app.Use(async (context, next) => {
 	string path = context.Request.Path.Value ?? "/";
 	if (path is "/" or "/index.html") {
+		if (token is not null && !TokenMatches(context, token)) {
+			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+			return;
+		}
+
 		await ServeIndexAsync(context, wwwroot, core).ConfigureAwait(false);
 		return;
 	}
@@ -68,8 +76,8 @@ app.Map("/weavie-bridge", async context => {
 
 	// The bridge is the actual capability, so it requires the token on the upgrade whenever one is set. A
 	// null token only ever happens on a loopback bind (enforced at startup above), where loopback is the
-	// boundary; a non-loopback bind always has a token, so the network-exposed bridge is always gated. The
-	// static page/assets stay open; the page carries the token onto this URL.
+	// boundary; a non-loopback bind always has a token, so the network-exposed bridge is always gated. (The
+	// document is gated too; only static JS/CSS assets — which carry no secrets — are served openly.)
 	if (token is not null && !TokenMatches(context, token)) {
 		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 		return;

@@ -154,11 +154,21 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
 
 ## Auth & transport (first cut → hardening)
 
-- **First cut (built):** a runner token gates the control plane; a per-worker token gates the worker's
-  bridge WS. Tokens are random hex, minted by the runner.
-- **Hardening (deferred):** TLS on both the control plane and the worker bridge; short-lived worker
-  tokens minted from the runner token; gating the worker *page* (not just the bridge) and static assets
-  via a cookie set from the `?token=` landing.
+- **Fail closed.** `Weavie.Headless` refuses to start on a **non-loopback** bind without a token, so an
+  exposed bridge can never be unauthenticated regardless of how the flags were passed. A null token is
+  only possible on a loopback bind (local dev), where the OS loopback is the boundary.
+- **What's gated when a token is set:** the bridge WS upgrade **and** the document (`/`), both via a
+  constant-time compare of a 128-bit CSPRNG token. Only static JS/CSS assets are served openly (they
+  carry no secrets). The runner control plane is gated the same way (`Authorization: Bearer` or
+  `?token=`).
+- **MCP / registry-MCP / LSP are never network-exposed.** They bind `127.0.0.1` only (hardcoded, not
+  affected by `--bind`) and additionally require their own per-session token — so the file-read/write and
+  tool surfaces are reachable only from the worker's own box, never over the network.
+- **CORS `*` on the runner is safe** because auth is a bearer token, not an ambient cookie — a malicious
+  origin can't set the `Authorization` header without already knowing the token.
+- **Hardening (deferred):** TLS (today relies on Tailscale/WireGuard for on-wire encryption); moving the
+  WS token from a `?token=` query to a `Sec-WebSocket-Protocol` subprotocol and the document token to a
+  cookie (so it never sits in URLs/history); constant-time compare on the loopback MCP/LSP tokens.
 
 ## Deferred
 

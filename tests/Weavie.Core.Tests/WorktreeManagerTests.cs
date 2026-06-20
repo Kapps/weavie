@@ -183,6 +183,11 @@ public sealed class WorktreeManagerTests {
 		public Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) =>
 			Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory)));
 
+		public Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) =>
+			Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory))
+				? WorktreeChangeState.Modified
+				: WorktreeChangeState.Clean);
+
 		public Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default) =>
 			Task.FromResult(MergedBranches.Contains(branch));
 

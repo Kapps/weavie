@@ -36,6 +36,15 @@ public interface ISessionHost {
 	/// <summary>Forks the current session into a new worktree off its HEAD, carrying a handoff brief.</summary>
 	Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct = default);
 
-	/// <summary>Closes a session (the active one, or the given <paramref name="sessionId"/>), keeping its worktree on disk.</summary>
-	Task<CommandResult> CloseSessionAsync(string? sessionId, CancellationToken ct = default);
+	/// <summary>Loads a dormant session's backend (by <paramref name="sessionId"/>) in the background, without switching to it.</summary>
+	Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default);
+
+	/// <summary>Unloads a session (the active one, or the given <paramref name="sessionId"/>) into a dormant chip, keeping its worktree on disk.</summary>
+	Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct = default);
+
+	/// <summary>
+	/// Deletes a session (the active one, or the given <paramref name="sessionId"/>): removes its git worktree
+	/// but keeps the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>.
+	/// </summary>
+	Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct = default);
 }

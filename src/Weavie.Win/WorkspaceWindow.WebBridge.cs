@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
+using Weavie.Core.Git;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
@@ -65,9 +66,16 @@ internal sealed partial class WorkspaceWindow {
 				break;
 			}
 
-			case "close-session": {
-				string closeId = root.TryGetProperty("id", out var csEl) ? csEl.GetString() ?? string.Empty : string.Empty;
-				_ = CloseSessionAsync(closeId, CancellationToken.None);
+			case "delete-session-request": {
+				string reqId = root.TryGetProperty("id", out var reqEl) ? reqEl.GetString() ?? string.Empty : string.Empty;
+				_ = DeleteSessionPromptAsync(reqId);
+				break;
+			}
+			case "delete-session": {
+				string deleteId = root.TryGetProperty("id", out var delIdEl) ? delIdEl.GetString() ?? string.Empty : string.Empty;
+				bool deleteForce = root.TryGetProperty("force", out var delForceEl)
+					&& delForceEl.ValueKind is JsonValueKind.True or JsonValueKind.False && delForceEl.GetBoolean();
+				_ = DeleteSessionFromWebAsync(deleteId, deleteForce);
 				break;
 			}
 			case "diff-resolved":
@@ -385,6 +393,54 @@ internal sealed partial class WorkspaceWindow {
 			new NewSessionRequest { Branch = branch, Base = baseSpec }, CancellationToken.None).ConfigureAwait(true);
 		if (!result.Ok) {
 			Notify("error", result.Error ?? "Couldn't create the session.");
+		}
+	}
+
+	/// <summary>
+	/// Handles the rail's <c>delete-session-request</c>: classifies the worktree's working-tree state (clean /
+	/// untracked-only / modified) and asks the page to raise the matching confirm, so the user sees the right
+	/// warning up front — never the reassuring "branch is kept" message when uncommitted work would be lost.
+	/// </summary>
+	private async Task DeleteSessionPromptAsync(string id) {
+		if (string.IsNullOrEmpty(id)) {
+			return;
+		}
+
+		var slot = _sessions?.Find(id);
+		if (slot is null) {
+			Notify("error", "No such session.");
+			return;
+		}
+
+		try {
+			var state = await new GitService().GetChangeStateAsync(slot.WorktreePath, CancellationToken.None).ConfigureAwait(true);
+			string stateName = state switch {
+				WorktreeChangeState.UntrackedOnly => "untracked",
+				WorktreeChangeState.Modified => "modified",
+				_ => "clean",
+			};
+			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-delete-prompt", id = slot.Id, label = slot.Label, state = stateName }));
+		} catch (GitException ex) {
+			Notify("error", $"Couldn't check '{slot.Label}' for changes: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Handles the page's confirmed <c>delete-session</c> (the user accepted the prompt raised by
+	/// <see cref="DeleteSessionPromptAsync"/>). <paramref name="force"/> is set for a dirty worktree, so the
+	/// removal isn't refused. Surfaces the outcome as a toast (fire-and-forget from the page).
+	/// </summary>
+	private async Task DeleteSessionFromWebAsync(string id, bool force) {
+		if (string.IsNullOrEmpty(id)) {
+			return;
+		}
+
+		string label = _sessions?.Find(id)?.Label ?? id;
+		var result = await DeleteSessionAsync(id, force, CancellationToken.None).ConfigureAwait(true);
+		if (result.Ok) {
+			Notify("info", $"Deleted session '{label}' (branch kept).");
+		} else {
+			Notify("error", result.Error ?? "Couldn't delete the session.");
 		}
 	}
 

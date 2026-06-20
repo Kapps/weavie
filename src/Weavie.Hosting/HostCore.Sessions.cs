@@ -70,7 +70,7 @@ public sealed partial class HostCore {
 	private async Task<WorktreeManager?> BuildWorktreeManagerAsync() {
 		var git = new GitService();
 		try {
-			if (!await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(true)) {
+			if (!await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false)) {
 				return null;
 			}
 		} catch (GitException) {
@@ -167,7 +167,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			var report = await _worktrees.ReconcileAsync().ConfigureAwait(true);
+			var report = await _worktrees.ReconcileAsync().ConfigureAwait(false);
 			foreach (var status in report.Statuses) {
 				if (!status.Exists || status.IsPrimary) {
 					continue;
@@ -222,8 +222,8 @@ public sealed partial class HostCore {
 	private async Task<string> ResolvePrimaryLabelAsync() {
 		try {
 			var git = new GitService();
-			if (await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(true)) {
-				string? branch = await git.GetCurrentBranchAsync(WorkspaceRoot).ConfigureAwait(true);
+			if (await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false)) {
+				string? branch = await git.GetCurrentBranchAsync(WorkspaceRoot).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(branch)) {
 					return branch;
 				}
@@ -393,7 +393,7 @@ public sealed partial class HostCore {
 		var result = new TaskCompletionSource<CommandResult>();
 		_ui.Post(async () => {
 			try {
-				await UnloadSlotAsync(target).ConfigureAwait(true);
+				await UnloadSlotAsync(target).ConfigureAwait(false);
 				result.SetResult(CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload)."));
 			} catch (Exception ex) {
 				result.SetException(ex);
@@ -425,7 +425,7 @@ public sealed partial class HostCore {
 			try {
 				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under force:false.)
-				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(true)) {
+				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 					result.SetResult(CommandResult.Failure(
 						$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
 					return;
@@ -434,10 +434,10 @@ public sealed partial class HostCore {
 				// Tear the live backend down first so no process keeps a handle on the worktree dir, then remove
 				// the worktree — keeping the branch — and drop the chip from the rail.
 				if (target.Loaded) {
-					await UnloadSlotAsync(target).ConfigureAwait(true);
+					await UnloadSlotAsync(target).ConfigureAwait(false);
 				}
 
-				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, ct).ConfigureAwait(true);
+				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, ct).ConfigureAwait(false);
 				_sessions?.Remove(target);
 				PushSessionList();
 				result.SetResult(CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept."));
@@ -465,7 +465,7 @@ public sealed partial class HostCore {
 		}
 
 		slot.Session = null;
-		await session.DisposeAsync().ConfigureAwait(true);
+		await session.DisposeAsync().ConfigureAwait(false);
 		PushSessionList();
 	}
 
@@ -477,18 +477,18 @@ public sealed partial class HostCore {
 		}
 
 		string branch = string.IsNullOrWhiteSpace(requestedBranch)
-			? await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(true)
+			? await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(false)
 			: requestedBranch.Trim();
 		string baseRef;
 		try {
-			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(true);
+			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			return CommandResult.Failure($"Couldn't resolve the base ref: {ex.Message}");
 		}
 
 		WorktreeRecord record;
 		try {
-			record = await _worktrees.CreateAsync(branch, baseRef, ct).ConfigureAwait(true);
+			record = await _worktrees.CreateAsync(branch, baseRef, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't create the worktree: {ex.Message}");
 		}
@@ -524,13 +524,13 @@ public sealed partial class HostCore {
 	private async Task<string> ResolveBaseRefAsync(string? baseSpec, CancellationToken ct) {
 		var git = new GitService();
 		if (string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
-			return await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(true)
-				?? await git.GetHeadCommitAsync(WorkspaceRoot, ct).ConfigureAwait(true);
+			return await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
+				?? await git.GetHeadCommitAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 		}
 
 		// Default ("current"): branch off the active session's worktree HEAD.
 		string cwd = _session?.WorkspaceRoot ?? WorkspaceRoot;
-		return await git.GetHeadCommitAsync(cwd, ct).ConfigureAwait(true);
+		return await git.GetHeadCommitAsync(cwd, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>
@@ -547,7 +547,7 @@ public sealed partial class HostCore {
 
 		if (_worktrees is not null) {
 			try {
-				foreach (var status in await _worktrees.ListAsync(ct).ConfigureAwait(true)) {
+				foreach (var status in await _worktrees.ListAsync(ct).ConfigureAwait(false)) {
 					if (status.Branch is { } existing) {
 						taken.Add(existing);
 					}

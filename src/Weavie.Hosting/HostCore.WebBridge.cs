@@ -348,8 +348,17 @@ public sealed partial class HostCore {
 		}
 	}
 
+	/// <summary>
+	/// Runs a Core command on the active session from a native trigger (e.g. the macOS menu bar), the same path
+	/// the web's <c>invoke-command</c> takes. Fire-and-forget; failures are logged.
+	/// </summary>
+	public void InvokeCommand(string id) => InvokeCommandFromWeb(id, null);
+
+	/// <summary>Runs a Core command with JSON arguments on the active session (native-trigger overload).</summary>
+	public void InvokeCommand(string id, string? argsJson) => InvokeCommandFromWeb(id, argsJson);
+
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
-	private void Notify(string level, string message) =>
+	public void Notify(string level, string message) =>
 		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
 
 	/// <summary>
@@ -358,7 +367,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private async Task CreateSessionFromWebAsync(string? branch, string? baseSpec) {
 		var result = await NewSessionAsync(
-			new NewSessionRequest { Branch = branch, Base = baseSpec }, CancellationToken.None).ConfigureAwait(true);
+			new NewSessionRequest { Branch = branch, Base = baseSpec }, CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
 			Notify("error", result.Error ?? "Couldn't create the session.");
 		}
@@ -381,7 +390,7 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			var state = await new GitService().GetChangeStateAsync(slot.WorktreePath, CancellationToken.None).ConfigureAwait(true);
+			var state = await new GitService().GetChangeStateAsync(slot.WorktreePath, CancellationToken.None).ConfigureAwait(false);
 			string stateName = state switch {
 				WorktreeChangeState.UntrackedOnly => "untracked",
 				WorktreeChangeState.Modified => "modified",
@@ -403,7 +412,7 @@ public sealed partial class HostCore {
 		}
 
 		string label = _sessions?.Find(id)?.Label ?? id;
-		var result = await DeleteSessionAsync(id, force, CancellationToken.None).ConfigureAwait(true);
+		var result = await DeleteSessionAsync(id, force, CancellationToken.None).ConfigureAwait(false);
 		if (result.Ok) {
 			Notify("info", $"Deleted session '{label}' (branch kept).");
 		} else {
@@ -494,7 +503,7 @@ public sealed partial class HostCore {
 		// and the reopen check below recognizes it as in-workspace.
 		string sessionRoot = Path.GetFullPath(session.WorkspaceRoot);
 		string? target = _platform.Dialogs is { } dialogs
-			? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, CancellationToken.None).ConfigureAwait(true)
+			? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, CancellationToken.None).ConfigureAwait(false)
 			: null;
 
 		if (string.IsNullOrEmpty(target)) {

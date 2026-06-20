@@ -135,7 +135,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_primarySession.Scratch.GarbageCollect(
 			_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 
-		string primaryLabel = await ResolvePrimaryLabelAsync().ConfigureAwait(true);
+		string primaryLabel = await ResolvePrimaryLabelAsync().ConfigureAwait(false);
 
 		// Title bar: route the web title-bar messages to the shared controller, but only when the platform
 		// renders one (web custom chrome). Native-chrome hosts leave _shell null and those messages no-op.
@@ -147,10 +147,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// pre-existing worktrees into dormant slots so none leak. The rail's session list is pushed on the
 		// page's `ready` message (PostToWeb before navigation no-ops). The primary's handlers + gated push
 		// subscriptions are already wired (CreateSession above).
-		_worktrees = await BuildWorktreeManagerAsync().ConfigureAwait(true);
+		_worktrees = await BuildWorktreeManagerAsync().ConfigureAwait(false);
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
-		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(true);
+		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 
 		// Global hotkeys (e.g. ctrl+` → toggle the window): the service reads the global bindings and dispatches
 		// to the primary session's command dispatcher (the always-loaded one), where the handlers are wired.

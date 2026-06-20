@@ -119,8 +119,9 @@ export type HostBoundMessage =
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
   // reusable preview tab (single-click / go-to-def); omitted/false opens a persistent tab.
   | { type: "reveal-file"; path: string; line: number; preview?: boolean }
-  // The changes view asks the host for one file's session diff (baseline vs current text).
-  | { type: "get-change-diff"; path: string }
+  // The review walk asks the host for one file's turn diff (review-baseline vs current), so opening a file in
+  // the review re-renders its inline applied diff even if its per-file turn-diff push was missed.
+  | { type: "get-turn-diff"; path: string }
   // Host-backed file:// provider: the editor's VSCode working copies read/write the real disk through the
   // host (this is how the editor persists buffers now — it replaced the old debounced save-buffer message).
   // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
@@ -251,13 +252,6 @@ export type WebBoundMessage =
   // light↔dark instantly + flash-free. Each slot is { id, ops, theme? } — the converted VS Code theme JSON
   // is present only for installed themes (built-ins carry only the id). Re-themes editor, terminal, chrome live.
   | { type: "theme"; mode: ThemeMode; light: ThemeSlot; dark: ThemeSlot }
-  // Host pushes the session change list (each tracked file's path + added/removed line counts).
-  | {
-      type: "session-changes";
-      files: { path: string; name: string; added: number; removed: number }[];
-    }
-  // Host answers get-change-diff with one file's session baseline + current text.
-  | { type: "change-diff"; path: string; name: string; baseline: string; current: string }
   // Host-backed file:// provider replies, correlated to a request `id`. fs-stat-result: existence + stat;
   // fs-read-result: content + etag, or code:"FileNotFound" (provider falls through) or a loud error;
   // fs-write-result: post-write etag, or an error. Optional fields are absent (not null) when not applicable.
@@ -293,6 +287,13 @@ export type WebBoundMessage =
   // The host-backed file:// provider learned files changed on disk (a Claude edit, or the workspace watcher
   // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
+  // The per-TURN change list (files changed this turn + each file's first-change line). Drives the inline
+  // review walk's ← / → file axis (there is no panel) and the auto-arm on turn end. Pushed in auto-keep modes
+  // only (acceptEdits/bypass); empty after a turn boundary (new turn).
+  | {
+      type: "turn-changes";
+      files: { path: string; name: string; added: number; removed: number; line: number }[];
+    }
   // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
   // baseline === current means "no markers" (the file was accepted or reverted this turn).
   | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }

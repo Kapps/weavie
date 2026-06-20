@@ -1,55 +1,36 @@
-using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
+using Weavie.Core.Hooks;
 
 namespace Weavie.Core.Mcp;
 
 /// <summary>
-/// Applies the user's edit-permission policy on top of an inner <see cref="IDiffPresenter"/>, read
-/// live from the settings store on every call so it toggles without a restart:
-/// <list type="bullet">
-/// <item><c>default</c> — delegate to the inner presenter: the blocking Keep/Reject review.</item>
-/// <item><c>acceptEdits</c> — auto-keep immediately (no prompt), so edits apply without blocking.</item>
-/// <item><c>bypassPermissions</c> — also auto-keep (the hook bridge auto-allows tools; if Claude still
-/// asks for an edit via openDiff, keep it without prompting).</item>
-/// </list>
-/// Claude itself stays in its own <c>default</c> permission mode in both cases, so <c>openDiff</c>
-/// keeps firing for every edit — the policy lives here, not in a Claude launch flag (which would
-/// disable openDiff). That preserved signal is what lets a recorded changes view be added later.
-/// See <c>docs/specs/permission-modes-and-change-tracking.md</c>.
+/// Auto-keeps an <c>openDiff</c> when Claude is auto-applying edits, otherwise delegates to the inner
+/// <see cref="IDiffPresenter"/> (the blocking Keep/Reject review). The signal is Claude's <em>observed</em>
+/// edit mode (<see cref="ObservedPermissionMode"/>) — Claude owns its mode (Shift+Tab) and Weavie reflects
+/// it, rather than a Weavie setting driving a launch flag. In <c>default</c> mode <c>openDiff</c> is the
+/// per-edit review; in <c>acceptEdits</c>/<c>bypassPermissions</c> the edit already applied (so a blocking
+/// review would be wrong) and the recorded change feed + post-turn review are the surface instead. Claude
+/// stays free to call <c>openDiff</c> in any mode, which is why this defends against it firing under an
+/// auto-apply mode. See <c>docs/specs/permission-modes-and-change-tracking.md</c>.
 /// </summary>
 public sealed class PermissionModeDiffPresenter : IDiffPresenter {
-	/// <summary>The settings key for Claude's edit-permission mode (<c>default</c>/<c>acceptEdits</c>/<c>bypassPermissions</c>).</summary>
-	public const string ModeKey = "claude.permissionMode";
-
 	private readonly IDiffPresenter _inner;
-	private readonly SettingsStore _settings;
+	private readonly ObservedPermissionMode _mode;
 
-	/// <summary>Wraps <paramref name="inner"/>, reading the permission mode live from <paramref name="settings"/>.</summary>
-	public PermissionModeDiffPresenter(IDiffPresenter inner, SettingsStore settings) {
+	/// <summary>Wraps <paramref name="inner"/>, auto-keeping when <paramref name="mode"/> reports edits auto-apply.</summary>
+	public PermissionModeDiffPresenter(IDiffPresenter inner, ObservedPermissionMode mode) {
 		ArgumentNullException.ThrowIfNull(inner);
-		ArgumentNullException.ThrowIfNull(settings);
+		ArgumentNullException.ThrowIfNull(mode);
 		_inner = inner;
-		_settings = settings;
-	}
-
-	/// <summary>
-	/// True when the current mode auto-keeps edits (<c>acceptEdits</c>/<c>bypassPermissions</c>) — i.e. there is
-	/// NO blocking openDiff review. The hosts use this to decide whether to surface the inline applied
-	/// turn-markers: they are the review surface only when edits auto-apply; in <c>default</c> mode openDiff is
-	/// the per-edit review, so a second applied marker would just demand a redundant Accept.
-	/// </summary>
-	/// <param name="settings">The settings store to read the mode from.</param>
-	public static bool AutoKeepsEdits(SettingsStore settings) {
-		ArgumentNullException.ThrowIfNull(settings);
-		return settings.GetString(ModeKey) is "acceptEdits" or "bypassPermissions";
+		_mode = mode;
 	}
 
 	/// <inheritdoc/>
 	public Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken) {
 		ArgumentNullException.ThrowIfNull(proposal);
-		if (AutoKeepsEdits(_settings)) {
-			// Auto-keep: report the proposed contents as kept. openDiff returns them and Claude writes —
-			// no blocking review, but the edit still flowed through openDiff so it can be recorded.
+		if (_mode.AutoAppliesEdits) {
+			// Auto-keep: report the proposed contents as kept. The edit still flowed through openDiff so it can
+			// be recorded, but there's no blocking review — Claude's own mode already accepted it.
 			return Task.FromResult(DiffOutcome.Kept(proposal.NewFileContents));
 		}
 

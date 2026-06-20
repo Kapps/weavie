@@ -40,6 +40,8 @@ internal sealed class WorkspaceHost {
 	private LayoutStore? _layout;
 	private EditorStore? _editor;
 	private SessionChangeTracker? _changes;
+	// Mirrors Claude's own edit mode (observed off the hook stream; Weavie reflects it, never sets it).
+	private readonly Weavie.Core.Hooks.ObservedPermissionMode _observedMode = new();
 	private LocalFileSystem? _fileSystem;
 	private string? _workspace;
 	private CommandRegistry? _commandRegistry;
@@ -121,7 +123,7 @@ internal sealed class WorkspaceHost {
 		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
 		_changes = new SessionChangeTracker(fileSystem);
 		_ide = new IdeIntegration(
-			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
+			new PermissionModeDiffPresenter(_diffPresenter, _observedMode), [workspace], "weavie", _settings, _layout, _editor,
 			commands: _commands, keybindings: _keybindings, themeOverrides: null, editLocator: _changes.EditLocationFor);
 		_ide.Server.Log += line => Log($"[mcp] {line}");
 		if (_ide.RegistryServer is { } registryServer) {
@@ -143,11 +145,16 @@ internal sealed class WorkspaceHost {
 		// thread; marshal before touching the web. (The tracker itself is built above, before the IDE
 		// server, so EditLocationFor can back the hook bridge's edit jump-links.)
 		_ide.HookBridge.Observed += _changes.Observe;
+		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
+		_ide.HookBridge.Observed += _observedMode.Observe;
 		_changes.Changed += () => GtkMain.Invoke(PushChangesToWeb);
 		_changes.FileChanged += path => GtkMain.Invoke(() => PushRefreshToWeb(path));
 		// Inline diff: per-turn diff per edited file + clear-all on a turn boundary (implicit accept).
 		_changes.FileChanged += path => GtkMain.Invoke(() => PushTurnDiffToWeb(path));
 		_changes.TurnBegan += () => GtkMain.Invoke(PushTurnReset);
+		// Review navigator: the per-turn change list, refreshed on change + cleared on a new turn.
+		_changes.Changed += () => GtkMain.Invoke(PushTurnChangesToWeb);
+		_changes.TurnBegan += () => GtkMain.Invoke(PushTurnChangesToWeb);
 		Log($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
@@ -305,6 +312,9 @@ internal sealed class WorkspaceHost {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
+			case "get-turn-diff":
+				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
 			case "fs-stat":
 				if (_fileProvider is not null) {
 					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
@@ -397,6 +407,13 @@ internal sealed class WorkspaceHost {
 		}
 	}
 
+	/// <summary>Pushes the per-turn change list (files changed this turn + each file's first-change line) for the review navigator.</summary>
+	private void PushTurnChangesToWeb() {
+		if (_changes is not null && _observedMode.AutoAppliesEdits) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(_changes));
+		}
+	}
+
 	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
 	private void PushChangeDiffToWeb(string path) {
 		if (_changes?.Get(path) is { } change) {
@@ -416,7 +433,7 @@ internal sealed class WorkspaceHost {
 
 	/// <summary>Pushes one file's per-turn diff so the page renders it inline in the live editor.</summary>
 	private void PushTurnDiffToWeb(string path) {
-		if (_changes?.GetTurn(path) is { } turn) {
+		if (_observedMode.AutoAppliesEdits && _changes?.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}
 	}

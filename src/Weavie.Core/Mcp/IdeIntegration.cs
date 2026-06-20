@@ -53,11 +53,12 @@ public sealed class IdeIntegration : IAsyncDisposable {
 
 		// The hook bridge: a current-user-only pipe (no token) the spawned claude's PreToolUse/PostToolUse
 		// hooks dial via the relay, scoped to this instance by the IDE port. Carries the change-recording
-		// stream + the permission gate (bypassPermissions → auto-allow), read live from the settings store.
+		// stream + Weavie's tool-permission gate (claude.allowAllTools → auto-allow non-edit tools), read live
+		// from the settings store; edits stay with Claude's own mode, which Weavie only observes.
 		HookBridge = new HookBridgeServer(
 			HookProtocol.PipeName(Port),
 			request => {
-				var decision = HookPolicy.Decide(request, settings?.GetString("claude.permissionMode") ?? "default");
+				var decision = HookPolicy.Decide(request, settings?.GetBool("claude.allowAllTools", fallback: false) ?? false);
 				// On a landed edit, attach a clickable file:line jump target as the hook's systemMessage so
 				// Claude prints it in the TUI (the terminal turns path:line tokens into Monaco reveals).
 				string? location = editLocator?.Invoke(request);

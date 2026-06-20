@@ -20,7 +20,6 @@ export function TitleBar(props: {
   onWindowControl: (action: WindowControlAction) => void;
   onMenuAction: (action: MenuAction, path?: string) => void;
   onToggleFiles: () => void;
-  onToggleChanges: () => void;
   onOpenFile: (abs: string) => void;
   onRequestIndex: () => void;
 }): JSX.Element {
@@ -38,7 +37,6 @@ export function TitleBar(props: {
           recents={recents()}
           onMenuAction={props.onMenuAction}
           onToggleFiles={props.onToggleFiles}
-          onToggleChanges={props.onToggleChanges}
         />
       </div>
 

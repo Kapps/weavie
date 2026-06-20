@@ -1,6 +1,6 @@
 # Host-core unification (and why the macOS session rail is empty)
 
-Status: proposed
+Status: implemented (host side; runtime verification pending)
 Last updated: 2026-06-19
 
 ## The symptom and the real problem
@@ -253,6 +253,38 @@ home the coordinator (Phase 5) plugs into.
 - **Win custom chrome.** `WorkspaceWindow` implements `IShellWindow`; routing
   `window-control`/`window-resize`/`menu-action` through the optional `IShellWindow` seam in `HostCore`
   is a clean follow-up but not required for the session fix.
+
+## Implementation status (2026-06-19)
+
+All six phases landed. The duplication is gone and the session feature is shared by every host — the
+macOS rail is fixed as a property of the shared core, not a Mac patch.
+
+- **`TerminalController` unified** behind `IPtyLauncher` (`PosixPtyLauncher` + Win-side
+  `WindowsPtyLauncher`); the Win-only multi-session members folded into the one shared controller.
+- **Session model shared** — `HostSession` / `SessionManager` / `SessionSlot` moved to
+  `Weavie.Hosting`, rebound to `IHostBridge` + the unified controller.
+- **`HostCore`** (in `Weavie.Hosting`, three partials) owns the Core graph, the bridge dispatch + Push
+  helpers, and the session coordinator (implements `ISessionHost`). New seams: `IUiDispatcher`,
+  `IHostPlatform` (bundles bridge / dispatcher / PTY launcher / chrome identity / optional
+  window·hotkeys·dialogs), `IHostDialogs`, and the `HostServices` store bundle.
+- **All four hosts migrated to thin shells:** Headless (`HeadlessSession` 533 → `HeadlessPlatform`
+  ~45 + thin `Program`), Linux (`WorkspaceHost` 579 → ~150 + `LinuxPlatform`), macOS (`AppDelegate`
+  trio ~1200 → ~430 + `MacDialogs` + `MacPlatform` impl), Windows (`WorkspaceWindow` trio ~1860 +
+  479-line private fork → ~430-line shell + `WinDialogs` + `WindowsPtyLauncher`). Each shell now holds
+  only its native window / chrome / dialogs / marshal and an `IHostPlatform`.
+
+**Verification.** `Weavie.Core`/`Hosting`/`Headless`/`Linux`/`Mac` build clean (0 warnings); `Win`
+typechecks clean via `-p:EnableWindowsTargeting=true` (Windows reference assemblies — not a runnable
+Windows exe). Core suite: 371 pass; the 5 failures are pre-existing macOS-environment issues (named
+pipes, git-worktree integration, a Windows-path settings test) confirmed failing on `main`. Web tsc +
+biome green. Headless was runtime-smoke-tested end to end (boots, starts IDE-MCP + LSP, serves the
+injected bootstrap). **Still pending:** runtime verification of the GUI hosts — drive the macOS app and
+confirm the rail shows the primary chip + `+`, and a Windows run.
+
+**Per-session hook-bridge pipe (the flagged prerequisite).** Each `HostSession` already owns its own
+`IdeIntegration` (per-port IDE-MCP + its own hook bridge), so the per-session isolation the multi-session
+spec required is intact in the shared model — but it has not been exercised with N>1 sessions at runtime
+yet. Verify before relying on multi-session status with concurrent agents.
 
 ## Out of scope / deferred
 

@@ -6,6 +6,7 @@
 // Messages are JSON. When running in a plain browser (dev), the host handler is
 // absent and outbound messages are no-ops — by design, never a thrown error.
 
+import { createSignal } from "solid-js";
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
@@ -318,27 +319,53 @@ export type WebBoundMessage =
   | { type: "run-command"; id: string; args?: unknown; token: string };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
+type SessionMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 
+// Listeners that render the page — they only ever see the ACTIVE backend's traffic (terminals, editor,
+// layout, diffs, …), so a background backend can never paint over what's on screen.
 const listeners = new Set<WebMessageHandler>();
+// Listeners for the cross-backend rail: session-list / session-status from EVERY connected backend, tagged
+// with which backend they came from, so the rail can show local + remote sessions side by side.
+const sessionListeners = new Set<SessionMessageHandler>();
 
-// Parse one inbound host->web JSON line and fan it out to the registered listeners. Shared by every
-// transport (the native `window.__weavieReceive` callback and the WebSocket transport below) so the
-// dispatch — and the loud-on-bad-JSON contract — is identical however the bytes arrived.
-function deliverFromHost(raw: string): void {
+// The id of the backend whose traffic drives the page right now. "local" is the default backend (the native
+// shell's in-process host, or the same-origin headless WebSocket); remotes are added via connectBackend.
+const [activeBackend, setActiveBackend] = createSignal("local");
+const LOCAL_BACKEND_ID = "local";
+
+// session-list / session-status are the only message types aggregated across backends (they feed the rail).
+// Everything else belongs to whichever backend the page is bound to.
+function isSessionMessage(type: string): boolean {
+  return type === "session-list" || type === "session-status";
+}
+
+// Parse one inbound host->web JSON line and route it. Session messages fan out to the rail listeners tagged
+// with `backendId`; all other messages reach the page listeners only when they come from the active backend.
+// Shared by every transport so the dispatch — and the loud-on-bad-JSON contract — is identical for all.
+function deliverFromHost(raw: string, backendId: string): void {
   let parsed: WebBoundMessage;
   try {
     parsed = JSON.parse(raw) as WebBoundMessage;
   } catch {
-    log("error", `bridge: bad JSON from host: ${raw.slice(0, 200)}`);
+    log("error", `bridge: bad JSON from ${backendId}: ${raw.slice(0, 200)}`);
     return;
+  }
+  if (isSessionMessage(parsed.type)) {
+    for (const listener of sessionListeners) {
+      listener(parsed, backendId);
+    }
+    return;
+  }
+  if (backendId !== activeBackend()) {
+    return; // a background backend never paints the page
   }
   for (const listener of listeners) {
     listener(parsed);
   }
 }
 
-// One way to push bytes to the host. The bridge speaks the same HostBound/WebBound JSON regardless of
-// how they travel; only the pipe differs.
+// One way to push bytes to a backend. The bridge speaks the same HostBound/WebBound JSON regardless of how
+// they travel; only the pipe differs.
 interface BridgeTransport {
   send(json: string): void;
 }
@@ -369,7 +396,10 @@ class WebSocketTransport implements BridgeTransport {
   private readonly outbox: string[] = [];
   private reconnectDelayMs = 500;
 
-  constructor(private readonly url: string) {
+  constructor(
+    private readonly backendId: string,
+    private readonly url: string,
+  ) {
     this.connect();
   }
 
@@ -399,7 +429,7 @@ class WebSocketTransport implements BridgeTransport {
     };
     socket.onmessage = (event: MessageEvent): void => {
       if (typeof event.data === "string") {
-        deliverFromHost(event.data);
+        deliverFromHost(event.data, this.backendId);
       }
     };
     socket.onclose = (): void => {
@@ -440,23 +470,85 @@ function resolveBridgeWsUrl(): string | null {
   return configured;
 }
 
-// Pick the transport once, at module load. A native shell always wins (its in-process channel is
-// lower-latency and already trusted). Otherwise, if a serve host advertised a WebSocket, use it. With
-// neither — a plain browser opened against the dev server — outbound is a no-op and nothing is ever
-// received, exactly as before: the bridge degrades silently, never throws.
-const transport: BridgeTransport | null = (() => {
+// A connected backend: a transport plus its display identity. "local" is the default backend; remotes carry
+// the registered agent's name (shown on the rail + the New Session location picker).
+export interface BackendInfo {
+  id: string;
+  name: string;
+  isLocal: boolean;
+}
+
+interface Backend {
+  info: BackendInfo;
+  transport: BridgeTransport;
+}
+
+const backends = new Map<string, Backend>();
+const [backendList, setBackendList] = createSignal<BackendInfo[]>([]);
+
+function publishBackends(): void {
+  setBackendList([...backends.values()].map((b) => b.info));
+}
+
+// The default/local backend: a native shell's in-process channel always wins (lower-latency, already
+// trusted); otherwise the same-origin headless WebSocket. With neither — a plain browser on the dev server —
+// there is no local backend and outbound is a no-op, exactly as before: the bridge degrades silently.
+(() => {
+  // Native always delivers via window.__weavieReceive; tag it as the local backend.
+  window.__weavieReceive = (raw: string): void => deliverFromHost(raw, LOCAL_BACKEND_ID);
+  let transport: BridgeTransport | null = null;
   if (window.webkit?.messageHandlers?.weavie !== undefined) {
-    return nativeTransport;
+    transport = nativeTransport;
+  } else {
+    const wsUrl = resolveBridgeWsUrl();
+    transport = wsUrl === null ? null : new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl);
   }
-  const wsUrl = resolveBridgeWsUrl();
-  return wsUrl === null ? null : new WebSocketTransport(wsUrl);
+  if (transport !== null) {
+    backends.set(LOCAL_BACKEND_ID, {
+      info: { id: LOCAL_BACKEND_ID, name: "default", isLocal: true },
+      transport,
+    });
+    publishBackends();
+  }
 })();
 
-export function postToHost(message: HostBoundMessage): void {
-  if (transport === null) {
+// Connect an additional (remote) backend — a runner's worker bridge — and ask it to push its session-list so
+// its sessions appear on the rail immediately. Its page-painting traffic stays suppressed until it is made
+// active (see deliverFromHost). Idempotent per id.
+export function connectBackend(id: string, name: string, wsUrl: string): void {
+  if (backends.has(id)) {
     return;
   }
-  transport.send(JSON.stringify(message));
+  const transport = new WebSocketTransport(id, wsUrl);
+  backends.set(id, { info: { id, name, isLocal: false }, transport });
+  publishBackends();
+  transport.send(JSON.stringify({ type: "ready" }));
+}
+
+/** The connected backends (local + remotes), for the location picker and rail labels. */
+export const connectedBackends = backendList;
+
+/** The id of the backend currently driving the page. */
+export const activeBackendId = activeBackend;
+
+/** Bind the page to a backend; its next session-scoped pushes (term-reset/editor) re-attach the panes. */
+export function setActiveBackendId(id: string): void {
+  setActiveBackend(id);
+}
+
+/** The display name of a backend id, or the id itself if unknown. */
+export function backendName(id: string): string {
+  return backends.get(id)?.info.name ?? id;
+}
+
+/** Send to the active backend (the page's current backend). */
+export function postToHost(message: HostBoundMessage): void {
+  backends.get(activeBackend())?.transport.send(JSON.stringify(message));
+}
+
+/** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */
+export function postToBackend(backendId: string, message: HostBoundMessage): void {
+  backends.get(backendId)?.transport.send(JSON.stringify(message));
 }
 
 export function log(level: "info" | "warn" | "error", message: string): void {
@@ -467,6 +559,14 @@ export function onHostMessage(handler: WebMessageHandler): () => void {
   listeners.add(handler);
   return () => {
     listeners.delete(handler);
+  };
+}
+
+/** Subscribe to session-list / session-status from EVERY backend (tagged with its id), for the rail. */
+export function onSessionMessage(handler: SessionMessageHandler): () => void {
+  sessionListeners.add(handler);
+  return () => {
+    sessionListeners.delete(handler);
   };
 }
 
@@ -487,6 +587,5 @@ export function hostInjected<T>(name: string, value: T | undefined, devFallback:
   );
 }
 
-// The native shells push messages by calling this; the WebSocket transport feeds the same dispatcher
-// directly. Kept for the native channel even when a WebSocket transport is active (harmless, unused).
-window.__weavieReceive = deliverFromHost;
+// window.__weavieReceive is wired to the local backend in the backend-setup IIFE above (native shells call
+// it directly; the WebSocket transports feed deliverFromHost themselves).

@@ -1,8 +1,30 @@
 # Remote sessions
 
-Status: **in progress** — the runner (scenario 1) provisions one multi-session backend per workspace;
-New Session creates worktree sessions on the remote box. Container isolation and the native-shell
-"connect to runner" UI are follow-ups.
+Status: **working (web mechanism)** — register a remote agent, then New Session shows a **location**
+picker (default | agent name); picking a remote spins up a worktree on the remote box with its
+Claude/terminal/editor pointed at the remote filesystem, and it joins the rail alongside local sessions.
+Verified end-to-end via the headless host. Container isolation, a synced (non-localStorage) agent
+registry, and per-session LSP-over-the-bridge are follow-ups.
+
+## How the frontend aggregates backends
+
+Each backend — the local/default host and every registered remote runner's worker — is a pristine,
+unmodified `HostCore`. The **web frontend connects to several at once** and designates one **active**
+backend that drives the page; the rail merges every backend's `session-list` (tagged by location) so
+local + remote sessions sit together. The two rules:
+
+- **session-list / session-status are aggregated from all backends** (the rail). Everything else
+  (terminals, editor, layout, diffs) is delivered to the page **only from the active backend**, so a
+  background backend can never paint over what's on screen.
+- **Switching to a session on another backend** just rebinds the page to it: its normal switch reply
+  (`term-reset` → the panes re-emit `term-ready`, plus `set-editor-session`) re-attaches the terminals
+  and editor, and `fs-*` / `term-input` then flow to that backend — so a remote session's Claude and
+  editor read/write the remote disk. New Session at a location sends `new-session` to that backend.
+
+Registration is client-side for now (`localStorage`, a "+ Add remote agent…" entry in the New Session
+location picker that stores the runner URL + token). The local host resolves nothing; the web calls the
+runner's `GET /backend` (CORS-enabled) to discover the worker URL+token and opens its bridge. Moving the
+registry to a synced Weavie setting is a follow-up.
 
 > **Updated after the host-core unification** ([host-core-unification.md](host-core-unification.md)):
 > the session model (`new-session`, worktrees, the rail) moved out of `Weavie.Win` into shared
@@ -144,11 +166,15 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
   browser; tunnel it over (or alongside) the authed bridge so remote editing gets language features.
 - **Container isolation.** A second pair of `ProcessSupervisor` `start`/`stop` delegates (run a
   container running headless instead of a local process); the control plane and frontend are unchanged.
-- **Native-shell "connect to runner."** Today a remote backend is reached by opening the worker URL in
-  a browser (the whole frontend binds to it — works now). The richer product step is the native shell
-  binding a session to a remote backend so **local and remote sessions coexist in one rail**; because
-  the session model is now shared in `HostCore`, this lands once for all shells.
+- **Native-shell verification.** The multi-backend logic lives entirely in the shared web, so the native
+  shell gets it by construction (its local backend is the in-process host via the native transport;
+  remotes are WebSockets). Built + verified via headless here; still to be run on a native shell over a
+  real Tailscale link.
+- **Synced agent registry.** Registration is `localStorage` today; move it to a Weavie setting so it
+  persists/syncs and can be managed from the capability registry (and by Claude).
 - **Multiple workspaces per runner.** Today the runner serves one configured workspace; keying workers
   by workspace (and a small registry) generalizes it.
+- **Cross-origin hardening.** The runner control plane currently returns `Access-Control-Allow-Origin: *`
+  (token-gated); pair with TLS + tighter origins.
 - **Reattach / durability.** The long-lived worker survives a dropped frontend (its bridge re-attaches
   on refresh); a reconnect just re-opens the saved URL.

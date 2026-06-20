@@ -1,9 +1,9 @@
 import { For, type JSX, Show, createSignal } from "solid-js";
-import type { SessionChip } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./ContextMenu";
+import type { RailSession } from "./session-store";
 
 // The left session rail: one chip per session (a deterministic hashed hue + the branch monogram), with a
 // status dot and an active-session accent, plus a "+" to spin up a new worktree session. The host orders the
@@ -14,8 +14,8 @@ import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./Con
 // set via a ref using the native DOM API (Solid's reactive `style={{}}` binding is avoided on purpose — it
 // breaks at runtime in this app; see the project notes).
 export function SessionRail(props: {
-  sessions: SessionChip[];
-  onSwitch: (id: string) => void;
+  sessions: RailSession[];
+  onSwitch: (session: RailSession) => void;
   onNew: () => void;
 }): JSX.Element {
   // Advertise the New Session shortcut on the "+" tooltip, read from the command catalog (never hardcoded),
@@ -37,10 +37,11 @@ export function SessionRail(props: {
   };
   // The chip's hover tooltip: its label + status (or unloaded hint), with the switch shortcut appended so
   // the keyboard path is discoverable from the mouse.
-  const chipTitle = (session: SessionChip, index: number): string => {
+  const chipTitle = (session: RailSession, index: number): string => {
+    const where = session.isLocal ? "" : ` @ ${session.locationName}`;
     const base = session.loaded
-      ? `${session.label} — ${session.status}`
-      : `${session.label} — unloaded (click to load)`;
+      ? `${session.label}${where} — ${session.status}`
+      : `${session.label}${where} — unloaded (click to load)`;
     const shortcut = switchShortcut(index);
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
@@ -49,7 +50,7 @@ export function SessionRail(props: {
   // commands targeting the chip by id (load/unload, delete). The primary checkout has no worktree to act on,
   // so it opens no menu.
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
-  const menuEntries = (session: SessionChip): ContextMenuEntry[] => {
+  const menuEntries = (session: RailSession): ContextMenuEntry[] => {
     const args = { id: session.id };
     return [
       session.loaded
@@ -59,7 +60,7 @@ export function SessionRail(props: {
       { commandId: CommandIds.deleteSessionPrompt, args, label: "Delete…", danger: true },
     ];
   };
-  const openMenu = (event: MouseEvent, session: SessionChip): void => {
+  const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
     if (session.primary) {
       return;
@@ -81,16 +82,20 @@ export function SessionRail(props: {
               type="button"
               class={`session-chip status-${session.status}${session.active ? " active" : ""}${
                 session.loaded ? "" : " unloaded"
-              }`}
+              }${session.isLocal ? "" : " remote"}`}
               title={chipTitle(session, index())}
               ref={(el) => el.style.setProperty("--chip-hue", String(session.hue))}
-              onClick={() => props.onSwitch(session.id)}
+              onClick={() => props.onSwitch(session)}
               onContextMenu={(event) => openMenu(event, session)}
             >
               <span class="session-chip-mono">{session.monogram}</span>
               {/* A dormant chip has no live Claude, so no status dot — the faded chip is the indicator. */}
               <Show when={session.loaded}>
                 <span class="session-chip-dot" />
+              </Show>
+              {/* Remote sessions carry a small location badge so local vs remote is visible at a glance. */}
+              <Show when={!session.isLocal}>
+                <span class="session-chip-loc">{session.locationName}</span>
               </Show>
             </button>
           )}

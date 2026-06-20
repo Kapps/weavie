@@ -1,13 +1,14 @@
-// Visual capture for REMOTE SESSIONS (docs/specs/remote-sessions.md): drives the real flow end to end —
-// the runner provisions one multi-session Weavie.Headless worker for the workspace; the browser opens it
-// (token-gated bridge); then the app's own New Session creates a worktree session ON THE REMOTE BOX via the
-// shared HostCore, and the new chip appears in the rail.
+// Visual capture for REMOTE SESSIONS (docs/specs/remote-sessions.md): the full feature end to end.
+//   1. The browser is the LOCAL Weavie (connected to a local headless host = the "default" backend).
+//   2. New Session → "Add remote agent…" → register a runner (URL + token).
+//   3. New Session again → pick the remote location → a worktree is created ON THE REMOTE box, and a
+//      remote-badged chip joins the rail alongside the local session.
 //
 // Run from src/web after `pnpm run build` (so dist exists):  node e2e/capture-remote.mjs
-// Builds Weavie.Headless (copies the fresh dist into wwwroot) and Weavie.Runner, records to e2e/.recordings/.
+// Builds Weavie.Headless (copies fresh dist into wwwroot) + Weavie.Runner, records to e2e/.recordings/.
 
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -22,53 +23,58 @@ const runnerDll = join(repoRoot, "src", "Weavie.Runner", "bin", "Debug", "net10.
 const outDir = join(webRoot, "e2e", ".recordings");
 const viewport = { width: 1280, height: 800 };
 const RUNNER_TOKEN = "capturetoken";
-const BRANCH = "remote-demo";
+// The remote gets its own repo so its worktrees don't collide with the local host's (same-machine test only;
+// real local/remote are different machines).
+const remoteRepo = join("/tmp", "weavie-remote-demo");
 
-async function tour(page, runnerUrl) {
+async function tour(page, localUrl, runnerUrl) {
   const settle = (ms) => page.waitForTimeout(ms);
   await page.emulateMedia({ colorScheme: "dark" });
 
-  // 1. The runner's landing page (auth'd via ?token=). It ensures the workspace backend and exposes its URL.
-  await page.goto(`${runnerUrl}/?token=${RUNNER_TOKEN}`, { waitUntil: "load" });
-  const open = page.locator("#open");
-  await open.waitFor({ timeout: 10_000 });
-  // Wait until the backend reports running, then read its connect URL.
-  await page.locator("#status.running").waitFor({ timeout: 30_000 });
-  await settle(1500);
-  const workerUrl = await open.getAttribute("href");
-  console.log(`[capture] backend url: ${workerUrl}`);
-
-  // 2. Connect to the remote worker over the token-gated bridge — the real app boots against it.
-  await page.goto(workerUrl, { waitUntil: "load" });
+  // 1. Boot the LOCAL Weavie (the default backend).
+  await page.goto(`${localUrl}/`, { waitUntil: "load" });
   await page.locator("#splash").waitFor({ state: "detached", timeout: 45_000 }).catch(() => {});
   await settle(2500);
+  const before = await page.locator(".session-chip").count();
+  console.log(`[capture] local chips: ${before}`);
 
-  // 3. The rail shows the primary chip. Click New Session (+) → the prompt.
-  const chips = page.locator(".session-chip");
-  const before = await chips.count();
-  console.log(`[capture] chips before New Session: ${before}`);
+  // 2. New Session → choose "Add remote agent…".
   await page.locator(".session-rail-add").click();
-  await page.locator(".session-prompt-input").waitFor({ timeout: 8_000 });
+  await page.locator(".session-prompt-select").waitFor({ timeout: 8_000 });
   await settle(1200);
+  await page.locator(".session-prompt-select").selectOption("__add__");
+  await page.locator(".session-prompt-input").first().waitFor({ timeout: 8_000 });
+  await settle(1000);
 
-  // 4. Name the branch and branch off HEAD — this posts new-session; the REMOTE HostCore creates the worktree.
-  await page.locator(".session-prompt-input").fill(BRANCH);
+  // 3. Register the runner (name / URL / token).
+  const inputs = page.locator(".session-prompt-input");
+  await inputs.nth(0).fill("devbox");
+  await inputs.nth(1).fill(runnerUrl);
+  await inputs.nth(2).fill(RUNNER_TOKEN);
+  await settle(1200);
+  await page.locator(".session-prompt-btn-primary").click();
+
+  // 4. New Session reopens with the remote location available — pick it.
+  await page.locator(".session-prompt-select").waitFor({ timeout: 15_000 });
+  await settle(1200);
+  await page.locator(".session-prompt-select").selectOption("remote:devbox");
+  await settle(800);
+  await page.locator(".session-prompt-input").fill("remote-feature");
   await settle(800);
   await page.locator(".session-prompt-btn-primary").click();
 
-  // 5. The new remote worktree session appears as a second chip on the rail.
-  await page.waitForFunction(
-    (n) => document.querySelectorAll(".session-chip").length > n,
-    before,
-    { timeout: 30_000 },
-  );
-  console.log(`[capture] chips after New Session: ${await chips.count()}`);
-  await settle(3000);
+  // 5. A remote-badged chip joins the rail (the worktree was created on the remote box).
+  await page.locator(".session-chip.remote").first().waitFor({ timeout: 30_000 });
+  await page.waitForFunction((n) => document.querySelectorAll(".session-chip").length > n, before, {
+    timeout: 30_000,
+  });
+  console.log(`[capture] chips after remote New Session: ${await page.locator(".session-chip").count()}`);
+  await settle(3500);
 }
 
-function run(cmd, args) {
+function run(cmd, args, opts = {}) {
   return new Promise((res, rej) => {
-    const proc = spawn(cmd, args, { stdio: "inherit" });
+    const proc = spawn(cmd, args, { stdio: "inherit", ...opts });
     proc.on("exit", (code) => (code === 0 ? res() : rej(new Error(`${cmd} exited with ${code}`))));
     proc.on("error", rej);
   });
@@ -89,20 +95,31 @@ function freePort() {
   });
 }
 
-function waitForRunner(proc, timeoutMs) {
+function waitForLine(proc, needle, timeoutMs) {
   return new Promise((res, rej) => {
-    const timer = setTimeout(() => rej(new Error("runner did not report listening in time")), timeoutMs);
+    const timer = setTimeout(() => rej(new Error(`did not see "${needle}" in time`)), timeoutMs);
     proc.stdout.on("data", (chunk) => {
-      if (chunk.toString("utf8").includes("control plane: http://")) {
+      if (chunk.toString("utf8").includes(needle)) {
         clearTimeout(timer);
         res();
       }
     });
     proc.on("exit", (code) => {
       clearTimeout(timer);
-      rej(new Error(`runner exited early with code ${code}`));
+      rej(new Error(`process exited early with code ${code}`));
     });
   });
+}
+
+async function setupRemoteRepo() {
+  rmSync(remoteRepo, { recursive: true, force: true });
+  mkdirSync(remoteRepo, { recursive: true });
+  writeFileSync(join(remoteRepo, "README.md"), "# remote demo workspace\n");
+  await run("git", ["-C", remoteRepo, "init", "-q"]);
+  await run("git", ["-C", remoteRepo, "config", "user.email", "demo@weavie.dev"]);
+  await run("git", ["-C", remoteRepo, "config", "user.name", "weavie demo"]);
+  await run("git", ["-C", remoteRepo, "add", "."]);
+  await run("git", ["-C", remoteRepo, "commit", "-q", "-m", "init"]);
 }
 
 async function main() {
@@ -110,26 +127,39 @@ async function main() {
   console.log("[capture] building headless host (copies fresh web dist into wwwroot) + runner…");
   await run("dotnet", ["build", headlessProject, "-c", "Debug"]);
   await run("dotnet", ["build", runnerProject, "-c", "Debug"]);
+  await setupRemoteRepo();
 
-  const port = await freePort();
-  const runnerUrl = `http://127.0.0.1:${port}`;
-  console.log(`[capture] launching runner on ${runnerUrl} (workspace: ${repoRoot})…`);
+  const localPort = await freePort();
+  const runnerPort = await freePort();
+  const localUrl = `http://127.0.0.1:${localPort}`;
+  const runnerUrl = `http://127.0.0.1:${runnerPort}`;
+
+  console.log(`[capture] launching local headless on ${localUrl} (workspace: ${repoRoot})…`);
+  const local = spawn("dotnet", [headlessDll], {
+    env: { ...process.env, WEAVIE_SERVE_PORT: String(localPort), WEAVIE_SERVE_WORKSPACE: repoRoot },
+    stdio: ["ignore", "pipe", "inherit"],
+  });
+
+  console.log(`[capture] launching runner on ${runnerUrl} (workspace: ${remoteRepo})…`);
   const runner = spawn(
     "dotnet",
-    [runnerDll, "--workspace", repoRoot, "--token", RUNNER_TOKEN, "--port", String(port),
+    [runnerDll, "--workspace", remoteRepo, "--token", RUNNER_TOKEN, "--port", String(runnerPort),
      "--bind", "127.0.0.1", "--worker-bind", "127.0.0.1", "--headless", headlessDll],
     { stdio: ["ignore", "pipe", "inherit"] },
   );
 
   try {
-    await waitForRunner(runner, 60_000);
+    await Promise.all([
+      waitForLine(local, "open  http://", 60_000),
+      waitForLine(runner, "control plane: http://", 60_000),
+    ]);
     const browser = await chromium.launch();
     const context = await browser.newContext({ viewport, recordVideo: { dir: outDir, size: viewport } });
     const page = await context.newPage();
     page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
     page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
 
-    await tour(page, runnerUrl);
+    await tour(page, localUrl, runnerUrl);
 
     const video = page.video();
     await context.close();
@@ -138,6 +168,7 @@ async function main() {
     console.log(`\n[capture] recording: ${webm ?? "(none)"}`);
   } finally {
     runner.kill("SIGINT");
+    local.kill("SIGINT");
   }
 }
 

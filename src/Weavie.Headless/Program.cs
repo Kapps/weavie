@@ -43,19 +43,34 @@ var app = builder.Build();
 
 app.UseWebSockets();
 
-// Serve index.html ourselves so we can inject the bootstrap globals (bridge URL + fonts + commands) before
-// the module graph runs — must run before the static middleware, which would otherwise serve it verbatim.
-// On a tokenized (network-exposed) host the document is gated too: the bootstrap carries per-session
-// loopback LSP/MCP config, so an unauthenticated caller gets nothing — not even the shell. The standalone
-// flow reaches it as `…/?token=<t>`; the remote-runner flow never loads it (it opens only the bridge).
-app.Use(async (context, next) => {
-	string path = context.Request.Path.Value ?? "/";
-	if (path is "/" or "/index.html") {
-		if (token is not null && !TokenMatches(context, token)) {
-			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+var assets = Directory.Exists(wwwroot) ? new PhysicalFileProvider(wwwroot) : null;
+
+// SINGLE auth gate, default-deny. When a token is configured (any network-exposed host — enforced at
+// startup), EVERY request must carry the token EXCEPT public static assets (the JS/CSS the gated document
+// loads, which hold no secrets). So the document, the bridge, and any endpoint added later are gated
+// automatically — you can't forget a per-route check, because there are none. "Public" is the narrow, exact
+// exception: a real file under wwwroot that isn't index.html. Everything else (incl. unknown paths) → 401.
+if (token is not null) {
+	app.Use(async (context, next) => {
+		var path = context.Request.Path;
+		bool publicAsset = assets is not null
+			&& path != "/" && path != "/index.html"
+			&& assets.GetFileInfo(path.Value ?? "/").Exists;
+		if (publicAsset || TokenMatches(context, token)) {
+			await next().ConfigureAwait(false);
 			return;
 		}
 
+		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+	});
+}
+
+// Serve index.html ourselves so we can inject the bootstrap globals (bridge URL + fonts + commands) before
+// the module graph runs — must run before the static middleware, which would otherwise serve it verbatim.
+// Auth is already enforced centrally above (the document is not a public asset, so it required the token).
+app.Use(async (context, next) => {
+	string path = context.Request.Path.Value ?? "/";
+	if (path is "/" or "/index.html") {
 		await ServeIndexAsync(context, wwwroot, core).ConfigureAwait(false);
 		return;
 	}
@@ -63,23 +78,15 @@ app.Use(async (context, next) => {
 	await next().ConfigureAwait(false);
 });
 
-if (Directory.Exists(wwwroot)) {
-	app.UseStaticFiles(new StaticFileOptions { FileProvider = new PhysicalFileProvider(wwwroot) });
+if (assets is not null) {
+	app.UseStaticFiles(new StaticFileOptions { FileProvider = assets });
 }
 
-// The bridge endpoint: each browser connection drives the (single, long-lived) headless session.
+// The bridge endpoint: each browser connection drives the (single, long-lived) headless session. Auth is
+// enforced by the central gate above (the bridge path is not a public asset, so it required the token).
 app.Map("/weavie-bridge", async context => {
 	if (!context.WebSockets.IsWebSocketRequest) {
 		context.Response.StatusCode = StatusCodes.Status400BadRequest;
-		return;
-	}
-
-	// The bridge is the actual capability, so it requires the token on the upgrade whenever one is set. A
-	// null token only ever happens on a loopback bind (enforced at startup above), where loopback is the
-	// boundary; a non-loopback bind always has a token, so the network-exposed bridge is always gated. (The
-	// document is gated too; only static JS/CSS assets — which carry no secrets — are served openly.)
-	if (token is not null && !TokenMatches(context, token)) {
-		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 		return;
 	}
 

@@ -157,10 +157,13 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
 - **Fail closed.** `Weavie.Headless` refuses to start on a **non-loopback** bind without a token, so an
   exposed bridge can never be unauthenticated regardless of how the flags were passed. A null token is
   only possible on a loopback bind (local dev), where the OS loopback is the boundary.
-- **What's gated when a token is set:** the bridge WS upgrade **and** the document (`/`), both via a
-  constant-time compare of a 128-bit CSPRNG token. Only static JS/CSS assets are served openly (they
-  carry no secrets). The runner control plane is gated the same way (`Authorization: Bearer` or
-  `?token=`).
+- **Single default-deny gate (no per-endpoint checks).** Each host enforces auth in **one** middleware:
+  when a token is set, *every* request must present it (constant-time compare of a 128-bit CSPRNG token)
+  **except** an explicit, narrow allowlist. On the worker that allowlist is "a real static asset file
+  that isn't `index.html`"; on the runner there's no exception (CORS preflight is handled upstream). So a
+  newly added endpoint — and the document, the bridge, and any unknown path — is gated automatically; you
+  have to *consciously* allowlist something to make it public. (Verified: unknown paths return 401 on
+  both hosts.) Token presented via `Authorization: Bearer` or `?token=`.
 - **MCP / registry-MCP / LSP are never network-exposed.** They bind `127.0.0.1` only (hardcoded, not
   affected by `--bind`) and additionally require their own per-session token — so the file-read/write and
   tool surfaces are reachable only from the worker's own box, never over the network.

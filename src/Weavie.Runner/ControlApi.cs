@@ -1,83 +1,43 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
-using Weavie.Core.Git;
-using Weavie.Core.Worktrees;
 
 namespace Weavie.Runner;
 
 /// <summary>
-/// Maps the runner's auth'd control plane: list / create / destroy sessions, plus a minimal picker page. The
-/// token (runner token) is required on every JSON route via <c>Authorization: Bearer</c> or a <c>?token=</c>
-/// query. Each session's <c>url</c> is built against the request's own host, so reaching the runner at
-/// <c>box:9000</c> yields session URLs at <c>box:&lt;port&gt;</c> with no public-host config.
+/// Maps the runner's auth'd control plane. Since worktree sessions are now created inside the worker by the
+/// shared HostCore, the control plane is small: it provisions/auths the one multi-session workspace backend and
+/// hands the client its URL+token. The token (runner token) is required on every route via
+/// <c>Authorization: Bearer</c> or a <c>?token=</c> query. The backend <c>url</c> is built against the request's
+/// own host, so reaching the runner at <c>box:9000</c> yields a backend URL at <c>box:&lt;port&gt;</c>.
 /// </summary>
 internal static class ControlApi {
-	public static void Map(WebApplication app, SessionManager sessions, RunnerOptions options) {
-		app.MapGet("/", (HttpContext ctx) => {
-			if (!Authorized(ctx, options)) {
-				return Results.Content(PickerPage.Unauthorized(), "text/html; charset=utf-8");
-			}
+	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options) {
+		app.MapGet("/", (HttpContext ctx) =>
+			Authorized(ctx, options)
+				? Results.Content(PickerPage.Html(QueryToken(ctx) ?? string.Empty), "text/html; charset=utf-8")
+				: Results.Content(PickerPage.Unauthorized(), "text/html; charset=utf-8"));
 
-			return Results.Content(PickerPage.Html(QueryToken(ctx) ?? string.Empty), "text/html; charset=utf-8");
-		});
-
-		app.MapGet("/sessions", (HttpContext ctx) => {
-			if (!Authorized(ctx, options)) {
-				return Results.Unauthorized();
-			}
-
-			string host = HostOf(ctx);
-			var payload = sessions.Sessions.Select(s => Describe(s, host));
-			return Results.Json(new { sessions = payload });
-		});
-
-		app.MapPost("/sessions", async (HttpContext ctx) => {
+		// Ensure the workspace backend is running and return its connect URL + status. The client opens the URL;
+		// inside it, New Session creates worktree sessions on the remote box via the shared HostCore.
+		app.MapGet("/backend", (HttpContext ctx) => {
 			if (!Authorized(ctx, options)) {
 				return Results.Unauthorized();
 			}
 
-			CreateRequest? body = null;
-			if (ctx.Request.ContentLength is > 0) {
-				try {
-					body = await ctx.Request.ReadFromJsonAsync<CreateRequest>().ConfigureAwait(false);
-				} catch (JsonException) {
-					return Results.BadRequest(new { error = "Malformed JSON body." });
-				}
-			}
-
-			try {
-				var session = await sessions.CreateAsync(body?.Branch, body?.Base, ctx.RequestAborted).ConfigureAwait(false);
-				return Results.Json(Describe(session, HostOf(ctx)));
-			} catch (InvalidOperationException ex) {
-				return Results.Conflict(new { error = ex.Message });
-			} catch (GitException ex) {
-				return Results.Json(new { error = ex.Message }, statusCode: StatusCodes.Status500InternalServerError);
-			}
-		});
-
-		app.MapDelete("/sessions/{id}", async (HttpContext ctx, string id) => {
-			if (!Authorized(ctx, options)) {
-				return Results.Unauthorized();
-			}
-
-			bool removed = await sessions.DestroyAsync(id, ctx.RequestAborted).ConfigureAwait(false);
-			return removed ? Results.NoContent() : Results.NotFound();
+			var backend = backends.Ensure();
+			return Results.Json(new {
+				url = backend.PageUrl(HostOf(ctx)),
+				status = backend.Status,
+				workspace = backend.WorkspaceRoot,
+			});
 		});
 	}
-
-	private static object Describe(RemoteSession session, string host) => new {
-		id = session.Id,
-		branch = session.Branch,
-		status = session.Status,
-		url = session.PageUrl(host),
-	};
 
 	private static bool Authorized(HttpContext ctx, RunnerOptions options) {
 		string? presented = QueryToken(ctx);
 		if (presented is null) {
-			string? header = ctx.Request.Headers.Authorization.ToString();
-			if (header is not null && header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) {
+			string header = ctx.Request.Headers.Authorization.ToString();
+			if (header.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) {
 				presented = header["Bearer ".Length..].Trim();
 			}
 		}
@@ -89,7 +49,7 @@ internal static class ControlApi {
 		ctx.Request.Query.TryGetValue("token", out var t) && !string.IsNullOrEmpty(t) ? t.ToString() : null;
 
 	private static string HostOf(HttpContext ctx) {
-		// The host the client used to reach the runner, minus any port — workers live on their own ports.
+		// The host the client used to reach the runner, minus any port — the worker lives on its own port.
 		string host = ctx.Request.Host.Host;
 		return string.IsNullOrEmpty(host) ? "127.0.0.1" : host;
 	}
@@ -106,6 +66,4 @@ internal static class ControlApi {
 
 		return diff == 0;
 	}
-
-	private sealed record CreateRequest(string? Branch, string? Base);
 }

@@ -56,18 +56,17 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "claude.permissionMode",
-			Kind = SettingKind.String,
-			Description = "How Claude's tool calls are handled: 'default' opens an editable diff you Keep or "
-				+ "Reject per edit (Bash and other commands ask in the terminal); 'acceptEdits' applies edits "
-				+ "automatically without prompting (Bash still asks); 'bypassPermissions' auto-allows every "
-				+ "tool, including Bash, with no prompts. Changes are still recorded in every mode. Takes "
+			Key = "claude.allowAllTools",
+			Kind = SettingKind.Bool,
+			Description = "Auto-allow Claude's non-edit tool calls (Bash and other commands) without prompting. "
+				+ "This is Weavie's tool-permission axis, separate from how EDITS are handled — edits follow "
+				+ "Claude's own mode (cycled with Shift+Tab in the Claude pane), which Weavie observes but does not "
+				+ "set. 'Bypass everything' = Claude in acceptEdits + this on. Your own deny rules still win. Takes "
 				+ "effect on the next tool call.",
-			Aliases = ["permission mode", "edit mode", "accept edits", "auto accept edits", "stop asking to edit",
-				"bypass permissions", "yolo mode", "allow all", "skip permissions"],
-			AllowedValues = ["default", "acceptEdits", "bypassPermissions"],
+			Aliases = ["allow all tools", "auto allow tools", "auto approve tools", "stop asking", "yolo mode",
+				"bypass permissions", "skip permissions", "auto run commands", "allow all"],
 			Apply = ApplyMode.Live,
-			Default = "default",
+			Default = false,
 		});
 
 		FontSettings.Register(registry);

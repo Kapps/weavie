@@ -5,6 +5,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
@@ -82,12 +83,15 @@ internal sealed class HostSession : IAsyncDisposable {
 		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
 		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
 		Changes = new SessionChangeTracker(fileSystem);
+		// Mirrors Claude's own edit mode (default/acceptEdits/plan), observed off the hook stream — Weavie
+		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
+		ObservedMode = new ObservedPermissionMode();
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
 		// discovery env so this session's claude connects to us (the SOLE edit feed). The same store backs
 		// the settings MCP tools, so the user can change settings by talking to claude.
 		Ide = new IdeIntegration(
-			new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor,
+			new PermissionModeDiffPresenter(DiffPresenter, ObservedMode), [workspaceRoot], "weavie", settings, layout, Editor,
 			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides,
 			editLocator: Changes.EditLocationFor);
 		Ide.Server.Log += Tagged("[mcp]");
@@ -113,6 +117,8 @@ internal sealed class HostSession : IAsyncDisposable {
 		// content at PostToolUse). Because hooks fire before the permission check, this records edits in
 		// every mode (default/acceptEdits/bypass) — independent of openDiff.
 		Ide.HookBridge.Observed += Changes.Observe;
+		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
+		Ide.HookBridge.Observed += ObservedMode.Observe;
 
 		// Per-session Claude status (the rail/pane indicator): the same hook stream drives it
 		// (UserPromptSubmit/tool use → Working, Notification → NeedsInput, Stop → Idle), and the claude
@@ -198,6 +204,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
+
+	/// <summary>Claude's edit mode (default/acceptEdits/plan), observed off the hook stream; Weavie reflects it, never sets it.</summary>
+	public ObservedPermissionMode ObservedMode { get; }
 
 	/// <summary>The live status of this session's Claude (Starting/Working/NeedsInput/Idle/Error), for the rail.</summary>
 	public SessionStatusMachine Status { get; }

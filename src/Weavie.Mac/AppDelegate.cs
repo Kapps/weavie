@@ -11,6 +11,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
@@ -42,6 +43,9 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private EditorStore? _editor;
 	private EditorSessionStore? _editorSession;
 	private SessionChangeTracker? _changes;
+	// Mirrors Claude's own edit mode (default/acceptEdits/plan), observed off the hook stream — Weavie reflects
+	// it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
+	private readonly ObservedPermissionMode _observedMode = new();
 	private LocalFileSystem? _fileSystem;
 	private FileProviderService? _fileProvider;
 	private ScratchStore? _scratch;
@@ -207,7 +211,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
 		_changes = new SessionChangeTracker(fileSystem);
 		_ide = new IdeIntegration(
-			new PermissionModeDiffPresenter(_diffPresenter, _settings), [workspace], "weavie", _settings, _layout, _editor,
+			new PermissionModeDiffPresenter(_diffPresenter, _observedMode), [workspace], "weavie", _settings, _layout, _editor,
 			commands: _commands, keybindings: _keybindings, themeOverrides: _themeOverrides,
 			editLocator: _changes.EditLocationFor);
 		_ide.Server.Log += line => {
@@ -248,6 +252,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		// thread blocks on the accept loop, a hard deadlock (the app freezing on Cmd+Q). PostToWeb marshals on
 		// its own anyway, so the hop only needs to be non-blocking.
 		_ide.HookBridge.Observed += _changes.Observe;
+		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
+		_ide.HookBridge.Observed += _observedMode.Observe;
 		_changes.Changed += () => BeginInvokeOnMainThread(PushChangesToWeb);
 		_changes.FileChanged += path => BeginInvokeOnMainThread(() => PushRefreshToWeb(path));
 		// Inline diff: per-turn diff per edited file + clear-all on a turn boundary (implicit accept).

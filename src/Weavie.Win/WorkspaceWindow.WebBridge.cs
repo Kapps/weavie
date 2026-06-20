@@ -290,12 +290,8 @@ internal sealed partial class WorkspaceWindow {
 	/// surface — default mode reviews each edit via the blocking openDiff, so there's nothing to list.
 	/// </summary>
 	private void PushTurnChangesToWeb() {
-		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
-			return;
-		}
-
-		if (_session is not null) {
-			_bridge.PostToWeb(ChangeMessages.TurnChanges(_session.Changes));
+		if (_session is { } session && session.ObservedMode.AutoAppliesEdits) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
 		}
 	}
 
@@ -335,11 +331,8 @@ internal sealed partial class WorkspaceWindow {
 	/// redundant Accept — suppress it.
 	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
-		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
-			return;
-		}
-
-		if (_session?.Changes.GetTurn(path) is { } turn) {
+		if (_session is { } session && session.ObservedMode.AutoAppliesEdits
+			&& session.Changes.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}
 	}

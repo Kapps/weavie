@@ -215,7 +215,7 @@ public sealed partial class AppDelegate {
 	/// surface — default mode reviews each edit via the blocking openDiff, so there's nothing to list.
 	/// </summary>
 	private void PushTurnChangesToWeb() {
-		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings!)) {
+		if (!_observedMode.AutoAppliesEdits) {
 			return;
 		}
 
@@ -249,9 +249,7 @@ public sealed partial class AppDelegate {
 	/// is the per-edit review, so a second applied marker would just demand a redundant Accept — suppress it.
 	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
-		// _settings is set in DidFinishLaunching, before the change feed that drives this is ever wired, so it is
-		// non-null by here — assert that (a violation throws loudly) rather than silently skipping the push.
-		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings!)) {
+		if (!_observedMode.AutoAppliesEdits) {
 			return;
 		}
 

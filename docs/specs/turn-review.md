@@ -45,8 +45,11 @@ idea of this spec.
 
 ## What already exists (reused, not rebuilt)
 
-- **Auto-apply modes** — `claude.permissionMode = acceptEdits | bypassPermissions` is built. The hook
-  bridge auto-allows `PreToolUse`; `PermissionModeDiffPresenter.AutoKeepsEdits` auto-keeps `openDiff`.
+- **Auto-apply detection** — Claude owns its edit mode (Shift+Tab); Weavie observes it off the hook stream
+  (`ObservedPermissionMode`). "Auto-apply" means the observed mode is `acceptEdits`/`bypassPermissions`. The
+  hosts gate the turn-review push (and the openDiff auto-keep) on `ObservedPermissionMode.AutoAppliesEdits`.
+  The orthogonal "auto-allow non-edit tools" knob is a separate setting — see
+  [permission-modes-and-change-tracking.md](permission-modes-and-change-tracking.md).
   Edits land without prompts.
 - **Per-turn change tracking** — `SessionChangeTracker` keeps `_turnBaseline[path]` (content at turn
   start) and exposes `TurnChanges()` and `GetTurn(path)`. `BeginTurn()`/`AcceptTurn()` re-baseline the

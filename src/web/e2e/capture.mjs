@@ -1,6 +1,6 @@
 // One-command visual capture: builds the headless host, launches it against the repo workspace, drives the
 // REAL app in headless Chromium, and records a .webm — so any change can be demonstrated in a browser with
-// no native shell. `npm run capture` builds the web first (see package.json), then runs this, which builds
+// no native shell. `pnpm run capture` builds the web first (see package.json), then runs this, which builds
 // Weavie.Headless (copying the fresh dist into its wwwroot) and records. Build-then-record by construction,
 // so the clip is never stale.
 //
@@ -39,44 +39,38 @@ const viewport = { width: 1280, height: 800 };
 async function tour(page) {
   const settle = (ms) => page.waitForTimeout(ms);
 
-  // The splash sits over the app until the editor is ready; wait so we record the settled UI.
+  // THE FIX: the headless host now injects __WEAVIE_EDITOR_OPTIONS__ in its bootstrap script (it was the one
+  // host-injected global it omitted). Without it, the production build throws at boot (bridge.ts hostInjected)
+  // and renders nothing — no splash teardown, no editor. So simply reaching a settled UI with a working editor
+  // here IS the proof the fix works: the app boots in the browser-only headless host.
   await page
     .locator("#splash")
     .waitFor({ state: "detached", timeout: 45_000 })
     .catch(() => {});
   await settle(1200);
 
-  // Start in DARK. The appearance mode defaults to `system`, so the web resolves the active polarity from the
-  // OS `prefers-color-scheme` — emulating a dark OS renders Weavie Dark.
-  await page.emulateMedia({ colorScheme: "dark" });
-  await settle(1400);
-
-  // Open a couple of workspace files through the Omnibar "Go to File" so the editor shows real,
-  // syntax-highlighted code: the new light-theme source (TypeScript) and the hook protocol (C#).
-  async function openFile(query) {
-    const omnibar = page.locator(".tb-omnibar-input");
-    if (!(await omnibar.count())) return;
+  // Open a real workspace file through the Omnibar "Go to File" so the editor mounts and renders syntax-
+  // highlighted code — exercising the editor-options path that the injected global feeds.
+  const omnibar = page.locator(".tb-omnibar-input");
+  if (await omnibar.count()) {
     await omnibar.click();
     await omnibar.fill("");
-    await omnibar.pressSequentially(query, { delay: 70 });
-    await settle(750);
+    await omnibar.pressSequentially("HeadlessSession.cs", { delay: 70 });
+    await settle(900);
     const row = page.locator(".tb-omnibar-row").first();
     if (await row.isVisible().catch(() => false)) {
       await row.click();
-      await settle(1100);
+      await settle(1400);
     } else {
       await page.keyboard.press("Escape").catch(() => {});
     }
   }
-  await openFile("weavie-light.ts");
-  await openFile("HookProtocol.cs");
 
-  // Reveal the file tree (left-docked browser overlay) so "files and such" sit on screen with the editor.
+  // Reveal the file tree so the booted, working app is unmistakable on screen.
   const filesBtn = page.locator(".browser-toggle");
   if (await filesBtn.isVisible().catch(() => false)) {
     await filesBtn.click();
     await settle(900);
-    // Expand the first top-level folder to make the tree look lived-in.
     const firstFolder = page.locator(".browser-row").first();
     if (await firstFolder.isVisible().catch(() => false)) {
       await firstFolder.click().catch(() => {});
@@ -84,19 +78,8 @@ async function tour(page) {
     await settle(900);
   }
 
-  // Hold on dark so the before-state is clear.
-  await settle(1600);
-
-  // Flip the OS to LIGHT. With `theme.mode: system`, the controller's matchMedia listener re-themes the editor,
-  // terminal, chrome, and file tree to Weavie Light in place — no reload. This is the feature under test.
-  await page.emulateMedia({ colorScheme: "light" });
-  await settle(3500);
-
-  // Toggle dark → light once more so the live switch is unmistakable; end on light.
-  await page.emulateMedia({ colorScheme: "dark" });
-  await settle(1800);
-  await page.emulateMedia({ colorScheme: "light" });
-  await settle(3500);
+  // Hold on the settled, fully-booted editor.
+  await settle(2500);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

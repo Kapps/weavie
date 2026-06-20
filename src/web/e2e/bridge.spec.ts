@@ -10,7 +10,7 @@ const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
-      `built app not found at ${distDir}; run \`npm run build\` before the e2e tests`,
+      `built app not found at ${distDir}; run \`pnpm run build\` before the e2e tests`,
     );
   }
 });
@@ -48,8 +48,9 @@ test.describe("remote bridge transport", () => {
   });
 
   test("the bridge stays silent in a plain browser with no host advertised", async ({ page }) => {
-    // No `?weavie-bridge=` and no injected global: the transport must resolve to "none" — the page boots,
-    // posts nothing over the (absent) bridge, and never throws. This guards the dev/plain-browser path.
+    // No `?weavie-bridge=` and no injected bridge global (the mock host injects the other bootstrap globals,
+    // like the real serve host, but never advertises a bridge): the transport must resolve to "none" — the
+    // page boots, posts nothing over the (absent) bridge, and never throws. Guards the no-bridge path.
     const pageErrors: string[] = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
 

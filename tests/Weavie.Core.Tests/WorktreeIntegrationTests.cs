@@ -30,7 +30,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 
 	private WorktreeManager NewManager() {
 		var registry = new WorktreeRegistry(new LocalFileSystem(), Path.Combine(_root, "worktrees.json"));
-		return new WorktreeManager(_git, registry, _repo, Path.Combine(_root, "worktrees"));
+		return new WorktreeManager(_git, registry, _repo, Path.Combine(_root, "worktrees"), NullWorktreeProvisioner.Instance);
 	}
 
 	[Fact]

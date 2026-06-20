@@ -19,7 +19,7 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (no host injection). Used only under `npm run dev`; in the shipped app the
+// Plain-browser dev fallback (no host injection). Used only under `pnpm run dev`; in the shipped app the
 // host always injects __WEAVIE_EDITOR_OPTIONS__ and a missing value throws (see hostInjected). Mirrors the
 // host's defaults in Core's EditorSettings, including Monaco's standard 300ms hover delay (hoverDelay 300).
 const DEFAULT_OPTIONS: EditorOptionsSpec = {

@@ -71,26 +71,28 @@ On Windows:
 
 ## Building it
 
-Needs a preview .NET 10 SDK (global.json rolls forward and allows prerelease), Node + npm for the UI,
-and Claude Code (`claude`) on the PATH since weavie spawns it. On Windows that also means Windows 10
-1809+ and the WebView2 runtime (already there on Windows 11). For LSP, put `csharp-ls`, `gopls`, or
-`tsgo` on the PATH.
+Needs a preview .NET 10 SDK (global.json rolls forward and allows prerelease), Node for the UI, and
+Claude Code (`claude`) on the PATH since weavie spawns it. The UI uses pnpm, run through Corepack
+(bundled with Node) — the `corepack pnpm` commands below need no separate install; `corepack enable`
+once puts a bare `pnpm` on the PATH if you prefer it. On Windows that also means Windows 10 1809+ and
+the WebView2 runtime (already there on Windows 11). For LSP, put `csharp-ls`, `gopls`, or `tsgo` on
+the PATH.
 
 Windows:
 
 ```sh
-cd src/web && npm install && cd ../..
+cd src/web && corepack pnpm install && cd ../..
 dotnet build src/Weavie.Win/Weavie.Win.csproj -c Release
 ```
 
-A release build runs `npm run build` and drops the UI next to the exe, so the build is runnable as-is.
+A release build runs `pnpm run build` and drops the UI next to the exe, so the build is runnable as-is.
 For development, run it in Debug (`dotnet run --project src/Weavie.Win/Weavie.Win.csproj`) — the host
 launches the Vite dev server itself, so the UI hot-reloads with no further npm steps.
 
 macOS (experimental):
 
 ```sh
-cd src/web && npm install && npm run build && cd ../..
+cd src/web && corepack pnpm install && corepack pnpm run build && cd ../..
 dotnet build src/Weavie.Mac/Weavie.Mac.csproj -c Release
 ```
 

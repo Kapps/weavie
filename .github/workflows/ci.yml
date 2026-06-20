@@ -54,12 +54,20 @@ jobs:
           # rollForward:latestMajor handles this locally, but setup-dotnet resolves the literal first.)
           dotnet-version: '10.0.x'
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Keep in sync with the packageManager field in src/web/package.json.
+          version: 11.8.0
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: src/web/package-lock.json
+          # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
+          # crashes setup-node's pnpm cache probe. Keep this at 22+.
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: src/web/pnpm-lock.yaml
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -69,12 +77,12 @@ jobs:
           restore-keys: nuget-${{ runner.os }}-
 
       # The web app is the UI every shell embeds; build it so wwwroot exists (Weavie.Mac's build
-      # hard-errors without it). `npm run build` also runs `tsc --noEmit`, so this typechecks the web.
+      # hard-errors without it). `pnpm run build` also runs `tsc --noEmit`, so this typechecks the web.
       - name: Build web app
         working-directory: src/web
         run: |
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
       - name: Restore macOS workload
@@ -107,9 +115,9 @@ jobs:
       - name: Install Playwright Chromium
         if: matrix.name == 'linux'
         working-directory: src/web
-        run: npx playwright install --with-deps chromium
+        run: pnpm exec playwright install --with-deps chromium
 
       - name: Web e2e (bridge + real headless host)
         if: matrix.name == 'linux'
         working-directory: src/web
-        run: npm run e2e
+        run: pnpm run e2e

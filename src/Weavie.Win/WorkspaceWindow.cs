@@ -60,6 +60,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	private SessionManager? _sessions;
 	private HostSession? _primarySession;
 	private WorktreeManager? _worktrees;
+	// Runs worktree.setupCommand/teardownCommand around create/discard; setup is kicked off in the background
+	// after a session opens, teardown runs inside _worktrees.RemoveAsync. Same instance the manager holds.
+	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	private string _pageOrigin = "https://weavie.app";
 	// Drives the custom title bar: parses its window-control/menu-action/file-index messages (built once
 	// the session exists). _focused backs the title bar's blur dim, tracked from Activated/Deactivate.

@@ -56,12 +56,20 @@ jobs:
           # Latest 10.0 SDK — see ci.yml: global.json pins "10.0.0", which setup-dotnet 404s on.
           dotnet-version: '10.0.x'
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          # Keep in sync with the packageManager field in src/web/package.json.
+          version: 11.8.0
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: src/web/package-lock.json
+          # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
+          # crashes setup-node's pnpm cache probe. Keep this at 22+.
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: src/web/pnpm-lock.yaml
 
       - name: Cache NuGet packages
         uses: actions/cache@v4
@@ -75,8 +83,8 @@ jobs:
       - name: Build web app
         working-directory: src/web
         run: |
-          npm ci
-          npm run build
+          pnpm install --frozen-lockfile
+          pnpm run build
 
       - name: Restore macOS workload
         if: matrix.name == 'osx-arm64'

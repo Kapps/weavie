@@ -32,7 +32,7 @@
 
   <!--
     Release/CI: build the Vite web app as part of the dotnet build so a shippable build needs no
-    manual `npm run build`. Incremental (Inputs/Outputs) — a no-op when web sources are unchanged.
+    manual `pnpm run build`. Incremental (Inputs/Outputs) — a no-op when web sources are unchanged.
     Skipped in Debug, where the host runs the Vite dev server (hot reload) instead, keeping the
     C#-only inner loop fast (no node on every build).
   -->
@@ -48,8 +48,8 @@
           BeforeTargets="CopyWebAssets"
           Inputs="@(WebSource)"
           Outputs="$(WebRoot)/dist/index.html">
-    <Message Importance="high" Text="weavie: building web app (npm run build) in $(WebRoot)…" />
-    <Exec Command="npm run build" WorkingDirectory="$(WebRoot)" />
+    <Message Importance="high" Text="weavie: building web app (pnpm run build) in $(WebRoot)…" />
+    <Exec Command="corepack pnpm run build" WorkingDirectory="$(WebRoot)" />
   </Target>
 
   <!--
@@ -69,7 +69,7 @@
     <Message Condition="Exists('$(WebRoot)/dist/index.html')"
              Importance="high" Text="weavie: copied @(WebDist->Count()) web asset(s) into the app bundle." />
     <Message Condition="!Exists('$(WebRoot)/dist/index.html')"
-             Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'npm run build' in src/web (or use the Debug Vite dev server) so the window has a UI to load." />
+             Importance="high" Text="weavie: web assets not found at $(WebRoot)/dist — run 'pnpm run build' in src/web (or use the Debug Vite dev server) so the window has a UI to load." />
   </Target>
 
   <!--

@@ -14,22 +14,28 @@ public sealed class WorktreeManager {
 		OperatingSystem.IsWindows() ? StringComparer.OrdinalIgnoreCase : StringComparer.Ordinal;
 
 	private readonly IGitService _git;
+	private readonly IWorktreeProvisioner _provisioner;
 	private readonly string _repositoryRoot;
 	private readonly string _worktreesDir;
 
 	/// <summary>
 	/// Creates a manager for the repository rooted at <paramref name="repositoryRoot"/>, placing new
-	/// worktrees under <paramref name="worktreesDir"/> and tracking them in <paramref name="registry"/>.
+	/// worktrees under <paramref name="worktreesDir"/>, tracking them in <paramref name="registry"/>, and
+	/// running the lifecycle commands of <paramref name="provisioner"/> around create/remove (pass
+	/// <see cref="NullWorktreeProvisioner.Instance"/> when there are none).
 	/// </summary>
-	public WorktreeManager(IGitService git, WorktreeRegistry registry, string repositoryRoot, string worktreesDir) {
+	public WorktreeManager(
+		IGitService git, WorktreeRegistry registry, string repositoryRoot, string worktreesDir, IWorktreeProvisioner provisioner) {
 		ArgumentNullException.ThrowIfNull(git);
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentException.ThrowIfNullOrEmpty(repositoryRoot);
 		ArgumentException.ThrowIfNullOrEmpty(worktreesDir);
+		ArgumentNullException.ThrowIfNull(provisioner);
 		_git = git;
 		Registry = registry;
 		_repositoryRoot = repositoryRoot;
 		_worktreesDir = worktreesDir;
+		_provisioner = provisioner;
 	}
 
 	/// <summary>The registry of Weavie-created worktrees (subscribe to its <see cref="WorktreeRegistry.Changed"/>).</summary>
@@ -142,6 +148,10 @@ public sealed class WorktreeManager {
 				throw new WorktreeDirtyException(path);
 			}
 
+			// Run the teardown command while the working tree still exists, then remove it. Teardown is
+			// best-effort cleanup: a non-zero exit is surfaced by the provisioner but does not abort the
+			// removal the user asked for. Only after passing the dirty guard, so a refused removal runs nothing.
+			await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
 			await _git.RemoveWorktreeAsync(_repositoryRoot, path, force, ct).ConfigureAwait(false);
 		} else {
 			// The working directory is already gone from git's point of view; clean up its admin entry.

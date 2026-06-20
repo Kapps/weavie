@@ -186,6 +186,13 @@ name so it's stable across restarts and learnable:
   overlay. Keeps "done" quiet.
 - **Active session** = a distinct rail accent (left bar / brighter border), *separate from* the state
   treatment — "you are here" must not be confused with "this one's green."
+- **Dormant (unloaded)** = a session whose backend has been torn down — manually via *unload*, or
+  automatically when idle. Its chip **stays on the rail** so the worktree is never lost from view, but
+  rendered **faded/de-emphasized**, **sorted below all loaded sessions**, and **skipped by next/prev
+  cycling**: clicking it (or `Switch Session…`) reloads it on demand. Reconcile-on-open also surfaces
+  worktrees left on disk by a past run as dormant chips, so none ever leak. (Ordering: loaded sessions
+  hold their order at the top, dormant ones sink to the bottom — a session moving between the two states
+  re-sorts.)
 - **Tooltip** = full branch + status + **the switch shortcut**, per the keyboard-first rule that
   every action advertises its keybinding where the user meets it, read from the command catalog
   (`CommandInfo.keys` + `formatKey`), never hardcoded (CLAUDE.md "Keyboard-first navigation").
@@ -211,13 +218,18 @@ file / close tab).
 | `weavie.session.next` | Next Session | Web | `$mod+Shift+]` | — |
 | `weavie.session.prev` | Previous Session | Web | `$mod+Shift+[` | — |
 | `weavie.session.switch` | Switch Session… | Web | — (palette) | — |
-| `weavie.session.close` | Close Session | Core | — (rail menu + palette) | `{ id? }` (default: active) |
+| `weavie.session.unload` | Unload Session | Core | — (rail menu + palette) | `{ id? }` (default: active) |
+| `weavie.session.delete` | Delete Session | Core | — (rail menu + palette, guarded) | `{ id?, force? }` (default: active; `force` overrides the dirty guard) |
 
 Notes: the GUI `+` invokes `weavie.session.new` with **only** `branch` (no `prompt`) — fresh Claude.
 `base` defaults to `current` (the session you're branching from); `main` is the alternate. Args
 follow the embedded-Claude scalar-coercion convention (lenient at the MCP boundary —
 [embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`$mod+Shift+1–9`) is deferred to
-keep v1's chord surface small; cycle + palette cover it.
+keep v1's chord surface small; cycle + palette cover it. **`unload` replaces the old `close`** — it
+parks a session as dormant (keeps worktree + chip). **`delete` is the only verb that removes a
+worktree**; it keeps the branch, gates on uncommitted changes (`force` to override), and gets **no
+default chord** because it's destructive — reached from the rail menu (with a confirm) or the palette.
+`next`/`prev` cycle the **loaded** sessions only; dormant chips are reached by click or `switch`.
 
 ## Worktree lifecycle
 
@@ -230,18 +242,35 @@ the model must keep straight:
 - **Worktree** (on disk: the checked-out files)
 - **Branch** (in git)
 
-Operations:
+Operations — two user-facing verbs, **unload** and **delete**. There is deliberately **no "close"**:
+the old "close session" was an unload wearing a misleading name (it kept the worktree), and a worktree
+is only ever removed by an explicit, guarded *delete*. So nothing silently goes away with a worktree
+left behind, and nothing destroys a worktree without asking.
 
-- **Close session** = tear the live session down, **keep the worktree** (resumable). Reopening a
-  worktree re-creates a session on it.
-- **Discard** = `git worktree remove` (+ optional branch delete), **guarded if the worktree is
-  dirty** — never destroy uncommitted work silently (CLAUDE.md "no silent fallbacks", [despises-fallbacks]).
-- **Surface stale/merged worktrees** for cleanup ("3 inactive worktrees, 2 fully merged — clean
-  up?") rather than leaving git debris forever *or* auto-destroying. Loud, opt-in, observable.
+- **Unload session** = tear the live backend down (Claude / PTYs / LSP), **keep the worktree and its
+  rail chip** — the session goes *dormant*, not away. Reload it by clicking the chip; the worktree is
+  fully resumable. Unload is also reached **automatically** (idle-unload / the future `Suspended` state
+  in [Resource model](#resource-model)), so the manual verb is just the explicit form of something that
+  mostly happens on its own. A dormant chip **sorts to the bottom of the rail** and is **skipped by
+  next/prev cycling** (see [The rail](#the-rail-switcher-ui)) — a parked session shouldn't sit between
+  two live ones you're tabbing through.
+- **Delete session** = `git worktree remove`, then drop the chip from the rail — but **keep the
+  branch**. The branch holds the user's *committed* work; removing the worktree discards only the
+  working copy, so committed-but-unmerged commits survive on the branch and the session can be re-created
+  on it later. **Dirty-guarded** (`WorktreeDirtyException`): if the working tree has uncommitted
+  changes, delete refuses and the user must confirm — only that confirmation forces the removal. Never
+  destroy uncommitted work silently (CLAUDE.md "no silent fallbacks", [despises-fallbacks]). The one
+  thing delete leaves behind is the branch — a cheap ref, not a working copy — reaped by the cleanup
+  flow below, not by delete itself.
+- **Surface stale/merged worktrees + branches** for cleanup ("3 inactive worktrees, 2 fully merged —
+  clean up?") rather than leaving git debris forever *or* auto-destroying. This is also where the
+  branches left behind by *delete* get reaped. Loud, opt-in, observable.
 
-v1's exit is "this session's branch is X — merge or discard," **not** auto-merge. A "land this
-session" (merge / PR) flow is a great future step, out of the first cut. Git is invoked from a **Core
-git service** (shell out to `git worktree`/branch), keeping both hosts thin.
+v1's exit is "this session's branch is X — merge or delete," **not** auto-merge. A "land this
+session" (merge / PR) flow is a great future step, out of the first cut. So is **"move to new
+session"** — re-home an existing branch onto a fresh session (the inverse of delete-keeps-branch:
+delete frees a branch, this re-attaches one) — noted, not built. Git is invoked from a **Core git
+service** (shell out to `git worktree`/branch), keeping both hosts thin.
 
 ## Resource model
 
@@ -268,6 +297,29 @@ The **Core layer, per-session status, and the session switcher + worktree creati
 remains is **runtime/GUI verification** and the per-session editor/LSP swap polish. Worktree creation
 goes through the tested `WorktreeManager` and is reconciled on open, so worktrees are surfaced — never
 silently leaked.
+
+**Done — session deletion (`feat/session-deletion`), statically verified (Core 368 tests + web tsc/biome
++ Win build all green; runtime + macOS host pending):** the lifecycle reframe in
+[Worktree lifecycle](#worktree-lifecycle) is wired end to end.
+1. **Renamed `weavie.session.close` → `weavie.session.unload`** (Core command + `ISessionHost.UnloadSessionAsync`
+   + the `unload-session` bridge message). The host behavior was already "go dormant, keep worktree + chip"
+   (`UnloadSlotAsync`), so this was a rename plus the rail changes: `PushSessionList` now orders **loaded
+   chips first, dormant last** (stable `OrderByDescending(Loaded)`), and the web's `stepSession` **cycles
+   only loaded chips**.
+2. **Added `weavie.session.delete`** (`{ id?, force? }`) → `ISessionHost.DeleteSessionAsync`, which checks
+   for uncommitted changes *before* any teardown, then unloads (if loaded) and calls
+   `WorktreeManager.RemoveAsync(deleteBranch: false, force)` — keeping the branch and dropping the chip.
+   The web rail's "Delete…" opens a confirm; the host's `DeleteSessionFromWebAsync` re-checks dirtiness and,
+   when dirty, bounces a `session-delete-blocked` message so the page escalates to a louder
+   "delete anyway?" (force) confirm. `RemoveAsync` previously had no callers.
+3. **Rail affordance:** a right-click context menu on a non-primary chip (Load/Unload depending on state, then
+   Delete…); the primary checkout has no menu. It uses the **shared command-driven `ContextMenu`** (the same
+   component the editor tab strip uses — context menus are one consistent, command-driven system, never
+   hand-rolled per surface), so every row is a command and advertises its shortcut. The rail actions are
+   commands: `weavie.session.load` (Core; background-load a dormant session without switching — starts its
+   backend muted, `TerminalController.EnsureStarted`), `weavie.session.unload` (Core), and the interactive
+   `weavie.session.deletePrompt` (Web; opens the classify→confirm dialog). The raw `weavie.session.delete`
+   (Core, with `force`) stays the programmatic/MCP entry. No default chord (delete is destructive).
 
 **Done — `Weavie.Core` (46 new tests; full suite green at 364), committed (`35c40a7`, `725f453`):**
 - `Git/` — `IGitService` + `GitService` (worktree add/list/remove; branch/HEAD/default/merged/dirty;
@@ -347,7 +399,9 @@ sessions (see [file-management-and-sessions.md](file-management-and-sessions.md)
   managed worktree location; not-a-git-repo fallback.
 - **Phase 4 — Claude-driven creation + seeding.** `weavie.session.new`/`.fork` over `runCommand`;
   PTY first-prompt injection (experimental); handoff-brief fork.
-- **Phase 5 — lifecycle.** Close / discard / resume; dirty guards; stale/merged-worktree surfacing.
+- **Phase 5 — lifecycle.** Unload (→ dormant: keep worktree + chip, sort to bottom, skip cycling) /
+  delete (`git worktree remove`, keep branch, dirty-guarded confirm) / resume; stale/merged-worktree +
+  branch surfacing. ("Move to new session" — re-home a branch — is later.)
 - **Later.** Suspend + deeper virtualization; transcript-copy true fork; OS attention escalation;
   direct-index switch; poppable sessions; "land this session" merge/PR flow.
 

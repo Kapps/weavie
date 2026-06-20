@@ -4,7 +4,7 @@ using Weavie.Core.Sessions;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// Declares the multi-session commands and wires the Core-handled ones (new / fork / close) to a host's
+/// Declares the multi-session commands and wires the Core-handled ones (new / fork / unload / delete) to a host's
 /// <see cref="ISessionHost"/>. The switch commands (next / prev / switch) run in the web (the rail). Like
 /// <c>ThemeCommands</c>, the declarations live in Core so every trigger sees them; the host registers the
 /// handlers once it has a session host. See <c>docs/specs/multi-session-and-worktrees.md</c>.
@@ -28,8 +28,17 @@ public static class SessionCommands {
 	/// <summary>Opens the omnibar to pick a session to switch to.</summary>
 	public const string SwitchSession = "weavie.session.switch";
 
-	/// <summary>Closes a session (the active one, or the <c>id</c> arg), keeping its worktree on disk.</summary>
-	public const string CloseSession = "weavie.session.close";
+	/// <summary>Loads a dormant session's backend in the background (arg <c>id</c>) without switching the page to it.</summary>
+	public const string LoadSession = "weavie.session.load";
+
+	/// <summary>Unloads a session (the active one, or the <c>id</c> arg) into a dormant chip, keeping its worktree on disk.</summary>
+	public const string UnloadSession = "weavie.session.unload";
+
+	/// <summary>Deletes a session: removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic/MCP entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
+	public const string DeleteSession = "weavie.session.delete";
+
+	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the active session).</summary>
+	public const string DeleteSessionPrompt = "weavie.session.deletePrompt";
 
 	/// <summary>Registers the session command definitions into <paramref name="registry"/>.</summary>
 	public static void Register(CommandRegistry registry) {
@@ -103,14 +112,58 @@ public static class SessionCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = CloseSession,
-			Title = "Close Session",
+			Id = LoadSession,
+			Title = "Load Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Close a session (the active one, or the session 'id'). The worktree is kept on disk and "
-				+ "can be reopened; discarding it (and its branch) is a separate, guarded worktree action.",
-			Aliases = ["close session", "end session", "close this session"],
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to close; omit for the active session\"}}",
+			Description = "Load a dormant session's backend (Claude / terminals / LSP) in the background, by 'id', "
+				+ "WITHOUT switching the page to it — so its Claude runs and reports status while you stay where you "
+				+ "are. Use Switch Session to bring it to the foreground instead.",
+			Aliases = ["load session", "start session", "wake session", "resume session in background"],
+			// id-targeted (a specific dormant chip); loading the active session is meaningless, so it's not in the palette.
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to load in the background\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = UnloadSession,
+			Title = "Unload Session",
+			RunsIn = CommandLocation.Core,
+			Category = "Session",
+			Description = "Unload a session (the active one, or the session 'id') into a dormant chip: tear its live "
+				+ "backend (Claude / terminals / LSP) down but keep its worktree on disk so it can be reloaded later. "
+				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To remove the worktree "
+				+ "entirely, use Delete Session.",
+			Aliases = ["unload session", "park session", "make session dormant", "suspend session"],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the active session\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DeleteSession,
+			Title = "Delete Session",
+			RunsIn = CommandLocation.Core,
+			Category = "Session",
+			Description = "Delete a session (the active one, or the session 'id'): remove its git worktree but KEEP the "
+				+ "branch (committed work survives on it). Refuses when the worktree has uncommitted changes unless "
+				+ "'force' is true, so work is never discarded silently. The primary session can't be deleted. This is "
+				+ "the programmatic entry (for Claude); the interactive UI uses 'Delete Session…' (weavie.session.deletePrompt).",
+			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
+			// The human-facing entry is the guarded prompt (DeleteSessionPrompt); the raw delete stays reachable by Claude.
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the active session\"},"
+				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DeleteSessionPrompt,
+			Title = "Delete Session…",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Open the delete confirmation for a session ('id', or the active session): it classifies the "
+				+ "worktree and escalates the confirm when there are untracked files or uncommitted changes. The "
+				+ "interactive counterpart of weavie.session.delete.",
+			Aliases = ["delete session", "remove session", "delete worktree"],
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the active session\"}}",
 		});
 	}
 
@@ -137,7 +190,9 @@ public static class SessionCommands {
 					Handoff = GetString(argsJson, "handoff"),
 				},
 				ct)),
-			dispatcher.RegisterHandler(CloseSession, (argsJson, ct) => host.CloseSessionAsync(GetString(argsJson, "id"), ct)),
+			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
+			dispatcher.RegisterHandler(UnloadSession, (argsJson, ct) => host.UnloadSessionAsync(GetString(argsJson, "id"), ct)),
+			dispatcher.RegisterHandler(DeleteSession, (argsJson, ct) => host.DeleteSessionAsync(GetString(argsJson, "id"), GetBool(argsJson, "force"), ct)),
 		};
 
 		return new CompositeDisposable(registrations);
@@ -161,6 +216,31 @@ public static class SessionCommands {
 			};
 		} catch (JsonException) {
 			return null;
+		}
+	}
+
+	private static bool GetBool(string? argsJson, string name) {
+		if (string.IsNullOrWhiteSpace(argsJson)) {
+			return false;
+		}
+
+		try {
+			using var doc = JsonDocument.Parse(argsJson);
+			if (doc.RootElement.ValueKind != JsonValueKind.Object || !doc.RootElement.TryGetProperty(name, out var prop)) {
+				return false;
+			}
+
+			return prop.ValueKind switch {
+				JsonValueKind.True => true,
+				JsonValueKind.False => false,
+				// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary
+				// (see [embedded-claude-stringifies-mcp-scalars]).
+				JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
+				JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
+				_ => false,
+			};
+		} catch (JsonException) {
+			return false;
 		}
 	}
 

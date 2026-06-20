@@ -125,6 +125,22 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
+	/// Starts the child at the default/cached size if it isn't running yet, WITHOUT the page binding to this
+	/// pane — used to bring a session's backend up in the background (a "load, don't open"). When the page later
+	/// binds, <see cref="OnReady"/> finds a live child and nudges it to the real pane size. No-op if running.
+	/// </summary>
+	public void EnsureStarted() {
+		bool start;
+		lock (_gate) {
+			start = _terminal is null;
+		}
+
+		if (start) {
+			_supervisor.Start();
+		}
+	}
+
+	/// <summary>
 	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane
 	/// (which re-emits <c>term-ready</c> → <see cref="OnReady"/>), so a changed shell takes effect live.
 	/// </summary>

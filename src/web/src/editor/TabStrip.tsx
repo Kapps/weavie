@@ -1,8 +1,6 @@
 import { Pin, X } from "lucide-solid";
-import { For, type JSX, Show, createMemo, createSignal, onCleanup } from "solid-js";
-import { Portal } from "solid-js/web";
-import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
+import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
+import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { CommandIds } from "../commands/types";
 import type { TabActions } from "./editor-controller";
 import type { EditorSessionEntry } from "./session-types";
@@ -23,8 +21,8 @@ function basename(path: string): string {
 /**
  * The editor tab strip: one row per open file, mounted inside the editor pane (NOT a layout pane). Renders
  * from the tab store and drives the controller's tab actions. Mouse gestures manipulate tabs directly; the
- * right-click menu dispatches the editor-tab COMMANDS (so it's consistent with the palette / Claude and can
- * advertise each action's shortcut). Keyboard-first: every menu row that has a binding shows it.
+ * right-click menu uses the shared command-driven ContextMenu, dispatching the editor-tab COMMANDS (so it's
+ * consistent with the palette / Claude and advertises each action's shortcut).
  */
 export function TabStrip(props: {
   tabs: () => EditorSessionEntry[];
@@ -54,48 +52,24 @@ export function TabStrip(props: {
   );
   const active = createMemo(() => props.activePath());
 
-  // Right-click context menu, anchored at the cursor and targeting the right-clicked tab.
-  const [menu, setMenu] = createSignal<{
-    x: number;
-    y: number;
-    path: string;
-    pinned: boolean;
-  } | null>(null);
-  const closeMenu = (): void => {
-    setMenu(null);
+  // Right-click context menu, built for the right-clicked tab and rendered by the shared ContextMenu. Each row
+  // targets that tab via the command's `path` arg; keyboard / palette omit it to act on the active tab.
+  const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
+  const menuEntries = (view: TabView): ContextMenuEntry[] => {
+    const args = { path: view.path };
+    return [
+      { commandId: CommandIds.closeTab, args, label: "Close" },
+      { commandId: CommandIds.closeOtherTabs, args, label: "Close Others" },
+      { commandId: CommandIds.closeTabsToLeft, args, label: "Close to the Left" },
+      { commandId: CommandIds.closeTabsToRight, args, label: "Close to the Right" },
+      { commandId: CommandIds.closeAllTabs, args, label: "Close All" },
+      { kind: "separator" },
+      { commandId: CommandIds.togglePinTab, args, label: view.pinned ? "Unpin" : "Pin" },
+    ];
   };
-
-  const onPointerDown = (event: PointerEvent): void => {
-    if (!(event.target as HTMLElement).closest(".tab-ctx-menu")) {
-      closeMenu();
-    }
-  };
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key === "Escape") {
-      closeMenu();
-    }
-  };
-  window.addEventListener("pointerdown", onPointerDown);
-  window.addEventListener("keydown", onKeyDown);
-  window.addEventListener("blur", closeMenu);
-  onCleanup(() => {
-    window.removeEventListener("pointerdown", onPointerDown);
-    window.removeEventListener("keydown", onKeyDown);
-    window.removeEventListener("blur", closeMenu);
-  });
-
   const openMenu = (event: MouseEvent, view: TabView): void => {
     event.preventDefault();
-    setMenu({ x: event.clientX, y: event.clientY, path: view.path, pinned: view.pinned });
-  };
-  const run = (id: string, path: string): void => {
-    closeMenu();
-    dispatchCommand(id, { path });
-  };
-  // A menu row's current shortcut (defaults merged with the user's keybindings.json), or "" if unbound.
-  const keysOf = (id: string): string => {
-    const keys = findCommand(id)?.keys ?? [];
-    return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
+    setMenu({ x: event.clientX, y: event.clientY, entries: menuEntries(view) });
   };
 
   return (
@@ -148,68 +122,7 @@ export function TabStrip(props: {
           </For>
         </div>
       </Show>
-      <Show when={menu()}>
-        {(m) => (
-          <Portal>
-            <div
-              class="tab-ctx-menu"
-              ref={(el) => {
-                // Position at the cursor imperatively — the menu mounts fresh on each open, so the ref fires
-                // with the current coords. (Avoids an object `style={{}}` binding, unsupported by this
-                // solid-js/web build — it compiles to a missing `setStyleProperty` import.)
-                el.style.left = `${m().x}px`;
-                el.style.top = `${m().y}px`;
-              }}
-            >
-              <button
-                type="button"
-                class="tab-ctx-item"
-                onClick={() => run(CommandIds.closeTab, m().path)}
-              >
-                <span>Close</span>
-                <span class="tab-ctx-keys">{keysOf(CommandIds.closeTab)}</span>
-              </button>
-              <button
-                type="button"
-                class="tab-ctx-item"
-                onClick={() => run(CommandIds.closeOtherTabs, m().path)}
-              >
-                <span>Close Others</span>
-              </button>
-              <button
-                type="button"
-                class="tab-ctx-item"
-                onClick={() => run(CommandIds.closeTabsToLeft, m().path)}
-              >
-                <span>Close to the Left</span>
-              </button>
-              <button
-                type="button"
-                class="tab-ctx-item"
-                onClick={() => run(CommandIds.closeTabsToRight, m().path)}
-              >
-                <span>Close to the Right</span>
-              </button>
-              <button
-                type="button"
-                class="tab-ctx-item"
-                onClick={() => run(CommandIds.closeAllTabs, m().path)}
-              >
-                <span>Close All</span>
-              </button>
-              <div class="tab-ctx-sep" />
-              <button
-                type="button"
-                class="tab-ctx-item"
-                onClick={() => run(CommandIds.togglePinTab, m().path)}
-              >
-                <span>{m().pinned ? "Unpin" : "Pin"}</span>
-                <span class="tab-ctx-keys">{keysOf(CommandIds.togglePinTab)}</span>
-              </button>
-            </div>
-          </Portal>
-        )}
-      </Show>
+      <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>
     </>
   );
 }

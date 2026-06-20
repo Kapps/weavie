@@ -11,6 +11,7 @@ import {
 } from "solid-js";
 import { type SessionStatusName, type TermSession, onHostMessage, postToHost } from "./bridge";
 import type { ChangeFile } from "./changes/ChangesPanel";
+import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -149,11 +150,12 @@ export default function App(): JSX.Element {
     postToHost({ type: "switch-session", id });
   };
 
-  // Step the active session to the next/prev chip on the rail (delta ±1, wraps around). Cycles over all
-  // chips — including dormant ones, which load on switch just like a click. Returns whether it stepped, so
-  // with <2 sessions (nothing to switch to) the keystroke falls through, matching tab next/prev.
+  // Step the active session to the next/prev LOADED chip on the rail (delta ±1, wraps around). Dormant chips
+  // are deliberately skipped — a parked session shouldn't sit in the cycle; reach it by clicking or Switch
+  // Session… instead. Returns whether it stepped, so with <2 loaded sessions (nothing to switch to) the
+  // keystroke falls through, matching tab next/prev.
   const stepSession = (delta: number): boolean => {
-    const list = sessions();
+    const list = sessions().filter((s) => s.loaded);
     const current = list.findIndex((s) => s.active);
     if (list.length < 2 || current < 0) {
       return false;
@@ -164,6 +166,32 @@ export default function App(): JSX.Element {
     }
     switchToSession(target.id);
     return true;
+  };
+
+  // A pending session delete, opened only once the host classifies the worktree. The deletePrompt command sends
+  // a delete-session-request; the host replies with session-delete-prompt carrying the worktree's state, which
+  // opens DeleteSessionDialog with the matching confirm (clean / untracked / modified).
+  const [deleteReq, setDeleteReq] = createSignal<{
+    id: string;
+    label: string;
+    state: DeleteSessionState;
+  } | null>(null);
+  // The interactive delete (rail menu / palette): with no `id` arg it targets the active session. Asks the host
+  // to classify the worktree; the session-delete-prompt reply opens the dialog.
+  const promptDeleteSession = (args: unknown): void => {
+    const id = (args as { id?: string } | undefined)?.id ?? sessions().find((s) => s.active)?.id;
+    if (id !== undefined) {
+      postToHost({ type: "delete-session-request", id });
+    }
+  };
+  const confirmDeleteSession = (): void => {
+    const req = deleteReq();
+    if (req === null) {
+      return;
+    }
+    setDeleteReq(null);
+    // A dirty worktree (untracked or modified) needs force, or git refuses the removal.
+    postToHost({ type: "delete-session", id: req.id, force: req.state !== "clean" });
   };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
@@ -291,6 +319,9 @@ export default function App(): JSX.Element {
         }
         setIndexRoot(message.root);
         setFileIndex(message.files);
+      } else if (message.type === "session-delete-prompt") {
+        // The host classified the worktree; open the delete dialog with the matching confirm.
+        setDeleteReq({ id: message.id, label: message.label, state: message.state });
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.
@@ -352,6 +383,9 @@ export default function App(): JSX.Element {
       // Next / Previous Session (Ctrl+Shift+] / Ctrl+Shift+[): cycle the rail, wrapping around.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
+      // Interactive delete (rail menu / palette): opens the confirm dialog after the host classifies the
+      // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
+      registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
     ];
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
@@ -491,6 +525,16 @@ export default function App(): JSX.Element {
             cancelLabel="Cancel"
             onConfirm={() => settleConfirm(true)}
             onCancel={() => settleConfirm(false)}
+          />
+        )}
+      </Show>
+      <Show when={deleteReq()}>
+        {(req) => (
+          <DeleteSessionDialog
+            label={req().label}
+            state={req().state}
+            onConfirm={confirmDeleteSession}
+            onCancel={() => setDeleteReq(null)}
           />
         )}
       </Show>

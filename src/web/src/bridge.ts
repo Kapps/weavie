@@ -38,11 +38,14 @@ export type SessionStatusName = "starting" | "working" | "needsInput" | "idle" |
 // `monogram` are derived deterministically from the branch so a session looks the same across restarts.
 // `loaded` is false for a dormant worktree (surfaced so it can't leak, but with no live backend) — the
 // rail renders it faded; clicking it asks the host to load it. `status` is only meaningful when loaded.
+// `primary` marks the workspace's own checkout, which has no separate worktree — it can't be unloaded or
+// deleted (the rail hides those actions for it). The host orders loaded chips first, dormant ones last.
 export interface SessionChip {
   id: string;
   label: string;
   active: boolean;
   loaded: boolean;
+  primary: boolean;
   status: SessionStatusName;
   hue: number;
   monogram: string;
@@ -101,12 +104,16 @@ export type HostBoundMessage =
   | { type: "term-ready"; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; session: TermSession; dataB64: string }
   | { type: "term-resize"; session: TermSession; cols: number; rows: number }
-  // Session rail → host: switch to an existing session, create a new (worktree) session, or close one.
-  // new-session carries the branch name and the base to branch from: "head" (the active session's HEAD) or
-  // "main". The host surfaces a failure (e.g. the branch already exists) as a toast.
+  // Session rail → host: switch to a session (binds the page to it) or create a new (worktree) session.
+  // new-session carries the branch name and the base: "head" (the active session's HEAD) or "main". Load /
+  // unload / delete are commands (weavie.session.*) dispatched via invoke-command, not bespoke messages here.
+  // The delete confirm flow is the exception: delete-session-request asks the host to classify the worktree and
+  // reply with a session-delete-prompt; delete-session is the confirmed delete, its `force` set for a dirty
+  // worktree. The host surfaces outcomes/failures as toasts.
   | { type: "switch-session"; id: string }
   | { type: "new-session"; branch?: string; base?: "head" | "main" }
-  | { type: "close-session"; id: string }
+  | { type: "delete-session-request"; id: string }
+  | { type: "delete-session"; id: string; force: boolean }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -190,6 +197,15 @@ export type WebBoundMessage =
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
+  // Reply to delete-session-request: the host classified the worktree so the page can raise the right confirm.
+  // state "clean" → plain confirm; "untracked" → two-step (untracked files would be deleted); "modified" →
+  // checkbox gate (tracked changes would be lost). On accept the page sends delete-session (force when dirty).
+  | {
+      type: "session-delete-prompt";
+      id: string;
+      label: string;
+      state: "clean" | "untracked" | "modified";
+    }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

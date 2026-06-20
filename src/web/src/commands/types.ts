@@ -61,6 +61,9 @@ export const CommandIds = {
   newSessionPrompt: "weavie.session.newPrompt",
   nextSession: "weavie.session.next",
   prevSession: "weavie.session.prev",
+  loadSession: "weavie.session.load",
+  unloadSession: "weavie.session.unload",
+  deleteSessionPrompt: "weavie.session.deletePrompt",
 } as const;
 
 declare global {

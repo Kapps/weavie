@@ -18,8 +18,15 @@ public sealed class SessionCommandsTests {
 		Assert.Equal(CommandLocation.Core, newDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.ForkSession, out var forkDef));
 		Assert.Equal(CommandLocation.Core, forkDef!.RunsIn);
-		Assert.True(registry.TryGet(SessionCommands.CloseSession, out var closeDef));
-		Assert.Equal(CommandLocation.Core, closeDef!.RunsIn);
+		Assert.True(registry.TryGet(SessionCommands.LoadSession, out var loadDef));
+		Assert.Equal(CommandLocation.Core, loadDef!.RunsIn);
+		Assert.True(registry.TryGet(SessionCommands.UnloadSession, out var unloadDef));
+		Assert.Equal(CommandLocation.Core, unloadDef!.RunsIn);
+		Assert.True(registry.TryGet(SessionCommands.DeleteSession, out var deleteDef));
+		Assert.Equal(CommandLocation.Core, deleteDef!.RunsIn);
+		// The interactive delete confirm runs in the web (it shows the dialog); the raw delete is core/MCP.
+		Assert.True(registry.TryGet(SessionCommands.DeleteSessionPrompt, out var deletePromptDef));
+		Assert.Equal(CommandLocation.Web, deletePromptDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.NextSession, out var nextDef));
 		Assert.Equal(CommandLocation.Web, nextDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.PrevSession, out _));
@@ -54,15 +61,48 @@ public sealed class SessionCommandsTests {
 	}
 
 	[Fact]
-	public async Task Fork_And_Close_InvokeHost() {
+	public async Task Fork_And_Unload_InvokeHost() {
 		var (dispatcher, host) = NewWired();
 
 		await dispatcher.InvokeAsync(SessionCommands.ForkSession, "{\"handoff\":\"context here\"}", CancellationToken.None);
-		await dispatcher.InvokeAsync(SessionCommands.CloseSession, "{\"id\":\"abcd\"}", CancellationToken.None);
+		await dispatcher.InvokeAsync(SessionCommands.UnloadSession, "{\"id\":\"abcd\"}", CancellationToken.None);
 
 		Assert.Equal("context here", host.LastFork?.Handoff);
-		Assert.True(host.CloseCalled);
-		Assert.Equal("abcd", host.LastClosedId);
+		Assert.True(host.UnloadCalled);
+		Assert.Equal("abcd", host.LastUnloadedId);
+	}
+
+	[Fact]
+	public async Task Load_ParsesId_AndInvokesHost() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.LoadSession, "{\"id\":\"wxyz\"}", CancellationToken.None);
+
+		Assert.True(host.LoadCalled);
+		Assert.Equal("wxyz", host.LastLoadedId);
+	}
+
+	[Fact]
+	public async Task Delete_ParsesId_AndForce() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"abcd\",\"force\":true}", CancellationToken.None);
+
+		Assert.True(host.DeleteCalled);
+		Assert.Equal("abcd", host.LastDeletedId);
+		Assert.True(host.LastDeleteForce);
+	}
+
+	[Fact]
+	public async Task Delete_NoForce_DefaultsFalse_AndCoercesStringForce() {
+		var (dispatcher, host) = NewWired();
+
+		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"a\"}", CancellationToken.None);
+		Assert.False(host.LastDeleteForce);
+
+		// Embedded Claude sends scalars as JSON strings; "true" must coerce to a real boolean.
+		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"a\",\"force\":\"true\"}", CancellationToken.None);
+		Assert.True(host.LastDeleteForce);
 	}
 
 	private static (CommandDispatcher Dispatcher, FakeSessionHost Host) NewWired() {
@@ -79,9 +119,19 @@ public sealed class SessionCommandsTests {
 
 		public ForkSessionRequest? LastFork { get; private set; }
 
-		public string? LastClosedId { get; private set; }
+		public string? LastLoadedId { get; private set; }
 
-		public bool CloseCalled { get; private set; }
+		public bool LoadCalled { get; private set; }
+
+		public string? LastUnloadedId { get; private set; }
+
+		public bool UnloadCalled { get; private set; }
+
+		public string? LastDeletedId { get; private set; }
+
+		public bool LastDeleteForce { get; private set; }
+
+		public bool DeleteCalled { get; private set; }
 
 		public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct = default) {
 			LastNew = request;
@@ -93,10 +143,23 @@ public sealed class SessionCommandsTests {
 			return Task.FromResult(CommandResult.Success("forked"));
 		}
 
-		public Task<CommandResult> CloseSessionAsync(string? sessionId, CancellationToken ct = default) {
-			CloseCalled = true;
-			LastClosedId = sessionId;
-			return Task.FromResult(CommandResult.Success("closed"));
+		public Task<CommandResult> LoadSessionAsync(string? sessionId, CancellationToken ct = default) {
+			LoadCalled = true;
+			LastLoadedId = sessionId;
+			return Task.FromResult(CommandResult.Success("loaded"));
+		}
+
+		public Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct = default) {
+			UnloadCalled = true;
+			LastUnloadedId = sessionId;
+			return Task.FromResult(CommandResult.Success("unloaded"));
+		}
+
+		public Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct = default) {
+			DeleteCalled = true;
+			LastDeletedId = sessionId;
+			LastDeleteForce = force;
+			return Task.FromResult(CommandResult.Success("deleted"));
 		}
 	}
 }

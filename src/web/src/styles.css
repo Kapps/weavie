@@ -13,6 +13,10 @@
   --warn: #ffb74d;
   --bad: #e07a7a;
   --busy: #5fa9f0;
+  /* Destructive-action fill (delete buttons). Distinct from --bad: that's the "error status" FOREGROUND,
+     kept light/rosy so error text reads on black — too pale for a solid button. This is a deeper, saturated
+     red that carries white text and reads as a real danger affordance. */
+  --danger: #c0302a;
   /* The chrome/UI typeface (tabs, title bar, menus, panels) — bundled Chivo, a sturdy grotesque chosen
      to read distinctly from the soft system-UI / VS Code look and to stay crisp at small text sizes.
      @font-face is in fonts.css; code surfaces (Monaco/xterm) keep their own monospace via settings. */
@@ -33,6 +37,26 @@ body,
 #root {
   height: 100%;
   margin: 0;
+}
+
+/* Default the chrome UI font on <body> so anything portaled OUTSIDE .app — context menus, modal dialogs,
+   toasts are all mounted on <body> — inherits the chrome typeface instead of falling back to the WebView's
+   default serif. This is the global fix for the "portaled popovers render serif" gotcha; individual portaled
+   components no longer need to re-assert the font. .app re-states it for its own subtree, and code surfaces
+   (Monaco/xterm) set their own monospace, so neither is affected. */
+body {
+  font: 12px / 1.5 var(--ui-font);
+}
+
+/* Form controls don't inherit font-family by default, so every <button> (context-menu rows, dialog buttons,
+   …) would fall back to the UA serif even with <body> set above. This one rule makes them inherit the chrome
+   font everywhere, instead of each component re-asserting font:inherit. Size/weight stay as each control sets
+   them; code surfaces (Monaco/xterm) render their own DOM and aren't affected. */
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
 }
 
 .app {
@@ -206,6 +230,76 @@ body,
 .session-rail-add:hover {
   color: var(--fg);
   border-color: var(--dim);
+}
+
+/* The app's one right-click context menu (ContextMenu.tsx) — shared by the editor tab strip and the session
+   rail. Portaled to <body>, positioned at the cursor; font inherited from the global <body> rule above. An
+   optional header names the target; a destructive (danger) item reads red. */
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 12em;
+  padding: 0.3em;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.55);
+  font-size: 13px;
+}
+.context-menu-header {
+  padding: 0.4em 0.65em 0.5em;
+  color: var(--dim);
+  font-size: 0.88em;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 0.3em;
+}
+.context-menu-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.5em;
+  width: 100%;
+  padding: 0.5em 0.65em;
+  border: none;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.context-menu-item:hover {
+  background: var(--accent);
+  color: #042019;
+}
+.context-menu-keys {
+  color: var(--dim);
+  font-size: 0.9em;
+}
+.context-menu-item:hover .context-menu-keys {
+  color: rgba(6, 35, 29, 0.7);
+}
+.context-menu-sep {
+  height: 1px;
+  margin: 0.3em 0.4em;
+  background: var(--border);
+}
+/* Destructive item (e.g. Delete): red label at rest (the readable text-red), filled with the saturated danger
+   red on hover. */
+.context-menu-item.danger {
+  color: var(--bad);
+}
+.context-menu-item.danger:hover {
+  background: var(--danger);
+  color: #fff;
+}
+.context-menu-item.danger:hover .context-menu-keys {
+  color: rgba(255, 255, 255, 0.75);
 }
 
 /* Per-session Claude status dot in the pane head: a small filled circle whose color tracks status
@@ -584,53 +678,6 @@ body,
 .editor-tab-close:hover {
   opacity: 1;
   background: rgba(255, 255, 255, 0.1);
-}
-
-/* Tab right-click context menu (portaled to body; fixed at the cursor). Mirrors the title-bar dropdown look. */
-.tab-ctx-menu {
-  position: fixed;
-  z-index: 100;
-  min-width: 12em;
-  padding: 0.25em;
-  background: var(--bar);
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
-}
-
-.tab-ctx-item {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1.5em;
-  width: 100%;
-  padding: 0.35em 0.6em;
-  border: none;
-  border-radius: 3px;
-  background: transparent;
-  color: var(--fg);
-  text-align: left;
-  cursor: pointer;
-}
-
-.tab-ctx-item:hover {
-  background: var(--accent);
-  color: #042019;
-}
-
-.tab-ctx-keys {
-  color: var(--dim);
-  font-size: 0.9em;
-}
-
-.tab-ctx-item:hover .tab-ctx-keys {
-  color: rgba(6, 35, 29, 0.7);
-}
-
-.tab-ctx-sep {
-  height: 1px;
-  margin: 0.25em 0.4em;
-  background: var(--border);
 }
 
 .term {
@@ -1772,8 +1819,15 @@ body,
   cursor: pointer;
 }
 
-.confirm-btn:hover {
+/* Ghost buttons only. The filled primary/danger buttons set their own hover below; without this exclusion the
+   generic rule's translucent fill outranks their solid background and makes them go dark on hover. */
+.confirm-btn:not(.confirm-btn-primary):not(.confirm-btn-danger):hover {
   background: rgba(255, 255, 255, 0.08);
+}
+
+.confirm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 .confirm-btn-primary {
@@ -1786,9 +1840,47 @@ body,
   filter: brightness(1.08);
 }
 
+/* Destructive confirm (delete session): a saturated danger red with white text — a deliberate button, not a
+   pale highlight. No contrasting border; hover lightens; focus shows a soft light-red ring (not a same-color
+   halo around the fill). */
+.confirm-btn-danger {
+  border-color: transparent;
+  background: var(--danger);
+  color: #fff;
+}
+
+.confirm-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, #fff);
+}
+
 .confirm-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+
+.confirm-btn-danger:focus-visible {
+  outline-color: color-mix(in srgb, var(--danger) 45%, #fff);
+}
+
+/* Acknowledgement controls inside a delete confirm: a warning line (the untracked two-step) and the checkbox
+   that gates deleting a worktree with tracked changes. */
+.confirm-warn {
+  margin-top: 0.7em;
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.confirm-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.9em;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.confirm-check input {
+  cursor: pointer;
 }
 
 /* New-session prompt — a branch-name field plus the "branch from" choices, each button carrying its

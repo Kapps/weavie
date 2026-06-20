@@ -383,13 +383,16 @@ silently leaked.
   seeding is wired but experimental (TUI-readiness timing).
 - **Commit the web** (`bridge.ts`, `App.tsx`, `chrome/SessionRail.tsx`, `theme/chrome-vars.ts`,
   `styles.css`) once the parallel `hostInjected` refactor lands, so it isn't entangled.
-- **macOS host**: mirror the Win wiring (needs the parent spec's HostSession-per-window split first).
+- **macOS host — DONE** (via [host-core-unification.md](host-core-unification.md)): rather than mirror
+  the Win wiring, the whole session model + bridge dispatch moved into a shared `HostCore` that every
+  host (incl. macOS) drives, so the rail + worktree sessions land on all hosts from one implementation.
 
 ## Build sequence
 
 Each phase: build + unit tests + drive the live app to validate, then commit. Windows-first; the
-macOS host still needs the parent spec's `HostSession`-per-window split before it can multiplex
-sessions (see [file-management-and-sessions.md](file-management-and-sessions.md) status).
+macOS (and Linux/Headless) hosts gained multi-session by sharing the Windows implementation through
+`HostCore` — see [host-core-unification.md](host-core-unification.md), which replaced the
+per-host `HostSession`-split work this paragraph anticipated.
 
 - **Phase 0 — multi-session backend.** Lift the one-session-per-window assumption: a per-workspace
   `SessionManager` owning N `HostSession`s, active-session tracking, and the layout slot-rebinding on

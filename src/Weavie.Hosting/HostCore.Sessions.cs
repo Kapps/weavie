@@ -7,34 +7,31 @@ using Weavie.Core.Git;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Worktrees;
-using Weavie.Win.Hosting;
 
-namespace Weavie.Win;
+namespace Weavie.Hosting;
 
-// Multi-session + worktree wiring for the workspace window. The rail surfaces one SessionSlot per worktree
-// (plus the primary checkout); a slot is either LOADED (a live HostSession — terminals/IDE-MCP/LSP) or
-// UNLOADED (dormant, shown faded), so a worktree left on disk from a past run is always visible rather than
-// leaking. Clicking a dormant chip loads it on demand; closing a session unloads it (the chip stays). The
-// active session's backend drives the page (pushes gated on IsActiveSession); switching swaps terminals +
-// repaints, rebinds the editor to the slot's worktree tabs, and re-pushes status + the rail. LSP doesn't yet
-// re-bind on switch. See docs/specs/multi-session-and-worktrees.md.
-internal sealed partial class WorkspaceWindow : ISessionHost {
+// The session coordinator: HostCore's ISessionHost implementation plus the worktree/slot orchestration behind
+// the rail. The rail surfaces one SessionSlot per worktree (plus the primary checkout); a slot is either
+// LOADED (a live HostSession) or UNLOADED (dormant). The active session's backend drives the page (pushes
+// gated on IsActiveSession); switching swaps terminals + repaints, rebinds the editor to the slot's worktree
+// tabs, and re-pushes status + the rail. See docs/specs/multi-session-and-worktrees.md.
+public sealed partial class HostCore {
 	/// <summary>
-	/// Wires a session's command handlers + its change/status/diff push subscriptions. The push
-	/// subscriptions are gated on <see cref="IsActiveSession"/> so only the active session updates the page;
-	/// for a single session that gate is always true, so behavior is identical to before.
+	/// Wires a session's command handlers + its change/status/diff push subscriptions. The push subscriptions
+	/// are gated on <see cref="IsActiveSession"/> so only the active session updates the page; for a single
+	/// session that gate is always true, so behavior is identical to before.
 	/// </summary>
 	private void WireSession(HostSession session) {
 		session.Commands.WebInvoker = InvokeWebCommandAsync;
 		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
-			RunOnUi(() => session.Shell.Restart());
+			_ui.Post(() => session.Shell.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
 		session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
-			RunOnUi(() => WindowFocus.Toggle(this));
+			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
-		ThemeCommands.RegisterHandlers(session.Commands, _settings, _app.ThemeOverrides, PickVsixFileAsync);
+		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		SessionCommands.RegisterHandlers(session.Commands, this);
 
 		session.Changes.Changed += () => {
@@ -60,7 +57,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 				PostSessionStatus(status);
 			}
 
-			RunOnUi(PushSessionList);
+			_ui.Post(PushSessionList);
 		};
 		session.Lsp.FileChanges += changes => {
 			if (IsActiveSession(session)) {
@@ -75,7 +72,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 	private async Task<WorktreeManager?> BuildWorktreeManagerAsync() {
 		var git = new GitService();
 		try {
-			if (!await git.IsRepositoryAsync(_workspaceRoot).ConfigureAwait(true)) {
+			if (!await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false)) {
 				return null;
 			}
 		} catch (GitException) {
@@ -96,7 +93,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		provisioner.Finished += OnWorktreeCommandFinished;
 		_worktreeProvisioner = provisioner;
 
-		return new WorktreeManager(git, registry, _workspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id), provisioner);
+		return new WorktreeManager(git, registry, WorkspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id), provisioner);
 	}
 
 	/// <summary>Kicks off the worktree setup command in the background so the new session opens immediately;
@@ -121,7 +118,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		string message = e.Phase == WorktreeCommandPhase.Setup
 			? $"Setting up worktree '{label}'… ({e.Command})"
 			: $"Cleaning up worktree '{label}'… ({e.Command})";
-		RunOnUi(() => Notify("info", message));
+		_ui.Post(() => Notify("info", message));
 	}
 
 	private void OnWorktreeCommandFinished(WorktreeCommandEvent e) {
@@ -135,7 +132,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 			Console.WriteLine($"[worktree-{phase}] {e.Command} (exit {result.ExitCode}) in {e.WorktreePath}{Environment.NewLine}{output}");
 		}
 
-		RunOnUi(() => {
+		_ui.Post(() => {
 			if (result.Succeeded) {
 				Notify("info", e.Phase == WorktreeCommandPhase.Setup
 					? $"Worktree '{label}' is ready."
@@ -149,14 +146,14 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 	private static string WorktreeLabel(string path) =>
 		Path.GetFileName(path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 
-	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with <see cref="_session"/>.</summary>
+	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with the primary session.</summary>
 	private void AddPrimarySlot(string label) {
 		_sessions?.Add(new SessionSlot {
-			Id = _session!.Id,
+			Id = _primarySession!.Id,
 			Label = label,
-			WorktreePath = _workspaceRoot,
+			WorktreePath = WorkspaceRoot,
 			IsPrimary = true,
-			Session = _session,
+			Session = _primarySession,
 			LastActiveUtc = DateTimeOffset.UtcNow,
 		}, activate: true);
 	}
@@ -172,7 +169,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		}
 
 		try {
-			var report = await _worktrees.ReconcileAsync().ConfigureAwait(true);
+			var report = await _worktrees.ReconcileAsync().ConfigureAwait(false);
 			foreach (var status in report.Statuses) {
 				if (!status.Exists || status.IsPrimary) {
 					continue;
@@ -227,8 +224,8 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 	private async Task<string> ResolvePrimaryLabelAsync() {
 		try {
 			var git = new GitService();
-			if (await git.IsRepositoryAsync(_workspaceRoot).ConfigureAwait(true)) {
-				string? branch = await git.GetCurrentBranchAsync(_workspaceRoot).ConfigureAwait(true);
+			if (await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false)) {
+				string? branch = await git.GetCurrentBranchAsync(WorkspaceRoot).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(branch)) {
 					return branch;
 				}
@@ -237,7 +234,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 			// No git → fall back to the folder name for the rail label.
 		}
 
-		return Path.GetFileName(_workspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+		return Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
 	}
 
 	private void PostSessionStatus(SessionStatus status) =>
@@ -257,7 +254,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
-			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides, _app.ClaudeSessions);
+			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
 		WireSession(session);
 		return session;
 	}
@@ -271,10 +268,9 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 	/// <summary>
 	/// Loads a dormant slot's backend IN THE BACKGROUND — creates its <see cref="HostSession"/> and starts its
-	/// terminals at the default size so its Claude actually runs and reports status — WITHOUT binding the page to
-	/// it. The session stays muted (<see cref="TerminalController.OutputActive"/> false) until the user switches
-	/// to it, at which point <see cref="TerminalController.OnReady"/> resizes the live child to the real pane.
-	/// This is the rail's "Load session" (load, don't open). No-op if already loaded.
+	/// terminals so its Claude actually runs and reports status — WITHOUT binding the page to it. The session
+	/// stays muted (<see cref="TerminalController.OutputActive"/> false) until the user switches to it. This is
+	/// the rail's "Load session" (load, don't open). No-op if already loaded.
 	/// </summary>
 	private void LoadSlotInBackground(SessionSlot slot) {
 		if (slot.Loaded) {
@@ -296,10 +292,9 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 	/// <summary>
 	/// Binds the page to <paramref name="slot"/>, loading its backend first if it was dormant: mutes the
-	/// previous session's terminals (they keep running in the background), unmutes the new one's, and resets
-	/// the page's xterms so they re-emit term-ready and the new session's terminals start/repaint. Rebinds the
-	/// editor to this slot's worktree tabs, then re-pushes status + the rail. Records the slot's last-active
-	/// time (the signal a future idle-unload sweep reads).
+	/// previous session's terminals (they keep running in the background), unmutes the new one's, and resets the
+	/// page's xterms so they re-emit term-ready and the new session's terminals start/repaint. Rebinds the
+	/// editor to this slot's worktree tabs, then re-pushes status + the rail.
 	/// </summary>
 	private void SwitchToSlot(SessionSlot slot) {
 		LoadSlot(slot);
@@ -325,28 +320,22 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		// session's working copies and reopens this one's. fs-read/write + active-editor already route to the
 		// active session, so edits land in the right worktree the moment _session is swapped above.
 		PushSessionEditorToWeb(session);
-		// Re-root the omnibar quick-open + file browser to this session's worktree. Without this they keep
-		// listing the previous session's files, and opening one fails — the new session's file provider refuses
-		// to read a path outside its worktree (it surfaces as "nonexistent file").
+		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb();
 		PostSessionStatus(session.Status.Status);
 		PushSessionList();
 		// Land keyboard focus in the new session's Claude pane. Pushed last so it wins over the editor rebind
-		// above, and after term-reset so the (persistent) claude xterm is the one focused. Every switch path —
-		// new session, rail click, next/prev, Ctrl+Shift+N select, and the close→primary fallback — routes
-		// through here, so each drops the user straight into the agent rather than leaving focus nowhere.
+		// and after term-reset so the (persistent) claude xterm is the one focused.
 		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
 	}
 
 	/// <summary>
-	/// Pushes a session's open editor tabs (a <c>set-editor-session</c>) so the page rebinds the editor to
-	/// that session's worktree files. Built from the session's in-memory <see cref="HostSession.EditorSession"/>
-	/// against its own filesystem (so missing files are dropped). The primary's tabs are kept in sync with the
-	/// persisted store via <c>editor-session-changed</c>; secondary sessions accumulate theirs in memory.
+	/// Pushes a session's open editor tabs (a <c>set-editor-session</c>) so the page rebinds the editor to that
+	/// session's worktree files. Built from the session's in-memory <see cref="HostSession.EditorSession"/>
+	/// against its own filesystem (so missing files are dropped).
 	/// </summary>
 	private void PushSessionEditorToWeb(HostSession session) =>
-		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
-			session.EditorSession, session.FileSystem, line => Console.WriteLine($"[weavie] {line}")));
+		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(session.EditorSession, session.FileSystem, Log));
 
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
@@ -377,7 +366,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		}
 
 		var result = new TaskCompletionSource<CommandResult>();
-		RunOnUi(() => {
+		_ui.Post(() => {
 			try {
 				LoadSlotInBackground(target);
 				result.SetResult(CommandResult.Success($"Loaded session '{target.Label}' in the background."));
@@ -404,9 +393,9 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		}
 
 		var result = new TaskCompletionSource<CommandResult>();
-		RunOnUi(async () => {
+		_ui.Post(async () => {
 			try {
-				await UnloadSlotAsync(target).ConfigureAwait(true);
+				await UnloadSlotAsync(target).ConfigureAwait(false);
 				result.SetResult(CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload)."));
 			} catch (Exception ex) {
 				result.SetException(ex);
@@ -434,23 +423,23 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		string label = target.Label;
 
 		var result = new TaskCompletionSource<CommandResult>();
-		RunOnUi(async () => {
+		_ui.Post(async () => {
 			try {
 				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under force:false.)
-				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(true)) {
+				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 					result.SetResult(CommandResult.Failure(
 						$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
 					return;
 				}
 
-				// Tear the live backend down first so no process keeps a handle on the worktree dir (Windows file
-				// locks), then remove the worktree — keeping the branch — and drop the chip from the rail.
+				// Tear the live backend down first so no process keeps a handle on the worktree dir, then remove
+				// the worktree — keeping the branch — and drop the chip from the rail.
 				if (target.Loaded) {
-					await UnloadSlotAsync(target).ConfigureAwait(true);
+					await UnloadSlotAsync(target).ConfigureAwait(false);
 				}
 
-				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, ct).ConfigureAwait(true);
+				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, ct).ConfigureAwait(false);
 				_sessions?.Remove(target);
 				PushSessionList();
 				result.SetResult(CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept."));
@@ -466,8 +455,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 	/// <summary>
 	/// Tears down a slot's live backend, leaving it dormant (a faded chip): if it was active, binds the primary
-	/// first, then disposes its <see cref="HostSession"/> while keeping the slot so the worktree stays
-	/// surfaced. The path a future idle-unload sweep reuses; deleting the worktree itself is separate.
+	/// first, then disposes its <see cref="HostSession"/> while keeping the slot so the worktree stays surfaced.
 	/// </summary>
 	private async Task UnloadSlotAsync(SessionSlot slot) {
 		if (slot.Session is not { } session) {
@@ -479,7 +467,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		}
 
 		slot.Session = null;
-		await session.DisposeAsync().ConfigureAwait(true);
+		await session.DisposeAsync().ConfigureAwait(false);
 		PushSessionList();
 	}
 
@@ -491,18 +479,18 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		}
 
 		string branch = string.IsNullOrWhiteSpace(requestedBranch)
-			? await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(true)
+			? await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(false)
 			: requestedBranch.Trim();
 		string baseRef;
 		try {
-			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(true);
+			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(false);
 		} catch (GitException ex) {
 			return CommandResult.Failure($"Couldn't resolve the base ref: {ex.Message}");
 		}
 
 		WorktreeRecord record;
 		try {
-			record = await _worktrees.CreateAsync(branch, baseRef, ct).ConfigureAwait(true);
+			record = await _worktrees.CreateAsync(branch, baseRef, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't create the worktree: {ex.Message}");
 		}
@@ -512,7 +500,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		StartWorktreeSetup(record.Path);
 
 		var result = new TaskCompletionSource<CommandResult>();
-		RunOnUi(() => {
+		_ui.Post(() => {
 			try {
 				var slot = new SessionSlot {
 					Id = branch,
@@ -538,20 +526,18 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 	private async Task<string> ResolveBaseRefAsync(string? baseSpec, CancellationToken ct) {
 		var git = new GitService();
 		if (string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase)) {
-			return await git.ResolveDefaultBranchAsync(_workspaceRoot, ct).ConfigureAwait(true)
-				?? await git.GetHeadCommitAsync(_workspaceRoot, ct).ConfigureAwait(true);
+			return await git.ResolveDefaultBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false)
+				?? await git.GetHeadCommitAsync(WorkspaceRoot, ct).ConfigureAwait(false);
 		}
 
 		// Default ("current"): branch off the active session's worktree HEAD.
-		string cwd = _session?.WorkspaceRoot ?? _workspaceRoot;
-		return await git.GetHeadCommitAsync(cwd, ct).ConfigureAwait(true);
+		string cwd = _session?.WorkspaceRoot ?? WorkspaceRoot;
+		return await git.GetHeadCommitAsync(cwd, ct).ConfigureAwait(false);
 	}
 
 	/// <summary>
 	/// Derives a unique branch name for an auto-named session: a slug from the first prompt (or "session"),
 	/// suffixed -2/-3/… until it collides with neither an existing slot label nor an existing worktree branch.
-	/// Checking the live worktrees avoids the "branch already exists" failure when a prior session's worktree
-	/// was left on disk (the leak the user can't otherwise see).
 	/// </summary>
 	private async Task<string> DeriveUniqueBranchNameAsync(string? prompt, CancellationToken ct) {
 		var taken = new HashSet<string>(StringComparer.Ordinal);
@@ -563,7 +549,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 		if (_worktrees is not null) {
 			try {
-				foreach (var status in await _worktrees.ListAsync(ct).ConfigureAwait(true)) {
+				foreach (var status in await _worktrees.ListAsync(ct).ConfigureAwait(false)) {
 					if (status.Branch is { } existing) {
 						taken.Add(existing);
 					}
@@ -594,7 +580,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 
 	// Experimental: seed the new session's claude with a first prompt by typing it into the PTY once the TUI
 	// is up. Best-effort (a short delay for the TUI to start); not load-bearing. See the spec's fork section.
-	private void SeedFirstPrompt(HostSession session, string prompt) {
+	private static void SeedFirstPrompt(HostSession session, string prompt) {
 		_ = Task.Run(async () => {
 			await Task.Delay(2500).ConfigureAwait(false);
 			byte[] text = System.Text.Encoding.UTF8.GetBytes(prompt);
@@ -602,13 +588,5 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 			await Task.Delay(150).ConfigureAwait(false);
 			session.Claude.Write([(byte)'\r']);
 		});
-	}
-
-	private void RunOnUi(Action action) {
-		if (InvokeRequired) {
-			BeginInvoke(action);
-		} else {
-			action();
-		}
 	}
 }

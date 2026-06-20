@@ -28,6 +28,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
+    <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>
 
   <!-- Embed the multi-size icon so every window can set Form.Icon (taskbar / Alt-Tab / title bar) from it

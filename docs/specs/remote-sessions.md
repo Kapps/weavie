@@ -154,9 +154,13 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
 
 ## Auth & transport (first cut → hardening)
 
-- **Fail closed.** `Weavie.Headless` refuses to start on a **non-loopback** bind without a token, so an
-  exposed bridge can never be unauthenticated regardless of how the flags were passed. A null token is
-  only possible on a loopback bind (local dev), where the OS loopback is the boundary.
+- **Explicit remote mode; auth keys off the mode, not token presence.** `Weavie.Headless` resolves a
+  `ListenMode` once at startup: `Local` (loopback, no auth) or `Remote(bind, token)`. Remote listening is
+  opt-in (`--remote`) and the `Remote` case **carries a required token** — so the auth gate is enabled by
+  `listen is Remote`, never by "is a token set." A network interface can be bound **only** via `Remote`,
+  which mandates the token, so an exposed-but-unauthenticated host is unrepresentable; contradictory flags
+  (`--bind` non-loopback without `--remote`, `--remote` without a token, `--token` without `--remote`) all
+  **fail closed at startup** (exit 1). The runner spawns workers with `--remote --token <t>`.
 - **Single default-deny gate (no per-endpoint checks).** Each host enforces auth in **one** middleware:
   when a token is set, *every* request must present it (constant-time compare of a 128-bit CSPRNG token)
   **except** an explicit, narrow allowlist. On the worker that allowlist is "a real static asset file

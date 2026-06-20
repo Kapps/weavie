@@ -73,6 +73,9 @@ public sealed class HeadlessLauncher {
 			info.ArgumentList.Add(_options.HeadlessPath);
 		}
 
+		// Workers are network-exposed: --remote opts into remote listening, which the worker enforces by
+		// REQUIRING the token (it refuses to start otherwise). Auth there keys off this mode, not token presence.
+		info.ArgumentList.Add("--remote");
 		info.ArgumentList.Add("--port");
 		info.ArgumentList.Add(backend.Port.ToString());
 		info.ArgumentList.Add("--bind");

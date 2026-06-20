@@ -12,19 +12,19 @@ if (args.Length > 0 && args[0] == "--hook-relay") {
 
 string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
-string bind = ResolveBind(args);
-string? token = ResolveToken(args);
 string workspaceOverride = ResolveWorkspace(args);
 
-// Fail closed: a non-loopback bind exposes the bridge to the network, so it MUST carry a token. Only a
-// loopback bind (local dev / `npm run capture`) may run untokenized — there the OS loopback is the boundary.
-// This makes "exposed but unauthenticated" impossible regardless of how the two flags were passed.
-if (!IsLoopbackBind(bind) && string.IsNullOrEmpty(token)) {
-	Console.Error.WriteLine(
-		$"[weavie-headless] refusing to bind non-loopback interface '{bind}' without a token — "
-		+ "pass --token <t> (or WEAVIE_SERVE_TOKEN), or bind 127.0.0.1 for local-only.");
+// Resolve the listening mode ONCE, up front. Remote listening is opt-in (--remote) and, when on, the
+// ListenMode.Remote case carries a required token — so auth keys off the MODE below, never off "is a token
+// present." A network interface can be bound only via Remote (which mandates the token), so an exposed
+// untokenized host can't be expressed. A contradictory/unsafe combination fails closed here (exit 1).
+var (listen, listenError) = ListenMode.Resolve(args);
+if (listen is null) {
+	Console.Error.WriteLine($"[weavie-headless] {listenError}");
 	return 1;
 }
+
+string bind = listen.BindAddress;
 
 // The host outlives any one page: build it once, then let each browser connection (re)attach its socket.
 var bridge = new WebSocketHostBridge();
@@ -45,18 +45,20 @@ app.UseWebSockets();
 
 var assets = Directory.Exists(wwwroot) ? new PhysicalFileProvider(wwwroot) : null;
 
-// SINGLE auth gate, default-deny. When a token is configured (any network-exposed host — enforced at
-// startup), EVERY request must carry the token EXCEPT public static assets (the JS/CSS the gated document
-// loads, which hold no secrets). So the document, the bridge, and any endpoint added later are gated
-// automatically — you can't forget a per-route check, because there are none. "Public" is the narrow, exact
-// exception: a real file under wwwroot that isn't index.html. Everything else (incl. unknown paths) → 401.
-if (token is not null) {
+// SINGLE auth gate, default-deny — enabled by the listening MODE, not by token presence. In remote mode
+// (the only mode that binds the network) EVERY request must carry the required token EXCEPT public static
+// assets (the JS/CSS the gated document loads, which hold no secrets). So the document, the bridge, and any
+// endpoint added later are gated automatically — there are no per-route checks to forget. "Public" is the
+// narrow, exact exception: a real file under wwwroot that isn't index.html. Local mode never binds the
+// network, so it needs no gate (the OS loopback is the boundary).
+if (listen is ListenMode.Remote remote) {
+	string authToken = remote.Token;
 	app.Use(async (context, next) => {
 		var path = context.Request.Path;
 		bool publicAsset = assets is not null
 			&& path != "/" && path != "/index.html"
 			&& assets.GetFileInfo(path.Value ?? "/").Exists;
-		if (publicAsset || TokenMatches(context, token)) {
+		if (publicAsset || TokenMatches(context, authToken)) {
 			await next().ConfigureAwait(false);
 			return;
 		}
@@ -95,7 +97,7 @@ app.Map("/weavie-bridge", async context => {
 });
 
 string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
-string tokenSuffix = token is null ? string.Empty : $"/?token={token}";
+string tokenSuffix = listen is ListenMode.Remote shown ? $"/?token={shown.Token}" : string.Empty;
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
 Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{port}{tokenSuffix}  in a browser");
 Console.Out.Flush();
@@ -115,32 +117,6 @@ static int ResolvePort(string[] args) {
 
 	return int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SERVE_PORT"), out int fromEnv) ? fromEnv : 8700;
 }
-
-static string ResolveBind(string[] args) {
-	for (int i = 0; i < args.Length - 1; i++) {
-		if (args[i] == "--bind") {
-			return args[i + 1];
-		}
-	}
-
-	// Default to loopback so a bare `Weavie.Headless` stays local; the runner passes --bind to expose workers.
-	return Environment.GetEnvironmentVariable("WEAVIE_SERVE_BIND") ?? "127.0.0.1";
-}
-
-static string? ResolveToken(string[] args) {
-	for (int i = 0; i < args.Length - 1; i++) {
-		if (args[i] == "--token") {
-			return args[i + 1];
-		}
-	}
-
-	string? fromEnv = Environment.GetEnvironmentVariable("WEAVIE_SERVE_TOKEN");
-	return string.IsNullOrEmpty(fromEnv) ? null : fromEnv;
-}
-
-static bool IsLoopbackBind(string bind) =>
-	bind is "127.0.0.1" or "::1" or "localhost"
-	|| (System.Net.IPAddress.TryParse(bind, out var ip) && System.Net.IPAddress.IsLoopback(ip));
 
 static bool TokenMatches(HttpContext context, string expected) {
 	string presented = context.Request.Query.TryGetValue("token", out var t) ? t.ToString() : string.Empty;

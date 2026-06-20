@@ -14,7 +14,8 @@ namespace Weavie.Runner;
 internal static class ControlApi {
 	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options) {
 		// The one and only auth gate. Registered before the endpoints, so it runs first and covers them all
-		// (and anything added later). Unauthorized → 401; the landing page returns a friendly hint body.
+		// (and anything added later). Unauthorized → 401 with a fixed hint body for every path (the body is a
+		// constant, never derived from the request — so the response isn't branched on user input).
 		app.Use(async (context, next) => {
 			if (Authorized(context, options)) {
 				await next().ConfigureAwait(false);
@@ -22,10 +23,8 @@ internal static class ControlApi {
 			}
 
 			context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-			if (context.Request.Path == "/") {
-				context.Response.ContentType = "text/html; charset=utf-8";
-				await context.Response.WriteAsync(PickerPage.Unauthorized()).ConfigureAwait(false);
-			}
+			context.Response.ContentType = "text/html; charset=utf-8";
+			await context.Response.WriteAsync(PickerPage.Unauthorized()).ConfigureAwait(false);
 		});
 
 		app.MapGet("/", (HttpContext ctx) =>

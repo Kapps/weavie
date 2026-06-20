@@ -1,8 +1,10 @@
+using System.Reflection;
 using CoreGraphics;
 using Foundation;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
+using Weavie.Hosting.Web;
 using Weavie.Mac.Hosting;
 using WebKit;
 
@@ -16,7 +18,7 @@ namespace Weavie.Mac;
 /// session set, the web-message dispatch, the IDE-MCP + LSP servers) lives in the shared core.
 /// </summary>
 [Register("AppDelegate")]
-public sealed partial class AppDelegate : NSApplicationDelegate {
+public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 	private readonly HostBridge _bridge = new();
 	private readonly PosixPtyLauncher _ptyLauncher = new();
 	private HostCore? _core;
@@ -29,8 +31,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private NSWindow? _window;
 	private WKWebView? _webView;
 #if DEBUG
-	// Debug-only Vite dev server for hot reload; null in Release (the type is compiled out there).
-	private WebDevServer? _webDev;
+	// Debug-only shared dev-server bring-up (Weavie.Hosting.Web); null in Release (the types are compiled out there).
+	private DevWebBringUp? _devBringUp;
 #endif
 
 	/// <summary>
@@ -84,6 +86,12 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			: new CGRect(0, 0, 1280, 840);
 		_webView = new WKWebView(frame, config);
 		_bridge.Attach(_webView);
+#if DEBUG
+		// Intercept the dev-server error page's weavie-dev:// action links (Retry / Load stale bundle).
+		_webView.NavigationDelegate = new DevLinkNavigationDelegate(
+			onRetry: () => _ = RetryDevServerAsync(),
+			onLoadBundle: () => _ = LoadBundleAsync());
+#endif
 
 		_window = new NSWindow(
 			frame,
@@ -133,50 +141,78 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	}
 
 	/// <summary>
-	/// Resolves the page origin, builds the shared core's backend (sessions / IDE-MCP / LSP), injects the
-	/// bootstrap globals, and navigates. In Debug the origin is the Vite dev server when reachable, else the
-	/// bundled <c>app://</c> wwwroot; Release always serves the bundle. The backend build runs off the main
-	/// thread (no UI affinity); only the script injection + navigation are marshaled back onto it.
+	/// Brings the app up via the shared <see cref="WebAppLauncher"/> — backend, bootstrap injection, navigation.
+	/// In Debug, <see cref="DevWebBringUp"/> first tries the Vite dev server and renders a loud error page on
+	/// failure (never a silent stale-bundle swap); Release loads the bundled <c>app://</c> assets. Fire-and-forget
+	/// so the dev-server readiness poll doesn't block launch; the surface marshals the UI work onto the main thread.
 	/// </summary>
 	private async Task LoadWebAppAsync() {
-		string pageOrigin = "app://app";
-#if DEBUG
-		_webDev = new WebDevServer(line => {
-			Console.WriteLine($"[vite] {line}");
-			Console.Out.Flush();
-		});
-		string? devOrigin = await _webDev.StartAsync().ConfigureAwait(false);
-		if (devOrigin is not null) {
-			pageOrigin = devOrigin;
-			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
-		} else {
-			Console.WriteLine("[weavie] dev server unavailable; loading bundled wwwroot at app://app");
-		}
-
-		Console.Out.Flush();
-#endif
 		if (_core is null) {
 			return;
 		}
 
-		// Build the live backend. StartAsync touches nothing main-thread-affine (the bridge + hotkey registrar
-		// marshal their own work), so it runs off the main thread without blocking launch.
-		await _core.StartAsync(pageOrigin).ConfigureAwait(false);
-
-		InvokeOnMainThread(() => {
-			if (_webView is null || _core is null) {
-				return;
-			}
-
-			// Inject the bootstrap globals (fonts / editor / theme / lsp / commands / keybindings / shell)
-			// before navigation so both surfaces mount at the user's settings with no flash.
-			_webView.Configuration.UserContentController.AddUserScript(new WKUserScript(
-				new NSString(_core.BuildBootstrap()),
-				WKUserScriptInjectionTime.AtDocumentStart,
-				isForMainFrameOnly: true));
-			_webView.LoadRequest(new NSUrlRequest(new NSUrl($"{pageOrigin}/index.html")));
-		});
+		var launcher = new WebAppLauncher(this, _core, string.Empty);
+#if DEBUG
+		_devBringUp = new DevWebBringUp(
+			launcher, this,
+			DevWebRoot.Resolve(Assembly.GetExecutingAssembly()),
+			"app://app",
+			line => {
+				Console.WriteLine($"[vite] {line}");
+				Console.Out.Flush();
+			});
+		await _devBringUp.RunAsync().ConfigureAwait(false);
+#else
+		await launcher.LaunchAsync("app://app").ConfigureAwait(false);
+#endif
 	}
+
+	// IWebSurface — the native WKWebView operations the shared web bring-up drives. Each marshals onto the main
+	// thread (WebKit is main-thread-affine), so the shared flow in Weavie.Hosting.Web stays thread-agnostic.
+	void IWebSurface.Navigate(string url) =>
+		_dispatcher!.Post(() => _webView?.LoadRequest(new NSUrlRequest(new NSUrl(url))));
+
+	void IWebSurface.RenderHtml(string html) =>
+		_dispatcher!.Post(() => _webView?.LoadHtmlString(new NSString(html), null));
+
+	Task IWebSurface.InjectStartupScriptAsync(string script) {
+		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		_dispatcher!.Post(() => {
+			try {
+				_webView?.Configuration.UserContentController.AddUserScript(new WKUserScript(
+					new NSString(script),
+					WKUserScriptInjectionTime.AtDocumentStart,
+					isForMainFrameOnly: true));
+				tcs.SetResult();
+			} catch (Exception ex) {
+				tcs.SetException(ex);
+			}
+		});
+		return tcs.Task;
+	}
+
+#if DEBUG
+	/// <summary>Retry button on the dev-server error page: ask the shared bring-up to try again (it launches on
+	/// success, re-renders the error page on failure).</summary>
+	private async Task RetryDevServerAsync() {
+		if (_devBringUp is null) {
+			return;
+		}
+
+		Console.WriteLine("[weavie] retrying Vite dev server…");
+		await _devBringUp.RunAsync().ConfigureAwait(false);
+	}
+
+	/// <summary>"Load stale bundle anyway" button: the developer explicitly accepts the possibly-stale bundle.</summary>
+	private async Task LoadBundleAsync() {
+		if (_devBringUp is null) {
+			return;
+		}
+
+		Console.WriteLine("[weavie] loading STALE bundled wwwroot at app://app (explicit developer choice)");
+		await _devBringUp.LoadBundleAsync().ConfigureAwait(false);
+	}
+#endif
 
 	/// <summary>Quits the app when its last (only) window is closed.</summary>
 	public override bool ApplicationShouldTerminateAfterLastWindowClosed(NSApplication sender) => true;
@@ -186,7 +222,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		SaveWindowState();
 		_core?.DisposeAsync().AsTask().GetAwaiter().GetResult(); // disposes sessions + the global hotkeys
 #if DEBUG
-		_webDev?.Dispose(); // kills the Vite dev server this run spawned (a reused one is left alone)
+		_devBringUp?.Dispose(); // kills the Vite dev server this run spawned (a reused one is left alone)
 #endif
 		_services?.Keybindings.Dispose();
 		_services?.Settings.Dispose();

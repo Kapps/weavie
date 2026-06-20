@@ -1,13 +1,14 @@
 using Microsoft.Web.WebView2.Core;
 using Weavie.Core;
-using Weavie.Win.Hosting;
+using Weavie.Hosting.Web;
 
 namespace Weavie.Win;
 
-// The WebView2 bring-up: environment + virtual-host mapping, the bridge shim, the Debug Vite dev server (with
-// reconnect recovery), building the shared core's backend, injecting the bootstrap, and navigation — plus the
-// unattended screenshot. Split from WorkspaceWindow.cs so the chrome/lifecycle file stays focused.
-internal sealed partial class WorkspaceWindow {
+// The WebView2 bring-up: environment + virtual-host mapping, the bridge shim + attach, then the shared web
+// launcher (Weavie.Hosting.Web), which owns the dev-server / bootstrap / navigation flow. This host supplies
+// only the native WebView2 ops via IWebSurface, the Debug dev-loss reconnect recovery, and the unattended
+// screenshot. Split from WorkspaceWindow.cs so the chrome/lifecycle file stays focused.
+internal sealed partial class WorkspaceWindow : IWebSurface {
 	private async void OnLoad(object? sender, EventArgs e) {
 		try {
 			await InitializeAsync();
@@ -42,44 +43,68 @@ internal sealed partial class WorkspaceWindow {
 		// window dragging, double-click-maximize, and the right-click system menu for the frameless window.
 		core.Settings.IsNonClientRegionSupportEnabled = true;
 
-		// Page origin: the shipped app loads the bundled web app over https://weavie.app/. In Debug the host
-		// owns a Vite dev server (started here, torn down on exit) and points the WebView at it for hot-module
-		// reload, falling back to the bundled wwwroot if the server can't start.
-		string pageOrigin = $"https://{AppHost}";
-#if DEBUG
-		_webDev = new WebDevServer(line => {
-			Console.WriteLine($"[vite] {line}");
-			Console.Out.Flush();
-		});
-		string? devOrigin = await _webDev.StartAsync();
-		if (devOrigin is not null) {
-			pageOrigin = devOrigin;
-			_devOrigin = devOrigin;
-			// Recover a reload that fails because the dev server became unreachable (e.g. a reused server the
-			// user's terminal owned was Ctrl+C'd, then Ctrl+F5). Bundle navigation (https) never hits this.
-			core.NavigationCompleted += OnNavigationCompleted;
-			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
-		} else {
-			Console.WriteLine("[weavie] dev server unavailable; falling back to bundled wwwroot");
-		}
-#endif
-
+		// Wire the web↔host message bridge before bring-up (matching the other hosts); the shared launcher then
+		// starts the backend, injects the bootstrap, and navigates — see Weavie.Hosting.Web.WebAppLauncher.
 		_bridge.Attach(_webView);
 
-		// Build the live backend (sessions / IDE-MCP / LSP) and wire the bridge. Awaited without ConfigureAwait
-		// so the continuation resumes on the UI thread for the WebView2 calls below (StartAsync has no UI affinity).
-		await _core.StartAsync(pageOrigin);
+		string indexQuery = _app.Settings.GetBool("diagnostics.startupTiming", false) ? "?startuptiming=1" : string.Empty;
+		var launcher = new WebAppLauncher(this, _core, indexQuery);
 
-		// Inject the bootstrap globals (fonts / editor / theme / lsp / commands / keybindings / shell) before
-		// navigation so both surfaces mount at the user's settings with no flash.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(_core.BuildBootstrap());
+#if DEBUG
+		// In Debug the host owns a Vite dev server for hot-module reload. If it can't come up we do NOT silently
+		// serve the bundled wwwroot — that build can be arbitrarily stale, and a silent swap is exactly the
+		// failure-papering fallback this project forbids. DevWebBringUp renders a loud error page instead, and
+		// the host wires its Retry / Load-stale-bundle links (weavie-dev://) back to it.
+		_devBringUp = new DevWebBringUp(
+			launcher, this,
+			DevWebRoot.Resolve(System.Reflection.Assembly.GetExecutingAssembly()),
+			$"https://{AppHost}",
+			line => {
+				Console.WriteLine($"[vite] {line}");
+				Console.Out.Flush();
+			});
+		core.NavigationStarting += OnDevRecoveryNavigationStarting;
+		string? devOrigin = await _devBringUp.RunAsync();
+		if (devOrigin is not null) {
+			core.NavigationStarting -= OnDevRecoveryNavigationStarting;
+			_devOrigin = devOrigin;
+			// Recover a reload that fails because the dev server became unreachable (e.g. Ctrl+C'd, then Ctrl+F5).
+			core.NavigationCompleted += OnNavigationCompleted;
+			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
+		}
+#else
+		await launcher.LaunchAsync($"https://{AppHost}");
+#endif
 
-		// Off-by-default diagnostic (a real setting, not a buried env var): tell the web app to log its own
-		// startup phases via ?startuptiming.
-		string qs = _app.Settings.GetBool("diagnostics.startupTiming", false) ? "?startuptiming=1" : string.Empty;
-		core.Navigate($"{pageOrigin}/index.html{qs}");
+		ScheduleSnapshotIfRequested();
+	}
 
-		// Unattended screenshot for the deliverable; gated on WEAVIE_SHOT_DIR so the shipped app never writes one.
+	// IWebSurface — the native WebView2 operations the shared web bring-up drives. Each marshals onto the UI
+	// thread (WebView2 calls are UI-thread-affine), so the shared flow in Weavie.Hosting.Web stays thread-agnostic.
+	void IWebSurface.Navigate(string url) =>
+		_dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url));
+
+	void IWebSurface.RenderHtml(string html) =>
+		_dispatcher.Post(() => _webView.CoreWebView2?.NavigateToString(html));
+
+	Task IWebSurface.InjectStartupScriptAsync(string script) {
+		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		_dispatcher.Post(async () => {
+			try {
+				if (_webView.CoreWebView2 is { } core) {
+					await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
+				}
+
+				tcs.SetResult();
+			} catch (Exception ex) {
+				tcs.SetException(ex);
+			}
+		});
+		return tcs.Task;
+	}
+
+	/// <summary>Schedules the unattended deliverable screenshot when WEAVIE_SHOT_DIR is set (never in the shipped app).</summary>
+	private void ScheduleSnapshotIfRequested() {
 		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
 			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
 			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
@@ -87,10 +112,53 @@ internal sealed partial class WorkspaceWindow {
 	}
 
 #if DEBUG
+	/// <summary>Intercepts the error page's <c>weavie-dev://</c> action links (Retry / Load stale bundle). Every
+	/// other navigation — the error-page render itself, the eventual dev/bundle load — passes through untouched.</summary>
+	private async void OnDevRecoveryNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e) {
+		string uri = e.Uri ?? string.Empty;
+		if (uri.StartsWith(DevWebBringUp.RetryUrl, StringComparison.OrdinalIgnoreCase)) {
+			e.Cancel = true;
+			await RetryDevServerAsync();
+		} else if (uri.StartsWith(DevWebBringUp.BundleUrl, StringComparison.OrdinalIgnoreCase)) {
+			e.Cancel = true;
+			await LoadStaleBundleAsync();
+		}
+	}
+
+	/// <summary>Retry button: ask the shared bring-up to try the dev server again. On success, stop intercepting
+	/// and arm the dev-loss recovery; on failure it re-renders the error page itself.</summary>
+	private async Task RetryDevServerAsync() {
+		var core = _webView.CoreWebView2;
+		if (core is null || _devBringUp is null) {
+			return;
+		}
+
+		Console.WriteLine("[weavie] retrying Vite dev server…");
+		string? devOrigin = await _devBringUp.RunAsync();
+		if (devOrigin is not null) {
+			core.NavigationStarting -= OnDevRecoveryNavigationStarting;
+			_devOrigin = devOrigin;
+			core.NavigationCompleted += OnNavigationCompleted;
+			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
+		}
+	}
+
+	/// <summary>"Load stale bundle anyway" button: the developer explicitly accepts the possibly-stale bundle.</summary>
+	private async Task LoadStaleBundleAsync() {
+		var core = _webView.CoreWebView2;
+		if (core is null || _devBringUp is null) {
+			return;
+		}
+
+		core.NavigationStarting -= OnDevRecoveryNavigationStarting;
+		Console.WriteLine($"[weavie] loading STALE bundled wwwroot at https://{AppHost} (explicit developer choice)");
+		await _devBringUp.LoadBundleAsync();
+	}
+
 	// Recover when a navigation to the Vite dev origin fails because the server is unreachable — the case behind
 	// "localhost could not be reached" on a hard reload (Ctrl+F5/Ctrl+R) after a reused dev server died. Revive
-	// the dev server (StartAsync reuses a live one, else respawns) and reload; if it can't come back, fall back
-	// to the always-mapped bundle and log loudly. Only wired in Debug, so the shipped app can never reach it.
+	// the dev server (same origin, backend still valid) and reload; if it can't come back, load the always-mapped
+	// bundle and log loudly. Only wired in Debug, so the shipped app can never reach it.
 	private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e) {
 		if (e.IsSuccess) {
 			_devRecoveryAttempts = 0; // a good load ends the burst; the next failure starts a fresh count
@@ -99,7 +167,7 @@ internal sealed partial class WorkspaceWindow {
 
 		// Act only on connection-class failures (the server is gone) — not user cancels or HTTP errors, which
 		// navigate fine against a live server and would otherwise trigger a needless bundle fallback.
-		if (_devOrigin is null || _recoveringDevServer || _webDev is null
+		if (_devOrigin is null || _recoveringDevServer || _devBringUp is null
 			|| e.WebErrorStatus is not (
 				CoreWebView2WebErrorStatus.CannotConnect
 				or CoreWebView2WebErrorStatus.ServerUnreachable
@@ -120,7 +188,7 @@ internal sealed partial class WorkspaceWindow {
 		try {
 			Console.WriteLine($"[weavie] dev server at {_devOrigin} unreachable ({e.WebErrorStatus}); reviving for reload");
 			// Cap revival attempts so a server that comes up then immediately fails again can't spin forever.
-			string? revived = _devRecoveryAttempts < 3 ? await _webDev.StartAsync() : null;
+			string? revived = _devRecoveryAttempts < 3 ? await _devBringUp.ReviveAsync() : null;
 			if (revived is not null) {
 				_devRecoveryAttempts++;
 				_devOrigin = revived;

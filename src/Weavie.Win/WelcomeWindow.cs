@@ -2,6 +2,7 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
+using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;

@@ -2,6 +2,7 @@ using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
+using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
 using Weavie.Win.Terminal;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -48,7 +49,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	// Backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private bool _focused = true;
 #if DEBUG
-	private WebDevServer? _webDev;
+	// The shared Debug dev-server bring-up (Weavie.Hosting.Web); owns the Vite process + error page.
+	private DevWebBringUp? _devBringUp;
 	// The Vite dev origin the WebView is pointed at, once resolved (null in Release / when serving the bundle).
 	private string? _devOrigin;
 	// Set while a dev-server-loss recovery navigation is in flight (re-entrancy guard); capped attempts stop a
@@ -284,7 +286,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		// app-global stores. The stores themselves are owned by AppController and not disposed here.
 		_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
 #if DEBUG
-		_webDev?.Dispose();
+		_devBringUp?.Dispose();
 #endif
 	}
 }

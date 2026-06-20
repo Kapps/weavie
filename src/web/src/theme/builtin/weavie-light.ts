@@ -1,11 +1,11 @@
-// "Weavie Light" — the Paper White companion to Weavie Dark: the same deliberately small, green-forward
-// palette flipped onto a pure-white canvas (#ffffff). A deeper teal-green carries keywords/strings while a
-// single dark amber anchors types, so the eye still has one warm place to land on the cool field. The
-// identifier family stays split by role, not hue — variables italic, properties the highest-contrast ink,
-// functions a quiet slate — and comments recede to a soft neutral grey. Chrome sits one step *darker* than
-// the white editor (the mirror of Dark, where it sits one step lighter than black), so the canvas reads as
-// the focal well it frames. Same `colors` map drives editor, terminal, and chrome (spec §5), so overrides
-// (spec §6) and installed Open VSX themes address the exact same keys.
+// "Weavie Light" — the Paper White companion to Weavie Dark. A green-forward base (teal-green keywords and
+// strings, deep sea-green numbers) on a near-white canvas, with the identifier family split by HUE so roles
+// never blur: variables a muted denim blue (italic), properties a lighter blue cousin one step up, functions
+// a confident crimson — the lone warm accent — and types a cool cyan-teal. Comments recede to a soft neutral
+// grey and punctuation is lightened so it stays out of the way. Chrome sits one step *darker* than the editor
+// (the mirror of Dark, where it sits one step lighter than black), so the canvas reads as the focal well it
+// frames. Same `colors` map drives editor, terminal, and chrome (spec §5), so overrides (spec §6) and
+// installed Open VSX themes address the exact same keys.
 
 import type { VsCodeColorTheme } from "../vscode-theme";
 
@@ -38,7 +38,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     "editorBracketMatch.background": "#1f9d781f",
     "editorBracketMatch.border": "#1f9d7777",
     "editorBracketHighlight.foreground1": "#1f9d78",
-    "editorBracketHighlight.foreground2": "#b06a00",
+    "editorBracketHighlight.foreground2": "#0e8398",
     "editorBracketHighlight.foreground3": "#6b7682",
     "editorRuler.foreground": "#eceef1",
     "editorGutter.addedBackground": "#3f9d5a",
@@ -214,7 +214,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "Operator / accessor",
       scope: ["keyword.operator", "punctuation.accessor", "punctuation.separator"],
-      settings: { foreground: "#6b7682" },
+      settings: { foreground: "#8a949e" },
     },
     {
       name: "Type / class / namespace",
@@ -226,7 +226,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "support.class",
         "entity.other.inherited-class",
       ],
-      settings: { foreground: "#b06a00" },
+      settings: { foreground: "#0e8398" },
     },
     {
       name: "Function / method",
@@ -236,7 +236,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "meta.function-call entity.name.function",
         "entity.name.function.member",
       ],
-      settings: { foreground: "#4b5563" },
+      settings: { foreground: "#c0392b" },
     },
     {
       name: "Variable",
@@ -247,7 +247,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "variable.parameter",
         "meta.parameter",
       ],
-      settings: { foreground: "#2b3640", fontStyle: "italic" },
+      settings: { foreground: "#3b5a9c", fontStyle: "italic" },
     },
     {
       name: "Property",
@@ -257,7 +257,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "support.variable.property",
         "meta.object-literal.key",
       ],
-      settings: { foreground: "#0f1722" },
+      settings: { foreground: "#6079a8" },
     },
     {
       name: "Constant / enum member",
@@ -277,7 +277,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "Tag attribute",
       scope: ["entity.other.attribute-name"],
-      settings: { foreground: "#4b5563" },
+      settings: { foreground: "#6079a8" },
     },
     {
       name: "Decorator / annotation",
@@ -287,22 +287,22 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "storage.type.annotation",
         "entity.name.function.decorator",
       ],
-      settings: { foreground: "#b06a00" },
+      settings: { foreground: "#0e8398" },
     },
     {
       name: "JSON key",
       scope: ["support.type.property-name.json", "meta.structure.dictionary.key.json"],
-      settings: { foreground: "#0f1722" },
+      settings: { foreground: "#6079a8" },
     },
     {
       name: "Punctuation / braces",
       scope: ["punctuation", "meta.brace"],
-      settings: { foreground: "#6b7682" },
+      settings: { foreground: "#aab2ba" },
     },
     {
       name: "Markup heading",
       scope: ["markup.heading", "entity.name.section"],
-      settings: { foreground: "#b06a00", fontStyle: "bold" },
+      settings: { foreground: "#0e8398", fontStyle: "bold" },
     },
     {
       name: "Markup bold",
@@ -329,31 +329,32 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     { name: "Invalid", scope: ["invalid", "invalid.illegal"], settings: { foreground: "#c8413b" } },
   ],
   semanticTokenColors: {
-    // Types take the lone dark-amber accent — the one warm colour on the green-and-neutral field;
-    // namespaces are dimmed since they're mostly qualifiers.
-    class: "#b06a00",
-    interface: "#b06a00",
-    enum: "#b06a00",
-    struct: "#b06a00",
-    type: "#b06a00",
-    typeParameter: "#c08a3a",
-    namespace: "#a07a3a",
+    // Types take a cool cyan-teal — distinct from the green keywords and the blue identifiers;
+    // namespaces are a dimmer teal since they're mostly qualifiers.
+    class: "#0e8398",
+    interface: "#0e8398",
+    enum: "#0e8398",
+    struct: "#0e8398",
+    type: "#0e8398",
+    typeParameter: "#3a9aac",
+    namespace: "#3a8590",
     // Literal values (numbers, constants, enum members) share the deep sea-green of numbers.
     enumMember: "#13836b",
     number: "#13836b",
     "variable.readonly": "#13836b",
-    // Functions are a quiet slate — call sites read by shape, not colour; keywords/strings stay green.
-    function: "#4b5563",
-    method: "#4b5563",
+    // Functions are crimson — the lone warm accent, so calls and definitions stand out from the data.
+    function: "#c0392b",
+    method: "#c0392b",
     macro: "#1f8a73",
     keyword: "#1f8a73",
     string: "#2e8b3d",
-    operator: "#6b7682",
+    operator: "#8a949e",
     comment: { foreground: "#9aa6ad", fontStyle: "italic" },
-    // Variables (incl. parameters) are italic — the data flowing through; properties the highest-contrast ink.
-    variable: { foreground: "#2b3640", fontStyle: "italic" },
-    parameter: { foreground: "#2b3640", fontStyle: "italic" },
-    property: "#0f1722",
-    "property.readonly": "#0f1722",
+    // Variables (incl. parameters) are a denim blue, italic — the data flowing through; properties a lighter
+    // blue cousin, one step up, so members read as related-but-distinct.
+    variable: { foreground: "#3b5a9c", fontStyle: "italic" },
+    parameter: { foreground: "#3b5a9c", fontStyle: "italic" },
+    property: "#6079a8",
+    "property.readonly": "#6079a8",
   },
 };

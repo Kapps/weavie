@@ -16,6 +16,16 @@ string bind = ResolveBind(args);
 string? token = ResolveToken(args);
 string workspaceOverride = ResolveWorkspace(args);
 
+// Fail closed: a non-loopback bind exposes the bridge to the network, so it MUST carry a token. Only a
+// loopback bind (local dev / `npm run capture`) may run untokenized — there the OS loopback is the boundary.
+// This makes "exposed but unauthenticated" impossible regardless of how the two flags were passed.
+if (!IsLoopbackBind(bind) && string.IsNullOrEmpty(token)) {
+	Console.Error.WriteLine(
+		$"[weavie-headless] refusing to bind non-loopback interface '{bind}' without a token — "
+		+ "pass --token <t> (or WEAVIE_SERVE_TOKEN), or bind 127.0.0.1 for local-only.");
+	return 1;
+}
+
 // The host outlives any one page: build it once, then let each browser connection (re)attach its socket.
 var bridge = new WebSocketHostBridge();
 var services = HostServices.CreateDefault();
@@ -56,8 +66,10 @@ app.Map("/weavie-bridge", async context => {
 		return;
 	}
 
-	// When a token is configured (the runner spawns workers this way), the bridge — the actual capability —
-	// requires it on the upgrade. The static page/assets stay open; the page carries the token onto this URL.
+	// The bridge is the actual capability, so it requires the token on the upgrade whenever one is set. A
+	// null token only ever happens on a loopback bind (enforced at startup above), where loopback is the
+	// boundary; a non-loopback bind always has a token, so the network-exposed bridge is always gated. The
+	// static page/assets stay open; the page carries the token onto this URL.
 	if (token is not null && !TokenMatches(context, token)) {
 		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 		return;
@@ -110,6 +122,10 @@ static string? ResolveToken(string[] args) {
 	string? fromEnv = Environment.GetEnvironmentVariable("WEAVIE_SERVE_TOKEN");
 	return string.IsNullOrEmpty(fromEnv) ? null : fromEnv;
 }
+
+static bool IsLoopbackBind(string bind) =>
+	bind is "127.0.0.1" or "::1" or "localhost"
+	|| (System.Net.IPAddress.TryParse(bind, out var ip) && System.Net.IPAddress.IsLoopback(ip));
 
 static bool TokenMatches(HttpContext context, string expected) {
 	string presented = context.Request.Query.TryGetValue("token", out var t) ? t.ToString() : string.Empty;

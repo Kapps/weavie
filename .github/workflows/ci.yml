@@ -63,7 +63,9 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
+          # crashes setup-node's pnpm cache probe. Keep this at 22+.
+          node-version: 22
           cache: pnpm
           cache-dependency-path: src/web/pnpm-lock.yaml
 

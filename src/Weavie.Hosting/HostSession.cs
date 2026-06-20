@@ -5,6 +5,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
@@ -12,27 +13,30 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
-namespace Weavie.Win.Hosting;
+namespace Weavie.Hosting;
 
 /// <summary>
-/// One Weavie <em>session</em> on the Windows host: the live, workspace-scoped backend a single Claude
-/// works in — its two ConPTY terminals (claude + shell), the IDE-MCP server + lock file (the session's
-/// private channel back to Weavie, so its openDiff/openFile route here), the LSP bridge rooted at the
-/// session cwd, the file opener, and the Monaco diff presenter. A <see cref="WorkspaceWindow"/> owns one
-/// (v1) and routes the page's terminal / diff / reveal messages to it; multiple sessions per window come
-/// later. Mac sibling: the per-session wiring block in AppDelegate.
+/// One Weavie <em>session</em>: the live, workspace-scoped backend a single Claude works in — its two PTY
+/// terminals (claude + shell), the IDE-MCP server + lock file (the session's private channel back to Weavie,
+/// so its openDiff/openFile route here), the LSP bridge rooted at the session cwd, the file opener, and the
+/// Monaco diff presenter. The cwd is a constructor argument, so a worktree session is just a
+/// <see cref="HostSession"/> rooted at a different path — LSP, file browser, file index, and terminals all
+/// re-root for free. Platform-agnostic: it talks to the page through <see cref="IHostBridge"/> and spawns its
+/// PTYs through an injected <see cref="IPtyLauncher"/>, so every host (Win/Mac/Linux/Headless) shares it. A
+/// <c>HostCore</c> owns a set of these via its <see cref="SessionManager"/> and routes the page's terminal /
+/// diff / reveal messages to the active one.
 /// </summary>
-internal sealed class HostSession : IAsyncDisposable {
-	private readonly HostBridge _bridge;
+public sealed class HostSession : IAsyncDisposable {
+	private readonly IHostBridge _bridge;
 
 	/// <summary>
-	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals,
-	/// the IDE-MCP + registry servers (lock file written, discovery env minted), and the LSP bridge.
-	/// <paramref name="pageOrigin"/> is the page's origin, used to pin the LSP WebSocket's allowed origin;
-	/// <paramref name="id"/> is this session's identity within its workspace.
+	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (spawned
+	/// via <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers (lock file written, discovery env
+	/// minted), and the LSP bridge. <paramref name="pageOrigin"/> is the page's origin, used to pin the LSP
+	/// WebSocket's allowed origin; <paramref name="id"/> is this session's identity within its workspace.
 	/// </summary>
 	public HostSession(
-		HostBridge bridge,
+		IHostBridge bridge,
 		SettingsStore settings,
 		LayoutStore layout,
 		string workspaceRoot,
@@ -41,7 +45,9 @@ internal sealed class HostSession : IAsyncDisposable {
 		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
-		ThemeOverridesStore themeOverrides) {
+		ThemeOverridesStore themeOverrides,
+		IPtyLauncher ptyLauncher,
+		ClaudeSessionStore claudeSessions) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
@@ -51,13 +57,15 @@ internal sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
+		ArgumentNullException.ThrowIfNull(ptyLauncher);
+		ArgumentNullException.ThrowIfNull(claudeSessions);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
 		_bridge = bridge;
 
 		// Per-session command dispatcher over the app-global catalog: runCommand (MCP) and the web's
-		// invoke-command both route here. The window wires the WebInvoker (for web commands invoked by
+		// invoke-command both route here. The core wires the WebInvoker (for web commands invoked by
 		// Claude) and the Core handlers (e.g. reopen terminal) once the session exists.
 		Commands = new CommandDispatcher(commandRegistry);
 
@@ -71,8 +79,12 @@ internal sealed class HostSession : IAsyncDisposable {
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
 		FileIndex.Log += Tagged("[index]");
-		Claude = new TerminalController(bridge, "claude", settings) { Workspace = workspaceRoot };
-		Shell = new TerminalController(bridge, "shell", settings) { Workspace = workspaceRoot };
+		Claude = new TerminalController(bridge, "claude", settings, ptyLauncher) {
+			Workspace = workspaceRoot,
+			// Resume this session's worktree's previous Claude conversation across launches (gated by the setting).
+			ClaudeSessions = claudeSessions,
+		};
+		Shell = new TerminalController(bridge, "shell", settings, ptyLauncher) { Workspace = workspaceRoot };
 		FileOpener = new FileOpener(bridge, fileSystem, workspaceRoot);
 		DiffPresenter = new McpDiffPresenter(bridge, fileSystem, FileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
@@ -82,12 +94,15 @@ internal sealed class HostSession : IAsyncDisposable {
 		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
 		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
 		Changes = new SessionChangeTracker(fileSystem);
+		// Mirrors Claude's own edit mode (default/acceptEdits/plan), observed off the hook stream — Weavie
+		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
+		ObservedMode = new ObservedPermissionMode();
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
 		// discovery env so this session's claude connects to us (the SOLE edit feed). The same store backs
 		// the settings MCP tools, so the user can change settings by talking to claude.
 		Ide = new IdeIntegration(
-			new PermissionModeDiffPresenter(DiffPresenter, settings), [workspaceRoot], "weavie", settings, layout, Editor,
+			new PermissionModeDiffPresenter(DiffPresenter, ObservedMode), [workspaceRoot], "weavie", settings, layout, Editor,
 			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides,
 			editLocator: Changes.EditLocationFor);
 		Ide.Server.Log += Tagged("[mcp]");
@@ -113,6 +128,8 @@ internal sealed class HostSession : IAsyncDisposable {
 		// content at PostToolUse). Because hooks fire before the permission check, this records edits in
 		// every mode (default/acceptEdits/bypass) — independent of openDiff.
 		Ide.HookBridge.Observed += Changes.Observe;
+		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
+		Ide.HookBridge.Observed += ObservedMode.Observe;
 
 		// Per-session Claude status (the rail/pane indicator): the same hook stream drives it
 		// (UserPromptSubmit/tool use → Working, Notification → NeedsInput, Stop → Idle), and the claude
@@ -125,9 +142,9 @@ internal sealed class HostSession : IAsyncDisposable {
 
 		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved on
 		// PATH) and pipes them to monaco-languageclient in the page. The port, a per-session token, and the
-		// workspace root flow to the page via LspConfigJson (the window injects it before navigation);
-		// mirrors the IDE-MCP loopback + token posture (bind 127.0.0.1, require the token on the WS upgrade;
-		// origin pinned to the app).
+		// workspace root flow to the page via LspConfigJson (the core injects it before navigation); mirrors
+		// the IDE-MCP loopback + token posture (bind 127.0.0.1, require the token on the WS upgrade; origin
+		// pinned to the app).
 		string lspToken = IdeLockFile.NewAuthToken();
 		Lsp = new LspBridgeServer(lspToken, workspaceRoot, allowedOrigin: pageOrigin, resolveDescriptor: null);
 		Lsp.Log += Tagged("[lsp]");
@@ -189,7 +206,7 @@ internal sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>
 	/// This session's open editor tabs (paths + opaque view state), held in memory for the window's
-	/// lifetime. The page is the sole writer (debounced <c>editor-session-changed</c>); the window pushes
+	/// lifetime. The page is the sole writer (debounced <c>editor-session-changed</c>); the core pushes
 	/// it as a <c>set-editor-session</c> on a switch so the editor rebinds to this session's worktree
 	/// files. The primary session also mirrors this to the persisted per-workspace store; secondary
 	/// (worktree) sessions are in-memory only for now.
@@ -199,13 +216,16 @@ internal sealed class HostSession : IAsyncDisposable {
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
 
+	/// <summary>Claude's edit mode (default/acceptEdits/plan), observed off the hook stream; Weavie reflects it, never sets it.</summary>
+	public ObservedPermissionMode ObservedMode { get; }
+
 	/// <summary>The live status of this session's Claude (Starting/Working/NeedsInput/Idle/Error), for the rail.</summary>
 	public SessionStatusMachine Status { get; }
 
 	/// <summary>The LSP bridge server rooted at this session's cwd.</summary>
 	public LspBridgeServer Lsp { get; }
 
-	/// <summary>The <c>window.__WEAVIE_LSP__</c> discovery payload the window injects before navigation.</summary>
+	/// <summary>The <c>window.__WEAVIE_LSP__</c> discovery payload the core injects before navigation.</summary>
 	public string LspConfigJson { get; }
 
 	/// <summary>

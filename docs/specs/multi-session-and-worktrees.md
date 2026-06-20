@@ -284,8 +284,8 @@ parent spec's **view virtualization** (one live Monaco + one live xterm, re-hydr
 the *frontend* cost. Beyond that, a **`Suspended`** session state (later) tears down the heavy backend
 (the LSP server especially) while keeping the worktree + serialized session state, re-hydrating on
 focus — so ten idle worktrees don't each pin a language server. Sessions persist per-workspace
-(alongside `layout.json`) and restore on reopen; whether to auto-`claude --continue` each restored
-session or cold-start is an open question.
+(alongside `layout.json`) and restore on reopen, each resuming its own Claude conversation by default
+(stable assigned id; see [claude-session-resume.md](claude-session-resume.md)).
 
 ## Per-session routing — a prerequisite to verify
 
@@ -383,13 +383,16 @@ silently leaked.
   seeding is wired but experimental (TUI-readiness timing).
 - **Commit the web** (`bridge.ts`, `App.tsx`, `chrome/SessionRail.tsx`, `theme/chrome-vars.ts`,
   `styles.css`) once the parallel `hostInjected` refactor lands, so it isn't entangled.
-- **macOS host**: mirror the Win wiring (needs the parent spec's HostSession-per-window split first).
+- **macOS host — DONE** (via [host-core-unification.md](host-core-unification.md)): rather than mirror
+  the Win wiring, the whole session model + bridge dispatch moved into a shared `HostCore` that every
+  host (incl. macOS) drives, so the rail + worktree sessions land on all hosts from one implementation.
 
 ## Build sequence
 
 Each phase: build + unit tests + drive the live app to validate, then commit. Windows-first; the
-macOS host still needs the parent spec's `HostSession`-per-window split before it can multiplex
-sessions (see [file-management-and-sessions.md](file-management-and-sessions.md) status).
+macOS (and Linux/Headless) hosts gained multi-session by sharing the Windows implementation through
+`HostCore` — see [host-core-unification.md](host-core-unification.md), which replaced the
+per-host `HostSession`-split work this paragraph anticipated.
 
 - **Phase 0 — multi-session backend.** Lift the one-session-per-window assumption: a per-workspace
   `SessionManager` owning N `HostSession`s, active-session tracking, and the layout slot-rebinding on
@@ -423,7 +426,9 @@ sessions (see [file-management-and-sessions.md](file-management-and-sessions.md)
 ## Open questions / deferred
 
 - **PTY readiness detection** for prompt seeding (when is the TUI accepting input?).
-- **Auto-resume on restore** — `claude --continue` each restored session, or cold-start?
+- ~~**Auto-resume on restore** — `claude --continue` each restored session, or cold-start?~~ **Resolved:**
+  resume by default — Weavie assigns each session's directory a stable Claude id (`--session-id` on the
+  first launch, `--resume` thereafter). See [claude-session-resume.md](claude-session-resume.md).
 - **Fork base selection UI** beyond the default.
 - **Transcript-copy true fork** — only if we accept coupling to Claude's project-dir layout.
 - **OS attention escalation** — per-host taskbar-flash / notification APIs.

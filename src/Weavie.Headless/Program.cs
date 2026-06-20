@@ -2,6 +2,7 @@ using System.Text;
 using Microsoft.Extensions.FileProviders;
 using Weavie.Core.Hooks;
 using Weavie.Headless;
+using Weavie.Hosting;
 
 // Hook relay (no UI): the spawned claude runs this exe as its PreToolUse/PostToolUse command hook; forward
 // the event over the pipe to the running instance and echo its decision. Must branch before anything else.
@@ -17,8 +18,13 @@ string workspaceOverride = ResolveWorkspace(args);
 
 // The host outlives any one page: build it once, then let each browser connection (re)attach its socket.
 var bridge = new WebSocketHostBridge();
-await using var session = new HeadlessSession(bridge);
-session.Start(workspaceOverride);
+var services = HostServices.CreateDefault();
+string workspace = !string.IsNullOrEmpty(workspaceOverride)
+	? workspaceOverride
+	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
+await using var core = new HostCore(new HeadlessPlatform(bridge), services, workspace);
+// The page connects to this loopback origin; the LSP/MCP servers pin it as their allowed origin.
+await core.StartAsync($"http://127.0.0.1:{port}").ConfigureAwait(false);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); // We print our own concise status; Kestrel's request logging is noise here.
@@ -32,7 +38,7 @@ app.UseWebSockets();
 app.Use(async (context, next) => {
 	string path = context.Request.Path.Value ?? "/";
 	if (path is "/" or "/index.html") {
-		await ServeIndexAsync(context, wwwroot, session).ConfigureAwait(false);
+		await ServeIndexAsync(context, wwwroot, core).ConfigureAwait(false);
 		return;
 	}
 
@@ -63,10 +69,14 @@ app.Map("/weavie-bridge", async context => {
 
 string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
 string tokenSuffix = token is null ? string.Empty : $"/?token={token}";
-Console.WriteLine($"[weavie-headless] workspace: {session.Workspace}");
+Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
 Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{port}{tokenSuffix}  in a browser");
 Console.Out.Flush();
 await app.RunAsync().ConfigureAwait(false);
+
+// Best-effort cleanup of the app-global stores' file watchers on shutdown (core disposes the sessions).
+services.Keybindings.Dispose();
+services.Settings.Dispose();
 return 0;
 
 static int ResolvePort(string[] args) {
@@ -125,7 +135,7 @@ static string ResolveWorkspace(string[] args) {
 	return Environment.GetEnvironmentVariable("WEAVIE_SERVE_WORKSPACE") ?? string.Empty;
 }
 
-static async Task ServeIndexAsync(HttpContext context, string wwwroot, HeadlessSession session) {
+static async Task ServeIndexAsync(HttpContext context, string wwwroot, HostCore core) {
 	string indexPath = Path.Combine(wwwroot, "index.html");
 	context.Response.ContentType = "text/html; charset=utf-8";
 	if (!File.Exists(indexPath)) {
@@ -145,7 +155,9 @@ static async Task ServeIndexAsync(HttpContext context, string wwwroot, HeadlessS
 		return;
 	}
 
-	string bootstrap = $"<script>{session.BuildBootstrapScript()}</script>";
+	// The page picks the WebSocket transport from __WEAVIE_BRIDGE_WS__; the rest of the bootstrap is the
+	// same content every host injects (fonts/editor/theme/lsp/commands/keybindings + shell config).
+	string bootstrap = $"<script>window.__WEAVIE_BRIDGE_WS__ = \"auto\";{core.BuildBootstrap()}</script>";
 	// Inject right after <head> so the globals exist before the module graph (the module script is at body end).
 	html = html.Contains("<head>", StringComparison.Ordinal)
 		? html.Replace("<head>", "<head>" + bootstrap, StringComparison.Ordinal)

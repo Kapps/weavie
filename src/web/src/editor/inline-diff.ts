@@ -47,6 +47,18 @@ export interface InlineDiffOptions {
   onReject?: () => void;
   /** Applied only: revert the change set. */
   onUndo?: () => void;
+  /**
+   * Applied (post-turn review) only: step to the previous/next changed file in the review set, landing on
+   * its first change. The toolbar renders ← / → file buttons + a `name (i/N)` position label when these are
+   * supplied and there is more than one file, so the one floating toolbar is the whole review surface
+   * (Up/Down walk hunks, Left/Right walk files). See docs/specs/turn-review.md.
+   */
+  onPrevFile?: () => void;
+  onNextFile?: () => void;
+  /** Applied review: this file's display name + its 1-based position in the review set, for the toolbar label. */
+  fileLabel?: string;
+  fileIndex?: number;
+  fileCount?: number;
 }
 
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
@@ -70,6 +82,10 @@ export interface InlineDiff {
   nextChange(): boolean;
   /** Jump to the previous change hunk in the active diff. */
   prevChange(): boolean;
+  /** Walk to the next file in the review set (applied mode); false when there's nothing to step to. */
+  nextFile(): boolean;
+  /** Walk to the previous file in the review set (applied mode); false when there's nothing to step to. */
+  prevFile(): boolean;
   /** Accept the active diff (review Keep / applied Accept). */
   accept(): boolean;
   /** Reject the active review proposal. */
@@ -217,12 +233,48 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const accept = (): boolean => runAction(currentOptions?.onAccept);
   const reject = (): boolean => runAction(currentOptions?.onReject);
   const undo = (): boolean => runAction(currentOptions?.onUndo);
+  const nextFile = (): boolean => runAction(currentOptions?.onNextFile);
+  const prevFile = (): boolean => runAction(currentOptions?.onPrevFile);
 
-  // The floating action bar: prev/next-change arrows (always, when there are hunks) + the mode's actions
-  // (Keep/Reject for a review, Accept/Undo for an applied turn, none for a read-only view).
+  // The floating action bar. For an applied (post-turn review) diff it opens with the FILE axis — ← / →
+  // step through the review set with a `name (i/N)` position label between them — so the one toolbar is a 2D
+  // navigator (files horizontally, hunks vertically). Then the prev/next-change arrows (the hunk axis) and
+  // the mode's actions (Keep/Reject for a review, Accept/Undo for an applied turn, none for a read-only view).
   const buildToolbar = (options: InlineDiffOptions): HTMLElement => {
     const bar = document.createElement("div");
     bar.className = "weavie-inline-toolbar";
+
+    if (
+      options.mode === "applied" &&
+      options.fileCount !== undefined &&
+      options.fileCount > 1 &&
+      options.onPrevFile !== undefined &&
+      options.onNextFile !== undefined
+    ) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "←",
+          withShortcut("Previous file", CommandIds.reviewPrevFile),
+          prevFile,
+        ),
+      );
+      const label = document.createElement("span");
+      label.className = "weavie-inline-file-label";
+      label.textContent =
+        options.fileIndex !== undefined
+          ? `${options.fileLabel ?? ""} (${options.fileIndex}/${options.fileCount})`
+          : (options.fileLabel ?? "");
+      bar.appendChild(label);
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "→",
+          withShortcut("Next file", CommandIds.reviewNextFile),
+          nextFile,
+        ),
+      );
+    }
 
     const prev = makeButton(
       "weavie-inline-nav",
@@ -455,6 +507,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     },
     nextChange,
     prevChange,
+    nextFile,
+    prevFile,
     accept,
     reject,
     undo,

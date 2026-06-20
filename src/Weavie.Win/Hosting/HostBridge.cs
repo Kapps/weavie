@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
+using Weavie.Hosting;
 
 namespace Weavie.Win.Hosting;
 
@@ -10,9 +11,10 @@ namespace Weavie.Win.Hosting;
 ///             shim, <c>window.webkit.messageHandlers.weavie.postMessage</c>) -&gt; <see cref="MessageReceived"/>.
 ///   outbound: <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the UI thread.
 /// Bodies are raw JSON strings; typed dispatch lives on each side. This mirrors the macOS HostBridge
-/// so the shared web frontend is byte-for-byte identical across platforms.
+/// so the shared web frontend is byte-for-byte identical across platforms. Implements the shared
+/// <see cref="IHostBridge"/> so <c>HostCore</c> and the shared hosting leaf utilities drive it.
 /// </summary>
-public sealed class HostBridge {
+public sealed class HostBridge : IHostBridge {
 	private WebView2? _webView;
 	private CoreWebView2? _core;
 

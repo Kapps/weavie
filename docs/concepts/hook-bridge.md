@@ -5,10 +5,12 @@ Weavie gates and records the embedded `claude`'s tool calls **without** putting 
 feed). Claude always runs in its own `default` mode; Weavie's policy lives on our side, in two cooperating
 intercepts:
 
-1. The **openDiff presenter policy** (`PermissionModeDiffPresenter`) — handles the *edit* path when Claude
-   asks (`default` → blocking Keep/Reject; `acceptEdits` → auto-keep).
-2. The **hook bridge** (this doc) — sees *every* mutating tool call (Bash + edits), is the **change-recording
-   stream**, and is the seam where a Weavie-side "bypass" returns `allow` per tool.
+1. The **openDiff presenter policy** (`PermissionModeDiffPresenter`) — handles the *edit* path: a blocking
+   Keep/Reject review in `default`, auto-keep when Claude's *observed* mode auto-applies edits (acceptEdits).
+2. The **hook bridge** (this doc) — sees *every* tool call, is the **change-recording stream**, **observes**
+   Claude's `permission_mode`, and enforces Weavie's tool-permission axis: with `claude.allowAllTools` on it
+   returns `allow` for non-edit tools (edits stay with Claude's own mode). The two axes are described in
+   [../specs/permission-modes-and-change-tracking.md](../specs/permission-modes-and-change-tracking.md).
 
 The hook bridge also returns, on each landed edit (`PostToolUse` for `Edit`/`Write`/`MultiEdit`), a top-level
 `systemMessage` carrying a workspace-relative `path:line` of the first line that edit changed. Claude prints
@@ -70,8 +72,9 @@ Two invariants keep it safe:
 - `HookProtocol` — pipe name (`weavie-hook-<port>`), env var, length-prefixed framing.
 - `HookRequest` — parses the stdin JSON (event, tool, raw `tool_input`, session, cwd).
 - `HookDecision` / `HookPolicy` — the verdict + its stdout JSON serialization (`hookSpecificOutput` permission
-  block and/or top-level `systemMessage`); `Decide` is the gate seam (today always `PassThrough`;
-  `bypassPermissions` will return `Allow`). `IdeIntegration` attaches the edit jump-link `systemMessage`.
+  block and/or top-level `systemMessage`); `Decide(request, allowAllTools)` is the gate seam — `PassThrough`
+  unless `claude.allowAllTools` is on, when a non-edit `PreToolUse` returns `Allow`. `IdeIntegration` attaches
+  the edit jump-link `systemMessage`, and an `ObservedPermissionMode` subscribes to the same stream.
 - `HookBridgeServer` — the in-process pipe listener; raises `Observed`, replies with the decision.
 - `HookRelayClient` — the `--hook-relay` side: stdin → pipe → stdout, fail-open.
 - `HookSettings` — builds the `--settings` hooks JSON.

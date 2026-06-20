@@ -9,14 +9,13 @@ function leaf(path: string): string {
 }
 
 // The title bar's menu bar: File + View. Web-rendered dropdowns (the native MenuStrip is gone). File items
-// post `menu-action` to the host (open folder, open recent, close, exit); View items toggle the in-app
-// Files/Changes panels. One menu is open at a time; hovering another top-level label while open switches to
-// it (VS Code behavior). Open Recent is a pure-CSS hover flyout.
+// post `menu-action` to the host (open folder, open recent, close, exit); the View item toggles the in-app
+// file browser. One menu is open at a time; hovering another top-level label while open switches to it
+// (VS Code behavior). Open Recent is a pure-CSS hover flyout.
 export function Menu(props: {
   recents: string[];
   onMenuAction: (action: MenuAction, path?: string) => void;
   onToggleFiles: () => void;
-  onToggleChanges: () => void;
 }): JSX.Element {
   const [openMenu, setOpenMenu] = createSignal<"file" | "view" | null>(null);
 
@@ -131,13 +130,6 @@ export function Menu(props: {
               onClick={() => viewAction(props.onToggleFiles)}
             >
               <span>Toggle Files</span>
-            </button>
-            <button
-              type="button"
-              class="tb-dropitem"
-              onClick={() => viewAction(props.onToggleChanges)}
-            >
-              <span>Toggle Changes</span>
             </button>
           </div>
         </Show>

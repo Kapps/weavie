@@ -39,10 +39,26 @@ export interface EditorControllerDeps {
   confirmDiscard: (names: string[]) => Promise<boolean>;
 }
 
+/**
+ * One changed file in the post-turn review set (the host's `turn-changes` payload): path + line counts plus
+ * the 1-based line of its first change, so opening it lands the editor on that first diff. The review surface
+ * is the inline toolbar's ← / → file axis — there is no separate panel.
+ */
+export interface ReviewFile {
+  path: string;
+  name: string;
+  added: number;
+  removed: number;
+  line: number;
+}
+
 /** Diff nav + actions, exposed so commands (keybindings / palette / Claude) drive the active diff. */
 export interface InlineDiffActions {
   nextChange(): boolean;
   prevChange(): boolean;
+  /** Walk to the next / previous file in the post-turn review set (applied mode). */
+  nextFile(): boolean;
+  prevFile(): boolean;
   accept(): boolean;
   reject(): boolean;
   undo(): boolean;
@@ -88,6 +104,13 @@ export interface EditorController {
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
   save(): boolean;
+  /**
+   * Update the post-turn review set (the host's `turn-changes` files), used to drive the inline toolbar's
+   * ← / → file walk. Pushed by App on each `turn-changes`; empty when there's nothing to review.
+   */
+  setReviewFiles(files: ReviewFile[]): void;
+  /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
+  openFirstReviewFile(): boolean;
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   dispose(): void;
@@ -100,6 +123,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let initTimer: number | undefined;
   // An open-file request that arrived before the editor was ready; replayed when it is.
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
+  // The post-turn review set (host `turn-changes`): the files Claude changed since the last review, in
+  // document order. Drives the inline toolbar's ← / → file walk; empty when there's nothing to review.
+  let reviewFiles: ReviewFile[] = [];
   // The openDiff under inline review. openDiff blocks per-edit, so at most one is live at a time. `reviewUri`
   // is the transient review model's URI the inline diff is keyed by (review never touches the real file).
   let activeReview:
@@ -381,6 +407,35 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       });
   };
 
+  // Open a review file landed on its first change, as a PREVIEW tab so walking the set with ← / → reuses one
+  // tab instead of piling them up. Re-requests the file's turn-diff so its inline applied markers render even
+  // if the per-file turn-diff push was missed (then the toolbar's file-nav is built from `reviewFiles`).
+  const openReviewFile = (file: ReviewFile): void => {
+    openFile(file.path, file.line, true);
+    postToHost({ type: "get-turn-diff", path: file.path });
+  };
+
+  // Step the FILE axis of the review walk: from the file currently shown, move to its neighbour in the review
+  // set (wrapping) and open it at its first change. Returns false (declines the keybinding → falls through to
+  // the editor, so $mod+Left/Right keep word-nav) when there's no multi-file review or the active file isn't
+  // in it.
+  const stepReviewFile = (delta: number): boolean => {
+    if (reviewFiles.length < 2) {
+      return false;
+    }
+    const current = activePath();
+    const idx = current === null ? -1 : reviewFiles.findIndex((f) => samePath(f.path, current));
+    if (idx === -1) {
+      return false;
+    }
+    const next = reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
+    if (next === undefined) {
+      return false;
+    }
+    openReviewFile(next);
+    return true;
+  };
+
   const handleMessage = (message: WebBoundMessage): boolean => {
     switch (message.type) {
       case "show-diff": {
@@ -474,35 +529,41 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Claude's close_tab MCP tool: the host resolved the tab name to our path key; close that tab.
         tabs.close(message.path);
         return true;
-      case "turn-diff":
+      case "turn-diff": {
         // Inline diff of this turn's changes, shown in the live editor. Equal baseline/current = no markers.
         if (message.baseline === message.current) {
           inlineDiff?.clear(message.path);
-        } else {
-          inlineDiff?.set(message.path, {
-            original: message.baseline,
-            claudeVersion: message.current,
-            mode: "applied",
-            onAccept: () => postToHost({ type: "accept-turn" }),
-            onUndo: () => postToHost({ type: "undo-turn" }),
-          });
+          return true;
         }
+        // The toolbar's ← / → file axis: only when more than one file is under review AND this file is in the
+        // set, so a single-file review (or a stray diff) leaves $mod+Left/Right as editor word-nav.
+        const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
+        const fileNav =
+          reviewFiles.length > 1 && idx !== -1
+            ? {
+                onPrevFile: (): void => {
+                  stepReviewFile(-1);
+                },
+                onNextFile: (): void => {
+                  stepReviewFile(1);
+                },
+                fileLabel: message.name,
+                fileIndex: idx + 1,
+                fileCount: reviewFiles.length,
+              }
+            : {};
+        inlineDiff?.set(message.path, {
+          original: message.baseline,
+          claudeVersion: message.current,
+          mode: "applied",
+          onAccept: () => postToHost({ type: "accept-turn" }),
+          onUndo: () => postToHost({ type: "undo-turn" }),
+          ...fileNav,
+        });
         return true;
+      }
       case "turn-reset":
         inlineDiff?.clearAll();
-        return true;
-      case "change-diff":
-        // A file picked in the Changes navigator: show its whole-session diff inline (read-only view — the
-        // file is opened via reveal-file alongside this request).
-        if (message.baseline === message.current) {
-          inlineDiff?.clear(message.path);
-        } else {
-          inlineDiff?.set(message.path, {
-            original: message.baseline,
-            claudeVersion: message.current,
-            mode: "view",
-          });
-        }
         return true;
       default:
         return false;
@@ -543,9 +604,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     focusEditor: () => host?.editor.focus(),
     newFile,
     save,
+    setReviewFiles: (files) => {
+      reviewFiles = files;
+    },
+    openFirstReviewFile: () => {
+      const first = reviewFiles[0];
+      if (first === undefined) {
+        return false;
+      }
+      openReviewFile(first);
+      return true;
+    },
     inline: {
       nextChange: () => inlineDiff?.nextChange() ?? false,
       prevChange: () => inlineDiff?.prevChange() ?? false,
+      nextFile: () => inlineDiff?.nextFile() ?? false,
+      prevFile: () => inlineDiff?.prevFile() ?? false,
       accept: () => inlineDiff?.accept() ?? false,
       reject: () => inlineDiff?.reject() ?? false,
       undo: () => inlineDiff?.undo() ?? false,

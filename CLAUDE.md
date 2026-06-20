@@ -18,6 +18,12 @@ load it only when you need it.
   which records every mutating tool call (the change-tracking feed) and returns an allow/deny/pass-through
   decision — letting Weavie observe + gate tools without `--dangerously-skip-permissions`. See
   [docs/concepts/hook-bridge.md](docs/concepts/hook-bridge.md).
+- **Host core** — every platform host (Win/Mac/Linux/Headless) is a thin shell over one shared
+  `HostCore` (`Weavie.Hosting`) that owns the Core graph, the web-message dispatch, and the session
+  set; each shell supplies only its native bits through `IHostPlatform` (bridge, UI-thread marshal, PTY
+  launcher, optional window/hotkeys/dialogs). **Add host-facing features to the core, not per-OS** — a
+  new web message, push, or session behavior goes in `HostCore` so all four hosts get it at once. See
+  [docs/specs/host-core-unification.md](docs/specs/host-core-unification.md).
 
 ## Keyboard-first navigation
 

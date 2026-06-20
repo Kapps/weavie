@@ -56,6 +56,19 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = "claude.resumeSession",
+			Kind = SettingKind.Bool,
+			Description = "Resume the previous Claude conversation when a session reopens, instead of cold-starting "
+				+ "a fresh one. Weavie assigns each session's working directory a stable Claude session id and "
+				+ "reattaches to it (claude --resume) on the next launch. On by default. Takes effect on the next "
+				+ "session launch.",
+			Aliases = ["resume claude", "resume session", "continue claude", "remember conversation",
+				"persist claude session", "auto resume"],
+			Apply = ApplyMode.NextSession,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = "claude.allowAllTools",
 			Kind = SettingKind.Bool,
 			Description = "Auto-allow Claude's non-edit tool calls (Bash and other commands) without prompting. "

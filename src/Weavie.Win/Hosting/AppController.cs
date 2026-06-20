@@ -1,6 +1,8 @@
+using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
@@ -60,6 +62,14 @@ internal sealed class AppController : ApplicationContext {
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
 
+		// Claude session ids per working directory (~/.weavie/claude-sessions.json) — app-global so every
+		// window/session shares one map and resumes its own directory's previous Claude conversation.
+		ClaudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
+		ClaudeSessions.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global like settings so a change
 		// reaches every window; appearance itself is normal settings (theme.mode/theme.light/theme.dark).
 		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
@@ -112,6 +122,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>The app-global per-theme color overrides store (theme-overrides.json), shared by every window.</summary>
 	public ThemeOverridesStore ThemeOverrides { get; }
+
+	/// <summary>The app-global Claude-session-id map (claude-sessions.json), shared so every session resumes its own.</summary>
+	public ClaudeSessionStore ClaudeSessions { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if that folder is already

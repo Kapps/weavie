@@ -9,6 +9,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Linux.Hosting;
@@ -137,6 +138,8 @@ internal sealed class WorkspaceHost {
 		// Hook bridge: a --settings file whose hooks route claude's tool calls to our relay; the observed
 		// stream is logged here (the session change view consumes the same feed).
 		_claude.SettingsFilePath = _ide.WriteSettingsFile();
+		// Resume this workspace's previous Claude conversation across launches (gated by claude.resumeSession).
+		_claude.ClaudeSessions = new ClaudeSessionStore(fileSystem, WeaviePaths.ClaudeSessionsFile);
 		_ide.HookBridge.Observed += request => Log($"[hook] {request.Event} {request.ToolName}");
 		_ide.HookBridge.Log += line => Log($"[hook] {line}");
 

@@ -371,7 +371,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		_session = new HostSession(
 			_bridge, _settings, _layout, _workspaceRoot, WeaviePaths.WorkspaceScratchDir(Id), pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
-			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
+			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides, _app.ClaudeSessions);
 		_primarySession = _session;
 		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
 		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).

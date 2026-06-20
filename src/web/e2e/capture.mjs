@@ -50,71 +50,27 @@ async function tour(page) {
   await page.emulateMedia({ colorScheme: "dark" });
   await settle(1200);
 
-  // ── FEATURE UNDER TEST: session context menu + worktree deletion ──────────────────────────────────────────
-  // This PR adds the rail's right-click menu (Load/Unload + Delete…) and the guarded Delete-session dialog.
-  // The multi-session backend is a native-shell (Win/Mac) host capability; the headless host runs a single
-  // session and never pushes a `session-list`. So we feed the rail through the SAME seam the native shells
-  // use — `window.__weavieReceive`, the host→web message sink — to populate it and to answer the delete
-  // classification, then drive the REAL components (SessionRail → ContextMenu → DeleteSessionDialog).
-  const receive = (msg) => page.evaluate((m) => window.__weavieReceive(JSON.stringify(m)), msg);
+  // ── FEATURE UNDER TEST: resume the previous Claude session on relaunch ────────────────────────────────────
+  // This change makes the host launch `claude` with `--resume <id>` (or `--session-id <id>` the first time),
+  // keyed by the session's working directory, so reopening a session continues its prior conversation. It's a
+  // host launch-flag behavior with no new web UI — the authoritative functional proof is temp/resume-proof.mjs
+  // (run 1 logs `--session-id`, run 2 logs `--resume`, same id). This capture is the regression check that the
+  // new launch path still boots the real headless app and brings up the Claude Code pane (the workspace is
+  // pointed at temp/proof-ws, which already holds a persisted session id, so the host boots with `--resume`).
+  await page
+    .locator(".pane-label", { hasText: "Claude Code" })
+    .first()
+    .waitFor({ timeout: 15_000 });
+  await settle(800);
 
-  // 1. Populate the rail: the workspace's primary checkout + a deletable worktree session ("feat/login").
-  const primary = {
-    id: "primary",
-    label: "weavie",
-    active: true,
-    loaded: true,
-    primary: true,
-    status: "idle",
-    hue: 210,
-    monogram: "we",
-  };
-  const worktree = {
-    id: "s-login",
-    label: "feat/login",
-    active: false,
-    loaded: true,
-    primary: false,
-    status: "working",
-    hue: 28,
-    monogram: "fl",
-  };
-  await receive({ type: "session-list", sessions: [primary, worktree] });
-  const chip = page.locator(".session-chip").nth(1);
-  await chip.waitFor({ state: "visible", timeout: 10_000 });
-  await settle(1600);
-
-  // 2. Right-click the worktree chip → the shared command-driven context menu (Unload session / Delete…).
-  await chip.click({ button: "right" });
-  await page.locator(".context-menu").waitFor({ timeout: 5_000 });
-  await settle(1800);
-
-  // 3. Click "Delete…" (the danger row). The page posts delete-session-request; the host normally classifies
-  //    the worktree and replies with session-delete-prompt. We answer with "modified" so the dialog shows its
-  //    escalated confirm (the "uncommitted changes would be lost" checkbox gate).
-  await page.locator(".context-menu-item.danger").click();
-  await settle(400);
-  await receive({
-    type: "session-delete-prompt",
-    id: "s-login",
-    label: "feat/login",
-    state: "modified",
-  });
-
-  // 4. Show the guarded "Delete session?" dialog, tick the acknowledgement, then commit via the danger button.
-  await page.locator(".confirm-dialog .confirm-title").waitFor({ timeout: 5_000 });
-  await settle(1600);
-  const ack = page.locator(".confirm-check input[type=checkbox]");
-  if (await ack.count()) {
-    await ack.check().catch(() => {});
-    await settle(900);
-  }
-  await page.locator(".confirm-btn-danger").click();
-  await settle(700);
-
-  // 5. The host would now remove the worktree and re-push the list; emulate that so the chip drops off the rail.
-  await receive({ type: "session-list", sessions: [primary] });
-  await settle(2500);
+  // The Claude pane is a real xterm bound to the real claude PTY launched via the resume code path; let it
+  // render its startup so the recording shows the agent pane live under the resumed session.
+  const claudePane = page
+    .locator(".pane", { has: page.locator(".pane-label", { hasText: "Claude Code" }) })
+    .first();
+  await claudePane.locator(".xterm").waitFor({ state: "visible", timeout: 15_000 });
+  await claudePane.click().catch(() => {});
+  await settle(7000);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -1,6 +1,7 @@
 using System.Text;
 using Weavie.Core.Configuration;
 using Weavie.Core.Processes;
+using Weavie.Core.Sessions;
 using Weavie.Core.Terminal;
 
 namespace Weavie.Hosting;
@@ -78,6 +79,14 @@ public sealed class TerminalController : IDisposable {
 	/// the claude session uses it.
 	/// </summary>
 	public string? SystemPromptFilePath { get; set; }
+
+	/// <summary>
+	/// When set (claude session only), the store that assigns this session's <see cref="Workspace"/> a stable
+	/// Claude session id so the spawned claude resumes its previous conversation across launches/restarts
+	/// (<c>--resume</c>) instead of cold-starting — created fresh the first time with <c>--session-id</c>.
+	/// Honored only while the <c>claude.resumeSession</c> setting is on. Null disables the feature.
+	/// </summary>
+	public ClaudeSessionStore? ClaudeSessions { get; set; }
 
 	/// <summary>
 	/// Launches this session's child (claude via a login shell, or the configured shell) at the given size
@@ -231,7 +240,23 @@ public sealed class TerminalController : IDisposable {
 		string mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
 		string settings = string.IsNullOrEmpty(SettingsFilePath) ? string.Empty : $" --settings '{SettingsFilePath}'";
 		string systemPrompt = string.IsNullOrEmpty(SystemPromptFilePath) ? string.Empty : $" --append-system-prompt-file '{SystemPromptFilePath}'";
-		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}{settings}{systemPrompt}"]);
+		string session = ResolveClaudeSessionArg();
+		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}{settings}{systemPrompt}{session}"]);
+	}
+
+	/// <summary>
+	/// The session flag for this launch: <c>--resume &lt;id&gt;</c> to reattach to this directory's previous
+	/// Claude conversation, or <c>--session-id &lt;id&gt;</c> to create it the first time. Empty when session
+	/// resume is unconfigured or turned off via <c>claude.resumeSession</c> (claude then picks its own id).
+	/// </summary>
+	private string ResolveClaudeSessionArg() {
+		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
+			return string.Empty;
+		}
+
+		var launch = store.Resolve(Workspace);
+		string flag = launch.Resume ? "--resume" : "--session-id";
+		return $" {flag} '{launch.SessionId}'";
 	}
 
 	/// <summary>

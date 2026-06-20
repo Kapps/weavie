@@ -257,7 +257,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
-			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
+			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides, _app.ClaudeSessions);
 		WireSession(session);
 		return session;
 	}

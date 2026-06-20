@@ -15,6 +15,7 @@ using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -233,6 +234,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		// Orientation: an --append-system-prompt-file telling claude it's embedded in Weavie and to read
 		// live app state (themes/settings/layout) through the mcp__weavie__* tools, not the on-disk config.
 		_claude.SystemPromptFilePath = _ide.WriteSystemPromptFile();
+		// Resume this workspace's previous Claude conversation across launches (gated by claude.resumeSession).
+		_claude.ClaudeSessions = new ClaudeSessionStore(fileSystem, WeaviePaths.ClaudeSessionsFile);
 		_ide.HookBridge.Observed += request => {
 			Console.WriteLine($"[hook] {request.Event} {request.ToolName}");
 			Console.Out.Flush();

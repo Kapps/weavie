@@ -220,6 +220,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 		// Inline diff: per-turn diff per edited file + clear-all on a turn boundary (implicit accept).
 		_changes.FileChanged += path => InvokeOnMainThread(() => PushTurnDiffToWeb(path));
 		_changes.TurnBegan += () => InvokeOnMainThread(PushTurnReset);
+		// Review navigator: the per-turn change list (auto-keep modes), refreshed on change + cleared on a new turn.
+		_changes.Changed += () => InvokeOnMainThread(PushTurnChangesToWeb);
+		_changes.TurnBegan += () => InvokeOnMainThread(PushTurnChangesToWeb);
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
@@ -463,6 +466,9 @@ public sealed class AppDelegate : NSApplicationDelegate {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
+			case "get-turn-diff":
+				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
 			case "fs-stat":
 				if (_fileProvider is not null) {
 					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
@@ -576,6 +582,21 @@ public sealed class AppDelegate : NSApplicationDelegate {
 	private void PushChangesToWeb() {
 		if (_changes is not null) {
 			_bridge.PostToWeb(ChangeMessages.SessionChanges(_changes));
+		}
+	}
+
+	/// <summary>
+	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
+	/// review navigator. Only in an auto-keep mode (acceptEdits/bypass): that's where post-turn review is the
+	/// surface — default mode reviews each edit via the blocking openDiff, so there's nothing to list.
+	/// </summary>
+	private void PushTurnChangesToWeb() {
+		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings!)) {
+			return;
+		}
+
+		if (_changes is not null) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(_changes));
 		}
 	}
 

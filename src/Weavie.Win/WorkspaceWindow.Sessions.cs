@@ -40,6 +40,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		session.Changes.Changed += () => {
 			if (IsActiveSession(session)) {
 				PushChangesToWeb();
+				PushTurnChangesToWeb();
 			}
 		};
 		session.Changes.FileChanged += path => {
@@ -51,6 +52,7 @@ internal sealed partial class WorkspaceWindow : ISessionHost {
 		session.Changes.TurnBegan += () => {
 			if (IsActiveSession(session)) {
 				PushTurnReset();
+				PushTurnChangesToWeb();
 			}
 		};
 		session.Status.Changed += status => {

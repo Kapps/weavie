@@ -69,6 +69,10 @@ export default function App(): JSX.Element {
 
   const [changeFiles, setChangeFiles] = createSignal<ChangeFile[]>([]);
   const [changesOpen, setChangesOpen] = createSignal(false);
+  // The post-turn review navigator: the files Claude changed THIS turn (auto-keep modes only — the host
+  // gates the turn-changes push), shown as a keyboard-drivable jump list opened with weavie.review.open.
+  const [reviewFiles, setReviewFiles] = createSignal<ChangeFile[]>([]);
+  const [reviewOpen, setReviewOpen] = createSignal(false);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
@@ -192,6 +196,14 @@ export default function App(): JSX.Element {
     }
   });
 
+  // Close the review navigator when its list empties — a new turn re-baselines (the host pushes an empty
+  // turn-changes), so there's nothing left to review.
+  createEffect(() => {
+    if (reviewFiles().length === 0) {
+      setReviewOpen(false);
+    }
+  });
+
   onMount(() => {
     // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
     // active theme + override ops and also drives Monaco + xterm; this pushes the chrome's CSS vars.
@@ -211,6 +223,8 @@ export default function App(): JSX.Element {
         addToast(message.level, message.message);
       } else if (message.type === "session-changes") {
         setChangeFiles(message.files);
+      } else if (message.type === "turn-changes") {
+        setReviewFiles(message.files);
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "window-state") {
@@ -257,6 +271,12 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
       registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
       registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      // Open/close the post-turn review navigator (acceptEdits/bypass). Always acts (returns true) so the
+      // keybinding is consumed; the navigator only has content in an auto-keep mode.
+      registerCommand(CommandIds.reviewOpen, () => {
+        setReviewOpen((open) => !open);
+        return true;
+      }),
       // Editor tabs. The targeted commands take an optional `path` (the tab context menu passes the
       // right-clicked tab; keyboard / palette omit it to act on the active tab). next/prev return whether they
       // stepped, so $mod+Tab falls through to the editor when there are <2 tabs.
@@ -342,14 +362,30 @@ export default function App(): JSX.Element {
       <Show when={changesOpen()}>
         <Suspense>
           <ChangesPanel
+            title={`Session changes (${changeFiles().length})`}
             files={changeFiles()}
-            currentFile={currentFile()}
-            onSelect={(path) => {
+            onSelect={(file) => {
               // Open the file in the live editor and request its session diff, shown inline (no diff viewer).
-              postToHost({ type: "reveal-file", path, line: 1 });
-              postToHost({ type: "get-change-diff", path });
+              postToHost({ type: "reveal-file", path: file.path, line: 1 });
+              postToHost({ type: "get-change-diff", path: file.path });
             }}
             onClose={() => setChangesOpen(false)}
+          />
+        </Suspense>
+      </Show>
+      <Show when={reviewOpen()}>
+        <Suspense>
+          <ChangesPanel
+            title={`Review changes (${reviewFiles().length})`}
+            files={reviewFiles()}
+            autoFocus
+            onSelect={(file) => {
+              // Open the file landed on its first change, and (re)request its turn diff so the inline applied
+              // markers render even if the per-file turn-diff push was missed.
+              postToHost({ type: "reveal-file", path: file.path, line: file.line ?? 1 });
+              postToHost({ type: "get-turn-diff", path: file.path });
+            }}
+            onClose={() => setReviewOpen(false)}
           />
         </Suspense>
       </Show>

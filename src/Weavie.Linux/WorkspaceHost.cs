@@ -148,6 +148,9 @@ internal sealed class WorkspaceHost {
 		// Inline diff: per-turn diff per edited file + clear-all on a turn boundary (implicit accept).
 		_changes.FileChanged += path => GtkMain.Invoke(() => PushTurnDiffToWeb(path));
 		_changes.TurnBegan += () => GtkMain.Invoke(PushTurnReset);
+		// Review navigator: the per-turn change list, refreshed on change + cleared on a new turn.
+		_changes.Changed += () => GtkMain.Invoke(PushTurnChangesToWeb);
+		_changes.TurnBegan += () => GtkMain.Invoke(PushTurnChangesToWeb);
 		Log($"[weavie] IDE-MCP on 127.0.0.1:{_ide.Port}; registry on 127.0.0.1:{_ide.RegistryPort}; workspace {workspace}; lock {_ide.LockFilePath}");
 
 		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
@@ -305,6 +308,9 @@ internal sealed class WorkspaceHost {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
+			case "get-turn-diff":
+				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
 			case "fs-stat":
 				if (_fileProvider is not null) {
 					_bridge.PostToWeb(_fileProvider.Stat(FsId(root), FsPath(root)));
@@ -394,6 +400,13 @@ internal sealed class WorkspaceHost {
 	private void PushChangesToWeb() {
 		if (_changes is not null) {
 			_bridge.PostToWeb(ChangeMessages.SessionChanges(_changes));
+		}
+	}
+
+	/// <summary>Pushes the per-turn change list (files changed this turn + each file's first-change line) for the review navigator.</summary>
+	private void PushTurnChangesToWeb() {
+		if (_changes is not null) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(_changes));
 		}
 	}
 

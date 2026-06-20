@@ -22,6 +22,28 @@ public static class ChangeMessages {
 		return JsonSerializer.Serialize(new { type = "session-changes", files });
 	}
 
+	/// <summary>
+	/// The per-<em>turn</em> change list: each file changed this turn with its added/removed line counts and the
+	/// 1-based line of its first change, so the review navigator can open the file landed on that first diff.
+	/// Pushed only in an auto-keep mode (acceptEdits/bypass) — the host gates it — since post-turn review is the
+	/// review surface there; in default mode the blocking openDiff is.
+	/// </summary>
+	/// <param name="tracker">The session change tracker to summarize this turn from.</param>
+	public static string TurnChanges(SessionChangeTracker tracker) {
+		ArgumentNullException.ThrowIfNull(tracker);
+		var files = tracker.TurnChanges().Select(change => {
+			var (added, removed) = LineDiff.Count(change.BaselineText, change.CurrentText);
+			return new {
+				path = change.Path,
+				name = Path.GetFileName(change.Path),
+				added,
+				removed,
+				line = LineDiff.FirstChangedLine(change.BaselineText, change.CurrentText) ?? 1,
+			};
+		});
+		return JsonSerializer.Serialize(new { type = "turn-changes", files });
+	}
+
 	/// <summary>One file's session diff: its baseline (content at first touch) vs. its current content.</summary>
 	/// <param name="change">The file change to serialize.</param>
 	public static string ChangeDiff(FileChange change) {

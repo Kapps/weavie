@@ -46,6 +46,9 @@ public static class CoreCommands {
 	/// <summary>Undoes the current turn's inline changes (acceptEdits/bypass mode).</summary>
 	public const string UndoChange = "weavie.diff.undo";
 
+	/// <summary>Opens the post-turn review navigator (acceptEdits/bypass mode); bound to <c>$mod+Shift+r</c>.</summary>
+	public const string ReviewOpen = "weavie.review.open";
+
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
 
@@ -243,6 +246,20 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Revert the current turn's changes (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn"],
+		});
+
+		// Post-turn review navigator (acceptEdits/bypass mode): lists the files Claude changed this turn so
+		// the user can walk them diff by diff. Web-handled (the navigator lives in the page). Bound to
+		// $mod+Shift+r; also reachable from the palette and Claude's runCommand.
+		registry.Register(new CommandDefinition {
+			Id = ReviewOpen,
+			Title = "Review Changes",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Open the post-turn review navigator: the files Claude changed this turn "
+				+ "(acceptEdits/bypass mode), to walk and review them diff by diff.",
+			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+r" }],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab carry the keyboard bindings and are gated to editor focus

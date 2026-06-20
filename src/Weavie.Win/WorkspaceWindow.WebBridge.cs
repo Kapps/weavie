@@ -87,6 +87,9 @@ internal sealed partial class WorkspaceWindow {
 			case "get-change-diff":
 				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
+			case "get-turn-diff":
+				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				break;
 			case "fs-stat":
 				if (_session is not null) {
 					_bridge.PostToWeb(_session.FileProvider.Stat(FsId(root), FsPath(root)));
@@ -233,6 +236,21 @@ internal sealed partial class WorkspaceWindow {
 	private void PushChangesToWeb() {
 		if (_session is not null) {
 			_bridge.PostToWeb(ChangeMessages.SessionChanges(_session.Changes));
+		}
+	}
+
+	/// <summary>
+	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
+	/// review navigator. Only in an auto-keep mode (acceptEdits/bypass): that's where post-turn review is the
+	/// surface — default mode reviews each edit via the blocking openDiff, so there's nothing to list.
+	/// </summary>
+	private void PushTurnChangesToWeb() {
+		if (!PermissionModeDiffPresenter.AutoKeepsEdits(_settings)) {
+			return;
+		}
+
+		if (_session is not null) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(_session.Changes));
 		}
 	}
 

@@ -77,6 +77,9 @@ export type HostBoundMessage =
   | { type: "reveal-file"; path: string; line: number; preview?: boolean }
   // The changes view asks the host for one file's session diff (baseline vs current text).
   | { type: "get-change-diff"; path: string }
+  // The review navigator asks the host for one file's turn diff (turn-start baseline vs current), so opening a
+  // file in review re-renders its inline applied diff even if its per-file turn-diff push was missed.
+  | { type: "get-turn-diff"; path: string }
   // Host-backed file:// provider: the editor's VSCode working copies read/write the real disk through the
   // host (this is how the editor persists buffers now — it replaced the old debounced save-buffer message).
   // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
@@ -232,6 +235,12 @@ export type WebBoundMessage =
   // The host-backed file:// provider learned files changed on disk (a Claude edit, or the workspace watcher
   // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
+  // The per-TURN change list (files changed this turn + each file's first-change line), for the review
+  // navigator. Pushed in auto-keep modes only (acceptEdits/bypass); empty after a turn boundary (new turn).
+  | {
+      type: "turn-changes";
+      files: { path: string; name: string; added: number; removed: number; line: number }[];
+    }
   // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
   // baseline === current means "no markers" (the file was accepted or reverted this turn).
   | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }

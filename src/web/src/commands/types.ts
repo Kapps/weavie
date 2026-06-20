@@ -48,6 +48,7 @@ export const CommandIds = {
   acceptChange: "weavie.diff.accept",
   rejectChange: "weavie.diff.reject",
   undoChange: "weavie.diff.undo",
+  reviewOpen: "weavie.review.open",
   closeTab: "weavie.editor.closeTab",
   nextTab: "weavie.editor.nextTab",
   prevTab: "weavie.editor.prevTab",

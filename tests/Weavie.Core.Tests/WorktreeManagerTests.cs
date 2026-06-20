@@ -125,6 +125,40 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task Remove_TransientFileLock_RetriesThenSucceeds() {
+		var (manager, registry, git) = NewManager();
+		string wtPath = Path.Combine(WorktreesDir, "locked");
+		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "locked", Head = "l1" });
+		registry.Add(new WorktreeRecord { Branch = "locked", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		// The first removal attempt loses to a transient file lock; the bounded retry then succeeds.
+		git.RemoveWorktreeFailures.Enqueue(new GitException(
+			"git worktree remove failed (exit 255): error: failed to delete '...': Directory not empty"));
+		var logs = new List<string>();
+		manager.Log += logs.Add;
+
+		await manager.RemoveAsync(wtPath, deleteBranch: false, force: false);
+
+		Assert.DoesNotContain(git.Worktrees, w => w.Branch == "locked");
+		Assert.Null(registry.FindByBranch("locked"));
+		Assert.Contains(logs, l => l.Contains("retrying", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public async Task Remove_NonTransientGitFailure_DoesNotRetry_AndPropagates() {
+		var (manager, registry, git) = NewManager();
+		string wtPath = Path.Combine(WorktreesDir, "broken");
+		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
+		registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		// A non-lock failure must surface immediately, not be retried as if it were a transient lock.
+		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: some other error"));
+		var logs = new List<string>();
+		manager.Log += logs.Add;
+
+		await Assert.ThrowsAsync<GitException>(() => manager.RemoveAsync(wtPath, deleteBranch: false, force: false));
+		Assert.Empty(logs);
+	}
+
+	[Fact]
 	public async Task Reconcile_PrunesOrphans_AndCountsUntracked() {
 		var (manager, registry, git) = NewManager();
 
@@ -234,7 +268,13 @@ public sealed class WorktreeManagerTests {
 			return Task.CompletedTask;
 		}
 
+		public Queue<Exception> RemoveWorktreeFailures { get; } = new();
+
 		public Task RemoveWorktreeAsync(string repositoryDirectory, string worktreePath, bool force, CancellationToken ct = default) {
+			if (RemoveWorktreeFailures.Count > 0) {
+				return Task.FromException(RemoveWorktreeFailures.Dequeue());
+			}
+
 			Worktrees.RemoveAll(w => PathEquals(w.Path, worktreePath));
 			return Task.CompletedTask;
 		}

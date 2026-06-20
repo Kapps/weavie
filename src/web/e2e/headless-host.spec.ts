@@ -38,17 +38,21 @@ function freePort(): Promise<number> {
   });
 }
 
-// Resolve once the host logs its ready line, so the browser never races the listener.
-function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<void> {
+// Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
+// the listener and never assumes the requested port (the host echoes the real one it is serving on).
+function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("host did not report listening in time")),
       timeoutMs,
     );
+    let buffer = "";
     proc.stdout?.on("data", (chunk: Buffer) => {
-      if (chunk.toString("utf8").includes("open  http://")) {
+      buffer += chunk.toString("utf8");
+      const match = buffer.match(/open\s+http:\/\/127\.0\.0\.1:(\d+)/);
+      if (match) {
         clearTimeout(timer);
-        resolve();
+        resolve(Number(match[1]));
       }
     });
     proc.on("exit", (code) => {
@@ -69,17 +73,22 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   let port = 0;
 
   test.beforeAll(async () => {
-    port = await freePort();
+    const requestedPort = await freePort();
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
     const workspace = await mkdtemp(join(tmpdir(), "weavie-e2e-"));
     proc = spawn("dotnet", [hostDll], {
-      env: { ...process.env, WEAVIE_SERVE_PORT: String(port), WEAVIE_SERVE_WORKSPACE: workspace },
+      env: {
+        ...process.env,
+        WEAVIE_SERVE_PORT: String(requestedPort),
+        WEAVIE_SERVE_WORKSPACE: workspace,
+      },
       stdio: ["ignore", "pipe", "pipe"],
     });
     proc.stdout?.on("data", (chunk: Buffer) => {
       log += chunk.toString("utf8");
     });
-    await waitForListening(proc, 30_000);
+    // Navigate to the port the host reports binding, not the requested one — robust to the freePort race.
+    port = await waitForListening(proc, 30_000);
   });
 
   test.afterAll(() => {

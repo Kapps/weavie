@@ -168,6 +168,7 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 	/// </summary>
 	public string BuildBootstrapScript() {
 		string fonts = _settings is null ? "undefined" : FontSettings.BuildJson(_settings, messageType: null);
+		string editorOptions = _settings is null ? "undefined" : EditorSettings.BuildJson(_settings, messageType: null);
 		string commands = _keybindings is null ? "[]" : _keybindings.BuildCommandsJson();
 		string keybindings = _keybindings is null ? "[]" : _keybindings.BuildKeybindingsJson();
 		// Active theme + per-theme overrides, so the chrome/editor/terminal mount themed (no default-asset
@@ -192,6 +193,7 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		return
 			"window.__WEAVIE_BRIDGE_WS__ = \"auto\";"
 			+ $"window.__WEAVIE_FONTS__ = {fonts};"
+			+ $"window.__WEAVIE_EDITOR_OPTIONS__ = {editorOptions};"
 			+ $"window.__WEAVIE_THEME__ = {theme};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
 			+ $"window.__WEAVIE_COMMANDS__ = {commands};"

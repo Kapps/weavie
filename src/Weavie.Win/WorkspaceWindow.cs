@@ -1,34 +1,25 @@
-using System.Collections.Concurrent;
-using System.Text;
-using System.Text.Json;
-using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
-using Weavie.Core;
-using Weavie.Core.Commands;
-using Weavie.Core.Configuration;
-using Weavie.Core.Editor;
-using Weavie.Core.FileSystem;
-using Weavie.Core.Layout;
 using Weavie.Core.Shell;
-using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
-using Weavie.Core.Worktrees;
+using Weavie.Hosting;
 using Weavie.Win.Hosting;
+using Weavie.Win.Terminal;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
 
 namespace Weavie.Win;
 
 /// <summary>
-/// One workspace's host window: a single full-bleed WebView2 rendering the shared Vite web app, wired to
-/// the Core seams through one <see cref="HostSession"/> — a real ConPTY terminal running <c>claude</c>, a
-/// shell, the loopback IDE-MCP server + lock file, the LSP bridge, and Monaco diff/file presentation. The
-/// window owns the per-workspace pane layout + window geometry; the session owns the live backend. v1
-/// hosts exactly one session; multiple sessions per window come later. Windows analogue of the macOS
-/// per-window wiring in <c>AppDelegate</c>; created and tracked by <see cref="AppController"/>.
+/// One workspace's host window: a thin WinForms shell over <see cref="HostCore"/>. It owns only the native
+/// pieces — the frameless WebView2 host, the custom chrome (caption strip + resize edges), window geometry,
+/// the Debug Vite dev server, and screenshots — and exposes them to the shared core through
+/// <see cref="IHostPlatform"/> (in WorkspaceWindow.Platform.cs). It also implements <see cref="IShellWindow"/>
+/// so the web title bar's window controls drive it. Everything else (the Core graph, the session set, the
+/// web-message dispatch, the IDE-MCP + LSP servers) lives in the shared core. Created/tracked by
+/// <see cref="AppController"/>; the app-global stores it shares come from there.
 /// </summary>
-internal sealed partial class WorkspaceWindow : Form, IShellWindow {
-	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin
-	// context (workers + Event Timing API behave), mirroring the macOS app:// scheme.
+internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatform {
+	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin context
+	// (workers + Event Timing API behave), mirroring the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
 
 	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage,
@@ -46,39 +37,19 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 
 	private readonly AppController _app;
 	private readonly string _workspaceRoot;
-	private readonly SettingsStore _settings;
 	private readonly HostBridge _bridge = new();
+	private readonly WindowsPtyLauncher _ptyLauncher = new();
 	private readonly WebView2 _webView;
-	private readonly LayoutStore _layout;
-	private readonly EditorSessionStore _editorSession;
+	private readonly HostCore _core;
+	private readonly IUiDispatcher _dispatcher;
+	private readonly WinDialogs _dialogs;
 	private bool _lastMaximized;
 	private bool _webViewTornDown;
-	private HostSession? _session;
-	// Multi-session: the session set (v1 starts with one). _session is the active one (reassigned on switch);
-	// _primarySession can't be closed; _worktrees backs worktree-per-session creation; _pageOrigin is reused
-	// when spawning later sessions.
-	private SessionManager? _sessions;
-	private HostSession? _primarySession;
-	private WorktreeManager? _worktrees;
-	// Runs worktree.setupCommand/teardownCommand around create/discard; setup is kicked off in the background
-	// after a session opens, teardown runs inside _worktrees.RemoveAsync. Same instance the manager holds.
-	private ShellWorktreeProvisioner? _worktreeProvisioner;
-	private string _pageOrigin = "https://weavie.app";
-	// Drives the custom title bar: parses its window-control/menu-action/file-index messages (built once
-	// the session exists). _focused backs the title bar's blur dim, tracked from Activated/Deactivate.
-	private ShellController? _shell;
+	// Backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private bool _focused = true;
-	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by
-	// the web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
-	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
-	// The app-global keybindings store outlives the window, so its KeybindingsChanged handler is kept here
-	// and detached on close to avoid leaking this window into the store.
-	private Action? _onKeybindingsChanged;
 #if DEBUG
 	private WebDevServer? _webDev;
 	// The Vite dev origin the WebView is pointed at, once resolved (null in Release / when serving the bundle).
-	// Lets OnNavigationCompleted tell a "dev server went away" failure apart from an ordinary navigation, so a
-	// hard reload (Ctrl+F5/Ctrl+R) after the server died recovers instead of dead-ending on Chromium's error page.
 	private string? _devOrigin;
 	// Set while a dev-server-loss recovery navigation is in flight (re-entrancy guard); capped attempts stop a
 	// pathological revive→fail→revive loop before falling back to the bundle.
@@ -87,8 +58,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 #endif
 
 	// The app's dark background, painted on every host surface before the page loads so the ~0.25s of
-	// WebView2 cold-start shows dark instead of the default white. Matches the web splash + styles --bg;
-	// when theme persistence lands the host can swap in the user's resolved theme background here.
+	// WebView2 cold-start shows dark instead of the default white.
 	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	public WorkspaceWindow(AppController app, string workspaceRoot) {
@@ -96,35 +66,38 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		_app = app;
 		_workspaceRoot = workspaceRoot;
-		_settings = app.Settings;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
 		Text = $"{WorkspaceLabel(workspaceRoot)} — weavie";
 		Icon = AppIcon.Shared;
 		BackColor = StartupBackground;
 
-		// Per-workspace layout: each opened folder gets its own pane tree + window geometry under
-		// ~/.weavie/workspaces/<id>/layout.json, keyed by the folder's path. Restore its saved geometry
-		// (size / position / maximized) before the handle is created; a missing or off-screen saved state
-		// falls back to a centered 1280x840 default.
-		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
+		// The native pieces handed to the core through IHostPlatform: the UI-thread marshal and the dialogs.
+		// Built before the core (its constructor reads the dispatcher off this platform).
+		_dispatcher = new DelegateUiDispatcher(action => {
+			if (InvokeRequired) {
+				BeginInvoke(action);
+			} else {
+				action();
+			}
+		});
+		_dialogs = new WinDialogs(this);
 
-		// Per-workspace editor session: the open files + per-file Monaco view state under
-		// ~/.weavie/workspaces/<id>/editor-session.json, so the editor reopens its files at the same
-		// scroll/cursor on launch. Web-written (the user opens files / moves the cursor); pushed back on ready.
-		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
-		_editorSession.Log += line => {
-			Console.WriteLine($"[weavie] {line}");
-			Console.Out.Flush();
-		};
+		// The shared core over this workspace, driven by the app-global Core stores (shared across windows).
+		_core = new HostCore(this, new HostServices {
+			Settings = _app.Settings,
+			CommandRegistry = _app.CommandRegistry,
+			Keybindings = _app.Keybindings,
+			ThemeOverrides = _app.ThemeOverrides,
+		}, workspaceRoot);
+		// On the page's `ready`, push the initial native window state (maximize glyph + blur dim) the core can't know.
+		_core.Ready += OnPageReady;
 
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
 
-		// DefaultBackgroundColor must be set before the CoreWebView2 initializes — it's stored and applied
-		// during init, so the render surface is dark from the first frame. Setting it post-init (as before)
-		// leaves the surface its default white through the ~0.2s cold-start. BackColor covers the control
-		// itself in the window before that surface exists.
+		// DefaultBackgroundColor must be set before the CoreWebView2 initializes so the render surface is dark
+		// from the first frame; BackColor covers the control itself before that surface exists.
 		_webView = new WebView2 {
 			Dock = DockStyle.Fill,
 			BackColor = StartupBackground,
@@ -132,14 +105,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		};
 		Controls.Add(_webView);
 
-		// No native menu bar: the window is frameless (see WndProc/CustomChrome) and the WebView fills the
-		// whole client area. The File/View menus, app icon, omnibar, and min/maximize/close all live in the
-		// web title bar, which drives this window back through the IShellWindow members below.
-
 		Load += OnLoad;
 		ResizeEnd += (_, _) => SaveWindowState();
 		SizeChanged += OnWindowSizeChanged;
-		// Title-bar blur dim + focus state: track activation and re-push the window state to the page.
 		Activated += (_, _) => SetFocused(true);
 		Deactivate += (_, _) => SetFocused(false);
 		FormClosing += OnFormClosing;
@@ -176,19 +144,16 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 	/// <summary>
 	/// Routes the frameless-window messages to <see cref="CustomChrome"/>: <c>WM_NCCALCSIZE</c> strips the
 	/// caption (the WebView fills the whole client area), <c>WM_NCHITTEST</c> re-supplies the edge resize
-	/// zones. Everything else (and window dragging, via the web title bar's <c>app-region: drag</c>) is the
-	/// default behavior. The styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
+	/// zones. The styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
 	/// </summary>
 	protected override void WndProc(ref Message m) {
-		// Drop bare Alt/F10 menu-bar activation: there's no native menu bar to focus (it's in the web title
-		// bar), so entering menu mode would just freeze input and beep. Alt+Space still opens the system menu.
+		// Drop bare Alt/F10 menu-bar activation: there's no native menu bar to focus (it's in the web title bar).
 		if (CustomChrome.HandleSysKeyMenu(ref m)) {
 			return;
 		}
 
-		// IsMaximized (live WS_MAXIMIZE), not WindowState: WinForms updates WindowState on WM_SIZE, which
-		// fires after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal here and the
-		// frame inset would be skipped — clipping the top of the title bar.
+		// IsMaximized (live WS_MAXIMIZE), not WindowState: WinForms updates WindowState on WM_SIZE, which fires
+		// after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal here.
 		bool maximized = CustomChrome.IsMaximized(Handle);
 		if (CustomChrome.HandleNcCalcSize(ref m, maximized) || CustomChrome.HandleNcHitTest(Handle, ref m, maximized)) {
 			return;
@@ -199,7 +164,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 
 	/// <summary>Applies the persisted window geometry, or a centered default when there's none or it's off-screen.</summary>
 	private void ApplySavedWindowState() {
-		var saved = _layout.Current.Window;
+		var saved = _core.SavedWindow;
 		if (saved is not null) {
 			var bounds = new Rectangle(saved.X, saved.Y, saved.Width, saved.Height);
 			if (IsOnScreen(bounds)) {
@@ -234,21 +199,20 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		PushWindowState();
 	}
 
-	/// <summary>Pushes the current maximized + focused state to the title bar (no-op before the shell exists).</summary>
-	private void PushWindowState() =>
-		_shell?.PushWindowState(WindowState == FormWindowState.Maximized, _focused);
+	private void OnPageReady() => PushWindowState();
 
-	// IShellWindow — the platform primitives the web title bar drives (Weavie.Core.Shell). Close() (the ✕)
-	// is satisfied implicitly by Form.Close(); CloseWindow() (File ▸ Close Window) routes through
-	// CloseToWelcome() so the last window falls back to the welcome screen instead of quitting.
+	/// <summary>Pushes the current maximized + focused state to the title bar.</summary>
+	private void PushWindowState() =>
+		_core.PushWindowState(WindowState == FormWindowState.Maximized, _focused);
+
+	// IShellWindow — the platform primitives the web title bar drives (Weavie.Core.Shell). Close() (the ✕) is
+	// satisfied implicitly by Form.Close(); CloseWindow() (File ▸ Close Window) routes through CloseToWelcome().
 	void IShellWindow.Minimize() => WindowState = FormWindowState.Minimized;
 
 	void IShellWindow.ToggleMaximize() =>
 		WindowState = WindowState == FormWindowState.Maximized ? FormWindowState.Normal : FormWindowState.Maximized;
 
 	void IShellWindow.StartResize(ResizeEdge edge) {
-		// A maximized window doesn't resize. The web hides its grab handles when maximized; this guards the
-		// race where a mousedown's message arrives just after a maximize.
 		if (WindowState == FormWindowState.Maximized) {
 			return;
 		}
@@ -269,7 +233,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 			return;
 		}
 
-		_layout.SetWindow(CaptureWindowState());
+		_core.SaveWindow(CaptureWindowState());
 	}
 
 	/// <summary>Snapshots the current geometry, using the restore (un-maximized) bounds when maximized.</summary>
@@ -294,317 +258,10 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		return string.IsNullOrEmpty(leaf) ? root : leaf;
 	}
 
-	private async void OnLoad(object? sender, EventArgs e) {
-		try {
-			await InitializeAsync();
-		} catch (Exception ex) {
-			Console.Error.WriteLine($"[weavie] initialization failed: {ex}");
-			MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
-		}
-	}
-
-	private async Task InitializeAsync() {
-		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-		// SetVirtualHostNameToFolderMapping throws if the folder is absent. Ensure it exists so a
-		// build without web assets still opens the window (navigation 404s) instead of crashing.
-		Directory.CreateDirectory(wwwroot);
-
-		// WebView2 needs a writable user-data folder (the exe may live under Program Files); keep it
-		// under the Weavie root so all Weavie data lives together (~/.weavie/internals/webview2).
-		string userDataFolder = WeaviePaths.Internal("webview2");
-		Directory.CreateDirectory(userDataFolder);
-
-		long tBeforeEnv = Program.StartupClock.ElapsedMilliseconds;
-		var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
-		await _webView.EnsureCoreWebView2Async(environment);
-		long tWebViewReady = Program.StartupClock.ElapsedMilliseconds;
-		var core = _webView.CoreWebView2;
-
-		// Serve the built web app from wwwroot over https://weavie.app/ (no network, no localhost
-		// port), the WebView2 counterpart of the macOS app:// scheme handler.
-		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
-		core.Settings.AreDevToolsEnabled = true;          // local debugging of the prototype
-		core.Settings.IsStatusBarEnabled = false;
-		// Let the web title bar declare its draggable caption via CSS `app-region: drag`; WebView2 then
-		// handles window dragging, double-click-maximize, and the right-click system menu for the frameless
-		// window. The resize edges are owned by CustomChrome (WM_NCHITTEST).
-		core.Settings.IsNonClientRegionSupportEnabled = true;
-
-		// Page origin: the shipped app loads the bundled web app over https://weavie.app/. In Debug the
-		// host owns a Vite dev server — started here, torn down on exit, so there's no second terminal —
-		// and points the WebView at it for hot-module reload, falling back to the bundled wwwroot if the
-		// server can't start. Release loads the bundle (the block below is compiled out). The chosen
-		// origin flows into navigation and the LSP bridge's allowed origin.
-		string pageOrigin = $"https://{AppHost}";
-#if DEBUG
-		_webDev = new WebDevServer(line => {
-			Console.WriteLine($"[vite] {line}");
-			Console.Out.Flush();
-		});
-		string? devOrigin = await _webDev.StartAsync();
-		if (devOrigin is not null) {
-			pageOrigin = devOrigin;
-			_devOrigin = devOrigin;
-			// Recover a reload that fails because the dev server became unreachable (e.g. a reused server the
-			// user's terminal owned was Ctrl+C'd, then Ctrl+F5). Subscribed before Navigate so even the first
-			// load recovers if Vite dies in the gap. Bundle navigation (https) never hits the failure branch.
-			core.NavigationCompleted += OnNavigationCompleted;
-			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
-		} else {
-			Console.WriteLine("[weavie] dev server unavailable; falling back to bundled wwwroot");
-		}
-#endif
-
-		_bridge.Attach(_webView);
-
-		// Off-by-default diagnostic (a real setting, not a buried env var): when on, the host logs its
-		// launch phases below and tells the web app to log its own via ?startuptiming.
-		bool startupTiming = _settings.GetBool("diagnostics.startupTiming", false);
-		_bridge.MessageReceived += OnWebMessage;
-
-		// Session: the live, workspace-scoped backend this window hosts — the two terminals (claude +
-		// shell), the IDE-MCP server + lock file (so the spawned claude connects to us as the SOLE edit
-		// feed), the LSP bridge, and the file/diff presenters. Created once pageOrigin is known so the LSP
-		// WS origin is pinned correctly.
-		_pageOrigin = pageOrigin;
-		_session = new HostSession(
-			_bridge, _settings, _layout, _workspaceRoot, WeaviePaths.WorkspaceScratchDir(Id), pageOrigin,
-			Guid.NewGuid().ToString("n")[..8],
-			_app.CommandRegistry, _app.Keybindings, _app.ThemeOverrides);
-		_primarySession = _session;
-		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
-		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
-		_primarySession.EditorSession = _editorSession.Current;
-		string primaryLabel = await ResolvePrimaryLabelAsync();
-
-		// Garbage-collect scratch (untitled) temp files orphaned by a crash or a reset session — keep only
-		// those still referenced by the restored editor session (they reopen as their "Untitled-N" tabs).
-		_session.Scratch.GarbageCollect(
-			_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
-
-		// Custom title bar: route its window-control / menu-action / file-index messages (handled in
-		// OnWebMessage) to the shared Core controller, driving this window via the IShellWindow members.
-		_shell = new ShellController(this, _session.FileIndex, _bridge.PostToWeb);
-
-		// Sessions: build the worktree manager + slot set, add the primary (always-loaded) slot, wire its
-		// handlers + gated push subscriptions, then reconcile pre-existing worktrees into dormant (unloaded)
-		// slots so none leak. The rail's session list is pushed on the page's `ready` message (PostToWeb
-		// before navigation no-ops). See WorkspaceWindow.Sessions.cs and docs/specs/multi-session-and-worktrees.md.
-		_worktrees = await BuildWorktreeManagerAsync();
-		_sessions = new SessionManager(_worktrees);
-		AddPrimarySlot(primaryLabel);
-		WireSession(_session);
-		await ReconcileWorktreesOnOpenAsync();
-
-		// Inject LSP discovery (port, per-session token, workspace root) before navigation so the page can
-		// lazily start a monaco-languageclient per language on first matching document.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_LSP__ = {_session.LspConfigJson};");
-
-		// Typography: inject the resolved editor + terminal fonts before navigation so both surfaces
-		// mount at the user's font with no default-font flash; live changes are pushed below.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};");
-
-		// Editor behavior: inject the resolved editor.* options before navigation so the editor mounts with
-		// the user's options (inlay hints, word wrap, hover delay, …); live changes are pushed below.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(
-			$"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};");
-
-		// Theme: inject the active theme (id + override ops, plus the converted JSON for installed themes)
-		// before navigation so the editor / terminal / chrome mount themed with no flash; live changes pushed below.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(
-			$"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _app.ThemeOverrides, messageType: null, log: line => Console.WriteLine(line))};");
-
-		// Commands + keybindings: inject the catalog + resolved bindings before navigation so the web's
-		// keybinding resolver and command palette are populated at mount; live edits are pushed below.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(
-			$"window.__WEAVIE_COMMANDS__ = {_app.Keybindings.BuildCommandsJson()}; "
-			+ $"window.__WEAVIE_KEYBINDINGS__ = {_app.Keybindings.BuildKeybindingsJson()};");
-
-		// Custom title bar config: tell the web to render the Windows chrome (icon + File/View menus +
-		// omnibar + window controls), with the workspace label and the recents for File ▸ Open Recent.
-		await core.AddScriptToExecuteOnDocumentCreatedAsync(
-			ShellProtocol.BuildConfigScript("win", "custom", WorkspaceLabel(_workspaceRoot), [.. _app.Recents.Items]));
-
-		// Reaction wiring: a changed shell (ApplyMode.ReopensTerminal) reopens the shell pane live.
-		// Settings events arrive off the UI thread, so marshal onto it before touching the controller.
-		_settings.Subscribe("terminal.shell", _ => {
-			if (InvokeRequired) {
-				BeginInvoke(() => _session?.Shell.Restart());
-			} else {
-				_session?.Shell.Restart();
-			}
-		});
-
-		// Fonts (ApplyMode.Live): any global or per-surface font change re-pushes the resolved editor +
-		// terminal fonts to the web app, which applies them in place. PostToWeb marshals to the UI
-		// thread itself and the store is thread-safe, so the off-thread change event can call it directly.
-		_settings.SettingChanged += change => {
-			if (FontSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
-			}
-		};
-
-		// Editor options (ApplyMode.Live): any editor.* change re-pushes the resolved options so the web
-		// applies them via updateOptions in place.
-		_settings.SettingChanged += change => {
-			if (EditorSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(EditorSettings.BuildJson(_settings, "editorOptions"));
-			}
-		};
-
-		// Theme (ApplyMode.Live): a mode/theme switch (theme.mode|theme.light|theme.dark) or an override edit on
-		// either selected theme re-pushes the resolved theme pair so the web re-themes the editor, terminal, and
-		// chrome in place. PostToWeb marshals to the UI thread and the stores are thread-safe, so the off-thread
-		// events can call it directly.
-		_settings.SettingChanged += change => {
-			if (ThemeSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
-			}
-		};
-		_app.ThemeOverrides.Changed += themeId => {
-			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
-				_bridge.PostToWeb(ThemeJson.Build(_settings, _app.ThemeOverrides, "theme", line => Console.WriteLine(line)));
-			}
-		};
-
-		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
-		// web rebuilds its resolver + palette live. PostToWeb marshals to the UI thread itself; the store is
-		// thread-safe, so the off-thread change event can call it directly. Detached on close (Shutdown).
-		_onKeybindingsChanged = () => _bridge.PostToWeb(
-			$"{{\"type\":\"commands\",\"commands\":{_app.Keybindings.BuildCommandsJson()},"
-			+ $"\"keybindings\":{_app.Keybindings.BuildKeybindingsJson()}}}");
-		_app.Keybindings.KeybindingsChanged += _onKeybindingsChanged;
-
-		// Layout: when the store changes (a reconciled web edit, or a future MCP setLayout), push the
-		// canonical document back so the web re-renders. Change events arrive off the UI thread.
-		_layout.Changed += _ => {
-			if (InvokeRequired) {
-				BeginInvoke(PushLayoutToWeb);
-			} else {
-				PushLayoutToWeb();
-			}
-		};
-
-		var query = new List<string>();
-		if (startupTiming) {
-			query.Add("startuptiming=1");
-		}
-		string qs = query.Count > 0 ? "?" + string.Join("&", query) : string.Empty;
-		core.Navigate($"{pageOrigin}/index.html{qs}");
-
-		if (startupTiming) {
-			long tNavigate = Program.StartupClock.ElapsedMilliseconds;
-			Console.WriteLine(
-				$"[startup] webview-ready {tWebViewReady}ms (env+ensure took {tWebViewReady - tBeforeEnv}ms), "
-				+ $"host-setup {tNavigate - tWebViewReady}ms, navigate at {tNavigate}ms since process start");
-			Console.Out.Flush();
-		}
-
-		// Unattended screenshot for the deliverable; gated on WEAVIE_SHOT_DIR so the shipped app
-		// never writes screenshots.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
-			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
-			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
-		}
-	}
-
-#if DEBUG
-	// Recover when a navigation to the Vite dev origin fails because the server is unreachable — the case
-	// behind "localhost could not be reached" on a hard reload (Ctrl+F5/Ctrl+R) after a reused dev server
-	// died. Revive the dev server (StartAsync reuses a live one, else respawns) and reload the fresh content;
-	// if it can't come back, fall back to the always-mapped bundle and log loudly so the loss is observable.
-	// Only wired in Debug (no dev origin in Release), so the shipped app can never reach this branch.
-	private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e) {
-		if (e.IsSuccess) {
-			_devRecoveryAttempts = 0; // a good load ends the burst; the next failure starts a fresh count
-			return;
-		}
-
-		// Act only on connection-class failures (the server is gone) — not user cancels or HTTP errors, which
-		// navigate fine against a live server and would otherwise trigger a needless bundle fallback.
-		if (_devOrigin is null || _recoveringDevServer || _webDev is null
-			|| e.WebErrorStatus is not (
-				CoreWebView2WebErrorStatus.CannotConnect
-				or CoreWebView2WebErrorStatus.ServerUnreachable
-				or CoreWebView2WebErrorStatus.HostNameNotResolved
-				or CoreWebView2WebErrorStatus.ConnectionAborted
-				or CoreWebView2WebErrorStatus.ConnectionReset
-				or CoreWebView2WebErrorStatus.Disconnected
-				or CoreWebView2WebErrorStatus.Timeout)) {
-			return;
-		}
-
-		var core = _webView.CoreWebView2;
-		if (core is null) {
-			return;
-		}
-
-		_recoveringDevServer = true;
-		try {
-			Console.WriteLine($"[weavie] dev server at {_devOrigin} unreachable ({e.WebErrorStatus}); reviving for reload");
-			// Cap revival attempts so a server that comes up then immediately fails again can't spin forever.
-			string? revived = _devRecoveryAttempts < 3 ? await _webDev.StartAsync() : null;
-			if (revived is not null) {
-				_devRecoveryAttempts++;
-				_devOrigin = revived;
-				core.Navigate($"{revived}/index.html");
-			} else {
-				// Dev server is gone for good: stop chasing it and load the bundle that's always mapped.
-				_devOrigin = null;
-				core.NavigationCompleted -= OnNavigationCompleted;
-				Console.WriteLine($"[weavie] dev server could not be revived; loading bundled wwwroot at https://{AppHost}");
-				core.Navigate($"https://{AppHost}/index.html");
-			}
-		} finally {
-			_recoveringDevServer = false;
-		}
-	}
-#endif
-
-	private async Task CaptureSnapshotAsync() {
-		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
-		var core = _webView.CoreWebView2;
-		if (core is null || string.IsNullOrEmpty(dir)) {
-			return;
-		}
-
-		Directory.CreateDirectory(dir);
-		string? name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
-		string path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
-
-		try {
-			await using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write);
-			await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fileStream);
-			Console.WriteLine($"[weavie] snapshot saved: {path}");
-			Console.Out.Flush();
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Console.Error.WriteLine($"[weavie] snapshot save failed: {ex.Message}");
-		}
-	}
-
-	/// <summary>Fires <paramref name="action"/> once after <paramref name="seconds"/>, on the UI thread.</summary>
-	private void ScheduleOnce(double seconds, Action action) {
-		var timer = new System.Windows.Forms.Timer { Interval = Math.Max(1, (int)(seconds * 1000)) };
-		timer.Tick += (_, _) => {
-			timer.Stop();
-			timer.Dispose();
-			action();
-		};
-		timer.Start();
-	}
-
 	/// <summary>
-	/// Runs as the window closes — before the handle is destroyed and while the message pump is still
-	/// alive. Persists geometry, then tears the WebView2 down deterministically. We can't leave this to
-	/// the Form's automatic control disposal: that runs only after <see cref="Shutdown"/> (in
-	/// FormClosed), as the message loop is already ending, which races WebView2's native teardown. When
-	/// this instance owns its browser process and the page still has live web workers / sockets (Monaco's
-	/// language workers, the LSP WebSocket), that race can leave a renderer thread alive — the window
-	/// closes but weavie.exe never exits (you see teardown finish in the log, then the process just
-	/// sits there). Disposing the control here closes the CoreWebView2 controller — terminating the
-	/// renderer and releasing those threads — while the pump can still service the teardown, and before
-	/// Shutdown kills the Vite dev server out from under the page.
+	/// Runs as the window closes — before the handle is destroyed and while the message pump is still alive.
+	/// Persists geometry, then tears the WebView2 down deterministically (the automatic control disposal runs
+	/// only after <see cref="Shutdown"/>, racing WebView2's native teardown and leaving the process alive).
 	/// </summary>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
 		SaveWindowState();
@@ -616,29 +273,15 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow {
 		try {
 			_webView.Dispose();
 		} catch (Exception ex) {
-			// Best-effort: a dispose mid-initialization (closed during the ~0.3s cold start) can fault,
-			// and we're exiting regardless. Don't let it block the close.
 			Console.Error.WriteLine($"[weavie] webview teardown: {ex.Message}");
 		}
 	}
 
 	private void Shutdown() {
-		if (_onKeybindingsChanged is not null) {
-			_app.Keybindings.KeybindingsChanged -= _onKeybindingsChanged;
-			_onKeybindingsChanged = null;
-		}
-
-		// Fail any web command still awaiting an ack so a runCommand in flight at close doesn't hang.
-		foreach (var pending in _pendingWebCommands.Values) {
-			pending.TrySetResult(CommandResult.Failure("The window closed before the command completed."));
-		}
-
-		_pendingWebCommands.Clear();
-		if (_sessions is not null) {
-			_sessions.DisposeAsync().AsTask().GetAwaiter().GetResult();
-		} else {
-			_session?.DisposeAsync().AsTask().GetAwaiter().GetResult();
-		}
+		_core.Ready -= OnPageReady;
+		// Tears down the sessions (terminals / IDE-MCP / LSP) and detaches the core's handlers from the
+		// app-global stores. The stores themselves are owned by AppController and not disposed here.
+		_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
 #if DEBUG
 		_webDev?.Dispose();
 #endif

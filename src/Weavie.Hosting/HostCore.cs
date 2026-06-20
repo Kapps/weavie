@@ -53,9 +53,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private ShellController? _shell;
 	// Global OS hotkeys, present only when the platform exposes a registrar. Disposed with the core.
 	private GlobalHotkeyService? _hotkeys;
-	// The app-global keybindings store may outlive a window (Windows), so its KeybindingsChanged handler is
-	// kept here and detached on dispose to avoid leaking this core into the store.
+	// The app-global stores (settings / keybindings / theme overrides) may outlive a window (Windows), so the
+	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
 	private Action? _onKeybindingsChanged;
+	private Action<SettingChange>? _onSettingChanged;
+	private Action<string>? _onThemeOverridesChanged;
 
 	/// <summary>
 	/// Creates the core for <paramref name="workspaceRoot"/> over the given <paramref name="platform"/> shell
@@ -196,7 +198,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them
 		// in place. PostToWeb marshals to the UI thread itself and the stores are thread-safe, so the off-thread
 		// change events call it directly.
-		_settings.SettingChanged += change => {
+		_onSettingChanged = change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
 			}
@@ -209,11 +211,13 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
 			}
 		};
-		_themeOverrides.Changed += themeId => {
+		_settings.SettingChanged += _onSettingChanged;
+		_onThemeOverridesChanged = themeId => {
 			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
 				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
 			}
 		};
+		_themeOverrides.Changed += _onThemeOverridesChanged;
 
 		// Keybindings (user-edited ~/.weavie/keybindings.json): re-push the catalog + resolved bindings so the
 		// web rebuilds its resolver + palette live. Detached on dispose (the store may outlive this core).
@@ -237,6 +241,16 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onKeybindingsChanged is not null) {
 			_keybindings.KeybindingsChanged -= _onKeybindingsChanged;
 			_onKeybindingsChanged = null;
+		}
+
+		if (_onSettingChanged is not null) {
+			_settings.SettingChanged -= _onSettingChanged;
+			_onSettingChanged = null;
+		}
+
+		if (_onThemeOverridesChanged is not null) {
+			_themeOverrides.Changed -= _onThemeOverridesChanged;
+			_onThemeOverridesChanged = null;
 		}
 
 		_hotkeys?.Dispose(); // unregisters the OS global hotkeys

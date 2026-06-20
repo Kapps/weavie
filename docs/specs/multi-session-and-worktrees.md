@@ -284,8 +284,8 @@ parent spec's **view virtualization** (one live Monaco + one live xterm, re-hydr
 the *frontend* cost. Beyond that, a **`Suspended`** session state (later) tears down the heavy backend
 (the LSP server especially) while keeping the worktree + serialized session state, re-hydrating on
 focus — so ten idle worktrees don't each pin a language server. Sessions persist per-workspace
-(alongside `layout.json`) and restore on reopen; whether to auto-`claude --continue` each restored
-session or cold-start is an open question.
+(alongside `layout.json`) and restore on reopen, each resuming its own Claude conversation by default
+(stable assigned id; see [claude-session-resume.md](claude-session-resume.md)).
 
 ## Per-session routing — a prerequisite to verify
 
@@ -423,7 +423,9 @@ sessions (see [file-management-and-sessions.md](file-management-and-sessions.md)
 ## Open questions / deferred
 
 - **PTY readiness detection** for prompt seeding (when is the TUI accepting input?).
-- **Auto-resume on restore** — `claude --continue` each restored session, or cold-start?
+- ~~**Auto-resume on restore** — `claude --continue` each restored session, or cold-start?~~ **Resolved:**
+  resume by default — Weavie assigns each session's directory a stable Claude id (`--session-id` on the
+  first launch, `--resume` thereafter). See [claude-session-resume.md](claude-session-resume.md).
 - **Fork base selection UI** beyond the default.
 - **Transcript-copy true fork** — only if we accept coupling to Claude's project-dir layout.
 - **OS attention escalation** — per-host taskbar-flash / notification APIs.

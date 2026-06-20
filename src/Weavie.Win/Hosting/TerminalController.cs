@@ -1,6 +1,7 @@
 using System.Text;
 using Weavie.Core.Configuration;
 using Weavie.Core.Processes;
+using Weavie.Core.Sessions;
 using Weavie.Core.Terminal;
 using Weavie.Win.Terminal;
 
@@ -79,6 +80,14 @@ public sealed class TerminalController : IDisposable {
 	/// the claude session uses it.
 	/// </summary>
 	public string? SystemPromptFilePath { get; set; }
+
+	/// <summary>
+	/// When set (claude session only), the store that assigns this session's <see cref="Workspace"/> a stable
+	/// Claude session id so the spawned claude resumes its previous conversation across launches/restarts
+	/// (<c>--resume</c>) instead of cold-starting — created fresh the first time with <c>--session-id</c>.
+	/// Honored only while the <c>claude.resumeSession</c> setting is on. Null disables the feature.
+	/// </summary>
+	public ClaudeSessionStore? ClaudeSessions { get; set; }
 
 	/// <summary>
 	/// Raised on every supervisor transition for this session's process (start, crash, restart, give-up),
@@ -280,6 +289,14 @@ public sealed class TerminalController : IDisposable {
 		if (!string.IsNullOrEmpty(SystemPromptFilePath)) {
 			claudeArgs.Add("--append-system-prompt-file");
 			claudeArgs.Add(SystemPromptFilePath);
+		}
+
+		// Session resume: reattach to this directory's previous Claude conversation (--resume), or create it
+		// the first time (--session-id). Skipped when unconfigured or turned off via claude.resumeSession.
+		if (ClaudeSessions is { } sessions && _settings.GetBool("claude.resumeSession", fallback: true)) {
+			var launch = sessions.Resolve(Workspace);
+			claudeArgs.Add(launch.Resume ? "--resume" : "--session-id");
+			claudeArgs.Add(launch.SessionId);
 		}
 
 		string ext = Path.GetExtension(claude).ToLowerInvariant();

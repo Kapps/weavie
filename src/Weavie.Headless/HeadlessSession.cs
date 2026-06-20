@@ -8,6 +8,7 @@ using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
+using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -123,6 +124,8 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 		_claude.McpConfigPath = _ide.WriteMcpConfigFile();
 		_claude.SettingsFilePath = _ide.WriteSettingsFile();
 		_claude.SystemPromptFilePath = _ide.WriteSystemPromptFile();
+		// Resume this workspace's previous Claude conversation across launches (gated by claude.resumeSession).
+		_claude.ClaudeSessions = new ClaudeSessionStore(fileSystem, WeaviePaths.ClaudeSessionsFile);
 		_ide.HookBridge.Observed += request => Log($"[hook] {request.Event} {request.ToolName}");
 		_ide.HookBridge.Log += line => Log($"[hook] {line}");
 

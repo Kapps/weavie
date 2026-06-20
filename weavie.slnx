@@ -4,6 +4,7 @@
     <Project Path="src/Weavie.Headless/Weavie.Headless.csproj" />
     <Project Path="src/Weavie.Hosting/Weavie.Hosting.csproj" />
     <Project Path="src/Weavie.Linux/Weavie.Linux.csproj" />
+    <Project Path="src/Weavie.Runner/Weavie.Runner.csproj" />
     <Project Path="src/Weavie.Mac/Weavie.Mac.csproj" />
     <Project Path="src/Weavie.Win/Weavie.Win.csproj" />
   </Folder>

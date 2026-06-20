@@ -11,6 +11,8 @@ if (args.Length > 0 && args[0] == "--hook-relay") {
 
 string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
+string bind = ResolveBind(args);
+string? token = ResolveToken(args);
 string workspaceOverride = ResolveWorkspace(args);
 
 // The host outlives any one page: build it once, then let each browser connection (re)attach its socket.
@@ -20,7 +22,7 @@ session.Start(workspaceOverride);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); // We print our own concise status; Kestrel's request logging is noise here.
-builder.WebHost.UseUrls($"http://127.0.0.1:{port}");
+builder.WebHost.UseUrls($"http://{bind}:{port}");
 var app = builder.Build();
 
 app.UseWebSockets();
@@ -48,12 +50,21 @@ app.Map("/weavie-bridge", async context => {
 		return;
 	}
 
+	// When a token is configured (the runner spawns workers this way), the bridge — the actual capability —
+	// requires it on the upgrade. The static page/assets stay open; the page carries the token onto this URL.
+	if (token is not null && !TokenMatches(context, token)) {
+		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
+		return;
+	}
+
 	using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
 	await bridge.ServeAsync(socket, context.RequestAborted).ConfigureAwait(false);
 });
 
+string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
+string tokenSuffix = token is null ? string.Empty : $"/?token={token}";
 Console.WriteLine($"[weavie-headless] workspace: {session.Workspace}");
-Console.WriteLine($"[weavie-headless] open  http://127.0.0.1:{port}  in a browser");
+Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{port}{tokenSuffix}  in a browser");
 Console.Out.Flush();
 await app.RunAsync().ConfigureAwait(false);
 return 0;
@@ -66,6 +77,42 @@ static int ResolvePort(string[] args) {
 	}
 
 	return int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SERVE_PORT"), out int fromEnv) ? fromEnv : 8700;
+}
+
+static string ResolveBind(string[] args) {
+	for (int i = 0; i < args.Length - 1; i++) {
+		if (args[i] == "--bind") {
+			return args[i + 1];
+		}
+	}
+
+	// Default to loopback so a bare `Weavie.Headless` stays local; the runner passes --bind to expose workers.
+	return Environment.GetEnvironmentVariable("WEAVIE_SERVE_BIND") ?? "127.0.0.1";
+}
+
+static string? ResolveToken(string[] args) {
+	for (int i = 0; i < args.Length - 1; i++) {
+		if (args[i] == "--token") {
+			return args[i + 1];
+		}
+	}
+
+	string? fromEnv = Environment.GetEnvironmentVariable("WEAVIE_SERVE_TOKEN");
+	return string.IsNullOrEmpty(fromEnv) ? null : fromEnv;
+}
+
+static bool TokenMatches(HttpContext context, string expected) {
+	string presented = context.Request.Query.TryGetValue("token", out var t) ? t.ToString() : string.Empty;
+	if (presented.Length != expected.Length) {
+		return false;
+	}
+
+	int diff = 0;
+	for (int i = 0; i < expected.Length; i++) {
+		diff |= presented[i] ^ expected[i];
+	}
+
+	return diff == 0;
 }
 
 static string ResolveWorkspace(string[] args) {

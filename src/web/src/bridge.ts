@@ -430,7 +430,11 @@ function resolveBridgeWsUrl(): string | null {
   }
   if (configured === "auto") {
     const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-    return `${scheme}//${window.location.host}/weavie-bridge`;
+    // A remote runner serves the page at `…/?token=<t>` and gates the bridge on that token; carry it onto
+    // the derived same-origin bridge URL. Absent (the plain local headless), the bridge is ungated.
+    const token = new URLSearchParams(window.location.search).get("token");
+    const query = token === null ? "" : `?token=${encodeURIComponent(token)}`;
+    return `${scheme}//${window.location.host}/weavie-bridge${query}`;
   }
   return configured;
 }

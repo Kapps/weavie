@@ -41,6 +41,9 @@ public sealed class WorktreeManager {
 	/// <summary>The registry of Weavie-created worktrees (subscribe to its <see cref="WorktreeRegistry.Changed"/>).</summary>
 	public WorktreeRegistry Registry { get; }
 
+	/// <summary>Diagnostic log line (e.g. a retry while a transient file lock clears during removal). Optional.</summary>
+	public event Action<string>? Log;
+
 	/// <summary>
 	/// Creates a worktree on a new branch <paramref name="branch"/> started from <paramref name="baseRef"/>,
 	/// records it in the registry, and returns the record. Throws when <paramref name="branch"/> already
@@ -152,7 +155,7 @@ public sealed class WorktreeManager {
 			// best-effort cleanup: a non-zero exit is surfaced by the provisioner but does not abort the
 			// removal the user asked for. Only after passing the dirty guard, so a refused removal runs nothing.
 			await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
-			await _git.RemoveWorktreeAsync(_repositoryRoot, path, force, ct).ConfigureAwait(false);
+			await RemoveWorktreeWithRetryAsync(path, force, ct).ConfigureAwait(false);
 		} else {
 			// The working directory is already gone from git's point of view; clean up its admin entry.
 			await _git.PruneWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
@@ -163,6 +166,40 @@ public sealed class WorktreeManager {
 		}
 
 		Registry.Remove(normalized);
+	}
+
+	// Attempts before a removal failure is surfaced. On Windows a brief lock — antivirus, the search indexer,
+	// Explorer, or a child process still closing — can make `git worktree remove` fail with "Directory not
+	// empty" even once the session's own handles are released. A short bounded retry simply re-runs git (git
+	// stays the one removing the worktree) so the lock can clear. Each retry is logged; the final attempt's
+	// exception propagates, so an unresolved failure surfaces loudly rather than being papered over.
+	private const int MaxRemoveAttempts = 4;
+	private static readonly int[] RemoveRetryDelaysMs = [150, 350, 800];
+	private static readonly string[] FileLockPhrases =
+		["Directory not empty", "being used by another process", "Permission denied", "Access is denied", "Device or resource busy"];
+
+	private async Task RemoveWorktreeWithRetryAsync(string path, bool force, CancellationToken ct) {
+		for (int attempt = 1; ; attempt++) {
+			try {
+				await _git.RemoveWorktreeAsync(_repositoryRoot, path, force, ct).ConfigureAwait(false);
+				return;
+			} catch (GitException ex) when (attempt < MaxRemoveAttempts && IsTransientFileLock(ex)) {
+				int delayMs = RemoveRetryDelaysMs[attempt - 1];
+				Log?.Invoke($"removing worktree '{path}' is blocked by a file lock (attempt {attempt} of {MaxRemoveAttempts}): {FirstLine(ex.Message)} — retrying in {delayMs}ms");
+				await Task.Delay(delayMs, ct).ConfigureAwait(false);
+			}
+		}
+	}
+
+	// Whether git's failure is a transient OS file lock (worth re-running git) rather than a real error. A
+	// still-open handle on Windows surfaces as one of these phrases; anything else — including "Filename too
+	// long" — is not transient and is surfaced rather than retried.
+	private static bool IsTransientFileLock(GitException ex) =>
+		FileLockPhrases.Any(p => ex.Message.Contains(p, StringComparison.OrdinalIgnoreCase));
+
+	private static string FirstLine(string message) {
+		int nl = message.IndexOfAny(['\r', '\n']);
+		return nl < 0 ? message : message[..nl];
 	}
 
 	/// <summary>

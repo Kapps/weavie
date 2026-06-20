@@ -93,7 +93,9 @@ public sealed partial class HostCore {
 		provisioner.Finished += OnWorktreeCommandFinished;
 		_worktreeProvisioner = provisioner;
 
-		return new WorktreeManager(git, registry, WorkspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id), provisioner);
+		var manager = new WorktreeManager(git, registry, WorkspaceRoot, WeaviePaths.WorkspaceWorktreesDir(Id), provisioner);
+		manager.Log += line => Console.WriteLine($"[worktree] {line}");
+		return manager;
 	}
 
 	/// <summary>Kicks off the worktree setup command in the background so the new session opens immediately;
@@ -427,7 +429,11 @@ public sealed partial class HostCore {
 			try {
 				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under force:false.)
-				if (!force && await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
+				// Skip when the worktree is already gone or half-removed (no .git) — there's nothing left to lose,
+				// and RemoveAsync just prunes the leftover bookkeeping. Without this, a prior delete that couldn't
+				// unlink the directory leaves a folder git can no longer read, and `git status` would block retries.
+				if (!force && IsLiveWorktree(worktreePath)
+					&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 					result.SetResult(CommandResult.Failure(
 						$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
 					return;
@@ -472,6 +478,15 @@ public sealed partial class HostCore {
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
+
+	/// <summary>
+	/// True when <paramref name="worktreePath"/> is still a git worktree we can inspect — the directory exists
+	/// and carries its <c>.git</c> linkage (a file, for a linked worktree). A prior delete that couldn't unlink
+	/// the directory can leave the folder behind with no <c>.git</c>; such a leftover has nothing left to lose,
+	/// so the delete path treats it as removable and skips the change inspection that git can no longer answer.
+	/// </summary>
+	private static bool IsLiveWorktree(string worktreePath) =>
+		Directory.Exists(worktreePath) && Path.Exists(Path.Combine(worktreePath, ".git"));
 
 	private async Task<CommandResult> CreateWorktreeSessionAsync(string? requestedBranch, string? baseSpec, string? prompt, CancellationToken ct) {
 		if (_worktrees is null) {

@@ -400,6 +400,14 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// A worktree that's already gone or half-removed (a prior delete that couldn't unlink the directory,
+		// leaving no .git) can't be inspected and has nothing left to lose — prompt as clean so the user can
+		// still complete the delete, which just reconciles the leftover bookkeeping.
+		if (!IsLiveWorktree(slot.WorktreePath)) {
+			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-delete-prompt", id = slot.Id, label = slot.Label, state = "clean" }));
+			return;
+		}
+
 		try {
 			var state = await new GitService().GetChangeStateAsync(slot.WorktreePath, CancellationToken.None).ConfigureAwait(false);
 			string stateName = state switch {

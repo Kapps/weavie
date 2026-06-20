@@ -92,9 +92,12 @@ public sealed class GitService : IGitService {
 	public async Task RemoveWorktreeAsync(string repositoryDirectory, string worktreePath, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
+		// -c core.longpaths=true lets git's own recursive delete handle paths past Windows' 260-char limit: a
+		// worktree with a deep node_modules (pnpm's nested .pnpm store) otherwise fails removal with "Filename
+		// too long". A no-op on other platforms and on shorter paths.
 		string[] args = force
-			? ["worktree", "remove", "--force", worktreePath]
-			: ["worktree", "remove", worktreePath];
+			? ["-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath]
+			: ["-c", "core.longpaths=true", "worktree", "remove", worktreePath];
 		await RunCheckedAsync(repositoryDirectory, args, ct).ConfigureAwait(false);
 	}
 

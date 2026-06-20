@@ -1610,17 +1610,21 @@ textarea {
   color: var(--fg);
 }
 
-/* Toasts: bottom-right stack of transient notifications (e.g. a failed autosave). Above every panel
-   so a save failure is never hidden behind the changes/browser overlays. */
+/* Toasts: a top-center stack of transient notifications (e.g. a failed autosave or a session delete
+   that couldn't complete), dropping in just below the title bar where the eye naturally lands. Above
+   every panel so a failure is never hidden behind the changes/browser overlays. Error toasts persist
+   until dismissed; warn/info fade on their own. */
 .toasts {
   position: fixed;
-  right: 14px;
-  bottom: 14px;
+  top: 48px; /* clear the 38px title bar */
+  left: 50%;
+  transform: translateX(-50%);
   z-index: 80;
   display: flex;
   flex-direction: column;
+  align-items: center;
   gap: 8px;
-  max-width: min(420px, 80vw);
+  max-width: min(520px, 90vw);
   pointer-events: none;
 }
 

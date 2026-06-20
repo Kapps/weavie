@@ -124,4 +124,8 @@ internal static partial class ConPtyNativeMethods {
 	[LibraryImport("kernel32.dll", SetLastError = true)]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	internal static partial bool GetExitCodeProcess(nint hProcess, out uint lpExitCode);
+
+	[LibraryImport("kernel32.dll", SetLastError = true)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool TerminateProcess(nint hProcess, uint uExitCode);
 }

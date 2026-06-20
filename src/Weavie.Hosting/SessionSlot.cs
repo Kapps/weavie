@@ -1,4 +1,4 @@
-namespace Weavie.Win.Hosting;
+namespace Weavie.Hosting;
 
 /// <summary>
 /// One entry on the session rail: a worktree (or the primary checkout) that may or may not have a live
@@ -7,7 +7,7 @@ namespace Weavie.Win.Hosting;
 /// The <see cref="Id"/> is stable and independent of any <see cref="HostSession"/> so a chip keeps its place
 /// across load/unload (and so a future idle-unload can fade a chip in place rather than re-create it).
 /// </summary>
-internal sealed class SessionSlot {
+public sealed class SessionSlot {
 	/// <summary>Stable rail id: the primary session's id for the primary; the branch name for a worktree.</summary>
 	public required string Id { get; init; }
 

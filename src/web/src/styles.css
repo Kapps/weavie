@@ -1828,6 +1828,63 @@ textarea {
   color: var(--dim);
 }
 
+/* New Session location row: a labelled select to pick the local/default host or a registered remote agent. */
+.session-prompt-location {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  margin-top: 1.4em;
+}
+
+.session-prompt-location-label {
+  color: var(--dim);
+  font-size: 0.85em;
+}
+
+.session-prompt-select {
+  flex: 1;
+  padding: 0.55em 0.7em;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+
+.session-prompt-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.session-prompt-error {
+  margin-top: 0.8em;
+  color: var(--danger, #f85149);
+  font-size: 0.85em;
+}
+
+/* A remote session's chip carries a small location badge (the agent name) so local vs remote reads at a glance. */
+.session-chip.remote {
+  position: relative;
+}
+
+.session-chip-loc {
+  position: absolute;
+  bottom: -0.35em;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 4.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.3em;
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 6px;
+  font-size: 0.55em;
+  line-height: 1.4;
+}
+
 /* Just an accent border on focus — a single clean ring, no extra box-shadow glow. */
 .session-prompt-input:focus {
   outline: none;

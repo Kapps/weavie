@@ -1,25 +1,23 @@
-import { type JSX, onCleanup, onMount } from "solid-js";
+import { For, type JSX, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
+import { connectedBackends } from "../bridge";
 
-// Prompt for a new worktree session: name the branch, then choose what to branch from. Keyboard-first —
-// Enter branches off the active session's HEAD, Shift+Enter off main, Esc cancels — and each button carries
-// its shortcut as a faint sublabel (the keyboard-first discoverability rule), so there's no separate hint
-// line to repeat them. These keys are inherent to the prompt (a capture-phase listener, so the global
-// keybinding resolver / editor never see them while it's up), not rebindable commands, so the labels are
-// literal. Styled via CSS classes (this build's solid-js/web has no object style binding) — the shared
-// .modal-backdrop sets the UI font since the Portal renders outside the .app font scope.
+// Prompt for a new worktree session: pick the LOCATION (default/local, or a registered remote agent), name
+// the branch, then choose what to branch from. Keyboard-first — Enter branches off the active session's HEAD,
+// Shift+Enter off main, Esc cancels. Selecting a remote location creates the worktree on that remote box and
+// points its session's Claude/terminal/editor at the remote filesystem. "Add remote…" opens registration.
 export function NewSessionPrompt(props: {
-  onCreate: (branch: string, base: "head" | "main") => void;
+  onCreate: (branch: string, base: "head" | "main", backendId: string) => void;
   onCancel: () => void;
+  onAddRemote: () => void;
 }): JSX.Element {
   let input!: HTMLInputElement;
+  const [backendId, setBackendId] = createSignal("local");
 
-  // A branch name is required — Enter/Shift+Enter no-op on an empty field (the input keeps focus) rather
-  // than auto-naming, which is what produced the "branch 'session' already exists" collision.
   const submit = (base: "head" | "main"): void => {
     const branch = input.value.trim();
     if (branch.length > 0) {
-      props.onCreate(branch, base);
+      props.onCreate(branch, base, backendId());
     }
   };
 
@@ -40,16 +38,40 @@ export function NewSessionPrompt(props: {
   return (
     <Portal>
       <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
-        {/* Stop backdrop dismissal when interacting with the dialog itself. */}
         <div
           class="confirm-dialog session-prompt"
           onPointerDown={(event) => event.stopPropagation()}
         >
           <div class="confirm-title">New session</div>
           <div class="confirm-body">
-            A session runs on its own git worktree + branch. Name the branch, then choose what to
-            branch from.
+            A session runs on its own git worktree + branch. Pick where it runs, name the branch,
+            then choose what to branch from.
           </div>
+          {/* Location: the local/default host or a registered remote agent. A remote spins the worktree up
+              on that box and points Claude/terminal/editor at its filesystem. */}
+          <label class="session-prompt-location">
+            <span class="session-prompt-location-label">Location</span>
+            <select
+              class="session-prompt-select"
+              onChange={(event) => {
+                if (event.currentTarget.value === "__add__") {
+                  event.currentTarget.value = backendId();
+                  props.onAddRemote();
+                } else {
+                  setBackendId(event.currentTarget.value);
+                }
+              }}
+            >
+              <For each={connectedBackends()}>
+                {(backend) => (
+                  <option value={backend.id} selected={backend.id === backendId()}>
+                    {backend.isLocal ? "default (local)" : backend.name}
+                  </option>
+                )}
+              </For>
+              <option value="__add__">Add remote agent…</option>
+            </select>
+          </label>
           <input
             class="session-prompt-input"
             type="text"
@@ -58,11 +80,9 @@ export function NewSessionPrompt(props: {
             autocomplete="off"
             ref={(el) => {
               input = el;
-              // Focus the field so the user can type immediately (keyboard-first).
               queueMicrotask(() => el.focus());
             }}
           />
-          {/* Conventional footer: actions grouped bottom-right, primary (the Enter default) last. */}
           <div class="session-prompt-actions">
             <button
               type="button"

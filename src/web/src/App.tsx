@@ -9,17 +9,27 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
-import { type SessionStatusName, type TermSession, onHostMessage, postToHost } from "./bridge";
+import {
+  type SessionStatusName,
+  type TermSession,
+  activeBackendId,
+  onHostMessage,
+  postToBackend,
+  postToHost,
+  setActiveBackendId,
+} from "./bridge";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
+import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
+import { connectStoredAgents } from "./chrome/remote-agents";
 // Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
 // rail + active-session status survive HMR, the same way layout/store and editor/session-store do.
-import { claudeStatus, sessions } from "./chrome/session-store";
+import { type RailSession, claudeStatus, sessions } from "./chrome/session-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
@@ -93,6 +103,7 @@ export default function App(): JSX.Element {
   // session-status / session-list on `ready` and on every change; an HMR re-posts neither.
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
+  const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The post-turn review set: the files Claude changed since the last review (auto-keep modes only — the host
   // gates the turn-changes push). There is NO panel — review is the inline diff toolbar walked file-by-file
   // (← / →). This signal exists only to (a) feed the editor controller's file walk and (b) drive auto-arm.
@@ -145,9 +156,14 @@ export default function App(): JSX.Element {
   // Switch to a session by id. Flushes the outgoing session's pending (debounced) editor session before
   // the switch so its tab set isn't lost; the host processes both messages in order on the still-active
   // session. Used by the rail (click) and the next/prev keyboard commands alike.
-  const switchToSession = (id: string): void => {
+  const switchToSession = (session: RailSession): void => {
     flushEditorSession();
-    postToHost({ type: "switch-session", id });
+    // Crossing to another backend (local ↔ remote) just rebinds the page to it; its switch-session reply
+    // (term-reset → the panes re-emit term-ready, plus set-editor-session) re-attaches the terminals + editor.
+    if (session.backendId !== activeBackendId()) {
+      setActiveBackendId(session.backendId);
+    }
+    postToBackend(session.backendId, { type: "switch-session", id: session.id });
   };
 
   // Step the active session to the next/prev LOADED chip on the rail (delta ±1, wraps around). Dormant chips
@@ -164,7 +180,7 @@ export default function App(): JSX.Element {
     if (target === undefined) {
       return false;
     }
-    switchToSession(target.id);
+    switchToSession(target);
     return true;
   };
 
@@ -309,6 +325,10 @@ export default function App(): JSX.Element {
     applyChromeTheme();
     mark("shell-mounted");
 
+    // Connect to any registered remote agents so their sessions join the rail and become a New Session
+    // location (best-effort; a down runner just logs and is skipped).
+    connectStoredAgents();
+
     // The terminal panes are already in the tree and mount now — spawning claude — without waiting on
     // Monaco. The editor (a separate chunk, off the first-paint path) is brought up here; the pane shows a
     // placeholder until it resolves, with the splash held over everything until it settles.
@@ -428,7 +448,7 @@ export default function App(): JSX.Element {
           return false;
         }
         if (!target.active) {
-          switchToSession(target.id);
+          switchToSession(target);
         }
         return true;
       }),
@@ -511,11 +531,27 @@ export default function App(): JSX.Element {
       </div>
       <Show when={newSessionOpen()}>
         <NewSessionPrompt
-          onCreate={(branch, base) => {
+          onCreate={(branch, base, location) => {
             setNewSessionOpen(false);
-            postToHost({ type: "new-session", branch, base });
+            // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
+            // term-ready) wires the panes to it; then create the session there.
+            setActiveBackendId(location);
+            postToBackend(location, { type: "new-session", branch, base });
           }}
           onCancel={() => setNewSessionOpen(false)}
+          onAddRemote={() => {
+            setNewSessionOpen(false);
+            setRegisterAgentOpen(true);
+          }}
+        />
+      </Show>
+      <Show when={registerAgentOpen()}>
+        <RegisterAgentModal
+          onClose={() => setRegisterAgentOpen(false)}
+          onAdded={() => {
+            setRegisterAgentOpen(false);
+            setNewSessionOpen(true);
+          }}
         />
       </Show>
       <Show when={indexRoot() !== null && !HAS_TITLEBAR}>

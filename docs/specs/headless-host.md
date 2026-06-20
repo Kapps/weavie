@@ -114,7 +114,7 @@ remote transport in Phase 2.
   browser at it, and asserts the page's `ready` reaches the C# session. Skips when the host isn't built,
   so the web-only run still works; CI that builds the solution exercises it.
 
-Run with `npm run e2e` (builds `dist`, then `playwright test`); `npm run e2e:install` fetches Chromium.
+Run with `pnpm run e2e` (builds `dist`, then `playwright test`); `pnpm run e2e:install` fetches Chromium.
 The suite extends naturally to the editor-session restore round-trip the `MockHost` is already shaped for
 (seed a file, push `set-editor-session`, assert the editor reopens it).
 

@@ -84,7 +84,7 @@ static async Task ServeIndexAsync(HttpContext context, string wwwroot, HeadlessS
 	if (!File.Exists(indexPath)) {
 		await context.Response.WriteAsync(
 			"<!doctype html><meta charset=utf-8><body style=\"font-family:sans-serif;padding:2rem\">"
-			+ "<h1>weavie headless</h1><p>Web assets not found. Run <code>npm run build</code> in "
+			+ "<h1>weavie headless</h1><p>Web assets not found. Run <code>pnpm run build</code> in "
 			+ "<code>src/web</code>, then rebuild the host.</p>").ConfigureAwait(false);
 		return;
 	}

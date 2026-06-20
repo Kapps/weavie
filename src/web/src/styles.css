@@ -694,6 +694,32 @@ textarea {
   padding: 4px 0 4px 6px;
 }
 
+/* xterm's scroll viewport is hardcoded to `overflow-y: scroll`, so WebView2 paints its full native
+   scrollbar — grey track, arrow buttons, ~17px wide — on every terminal pane even when there's
+   nothing to scroll (and the Claude pane's full-screen TUI has no useful scrollback at all). It
+   reads as a broken, permanent bar that steals wheel focus. Style it down to a thin, themed bar:
+   no buttons, transparent track (the gutter is invisible), and a subtle thumb the renderer only
+   paints when there's actually scrollback to move through. */
+.term .xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+.term .xterm-viewport::-webkit-scrollbar-track {
+  background: transparent;
+}
+.term .xterm-viewport::-webkit-scrollbar-thumb {
+  background: var(--dim);
+  border: 3px solid transparent;
+  border-radius: 6px;
+  background-clip: padding-box;
+}
+.term .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: var(--fg);
+  background-clip: padding-box;
+}
+.term .xterm-viewport::-webkit-scrollbar-button {
+  display: none;
+}
+
 .diff-overlay {
   position: absolute;
   inset: 0;

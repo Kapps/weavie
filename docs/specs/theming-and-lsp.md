@@ -514,7 +514,7 @@ the theme stack's build, and (b) bringing the pipeline up on a preview server (t
 "pipeline broken" with "tsgo immature." Acquisition for all milestones is **bring-your-own (detect on
 `PATH`)** — managed download (D2) comes later.
 
-Each milestone must keep the build at **0 warnings** (`dotnet build`; web `npm run verify`) and must
+Each milestone must keep the build at **0 warnings** (`dotnet build`; web `pnpm run verify`) and must
 not regress the typing-latency gate.
 
 - **M0 — Harness on a mature control.** Stand up `monaco-vscode-api` (theme + textmate + languages,

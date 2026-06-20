@@ -6,7 +6,7 @@ namespace Weavie.Core.Configuration;
 /// <see cref="SettingDefinition.ComputeDefault"/> and <see cref="SettingDefinition.Validate"/>.
 /// </summary>
 public static class CoreSettings {
-	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, fonts, editor, theme, diagnostics).</summary>
+	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics).</summary>
 	public static SettingsRegistry CreateRegistry() {
 		var registry = new SettingsRegistry();
 		Register(registry);
@@ -17,7 +17,7 @@ public static class CoreSettings {
 	public static SettingsStore CreateStore(string? filePath, bool enableWatcher) =>
 		new(CreateRegistry(), filePath, enableWatcher);
 
-	/// <summary>Registers the built-in settings (workspace, shell, claude path, fonts, editor, theme, diagnostics) into <paramref name="registry"/>.</summary>
+	/// <summary>Registers the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics) into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
@@ -68,6 +68,32 @@ public static class CoreSettings {
 			AllowedValues = ["default", "acceptEdits", "bypassPermissions"],
 			Apply = ApplyMode.Live,
 			Default = "default",
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "worktree.setupCommand",
+			Kind = SettingKind.String,
+			Description = "Shell command run once in a new session's worktree right after it is created "
+				+ "(e.g. 'pnpm install' or 'npm ci'). Empty by default, so nothing runs. It executes via the "
+				+ "platform shell with the worktree as the working directory; its output is logged and a "
+				+ "non-zero exit is surfaced as a toast — it never blocks or rolls back the new session.",
+			Aliases = ["worktree setup", "post-create command", "install deps on new session",
+				"bootstrap worktree", "provision worktree", "worktree install command"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "worktree.teardownCommand",
+			Kind = SettingKind.String,
+			Description = "Shell command run once in a worktree right before it is discarded ('git worktree "
+				+ "remove'). Empty by default, so nothing runs. It executes via the platform shell with the "
+				+ "worktree as the working directory; its output is logged and a non-zero exit is surfaced as "
+				+ "a toast, but removal proceeds regardless.",
+			Aliases = ["worktree teardown", "pre-remove command", "cleanup on discard",
+				"worktree cleanup command", "deprovision worktree"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
 		});
 
 		FontSettings.Register(registry);

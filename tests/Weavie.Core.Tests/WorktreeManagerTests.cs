@@ -20,7 +20,7 @@ public sealed class WorktreeManagerTests {
 		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
 		var git = new FakeGitService { DefaultBranch = "main" };
 		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
-		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir);
+		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir, NullWorktreeProvisioner.Instance);
 		return (manager, registry, git);
 	}
 
@@ -140,6 +140,67 @@ public sealed class WorktreeManagerTests {
 		Assert.Equal(1, report.Untracked);
 		Assert.Null(registry.FindByBranch("gone"));
 		Assert.DoesNotContain(report.Statuses, s => s.Branch == "gone");
+	}
+
+	[Fact]
+	public async Task Remove_RunsTeardownWhileWorktreeStillExists() {
+		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
+		var git = new FakeGitService { DefaultBranch = "main" };
+		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
+		string wtPath = Path.Combine(WorktreesDir, "feature");
+		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "feature", Head = "f1" });
+		registry.Add(new WorktreeRecord { Branch = "feature", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+
+		bool existedAtTeardown = false;
+		var provisioner = new RecordingProvisioner(p => existedAtTeardown = git.Worktrees.Any(w => w.Path == p));
+		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir, provisioner);
+
+		await manager.RemoveAsync(wtPath, deleteBranch: false, force: false);
+
+		Assert.Equal(wtPath, Assert.Single(provisioner.TeardownPaths));
+		Assert.True(existedAtTeardown); // teardown ran before the worktree was removed from git
+		Assert.DoesNotContain(git.Worktrees, w => w.Branch == "feature");
+	}
+
+	[Fact]
+	public async Task Remove_Dirty_WithoutForce_DoesNotRunTeardown() {
+		var registry = new WorktreeRegistry(new InMemoryFileSystem(), RegistryPath);
+		var git = new FakeGitService { DefaultBranch = "main" };
+		git.Worktrees.Add(new GitWorktree { Path = RepoRoot, Branch = "main", Head = "primary" });
+		string wipPath = Path.Combine(WorktreesDir, "wip");
+		git.Worktrees.Add(new GitWorktree { Path = wipPath, Branch = "wip", Head = "w1" });
+		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		git.DirtyPaths.Add(wipPath);
+		var provisioner = new RecordingProvisioner(onTeardown: null);
+		var manager = new WorktreeManager(git, registry, RepoRoot, WorktreesDir, provisioner);
+
+		await Assert.ThrowsAsync<WorktreeDirtyException>(() => manager.RemoveAsync(wipPath, deleteBranch: false, force: false));
+
+		Assert.Empty(provisioner.TeardownPaths); // the dirty guard precedes teardown, so a refused removal runs nothing
+	}
+
+	/// <summary>An <see cref="IWorktreeProvisioner"/> that records the paths it was asked to provision.</summary>
+	private sealed class RecordingProvisioner : IWorktreeProvisioner {
+		private readonly Action<string>? _onTeardown;
+
+		public RecordingProvisioner(Action<string>? onTeardown) {
+			_onTeardown = onTeardown;
+		}
+
+		public List<string> SetupPaths { get; } = [];
+
+		public List<string> TeardownPaths { get; } = [];
+
+		public Task<WorktreeCommandResult> RunSetupAsync(string worktreePath, CancellationToken ct) {
+			SetupPaths.Add(worktreePath);
+			return Task.FromResult(new WorktreeCommandResult { Ran = true });
+		}
+
+		public Task<WorktreeCommandResult> RunTeardownAsync(string worktreePath, CancellationToken ct) {
+			TeardownPaths.Add(worktreePath);
+			_onTeardown?.Invoke(worktreePath);
+			return Task.FromResult(new WorktreeCommandResult { Ran = true });
+		}
 	}
 
 	/// <summary>An in-memory <see cref="IGitService"/> with controllable branches, worktrees, dirty paths, and merge state.</summary>

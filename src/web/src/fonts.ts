@@ -23,7 +23,7 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (no host injection). Used only under `npm run dev`; in the shipped app the
+// Plain-browser dev fallback (no host injection). Used only under `pnpm run dev`; in the shipped app the
 // host always injects __WEAVIE_FONTS__ and a missing value throws (see hostInjected). Mirrors the host's
 // defaults: one cross-platform monospace stack, size 13, weight normal — both surfaces inherit the global.
 const DEFAULT_SPEC: FontSpec = {

@@ -1,6 +1,6 @@
 // One-command visual capture: builds the headless host, launches it against the repo workspace, drives the
 // REAL app in headless Chromium, and records a .webm — so any change can be demonstrated in a browser with
-// no native shell. `npm run capture` builds the web first (see package.json), then runs this, which builds
+// no native shell. `pnpm run capture` builds the web first (see package.json), then runs this, which builds
 // Weavie.Headless (copying the fresh dist into its wwwroot) and records. Build-then-record by construction,
 // so the clip is never stale.
 //

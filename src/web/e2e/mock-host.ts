@@ -214,6 +214,18 @@ export class MockHost {
       return;
     }
     try {
+      // index.html gets the bootstrap globals injected before the module graph, exactly like the real
+      // serve host (Program.cs ServeIndexAsync) — otherwise the production build throws on the first
+      // host-injected global it reads (see bridge.ts hostInjected). The bridge URL is deliberately left
+      // out: tests advertise it per-navigation via the `?weavie-bridge=` query (see pageUrl).
+      if (relative === "index.html") {
+        const html = await readFile(resolved, "utf8");
+        res
+          .writeHead(200, { "content-type": "text/html; charset=utf-8" })
+          .end(injectBootstrap(html));
+        return;
+      }
+
       const body = await readFile(resolved);
       res
         .writeHead(200, { "content-type": MIME[extname(resolved)] ?? "application/octet-stream" })
@@ -222,4 +234,25 @@ export class MockHost {
       res.writeHead(404).end("not found");
     }
   }
+}
+
+// The host-injected bootstrap globals the production build requires before navigation (bridge.ts
+// hostInjected throws on any missing one). Minimal but valid stand-ins for the real host's
+// BuildBootstrapScript — enough that the app boots; `__WEAVIE_BRIDGE_WS__` is intentionally omitted so a
+// navigation without `?weavie-bridge=` resolves to the "none" transport.
+const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
+const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
+  __WEAVIE_FONTS__: { editor: FONT_SPEC, terminal: FONT_SPEC },
+  __WEAVIE_EDITOR_OPTIONS__: {},
+  __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
+  __WEAVIE_COMMANDS__: [],
+  __WEAVIE_KEYBINDINGS__: [],
+};
+
+/** Injects the bootstrap globals right after <head> so they exist before the entry module runs. */
+function injectBootstrap(html: string): string {
+  const script = `<script>${Object.entries(BOOTSTRAP_GLOBALS)
+    .map(([name, value]) => `window.${name}=${JSON.stringify(value)};`)
+    .join("")}</script>`;
+  return html.includes("<head>") ? html.replace("<head>", `<head>${script}`) : script + html;
 }

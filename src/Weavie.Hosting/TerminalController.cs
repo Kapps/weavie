@@ -6,12 +6,12 @@ using Weavie.Core.Terminal;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Ties one real PTY to an xterm.js pane over the bridge. Each controller drives a single
-/// <em>session</em>: <c>"claude"</c> launches the interactive <c>claude</c> TUI (via a login shell so
-/// PATH/env resolve regardless of how the app started, exec'ing the <c>claude.path</c> setting, with
-/// <c>ANTHROPIC_API_KEY</c> stripped so billing stays on the user's subscription — interactive CLI =
-/// full plan, never <c>-p</c>/SDK); <c>"shell"</c> launches the shell named by the
-/// <c>terminal.shell</c> setting. The child runs under a <see cref="ProcessSupervisor"/> with
+/// Ties one real PTY to an xterm.js pane over the bridge. Each controller drives a single <em>session</em>:
+/// <c>"claude"</c> launches the interactive <c>claude</c> TUI (with <c>ANTHROPIC_API_KEY</c> stripped so
+/// billing stays on the user's subscription — interactive CLI = full plan, never <c>-p</c>/SDK);
+/// <c>"shell"</c> launches the shell named by the <c>terminal.shell</c> setting. The OS-specific half
+/// (which PTY backend, how to launch claude/the shell) is injected as an <see cref="IPtyLauncher"/>, so this
+/// controller is identical on every host. The child runs under a <see cref="ProcessSupervisor"/> with
 /// <see cref="RestartPolicy.Always"/>: a pane is a permanent fixture, so any exit (clean or crash) relaunches
 /// it — only the crash-loop breaker leaves a stopped pane. The session id tags every
 /// <c>term-output</c>/<c>term-exit</c> message so the page routes it to the matching pane. Only the claude
@@ -21,25 +21,29 @@ public sealed class TerminalController : IDisposable {
 	private readonly IHostBridge _bridge;
 	private readonly string _session;
 	private readonly SettingsStore _settings;
-	private readonly object _gate = new();
+	private readonly IPtyLauncher _launcher;
+	private readonly Lock _gate = new();
 	private readonly ProcessSupervisor _supervisor;
-	private PosixPtyTerminal? _terminal;
+	private ITerminal? _terminal;
 	private FileStream? _ptyLog;
 	private int _columns = 80;
 	private int _rows = 24;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) the given bridge, resolving its
-	/// shell/claude/workspace from <paramref name="settings"/>. <paramref name="session"/> is the pane
-	/// this controller feeds: <c>"claude"</c> or <c>"shell"</c>.
+	/// shell/claude/workspace from <paramref name="settings"/> and spawning the child through
+	/// <paramref name="launcher"/>. <paramref name="session"/> is the pane this controller feeds:
+	/// <c>"claude"</c> or <c>"shell"</c>.
 	/// </summary>
-	public TerminalController(IHostBridge bridge, string session, SettingsStore settings) {
+	public TerminalController(IHostBridge bridge, string session, SettingsStore settings, IPtyLauncher launcher) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentException.ThrowIfNullOrEmpty(session);
 		ArgumentNullException.ThrowIfNull(settings);
+		ArgumentNullException.ThrowIfNull(launcher);
 		_bridge = bridge;
 		_session = session;
 		_settings = settings;
+		_launcher = launcher;
 		Workspace = settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_supervisor = new ProcessSupervisor(
@@ -80,21 +84,67 @@ public sealed class TerminalController : IDisposable {
 	public string? SystemPromptFilePath { get; set; }
 
 	/// <summary>
-	/// Launches this session's child (claude via a login shell, or the configured shell) at the given size
-	/// under the supervisor and begins relaying its output. Idempotent: a no-op if already running or restarting.
+	/// Raised on every supervisor transition for this session's process (start, crash, restart, give-up),
+	/// so a per-session status indicator can map it (crash / crash-loop → Error, post-crash restart →
+	/// Starting). Fires on the supervisor's thread; handlers must not block.
 	/// </summary>
-	public void Start(int columns, int rows) {
+	public event Action<SupervisorStateChanged>? SupervisorChanged;
+
+	/// <summary>
+	/// When false, output from this PTY is not posted to the page — the child keeps running (so a background
+	/// session's claude stays live), its bytes just aren't shown. The session switcher sets this per session
+	/// so only the active session feeds the page's xterm. Defaults true (single-session = always shown).
+	/// </summary>
+	public bool OutputActive { get; set; } = true;
+
+	/// <summary>
+	/// Handles the page's <c>term-ready</c> for this pane. If the child isn't running yet (first mount,
+	/// after a <see cref="Restart"/>, or a brand-new session) it launches it in a PTY sized to the given
+	/// columns and rows, and the child paints itself. If the child is <em>already</em> live — a session
+	/// switch re-announced readiness after the page reset the xterm — it instead nudges the PTY size (one row
+	/// shorter, then back) to force the running TUI to redraw into the now-blank pane; otherwise the pane
+	/// stays blank until the user resizes. The decision and the nudge happen under the same lock, so the live
+	/// child can't slip away between them; the start (which must not hold the gate — the supervisor's start
+	/// callback takes it) runs after the lock only on the not-running branch.
+	/// </summary>
+	public void OnReady(int columns, int rows) {
+		bool start;
 		lock (_gate) {
 			_columns = columns;
 			_rows = rows;
+			if (_terminal is null) {
+				start = true;
+			} else {
+				start = false;
+				_terminal.Resize(_columns, Math.Max(1, _rows - 1));
+				_terminal.Resize(_columns, _rows);
+			}
 		}
 
-		_supervisor.Start();
+		if (start) {
+			_supervisor.Start();
+		}
+	}
+
+	/// <summary>
+	/// Starts the child at the default/cached size if it isn't running yet, WITHOUT the page binding to this
+	/// pane — used to bring a session's backend up in the background (a "load, don't open"). When the page later
+	/// binds, <see cref="OnReady"/> finds a live child and nudges it to the real pane size. No-op if running.
+	/// </summary>
+	public void EnsureStarted() {
+		bool start;
+		lock (_gate) {
+			start = _terminal is null;
+		}
+
+		if (start) {
+			_supervisor.Start();
+		}
 	}
 
 	/// <summary>
 	/// Intentionally tears down the running child (no auto-restart) and asks the page to reset this pane
-	/// (which re-emits <c>term-ready</c> → <see cref="Start"/>), so a changed shell takes effect live.
+	/// (which re-emits <c>term-ready</c> → <see cref="OnReady"/>), so a changed shell takes effect live.
 	/// </summary>
 	public void Restart() {
 		_supervisor.Stop();
@@ -118,38 +168,29 @@ public sealed class TerminalController : IDisposable {
 				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
 				: null;
 
-			var (command, arguments) = isClaude ? ResolveClaudeLauncher() : ResolveShellLauncher();
+			var launch = _launcher.Resolve(new PtyLaunchRequest {
+				IsClaude = isClaude,
+				Settings = _settings,
+				McpConfigPath = McpConfigPath,
+				SettingsFilePath = SettingsFilePath,
+				SystemPromptFilePath = SystemPromptFilePath,
+				ExtraEnvironment = ExtraEnvironment,
+			});
 
-			// The web pane is xterm.js, which emulates xterm-256color and renders 24-bit colour. Tell the
-			// child explicitly so colour + capability detection work no matter how the host app was launched
-			// — a Finder/`open` launch inherits no TERM at all, and an inherited TERM may not match the
-			// emulator, which leaves claude and the shell monochrome. Claude additionally needs its MCP
-			// discovery env (ExtraEnvironment), layered on top.
-			var environment = new Dictionary<string, string>(StringComparer.Ordinal) {
-				["TERM"] = "xterm-256color",
-				["COLORTERM"] = "truecolor",
-			};
-			if (isClaude) {
-				foreach (var (key, value) in ExtraEnvironment) {
-					environment[key] = value;
-				}
-			}
-
-			var terminal = new PosixPtyTerminal();
+			var terminal = _launcher.CreateTerminal();
 			terminal.Output += OnOutput;
 			terminal.Exited += _supervisor.NotifyExited;
 			terminal.Start(new TerminalStartInfo {
-				Command = command,
-				Arguments = arguments,
+				Command = launch.Command,
+				Arguments = launch.Arguments,
 				WorkingDirectory = workspace,
-				// Only the claude session needs the key stripped + the MCP discovery env injected.
-				RemoveEnvironment = isClaude ? ["ANTHROPIC_API_KEY"] : [],
-				Environment = environment,
+				RemoveEnvironment = launch.RemoveEnvironment,
+				Environment = launch.Environment,
 				Columns = _columns,
 				Rows = _rows,
 			});
 			_terminal = terminal;
-			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {attempt}): {command} {string.Join(' ', arguments)} in {workspace} ({_columns}x{_rows})");
+			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {attempt}): {launch.Command} {string.Join(' ', launch.Arguments)} in {workspace} ({_columns}x{_rows})");
 			Console.Out.Flush();
 		}
 
@@ -170,6 +211,9 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>Maps supervisor state to pane UI: a real exit the policy won't relaunch, or the crash-loop give-up.</summary>
 	private void OnSupervisorStateChanged(SupervisorStateChanged change) {
+		// Forward every transition for status tracking (the session status machine maps it); the switch
+		// below only drives the pane's own exit/crash notices.
+		SupervisorChanged?.Invoke(change);
 		switch (change.State) {
 			case SupervisorState.Idle when change.ExitCode is int exitedCode:
 				PostExit(exitedCode);
@@ -202,6 +246,10 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
+		if (!OutputActive) {
+			return;
+		}
+
 		string base64 = Convert.ToBase64String(data);
 		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
 	}
@@ -220,44 +268,6 @@ public sealed class TerminalController : IDisposable {
 	private static void LogSupervisor(SupervisorLogEntry entry) {
 		Console.WriteLine($"[weavie] supervisor[{entry.Name}] {entry.Level}: {entry.Message}");
 		Console.Out.Flush();
-	}
-
-	/// <summary>
-	/// Launches claude through a POSIX login shell (for full PATH/env) that execs the <c>claude.path</c>
-	/// setting — <c>-l</c> for the login environment, <c>-c "exec &lt;claude&gt;"</c> to replace the shell.
-	/// </summary>
-	private (string Command, IReadOnlyList<string> Arguments) ResolveClaudeLauncher() {
-		string claude = _settings.GetString("claude.path") ?? "claude";
-		string mcp = string.IsNullOrEmpty(McpConfigPath) ? string.Empty : $" --mcp-config '{McpConfigPath}'";
-		string settings = string.IsNullOrEmpty(SettingsFilePath) ? string.Empty : $" --settings '{SettingsFilePath}'";
-		string systemPrompt = string.IsNullOrEmpty(SystemPromptFilePath) ? string.Empty : $" --append-system-prompt-file '{SystemPromptFilePath}'";
-		return (LoginShell(), ["-l", "-c", $"exec '{claude}'{mcp}{settings}{systemPrompt}"]);
-	}
-
-	/// <summary>
-	/// Resolves the plain-terminal shell from the <c>terminal.shell</c> setting to a launchable path,
-	/// passing <c>-l -i</c> only to POSIX login shells (zsh/bash/sh) so the prompt + rc files load; other
-	/// shells (nushell, fish, …) open at their prompt with no flags.
-	/// </summary>
-	private (string Command, IReadOnlyList<string> Arguments) ResolveShellLauncher() {
-		string shell = _settings.GetString("terminal.shell") ?? LoginShell();
-		string command = ExecutableFinder.FindOnPath(shell) ?? shell;
-		string name = Path.GetFileNameWithoutExtension(command);
-		IReadOnlyList<string> arguments = name is "zsh" or "bash" or "sh" ? ["-l", "-i"] : [];
-		return (command, arguments);
-	}
-
-	/// <summary>
-	/// The system login shell used to wrap claude: <c>$SHELL</c> if it exists, else the per-OS default
-	/// (<c>/bin/zsh</c> on macOS, <c>/bin/bash</c> elsewhere).
-	/// </summary>
-	private static string LoginShell() {
-		string? shell = Environment.GetEnvironmentVariable("SHELL");
-		if (!string.IsNullOrEmpty(shell) && File.Exists(shell)) {
-			return shell;
-		}
-
-		return OperatingSystem.IsMacOS() ? "/bin/zsh" : "/bin/bash";
 	}
 
 	/// <summary>Tears down the supervised PTY child process and closes the optional PTY debug log.</summary>

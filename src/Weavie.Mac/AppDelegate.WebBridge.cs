@@ -43,7 +43,7 @@ public sealed partial class AppDelegate {
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "term-ready":
-				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;

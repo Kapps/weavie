@@ -155,8 +155,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			WKUserScriptInjectionTime.AtDocumentStart,
 			isForMainFrameOnly: true));
 
-		_claude = new TerminalController(_bridge, "claude", _settings);
-		_shell = new TerminalController(_bridge, "shell", _settings);
+		_claude = new TerminalController(_bridge, "claude", _settings, new PosixPtyLauncher());
+		_shell = new TerminalController(_bridge, "shell", _settings, new PosixPtyLauncher());
 		_bridge.MessageReceived += OnWebMessage;
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject

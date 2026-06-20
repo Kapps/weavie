@@ -84,8 +84,8 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 			: _settings.GetString("workspace") ?? Environment.CurrentDirectory;
 		_workspace = workspace;
 
-		_claude = new TerminalController(_bridge, "claude", _settings);
-		_shell = new TerminalController(_bridge, "shell", _settings) { Workspace = workspace };
+		_claude = new TerminalController(_bridge, "claude", _settings, new PosixPtyLauncher());
+		_shell = new TerminalController(_bridge, "shell", _settings, new PosixPtyLauncher()) { Workspace = workspace };
 		_claude.Workspace = workspace;
 
 		// Scratch (untitled) buffers live in a per-workspace dir OUTSIDE the workspace, served by the file
@@ -245,7 +245,7 @@ internal sealed class HeadlessSession : IAsyncDisposable {
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "term-ready":
-				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;

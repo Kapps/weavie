@@ -91,8 +91,8 @@ internal sealed class WorkspaceHost {
 		_keybindings.Log += Log;
 		_commands = new CommandDispatcher(_commandRegistry);
 
-		_claude = new TerminalController(_bridge, "claude", _settings);
-		_shell = new TerminalController(_bridge, "shell", _settings);
+		_claude = new TerminalController(_bridge, "claude", _settings, new PosixPtyLauncher());
+		_shell = new TerminalController(_bridge, "shell", _settings, new PosixPtyLauncher());
 		_bridge.MessageReceived += OnWebMessage;
 
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
@@ -281,7 +281,7 @@ internal sealed class WorkspaceHost {
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "term-ready":
-				TerminalFor(root)?.Start(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
+				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;

@@ -10,12 +10,15 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- Do NOT trim. Weavie.Core (de)serializes its own model types through the reflection-based
          System.Text.Json overloads (JsonSerializer.Serialize/Deserialize with JsonSerializerOptions),
-         which the trimmer can't statically analyze: every call raises IL2026, and under the repo's
-         zero-warning gate (TreatWarningsAsErrors) that fails the Release publish (NETSDK1144). Even if
-         forced through, full trimming could strip the very members being serialized and break at
-         runtime. The macOS SDK enables trimming by default in Release, so disable it explicitly —
-         matching the Win/Linux shells, which publish self-contained without trimming. -->
-    <PublishTrimmed Condition="'$(Configuration)' == 'Release'">false</PublishTrimmed>
+         which the trimmer can't statically analyze: trimming raises IL2026, and under the repo's
+         zero-warning gate (TreatWarningsAsErrors) that fails the build (NETSDK1144). Even if forced
+         through, full trimming could strip the very members being serialized and break at runtime.
+         On the macOS SDK trimming is controlled by LinkMode, NOT PublishTrimmed — the SDK hard-errors
+         (Xamarin.Shared.Sdk.targets) if an executable app sets PublishTrimmed=false and tells you to
+         use LinkMode=None instead. LinkMode=None makes ILLink run in copy mode (assemblies passed
+         through unmodified) AND auto-sets SuppressTrimAnalysisWarnings=true, so no IL2026 is emitted.
+         Matches the Win/Linux shells, which publish self-contained without trimming. -->
+    <LinkMode>None</LinkMode>
     <WebRoot>$(MSBuildProjectDirectory)/../web</WebRoot>
   </PropertyGroup>
 
@@ -75,20 +78,29 @@
   <!--
     Compile the native PTY shim (libweavie_pty.dylib) into the app bundle next to the other native
     libraries. weavie_pty.c issues the variadic TIOCSWINSZ ioctl that managed code cannot call
-    correctly on arm64-apple (see Weavie.Core/Terminal/NativeMethods.cs). Universal (arm64 + x86_64)
-    so it matches whichever slice the app is built for, and ad-hoc signed so it loads inside the
-    bundle. Only the live-resize path P/Invokes it; the open path uses openpty, so the unit tests
-    (which run outside the bundle) never need this dylib.
+    correctly on arm64-apple (see Weavie.Core/Terminal/NativeMethods.cs). Ad-hoc signed so it loads
+    inside the bundle. Only the live-resize path P/Invokes it; the open path uses openpty, so the unit
+    tests (which run outside the bundle) never need this dylib.
+
+    Build it for the SINGLE arch of the current RID, not a fat binary: a universal `dotnet publish`
+    runs one inner build per RID (osx-x64, osx-arm64) and then lipos the two .app bundles together. If
+    each slice already carried a fat dylib, lipo would find the same architecture in both inputs and
+    fail ("can't be in the same fat output file"). One arch per slice lets the SDK's lipo step produce
+    the universal dylib. When there's no RID (a plain single-arch build) fall back to a fat binary so
+    the .app still runs on either architecture.
   -->
   <Target Name="BuildPtyShim" AfterTargets="Build"
           Inputs="$(MSBuildProjectDirectory)/native/weavie_pty.c"
           Outputs="$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib">
     <PropertyGroup>
       <PtyShimPath>$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib</PtyShimPath>
+      <PtyClangArchArgs Condition="$(RuntimeIdentifier.EndsWith('-arm64'))">-arch arm64</PtyClangArchArgs>
+      <PtyClangArchArgs Condition="$(RuntimeIdentifier.EndsWith('-x64'))">-arch x86_64</PtyClangArchArgs>
+      <PtyClangArchArgs Condition="'$(PtyClangArchArgs)' == ''">-arch arm64 -arch x86_64</PtyClangArchArgs>
     </PropertyGroup>
-    <Exec Command="clang -dynamiclib -O2 -arch arm64 -arch x86_64 -o &quot;$(PtyShimPath)&quot; &quot;$(MSBuildProjectDirectory)/native/weavie_pty.c&quot;" />
+    <Exec Command="clang -dynamiclib -O2 $(PtyClangArchArgs) -o &quot;$(PtyShimPath)&quot; &quot;$(MSBuildProjectDirectory)/native/weavie_pty.c&quot;" />
     <Exec Command="codesign --force --sign - &quot;$(PtyShimPath)&quot;" />
-    <Message Importance="high" Text="weavie: built native PTY shim libweavie_pty.dylib" />
+    <Message Importance="high" Text="weavie: built native PTY shim libweavie_pty.dylib ($(PtyClangArchArgs))" />
   </Target>
 
 </Project>

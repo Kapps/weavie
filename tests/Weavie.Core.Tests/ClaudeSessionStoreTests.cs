@@ -5,10 +5,11 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="ClaudeSessionStore"/> over the in-memory filesystem: a first launch assigns an id
-/// and creates the session (<c>--session-id</c>); later launches reattach (<c>--resume</c>); distinct
-/// directories get distinct ids; the assignment survives reload; a failed resume re-creates the same id
-/// fresh; and a malformed file is backed up + reset.
+/// Exercises <see cref="ClaudeSessionStore"/> over the in-memory filesystem: a first launch assigns an id and
+/// creates the session (<c>--session-id</c>); a directory is resumed only once <see cref="ClaudeSessionStore.MarkStarted"/>
+/// confirms it came up; an unconfirmed create is re-created rather than resumed (the crux of the resume-loop
+/// bug); distinct directories get distinct ids; confirmed assignments survive reload while unconfirmed ones do
+/// not; a failed resume re-creates the same id fresh; and a malformed file is backed up + reset.
 /// </summary>
 public sealed class ClaudeSessionStoreTests {
 	private const string StorePath = "/weavie-claude-session-tests/claude-sessions.json";
@@ -27,16 +28,31 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
-	public void Resolve_SameDirAgain_ResumesSameId() {
+	public void Resolve_AfterMarkStarted_ResumesSameId() {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 
 		var first = store.Resolve(Cwd);
+		store.MarkStarted(Cwd);
 		var second = store.Resolve(Cwd);
 
 		Assert.Equal(first.SessionId, second.SessionId);
 		Assert.False(first.Resume);
 		Assert.True(second.Resume);
+	}
+
+	[Fact]
+	public void Resolve_CreateNeverConfirmed_RecreatesInsteadOfResuming() {
+		// The resume-loop regression: a launch that died before the session existed (e.g. a bad PATH) recorded
+		// only an assigned id — it must NOT be resumed later, it must be re-created under the same id.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+
+		var first = store.Resolve(Cwd);   // create launch ...
+		var second = store.Resolve(Cwd);  // ... that never reported MarkStarted
+
+		Assert.Equal(first.SessionId, second.SessionId);
+		Assert.False(second.Resume);
 	}
 
 	[Fact]
@@ -51,14 +67,26 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
-	public void Resolve_PersistsAcrossReload_ResumesSameId() {
+	public void Resolve_ConfirmedThenReloaded_ResumesSameId() {
 		var fs = new InMemoryFileSystem();
-		string id = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd).SessionId;
+		var initial = new ClaudeSessionStore(fs, StorePath);
+		string id = initial.Resolve(Cwd).SessionId;
+		initial.MarkStarted(Cwd);
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
 		Assert.Equal(id, reloaded.SessionId);
-		Assert.True(reloaded.Resume); // a brand-new process resumes the previous conversation
+		Assert.True(reloaded.Resume); // a brand-new process resumes the previously-confirmed conversation
+	}
+
+	[Fact]
+	public void Resolve_UnconfirmedThenReloaded_DoesNotResume() {
+		var fs = new InMemoryFileSystem();
+		new ClaudeSessionStore(fs, StorePath).Resolve(Cwd); // minted but never MarkStarted
+
+		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
+
+		Assert.False(reloaded.Resume); // an id that never came up is re-created, not resumed, after a restart
 	}
 
 	[Fact]
@@ -66,14 +94,16 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string id = store.Resolve(Cwd).SessionId;
-		Assert.True(store.Resolve(Cwd).Resume); // now in resume mode
+		store.MarkStarted(Cwd);
+		Assert.True(store.Resolve(Cwd).Resume); // confirmed → resume mode
 
 		store.MarkResumeFailed(Cwd);
 		var afterFailure = store.Resolve(Cwd);
 
 		Assert.Equal(id, afterFailure.SessionId); // identity stays stable
 		Assert.False(afterFailure.Resume);        // but re-created with --session-id
-		Assert.True(store.Resolve(Cwd).Resume);    // and resumes again thereafter
+		store.MarkStarted(Cwd);
+		Assert.True(store.Resolve(Cwd).Resume);    // and resumes again once re-confirmed
 	}
 
 	[Fact]

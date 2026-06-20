@@ -50,9 +50,12 @@ public sealed class ClaudeSessionStore {
 
 	/// <summary>
 	/// Returns how to launch <c>claude</c> in <paramref name="workingDirectory"/>: mints + persists a stable
-	/// session id the first time the directory is seen (returning <see cref="ClaudeLaunch.Resume"/> false so
-	/// the caller starts it with <c>--session-id</c>), and on every later call returns the same id with
-	/// <c>Resume</c> true so the caller reattaches with <c>--resume</c>. Persists only when something changed.
+	/// session id the first time the directory is seen (returning <see cref="ClaudeLaunch.Resume"/> false so the
+	/// caller starts it with <c>--session-id</c>). Thereafter it reattaches (<c>Resume</c> true → <c>--resume</c>)
+	/// only once a launch has been <em>confirmed</em> via <see cref="MarkStarted"/>; until then — an unconfirmed
+	/// create, or a resume that <see cref="MarkResumeFailed">failed</see> — it re-creates under the same id. The
+	/// id is assigned here but never marked started here: a launch that dies before the session exists (bad PATH,
+	/// immediate crash) must not be mistaken for a resumable conversation. Persists only when it mints.
 	/// </summary>
 	public ClaudeLaunch Resolve(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -60,22 +63,34 @@ public sealed class ClaudeSessionStore {
 		lock (_gate) {
 			var entry = Find(key);
 			if (entry is null) {
-				// First launch in this directory: assign a fresh id and create the session with --session-id.
-				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString(), Started = true };
+				// First time we've seen this directory: assign a stable id and create the session with
+				// --session-id. Started stays false until MarkStarted confirms claude actually came up.
+				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString(), Started = false };
 				_items.Add(entry);
 				PersistLocked();
 				return new ClaudeLaunch(entry.Id, Resume: false);
 			}
 
-			// Seen before. If we already launched it, reattach; otherwise (a prior resume failed and reset it)
-			// re-create it under the same id, then mark it started so the next launch reattaches again.
-			bool resume = entry.Started;
-			if (!entry.Started) {
+			// Seen before: reattach only if a prior launch was confirmed started; otherwise re-create it under
+			// the same id (an unconfirmed create, or a resume that failed and reset the flag).
+			return new ClaudeLaunch(entry.Id, entry.Started);
+		}
+	}
+
+	/// <summary>
+	/// Confirms that <paramref name="workingDirectory"/>'s claude session is actually up — its id now exists, so
+	/// the NEXT launch reattaches with <c>--resume</c> instead of trying to create the same id again. Called once
+	/// the spawned claude has come up (the inverse of <see cref="MarkResumeFailed"/>). Persists only on a change;
+	/// a no-op if the directory was never <see cref="Resolve"/>d or is already marked.
+	/// </summary>
+	public void MarkStarted(string workingDirectory) {
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		string key = Normalize(workingDirectory);
+		lock (_gate) {
+			if (Find(key) is { Started: false } entry) {
 				entry.Started = true;
 				PersistLocked();
 			}
-
-			return new ClaudeLaunch(entry.Id, resume);
 		}
 	}
 

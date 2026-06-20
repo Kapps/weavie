@@ -19,6 +19,7 @@ namespace Weavie.Hosting;
 /// session optionally tees raw PTY bytes to WEAVIE_PTY_LOG for debugging (e.g. the IDE-MCP handshake).
 /// </summary>
 public sealed class TerminalController : IDisposable {
+	private static readonly IReadOnlyList<string> NoSessionArgs = [];
 	private readonly IHostBridge _bridge;
 	private readonly string _session;
 	private readonly SettingsStore _settings;
@@ -29,6 +30,14 @@ public sealed class TerminalController : IDisposable {
 	private FileStream? _ptyLog;
 	private int _columns = 80;
 	private int _rows = 24;
+	// Page messages (restart/crash notices + exit) produced while this session is muted (OutputActive false). A
+	// muted session shares the "claude"/"shell" tag with the visible one, so posting now would paint into the
+	// WRONG pane — but dropping would lose a background session's crash notice (a dead session has no TUI to
+	// repaint it). So buffer here and replay in OnReady when the user switches to this session. Guarded by _gate.
+	private readonly List<string> _pendingMessages = [];
+	// Per-launch claude resume detection (claude session only): watches early output to confirm a create / catch
+	// a failed resume, keeping ClaudeSessionStore's Started flag honest. Reset each launch; null once it settles.
+	private ClaudeResumeWatcher? _resumeWatcher;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) the given bridge, resolving its
@@ -118,6 +127,7 @@ public sealed class TerminalController : IDisposable {
 	/// </summary>
 	public void OnReady(int columns, int rows) {
 		bool start;
+		List<string> replay = [];
 		lock (_gate) {
 			_columns = columns;
 			_rows = rows;
@@ -128,10 +138,26 @@ public sealed class TerminalController : IDisposable {
 				_terminal.Resize(_columns, Math.Max(1, _rows - 1));
 				_terminal.Resize(_columns, _rows);
 			}
+
+			// Notices buffered while this session was muted (see PostOrBuffer). If we're about to (re)spawn they
+			// describe the prior, now-superseded instance — drop them. Otherwise the session is live or died in
+			// place: replay so a crash/restart the user missed shows in THIS pane, now that the page has reset
+			// the xterm and re-emitted term-ready.
+			if (_pendingMessages.Count > 0) {
+				if (!start) {
+					replay.AddRange(_pendingMessages);
+				}
+
+				_pendingMessages.Clear();
+			}
 		}
 
 		if (start) {
 			_supervisor.Start();
+		}
+
+		foreach (string message in replay) {
+			_bridge.PostToWeb(message);
 		}
 	}
 
@@ -177,6 +203,13 @@ public sealed class TerminalController : IDisposable {
 				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
 				: null;
 
+			var sessionArgs = isClaude ? ResolveClaudeSessionArgs() : NoSessionArgs;
+			// Watch this launch's early output to keep the session store's Started flag honest — confirm a
+			// --session-id create, or catch a --resume whose id is gone. Only when we passed a managed id.
+			_resumeWatcher = sessionArgs.Count > 0
+				? new ClaudeResumeWatcher(resuming: string.Equals(sessionArgs[0], "--resume", StringComparison.Ordinal))
+				: null;
+
 			var launch = _launcher.Resolve(new PtyLaunchRequest {
 				IsClaude = isClaude,
 				Settings = _settings,
@@ -184,7 +217,7 @@ public sealed class TerminalController : IDisposable {
 				SettingsFilePath = SettingsFilePath,
 				SystemPromptFilePath = SystemPromptFilePath,
 				ExtraEnvironment = ExtraEnvironment,
-				ClaudeSessionArguments = isClaude ? ResolveClaudeSessionArgs() : [],
+				ClaudeSessionArguments = sessionArgs,
 			});
 
 			var terminal = _launcher.CreateTerminal();
@@ -272,6 +305,11 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
+
+		// Drive the resume watcher BEFORE the OutputActive gate: a background (muted) claude that fails its
+		// --resume must still self-heal, even though its bytes aren't painted to the page.
+		ObserveClaudeStartup(data);
+
 		if (!OutputActive) {
 			return;
 		}
@@ -280,15 +318,67 @@ public sealed class TerminalController : IDisposable {
 		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
 	}
 
+	/// <summary>
+	/// Feeds claude's early output to the per-launch <see cref="ClaudeResumeWatcher"/> and, the moment it settles,
+	/// reconciles the session store: a confirmed create marks the id started (so the next launch resumes); a
+	/// failed resume forgets it started (so the supervisor's restart re-creates the id instead of looping).
+	/// </summary>
+	private void ObserveClaudeStartup(byte[] data) {
+		if (ClaudeSessions is not { } store) {
+			return;
+		}
+
+		ClaudeStartupOutcome outcome;
+		lock (_gate) {
+			if (_resumeWatcher is not { } watcher) {
+				return;
+			}
+
+			outcome = watcher.Observe(Encoding.UTF8.GetString(data));
+			if (outcome != ClaudeStartupOutcome.Pending) {
+				_resumeWatcher = null; // settled — stop decoding the rest of this launch's output
+			}
+		}
+
+		switch (outcome) {
+			case ClaudeStartupOutcome.Created:
+				store.MarkStarted(Workspace);
+				break;
+			case ClaudeStartupOutcome.ResumeFailed:
+				store.MarkResumeFailed(Workspace);
+				break;
+			default:
+				break; // Resumed (already marked started) / Pending: nothing to persist
+		}
+	}
+
 	private void PostExit(int code) {
-		_bridge.PostToWeb($"{{\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
+		// Host log is unconditional; the page paint is buffered-or-posted by OutputActive (see PostOrBuffer).
 		Console.WriteLine($"[weavie] terminal[{_session}] child exited: {code}");
 		Console.Out.Flush();
+		PostOrBuffer($"{{\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
 	}
 
 	private void PostNotice(string text) {
 		string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
+		PostOrBuffer($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
+	}
+
+	/// <summary>
+	/// Posts a page message now if this session is the visible one, else buffers it for replay when the user next
+	/// switches here (<see cref="OnReady"/>). Both claude panes share the "claude" tag, so a muted session must
+	/// not post into the foreground pane — but its restart/crash notices must not be lost either, so they wait
+	/// here rather than being dropped.
+	/// </summary>
+	private void PostOrBuffer(string message) {
+		lock (_gate) {
+			if (!OutputActive) {
+				_pendingMessages.Add(message);
+				return;
+			}
+		}
+
+		_bridge.PostToWeb(message);
 	}
 
 	private static void LogSupervisor(SupervisorLogEntry entry) {

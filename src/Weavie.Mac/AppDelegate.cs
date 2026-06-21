@@ -1,7 +1,6 @@
 using System.Reflection;
 using CoreGraphics;
 using Foundation;
-using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -52,14 +51,12 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 		// Render at the display's full refresh (120Hz) instead of WKWebView's default 60fps pacing.
 		WebKitFeatureFlags.DisablePrefer60Fps(config.Preferences);
 
-		// App-global Core stores + the single workspace this process serves.
+		// App-global Core stores + the single workspace this process serves. The recents list surfaces in
+		// File ▸ Open Recent + the omnibar shell config.
 		_services = HostServices.CreateDefault();
-		string workspace = _services.Settings.GetString("workspace")
-			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		var (workspace, recents) = WorkspaceBootstrap.Resolve(_services.Settings);
 		_workspace = workspace;
-		// Record this workspace; the list surfaces in File ▸ Open Recent + the omnibar shell config.
-		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
-		_recents.Add(workspace);
+		_recents = recents;
 
 		// Native capabilities handed to the core through IHostPlatform: the UI-thread marshal, global hotkeys,
 		// and file dialogs. Created before the core (its constructor reads the dispatcher).

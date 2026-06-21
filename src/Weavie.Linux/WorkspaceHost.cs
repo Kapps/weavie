@@ -37,10 +37,7 @@ internal sealed class WorkspaceHost {
 
 		// App-global Core stores + the workspace this host serves.
 		_services = HostServices.CreateDefault();
-		string workspace = _services.Settings.GetString("workspace")
-			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		var recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
-		recents.Add(workspace);
+		var (workspace, recents) = WorkspaceBootstrap.Resolve(_services.Settings);
 		_core = new HostCore(new LinuxPlatform(_bridge, recents), _services, workspace);
 
 		// Startup geometry via the shared placement policy. Linux can't enumerate monitor work-areas (no GDK

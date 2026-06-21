@@ -316,8 +316,11 @@ public sealed partial class HostCore {
 
 		// Clear the page's xterms; the page re-emits term-ready, which routes to the now-active session's
 		// terminals (OnReady spawns a freshly-created session's PTYs; an already-live TUI is repainted).
-		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"claude\"}");
-		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"shell\"}");
+		// respawn=false: the incoming child stays live across a switch, so the page clears content only and
+		// preserves its terminal modes (mouse tracking) — otherwise the wheel stops reaching Claude until a
+		// manual resize re-emits the mode. See TerminalView's term-reset handling.
+		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"claude\",\"respawn\":false}");
+		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"shell\",\"respawn\":false}");
 		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
 		// session's working copies and reopens this one's. fs-read/write + active-editor already route to the
 		// active session, so edits land in the right worktree the moment _session is swapped above.

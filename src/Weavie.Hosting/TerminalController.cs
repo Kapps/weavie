@@ -185,7 +185,9 @@ public sealed class TerminalController : IDisposable {
 		_supervisor.Stop();
 		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
 		Console.Out.Flush();
-		_bridge.PostToWeb($"{{\"type\":\"term-reset\",\"session\":\"{_session}\"}}");
+		// respawn=true: the child was torn down and will relaunch, re-establishing its modes from scratch,
+		// so the page does a full reset (clean slate). The live-child switch path uses respawn=false instead.
+		_bridge.PostToWeb($"{{\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":true}}");
 	}
 
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>

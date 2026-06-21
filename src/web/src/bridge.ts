@@ -192,9 +192,13 @@ export type HostBoundMessage =
 export type WebBoundMessage =
   | { type: "term-output"; session: TermSession; dataB64: string }
   | { type: "term-exit"; session: TermSession; code: number }
-  // Host tore down this session's PTY (e.g. the shell setting changed): clear the pane and
-  // re-emit term-ready so the host relaunches the child with the new setting.
-  | { type: "term-reset"; session: TermSession }
+  // Host wants this pane reattached to the active session's child; the pane clears and re-emits
+  // term-ready. `respawn` distinguishes the two callers: true when the host tore the child down and
+  // will relaunch it (shell setting changed) — a full reset is right, the fresh child re-establishes
+  // every mode; false on a session switch, where the child stays LIVE and is only nudged to repaint —
+  // there a full reset would wrongly clobber the running TUI's terminal modes (mouse tracking), so the
+  // pane clears content/scrollback WITHOUT a mode reset (see TerminalView).
+  | { type: "term-reset"; session: TermSession; respawn: boolean }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).

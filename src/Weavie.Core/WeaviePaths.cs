@@ -115,4 +115,27 @@ public static class WeaviePaths {
 	/// <param name="id">The workspace identity (a path-derived digest).</param>
 	/// <returns>The absolute path to that workspace's session-set file.</returns>
 	public static string WorkspaceSessionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "sessions.json");
+
+	/// <summary>
+	/// Where this workspace's per-session terminal scrollback logs live:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs</c>. One capped append log per (worktree, pane)
+	/// lets a re-attaching client replay a coherent shell screen — and a resumed session show the prior
+	/// process's output faded — instead of a blank pane. See <see cref="Terminal.ScrollbackLog"/>.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <returns>The absolute path to that workspace's terminal-logs directory.</returns>
+	public static string WorkspaceTerminalLogsDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "terminal-logs");
+
+	/// <summary>
+	/// The scrollback log for one session's terminal pane:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs/&lt;worktreeDigest&gt;-&lt;pane&gt;.log</c>. Keyed by a
+	/// stable digest of the worktree path (not the session's ephemeral id) so the same worktree resumes
+	/// to the same log across reloads.
+	/// </summary>
+	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <param name="worktreeDigest">A stable digest of the session's worktree path (e.g. <see cref="WorkspaceId.ForPath"/>).</param>
+	/// <param name="pane">The terminal session tag (e.g. <c>shell</c>).</param>
+	/// <returns>The absolute path to that pane's scrollback log file.</returns>
+	public static string WorkspaceTerminalLogFile(WorkspaceId id, string worktreeDigest, string pane) =>
+		Path.Combine(WorkspaceTerminalLogsDir(id), $"{worktreeDigest}-{pane}.log");
 }

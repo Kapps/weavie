@@ -38,6 +38,11 @@ public sealed class TerminalController : IDisposable {
 	// Per-launch claude resume detection (claude session only): watches early output to confirm a create / catch
 	// a failed resume, keeping ClaudeSessionStore's Started flag honest. Reset each launch; null once it settles.
 	private ClaudeResumeWatcher? _resumeWatcher;
+	// Shell-only: the on-disk scrollback log this pane's output is tee'd to, for replay on (re)attach and faded
+	// history on resume. Null = not configured (the claude pane, or persistence disabled). Created when
+	// ScrollbackLogPath is set; unlike _ptyLog it SURVIVES process restarts (so a restart shows prior output
+	// faded), and is closed only when the controller is disposed.
+	private ScrollbackLog? _scrollback;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) the given bridge, resolving its
@@ -72,6 +77,20 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>The directory claude runs in (and the IDE workspace). Defaults to the <c>workspace</c> setting.</summary>
 	public string Workspace { get; set; }
+
+	/// <summary>
+	/// When set (shell session only), the file this pane's output is persisted to so a reattaching client
+	/// replays a coherent screen and a resumed shell shows its prior output faded. Setting it opens the log,
+	/// capped by the <c>terminal.persistScrollbackKb</c> setting (0 disables). Left null for the claude pane,
+	/// which resumes via <c>--resume</c> and repaints itself.
+	/// </summary>
+	public string? ScrollbackLogPath {
+		get;
+		set {
+			field = value;
+			EnsureScrollbackLog();
+		}
+	}
 
 	/// <summary>
 	/// Path to a Claude Code MCP config file passed as <c>--mcp-config</c> when launching claude, so the
@@ -152,6 +171,14 @@ public sealed class TerminalController : IDisposable {
 			}
 		}
 
+		// Replay the persisted scrollback (shell only) BEFORE (re)starting, so faded history + the current
+		// process's reconstructed screen paint above any live output the new child emits. File I/O stays
+		// outside _gate. (BuildReplay is empty for the claude pane, an empty log, or persistence off.)
+		byte[] scrollback = _scrollback?.BuildReplay() ?? [];
+		if (scrollback.Length > 0) {
+			_bridge.PostToWeb(TermOutputJson(scrollback));
+		}
+
 		if (start) {
 			_supervisor.Start();
 		}
@@ -186,6 +213,19 @@ public sealed class TerminalController : IDisposable {
 		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
 		Console.Out.Flush();
 		_bridge.PostToWeb($"{{\"type\":\"term-reset\",\"session\":\"{_session}\"}}");
+	}
+
+	/// <summary>Opens the scrollback log for the configured path once, honoring the size-cap setting (0 = disabled).</summary>
+	private void EnsureScrollbackLog() {
+		if (ScrollbackLogPath is null || _scrollback is not null) {
+			return;
+		}
+
+		long kb = _settings.GetInt("terminal.persistScrollbackKb", 256);
+		if (kb > 0) {
+			int capBytes = (int)Math.Min(kb, int.MaxValue / 1024) * 1024;
+			_scrollback = new ScrollbackLog(ScrollbackLogPath, capBytes);
+		}
 	}
 
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
@@ -233,6 +273,9 @@ public sealed class TerminalController : IDisposable {
 				Rows = _rows,
 			});
 			_terminal = terminal;
+			// Everything logged before now belongs to the previous process: mark the boundary so a replay
+			// renders it faded and this new process's output live below it.
+			_scrollback?.MarkBoundary();
 			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {attempt}): {launch.Command} {string.Join(' ', launch.Arguments)} in {workspace} ({_columns}x{_rows})");
 			Console.Out.Flush();
 		}
@@ -314,6 +357,9 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
+		// Persist to the scrollback log BEFORE the OutputActive gate, so a background (muted) session's output
+		// is still captured for replay when the user later switches to it.
+		_scrollback?.Append(data);
 
 		// Drive the resume watcher BEFORE the OutputActive gate: a background (muted) claude that fails its
 		// --resume must still self-heal, even though its bytes aren't painted to the page.
@@ -323,9 +369,12 @@ public sealed class TerminalController : IDisposable {
 			return;
 		}
 
-		string base64 = Convert.ToBase64String(data);
-		_bridge.PostToWeb($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
+		_bridge.PostToWeb(TermOutputJson(data));
 	}
+
+	/// <summary>The <c>term-output</c> bridge message carrying <paramref name="data"/> base64-encoded for this pane.</summary>
+	private string TermOutputJson(ReadOnlySpan<byte> data) =>
+		$"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
 
 	/// <summary>
 	/// Feeds claude's early output to the per-launch <see cref="ClaudeResumeWatcher"/> and, the moment it settles,
@@ -395,12 +444,15 @@ public sealed class TerminalController : IDisposable {
 		Console.Out.Flush();
 	}
 
-	/// <summary>Tears down the supervised PTY child process and closes the optional PTY debug log.</summary>
+	/// <summary>Tears down the supervised PTY child process and closes the optional PTY debug log + scrollback log.</summary>
 	public void Dispose() {
 		_supervisor.Dispose();
 		lock (_gate) {
 			_ptyLog?.Dispose();
 			_ptyLog = null;
+			// Close the handle but leave the on-disk content, so a later resume of this worktree can replay it faded.
+			_scrollback?.Dispose();
+			_scrollback = null;
 		}
 	}
 }

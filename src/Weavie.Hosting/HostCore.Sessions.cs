@@ -6,6 +6,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
+using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
 
 namespace Weavie.Hosting;
@@ -257,6 +258,11 @@ public sealed partial class HostCore {
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
+		// Persist the shell pane's scrollback so a reattaching/resumed client replays a coherent screen instead
+		// of a blank pane. Keyed by the worktree path (stable across reloads, unlike the session's ephemeral id);
+		// shell only — claude resumes its own conversation. Honors terminal.persistScrollbackKb (0 disables).
+		session.Shell.ScrollbackLogPath =
+			WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
 		WireSession(session);
 		return session;
 	}

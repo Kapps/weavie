@@ -1,10 +1,53 @@
 # Remote sessions
 
-Status: **working (web mechanism)** — register a remote agent, then New Session shows a **location**
-picker (default | agent name); picking a remote spins up a worktree on the remote box with its
-Claude/terminal/editor pointed at the remote filesystem, and it joins the rail alongside local sessions.
-Verified end-to-end via the headless host. Container isolation, a synced (non-localStorage) agent
-registry, and per-session LSP-over-the-bridge are follow-ups.
+Status: **working (web mechanism), reconnection model specified** — register a remote agent, then New
+Session shows a **location** picker (default | agent name); picking a remote spins up a worktree on the
+remote box with its Claude/terminal/editor pointed at the remote filesystem, and it joins the rail
+alongside local sessions. Verified end-to-end via the headless host. The [use-case
+scope](#use-cases-and-scope) and the [reconnection model](#reconnection-attach-resume-durability) —
+attach vs resume on the `SessionSlot` model, exclusive-lease, persistent terminal scrollback, the
+durability boundary — are specified here but **not yet built**. Container isolation, a server-side
+(non-`localStorage`) session registry with ownership + attach-by-URL, and per-session
+LSP-over-the-bridge are follow-ups.
+
+## Use cases and scope
+
+A session is one thing everywhere: a `HostCore` + worktrees behind the bridge. The use cases differ on
+only **two axes** — (1) *where the `HostCore` runs* (in-process / a box the developer owns / someone
+else's container), and (2) *who creates the session and how a client discovers + attaches to it* (local
+UI / a server-side registry / an agent-emitted attach URL). **Isolation (containers) and running the app
+are orthogonal layers on top of that, not part of the session model.**
+
+1. **Local solo — most common.** In-process `HostCore`, worktrees. If a developer runs the app across
+   several worktrees, making it tolerate multiple instances is *their* concern for now (Weavie may inject
+   a per-session port/env as a convenience, but does not own it — see non-goals). Most work lives here.
+2. **Remote solo, multi-machine.** A runner on a box the developer owns; the developer roams between
+   machines, attaching/detaching to the *same* sessions — including sessions another of their machines
+   created. Forces a **server-side session registry** (not `localStorage`) and the attach model below.
+3. **Company remote agents (Claude Code Cloud-style).** The agent platform builds the container, runs off
+   main, and the services are already up; Weavie provisions **nothing**. The startup script boots a
+   headless worker that self-registers and emits a signed **attach URL** the owner clicks to attach in
+   their local Weavie. "Like (1), but remote." Adds: the worker ships as a layer the company drops into
+   their image, ownership stamped at creation, and attach-by-URL in the client.
+4. **Company-provisioned backends.** A single-tenant box per developer (e.g. their own EC2) **collapses
+   to (2)** plus provisioning automation (a script/Weavie spins up the box + installs the runner); the
+   session model is identical. The multi-tenant managed-fleet variant is **out of scope** (a separate
+   Codespaces/Coder/Gitpod-class product with its own identity/auth/billing surface).
+
+The *creator* axis (who mints `{ url, token }`) is detailed in [The three
+scenarios](#the-three-scenarios--one-primitive-different-creators): local UI for (1)/(2)/(4) vs an
+out-of-band startup script for (3).
+
+### Non-goals
+
+- **Running the app under development** (compose, dev servers, debugging). "Bring up my microservice
+  stack" is how Weavie *runs an app to debug* — a separate run/debug feature — not how it does sessions,
+  and it must not drive the session model. (The microservice-coordination problem that wants per-stack
+  network namespaces lives there, not here.)
+- **Weavie provisioning containers.** In (3) the container is external; (1)/(2)/(4) are plain machines.
+  Container isolation stays the deferred opt-in below (a `ProcessSupervisor` `start`/`stop` delegate).
+- **Multi-tenant managed hosting** — many developers' sessions on one shared box with per-user credential
+  isolation. That is the separate product noted in use case (4).
 
 ## How the frontend aggregates backends
 
@@ -177,6 +220,94 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
   WS token from a `?token=` query to a `Sec-WebSocket-Protocol` subprotocol and the document token to a
   cookie (so it never sits in URLs/history); constant-time compare on the loopback MCP/LSP tokens.
 
+## Reconnection: attach, resume, durability
+
+A client (re)connecting to a session never picks between two verbs — it always asks the box "connect me
+to session S," and the **server** resolves it against the same `SessionSlot` loaded/unloaded model used
+locally:
+
+```mermaid
+flowchart LR
+    C[client: connect to S] --> Q{slot S loaded?}
+    Q -- yes --> A[attach: open bridge, replay<br/>server-side state, reconnect PTYs]
+    Q -- no --> R[resume: run the SessionSlot-load path<br/>on the box, then attach]
+    R --> A
+```
+
+- **Attach** (slot loaded, backend process live): open the bridge, replay server-side state (terminal
+  scrollback, editor tabs, change feed), reconnect to the running PTYs. **Lossless** — the running app
+  and a mid-turn `claude` survive untouched, because they run on the box independent of any viewer.
+- **Resume** (slot cold — box rebooted, worker crashed, or the slot was unloaded): run the *identical*
+  `HostCore`/`HostSession` load path on the box — re-create the worktree session, `claude --continue`,
+  reopen persisted tabs, conditional `setupCommand`, spawn PTYs, wire IDE-MCP/hook-bridge/change-tracker
+  — *then* attach. There is **no new restoration logic**; resume is the local reconcile-on-open / lazy-load
+  behavior executed on the worker. It is lossy only for non-durable state (boundary below).
+
+So "attach" is "ensure the slot is loaded (resume if not), then bind a viewport." Two remote-specific
+constraints on resume:
+
+- **Its inputs live on the box, not the client.** The `claude` transcript, `editor-session.json`, the
+  worktree, and the session registry/ownership are all server-side; the client carries **zero** session
+  state (which is *why* a different machine resumes the same session). Backend-state restoration is shared
+  and runs on the box; per-client view state (rendering settings, focus, scroll) is re-applied locally on
+  attach and is never "resumed" server-side.
+- **Load can be observed in progress.** A client may attach while `claude --continue` or `setupCommand`
+  is still running, so the load path reports progress and attach renders a "resuming…" state rather than
+  a half-built session.
+- `setupCommand` is **conditional**: skipped on an intact worktree, re-run only when the worktree had to
+  be recreated (a wiped box).
+
+### One viewer at a time (exclusive lease) — v1
+
+v1 grants one client an **exclusive lease** on a loaded slot; another machine attaching takes the lease
+(the previous client detaches). This delivers the roam-between-machines promise (use cases 2/3/4) for the
+cost of a single feature — server-side replayable state — and sidesteps the hard parts of multi-client:
+interleaved input to one PTY, synchronized editor/cursor state, and LSP (which is modeled around a
+*single client owning document sync*, so two clients with divergent buffers make the server's view
+incoherent — it would need one language server per client or an authoritative-editor follow-mode).
+**Mirrored / shared attach** (two live viewers) is a deferred opt-in: output fan-out is a broadcast loop
+over a set of sockets, but shared input arbitration + synchronized editing + LSP multiplexing are the
+real, Live-Share-class cost.
+
+### Durability boundary
+
+What survives a detach (attach) versus an unload/crash (resume):
+
+| State | Detach → attach | Unload/crash → resume |
+| --- | --- | --- |
+| Claude conversation | yes (process live) | yes — `claude --continue` from the last *settled* transcript point; only the single in-flight step is lost and re-runs |
+| Running foreground process (e.g. dev server) | yes (runs on the box) | **no** — a process whose host tree died can't be resurrected; restart it |
+| Terminal scrollback | yes (server-side buffer) | shown **faded** from the on-disk log (below); not live |
+| Editor tabs | yes | yes — `editor-session.json` on the box |
+| Worktree | yes | yes — on the box's disk |
+| Per-client view (rendering, focus, scroll) | re-applied locally | re-applied locally |
+
+### Don't auto-unload live work
+
+A mid-turn `claude` and a running foreground process are **live work** and must never be auto-unloaded —
+a crash mid-turn is unavoidable and rare, but an *unload* mid-turn is self-inflicted loss. The
+`session.idleUnloadMinutes` policy gates on a "has live work?" check; the **hook bridge already supplies
+the signal** for `claude` (it sees every PreToolUse/PostToolUse, so the box knows when a turn is active
+versus sitting at an idle prompt). A graceful unload may snapshot more than a crash (flush scrollback),
+but both land on the same resume path.
+
+### Persistent terminal state (tmux-shaped, not tmux)
+
+The backend owns terminal screen/scrollback state so a detached or cold client can render a coherent
+screen — the tmux/mosh model, built **into the worker** rather than shelled out to tmux (`ProcessSupervisor`
+already owns PTY lifetime; the delta is a per-PTY replay buffer). The two PTYs are asymmetric:
+
+- **Shell** has no durable state, so its **output** stream is tee'd to a capped on-disk log (output, not
+  input — input echoes back as output anyway, and logging input would capture echo-off secrets) with a
+  marker written on each process (re)start. On attach the log replays to catch a fresh client up; on
+  resume everything before the last marker renders **faded** ("ran before the restart, gone") and the new
+  shell streams live below. Capping trims at newline boundaries (naive byte-truncation can cut
+  mid-escape-sequence and corrupt replay). This on-disk log is the cheap form of a server-side
+  headless-terminal model; the full-fidelity form (maintain screen+scrollback, serialize on attach) is
+  the *same* mechanism that powers live attach-replay, if it's ever needed.
+- **Claude** is a full-screen redrawing TUI whose meaningful state (the conversation) is already durable
+  in its transcript, so it is **not** tee'd; resume reconstructs it via `--continue` and lets it repaint.
+
 ## Deferred
 
 - **LSP over the bridge.** Today the LSP bridge is a separate loopback WS not surfaced to a remote
@@ -193,5 +324,15 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
   by workspace (and a small registry) generalizes it.
 - **Cross-origin hardening.** The runner control plane currently returns `Access-Control-Allow-Origin: *`
   (token-gated); pair with TLS + tighter origins.
-- **Reattach / durability.** The long-lived worker survives a dropped frontend (its bridge re-attaches
-  on refresh); a reconnect just re-opens the saved URL.
+- **Reconnection build-out.** The model is specified in [Reconnection](#reconnection-attach-resume-durability).
+  **Built (static-verified):** server-side terminal scrollback — the shell PTY's output is tee'd to a capped
+  on-disk log per worktree (`ScrollbackLog`, keyed via `WeaviePaths.WorkspaceTerminalLogFile`), replayed on
+  `term-ready` with the previous process's output faded above the live stream; gated by the
+  `terminal.persistScrollbackKb` setting (0 disables); claude is not tee'd (it rides `--resume`). Still
+  unbuilt: the exclusive lease, resume vs attach off the remote `SessionSlot`, and the "has live work?"
+  unload guard.
+- **Mirrored / shared attach.** Two live viewers at once — output broadcast + arbitrated input +
+  synchronized editing + LSP multiplexing. Deferred opt-in beyond the v1 exclusive lease.
+- **Server-side session registry + ownership + attach-by-URL.** Required by use cases 2/3: enumerate
+  sessions from the box (not the client), tag each with an owner, and let an agent-emitted signed URL
+  deep-link a client straight onto a session. Distinct from the *agent* registry below.

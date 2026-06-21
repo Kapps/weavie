@@ -55,6 +55,11 @@ public sealed partial class HostCore {
 				PushTurnDiffToWeb(path);
 			}
 		};
+		session.Changes.FileDeleted += path => {
+			if (IsActiveSession(session)) {
+				PushDeletionToWeb(path);
+			}
+		};
 		session.Status.Changed += status => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);

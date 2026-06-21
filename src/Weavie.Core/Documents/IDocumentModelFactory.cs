@@ -4,8 +4,8 @@ namespace Weavie.Core.Documents;
 
 /// <summary>
 /// Creates document models bound to a path and seeded with initial text. Injected so a
-/// diff session can be opened without knowing whether the model is a Monaco proxy (prod)
-/// or an in-memory buffer (T1 test).
+/// diff session can be opened without knowing whether the model is a Monaco proxy or an
+/// in-memory buffer.
 /// </summary>
 public interface IDocumentModelFactory {
 	/// <summary>Creates a model bound to <paramref name="filePath"/> and seeded with <paramref name="initialText"/>.</summary>

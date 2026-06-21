@@ -5,11 +5,8 @@ import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
-// What the editor pane shows when no file is open (no tabs). Instead of a blank black void it identifies the
-// app and offers the keyboard-first ways to get a file in front of you. Each row is a real button that
-// dispatches the command (mouse-discoverable) AND advertises its current shortcut read from the command
-// catalog (CommandInfo.keys → formatKey) — so a user learns the keyboard path just by looking, per the
-// keyboard-first principle. The shortcuts are never hardcoded: they track ~/.weavie/keybindings.json.
+// Editor pane shown when no file is open. Each row is a button that dispatches a command and advertises its
+// effective shortcut read from the command catalog (never hardcoded), so the keyboard path is discoverable.
 interface StarterAction {
   id: string;
   label: string;
@@ -44,8 +41,7 @@ const ACTIONS: StarterAction[] = [
   },
 ];
 
-// The action's effective shortcut (defaults merged with the user's keybindings), formatted for display, or
-// "" when the command is unbound — in which case the row just shows the label.
+// The action's effective shortcut formatted for display, or "" when the command is unbound.
 function keysOf(id: string): string {
   const keys = findCommand(id)?.keys ?? [];
   return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
@@ -74,10 +70,9 @@ export function EditorEmptyState(): JSX.Element {
                   <button
                     type="button"
                     class="editor-empty-action"
-                    // Don't let the button steal focus on press: these actions hand focus to the omnibar
-                    // (Go to File / commands), and a button holding focus trips the omnibar's focus-out
-                    // close, snapping it shut and focus back here. preventDefault on mousedown blocks the
-                    // focus without cancelling the click, so keyboard activation (Tab+Enter) still fires it.
+                    // Don't steal focus on press: these actions hand focus to the omnibar, and a button
+                    // holding focus would trip its focus-out close. preventDefault on mousedown blocks the
+                    // focus without cancelling the click, so keyboard activation still fires it.
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => dispatchCommand(action.id)}
                   >

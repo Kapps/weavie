@@ -5,8 +5,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies the LSP base-protocol framing (the <c>Content-Length</c> header layer the bridge applies
-/// on the server's stdio) round-trips and tolerates the header variations real servers emit.
+/// LSP base-protocol framing (the <c>Content-Length</c> header layer over the server's stdio):
+/// round-trips and tolerates the header variations real servers emit.
 /// </summary>
 public sealed class LspFramingTests {
 	private static byte[] Utf8(string s) => Encoding.UTF8.GetBytes(s);
@@ -65,7 +65,7 @@ public sealed class LspFramingTests {
 	[Fact]
 	public async Task ReadFrame_HandlesBinaryBodyBytesByLength() {
 		using var stream = new MemoryStream();
-		// A body whose bytes include characters that must be counted by Content-Length, not by lines.
+		// Body must be counted by Content-Length, not by lines.
 		byte[] body = Utf8("{\"text\":\"line1\\nline2\\r\\nend\"}");
 		await LspFraming.WriteFrameAsync(stream, body, CancellationToken.None);
 		stream.Position = 0;

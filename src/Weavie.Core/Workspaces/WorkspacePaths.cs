@@ -1,10 +1,9 @@
 namespace Weavie.Core.Workspaces;
 
 /// <summary>
-/// Shared workspace path conventions. The canonical list of "noise" directory segments Weavie skips when
-/// walking a workspace tree — dependency caches and build output that would otherwise drown a recursive
-/// listing or file watcher. Centralized here so the file index (<see cref="WorkspaceFileIndex"/>) and the
-/// LSP watcher (<c>WorkspaceWatcher</c>) agree on exactly one list instead of each carrying its own copy.
+/// Shared workspace path conventions, chiefly the canonical list of "noise" directory segments Weavie skips
+/// when walking a workspace tree — dependency caches and build output that would drown a recursive listing or
+/// file watcher. Centralized so the file index and LSP watcher agree on one list.
 /// </summary>
 public static class WorkspacePaths {
 	/// <summary>Directory names skipped anywhere in a workspace tree (case-insensitive).</summary>
@@ -28,14 +27,12 @@ public static class WorkspacePaths {
 	}
 
 	/// <summary>
-	/// Lowercases a leading Windows drive letter (<c>C:\…</c> → <c>c:\…</c>), leaving every other path
-	/// untouched. The editor's host-backed <c>file://</c> provider matches URIs case-SENSITIVELY, and the web
-	/// canonicalizes native paths this same way before building a <c>file://</c> URI (mirrors
-	/// <c>editor/fs-path.ts</c> <c>canonicalFsPath</c>) — Monaco's <c>model.uri.fsPath</c> also lowercases the
-	/// drive. So every native path the host hands the editor (e.g. an <c>open-file</c> message) must carry the
-	/// SAME spelling, or the same on-disk file reaches the editor as two distinct URIs: a second working copy
-	/// opens and the active-file/tab tracking can't tell it's already open. Only the drive letter is folded
-	/// (the on-disk filename case and separators survive), so the result stays a real, openable path.
+	/// Lowercases a leading Windows drive letter (<c>C:\…</c> → <c>c:\…</c>), leaving every other path untouched.
+	/// The editor's host-backed <c>file://</c> provider matches URIs case-sensitively, and the web canonicalizes
+	/// native paths this same way (mirrors <c>editor/fs-path.ts</c> <c>canonicalFsPath</c>; Monaco's
+	/// <c>model.uri.fsPath</c> also lowercases the drive). Every native path the host hands the editor must carry
+	/// the same spelling, or one on-disk file reaches the editor as two distinct URIs — a duplicate working copy
+	/// that breaks active-file/tab tracking. Only the drive letter is folded, so the result stays openable.
 	/// </summary>
 	public static string CanonicalFsPath(string path) {
 		ArgumentNullException.ThrowIfNull(path);

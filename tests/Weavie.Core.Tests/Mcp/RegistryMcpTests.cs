@@ -11,9 +11,8 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Covers the capability-registry MCP surface — the model-facing server the spawned <c>claude</c>
-/// reaches via <c>--mcp-config</c> (a <c>ws://</c> + Bearer entry), as opposed to the IDE server whose
-/// tools Claude Code filters out. Verifies registry-only tool advertisement, Bearer auth, and the
-/// generated port-scoped config file.
+/// reaches via <c>--mcp-config</c> (a <c>ws://</c> + Bearer entry), distinct from the IDE server.
+/// Verifies registry-only tool advertisement, Bearer auth, and the generated port-scoped config file.
 /// </summary>
 [Collection("Settings")]
 public sealed class RegistryMcpTests : IDisposable {
@@ -51,7 +50,7 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Contains("listSettings", names);
 		Assert.Contains("getSetting", names);
 		Assert.Contains("setSetting", names);
-		Assert.DoesNotContain("openDiff", names);   // IDE RPC is NOT on the registry server
+		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
 		Assert.DoesNotContain("openFile", names);
 	}
 
@@ -81,13 +80,13 @@ public sealed class RegistryMcpTests : IDisposable {
 
 		var names = response.RootElement.GetProperty("result").GetProperty("tools")
 			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
-		// The data-shaped operations stay MCP tools: the read-only queries and the per-color override editors.
+		// Data-shaped operations stay MCP tools: read-only queries and per-color override editors.
 		Assert.Contains("listThemes", names);
 		Assert.Contains("describeTheme", names);
 		Assert.Contains("setThemeOverride", names);
 		Assert.Contains("applyThemeTransform", names);
 		Assert.Contains("removeThemeOverride", names);
-		// The verb actions became commands (reached via runCommand), so they are NOT advertised as theme tools.
+		// Verb actions are commands (reached via runCommand), not advertised as theme tools.
 		Assert.DoesNotContain("installTheme", names);
 		Assert.DoesNotContain("selectTheme", names);
 		Assert.DoesNotContain("resetTheme", names);

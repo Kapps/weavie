@@ -8,15 +8,14 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Drives the IDE-mode MCP server's active-editor surface end to end over a real loopback WebSocket:
-/// the <c>getCurrentSelection</c>/<c>getOpenEditors</c> tools read the editor store, and a store change
-/// pushes an unsolicited <c>selection_changed</c> notification — how the embedded claude learns what the
-/// user is looking at.
+/// Drives the IDE-mode MCP server's active-editor surface over a loopback WebSocket:
+/// <c>getCurrentSelection</c>/<c>getOpenEditors</c> read the editor store, and a store change pushes an
+/// unsolicited <c>selection_changed</c> notification — how the embedded claude learns what the user sees.
 /// </summary>
 public sealed class McpActiveEditorToolsTests {
 	private const string Token = "0123456789abcdef0123456789abcdef";
 
-	// An OS-native absolute path so PathToFileUri (new Uri(path).AbsoluteUri) yields a real file:// URL.
+	// OS-native absolute path so PathToFileUri yields a real file:// URL.
 	private static readonly string FilePath = OperatingSystem.IsWindows() ? @"C:\workspace\a.cs" : "/workspace/a.cs";
 	private static readonly string OtherPath = OperatingSystem.IsWindows() ? @"C:\workspace\b.cs" : "/workspace/b.cs";
 
@@ -42,8 +41,8 @@ public sealed class McpActiveEditorToolsTests {
 		var editor = new EditorStore();
 		await using var server = NewServer(editor);
 		int port = server.Start();
-		// Set the active editor BEFORE connecting: a change while connected would push an unsolicited
-		// selection_changed notification ahead of the tool reply. The tool reads the stored state.
+		// Set active BEFORE connecting: a change while connected would push a selection_changed
+		// notification ahead of the tool reply. The tool reads the stored state.
 		editor.SetActive(new ActiveEditor(
 			FilePath, "csharp", "hello", new EditorSelection(new EditorPosition(2, 0), new EditorPosition(2, 5), IsEmpty: false)));
 		using var ws = await ConnectAsync(port);
@@ -66,8 +65,8 @@ public sealed class McpActiveEditorToolsTests {
 		var editor = new EditorStore();
 		await using var server = NewServer(editor);
 		int port = server.Start();
-		// getOpenEditors reflects the open-tab set the page reported; languageId for the active tab is
-		// filled from the active-editor report.
+		// getOpenEditors reflects the reported open-tab set; the active tab's languageId comes from
+		// the active-editor report.
 		editor.SetActive(new ActiveEditor(
 			FilePath, "csharp", string.Empty, new EditorSelection(default, default, IsEmpty: true)));
 		editor.SetOpenEditors([
@@ -114,7 +113,7 @@ public sealed class McpActiveEditorToolsTests {
 		editor.SetOpenEditors([new OpenEditorTab(FilePath, IsActive: true, IsPinned: false, IsPreview: false)]);
 		using var ws = await ConnectAsync(port);
 
-		// close_tab takes the label; it resolves to the tab's path and asks the presenter to close it.
+		// close_tab takes the label, resolves it to the tab's path, and asks the presenter to close it.
 		await SendAsync(ws, Request(4, "tools/call", "{\"name\":\"close_tab\",\"arguments\":{\"tab_name\":\"a.cs\"}}"));
 		using var response = await ReceiveAsync(ws);
 
@@ -129,8 +128,8 @@ public sealed class McpActiveEditorToolsTests {
 		int port = server.Start();
 		using var ws = await ConnectAsync(port);
 
-		// Round-trip initialize first so the server is in its message loop and has captured the socket
-		// (the unsolicited push targets the connected client; the handshake guarantees it's wired).
+		// Round-trip initialize first so the server is in its message loop with the socket captured;
+		// the push targets the connected client, and the handshake guarantees it's wired.
 		await SendAsync(ws, Request(1, "initialize",
 			"{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"claude\",\"version\":\"2.1\"}}"));
 		using (await ReceiveAsync(ws)) {
@@ -141,7 +140,7 @@ public sealed class McpActiveEditorToolsTests {
 
 		using var notification = await ReceiveAsync(ws);
 		var root = notification.RootElement;
-		Assert.False(root.TryGetProperty("id", out _)); // a notification has no id
+		Assert.False(root.TryGetProperty("id", out _)); // notifications have no id
 		Assert.Equal("selection_changed", root.GetProperty("method").GetString());
 		var p = root.GetProperty("params");
 		Assert.Equal("sel", p.GetProperty("text").GetString());

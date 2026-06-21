@@ -6,9 +6,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="EditorSessionStore"/> over the in-memory filesystem: empty-on-missing, persist +
-/// reload (view state opaque round-trip), malformed-file backup + reset, and the restore push listing the
-/// open files (no content) while skipping (and de-activating) files that no longer exist.
+/// <see cref="EditorSessionStore"/> over the in-memory filesystem: empty-on-missing, persist + reload (opaque
+/// view-state round-trip), malformed-file backup + reset, and the restore push listing open files (no content)
+/// while skipping and de-activating files that no longer exist.
 /// </summary>
 public sealed class EditorSessionStoreTests {
 	private const string SessionPath = "/weavie-editor-tests/editor-session.json";
@@ -81,7 +81,7 @@ public sealed class EditorSessionStoreTests {
 		var entry = session.GetProperty("open").EnumerateArray().Single();
 		Assert.Equal(FilePath, entry.GetProperty("path").GetString());
 		Assert.Equal(42, entry.GetProperty("viewState").GetProperty("scrollTop").GetInt32());
-		// Disk is the source of truth — the restore push never carries file content.
+		// Disk is the source of truth; the restore push carries no file content.
 		Assert.False(entry.TryGetProperty("content", out _));
 	}
 
@@ -115,10 +115,9 @@ public sealed class EditorSessionStoreTests {
 
 	[Fact]
 	public void BuildRestoreJson_DropsTabOutsideWorkspaceRoot() {
-		// A tab pointing at another session's worktree (outside this session's root): a real file on disk, so
-		// the existence check passes, but it must not be restored — this session's file provider would refuse
-		// it out-of-root and the editor would open blank. This is also the self-heal for an already-polluted
-		// editor-session.json. A scratch buffer (outside the root by design) is kept.
+		// A tab in another session's worktree (outside this root) exists on disk so the existence check passes,
+		// but must not be restored: this session's file provider would refuse it out-of-root and open blank.
+		// A scratch buffer (outside the root by design) is kept.
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText("/root/in.ts", "x");
 		fs.WriteAllText("/elsewhere/worktree/foreign.ts", "y");
@@ -140,7 +139,7 @@ public sealed class EditorSessionStoreTests {
 		Assert.Contains("/root/in.ts", open);
 		Assert.Contains("/scratch/untitled-1", open);
 		Assert.DoesNotContain("/elsewhere/worktree/foreign.ts", open);
-		// The dropped file was active → active is nulled rather than pointing at a tab that won't open.
+		// Dropped file was active → active is nulled, not left pointing at a tab that won't open.
 		Assert.Equal(JsonValueKind.Null, message.RootElement.GetProperty("session").GetProperty("active").ValueKind);
 	}
 }

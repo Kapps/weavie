@@ -13,9 +13,8 @@ public enum SupervisorLogLevel {
 }
 
 /// <summary>
-/// One line of structured lifecycle logging from a <see cref="ProcessSupervisor"/>. The host decides where it
-/// goes: today the controllers route it to the console; a per-process log file under <c>~/.weavie</c> is the
-/// planned sink (see <c>docs/specs/process-supervisor.md</c>).
+/// One line of structured lifecycle logging from a <see cref="ProcessSupervisor"/>; the host decides where it
+/// goes (see <c>docs/specs/process-supervisor.md</c>).
 /// </summary>
 /// <param name="Name">The supervised process's name.</param>
 /// <param name="Level">Severity.</param>

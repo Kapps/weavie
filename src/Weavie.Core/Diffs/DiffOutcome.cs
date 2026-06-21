@@ -9,9 +9,9 @@ public enum DiffResult {
 }
 
 /// <summary>
-/// The result of resolving a <see cref="DiffProposal"/>. Maps onto the MCP <c>openDiff</c>
-/// response: <see cref="DiffResult.Kept"/> -&gt; FILE_SAVED (+ the final, possibly user-edited
-/// contents); <see cref="DiffResult.Rejected"/> -&gt; DIFF_REJECTED.
+/// The result of resolving a <see cref="DiffProposal"/>, mapping onto the MCP <c>openDiff</c> response:
+/// <see cref="DiffResult.Kept"/> -&gt; FILE_SAVED (+ final contents); <see cref="DiffResult.Rejected"/>
+/// -&gt; DIFF_REJECTED.
 /// </summary>
 public sealed record DiffOutcome {
 	private DiffOutcome(DiffResult result, string? finalContents) {

@@ -4,10 +4,10 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Diffs;
 
 /// <summary>
-/// An open <c>openDiff</c> interaction: the original file on the left, an editable proposed
-/// document on the right. The user may further edit the proposed document before resolving.
-/// <see cref="Keep"/> saves and reports FILE_SAVED; <see cref="Reject"/> discards. A session
-/// resolves exactly once — the blocking semantics Claude expects from <c>openDiff</c>.
+/// An open <c>openDiff</c> interaction: the original file on the left, an editable proposed document on
+/// the right that the user may further edit before resolving. <see cref="Keep"/> saves and reports
+/// FILE_SAVED; <see cref="Reject"/> discards. Resolves exactly once — the blocking semantics
+/// <c>openDiff</c> expects.
 /// </summary>
 public sealed class DiffSession {
 	private DiffSession(DiffProposal proposal, string originalContents, IDocumentModel proposed) {
@@ -17,9 +17,8 @@ public sealed class DiffSession {
 	}
 
 	/// <summary>
-	/// Opens a diff session for a proposal: reads the original from <paramref name="fileSystem"/>
-	/// (empty if the file does not yet exist) and seeds an editable proposed document with the
-	/// new contents, bound to the target path.
+	/// Opens a session: reads the original (empty if the file doesn't exist yet) and seeds an editable
+	/// proposed document with the new contents, bound to the target path.
 	/// </summary>
 	public static DiffSession Open(DiffProposal proposal, IFileSystem fileSystem, IDocumentModelFactory modelFactory) {
 		ArgumentNullException.ThrowIfNull(proposal);

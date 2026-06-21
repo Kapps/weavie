@@ -1,7 +1,7 @@
 namespace Weavie.Core.Commands;
 
-/// <summary>The modifier set of a parsed chord. <see cref="Mod"/> is the cross-platform <c>$mod</c> token,
-/// left unresolved here so the per-OS registrar maps it (Cmd on macOS, Ctrl elsewhere).</summary>
+/// <summary>The modifier set of a parsed chord. <see cref="Mod"/> is left unresolved so the per-OS
+/// registrar maps it (Cmd on macOS, Ctrl elsewhere).</summary>
 [Flags]
 public enum HotkeyModifiers {
 	/// <summary>No modifiers.</summary>
@@ -32,7 +32,7 @@ public readonly record struct ParsedChord(HotkeyModifiers Modifiers, string Key)
 /// <summary>
 /// Parses a tinykeys-style chord string (<c>ctrl+`</c>, <c>$mod+Shift+p</c>) into modifiers + a key token,
 /// mirroring the web resolver's <c>parseChord</c> (<c>src/web/src/commands/keybindings.ts</c>) so Core and
-/// web agree on what a chord means. Single-chord only (no <c>ctrl+k ctrl+s</c> sequences), matching v1.
+/// web agree on what a chord means. Single-chord only (no <c>ctrl+k ctrl+s</c> sequences).
 /// </summary>
 public static class ChordParser {
 	/// <summary>Parses <paramref name="chord"/>; an empty/whitespace token list yields no key (an invalid hotkey).</summary>
@@ -73,7 +73,7 @@ public static class ChordParser {
 					modifiers |= HotkeyModifiers.Meta;
 					break;
 				default:
-					// The last non-modifier token wins (a chord has one key), matching the web parser.
+					// The last non-modifier token wins (a chord has one key).
 					key = part.ToLowerInvariant();
 					break;
 			}

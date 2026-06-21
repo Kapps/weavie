@@ -1,19 +1,17 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Registers theme-related settings. Appearance is split into a <b>mode</b> and a theme <b>per polarity</b>,
-/// so light/dark is decoupled from the chosen theme: <c>theme.mode</c> is <c>system</c> (follow the OS,
-/// default), <c>light</c>, or <c>dark</c>; <c>theme.light</c> / <c>theme.dark</c> name the theme used for each
-/// polarity. All three are normal persisted settings — they survive via <c>settings.toml</c> and are editable
-/// conversationally over MCP like any other setting. The per-color OVERRIDES are deliberately NOT settings:
-/// they live in their own <c>~/.weavie/theme-overrides.json</c> document (see
-/// <see cref="Weavie.Core.Theming.ThemeOverridesStore"/>), keyed per concrete theme id.
+/// Registers theme-related settings. Appearance is split into a <b>mode</b> and a theme <b>per polarity</b>:
+/// <c>theme.mode</c> is <c>system</c> (follow the OS, default), <c>light</c>, or <c>dark</c>;
+/// <c>theme.light</c> / <c>theme.dark</c> name the theme used for each polarity. All three are normal persisted
+/// settings, editable over MCP like any other. The per-color OVERRIDES are deliberately NOT settings: they
+/// live in <c>~/.weavie/theme-overrides.json</c> (see <see cref="Weavie.Core.Theming.ThemeOverridesStore"/>),
+/// keyed per concrete theme id.
 /// <para>
 /// The WEB layer is authoritative for <em>rendering</em>: it resolves <c>system</c> against the live
-/// <c>prefers-color-scheme</c> and renders the matching theme (the host injects/pushes BOTH the light and
-/// dark themes as a pair so the switch is instant + flash-free). Core can't see the OS setting, so for
-/// per-theme override targeting it resolves <c>system</c> to the dark slot — Weavie's default polarity (see
-/// <see cref="ResolveActiveThemeId"/>).
+/// <c>prefers-color-scheme</c> and renders the matching theme (the host pushes both the light and dark themes
+/// as a pair so the switch is flash-free). Core can't see the OS setting, so for per-theme override targeting
+/// it resolves <c>system</c> to the dark slot — Weavie's default polarity (see <see cref="ResolveActiveThemeId"/>).
 /// </para>
 /// </summary>
 public static class ThemeSettings {
@@ -26,7 +24,7 @@ public static class ThemeSettings {
 	/// <summary>The default appearance mode — follow the OS light/dark setting.</summary>
 	public const string DefaultMode = "system";
 
-	/// <summary>Back-compat default theme id (the dark slot), for callers that just need a built-in fallback.</summary>
+	/// <summary>Default theme id (the dark slot), for callers that need a built-in fallback.</summary>
 	public const string DefaultThemeId = DefaultDarkThemeId;
 
 	/// <summary>Setting key: the appearance mode (<c>system</c>/<c>light</c>/<c>dark</c>).</summary>
@@ -102,8 +100,7 @@ public static class ThemeSettings {
 
 	/// <summary>
 	/// The concrete theme id Core treats as "active" for per-theme overrides (describe / set / undo / reset).
-	/// The web is authoritative for what is RENDERED — it resolves <c>system</c> against the live OS setting —
-	/// but Core can't see <c>prefers-color-scheme</c>, so it resolves <c>system</c> to the dark slot (Weavie's
+	/// Core can't see <c>prefers-color-scheme</c>, so it resolves <c>system</c> to the dark slot (Weavie's
 	/// default polarity). After a theme is selected the mode is concrete (light/dark), so this is exact.
 	/// </summary>
 	public static string ResolveActiveThemeId(SettingsStore settings) {
@@ -111,7 +108,7 @@ public static class ThemeSettings {
 		return Mode(settings) == "light" ? LightThemeId(settings) : DarkThemeId(settings);
 	}
 
-	/// <summary>True if <paramref name="themeId"/> is one of the two selected (light/dark) theme ids — i.e. an
+	/// <summary>True if <paramref name="themeId"/> is one of the two selected (light/dark) theme ids — an
 	/// override on it could be live, so a change to it warrants re-pushing the theme pair.</summary>
 	public static bool IsSelectedThemeId(SettingsStore settings, string themeId) {
 		ArgumentNullException.ThrowIfNull(settings);

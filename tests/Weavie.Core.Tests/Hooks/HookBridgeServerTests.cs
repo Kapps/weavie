@@ -6,8 +6,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// End-to-end over a real current-user-only pipe: the relay's request reaches the server, raises
-/// <see cref="HookBridgeServer.Observed"/>, and the pass-through decision comes back as an empty response.
+/// End-to-end over a real pipe: a request reaches the server, raises
+/// <see cref="HookBridgeServer.Observed"/>, and pass-through returns an empty response.
 /// </summary>
 public sealed class HookBridgeServerTests {
 	private static string UniquePipe() => $"weavie-hook-test-{Guid.NewGuid():N}";
@@ -23,7 +23,7 @@ public sealed class HookBridgeServerTests {
 		string payload = """{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"echo hi"}}""";
 		byte[] response = await ExchangeAsync(pipe, Encoding.UTF8.GetBytes(payload));
 
-		Assert.Empty(response); // pass-through → empty stdout → Claude's normal flow
+		Assert.Empty(response); // pass-through → empty stdout
 		var request = await WithTimeoutAsync(observed.Task);
 		Assert.Equal("Bash", request.ToolName);
 		Assert.Equal(HookEventKind.PreToolUse, request.Event);

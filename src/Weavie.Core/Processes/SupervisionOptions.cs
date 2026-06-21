@@ -2,9 +2,9 @@ namespace Weavie.Core.Processes;
 
 /// <summary>
 /// Tunables for a <see cref="ProcessSupervisor"/>: the restart policy plus the exponential-backoff and
-/// crash-loop-breaker parameters. The defaults suit a long-lived child process (claude, a shell, a language
-/// server): a half-second initial backoff doubling to a 30-second ceiling, a run resets the backoff once it
-/// has lasted ten seconds, and more than five restarts in a minute trips the breaker.
+/// crash-loop-breaker parameters. Defaults suit a long-lived child (claude, a shell, a language server): a
+/// half-second backoff doubling to a 30-second ceiling, reset after a ten-second run, breaker at five restarts
+/// per minute.
 /// </summary>
 public sealed record SupervisionOptions {
 	/// <summary>How exits are handled. Required.</summary>
@@ -20,8 +20,8 @@ public sealed record SupervisionOptions {
 	public double BackoffMultiplier { get; init; } = 2.0;
 
 	/// <summary>
-	/// A run lasting at least this long is treated as healthy: the consecutive-crash count resets, so the
-	/// next crash restarts at <see cref="InitialBackoff"/> rather than the grown delay.
+	/// A run lasting at least this long is healthy: the consecutive-crash count resets, so the next crash
+	/// restarts at <see cref="InitialBackoff"/> rather than the grown delay.
 	/// </summary>
 	public TimeSpan HealthyAfter { get; init; } = TimeSpan.FromSeconds(10);
 

@@ -6,10 +6,9 @@ public readonly record struct AssetResponse(bool Found, byte[] Bytes, string Mim
 
 /// <summary>
 /// Resolves a webview request path against an on-disk <c>wwwroot</c>: maps <c>/</c> to <c>index.html</c>, blocks
-/// path-traversal escapes, reads the file bytes, and guesses the MIME type. Shared so the Mac (WKWebView) and
-/// Linux (WebKitGTK) <c>app://</c> scheme handlers — and any future host serving from disk — don't each
-/// re-implement (and drift on) the same resolution + MIME map; each host supplies only its native
-/// request/response binding and decides how to emit a 404 (a body, or a native fail).
+/// path-traversal escapes, reads the file bytes, and guesses the MIME type. Shared by the Mac (WKWebView) and
+/// Linux (WebKitGTK) <c>app://</c> scheme handlers; each host supplies only its native request/response binding
+/// and decides how to emit a 404 (a body, or a native fail).
 /// </summary>
 public sealed class WwwrootFileResolver {
 	private static readonly byte[] NotFoundBody = "Not Found"u8.ToArray();

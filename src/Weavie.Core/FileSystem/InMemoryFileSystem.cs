@@ -4,14 +4,13 @@ using System.Text;
 namespace Weavie.Core.FileSystem;
 
 /// <summary>
-/// In-memory filesystem test fake. Paths are normalized to their full form so
-/// "./a.txt" and an absolute path to the same logical file collide as expected.
-/// The inspection surface for T1 tests: assert on saved content.
+/// In-memory filesystem test fake. Paths are normalized to their full form so "./a.txt"
+/// and an absolute path to the same file collide as expected. Tests assert on saved content.
 /// </summary>
 public sealed class InMemoryFileSystem : IFileSystem {
 	private readonly ConcurrentDictionary<string, string> _files = new(StringComparer.Ordinal);
-	// Logical mtimes (a monotonically increasing write counter, not wall-clock): each write bumps the path's
-	// stamp so TryGetStat's mtime changes on every content change — the etag contract the file:// provider needs.
+	// Logical mtimes: a monotonic write counter, not wall-clock. Each write bumps the path's stamp so
+	// TryGetStat's mtime changes on every content change — the etag contract the file:// provider needs.
 	private readonly ConcurrentDictionary<string, long> _mtimes = new(StringComparer.Ordinal);
 	private long _clock;
 
@@ -103,8 +102,8 @@ public sealed class InMemoryFileSystem : IFileSystem {
 
 	/// <inheritdoc/>
 	public void WriteAllTextAtomic(string path, string contents) {
-		// A single dictionary assignment is atomic by construction, so the fake honors the same
-		// all-or-nothing contract the real filesystem provides via temp-file + replace.
+		// A single dictionary assignment is atomic, honoring the same all-or-nothing contract
+		// the real filesystem provides via temp-file + replace.
 		ArgumentNullException.ThrowIfNull(contents);
 		string normalized = Normalize(path);
 		_files[normalized] = contents;

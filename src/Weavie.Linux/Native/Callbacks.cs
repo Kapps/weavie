@@ -2,10 +2,9 @@ using System.Runtime.InteropServices;
 
 namespace Weavie.Linux.Native;
 
-// Native callback signatures used with g_signal_connect_data / register-scheme / g_idle_add.
-// They are marshalled as plain function pointers (IntPtr), so every instance handed to native code
-// MUST be kept alive (a field) for as long as native may call it, or the GC will collect it and the
-// call will crash. All use the C calling convention (cdecl) that GLib/GTK/WebKit export.
+// Native callback signatures for g_signal_connect_data / register-scheme / g_idle_add. Marshalled as plain
+// function pointers, so every instance handed to native code MUST be kept alive (a field) while native may
+// call it, or the GC collects it and the call crashes. All cdecl, matching GLib/GTK/WebKit.
 
 /// <summary>GLib <c>GSourceFunc</c>: a one-shot/idle callback returning a gboolean (0 = remove the source).</summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

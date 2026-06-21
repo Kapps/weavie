@@ -5,8 +5,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies the editor-state store and the <c>active-editor-changed</c> message parsing that feeds it:
-/// the file-URI → native-path conversion, 0-based selection parsing, and the Changed notification.
+/// Editor-state store and the <c>active-editor-changed</c> parsing that feeds it: file-URI → native-path
+/// conversion, selection parsing, and the Changed notification.
 /// </summary>
 public sealed class EditorStoreTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;

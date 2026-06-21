@@ -1,5 +1,5 @@
-// Debug-only — intercepts the dev-server error page's action links. Release has no dev server, so it's
-// compiled out to stay dead-code-free under the zero-warning gate.
+// Debug-only — intercepts the dev-server error page's action links. Compiled out in Release (no dev server),
+// to stay dead-code-free under the zero-warning gate.
 #if DEBUG
 using Weavie.Hosting.Web;
 using WebKit;
@@ -9,7 +9,7 @@ namespace Weavie.Mac.Hosting;
 /// <summary>
 /// A <see cref="WKNavigationDelegate"/> that cancels the dev-server error page's <c>weavie-dev://</c> action
 /// links and invokes the matching host handler (Retry / Load stale bundle), allowing every other navigation
-/// through. Mirrors the Win host's <c>NavigationStarting</c> interception.
+/// through.
 /// </summary>
 internal sealed class DevLinkNavigationDelegate : WKNavigationDelegate {
 	private readonly Action _onRetry;

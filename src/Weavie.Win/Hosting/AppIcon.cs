@@ -1,9 +1,8 @@
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// The app/window icon (the weavie mark), loaded once from the embedded multi-size <c>weavie.ico</c> and
-/// shared by every window for its taskbar / Alt-Tab / title-bar icon. The same <c>.ico</c> is the exe icon
-/// via the csproj <c>&lt;ApplicationIcon&gt;</c>.
+/// The app/window icon, loaded once from the embedded <c>weavie.ico</c> and shared by every window for its
+/// taskbar / Alt-Tab / title-bar icon. The same <c>.ico</c> is the exe icon via csproj <c>&lt;ApplicationIcon&gt;</c>.
 /// </summary>
 internal static class AppIcon {
 	private static readonly Lazy<Icon?> LazyIcon = new(Load);

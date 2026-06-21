@@ -13,9 +13,9 @@ public enum SplitDirection {
 }
 
 /// <summary>
-/// A node in the recursive window layout tree: either a <see cref="SplitNode"/> (an oriented, weighted
-/// row/column of children) or a leaf <see cref="PaneNode"/> (one surface). Serialized polymorphically
-/// with a <c>"type"</c> discriminator so the web layer and Claude see the same shape.
+/// A node in the recursive window layout tree: a <see cref="SplitNode"/> (oriented, weighted row/column)
+/// or a leaf <see cref="PaneNode"/> (one surface). Serialized polymorphically with a <c>"type"</c>
+/// discriminator so the web layer and Claude see the same shape.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "type")]
 [JsonDerivedType(typeof(SplitNode), "split")]
@@ -65,10 +65,10 @@ public sealed record WindowState {
 /// The persisted window-layout document (<c>~/.weavie/layout.json</c>): the pane <see cref="Root"/>
 /// tree, the focused pane, compatibility bookkeeping (<see cref="SeenPaneLevel"/>,
 /// <see cref="Dismissed"/>), and host-owned <see cref="Window"/> geometry. Unknown top-level fields
-/// (e.g. written by a newer build) round-trip via <see cref="Extra"/>.
+/// round-trip via <see cref="Extra"/>.
 /// </summary>
 public sealed record LayoutDocument {
-	/// <summary>Envelope version — the migration escape hatch reserved for genuine structural reshapes.</summary>
+	/// <summary>Envelope version — the migration escape hatch for genuine structural reshapes.</summary>
 	public int Version { get; init; } = 1;
 
 	/// <summary>Highest pane epoch (<see cref="PaneDefinition.IntroducedIn"/>) this user has been shown.</summary>

@@ -4,9 +4,9 @@ namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// The Windows native file dialogs <see cref="HostCore"/> needs: the <c>.vsix</c> open picker (install theme
-/// from file) and the Save-As picker (naming an untitled scratch buffer), shown modally over the owner window
-/// (WinForms <see cref="OpenFileDialog"/> / <see cref="SaveFileDialog"/>). The dialogs are marshaled onto the
-/// owner's UI thread when invoked off it (the theme picker is reached from the command dispatcher's thread).
+/// from file) and the Save-As picker (naming an untitled scratch buffer), shown modally over the owner window.
+/// Marshaled onto the owner's UI thread when invoked off it (the theme picker is reached from the command
+/// dispatcher's thread).
 /// </summary>
 internal sealed class WinDialogs : IHostDialogs {
 	private readonly Form _owner;

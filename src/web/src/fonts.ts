@@ -1,10 +1,8 @@
-// Typography for the two text surfaces (the Monaco editor and the xterm terminal). The C# host owns
-// the source of truth — global `font.*` settings with per-surface `editor.font.*` / `terminal.font.*`
-// overrides — resolves them to concrete values, and delivers them two ways:
-//   1. injected as `window.__WEAVIE_FONTS__` before navigation, so both surfaces mount at the right
-//      font with no default-font flash (read synchronously at creation time);
-//   2. re-pushed as a { type: "fonts" } bridge message whenever a font setting changes (ApplyMode.Live).
-// Consumers read currentFonts() at creation and subscribe via onFontsChanged() to apply live updates.
+// Typography for the two text surfaces (the Monaco editor and the xterm terminal). The C# host owns the
+// source of truth (global `font.*` settings with per-surface overrides) and delivers resolved values two
+// ways: injected as `window.__WEAVIE_FONTS__` before navigation (so surfaces mount at the right font with
+// no flash), and re-pushed as a { type: "fonts" } message on change. Consumers read currentFonts() at
+// creation and subscribe via onFontsChanged() for live updates.
 
 import { type FontSpec, hostInjected, onHostMessage } from "./bridge";
 
@@ -23,9 +21,8 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (no host injection). Used only under `pnpm run dev`; in the shipped app the
-// host always injects __WEAVIE_FONTS__ and a missing value throws (see hostInjected). Mirrors the host's
-// defaults: one cross-platform monospace stack, size 13, weight normal — both surfaces inherit the global.
+// Plain-browser dev fallback (no host injection); in the shipped app a missing value throws (see
+// hostInjected). Mirrors the host's defaults: one cross-platform monospace stack, size 13, weight normal.
 const DEFAULT_SPEC: FontSpec = {
   family: 'ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace',
   size: 13,
@@ -51,8 +48,8 @@ export function onFontsChanged(handler: (config: FontConfig) => void): () => voi
   };
 }
 
-// A single, permanent bridge listener fans every host font push out to all subscribers. Registered
-// once at module load; the editor/terminal subscribe through onFontsChanged rather than the bridge.
+// A single permanent bridge listener (registered once at module load) fans every host font push out to all
+// subscribers; the editor/terminal subscribe through onFontsChanged rather than the bridge.
 onHostMessage((message) => {
   if (message.type === "fonts") {
     current = { editor: message.editor, terminal: message.terminal };

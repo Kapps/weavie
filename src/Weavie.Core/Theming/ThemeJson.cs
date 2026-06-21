@@ -8,21 +8,19 @@ namespace Weavie.Core.Theming;
 
 /// <summary>
 /// Builds the theme payload the host injects (<c>window.__WEAVIE_THEME__</c>) and pushes
-/// (<c>{ "type": "theme" }</c>) to the web — the theming analogue of <see cref="FontSettings"/>.BuildJson.
-/// Appearance is decoupled into a mode + a theme per polarity, so the payload carries BOTH themes: shape
-/// (matches the web controller + bridge) is <c>{ mode, light: Slot, dark: Slot }</c> where each
+/// (<c>{ "type": "theme" }</c>) to the web. Shape is <c>{ mode, light: Slot, dark: Slot }</c> where each
 /// <c>Slot</c> is <c>{ id, ops, theme? }</c> — the selected theme id, its ordered override stack, and the
-/// merged VS Code theme JSON (present only for INSTALLED themes; built-ins like <c>weavie-dark</c> ship in
-/// the web bundle, so only their id is sent). The web resolves <c>system</c> against the live OS setting and
-/// renders the matching slot — shipping both makes a light↔dark switch instant and flash-free. Written with
-/// <see cref="Utf8JsonWriter"/> for trim/AOT safety (the macOS host can't use reflection-based serialization).
+/// merged VS Code theme JSON (present only for installed themes; built-ins ship in the web bundle, so only
+/// their id is sent). Carrying both polarities lets the web resolve <c>system</c> against the live OS
+/// setting and switch light↔dark instantly without a flash. Written with <see cref="Utf8JsonWriter"/> for
+/// trim/AOT safety (no reflection-based serialization).
 /// </summary>
 public static class ThemeJson {
 	/// <summary>
 	/// Builds the theme payload as a JSON string. With <paramref name="messageType"/> null it's the bare
 	/// object for injection; non-null adds a <c>"type"</c> field for a bridge push. A failure to load a
-	/// selected installed theme is logged via <paramref name="log"/> (observable, never silent) and that
-	/// slot's <c>theme</c> field is omitted, so the web falls back to the built-in default rather than a blank UI.
+	/// selected installed theme is logged via <paramref name="log"/> and that slot's <c>theme</c> field is
+	/// omitted, so the web falls back to the built-in default rather than a blank UI.
 	/// </summary>
 	public static string Build(
 		SettingsStore settings,
@@ -49,7 +47,7 @@ public static class ThemeJson {
 		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
-	// Writes one polarity slot: { id, ops, theme? }. The theme JSON is shipped only for installed themes.
+	// Writes one polarity slot: { id, ops, theme? }. Theme JSON is shipped only for installed themes.
 	private static void WriteSlot(
 		Utf8JsonWriter writer, string name, string id, ThemeOverridesStore overrides, Action<string>? log) {
 		writer.WritePropertyName(name);
@@ -66,9 +64,8 @@ public static class ThemeJson {
 		writer.WriteEndObject();
 	}
 
-	// Serializes the override op list to exactly the web's OverrideOp shape (kind-discriminated), by hand so
-	// no reflection-based serializer is needed (trim/AOT safety, matching the rest of this class). Shared
-	// with the MCP describeTheme tool.
+	// Serializes the override op list to the web's OverrideOp shape (kind-discriminated), by hand for
+	// trim/AOT safety. Shared with the MCP describeTheme tool.
 	internal static void WriteOps(Utf8JsonWriter writer, IReadOnlyList<ThemeOverrideOp> ops) {
 		writer.WriteStartArray();
 		foreach (var op in ops) {
@@ -108,8 +105,7 @@ public static class ThemeJson {
 	}
 
 	private static JsonObject? ResolveInstalledThemeJson(string id, Action<string>? log) {
-		// Built-ins ship in the web bundle (the controller resolves them by id); only installed themes need
-		// their JSON shipped over. Not in the index ⇒ a built-in ⇒ id alone is enough.
+		// Only installed themes need their JSON shipped; not in the index ⇒ a built-in, where id alone suffices.
 		var installed = OpenVsxThemeInstaller.ListInstalled().FirstOrDefault(t => t.Id == id);
 		if (installed is null) {
 			return null;

@@ -6,18 +6,16 @@ namespace Weavie.Core.Editor;
 /// Owns a workspace's scratch (untitled-buffer) directory — <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>
 /// (see <see cref="WeaviePaths.WorkspaceScratchDir"/>). A scratch file is a real file on disk so it reuses the
 /// whole editor pipeline (a <c>file://</c> working copy that autosaves, restores across relaunch, and carries
-/// view state) — but it lives <em>outside</em> the workspace, so it never appears in the file tree, the index,
-/// git, or Claude's view. <see cref="FileProviderService"/> is told this directory as a second allowed root so
-/// the editor can read/write these buffers. The host creates one on <c>Ctrl+N</c>, deletes it when the user
-/// discards the tab or saves the buffer under a real name, and garbage-collects orphans on launch.
+/// view state), but it lives <em>outside</em> the workspace, so it never appears in the file tree, the index,
+/// git, or Claude's view. <see cref="FileProviderService"/> treats this directory as a second allowed root.
+/// The host creates one on <c>Ctrl+N</c>, deletes it when the tab is discarded or saved under a real name,
+/// and garbage-collects orphans on launch.
 /// </summary>
 public sealed class ScratchStore {
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
 
 	/// <summary>Creates a store over <paramref name="directory"/> (the workspace's scratch folder).</summary>
-	/// <param name="fileSystem">The session filesystem the scratch files live on.</param>
-	/// <param name="directory">The absolute scratch directory path.</param>
 	public ScratchStore(IFileSystem fileSystem, string directory) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentException.ThrowIfNullOrEmpty(directory);
@@ -29,9 +27,9 @@ public sealed class ScratchStore {
 	public string Directory { get; }
 
 	/// <summary>
-	/// Allocates and creates the next empty scratch file — <c>Untitled-1</c>, <c>Untitled-2</c>, … — picking
-	/// the lowest number not already present on disk, and returns its absolute path. Extensionless so the
-	/// editor defaults it to plain text; the user picks a real extension on save.
+	/// Creates the next empty scratch file — <c>Untitled-1</c>, <c>Untitled-2</c>, … — using the lowest number
+	/// not already on disk, and returns its absolute path. Extensionless so the editor defaults it to plain
+	/// text; the user picks a real extension on save.
 	/// </summary>
 	public string CreateNew() {
 		lock (_gate) {
@@ -46,14 +44,12 @@ public sealed class ScratchStore {
 	}
 
 	/// <summary>True when <paramref name="path"/> resolves inside this store's scratch directory.</summary>
-	/// <param name="path">A candidate absolute path.</param>
 	public bool Owns(string path) => BufferStore.IsWithinWorkspace(Directory, path);
 
 	/// <summary>
-	/// Deletes a scratch file (the user discarded its tab, or saved it under a real name). Refuses paths
-	/// outside the scratch directory; a missing file is a no-op. Returns whether anything was deleted.
+	/// Deletes a scratch file. Refuses paths outside the scratch directory; a missing file is a no-op. Returns
+	/// whether anything was deleted.
 	/// </summary>
-	/// <param name="path">The scratch file to delete.</param>
 	public bool Delete(string path) {
 		if (!Owns(path) || !_fileSystem.FileExists(path)) {
 			return false;
@@ -64,9 +60,8 @@ public sealed class ScratchStore {
 	}
 
 	/// <summary>
-	/// Deletes scratch files not referenced by <paramref name="keep"/> (the paths still open in the restored
-	/// editor session). Run on launch so a buffer orphaned by a crash or a reset session doesn't linger.
-	/// Returns the number removed.
+	/// Deletes scratch files not in <paramref name="keep"/>. Run on launch so a buffer orphaned by a crash or
+	/// reset session doesn't linger. Returns the number removed.
 	/// </summary>
 	/// <param name="keep">Absolute paths to retain (the session's open files).</param>
 	public int GarbageCollect(IEnumerable<string> keep) {

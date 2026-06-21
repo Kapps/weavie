@@ -1,20 +1,16 @@
 import { createSignal } from "solid-js";
 
-// Per-file "unsaved changes" (dirty) state for the open working copies, surfaced as the tab strip's `*`
-// marker. Purely a local UI concern: it is NEVER persisted or sent to the host — disk is the source of truth
-// and autosave keeps it current, so this only reflects the brief window between an edit and its debounced
-// (and possibly error-gated) flush. A TOP-LEVEL module signal so it survives a Vite hot reload like the
-// session store (the rebuilt editor host re-subscribes to the text-file service and re-seeds it); it must be
-// imported at top level (App.tsx → TabStrip) so it isn't reloaded with the dynamic editor chunk.
-//
-// Keyed by canonical fs-path (see fs-path.ts) so a lookup from a tab entry (`canonicalFsPath(tab.path)`)
-// matches what the host records (`model.uri.fsPath`), regardless of Windows drive-letter casing.
+// Per-file "unsaved changes" (dirty) state for open working copies, surfaced as the tab strip's `*` marker.
+// Local UI only — never persisted or sent to the host; reflects the window between an edit and its debounced
+// flush. A top-level module signal so it survives Vite hot reload and isn't bundled into the dynamic editor
+// chunk. Keyed by canonical fs-path (see fs-path.ts) so tab lookups match what the host records regardless of
+// Windows drive-letter casing.
 const [dirty, setDirty] = createSignal<ReadonlySet<string>>(new Set());
 
-/// The set of canonical fs-paths whose working copy currently has unsaved changes (reactive).
+/// The set of canonical fs-paths whose working copy has unsaved changes (reactive).
 export const dirtyPaths = dirty;
 
-/// Marks `path` dirty or clean. Replaces the set only on a real change, so readers don't re-run for no-ops.
+/// Marks `path` dirty or clean. Replaces the set only on a real change to avoid no-op re-renders.
 export function setDirtyPath(path: string, isDirty: boolean): void {
   const current = dirty();
   if (isDirty === current.has(path)) {

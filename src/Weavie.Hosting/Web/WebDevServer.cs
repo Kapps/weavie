@@ -11,19 +11,18 @@ namespace Weavie.Hosting.Web;
 
 /// <summary>
 /// Owns the Vite dev server for hot-module reload during Debug runs, shared by every desktop host. Each instance
-/// binds its <em>own</em> free port (picked once, then held for the instance's lifetime) and spawns Vite there
-/// with <c>--strictPort</c>, so several worktrees / Debug instances run side by side without cross-talk — unlike
-/// the old fixed-5173 server, where a second instance silently reused the first's server (serving the wrong
-/// worktree's build over the wrong HMR socket). The caller points its WebView at <see cref="Origin"/>.
+/// binds its own free port (picked once, then held for the instance's lifetime) and spawns Vite there with
+/// <c>--strictPort</c>, so several worktrees / Debug instances run side by side without cross-talk. The caller
+/// points its WebView at <see cref="Origin"/>.
 ///
 /// <para>The Vite process is kept alive by a <see cref="ProcessSupervisor"/> (policy <see cref="RestartPolicy.Always"/>):
-/// a mid-session crash is relaunched on the <em>same</em> port, so the WebView's origin stays valid and its HMR
-/// client simply reconnects. Graceful teardown happens on <see cref="Dispose"/>; the host's kill-on-close Job
-/// Object is the OS backstop that reaps the tree even on a hard kill where no managed code runs.</para>
+/// a mid-session crash is relaunched on the same port, so the WebView's origin stays valid and its HMR client
+/// reconnects. Graceful teardown happens on <see cref="Dispose"/>; the host's kill-on-close Job Object is the
+/// OS backstop that reaps the tree even on a hard kill where no managed code runs.</para>
 ///
 /// <para><see cref="StartAsync"/> returns <c>null</c> when the source dir is missing or the server never serves,
-/// recording the reason in <see cref="LastFailure"/> so the caller can show the developer <em>why</em> rather
-/// than silently degrading to a stale bundle.</para>
+/// recording the reason in <see cref="LastFailure"/> so the caller can show the developer why rather than
+/// silently degrading to a stale bundle.</para>
 /// </summary>
 public sealed class WebDevServer : IDisposable {
 	private const int RecentCap = 40;
@@ -77,8 +76,8 @@ public sealed class WebDevServer : IDisposable {
 		}
 
 		// Pick a free port once and keep it for the instance's lifetime: every supervised restart reuses it, so a
-		// mid-session Vite crash doesn't invalidate the WebView's origin. A per-instance port (vs. a shared 5173)
-		// is what lets multiple worktrees run at the same time without the old cross-talk.
+		// mid-session Vite crash doesn't invalidate the WebView's origin. A per-instance port lets multiple
+		// worktrees run at the same time without cross-talk.
 		if (_port == 0) {
 			_port = PickFreePort();
 			Origin = $"http://localhost:{_port}";

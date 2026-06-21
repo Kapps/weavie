@@ -10,10 +10,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Drives the layout MCP tools (<c>getLayout</c>/<c>setLayout</c>) end to end over a real loopback
-/// WebSocket on the registry-mode server — the same surface the embedded <c>claude</c> reaches as
-/// <c>mcp__weavie__*</c> — proving the path that backs <em>"split my view into left terminal, right
-/// editor"</em> without the live CLI.
+/// Drives the layout MCP tools (<c>getLayout</c>/<c>setLayout</c>) over a loopback WebSocket on the
+/// registry-mode server — the surface the embedded <c>claude</c> reaches as <c>mcp__weavie__*</c> —
+/// covering the path that backs <em>"split my view into left terminal, right editor"</em>.
 /// </summary>
 public sealed class McpLayoutToolsTests : IDisposable {
 	private const string Token = "0123456789abcdef0123456789abcdef";
@@ -51,8 +50,8 @@ public sealed class McpLayoutToolsTests : IDisposable {
 			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
 		Assert.Contains("getLayout", names);
 		Assert.Contains("setLayout", names);
-		Assert.Contains("setSetting", names); // settings tools are still advertised alongside
-		Assert.DoesNotContain("openDiff", names); // registry mode omits the IDE tools
+		Assert.Contains("setSetting", names); // settings tools advertised alongside
+		Assert.DoesNotContain("openDiff", names); // registry mode omits IDE tools
 	}
 
 	[Fact]
@@ -90,7 +89,7 @@ public sealed class McpLayoutToolsTests : IDisposable {
 		Assert.False(result.TryGetProperty("isError", out var err) && err.GetBoolean());
 		Assert.Equal("p_editor", layout.Current.Focused);
 
-		// Persisted to the same filesystem: a reload sees the change.
+		// Persisted: a reload from the same filesystem sees the change.
 		var reloaded = new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json");
 		Assert.Equal("p_editor", reloaded.Current.Focused);
 	}

@@ -4,9 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises the forward/backward-compatibility core: pruning removed kinds, injecting a
-/// newly-introduced default exactly once, respecting explicit dismissals, weight normalization, focus
-/// repair, and idempotency.
+/// Forward/backward-compatibility core: prune removed kinds, inject a newly-introduced default once,
+/// respect dismissals, normalize weights, repair focus, and stay idempotent.
 /// </summary>
 public sealed class LayoutReconcilerTests {
 	private static PaneRegistry BaseRegistry() => LayoutPanes.CreateRegistry();
@@ -64,7 +63,7 @@ public sealed class LayoutReconcilerTests {
 		Assert.Equal(2, outcome.Document.SeenPaneLevel);
 		Assert.Contains("fileTree", KindsOf(outcome.Document.Root));
 
-		// Already seen + present: reconciling again changes nothing.
+		// Already seen + present: reconciling again is a no-op.
 		var again = LayoutReconciler.Reconcile(outcome.Document, registry);
 		Assert.False(again.Mutated);
 	}

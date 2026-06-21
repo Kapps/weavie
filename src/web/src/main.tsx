@@ -27,8 +27,8 @@ window.addEventListener("unhandledrejection", (e) => {
 
 postToHost({ type: "ready" });
 
-// Render the shell immediately. The Monaco editor and its VSCode service layer load as a separate
-// chunk from inside App (see editor-host), so first paint no longer waits on the multi-megabyte editor
-// code to download, parse, and initialize. The splash stays up (see splash.ts) and App fades it out
-// once the editor is ready, so the user gets a single dark → app reveal rather than a placeholder relay.
+// Render the shell immediately. The Monaco editor and its VSCode service layer load as a separate chunk
+// from inside App (see editor-host), so first paint doesn't wait on the multi-megabyte editor code to
+// download and initialize. The splash stays up (see splash.ts) until App dismisses it once the editor is
+// ready, giving the user a single dark → app reveal.
 render(() => <App />, root);

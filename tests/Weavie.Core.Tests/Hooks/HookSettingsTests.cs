@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>The <c>--settings</c> JSON: a hooks block routing PermissionRequest (the permission gate, every tool) and the edit tools' PreToolUse/PostToolUse (change tracking) to the standalone relay binary.</summary>
+/// <summary>The <c>--settings</c> JSON routes PermissionRequest (gate, every tool) and the edit tools' PreToolUse/PostToolUse (change tracking) to the relay binary.</summary>
 public sealed class HookSettingsTests {
 	private const string RelayPath = @"C:\app\weavie-hook-relay.exe";
 
@@ -13,12 +13,11 @@ public sealed class HookSettingsTests {
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var hooks = doc.RootElement.GetProperty("hooks");
 
-		// The permission gate matches EVERY tool so claude.allowAllTools can bypass any tool that would prompt;
-		// it fires only on a real prompt, so auto-allowed tools cost nothing.
+		// The gate matches every tool so claude.allowAllTools can bypass anything that would prompt.
 		Assert.Equal("*", HookSettings.PermissionMatcher);
 		Assert.Equal(HookSettings.PermissionMatcher, hooks.GetProperty("PermissionRequest")[0].GetProperty("matcher").GetString());
 
-		// Pre/PostToolUse are observation-only (change tracking), scoped to the edit tools.
+		// Pre/PostToolUse are observation-only, scoped to the edit tools.
 		Assert.DoesNotContain("Bash", HookSettings.ObserveMatcher, StringComparison.Ordinal);
 		foreach (string eventName in new[] { "PreToolUse", "PostToolUse" }) {
 			Assert.Equal(HookSettings.ObserveMatcher, hooks.GetProperty(eventName)[0].GetProperty("matcher").GetString());
@@ -30,7 +29,7 @@ public sealed class HookSettingsTests {
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var hooks = doc.RootElement.GetProperty("hooks");
 
-		// Every hook runs the standalone relay binary directly — no host, no --hook-relay flag, no fork.
+		// Every hook runs the relay binary directly, with no --hook-relay flag.
 		foreach (string eventName in new[] { "PreToolUse", "PostToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "Notification", "SessionStart" }) {
 			string command = hooks.GetProperty(eventName)[0].GetProperty("hooks")[0].GetProperty("command").GetString()!;
 			Assert.Equal("\"" + RelayPath + "\"", command);
@@ -40,8 +39,8 @@ public sealed class HookSettingsTests {
 
 	[Fact]
 	public void BuildJson_RegistersSessionStartScopedToClear() {
-		// SessionStart matches on its source, so the "clear" matcher relays only /clear (not startup/resume/
-		// compact) — the event that lets the resume store drop its now-stale id.
+		// The "clear" matcher relays only /clear (not startup/resume/compact), letting the resume store
+		// drop its stale id.
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var group = doc.RootElement.GetProperty("hooks").GetProperty("SessionStart")[0];
 

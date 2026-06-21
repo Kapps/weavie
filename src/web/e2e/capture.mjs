@@ -1,14 +1,12 @@
 // One-command visual capture: builds the headless host, launches it against the repo workspace, drives the
-// REAL app in headless Chromium, and records a .webm — so any change can be demonstrated in a browser with
-// no native shell. `pnpm run capture` builds the web first (see package.json), then runs this, which builds
-// Weavie.Headless (copying the fresh dist into its wwwroot) and records. Build-then-record by construction,
-// so the clip is never stale.
+// real app in headless Chromium, and records a .webm. `pnpm run capture` builds the web first (see
+// package.json), then runs this, which builds Weavie.Headless (copying the fresh dist into its wwwroot) and
+// records — so the clip is never stale.
 //
-// PER CHANGE: do NOT edit the tour in this file — it's the committed frame of reference and should stay
-// frozen. Instead drop a `tour.local.mjs` next to this file (gitignored) that exports
-// `async function tour(page)`; capture picks it up automatically and falls back to defaultTour() below when
-// it's absent. The recording must SHOW the feature/fix in action, not just the app booting. The .webm lands
-// in e2e/.recordings/ (gitignored); share that file in your reply.
+// PER CHANGE: don't edit the tour here — it's the committed frame of reference and stays frozen. Drop a
+// gitignored `tour.local.mjs` next to this file exporting `async function tour(page)`; capture picks it up
+// automatically and falls back to defaultTour() below when absent. The recording must SHOW the feature/fix
+// in action. The .webm lands in e2e/.recordings/ (gitignored); share it in your reply.
 
 import { spawn } from "node:child_process";
 import { mkdirSync } from "node:fs";
@@ -35,9 +33,9 @@ const workspace = process.env.WEAVIE_CAPTURE_WORKSPACE ?? repoRoot;
 const viewport = { width: 1280, height: 800 };
 
 // ── DEFAULT TOUR (frame of reference — do not customize here) ────────────────────────────────────────────
-// A generic, change-agnostic flow: wait out the splash and record the settled app in dark mode. To
-// demonstrate a specific feature/fix, export your own `tour(page)` from a gitignored `tour.local.mjs` (see
-// loadTour() below) instead of editing this — keeping the committed reference frozen.
+// Change-agnostic flow: wait out the splash and record the settled app in dark mode. To demonstrate a
+// specific feature/fix, export your own `tour(page)` from a gitignored `tour.local.mjs` (see loadTour())
+// rather than editing this.
 async function defaultTour(page) {
   const settle = (ms) => page.waitForTimeout(ms);
 
@@ -48,12 +46,12 @@ async function defaultTour(page) {
     .catch(() => {});
   await settle(1200);
 
-  // Record in DARK (the appearance mode defaults to `system`, resolved from the OS `prefers-color-scheme`).
+  // Record in dark mode (appearance defaults to `system`, resolved from `prefers-color-scheme`).
   await page.emulateMedia({ colorScheme: "dark" });
   await settle(2500);
 }
 
-// Prefer a local, gitignored override so per-change tours are never committed; fall back to the default.
+// Prefer a gitignored override so per-change tours are never committed; fall back to the default.
 async function loadTour() {
   try {
     const mod = await import("./tour.local.mjs");

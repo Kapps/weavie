@@ -7,10 +7,9 @@ using Weavie.Linux.Native;
 namespace Weavie.Linux.Hosting;
 
 /// <summary>
-/// The GTK + WebKitGTK platform shell: the WebKitGTK bridge, the GLib-main-loop UI marshal
-/// (<see cref="GtkMain.Invoke"/>), and POSIX PTYs. The GTK window provides native chrome, so there's no
-/// web title bar, no global hotkeys, and no native file dialogs wired yet — those optional capabilities are
-/// <c>null</c> and <see cref="HostCore"/> degrades them to no-ops.
+/// The GTK + WebKitGTK platform shell: the bridge, the GLib-main-loop UI marshal
+/// (<see cref="GtkMain.Invoke"/>), and POSIX PTYs. The GTK window provides native chrome; unwired optional
+/// capabilities (title bar, hotkeys, dialogs) are <c>null</c> and <see cref="HostCore"/> degrades them to no-ops.
 /// </summary>
 internal sealed class LinuxPlatform : IHostPlatform {
 	private readonly RecentWorkspaces _recents;
@@ -32,7 +31,7 @@ internal sealed class LinuxPlatform : IHostPlatform {
 
 	public string ChromePlatform => "linux";
 
-	// Native GTK window decorations, so the web renders no custom title bar.
+	// Native GTK decorations, so the web renders no custom title bar.
 	public string? TitleBar => null;
 
 	public IReadOnlyList<string> Recents => _recents.Items;
@@ -44,6 +43,6 @@ internal sealed class LinuxPlatform : IHostPlatform {
 	public IHostDialogs? Dialogs => null;
 
 	public void ToggleWindow() {
-		// No global hotkey / toggle wired on the GTK host yet.
+		// No window toggle on the GTK host.
 	}
 }

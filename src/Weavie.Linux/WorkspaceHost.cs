@@ -10,10 +10,9 @@ using LayoutGeometry = Weavie.Core.Layout.WindowState;
 namespace Weavie.Linux;
 
 /// <summary>
-/// The GTK + WebKitGTK application host: a thin shell over <see cref="HostCore"/>. It owns only the native
-/// window, the WebKitGTK view + <c>app://</c> scheme handler, the GLib-main-loop bridge, and window geometry;
-/// everything else (the Core graph, the session set, the web-message dispatch) lives in the shared core. The
-/// Linux counterpart of the macOS / Windows shells.
+/// The GTK + WebKitGTK application host: a thin shell over <see cref="HostCore"/>. Owns only the native window,
+/// the WebKitGTK view + <c>app://</c> scheme handler, the GLib-main-loop bridge, and window geometry; everything
+/// else (Core graph, sessions, web-message dispatch) lives in the shared core.
 /// </summary>
 internal sealed class WorkspaceHost {
 	private readonly HostBridge _bridge = new();
@@ -25,14 +24,13 @@ internal sealed class WorkspaceHost {
 	private IntPtr _window;
 	private IntPtr _webView;
 	private IntPtr _contentManager;
-	// Kept alive for the lifetime of the host: native holds a bare function pointer to this.
+	// Kept alive: native holds a bare function pointer to this.
 	private WidgetCallback? _onDestroy;
 
 	/// <summary>
-	/// Builds the window and WebKit view, registers the <c>app://</c> scheme handler and the <c>weavie</c>
-	/// script-message bridge, builds the shared core (terminals + IDE-MCP + LSP + sessions), injects the
-	/// bootstrap globals, restores the saved geometry, and loads the web app. Must be called on the GTK main
-	/// thread (after <c>gtk_init</c>, before <c>gtk_main</c>).
+	/// Builds the window and WebKit view, registers the <c>app://</c> scheme handler and <c>weavie</c>
+	/// script-message bridge, builds the shared core, injects bootstrap globals, restores saved geometry, and
+	/// loads the web app. Must run on the GTK main thread (after <c>gtk_init</c>, before <c>gtk_main</c>).
 	/// </summary>
 	internal void Start() {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
@@ -45,13 +43,13 @@ internal sealed class WorkspaceHost {
 		recents.Add(workspace);
 		_core = new HostCore(new LinuxPlatform(_bridge, recents), _services, workspace);
 
-		// Startup geometry via the shared placement policy. Linux can't enumerate monitor work-areas yet (no GDK
-		// binding), so the on-screen guard is inert here — saved bounds are trusted as before — until those rects
-		// are wired through; passing a non-empty screen list to Resolve activates the guard with no other change.
+		// Startup geometry via the shared placement policy. Linux can't enumerate monitor work-areas (no GDK
+		// binding), so the on-screen guard is inert — saved bounds are trusted. Passing a non-empty screen list
+		// to Resolve activates the guard with no other change.
 		var placement = WindowPlacement.Resolve(_core.SavedWindow, [], 1280, 840);
 
-		// Custom app:// scheme on the default web context, the script-message bridge on a fresh user-content
-		// manager, then the view bound to that manager.
+		// app:// scheme on the default web context, the script-message bridge on a fresh user-content manager,
+		// then the view bound to that manager.
 		_scheme = new AppSchemeHandler(wwwroot);
 		_scheme.Register(WebKit.webkit_web_context_get_default());
 		_contentManager = WebKit.webkit_user_content_manager_new();
@@ -60,16 +58,15 @@ internal sealed class WorkspaceHost {
 		_bridge.Attach(_webView);
 		WebKit.webkit_settings_set_enable_developer_extras(WebKit.webkit_web_view_get_settings(_webView), true);
 
-		// Build the live backend (sessions / IDE-MCP / LSP) and wire the bridge. Synchronous on the GTK main
-		// thread at startup, before gtk_main: StartAsync does I/O (git) but touches nothing GTK-affine, and
-		// the bridge marshals its own posts onto the main loop.
+		// Build the live backend (sessions / IDE-MCP / LSP) and wire the bridge. Run synchronously before
+		// gtk_main: StartAsync does I/O (git) but touches nothing GTK-affine, and the bridge marshals its own
+		// posts onto the main loop.
 		_core.StartAsync("app://app").GetAwaiter().GetResult();
 
-		// Inject the bootstrap globals (fonts / editor / theme / lsp / commands / keybindings / shell) before
-		// navigation so both surfaces mount at the user's settings with no flash.
+		// Inject bootstrap globals before navigation so both surfaces mount at the user's settings with no flash.
 		InjectAtDocumentStart(_core.BuildBootstrap());
 
-		// Window: a single top-level holding the web view, restored to the saved geometry.
+		// A single top-level window holding the web view, restored to the saved geometry.
 		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
 		Gtk.gtk_window_set_title(_window, "weavie");
 		Gtk.gtk_window_set_default_size(_window, placement.Width, placement.Height);
@@ -89,7 +86,7 @@ internal sealed class WorkspaceHost {
 		WebKit.webkit_web_view_load_uri(_webView, "app://app/index.html");
 	}
 
-	/// <summary>Persists geometry, tears down the core (terminals + IDE-MCP), and disposes the app stores; called after the main loop exits.</summary>
+	/// <summary>Persists geometry, tears down the core, and disposes the app stores; called after the main loop exits.</summary>
 	internal void Shutdown() {
 		SaveWindowState();
 		_core?.DisposeAsync().AsTask().GetAwaiter().GetResult();

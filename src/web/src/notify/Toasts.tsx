@@ -11,9 +11,8 @@ export interface Toast {
 const AUTO_DISMISS_MS = 6000;
 
 /**
- * Toast list state + helpers: add and manual dismiss. Errors persist until the user closes them — a
- * failure must not scroll past unseen — while warn/info auto-dismiss after a few seconds so transient
- * status doesn't pile up. Each pending auto-dismiss timer is tracked by id so a manual dismiss cancels it.
+ * Toast list state + add/dismiss helpers. Errors persist until dismissed (a failure must not scroll past
+ * unseen); warn/info auto-dismiss. Each pending timer is tracked by id so a manual dismiss cancels it.
  */
 export function createToasts(): {
   toasts: () => Toast[];
@@ -44,9 +43,9 @@ export function createToasts(): {
   return { toasts, addToast, dismissToast };
 }
 
-// A top-center stack of dismissible toasts, sitting just below the title bar where the eye lands.
-// Self-contained — no editor / layout coupling — so it can overlay any pane. Errors carry an explicit
-// close button (the only way they leave); warn/info also time out on their own (see createToasts).
+// A top-center stack of dismissible toasts below the title bar. Self-contained (no editor/layout
+// coupling) so it can overlay any pane. Every toast has a close button; warn/info also time out on
+// their own (see createToasts).
 export function Toasts(props: { toasts: Toast[]; onDismiss: (id: number) => void }): JSX.Element {
   return (
     <div class="toasts">

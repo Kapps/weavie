@@ -4,9 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies the pure parsing the Open VSX theme installer relies on (metadata → download URL/version,
-/// and a VS Code manifest → contributed themes with resolved paths). The networked install is covered
-/// by running the LSP/theme tooling against the real registry, not in these hermetic unit tests.
+/// Verifies the Open VSX installer's pure parsing: metadata → download URL/version, and a VS Code
+/// manifest → contributed themes with resolved paths. The networked install is not covered here.
 /// </summary>
 public sealed class OpenVsxThemeInstallerTests {
 	[Fact]
@@ -78,7 +77,7 @@ public sealed class OpenVsxThemeInstallerTests {
 
 	[Fact]
 	public void ParseExtensionIdentity_ThrowsWhenIncomplete() {
-		// A local .vsix install needs all three coordinates; any missing one is not a valid extension.
+		// All three coordinates are required; any missing one is not a valid extension.
 		Assert.Throws<InvalidOperationException>(() =>
 			OpenVsxThemeInstaller.ParseExtensionIdentity("""{ "name": "theme-x", "version": "1.0.0" }"""));
 		Assert.Throws<InvalidOperationException>(() =>

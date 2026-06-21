@@ -15,13 +15,11 @@ namespace Weavie.Hosting;
 
 /// <summary>
 /// The shared host core every platform shell drives — the platform-agnostic two thirds of a Weavie window.
-/// It owns one workspace's Core graph (settings/commands/keybindings/theme, the per-workspace layout + editor
+/// Owns one workspace's Core graph (settings/commands/keybindings/theme, the per-workspace layout + editor
 /// session, the session set), routes the page's web messages to the active session, and pushes state back over
 /// the bridge. Everything OS-specific is reached through an injected <see cref="IHostPlatform"/> (bridge, UI
-/// marshal, PTY launcher, and the optional window/hotkeys/dialogs); the thin per-platform shells supply only
-/// that. This is the generalization of the old per-host trio (WorkspaceWindow / AppDelegate / WorkspaceHost):
-/// each becomes a shell over one of these. Split into three partials — this file (construction, lifecycle,
-/// bootstrap), <c>HostCore.WebBridge.cs</c> (the message dispatch + Push helpers), and
+/// marshal, PTY launcher, and the optional window/hotkeys/dialogs). Split into three partials: this file
+/// (construction, lifecycle, bootstrap), <c>HostCore.WebBridge.cs</c> (message dispatch + Push helpers), and
 /// <c>HostCore.Sessions.cs</c> (the session coordinator, which implements <see cref="ISessionHost"/>).
 /// </summary>
 public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
@@ -49,7 +47,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private WorktreeManager? _worktrees;
 	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	private string _pageOrigin = string.Empty;
-	// The active session + first review file we've told the page to auto-open this idle (see ShouldOpenReview),
+	// The active session + first review file the page was told to auto-open this idle (see ShouldOpenReview),
 	// so review opens once per idle yet re-arms on a new turn or a session switch. Null = nothing armed.
 	private string? _armedReviewKey;
 
@@ -65,10 +63,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private Action<string>? _onThemeOverridesChanged;
 
 	/// <summary>
-	/// Creates the core for <paramref name="workspaceRoot"/> over the given <paramref name="platform"/> shell
-	/// and app-global <paramref name="services"/>. Builds only the cheap per-workspace stores (layout + editor
-	/// session) so the shell can read the saved window geometry before creating its window; the heavy graph
-	/// (sessions, IDE-MCP, LSP) is built by <see cref="StartAsync"/>.
+	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved
+	/// window geometry before creating its window; the heavy graph (sessions, IDE-MCP, LSP) is built by
+	/// <see cref="StartAsync"/>.
 	/// </summary>
 	public HostCore(IHostPlatform platform, HostServices services, string workspaceRoot) {
 		ArgumentNullException.ThrowIfNull(platform);
@@ -95,7 +92,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// <summary>
 	/// Raised when the page sends <c>ready</c> (its bridge listener is live), after the core has pushed its own
 	/// restore state. A shell with a web-rendered title bar subscribes to push the initial native window state
-	/// (maximize glyph + blur dim), which only it knows. Fires on the UI thread (the bridge raises there).
+	/// (maximize glyph + blur dim), which only it knows. Fires on the UI thread.
 	/// </summary>
 	public event Action? Ready;
 
@@ -120,8 +117,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// <summary>
 	/// Builds the workspace's live backend: the primary session (terminals + IDE-MCP + LSP), the session set
 	/// (with pre-existing worktrees reconciled into dormant chips), the title-bar controller + global hotkeys
-	/// when the platform supports them, and the settings/theme/keybinding/layout reaction wiring. Call once,
-	/// after the bridge is attached and <paramref name="pageOrigin"/> is resolved, before navigation.
+	/// when the platform supports them, and the settings/theme/keybinding/layout reactions. Call once, after the
+	/// bridge is attached and <paramref name="pageOrigin"/> is resolved, before navigation.
 	/// </summary>
 	public async Task StartAsync(string pageOrigin) {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
@@ -132,8 +129,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// WebSocket origin is pinned correctly. CreateSession wires its handlers + gated push subscriptions.
 		_primarySession = CreateSession(WorkspaceRoot);
 		_session = _primarySession;
-		// The active session drives the page's single editor: unmute its editor output (sessions are created
-		// muted). A switch hands this off via SwitchToSlot (deactivate previous, activate next).
+		// The active session drives the page's single editor: unmute its editor output (sessions start muted).
 		_primarySession.SetEditorOutputActive(true);
 		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
 		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
@@ -153,8 +149,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 		// Sessions: the worktree manager + slot set, the primary (always-loaded) slot, then reconcile
 		// pre-existing worktrees into dormant slots so none leak. The rail's session list is pushed on the
-		// page's `ready` message (PostToWeb before navigation no-ops). The primary's handlers + gated push
-		// subscriptions are already wired (CreateSession above).
+		// page's `ready` message (PostToWeb before navigation no-ops).
 		_worktrees = await BuildWorktreeManagerAsync().ConfigureAwait(false);
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
@@ -174,8 +169,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// The page-bootstrap script the shell injects at document-start, before navigation: the resolved fonts,
 	/// editor options, theme, LSP discovery, command catalog + keybindings, and the shell/title-bar config.
 	/// Identical content on every host (only the injection mechanism differs); the headless shell prepends its
-	/// own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/> (the LSP config comes from the
-	/// primary session).
+	/// own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
 	/// </summary>
 	public string BuildBootstrap() {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
@@ -195,7 +189,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// <summary>
 	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme
 	/// edits re-push their resolved values; a keybinding edit re-pushes the catalog; a layout change re-pushes
-	/// the document. All marshaled onto the UI thread (the change events arrive off it).
+	/// the document.
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
@@ -232,7 +226,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
 		_keybindings.KeybindingsChanged += _onKeybindingsChanged;
 
-		// Layout: when the store changes (a reconciled web edit, or a future MCP setLayout), push the canonical
+		// Layout: when the store changes (a reconciled web edit, or an MCP setLayout), push the canonical
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
 	}

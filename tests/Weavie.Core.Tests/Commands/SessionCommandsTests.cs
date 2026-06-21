@@ -5,8 +5,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="SessionCommands"/>: the declarations land in the registry with the right run
-/// location, and the Core handlers parse arguments and route to the <see cref="ISessionHost"/>.
+/// <see cref="SessionCommands"/>: declarations register with the right run location, and Core handlers
+/// parse arguments and route to the <see cref="ISessionHost"/>.
 /// </summary>
 public sealed class SessionCommandsTests {
 	[Fact]
@@ -24,7 +24,7 @@ public sealed class SessionCommandsTests {
 		Assert.Equal(CommandLocation.Core, unloadDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.DeleteSession, out var deleteDef));
 		Assert.Equal(CommandLocation.Core, deleteDef!.RunsIn);
-		// The interactive delete confirm runs in the web (it shows the dialog); the raw delete is core/MCP.
+		// The delete confirm runs in the web (shows the dialog); raw delete is core/MCP.
 		Assert.True(registry.TryGet(SessionCommands.DeleteSessionPrompt, out var deletePromptDef));
 		Assert.Equal(CommandLocation.Web, deletePromptDef!.RunsIn);
 		Assert.True(registry.TryGet(SessionCommands.NextSession, out var nextDef));
@@ -115,7 +115,7 @@ public sealed class SessionCommandsTests {
 		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"a\"}", CancellationToken.None);
 		Assert.False(host.LastDeleteForce);
 
-		// Embedded Claude sends scalars as JSON strings; "true" must coerce to a real boolean.
+		// Embedded Claude sends scalars as JSON strings; "true" must coerce to a boolean.
 		await dispatcher.InvokeAsync(SessionCommands.DeleteSession, "{\"id\":\"a\",\"force\":\"true\"}", CancellationToken.None);
 		Assert.True(host.LastDeleteForce);
 	}

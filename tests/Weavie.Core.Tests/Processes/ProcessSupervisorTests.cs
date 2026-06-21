@@ -4,9 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// The restart-policy state machine: clean exits vs crashes, exponential backoff, the healthy-run reset, the
-/// crash-loop breaker, and intentional stop/dispose — all driven through a fake clock so backoff and the
-/// crash-loop window are deterministic with no real waiting.
+/// Restart-policy state machine: clean exits vs crashes, exponential backoff, healthy-run reset, the
+/// crash-loop breaker, and intentional stop/dispose. A fake clock keeps backoff timing deterministic.
 /// </summary>
 public sealed class ProcessSupervisorTests {
 	[Fact]
@@ -75,7 +74,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(0); // clean — but Always relaunches anyway
+		h.Sup.NotifyExited(0); // Always relaunches even on clean exit
 		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
 
 		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
@@ -90,14 +89,14 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		// First crash: backoff is the initial 100ms.
+		// First crash: 100ms backoff.
 		h.Sup.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(99));
 		Assert.Equal(1, h.StartCount); // not due yet
 		h.Clock.Advance(TimeSpan.FromMilliseconds(1));
 		Assert.True(await h.WaitStartAsync());
 
-		// Second consecutive crash: backoff doubled to 200ms.
+		// Second consecutive crash: doubled to 200ms.
 		h.Sup.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(199));
 		Assert.Equal(2, h.StartCount); // 200ms not elapsed
@@ -112,16 +111,16 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		// One crash grows the consecutive count (next backoff would be 200ms)...
+		// One crash grows the consecutive count (next backoff would be 200ms).
 		h.Sup.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
 		Assert.True(await h.WaitStartAsync());
 
-		// ...but now the instance runs healthily for 2s before crashing, resetting the count.
+		// A 2s healthy run before the next crash resets the count.
 		h.Clock.Advance(TimeSpan.FromMilliseconds(2000));
 		h.Sup.NotifyExited(1);
 
-		// So the backoff is the initial 100ms again, not 200ms.
+		// Backoff is back to the initial 100ms, not 200ms.
 		h.Clock.Advance(TimeSpan.FromMilliseconds(99));
 		Assert.Equal(2, h.StartCount);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -135,7 +134,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		// Two restarts are permitted...
+		// Two restarts are permitted.
 		h.Sup.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
@@ -144,7 +143,7 @@ public sealed class ProcessSupervisorTests {
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
 
-		// ...the third crash trips the breaker instead of restarting.
+		// The third crash trips the breaker instead of restarting.
 		h.Sup.NotifyExited(1);
 
 		Assert.Equal(SupervisorState.Failed, h.Sup.State);
@@ -165,7 +164,7 @@ public sealed class ProcessSupervisorTests {
 		Assert.Equal(1, h.Stops);
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
 
-		// The kill's own exit must not be treated as a crash.
+		// The kill's exit must not count as a crash.
 		h.Sup.NotifyExited(1);
 		await Task.Delay(100);
 		Assert.Equal(1, h.StartCount);
@@ -196,7 +195,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start(); // attempt 0 throws inside the start delegate
 
 		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
-		Assert.Equal(0, h.StartCount); // the throwing launch recorded nothing
+		Assert.Equal(0, h.StartCount); // throwing launch recorded nothing
 
 		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
 

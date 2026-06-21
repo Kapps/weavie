@@ -5,9 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies the theme include-merge: a theme that <c>include</c>s another inherits its colors/tokens, with
-/// the including theme overriding colors per key and appending its token rules; no-include themes pass
-/// through unchanged; and an include cycle is detected rather than recursing forever.
+/// Verifies theme include-merge: a theme that <c>include</c>s another inherits its colors/tokens,
+/// overriding colors per key and appending token rules; no-include themes pass through unchanged;
+/// and an include cycle is detected rather than recursing forever.
 /// </summary>
 public sealed class ThemeJsonLoaderTests {
 	[Fact]

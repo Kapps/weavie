@@ -5,11 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="ScrollbackLog"/> over real temp files (the log is not behind <c>IFileSystem</c>):
-/// a fresh run replays its live output raw; a boundary splits faded history (sanitized + dimmed) from the
-/// live current run; sanitization strips escape sequences; the cap trims the front at a newline and keeps
-/// the file bounded; a reopened log treats prior content as faded; and an unwritable path disables the log
-/// rather than throwing.
+/// Exercises <see cref="ScrollbackLog"/> over real temp files (it is not behind <c>IFileSystem</c>): raw
+/// replay of live output, boundary splitting faded history from live, escape sanitization, cap trimming at a
+/// newline, a reopened log fading prior content, and an unwritable path disabling the log instead of throwing.
 /// </summary>
 public sealed class ScrollbackLogTests : IDisposable {
 	private readonly string _dir;
@@ -43,28 +41,28 @@ public sealed class ScrollbackLogTests : IDisposable {
 	[Fact]
 	public void FreshRun_ReplaysLiveBytesRaw_NoFade() {
 		using var log = new ScrollbackLog(_path, 4096);
-		log.MarkBoundary();              // process starts; nothing logged yet → boundary 0
+		log.MarkBoundary();              // boundary 0; nothing logged yet
 		log.Append(Bytes("hello\r\n"));
 
-		// boundary 0 → no faded region, no dim prefix/separator: the live bytes verbatim.
+		// Boundary 0 → no faded region, no dim prefix/separator: live bytes verbatim.
 		Assert.Equal("hello\r\n", Text(log.BuildReplay()));
 	}
 
 	[Fact]
 	public void Boundary_SplitsFadedHistoryFromLive() {
 		using var log = new ScrollbackLog(_path, 4096);
-		log.Append(Bytes("old-run\r\n")); // previous process output (before the boundary)
-		log.MarkBoundary();               // a new process starts here
-		log.Append(Bytes("new-run\r\n")); // current live output
+		log.Append(Bytes("old-run\r\n")); // before the boundary
+		log.MarkBoundary();               // new process starts
+		log.Append(Bytes("new-run\r\n")); // live output
 
 		string replay = Text(log.BuildReplay());
 
 		Assert.Contains("old-run", replay);
 		Assert.Contains("new-run", replay);
 		Assert.Contains("[90m", replay);      // faded region dimmed
-		Assert.Contains("session resumed", replay); // separator between faded + live
+		Assert.Contains("session resumed", replay); // faded/live separator
 
-		// The live region is after the separator and the faded region is before it.
+		// Live region after the separator, faded region before.
 		int sep = replay.IndexOf("session resumed", StringComparison.Ordinal);
 		Assert.Contains("old-run", replay[..sep]);
 		Assert.DoesNotContain("new-run", replay[..sep]);
@@ -74,14 +72,14 @@ public sealed class ScrollbackLogTests : IDisposable {
 	[Fact]
 	public void FadedRegion_IsSanitized_DropsInnerEscapes() {
 		using var log = new ScrollbackLog(_path, 4096);
-		log.Append(Bytes("[31mred[0m\r\n")); // colored previous output
+		log.Append(Bytes("[31mred[0m\r\n")); // colored output before boundary
 		log.MarkBoundary();
 		log.Append(Bytes("live"));
 
 		string replay = Text(log.BuildReplay());
 
-		Assert.Contains("red", replay);          // the text survives
-		Assert.DoesNotContain("[31m", replay);   // but its inner color escape is stripped (would override the dim)
+		Assert.Contains("red", replay);          // text survives
+		Assert.DoesNotContain("[31m", replay);   // inner color escape stripped (would override the dim)
 	}
 
 	[Fact]
@@ -94,7 +92,7 @@ public sealed class ScrollbackLogTests : IDisposable {
 	public void Append_PastTwiceCap_TrimsFrontAtNewline_StaysBounded() {
 		const int cap = 200;
 		using var log = new ScrollbackLog(_path, cap);
-		// 100 lines of exactly 10 bytes each = ~1000 bytes >> 2*cap, forcing repeated trims.
+		// 100 lines × 10 bytes ≈ 1000 bytes >> 2*cap, forcing repeated trims.
 		for (int i = 0; i < 100; i++) {
 			log.Append(Bytes($"line-{i:0000}\n"));
 		}
@@ -103,9 +101,9 @@ public sealed class ScrollbackLogTests : IDisposable {
 		Assert.True(size <= 2 * cap, $"file should stay within twice the cap ({2 * cap}), was {size}");
 
 		string remaining = Text(log.BuildReplay());
-		Assert.Contains("line-0099", remaining);       // most recent output kept
-		Assert.DoesNotContain("line-0000", remaining); // oldest output trimmed away
-		Assert.StartsWith("line-", remaining);         // cut landed on a line boundary (no split line/escape)
+		Assert.Contains("line-0099", remaining);       // newest kept
+		Assert.DoesNotContain("line-0000", remaining); // oldest trimmed
+		Assert.StartsWith("line-", remaining);         // cut landed on a line boundary
 	}
 
 	[Fact]
@@ -115,19 +113,19 @@ public sealed class ScrollbackLogTests : IDisposable {
 			first.Append(Bytes("from-previous-boot\r\n"));
 		}
 
-		// A fresh log over the same path (a resumed session) starts its boundary at the existing length,
-		// so the prior content is faded until the next MarkBoundary.
+		// A fresh log over the same path starts its boundary at the existing length,
+		// so prior content is faded until the next MarkBoundary.
 		using var reopened = new ScrollbackLog(_path, 4096);
 		string replay = Text(reopened.BuildReplay());
 
 		Assert.Contains("from-previous-boot", replay);
-		Assert.Contains("[90m", replay);      // shown faded
+		Assert.Contains("[90m", replay);      // faded
 		Assert.Contains("session resumed", replay);
 	}
 
 	[Fact]
 	public void UnwritablePath_DisablesLog_WithoutThrowing() {
-		// Make the log's parent a FILE, so creating it as a directory fails: the log disables itself.
+		// Parent path is a FILE, so creating it as a directory fails and the log disables itself.
 		Directory.CreateDirectory(_dir);
 		string fileAsParent = Path.Combine(_dir, "afile");
 		File.WriteAllText(fileAsParent, "x");

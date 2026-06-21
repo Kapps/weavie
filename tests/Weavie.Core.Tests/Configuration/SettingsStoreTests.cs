@@ -5,10 +5,10 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="SettingsStore"/> deterministically against a real on-disk temp file: the
-/// resolution precedence, per-kind coercion, comment/unknown-key preservation, atomic + validated
-/// writes, malformed-file policy, env-shadow reporting, and the debounced file-watch change hub.
-/// Serialized via the <c>Settings</c> collection because several tests mutate process env vars.
+/// Tests <see cref="SettingsStore"/> against an on-disk temp file: resolution precedence, per-kind
+/// coercion, comment/unknown-key preservation, atomic + validated writes, malformed-file policy,
+/// env-shadow reporting, and the debounced file-watch change hub. Serialized via the <c>Settings</c>
+/// collection because several tests mutate process env vars.
 /// </summary>
 [Collection("Settings")]
 public sealed class SettingsStoreTests : IDisposable {
@@ -44,20 +44,20 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(FilePath, "t.str = \"from-file\"\n");
 		var registry = ScalarRegistry();
 
-		// default (no env, no key in file)
+		// File value, no env.
 		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false)) {
 			Assert.Equal("from-file", store.Resolve("t.str").Value);
 			Assert.Equal(SettingSource.UserFile, store.Resolve("t.str").Source);
 		}
 
-		// env wins over file
+		// Env wins over file.
 		using (EnvScope("WEAVIE_T_STR", "from-env"))
 		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false)) {
 			Assert.Equal("from-env", store.Resolve("t.str").Value);
 			Assert.Equal(SettingSource.Environment, store.Resolve("t.str").Source);
 		}
 
-		// no file key, no env -> default
+		// No file key, no env -> default.
 		File.WriteAllText(FilePath, "");
 		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false)) {
 			Assert.Equal("fallback", store.Resolve("t.str").Value);
@@ -91,7 +91,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		using (EnvScope("WEAVIE_T_NUM", "not-a-number")) {
 			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
 			store.Log += logged.Add;
-			Assert.Equal(0L, store.Resolve("t.num").Value); // falls back to default
+			Assert.Equal(0L, store.Resolve("t.num").Value); // default
 			Assert.Equal(SettingSource.Default, store.Resolve("t.num").Source);
 		}
 
@@ -146,7 +146,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		Assert.Contains("[plugins.acme-linter]", text, StringComparison.Ordinal); // unknown subtree kept
 		Assert.Contains("severity = \"error\"", text, StringComparison.Ordinal);
 		Assert.Contains("t.str = \"new\"", text, StringComparison.Ordinal);       // value updated in place
-		Assert.DoesNotContain("# a string", text, StringComparison.Ordinal);     // never clobbers an existing line's comment
+		Assert.DoesNotContain("# a string", text, StringComparison.Ordinal);     // existing line's comment not clobbered
 	}
 
 	[Fact]
@@ -160,7 +160,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		string text = File.ReadAllText(FilePath);
 		Assert.Contains("'C:\\tools\\claude.exe'", text, StringComparison.Ordinal); // single-quoted literal, no escaping
 		Assert.DoesNotContain("\\\\", text, StringComparison.Ordinal);
-		// And it round-trips back to the same path through a fresh store.
+		// Round-trips through a fresh store.
 		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false);
 		Assert.Equal(@"C:\tools\claude.exe", reopened.Resolve("claude.path").Value);
 	}
@@ -174,7 +174,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		store.Set("editor.font.size", Json("14"));
 
 		Assert.Contains("editor.font.size = 14", File.ReadAllText(FilePath), StringComparison.Ordinal);
-		// And it round-trips back through a fresh store (proves the nested-table read path works too).
+		// Round-trips through a fresh store, exercising the nested-table read path.
 		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false);
 		Assert.Equal(14L, reopened.Resolve("editor.font.size").Value);
 	}
@@ -204,8 +204,8 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public void Set_StringifiedScalars_AreCoerced_LikeEnvVars() {
-		// LLM tool calls routinely stringify scalars; the MCP boundary tolerates a numeric/bool string
-		// (matching the env-var path) while still rejecting genuinely non-numeric/non-bool strings.
+		// LLM tool calls routinely stringify scalars; the MCP boundary tolerates numeric/bool strings
+		// (like the env-var path) but still rejects genuinely non-numeric/non-bool strings.
 		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
 
 		store.Set("t.num", Json("\"16\""));   // stringified int
@@ -259,7 +259,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		store.Log += logged.Add;
 
 		Assert.True(store.IsMalformed);
-		Assert.Equal("fallback", store.Resolve("t.str").Value);            // defaults
+		Assert.Equal("fallback", store.Resolve("t.str").Value);            // default
 		Assert.Throws<SettingsFileMalformedException>(() => store.Set("t.str", Json("\"x\"")));
 		Assert.Equal(broken, File.ReadAllText(FilePath));                  // file left intact
 	}
@@ -276,8 +276,8 @@ public sealed class SettingsStoreTests : IDisposable {
 			Assert.True(result.Written);
 			Assert.Equal("WEAVIE_T_STR", result.ShadowedByEnv);
 			Assert.Equal("env-wins", store.Resolve("t.str").Value);         // env still wins
-			Assert.Contains("t.str = \"file-value\"", File.ReadAllText(FilePath), StringComparison.Ordinal); // but file written
-			Assert.Empty(changes);                                          // effective value didn't change -> no reaction
+			Assert.Contains("t.str = \"file-value\"", File.ReadAllText(FilePath), StringComparison.Ordinal); // file still written
+			Assert.Empty(changes);                                          // effective value unchanged -> no event
 		}
 	}
 
@@ -314,7 +314,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		var signal = new TaskCompletionSource<SettingChange>(TaskCreationOptions.RunContinuationsAsynchronously);
 		store.Subscribe("t.num", c => signal.TrySetResult(c));
 
-		File.WriteAllText(FilePath, "t.num = 99\n"); // external hand-edit
+		File.WriteAllText(FilePath, "t.num = 99\n"); // external edit
 
 		var change = await WaitAsync(signal.Task, TimeSpan.FromSeconds(5));
 		Assert.Equal(99L, change.NewValue);
@@ -328,7 +328,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		store.Subscribe("t.str", _ => Interlocked.Increment(ref count));
 
 		store.Set("t.str", Json("\"once\""));
-		await Task.Delay(1200); // give the watcher (250ms debounce) ample time to (not) re-fire
+		await Task.Delay(1200); // ample time past the 250ms debounce for a stray re-fire
 
 		Assert.Equal(1, count);
 	}

@@ -43,8 +43,8 @@ public sealed class FakeTerminalTests {
 }
 
 /// <summary>
-/// Real-PTY integration tests (macOS). They spawn trivial processes — fast and deterministic,
-/// but exercise the risky native path. No-op on non-macOS so the suite stays green anywhere.
+/// Real-PTY integration tests (macOS): spawn trivial processes to exercise the native path.
+/// No-op on non-macOS so the suite stays green anywhere.
 /// </summary>
 public sealed class PosixPtyTerminalTests {
 	private static (string Output, int ExitCode) RunToCompletion(TerminalStartInfo info, int timeoutSeconds = 5) {

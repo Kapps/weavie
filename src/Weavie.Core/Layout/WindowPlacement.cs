@@ -16,16 +16,16 @@ public readonly record struct PixelRect(int X, int Y, int Width, int Height) {
 public readonly record struct StartupPlacement(int X, int Y, int Width, int Height, bool Maximized, bool UseSaved);
 
 /// <summary>
-/// Shared window startup-placement policy, so every host restores saved geometry the same way instead of each
-/// shell hand-rolling — and drifting on — its own on-screen guard + default fallback.
+/// Shared window startup-placement policy, so every host restores saved geometry the same way: one
+/// on-screen guard plus default fallback.
 /// </summary>
 public static class WindowPlacement {
 	/// <summary>
 	/// Use the saved bounds when present, validly sized, and still on-screen (intersecting at least one of
 	/// <paramref name="screens"/>); otherwise fall back to a centered
-	/// <paramref name="defaultWidth"/>×<paramref name="defaultHeight"/> window. An empty <paramref name="screens"/>
-	/// list skips the on-screen guard (the host couldn't enumerate monitors) and trusts the saved bounds. The
-	/// guard stops a window saved on a now-disconnected monitor from restoring off-screen.
+	/// <paramref name="defaultWidth"/>×<paramref name="defaultHeight"/> window. The guard stops a window saved
+	/// on a disconnected monitor from restoring off-screen. An empty <paramref name="screens"/> list skips the
+	/// guard (the host couldn't enumerate monitors) and trusts the saved bounds.
 	/// </summary>
 	public static StartupPlacement Resolve(WindowState? saved, IReadOnlyList<PixelRect> screens, int defaultWidth, int defaultHeight) {
 		ArgumentNullException.ThrowIfNull(screens);

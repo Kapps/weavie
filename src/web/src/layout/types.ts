@@ -1,5 +1,5 @@
-// Layout document mirrored from Weavie.Core.Layout, as it crosses the bridge (camelCase JSON, enums
-// as strings). Kept structural and lenient — the host is the source of truth and validates.
+// Layout document mirrored from Weavie.Core.Layout as it crosses the bridge (camelCase JSON, enums as
+// strings). Structural and lenient: the host is the source of truth and validates.
 
 export type SplitDir = "row" | "column";
 

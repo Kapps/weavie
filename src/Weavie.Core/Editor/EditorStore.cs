@@ -9,14 +9,13 @@ public readonly record struct EditorPosition(int Line, int Character);
 public readonly record struct EditorSelection(EditorPosition Start, EditorPosition End, bool IsEmpty);
 
 /// <summary>
-/// The editor the user is currently looking at: its file, language id, current selection, and the
-/// selected text (empty when the selection is just a caret).
+/// The editor the user is currently looking at: its file, language id, selection, and selected text
+/// (empty when the selection is just a caret).
 /// </summary>
 public sealed record ActiveEditor(string FilePath, string? LanguageId, string SelectedText, EditorSelection Selection) {
 	/// <summary>
-	/// Parses an <c>active-editor-changed</c> bridge message into an <see cref="ActiveEditor"/>,
-	/// converting the model's file URI to a native absolute path. Returns <c>false</c> for a message
-	/// without a usable file URI (e.g. an in-memory / scratch model), in which case nothing is reported.
+	/// Parses an <c>active-editor-changed</c> bridge message, converting the model's file URI to a native
+	/// path. Returns <c>false</c> for a message without a usable file URI (e.g. an in-memory model).
 	/// </summary>
 	public static bool TryParse(JsonElement message, out ActiveEditor? editor) {
 		editor = null;
@@ -75,15 +74,14 @@ public sealed record ActiveEditor(string FilePath, string? LanguageId, string Se
 }
 
 /// <summary>
-/// One open editor tab the page reported (via <c>open-editors-changed</c>): its file <see cref="FilePath"/>
-/// plus whether it is the active / pinned / preview tab. The full set backs the MCP <c>getOpenEditors</c>
-/// tool. <see cref="FilePath"/> is the web's own tab key (a native path), echoed back verbatim by
-/// <c>close_tab</c> so the page can match it exactly.
+/// One open editor tab (via <c>open-editors-changed</c>): its <see cref="FilePath"/> plus whether it is the
+/// active / pinned / preview tab. Backs the MCP <c>getOpenEditors</c> tool. <see cref="FilePath"/> is the
+/// web's tab key (a native path), echoed back verbatim by <c>close_tab</c> so the page can match it exactly.
 /// </summary>
 public sealed record OpenEditorTab(string FilePath, bool IsActive, bool IsPinned, bool IsPreview) {
 	/// <summary>
-	/// Parses an <c>open-editors-changed</c> bridge message's <c>editors</c> array into tabs (skipping any
-	/// entry without a path). Returns an empty list for a malformed/empty message.
+	/// Parses the <c>editors</c> array into tabs (skipping entries without a path). Empty list for a
+	/// malformed/empty message.
 	/// </summary>
 	public static IReadOnlyList<OpenEditorTab> ParseList(JsonElement message) {
 		if (message.ValueKind != JsonValueKind.Object
@@ -113,16 +111,14 @@ public sealed record OpenEditorTab(string FilePath, bool IsActive, bool IsPinned
 }
 
 /// <summary>
-/// Per-session editor-state hub: tracks which editor the user is looking at (and the full set of open tabs)
-/// so the IDE-MCP server can tell the embedded Claude what the user is working with. The web editor pushes
-/// changes over the bridge (<c>active-editor-changed</c> + <c>open-editors-changed</c>); the server reads
-/// <see cref="Active"/> for <c>getCurrentSelection</c>, <see cref="OpenEditors"/> for <c>getOpenEditors</c>,
-/// and reacts to <see cref="Changed"/> by pushing a <c>selection_changed</c> notification. Sibling of
-/// <c>LayoutStore</c>.
+/// Per-session editor-state hub: tracks the active editor and the full set of open tabs so the IDE-MCP server
+/// can tell the embedded Claude what the user is working with. The web pushes changes over the bridge; the
+/// server reads <see cref="Active"/> for <c>getCurrentSelection</c>, <see cref="OpenEditors"/> for
+/// <c>getOpenEditors</c>, and reacts to <see cref="Changed"/> by pushing a <c>selection_changed</c> notification.
 /// </summary>
 public sealed class EditorStore {
-	// A single immutable snapshot reference: volatile is enough (reference reads/writes are atomic) and
-	// lets the MCP accept task read Active while the host thread writes it, with no lock.
+	// Immutable snapshot references: volatile suffices (reference reads/writes are atomic), letting the MCP
+	// task read Active while the host thread writes it without a lock.
 	private volatile ActiveEditor? _active;
 	private volatile IReadOnlyList<OpenEditorTab> _openEditors = [];
 
@@ -143,9 +139,8 @@ public sealed class EditorStore {
 	}
 
 	/// <summary>
-	/// Records the full set of open tabs (from <c>open-editors-changed</c>). Pull-based: <c>getOpenEditors</c>
-	/// reads <see cref="OpenEditors"/> on demand, so this does not raise <see cref="Changed"/> (which exists
-	/// only to push <c>selection_changed</c>).
+	/// Records the full set of open tabs. Pull-based: <c>getOpenEditors</c> reads <see cref="OpenEditors"/> on
+	/// demand, so this does not raise <see cref="Changed"/> (which exists only to push <c>selection_changed</c>).
 	/// </summary>
 	public void SetOpenEditors(IReadOnlyList<OpenEditorTab> editors) {
 		ArgumentNullException.ThrowIfNull(editors);

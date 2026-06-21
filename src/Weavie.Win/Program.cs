@@ -12,9 +12,8 @@ internal static class Program {
 		}
 
 		// Reap every child we spawn (Vite, ConPTY shells, language servers, claude) if this host dies by any
-		// means — clean exit, a debugger Stop, or a crash — via a kill-on-close Job Object the children inherit.
-		// The OS backstop behind ProcessSupervisor's graceful teardown; nothing can orphan. Installed after the
-		// transient smoke branch above so that short-lived helper invocation doesn't enroll claude's tree.
+		// means — via a kill-on-close Job Object the children inherit. Installed after the smoke branch so that
+		// short-lived helper invocation doesn't enroll claude's tree.
 		ChildProcessJob.Install();
 
 		ApplicationConfiguration.Initialize();

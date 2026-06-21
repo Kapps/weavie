@@ -3,9 +3,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Documents;
 
 /// <summary>
-/// T1 test implementation of <see cref="IDocumentModel"/>: a naive in-memory buffer
-/// over <see cref="TextBuffer"/>, persisting through an injected <see cref="IFileSystem"/>.
-/// A substitute for Monaco, never run alongside it (so there is no sync to get wrong).
+/// In-memory <see cref="IDocumentModel"/> over <see cref="TextBuffer"/>, persisting
+/// through an injected <see cref="IFileSystem"/>. A substitute for Monaco, never run
+/// alongside it, so there is no sync to get wrong.
 /// </summary>
 public sealed class InMemoryDocumentModel : IDocumentModel {
 	private readonly IFileSystem _fileSystem;

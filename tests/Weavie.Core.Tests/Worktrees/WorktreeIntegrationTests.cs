@@ -7,11 +7,10 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// End-to-end tests against a real temporary git repository: <see cref="GitService"/> +
-/// <see cref="WorktreeManager"/> + <see cref="WorktreeRegistry"/>. These prove the no-leak behavior on
-/// real git — create/list/remove round-trips, the dirty-removal guard, externally-removed worktrees
-/// surfaced as orphans and pruned by reconcile, and externally-created worktrees surfaced as untracked.
-/// Requires <c>git</c> on PATH.
+/// End-to-end tests against a real temporary git repository (<see cref="GitService"/> +
+/// <see cref="WorktreeManager"/> + <see cref="WorktreeRegistry"/>): create/list/remove round-trips, the
+/// dirty-removal guard, externally-removed worktrees surfaced as orphans and pruned by reconcile, and
+/// externally-created worktrees surfaced as untracked. Requires <c>git</c> on PATH.
 /// </summary>
 public sealed class WorktreeIntegrationTests : IDisposable {
 	private readonly string _root;
@@ -46,7 +45,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		Assert.True(feature.IsManaged);
 		Assert.True(feature.Exists);
 		Assert.False(feature.IsDirty);
-		// A fresh branch sits at main's commit, so it is already an ancestor of main (nothing to merge).
+		// A fresh branch sits at main's commit, so it is already an ancestor of main.
 		Assert.True(feature.IsMerged);
 		Assert.True(feature.IsSafeToRemove);
 
@@ -80,12 +79,12 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		// Fresh worktree off a commit: clean.
 		Assert.Equal(WorktreeChangeState.Clean, await _git.GetChangeStateAsync(record.Path));
 
-		// A new file that git doesn't know about: untracked-only.
+		// A file git doesn't know about: untracked-only.
 		File.WriteAllText(Path.Combine(record.Path, "temp.txt"), "scratch\n");
 		Assert.Equal(WorktreeChangeState.UntrackedOnly, await _git.GetChangeStateAsync(record.Path));
 
-		// Editing a tracked file (readme.txt came from the initial commit) is a tracked change, even with the
-		// untracked file still present — the stronger classification wins.
+		// Editing a tracked file is a tracked change even with the untracked file present — the stronger
+		// classification wins.
 		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
 		Assert.Equal(WorktreeChangeState.Modified, await _git.GetChangeStateAsync(record.Path));
 	}
@@ -95,7 +94,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("ghost", "main");
 
-		// Remove the worktree out of band (not through the manager): git forgets it, the registry still has it.
+		// Remove out of band: git forgets it, the registry still has it.
 		RunGit(_repo, "worktree", "remove", record.Path);
 
 		var list = await manager.ListAsync();
@@ -118,7 +117,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 
 		Assert.Equal("existing", record.Branch);
 		Assert.True(Directory.Exists(record.Path));
-		// HEAD is attached to the existing branch itself (so commits land on it), not a fresh branch.
+		// HEAD attaches to the existing branch itself so commits land on it, not a fresh branch.
 		Assert.Equal("existing", await _git.GetCurrentBranchAsync(record.Path));
 		Assert.NotNull(manager.Registry.FindByBranch("existing"));
 	}
@@ -126,7 +125,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	[Fact]
 	public async Task Attach_BranchCheckedOutElsewhere_Throws() {
 		var manager = NewManager();
-		// 'main' is already checked out in the primary repo, so a second worktree can't attach to it.
+		// 'main' is checked out in the primary repo, so a second worktree can't attach to it.
 		await Assert.ThrowsAsync<GitException>(() => manager.AttachAsync("main"));
 	}
 
@@ -159,14 +158,13 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("half", "main");
 
-		// Simulate a lock-induced half-removal: git's own record is gone (its remove ran), but the directory is
-		// still on disk with leftover files - the state a Windows file lock leaves behind. The registry row
-		// survives (the out-of-band git remove didn't touch it).
+		// Simulate a lock-induced half-removal: git's record is gone but the directory remains on disk with
+		// leftover files (the state a Windows file lock leaves behind), and the registry row survives.
 		RunGit(_repo, "worktree", "remove", "--force", record.Path);
 		Directory.CreateDirectory(record.Path);
 		File.WriteAllText(Path.Combine(record.Path, "leftover.txt"), "locked\n");
 
-		// RemoveAsync must NOT report success and drop the row while the directory leaks - it surfaces loudly.
+		// RemoveAsync must not report success and drop the row while the directory leaks; it surfaces loudly.
 		await Assert.ThrowsAsync<WorktreeOrphanException>(
 			() => manager.RemoveAsync(record.Path, deleteBranch: false, force: false));
 		Assert.True(Directory.Exists(record.Path));

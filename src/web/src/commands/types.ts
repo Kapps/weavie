@@ -1,7 +1,7 @@
-// The web view of the command system. Mirrors Weavie.Core.Commands' CommandCatalog JSON: the host injects
+// The web view of the command system, mirroring Weavie.Core.Commands' CommandCatalog JSON. The host injects
 // the catalog + resolved keybindings as window globals before navigation and re-pushes a { type: "commands" }
-// message when the user edits ~/.weavie/keybindings.json. Commands are *declared* in Core; the web binds
-// handlers to the web-side ids and resolves keydowns against the keybindings. See docs/specs/commands.md.
+// message when the user edits ~/.weavie/keybindings.json. Commands are declared in Core; the web binds
+// handlers to the ids and resolves keydowns. See docs/specs/commands.md.
 
 export type CommandLocation = "web" | "core";
 
@@ -28,13 +28,13 @@ export interface ResolvedKeybinding {
   args?: unknown;
   when?: string;
   /**
-   * When true this is an OS-level global hotkey: the host registers it with the operating system (so it
-   * fires even when Weavie is unfocused) and the web keydown resolver skips it — see keybindings.ts.
+   * When true this is an OS-level global hotkey: the host registers it with the OS (so it fires even when
+   * Weavie is unfocused) and the web keydown resolver skips it — see keybindings.ts.
    */
   global?: boolean;
 }
 
-/** The built-in command ids (kept in sync with CoreCommands.cs), so call sites avoid magic strings. */
+/** Built-in command ids (kept in sync with CoreCommands.cs) so call sites avoid magic strings. */
 export const CommandIds = {
   focusPaneByIndex: "weavie.pane.focusByIndex",
   toggleFileBrowser: "weavie.view.toggleFileBrowser",

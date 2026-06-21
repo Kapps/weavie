@@ -1,6 +1,5 @@
-// Context keys for `when` guards on keybindings + palette visibility, maintained web-side (App tracks pane
-// focus). A minimal evaluator: an AND of clauses, each `!key`, `key`, or `key == 'val'` / `key != 'val'`.
-// `||` and parentheses are added only if a real command needs them (none do yet). See docs/specs/commands.md.
+// Web-side context keys for `when` guards on keybindings + palette visibility. The evaluator is an AND of
+// clauses, each `!key`, `key`, or `key == 'val'` / `key != 'val'`. See docs/specs/commands.md.
 
 type ContextValue = string | boolean | null;
 

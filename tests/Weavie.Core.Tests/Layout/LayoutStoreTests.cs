@@ -5,9 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="LayoutStore"/> over the in-memory filesystem: seed-on-first-run, persist +
-/// reload, the Changed-vs-silent distinction between pane and window edits, malformed-file backup +
-/// reset, explicit dismissal, unknown-kind rejection, and serialization round-trip.
+/// <see cref="LayoutStore"/> over the in-memory filesystem: seed-on-first-run, persist + reload, the
+/// Changed-vs-silent split between pane and window edits, malformed-file backup + reset, dismissal,
+/// unknown-kind rejection, and serialization round-trip.
 /// </summary>
 public sealed class LayoutStoreTests {
 	private const string LayoutPath = "/weavie-layout-tests/layout.json";

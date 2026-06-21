@@ -4,7 +4,7 @@ using Xunit;
 
 namespace Weavie.Remote.Tests;
 
-/// <summary>Launches a real <c>Weavie.Runner</c> once for the suite (its workspace need not be a git repo for auth probing).</summary>
+/// <summary>Launches a real <c>Weavie.Runner</c> once for the suite (workspace need not be a git repo for auth probing).</summary>
 public sealed class RunnerFixture : IAsyncLifetime {
 	private readonly string _workspace =
 		Path.Combine(Path.GetTempPath(), "weavie-runner-tests", Guid.NewGuid().ToString("N"));
@@ -36,10 +36,9 @@ public sealed class RunnerFixture : IAsyncLifetime {
 }
 
 /// <summary>
-/// Black-box auth tests against the real runner control plane: every endpoint rejects every bad token
-/// (via both <c>?token=</c> and <c>Authorization: Bearer</c>) and unknown paths, accepts only the correct
-/// token, and answers the CORS preflight without auth (so browsers aren't broken) — proving the single
-/// default-deny gate can't be bypassed.
+/// Black-box auth against the real runner control plane: every endpoint rejects every bad token (via both
+/// <c>?token=</c> and <c>Authorization: Bearer</c>) and unknown paths, accepts only the correct token, and
+/// answers the CORS preflight without auth (so browsers aren't broken). The default-deny gate can't be bypassed.
 /// </summary>
 public sealed class RunnerAuthTests(RunnerFixture fixture) : IClassFixture<RunnerFixture> {
 	private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -94,8 +93,8 @@ public sealed class RunnerAuthTests(RunnerFixture fixture) : IClassFixture<Runne
 
 	[Fact]
 	public async Task Cors_preflight_is_allowed_without_a_token() {
-		// The preflight carries no credentials by design; it must NOT be blocked, or browsers can't reach the
-		// control plane. It returns 204 + the permissive CORS origin, and exposes nothing sensitive.
+		// The preflight carries no credentials, so blocking it would stop browsers reaching the control plane.
+		// It returns 204 + the permissive CORS origin and exposes nothing sensitive.
 		using var request = new HttpRequestMessage(HttpMethod.Options, $"{fixture.Host.BaseUrl}/backend");
 		var response = await Http.SendAsync(request);
 		Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);

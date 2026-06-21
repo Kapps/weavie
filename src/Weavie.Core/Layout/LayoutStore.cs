@@ -34,10 +34,10 @@ public sealed class LayoutValidationException : Exception {
 /// <summary>
 /// Loads, reconciles, persists, and broadcasts the window-layout document at <c>~/.weavie/layout.json</c>.
 /// The single entry point all three writers go through: the user (web) and Claude (MCP) via
-/// <see cref="SetPanes"/> / <see cref="DismissPane"/>, and the host via <see cref="SetWindow"/>. Pane
-/// edits run through <see cref="LayoutReconciler"/>; window-geometry edits are host-only and don't notify
-/// the web. Writes are atomic; a malformed file is backed up to <c>layout.json.bad</c> and reset to the
-/// default. See <c>docs/specs/layout.md</c>.
+/// <see cref="SetPanes"/> / <see cref="DismissPane"/>, and the host via <see cref="SetWindow"/>. Pane edits
+/// run through <see cref="LayoutReconciler"/>; window-geometry edits are host-only and don't notify the web.
+/// Writes are atomic; a malformed file is backed up to <c>layout.json.bad</c> and reset to the default. See
+/// <c>docs/specs/layout.md</c>.
 /// </summary>
 public sealed class LayoutStore {
 	private readonly IFileSystem _fileSystem;
@@ -72,9 +72,9 @@ public sealed class LayoutStore {
 	}
 
 	/// <summary>
-	/// Replaces the pane tree (and optional focus), preserving window geometry and compatibility
-	/// bookkeeping. Used by the web (user edits) and MCP (Claude). Reconciles, persists, and notifies.
-	/// Throws <see cref="LayoutValidationException"/> for unknown pane kinds or a tree with no panes.
+	/// Replaces the pane tree (and optional focus), preserving window geometry and compatibility bookkeeping,
+	/// then reconciles, persists, and notifies. Throws <see cref="LayoutValidationException"/> for unknown
+	/// pane kinds or a tree with no panes.
 	/// </summary>
 	public LayoutResult SetPanes(LayoutNode root, string? focused, LayoutSource source) {
 		ArgumentNullException.ThrowIfNull(root);

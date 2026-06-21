@@ -7,8 +7,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Drives the MCP server with a real loopback WebSocket client (standing in for `claude`) to
-/// verify auth enforcement and the JSON-RPC contract deterministically — no real CLI needed.
+/// Drives the MCP server with a loopback WebSocket client (standing in for `claude`) to verify
+/// auth enforcement and the JSON-RPC contract.
 /// </summary>
 public sealed class McpServerTests {
 	private const string Token = "0123456789abcdef0123456789abcdef";

@@ -3,26 +3,25 @@ namespace Weavie.Hosting;
 /// <summary>
 /// The per-session gate for editor-mutating page messages — openDiff's <c>show-diff</c>, openFile's
 /// <c>open-file</c>, and close_tab's <c>close-tab</c>. The page has exactly ONE editor surface, bound to the
-/// active session; a background session must never write into it. So each session's openDiff/openFile/close_tab
-/// routes through its own channel, which posts to the page only while the session is active and otherwise
-/// <em>holds</em> the work — replaying it when the user switches the session in. Nothing is silently dropped: a
-/// background Claude's blocking openDiff is held and surfaces on switch-in rather than rendering over the
-/// foreground session (the isolation bug) or hanging unseen (a silent drop). Mirrors
-/// <see cref="TerminalController"/>'s <c>OutputActive</c> buffer-or-post muting for the terminals.
+/// active session; a background session must never write into it. Each session's openDiff/openFile/close_tab
+/// routes through its own channel, which posts to the page only while the session is active and otherwise HOLDS
+/// the work — replaying it on switch-in. So a background Claude's blocking openDiff surfaces on switch-in rather
+/// than rendering over the foreground session or hanging unseen. Mirrors <see cref="TerminalController"/>'s
+/// <c>OutputActive</c> buffer-or-post muting for the terminals.
 ///
-/// Created muted: a session drives the editor only once HostCore makes it the active session (see
+/// Created muted: a session drives the editor only once HostCore makes it active (see
 /// <see cref="HostSession.SetEditorOutputActive"/>), so a never-activated background slot can't contaminate the
 /// page even if a creation path forgets to mute it.
 /// </summary>
 public sealed class SessionEditorChannel {
 	private readonly IHostBridge _bridge;
 	private readonly object _gate = new();
-	// open-file / close-tab posted while muted, replayed in order on activation. Fire-and-forget — the page just
-	// opens/closes a tab, so preserving order is all that matters.
+	// open-file / close-tab posted while muted, replayed in order on activation. Fire-and-forget — only order
+	// matters.
 	private readonly List<string> _pendingReveals = [];
 	// The session's single unresolved openDiff (it blocks, so at most one is live at a time): the show-diff
-	// payload is HELD so a switch away can tear it out of the page and a switch back can re-render it, surviving
-	// any number of session switches until the user resolves it. Null when no diff is pending.
+	// payload is HELD so a switch away can tear it out of the page and a switch back can re-render it, until the
+	// user resolves it. Null when no diff is pending.
 	private string? _liveDiffId;
 	private string? _liveDiffShow;
 	private bool _active;

@@ -6,14 +6,12 @@ using Weavie.Hosting;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The <see cref="IHostBridge"/> for the headless host: the same JS&lt;-&gt;C# bridge the native shells run
-/// over their web view, carried instead over a WebSocket so an ordinary browser is the client. Outbound
-/// <see cref="PostToWeb"/> sends are funneled through a single channel + pump task (WebSocket sends may not
-/// overlap); inbound text frames are reassembled and raised as <see cref="MessageReceived"/>. The bridge
-/// outlives any one connection — like the native hosts, the host persists while the page reloads — so a
-/// browser refresh just calls <see cref="ServeAsync"/> again with a fresh socket and the page re-sends
-/// <c>ready</c>. Pushes made while no page is connected are dropped (the page re-requests state on
-/// <c>ready</c>), never buffered indefinitely.
+/// The <see cref="IHostBridge"/> for the headless host: the native shells' JS&lt;-&gt;C# bridge carried over a
+/// WebSocket so an ordinary browser is the client. Outbound <see cref="PostToWeb"/> sends funnel through a
+/// single channel + pump task (WebSocket sends may not overlap); inbound frames are reassembled and raised as
+/// <see cref="MessageReceived"/>. The bridge outlives any one connection, so a refresh just calls
+/// <see cref="ServeAsync"/> again with a fresh socket and the page re-sends <c>ready</c>. Pushes made with no
+/// page connected are dropped (the page re-requests state on <c>ready</c>), never buffered.
 /// </summary>
 internal sealed class WebSocketHostBridge : IHostBridge {
 	private readonly Channel<string> _outbound =

@@ -5,28 +5,24 @@ import { CommandIds } from "../commands/types";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./ContextMenu";
 import type { RailSession } from "./session-store";
 
-// The left session rail: one chip per session (a deterministic hashed hue + the branch monogram), with a
-// status dot and an active-session accent, plus a "+" to spin up a new worktree session. The host orders the
-// chips loaded-first, dormant (unloaded) ones last; a dormant chip renders faded. Right-clicking a non-primary
-// chip opens the shared command-driven ContextMenu to load/unload or delete it; the primary checkout has no
-// separate worktree, so it has no menu. Always rendered: the host always has at least the primary session and
-// pushes the list on init, and the "+" is how the user discovers sessions in the first place. The chip hue is
-// set via a ref using the native DOM API (Solid's reactive `style={{}}` binding is avoided on purpose — it
-// breaks at runtime in this app; see the project notes).
+// The left session rail: one chip per session (a hashed hue + the branch monogram), with a status dot and an
+// active-session accent, plus a "+" to spin up a new worktree session. The host orders chips loaded-first,
+// dormant ones last; a dormant chip renders faded. Right-clicking a non-primary chip opens the shared
+// ContextMenu to load/unload or delete it; the primary checkout has no worktree, so no menu. The chip hue is
+// set via a ref using the native DOM API (Solid's reactive `style={{}}` binding breaks at runtime here).
 export function SessionRail(props: {
   sessions: RailSession[];
   onSwitch: (session: RailSession) => void;
   onNew: () => void;
 }): JSX.Element {
-  // Advertise the New Session shortcut on the "+" tooltip, read from the command catalog (never hardcoded),
-  // so the keyboard path is discoverable from the mouse. Unbound / no-catalog (plain-browser dev) → bare label.
+  // Advertise the New Session shortcut on the "+" tooltip, read from the command catalog (never hardcoded).
+  // Unbound / no-catalog → bare label.
   const newTitle = (): string => {
     const keys = findCommand(CommandIds.newSessionPrompt)?.keys ?? [];
     return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
   };
-  // The Ctrl+Shift+<number> switch shortcut for the chip at `index` (0-based), read from the resolved
-  // keybindings (never hardcoded) by matching the binding whose index arg is this rail position. Only the
-  // first 9 chips have a number binding; the rest (and plain-browser dev with no catalog) get "".
+  // The switch shortcut for the chip at `index` (0-based), read from the resolved keybindings by matching the
+  // binding whose index arg is this rail position. Only the first 9 chips have a number binding; the rest get "".
   const switchShortcut = (index: number): string => {
     const match = getKeybindings().find(
       (binding) =>
@@ -35,8 +31,7 @@ export function SessionRail(props: {
     );
     return match !== undefined ? formatKey(match.key) : "";
   };
-  // The chip's hover tooltip: its label + status (or unloaded hint), with the switch shortcut appended so
-  // the keyboard path is discoverable from the mouse.
+  // The chip's hover tooltip: its label + status (or unloaded hint), with the switch shortcut appended.
   const chipTitle = (session: RailSession, index: number): string => {
     const where = session.isLocal ? "" : ` @ ${session.locationName}`;
     const base = session.loaded
@@ -46,9 +41,8 @@ export function SessionRail(props: {
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
 
-  // Right-click menu, built for the right-clicked chip and rendered by the shared ContextMenu. Its rows are
-  // commands targeting the chip by id (load/unload, delete). The primary checkout has no worktree to act on,
-  // so it opens no menu.
+  // Right-click menu rows are commands targeting the chip by id (load/unload, delete). The primary checkout
+  // has no worktree to act on, so it opens no menu.
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const menuEntries = (session: RailSession): ContextMenuEntry[] => {
     const args = { id: session.id };

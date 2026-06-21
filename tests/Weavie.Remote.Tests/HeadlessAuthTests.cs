@@ -33,9 +33,8 @@ public sealed class RemoteHeadlessFixture : IAsyncLifetime {
 }
 
 /// <summary>
-/// Black-box auth tests against a real remote-mode headless worker: the document, the bridge, and unknown
-/// paths must reject every bad token (missing/empty/wrong/short/long/case-flipped) and accept only the
-/// correct one. This is the property "no token shape bypasses auth," proven against the shipped pipeline.
+/// Black-box auth against a real remote-mode headless worker: document, bridge, and unknown paths reject
+/// every bad token shape and accept only the correct one. No token shape bypasses auth.
 /// </summary>
 public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : IClassFixture<RemoteHeadlessFixture> {
 	private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
@@ -62,8 +61,8 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 
 	[Fact]
 	public async Task Bridge_with_correct_token_passes_auth_then_rejects_non_websocket() {
-		// A correct token clears the gate; the non-WebSocket GET then reaches the bridge map and is rejected as
-		// 400 — distinct from 401, proving the rejection is "not a WebSocket," not "unauthorized."
+		// Correct token clears the gate; the non-WebSocket GET reaches the bridge and gets 400 (not 401),
+		// proving rejection is "not a WebSocket," not "unauthorized."
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/weavie-bridge?token={Tokens.Correct}");
 		Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
 	}
@@ -73,8 +72,8 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 		using var socket = new ClientWebSocket();
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={Tokens.Correct}"), cts.Token);
-		// The successful upgrade is the assertion. (Closing is best-effort: the host may drop the socket without
-		// a full close handshake when the page disconnects, which isn't an auth concern.)
+		// The successful upgrade is the assertion. (Closing is best-effort: the host may drop the socket
+		// without a full close handshake, which isn't an auth concern.)
 		Assert.Equal(WebSocketState.Open, socket.State);
 		try {
 			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
@@ -138,9 +137,9 @@ public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClas
 }
 
 /// <summary>
-/// The fail-closed startup guard: a host can only bind the network via the explicit remote mode, which
-/// mandates a token. Every unsafe flag combination refuses to start (non-zero exit), so an exposed
-/// unauthenticated host can never come up — regardless of how the flags were passed.
+/// Fail-closed startup guard: a host binds the network only via explicit remote mode, which mandates a
+/// token. Every unsafe flag combination refuses to start (non-zero exit), so an exposed unauthenticated
+/// host can never come up.
 /// </summary>
 public sealed class HeadlessStartupGuardTests {
 	[Theory]

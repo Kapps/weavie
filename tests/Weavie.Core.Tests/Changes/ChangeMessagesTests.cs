@@ -5,7 +5,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>The host→web JSON payloads for the inline turn-review feed (shared by the Windows + macOS hosts).</summary>
+/// <summary>Host→web JSON payloads for the inline turn-review feed.</summary>
 public sealed class ChangeMessagesTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 

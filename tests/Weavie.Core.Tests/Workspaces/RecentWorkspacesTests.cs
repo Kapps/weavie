@@ -5,9 +5,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="RecentWorkspaces"/> over the in-memory filesystem: empty on first run, most-recent
-/// ordering, move-to-front dedupe, persist + reload, the size cap, removal, the Changed event, and
-/// malformed-file backup + reset.
+/// <see cref="RecentWorkspaces"/>: ordering, move-to-front dedupe, persistence, size cap, removal, the
+/// Changed event, and malformed-file backup + reset.
 /// </summary>
 public sealed class RecentWorkspacesTests {
 	private const string RecentsPath = "/weavie-recents-tests/recents.json";

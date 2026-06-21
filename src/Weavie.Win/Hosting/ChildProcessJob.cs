@@ -3,16 +3,14 @@ using System.Runtime.InteropServices;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// Ties every child process this host spawns (the Vite dev server, ConPTY shells, language servers, the embedded
-/// <c>claude</c>) to the host's own lifetime via a Windows Job Object with <c>KILL_ON_JOB_CLOSE</c>. Assigning the
-/// host process to the job means children inherit it; when the host dies by <em>any</em> means — a clean exit, a
-/// debugger Stop, a crash — the OS closes the job handle and terminates everything still inside it.
+/// Ties every child process this host spawns (Vite, ConPTY shells, language servers, the embedded <c>claude</c>)
+/// to the host's lifetime via a Windows Job Object with <c>KILL_ON_JOB_CLOSE</c>. Children inherit the job, so
+/// when the host dies by <em>any</em> means — clean exit, debugger Stop, crash — the OS closes the job handle and
+/// terminates everything still inside it.
 ///
-/// <para>This is the OS backstop behind <c>ProcessSupervisor</c>'s graceful teardown: managed cleanup
-/// (<c>Process.Kill</c> in a <c>Dispose</c>) only runs on an orderly shutdown, so it can't reap children when the
-/// host is hard-killed and no managed code runs. The Job Object is the only mechanism that fires regardless. Best
-/// effort: if the job can't be created (an ancient/locked-down Windows), it logs loudly and the host still runs —
-/// only the hard-kill safety net is missing, not normal teardown.</para>
+/// <para>The OS backstop behind <c>ProcessSupervisor</c>'s graceful teardown: managed cleanup runs only on an
+/// orderly shutdown, so it can't reap children on a hard kill. Best effort — if the job can't be created it logs
+/// loudly and the host still runs, just without the hard-kill safety net.</para>
 /// </summary>
 internal static partial class ChildProcessJob {
 	// SetInformationJobObject class for JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
@@ -21,13 +19,13 @@ internal static partial class ChildProcessJob {
 	// JOBOBJECT_BASIC_LIMIT_INFORMATION.LimitFlags: kill every process in the job when its last handle closes.
 	private const uint JobObjectLimitKillOnJobClose = 0x2000;
 
-	// The job handle is held for the host's entire lifetime: closing it ourselves would trip KILL_ON_JOB_CLOSE
-	// immediately (we're a member of the job) and take the host down with it. We never close it — the OS does,
-	// when the host process exits, which is exactly when the surviving children should be reaped.
+	// Held for the host's entire lifetime: closing it ourselves would trip KILL_ON_JOB_CLOSE immediately (we're
+	// a member of the job) and take the host down. The OS closes it on process exit, which is exactly when the
+	// surviving children should be reaped.
 	private static nint _job;
 
 	/// <summary>Creates the kill-on-close job and assigns the current process to it. Idempotent; call once at
-	/// startup, before any child is spawned, so every child inherits the job.</summary>
+	/// startup before any child is spawned, so every child inherits the job.</summary>
 	public static void Install() {
 		if (_job != 0) {
 			return;

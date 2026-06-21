@@ -5,10 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="WorkspaceBrowser"/> over the in-memory filesystem: directories-first ordering,
-/// listing a subdirectory by its returned path, absolute entry paths, clamping escape attempts to the
-/// root, and empty results for a missing directory. Also covers the new <see cref="IFileSystem"/>
-/// enumeration the browser relies on.
+/// <see cref="WorkspaceBrowser"/>: directories-first ordering, listing a subdirectory by its returned
+/// path, absolute entry paths, clamping escape attempts to the root, and empty results for a missing
+/// directory.
 /// </summary>
 public sealed class WorkspaceBrowserTests {
 	private static WorkspaceBrowser NewBrowser(params string[] files) {
@@ -51,7 +50,7 @@ public sealed class WorkspaceBrowserTests {
 
 	[Fact]
 	public void List_EscapeAttempt_ClampsToRoot() {
-		// A file outside the root must never appear; the request falls back to listing the root.
+		// Files outside the root must never appear; escape attempts fall back to the root.
 		var browser = NewBrowser("/proj/readme.md", "/secret/passwords.txt");
 
 		var entries = browser.List("../secret");

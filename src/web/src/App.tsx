@@ -29,7 +29,7 @@ import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { connectStoredAgents } from "./chrome/remote-agents";
 // Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
-// rail + active-session status survive HMR, the same way layout/store and editor/session-store do.
+// rail + active-session status survive HMR, like layout/store and editor/session-store.
 import { type RailSession, claudeStatus, sessions } from "./chrome/session-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
@@ -40,12 +40,10 @@ import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
 import { createEditorController } from "./editor/editor-controller";
-// Side-effect import: registers the editor session store's set-editor-session listener at top-level module
-// load — BEFORE main.tsx posts "ready" and the host replies with its one-shot restore push. The store
-// otherwise lives only in the dynamically-imported editor chunk (via editor-host), which loads seconds
-// later, so the push would arrive with no listener and be dropped — launch/Ctrl+R restore would silently
-// no-op. Importing it here (like layout/store) also keeps the signal alive across HMR.
-// Named import keeps session-store loaded at top level (out of the editor chunk) so it survives HMR.
+// Registers the editor session store's set-editor-session listener at top-level module load — before
+// main.tsx posts "ready" and the host replies with its one-shot restore push. The store otherwise lives
+// only in the dynamically-imported editor chunk (editor-host), which loads later, so the push would arrive
+// with no listener — launch/Ctrl+R restore would silently no-op. Importing here also keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
@@ -60,15 +58,14 @@ import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 
-// The PRIMARY session's workspace root (host-injected before navigation). Used to SEED the active-root
-// signal (indexRoot) and as the "is there a host workspace at all" check; the live root follows the active
-// session via the host's file-index pushes (see indexRoot). Null in plain-browser dev (no host).
+// The PRIMARY session's workspace root (host-injected before navigation). Seeds the active-root signal
+// (indexRoot) and serves as the "is there a host workspace at all" check; the live root follows the active
+// session via the host's file-index pushes. Null in plain-browser dev (no host).
 const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
 // Host-injected shell config. Windows injects titleBar "custom" (the frameless web title bar with its own
 // window controls); macOS injects titleBar "mac" (the omnibar strip below the native title bar + system
-// menu). Absent in plain-browser dev, where neither bar renders and the floating Files/Changes buttons are
-// the panel toggles.
+// menu). Absent in plain-browser dev, where neither bar renders and the floating Files button is the toggle.
 const SHELL = window.__WEAVIE_SHELL__;
 const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
 const MAC_TITLEBAR = SHELL?.titleBar === "mac";
@@ -104,10 +101,9 @@ export default function App(): JSX.Element {
   // (the editor focuses via the controller directly). focusPane resolves the active session's entry.
   const terminalFocus = new Map<string, () => void>();
 
-  // The active backend's loaded sessions each keep their own live xterm pair mounted; only the active
-  // one is shown. termSessionIds is a stable string[] (session ids) so <For> never remounts a session's
-  // terminals across rail pushes — that's what keeps them alive, making a switch pure show/hide. Dormant
-  // sessions (no backend) and other backends' sessions are excluded.
+  // The active backend's loaded sessions each keep their own live xterm pair mounted; only the active one is
+  // shown. A stable string[] of session ids so <For> never remounts a session's terminals across rail pushes
+  // — that keeps them alive, making a switch pure show/hide. Dormant and other-backend sessions are excluded.
   const termSessionIds = createMemo(() =>
     sessions()
       .filter((s) => s.loaded && s.backendId === activeBackendId())
@@ -117,10 +113,8 @@ export default function App(): JSX.Element {
   // rail push). Flipping this is what switches which session's terminals are visible.
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
 
-  // The active session's Claude status (pane-head dot) and the window's sessions (left rail) both live in
-  // chrome/session-store as top-level signals so they survive HMR — see that module. The host pushes
-  // session-status / session-list on `ready` and on every change; an HMR re-posts neither.
-  // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
+  // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it. (Claude status
+  // and the rail session list live in chrome/session-store as HMR-surviving top-level signals.)
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
@@ -144,10 +138,10 @@ export default function App(): JSX.Element {
       req.resolve(ok);
     }
   };
-  // Custom title bar state: window chrome (maximize glyph + blur dim) pushed by the host, plus the flat
-  // workspace file index the omnibar's "Go to File" filters over and the file browser's tree. indexRoot is
-  // the ACTIVE session's worktree root — it follows session switches (the host re-pushes file-index on each),
-  // seeded from the primary's WORKSPACE_ROOT until the first push. Both the omnibar and the browser root here.
+  // Window chrome (maximize glyph + blur dim) pushed by the host, plus the flat workspace file index the
+  // omnibar's "Go to File" and the file browser tree share. indexRoot is the ACTIVE session's worktree root
+  // — it follows session switches (the host re-pushes file-index on each), seeded from WORKSPACE_ROOT until
+  // the first push.
   const [maximized, setMaximized] = createSignal(false);
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
@@ -179,7 +173,7 @@ export default function App(): JSX.Element {
   // session. Used by the rail (click) and the next/prev keyboard commands alike.
   const switchToSession = (session: RailSession): void => {
     flushEditorSession();
-    // Crossing to another backend (local ↔ remote) just rebinds the page to it; its switch-session reply
+    // Crossing to another backend (local ↔ remote) rebinds the page to it; its switch-session reply
     // (term-reset → the panes re-emit term-ready, plus set-editor-session) re-attaches the terminals + editor.
     if (session.backendId !== activeBackendId()) {
       setActiveBackendId(session.backendId);
@@ -342,12 +336,11 @@ export default function App(): JSX.Element {
   });
 
   // Review auto-open is decided HOST-side (it reads the session's status + change set together, so the
-  // decision is race-free across a session switch) and delivered as the `open` flag on `turn-changes` — see
-  // the handler below. No web-side effect: the page just obeys.
+  // decision is race-free across a switch) and delivered as the `open` flag on `turn-changes`. The page obeys.
 
   onMount(() => {
-    // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
-    // active theme + override ops and also drives Monaco + xterm; this pushes the chrome's CSS vars.
+    // Apply the active theme to Weavie's chrome. The controller owns the active theme + override ops and
+    // also drives Monaco + xterm; this pushes the chrome's CSS vars.
     applyChromeTheme();
     mark("shell-mounted");
 
@@ -367,14 +360,14 @@ export default function App(): JSX.Element {
       if (message.type === "notify") {
         addToast(message.level, message.message);
       } else if (message.type === "focus-pane") {
-        // The host switched the active session (new / select / close) and asks us to land keyboard focus
-        // in a pane — Claude by default, so a switch drops the user straight into the agent. The terminal
-        // xterms are persistent across switches, so focusing the slot is valid even mid-respawn.
+        // The host switched the active session and asks us to land keyboard focus in a pane — Claude by
+        // default, so a switch drops the user straight into the agent. The terminal xterms are persistent
+        // across switches, so focusing the slot is valid even mid-respawn.
         focusPane(message.kind);
       } else if (message.type === "turn-changes") {
-        // The review set (auto-keep modes). Feed the editor controller's ← / → file walk; if the host decided
-        // this is the moment to surface review (`open`) — turn end, or a switch into a session with pending
-        // review — open the first file. No panel renders it; review is the inline toolbar in the editor.
+        // The review set (auto-keep modes). Feed the editor controller's ← / → file walk; if the host says
+        // this is the moment to surface review (`open`), open the first file. No panel renders it; review is
+        // the inline toolbar in the editor.
         editor.setReviewFiles(message.files);
         if (message.open) {
           editor.openFirstReviewFile();
@@ -405,17 +398,17 @@ export default function App(): JSX.Element {
       // survive HMR); they're intentionally not handled here.
     });
 
-    // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. The
-    // migrated Ctrl+1–9 (focus pane by index), the omnibar focus shortcuts, the view toggles, and the
-    // inline-diff actions all resolve through it; Core commands route to the host. See docs/specs/commands.md.
+    // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Ctrl+1–9
+    // (focus pane by index), the omnibar focus shortcuts, the view toggles, and the inline-diff actions all
+    // resolve through it; Core commands route to the host. See docs/specs/commands.md.
     // A tab command's optional `path` arg (sent by the tab context menu); absent ⇒ act on the active tab.
     const tabPath = (args: unknown): string | undefined => {
       const path = (args as { path?: unknown } | undefined)?.path;
       return typeof path === "string" ? path : undefined;
     };
     const offCommands = [
-      // focus-pane-by-index returns false when there's no pane at that number, so an unbound Ctrl+digit
-      // still falls through to the focused xterm/Monaco (preserving the old behavior).
+      // Returns false when there's no pane at that number, so an unbound Ctrl+digit falls through to the
+      // focused xterm/Monaco.
       registerCommand(CommandIds.focusPaneByIndex, (args) => {
         const index = Number((args as { index?: unknown } | undefined)?.index);
         if (!Number.isFinite(index)) {

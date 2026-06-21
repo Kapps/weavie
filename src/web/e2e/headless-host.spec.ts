@@ -7,10 +7,9 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
 
-// Integration test against the REAL headless host (src/Weavie.Headless) rather than the MockHost: spawn the
-// built host, point a real browser at it, and prove the WebSocket bridge round-trips into the C# session.
-// Skipped when the host hasn't been built (so the web-only `pnpm run e2e` still runs); CI that builds the
-// solution exercises it. This is the end-to-end guard for the browser <-> WebSocket <-> Weavie.Core path.
+// End-to-end guard for the browser <-> WebSocket <-> Weavie.Core path: spawn the real built headless host,
+// point a browser at it, and prove the bridge round-trips into the C# session. Skipped when the host hasn't
+// been built, so the web-only `pnpm run e2e` still runs.
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 const hostDll = join(
@@ -39,7 +38,7 @@ function freePort(): Promise<number> {
 }
 
 // Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
-// the listener and never assumes the requested port (the host echoes the real one it is serving on).
+// the listener and never assumes the requested port.
 function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<number> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
@@ -87,7 +86,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     proc.stdout?.on("data", (chunk: Buffer) => {
       log += chunk.toString("utf8");
     });
-    // Navigate to the port the host reports binding, not the requested one — robust to the freePort race.
+    // Use the port the host reports binding, robust to the freePort race.
     port = await waitForListening(proc, 30_000);
   });
 
@@ -104,7 +103,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     // browser-only `window` global isn't referenced in this Node test module.)
     await expect.poll(() => page.evaluate("window.__WEAVIE_BRIDGE_WS__")).toBe("auto");
 
-    // The page's `ready` must arrive at the real C# session — the proof the bridge round-trips end to end.
+    // The page's `ready` must reach the real C# session — proof the bridge round-trips end to end.
     await expect.poll(() => log, { timeout: 15_000 }).toContain('{"type":"ready"}');
   });
 });

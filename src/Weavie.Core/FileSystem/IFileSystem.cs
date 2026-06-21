@@ -1,25 +1,24 @@
 namespace Weavie.Core.FileSystem;
 
-/// <summary>One entry in a directory listing: its leaf <paramref name="Name"/> (no path) and whether it is a subdirectory.</summary>
+/// <summary>One entry in a directory listing: its leaf name (no path) and whether it is a subdirectory.</summary>
 public readonly record struct DirectoryEntry(string Name, bool IsDirectory);
 
 /// <summary>
-/// A file's existence + metadata snapshot, used by the editor's host-backed <c>file://</c> provider to build
-/// a stat/etag for VSCode working copies. <paramref name="MtimeMs"/> and <paramref name="Size"/> together are
-/// the conflict/etag check — both MUST change when the file's content changes.
+/// A file's existence + metadata snapshot, used by the host-backed <c>file://</c> provider to build a
+/// stat/etag for VSCode working copies. <paramref name="MtimeMs"/> and <paramref name="Size"/> together
+/// form the conflict/etag check — both MUST change when the file's content changes.
 /// </summary>
-/// <param name="Exists">Whether anything exists at the path.</param>
-/// <param name="IsDirectory">Whether the path is a directory (vs. a file).</param>
+/// <param name="Exists">Whether the file or directory exists.</param>
+/// <param name="IsDirectory">Whether the path is a directory.</param>
 /// <param name="MtimeMs">Last-write time in milliseconds since the Unix epoch (0 when absent).</param>
 /// <param name="CtimeMs">Creation time in milliseconds since the Unix epoch (0 when absent).</param>
 /// <param name="Size">Size in bytes (0 for directories / absent).</param>
 public readonly record struct FileStat(bool Exists, bool IsDirectory, long MtimeMs, long CtimeMs, long Size);
 
 /// <summary>
-/// The filesystem seam. Injected so tests can run entirely in memory
-/// (see the vault Build Philosophy + Headless &amp; Testing notes).
-/// One real implementation (<see cref="LocalFileSystem"/>) and one
-/// in-memory test fake (<see cref="InMemoryFileSystem"/>). No fallbacks.
+/// The filesystem seam. Injected so tests can run entirely in memory. One real implementation
+/// (<see cref="LocalFileSystem"/>) and one in-memory test fake (<see cref="InMemoryFileSystem"/>).
+/// No fallbacks.
 /// </summary>
 public interface IFileSystem {
 	/// <summary>Returns whether a file exists at <paramref name="path"/>.</summary>
@@ -29,16 +28,14 @@ public interface IFileSystem {
 	bool DirectoryExists(string path);
 
 	/// <summary>
-	/// Tries to read <paramref name="path"/>'s metadata (existence, kind, mtime/ctime in ms since the Unix
-	/// epoch, size). Returns <see langword="true"/> with a populated <paramref name="stat"/> when something
-	/// exists there; <see langword="false"/> with a default <paramref name="stat"/> for a missing or
-	/// unreadable path. Never throws for a missing/denied path.
+	/// Reads <paramref name="path"/>'s metadata into <paramref name="stat"/>, returning whether anything
+	/// exists there. Never throws for a missing/denied path (returns <see langword="false"/> + default).
 	/// </summary>
 	bool TryGetStat(string path, out FileStat stat);
 
 	/// <summary>
-	/// Lists the immediate entries (files + subdirectories) of <paramref name="path"/>. Returns empty when
-	/// the directory does not exist or cannot be read — never throws for a missing/denied directory.
+	/// Lists the immediate entries (files + subdirectories) of <paramref name="path"/>. Returns empty for a
+	/// missing or unreadable directory — never throws.
 	/// </summary>
 	IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path);
 
@@ -49,15 +46,15 @@ public interface IFileSystem {
 	void WriteAllText(string path, string contents);
 
 	/// <summary>
-	/// Writes UTF-8 text atomically (a crash leaves either the old or the new file, never a torn one),
-	/// creating parent directories as needed. For app-managed config documents; not for user source
-	/// files, where atomic-rename has observable costs (file-watcher churn, broken hardlinks, lost ACLs).
+	/// Writes UTF-8 text atomically (a crash leaves either the old or new file, never a torn one), creating
+	/// parent directories as needed. For app-managed config documents, not user source files — atomic-rename
+	/// has observable costs there (file-watcher churn, broken hardlinks, lost ACLs).
 	/// </summary>
 	void WriteAllTextAtomic(string path, string contents);
 
 	/// <summary>
-	/// Deletes the file at <paramref name="path"/>. A missing file is a no-op (never throws for absence); a
-	/// real delete error (ACLs, in use) propagates so the caller can surface it.
+	/// Deletes the file at <paramref name="path"/>. A missing file is a no-op; a real delete error (ACLs, in
+	/// use) propagates so the caller can surface it.
 	/// </summary>
 	void DeleteFile(string path);
 }

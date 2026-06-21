@@ -3,10 +3,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Layout;
 
 /// <summary>
-/// Registers Weavie's built-in pane kinds and builds the default layout — the layout-system analogue of
-/// <see cref="Weavie.Core.Configuration.CoreSettings"/>. Shipping a new default pane is a single
-/// <see cref="PaneRegistry.Register"/> call with a higher <see cref="PaneDefinition.IntroducedIn"/>; the
-/// reconciler then makes it appear for existing users exactly once.
+/// Registers Weavie's built-in pane kinds and builds the default layout. Shipping a new default pane is a
+/// single <see cref="PaneRegistry.Register"/> call with a higher <see cref="PaneDefinition.IntroducedIn"/>;
+/// the reconciler then makes it appear for existing users exactly once.
 /// </summary>
 public static class LayoutPanes {
 	/// <summary>Pane kind for the Monaco editor.</summary>
@@ -54,9 +53,9 @@ public static class LayoutPanes {
 	}
 
 	/// <summary>
-	/// The built-in default layout: a left column stacking the Claude and shell terminals beside the
-	/// editor on the right (40/60), matching the legacy hardcoded arrangement. The seen-pane watermark is
-	/// set to the current level so a brand-new user already has every current default.
+	/// The built-in default layout: a left column stacking the Claude and shell terminals beside the editor
+	/// on the right (40/60). The seen-pane watermark is set to the current level so a brand-new user already
+	/// has every current default.
 	/// </summary>
 	public static LayoutDocument Default(PaneRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);

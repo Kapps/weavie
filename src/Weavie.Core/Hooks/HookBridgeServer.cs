@@ -4,11 +4,10 @@ using System.Text;
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// The in-process listener the hook relay dials. Accepts one length-prefixed hook request per connection,
-/// raises <see cref="Observed"/> (the change-recording stream), and replies with the <see cref="HookPolicy"/>
-/// decision (empty = pass-through). Loopback and current-user-only — see <see cref="HookProtocol"/>. Lives for
-/// the app's lifetime; the relay processes are transient (one per tool call) and fail open, so a hiccup here
-/// never blocks Claude.
+/// In-process listener the hook relay dials. Accepts one length-prefixed hook request per connection, raises
+/// <see cref="Observed"/> (the change-recording stream), and replies with the decision (empty = pass-through).
+/// Current-user-only — see <see cref="HookProtocol"/>. Lives for the app's lifetime; relays are transient (one
+/// per tool call) and fail open, so a hiccup here never blocks Claude.
 /// </summary>
 public sealed class HookBridgeServer : IAsyncDisposable {
 	private const int MaxInstances = 4;
@@ -20,10 +19,7 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 
 	/// <summary>Creates a server that listens on <paramref name="pipeName"/> once <see cref="Start"/> is called.</summary>
 	/// <param name="pipeName">The pipe name (see <see cref="HookProtocol.PipeName"/>).</param>
-	/// <param name="decide">
-	/// Maps an observed request to a decision (the active-mode policy); defaults to pass-through, so a server
-	/// constructed without one is a pure recorder.
-	/// </param>
+	/// <param name="decide">Maps an observed request to a decision; defaults to pass-through (a pure recorder).</param>
 	public HookBridgeServer(string pipeName, Func<HookRequest, HookDecision>? decide) {
 		ArgumentException.ThrowIfNullOrEmpty(pipeName);
 		_pipeName = pipeName;
@@ -114,7 +110,7 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 			try {
 				await _acceptLoop.ConfigureAwait(false);
 			} catch (OperationCanceledException) {
-				// Expected — we just cancelled the loop.
+				// Expected: the loop was just cancelled.
 			}
 		}
 		_cts.Dispose();

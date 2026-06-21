@@ -12,7 +12,7 @@ public enum CommandLocation {
 	Core,
 }
 
-/// <summary>The outcome of running a command — reported to Claude by <c>runCommand</c> and honored by the caller.</summary>
+/// <summary>The outcome of running a command, reported to Claude by <c>runCommand</c>.</summary>
 public readonly record struct CommandResult(bool Ok, string? Message, string? Error) {
 	/// <summary>A successful run with no message.</summary>
 	public static CommandResult Success() => new(true, null, null);
@@ -25,9 +25,9 @@ public readonly record struct CommandResult(bool Ok, string? Message, string? Er
 }
 
 /// <summary>
-/// A default keybinding declared by a command. The <see cref="Key"/> uses the tinykeys-style
-/// cross-platform <c>$mod</c> token (Cmd on macOS, Ctrl elsewhere); <see cref="ArgsJson"/> lets one
-/// command (e.g. focus-pane-by-index) carry per-binding arguments.
+/// A default keybinding declared by a command. <see cref="Key"/> uses the tinykeys-style cross-platform
+/// <c>$mod</c> token (Cmd on macOS, Ctrl elsewhere); <see cref="ArgsJson"/> lets one command (e.g.
+/// focus-pane-by-index) carry per-binding arguments.
 /// </summary>
 public sealed record CommandKeybinding {
 	/// <summary>The chord, e.g. <c>$mod+1</c> or <c>$mod+Shift+p</c>.</summary>
@@ -37,19 +37,19 @@ public sealed record CommandKeybinding {
 	public string? ArgsJson { get; init; }
 
 	/// <summary>
-	/// When true, this is an OS-level <em>global</em> hotkey: the host registers it with the operating
-	/// system so it fires even when Weavie isn't the focused application (e.g. <c>ctrl+`</c> → focus the
-	/// window). The web keydown resolver ignores global bindings — the OS owns them — so they never
-	/// double-fire while Weavie is focused. See <c>docs/specs/commands.md</c>.
+	/// When true, this is an OS-level <em>global</em> hotkey: the host registers it with the OS so it fires
+	/// even when Weavie isn't the focused application (e.g. <c>ctrl+`</c> → focus the window). The web keydown
+	/// resolver ignores global bindings, so they never double-fire while Weavie is focused. See
+	/// <c>docs/specs/commands.md</c>.
 	/// </summary>
 	public bool Global { get; init; }
 }
 
 /// <summary>
-/// A declared command: a named action Weavie can perform. The single source of truth for what exists,
-/// where it runs, its default keybinding(s), palette visibility, <c>when</c> guard, and the docs/aliases
-/// Claude uses to map natural language onto the exact id. One declaration drives the MCP tool surface,
-/// the keybinding defaults, and the omnibar command palette. See <c>docs/specs/commands.md</c>.
+/// A declared command: a named action Weavie can perform. The single source of truth for what exists, where
+/// it runs, its default keybinding(s), palette visibility, <c>when</c> guard, and the docs/aliases Claude uses
+/// to map natural language onto the exact id. One declaration drives the MCP tool surface, the keybinding
+/// defaults, and the omnibar command palette. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public sealed record CommandDefinition {
 	/// <summary>The stable, namespaced id, e.g. <c>weavie.diff.toggleLayout</c>. Unique within the registry.</summary>

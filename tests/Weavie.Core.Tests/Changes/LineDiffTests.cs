@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Verifies added/removed line counts from the line-level LCS, ignoring CRLF vs LF differences.</summary>
+/// <summary>Added/removed line counts from the line-level LCS, ignoring CRLF vs LF.</summary>
 public sealed class LineDiffTests {
 	[Fact]
 	public void Count_AddedLines() {
@@ -20,7 +20,6 @@ public sealed class LineDiffTests {
 	}
 
 	[Fact]
-	// test
 	public void Count_ModifiedLine_CountsAsAddAndRemove() {
 		var (added, removed) = LineDiff.Count("a\nb\nc", "a\nB\nc");
 		Assert.Equal(1, added);
@@ -54,7 +53,7 @@ public sealed class LineDiffTests {
 		Assert.Equal(3, LineDiff.FirstChangedLine("a\nb", "a\nb\nc\nd"));
 
 	[Fact]
-	// A trailing deletion has no differing line within the shared prefix; the target clamps into range.
+	// Trailing deletion has no differing line in the shared prefix; the target clamps into range.
 	public void FirstChangedLine_TrailingDeletion_ClampsIntoAfterRange() =>
 		Assert.Equal(2, LineDiff.FirstChangedLine("a\nb\nc\nd", "a\nb"));
 

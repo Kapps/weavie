@@ -6,11 +6,9 @@ namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// The JS &lt;-&gt; C# message bridge over WebView2.
-///   inbound:  JS calls <c>window.chrome.webview.postMessage(json)</c> (via the injected WKWebView
-///             shim, <c>window.webkit.messageHandlers.weavie.postMessage</c>) -&gt; <see cref="MessageReceived"/>.
+///   inbound:  JS calls <c>window.chrome.webview.postMessage(json)</c> -&gt; <see cref="MessageReceived"/>.
 ///   outbound: <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the UI thread.
-/// Bodies are raw JSON strings; typed dispatch lives on each side. This mirrors the macOS HostBridge
-/// so the shared web frontend is byte-for-byte identical across platforms. Implements the shared
+/// Bodies are raw JSON strings; typed dispatch lives on each side. Implements the shared
 /// <see cref="IHostBridge"/> so <c>HostCore</c> and the shared hosting leaf utilities drive it.
 /// </summary>
 public sealed class HostBridge : IHostBridge {

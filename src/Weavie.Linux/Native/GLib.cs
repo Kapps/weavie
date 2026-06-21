@@ -3,9 +3,8 @@ using System.Runtime.InteropServices;
 namespace Weavie.Linux.Native;
 
 /// <summary>
-/// Minimal P/Invoke into GLib / GObject / GIO — signal connection, object lifetime, the main-loop
-/// idle queue (used to marshal work onto the GTK thread), and the in-memory input stream used to
-/// answer <c>app://</c> scheme requests.
+/// P/Invoke into GLib / GObject / GIO — signal connection, object lifetime, the main-loop idle queue (to
+/// marshal work onto the GTK thread), and the in-memory input stream answering <c>app://</c> requests.
 /// </summary>
 internal static partial class GLib {
 	private const string GObject = "libgobject-2.0.so.0";

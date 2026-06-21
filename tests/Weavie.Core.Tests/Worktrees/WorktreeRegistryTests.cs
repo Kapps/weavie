@@ -5,8 +5,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="WorktreeRegistry"/> over the in-memory filesystem: persist + reload, same-path
-/// replacement, removal, lookups, malformed-file backup + reset, and the Changed event.
+/// <see cref="WorktreeRegistry"/>: persistence, same-path replacement, removal, lookups, malformed-file
+/// backup + reset, and the Changed event.
 /// </summary>
 public sealed class WorktreeRegistryTests {
 	private const string RegistryPath = "/weavie-worktree-tests/worktrees.json";

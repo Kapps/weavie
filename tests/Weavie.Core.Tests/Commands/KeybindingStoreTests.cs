@@ -5,9 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="KeybindingStore"/> against a real on-disk temp file: default seeding from the
-/// registry, user add / override / unbind, unknown-command dropping, args + when parsing, and the
-/// malformed-file policy (keep defaults). Watcher disabled for deterministic, synchronous assertions.
+/// <see cref="KeybindingStore"/> against a real temp file: default seeding, user add/override/unbind,
+/// unknown-command dropping, args + when parsing, and malformed-file handling (keep defaults).
+/// Watcher off for deterministic, synchronous assertions.
 /// </summary>
 public sealed class KeybindingStoreTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-keybinding-tests", Guid.NewGuid().ToString("N"));
@@ -26,7 +26,7 @@ public sealed class KeybindingStoreTests : IDisposable {
 
 	private string FilePath => Path.Combine(_dir, "keybindings.json");
 
-	// A small deterministic registry: one keybinding-only command with a default + args, and one with none.
+	// One command with default bindings + args, one with none.
 	private static CommandRegistry TestRegistry() {
 		var registry = new CommandRegistry();
 		registry.Register(new CommandDefinition {
@@ -114,7 +114,7 @@ public sealed class KeybindingStoreTests : IDisposable {
 		Assert.Equal("editorFocused", added.GetProperty("when").GetString());
 	}
 
-	// A registry whose one command carries a default GLOBAL binding, for the global-flag tests below.
+	// One command with a default global binding, for the global-flag tests.
 	private static CommandRegistry GlobalRegistry() {
 		var registry = new CommandRegistry();
 		registry.Register(new CommandDefinition {
@@ -155,7 +155,7 @@ public sealed class KeybindingStoreTests : IDisposable {
 		var entry = Assert.Single(Parse(store.BuildKeybindingsJson()));
 		Assert.True(entry.GetProperty("global").GetBoolean());
 
-		// A non-global binding omits the property entirely (kept lean; absent ⇒ false on the web).
+		// Non-global bindings omit the property; absent means false on the web.
 		using var plain = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
 		Assert.All(Parse(plain.BuildKeybindingsJson()), e => Assert.False(e.TryGetProperty("global", out _)));
 	}

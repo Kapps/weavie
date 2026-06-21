@@ -1,8 +1,7 @@
-// Resolves keydowns against the resolved keybindings. One capture-phase window listener (so a chord wins
-// over a focused xterm/Monaco), but it only preventDefaults when a binding actually matches AND its handler
-// consumes the event — so an unmatched/declined Ctrl+digit still passes through. Single-chord matching with
-// a tiny inline parser (no dependency); the cross-platform `$mod` is the only subtlety. Multi-stroke chord
-// sequences (ctrl+k ctrl+s) are not handled yet — see docs/specs/commands.md.
+// Resolves keydowns against the resolved keybindings. One capture-phase window listener so a chord wins
+// over a focused xterm/Monaco, but it only preventDefaults when a binding matches AND its handler consumes
+// the event, so an unmatched/declined keystroke still passes through. Single-chord matching only; multi-
+// stroke sequences (ctrl+k ctrl+s) are not handled. See docs/specs/commands.md.
 
 import { evaluateWhen } from "./context";
 import { getKeybindings, onCommandsChanged, runForKeybinding } from "./registry";
@@ -19,12 +18,9 @@ interface Chord {
   key: string;
 }
 
-// The US/ANSI "shifted" punctuation glyph folded back to the base (unshifted) key on the same physical key.
-// KeyboardEvent.key reports the *shifted* glyph, so pressing Ctrl+Shift+] yields key "}", not "]". Specs are
-// authored with the base char ("$mod+Shift+]") and Shift is matched separately, so without this fold a
-// Shift+symbol binding can never match — it requires Shift held, yet Shift turns "]" into "}". (Letters need
-// no entry: they fold via toLowerCase. Layout caveat: this is the US/ANSI shift layer, like the rest of the
-// matcher.)
+// Maps each US/ANSI shifted punctuation glyph back to its base key. KeyboardEvent.key reports the shifted
+// glyph (Ctrl+Shift+] yields "}", not "]"), but specs use the base char and match Shift separately, so
+// without this fold a Shift+symbol binding could never match. Letters fold via toLowerCase instead.
 const SHIFTED_TO_BASE: Record<string, string> = {
   "~": "`",
   "!": "1",
@@ -49,10 +45,8 @@ const SHIFTED_TO_BASE: Record<string, string> = {
   "?": "/",
 };
 
-// The browser's KeyboardEvent.key spells some keys with long names ("ArrowUp", "Escape", " ") that don't match
-// the short tokens specs are written with ("Up", "Esc", "Space"). Fold both onto one canonical token so e.g.
-// "$mod+Up" matches a real Ctrl+ArrowUp keydown. Without this, arrow-key bindings silently never match and the
-// keystroke falls through to whatever has focus (Monaco scroll-line, xterm), so the binding looks "stolen".
+// Folds KeyboardEvent.key's long names ("ArrowUp", "Escape", " ") and spec tokens ("Up", "Esc", "Space")
+// onto one canonical token so e.g. "$mod+Up" matches a real Ctrl+ArrowUp keydown.
 function normalizeKey(key: string): string {
   const k = key.toLowerCase();
   switch (k) {
@@ -112,7 +106,7 @@ function parseChord(spec: string): Chord {
 
 function matches(chord: Chord, event: KeyboardEvent): boolean {
   if (chord.key === "") {
-    return false; // a modifiers-only binding never matches a keydown
+    return false; // modifiers-only binding never matches a keydown
   }
   const wantCtrl = chord.ctrl || (chord.mod && !IS_MAC);
   const wantMeta = chord.meta || (chord.mod && IS_MAC);
@@ -128,8 +122,8 @@ function matches(chord: Chord, event: KeyboardEvent): boolean {
 let compiled: { chord: Chord; binding: ResolvedKeybinding }[] = [];
 
 function rebuild(): void {
-  // Skip global bindings: the host registers them with the OS so they fire even when Weavie is unfocused.
-  // Resolving them here too would double-fire them while Weavie IS focused, so the OS owns them outright.
+  // Skip global bindings: the host registers them with the OS, so resolving them here too would double-fire
+  // them while Weavie is focused.
   compiled = getKeybindings()
     .filter((binding) => binding.global !== true)
     .map((binding) => ({ chord: parseChord(binding.key), binding }));
@@ -141,7 +135,7 @@ export function installKeybindings(): () => void {
   const offChanged = onCommandsChanged(rebuild);
 
   const onKeyDown = (event: KeyboardEvent): void => {
-    // Last-match-first so a user binding (appended after the defaults) wins for the same key.
+    // Last-match-first so a user binding wins over a default for the same key.
     for (let i = compiled.length - 1; i >= 0; i--) {
       const entry = compiled[i];
       if (entry === undefined) {

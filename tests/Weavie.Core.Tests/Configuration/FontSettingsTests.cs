@@ -5,9 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="FontSettings"/>: the global default, per-surface override precedence, the
-/// inherit sentinels (empty family, <c>0</c> size, <c>"inherit"</c> weight), validation, and the JSON
-/// the host injects/pushes. Uses an isolated registry (font settings only) over a temp file.
+/// Tests <see cref="FontSettings"/>: global default, per-surface override precedence, the inherit
+/// sentinels (empty family, <c>0</c> size, <c>"inherit"</c> weight), validation, and the host JSON.
+/// Uses an isolated font-only registry over a temp file.
 /// </summary>
 [Collection("Settings")]
 public sealed class FontSettingsTests : IDisposable {
@@ -63,7 +63,7 @@ public sealed class FontSettingsTests : IDisposable {
 
 		Assert.Equal(18, editor.Size);
 		Assert.Equal("JetBrains Mono", editor.Family);
-		// Terminal is untouched — still the global default.
+		// Terminal untouched — still the global default.
 		Assert.Equal(13, terminal.Size);
 		Assert.Contains("monospace", terminal.Family, StringComparison.Ordinal);
 	}
@@ -89,7 +89,7 @@ public sealed class FontSettingsTests : IDisposable {
 		store.Set(FontSettings.GlobalSize, Json("16"));
 		store.Set(FontSettings.GlobalWeight, Json("\"600\""));
 		store.Set(FontSettings.GlobalFamily, Json("\"Comic Mono\""));
-		// Explicit inherit sentinels on the editor: empty family, 0 size, "inherit" weight.
+		// Editor inherit sentinels: empty family, 0 size, "inherit" weight.
 		store.Set(FontSettings.EditorFamily, Json("\"\""));
 		store.Set(FontSettings.EditorSize, Json("0"));
 		store.Set(FontSettings.EditorWeight, Json("\"inherit\""));
@@ -110,7 +110,7 @@ public sealed class FontSettingsTests : IDisposable {
 		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.GlobalWeight, Json("\"heavy\"")));
 		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.EditorWeight, Json("\"heavy\"")));
 
-		// Override size 0 (inherit) is allowed; a real out-of-range override is not.
+		// Override size 0 (inherit) is allowed; a non-zero out-of-range one is not.
 		store.Set(FontSettings.EditorSize, Json("0"));
 		Assert.Throws<SettingValidationException>(() => store.Set(FontSettings.EditorSize, Json("3")));
 	}

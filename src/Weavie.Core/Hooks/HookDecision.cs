@@ -6,7 +6,7 @@ namespace Weavie.Core.Hooks;
 
 /// <summary>What the bridge tells Claude to do with a <see cref="HookEventKind.PreToolUse"/> tool call.</summary>
 public enum HookDecisionKind {
-	/// <summary>No opinion — defer to Claude's normal flow (openDiff for edits, the terminal prompt for the rest).</summary>
+	/// <summary>No opinion — defer to Claude's normal flow (openDiff for edits, the terminal prompt otherwise).</summary>
 	PassThrough,
 
 	/// <summary>Allow the tool without prompting (the claude.allowAllTools bypass).</summary>
@@ -17,9 +17,8 @@ public enum HookDecisionKind {
 }
 
 /// <summary>
-/// The bridge's verdict on a hook event, plus its serialization to the <c>hookSpecificOutput</c> JSON Claude
-/// reads from a hook's stdout. <see cref="HookDecisionKind.PassThrough"/> serializes to
-/// <see langword="null"/> (empty stdout = "no decision" = Claude's normal flow).
+/// The bridge's verdict on a hook event, plus its serialization to the JSON Claude reads from a hook's stdout.
+/// <see cref="HookDecisionKind.PassThrough"/> serializes to <see langword="null"/> (empty stdout = no decision).
 /// </summary>
 public sealed record HookDecision {
 	/// <summary>The verdict.</summary>
@@ -29,9 +28,8 @@ public sealed record HookDecision {
 	public string? Reason { get; init; }
 
 	/// <summary>
-	/// An optional line of text Claude surfaces to the user in the TUI (the top-level <c>systemMessage</c>
-	/// hook field, valid on any event). Weavie sets it on PostToolUse edits to a clickable <c>file:line</c>
-	/// jump target. Independent of <see cref="Kind"/> — a pass-through decision can still carry one.
+	/// Optional line Claude surfaces in the TUI (the top-level <c>systemMessage</c> field, valid on any event);
+	/// Weavie sets it on PostToolUse edits to a clickable <c>file:line</c> jump. Independent of <see cref="Kind"/>.
 	/// </summary>
 	public string? SystemMessage { get; init; }
 
@@ -47,10 +45,9 @@ public sealed record HookDecision {
 	public static HookDecision Deny(string reason) => new() { Kind = HookDecisionKind.Deny, Reason = reason };
 
 	/// <summary>
-	/// Renders the JSON Claude reads from the hook's stdout: a <c>hookSpecificOutput</c> permission block for
-	/// an allow/deny on a PreToolUse event, and/or a top-level <c>systemMessage</c> when
-	/// <see cref="SystemMessage"/> is set. Returns <see langword="null"/> when there is nothing to say (a
-	/// pass-through with no message) — in which case the relay writes nothing and Claude takes its normal flow.
+	/// Renders the JSON Claude reads from the hook's stdout: a <c>hookSpecificOutput</c> permission block for an
+	/// allow/deny, and/or a top-level <c>systemMessage</c>. Returns <see langword="null"/> when there is nothing
+	/// to say (pass-through with no message), so the relay writes nothing and Claude takes its normal flow.
 	/// </summary>
 	/// <param name="evt">The event being decided.</param>
 	public string? ToHookOutputJson(HookEventKind evt) {

@@ -4,11 +4,10 @@ using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.LspHarness;
 
-// Dev harness (NOT shipped): proves the LSP bridge end-to-end against a real, mature TypeScript
-// server (vtsls / typescript-language-server). It stands up the host-side LspBridgeServer, connects a
-// loopback WebSocket LSP client (standing in for monaco-languageclient), and verifies the M0
-// "done when": diagnostics, semantic tokens, hover, and completion are live on a real .ts file —
-// all without the WebView. The server/transport half of M0 is thus deterministically CI-checkable.
+// Dev harness (not shipped): proves the LSP bridge end-to-end against a real language server. It stands up the
+// host-side LspBridgeServer, connects a loopback WebSocket LSP client (standing in for monaco-languageclient),
+// and verifies that diagnostics, semantic tokens, hover, and completion are live on a real source file —
+// all without the WebView, so the server/transport half is deterministically CI-checkable.
 //   WEAVIE_LSP_SERVER     selector / language id (default "typescript")
 //   WEAVIE_LSP_WORKSPACE  workspace dir (default a fresh temp dir with a tsconfig + sample.ts)
 
@@ -54,7 +53,7 @@ string fileUri = new Uri(samplePath).AbsoluteUri;
 Console.WriteLine($"[lsp-harness] workspace: {workspace}");
 
 string token = IdeLockFile.NewAuthToken();
-// allowedOrigin: null — the harness is a native client and sends no Origin header; the token is the gate.
+// allowedOrigin: null — the native client sends no Origin header; the token is the gate.
 await using var bridge = new LspBridgeServer(token, workspace!, allowedOrigin: null, resolveDescriptor: null);
 bool watchBroadcast = false;
 bridge.Log += line => {
@@ -105,12 +104,11 @@ await client.NotifyAsync("textDocument/didOpen", new JsonObject {
 	},
 }, ct);
 
-// The pull requests below (semantic tokens, hover, completion) force vtsls to fully load the
-// project; cold start can take ~30s, so we issue them first and check the (server-pushed)
-// diagnostics last — by then the project is loaded and the diagnostics have arrived.
+// The requests below (semantic tokens, hover, completion) force the server to fully load the project, so we
+// issue them first and check the server-pushed diagnostics last, by which point they've arrived.
 
-// 3. Semantic tokens (the hard requirement). Attempt regardless of the static capability — servers
-// like csharp-ls advertise it via dynamic client/registerCapability, not the initialize result.
+// 3. Semantic tokens (the hard requirement). Attempt regardless of the static capability — servers like
+// csharp-ls advertise it via dynamic client/registerCapability, not the initialize result.
 try {
 	var st = await client.RequestAsync("textDocument/semanticTokens/full",
 		new JsonObject { ["textDocument"] = new JsonObject { ["uri"] = fileUri } }, ct);
@@ -140,8 +138,8 @@ try {
 // Reflect dynamic registration (csharp-ls registers completion via client/registerCapability).
 results.CompletionProvider = results.CompletionProvider || client.IsRegistered("textDocument/completion") || results.CompletionItems > 0;
 
-// 6. Diagnostics. tsserver-based servers (vtsls) PUSH via publishDiagnostics; ts-go / TS 7 uses the
-// 3.17 PULL model (textDocument/diagnostic). Support both (spec §15). The sample has a type error.
+// 6. Diagnostics. Some servers push via publishDiagnostics; others use the 3.17 pull model
+// (textDocument/diagnostic). Support both (spec §15). The sample has a type error.
 bool canPull = results.DiagnosticProvider || client.IsRegistered("textDocument/diagnostic");
 results.DiagnosticProvider = canPull;
 try {
@@ -168,8 +166,8 @@ try {
 	Console.Error.WriteLine($"[lsp-harness] diagnostics: {ex.Message}");
 }
 
-// 7. File-watcher → didChangeWatchedFiles (§9). Touch a watched file on disk and confirm the host
-// detects it and broadcasts to the live server (the agentic-editor path: Claude edits files on disk).
+// 7. File-watcher → didChangeWatchedFiles (§9). Touch a file on disk and confirm the host detects it and
+// broadcasts to the live server (the agentic-editor path: Claude edits files on disk).
 if (workspaceIsTemp) {
 	try {
 		File.WriteAllText(Path.Combine(workspace!, $"watched-trigger{Path.GetExtension(probe.MainFileName)}"), probe.Source);
@@ -253,7 +251,7 @@ static int CountCompletions(JsonElement completion) {
 }
 
 internal partial class Program {
-	// Standard LSP semantic token legend (declared so servers advertise semanticTokensProvider).
+	// Standard LSP semantic token legend, declared so servers advertise semanticTokensProvider.
 	internal static readonly string[] SemanticTokenTypes = [
 		"namespace", "type", "class", "enum", "interface", "struct", "typeParameter", "parameter",
 		"variable", "property", "enumMember", "event", "function", "method", "macro", "keyword",

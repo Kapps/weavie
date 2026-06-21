@@ -6,7 +6,7 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="SessionStatusMachine"/>'s mapping of hook events and supervisor transitions onto a
+/// Exercises how <see cref="SessionStatusMachine"/> maps hook events and supervisor transitions onto a
 /// session's <see cref="SessionStatus"/>, plus its change-deduplication.
 /// </summary>
 public sealed class SessionStatusMachineTests {

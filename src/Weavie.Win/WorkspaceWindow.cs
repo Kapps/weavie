@@ -13,12 +13,10 @@ namespace Weavie.Win;
 
 /// <summary>
 /// One workspace's host window: a thin WinForms shell over <see cref="HostCore"/>. It owns only the native
-/// pieces — the frameless WebView2 host, the custom chrome (caption strip + resize edges), window geometry,
-/// the Debug Vite dev server, and screenshots — and exposes them to the shared core through
-/// <see cref="IHostPlatform"/> (in WorkspaceWindow.Platform.cs). It also implements <see cref="IShellWindow"/>
-/// so the web title bar's window controls drive it. Everything else (the Core graph, the session set, the
-/// web-message dispatch, the IDE-MCP + LSP servers) lives in the shared core. Created/tracked by
-/// <see cref="AppController"/>; the app-global stores it shares come from there.
+/// pieces — the frameless WebView2 host, the custom chrome, window geometry, the Debug Vite dev server, and
+/// screenshots — and exposes them through <see cref="IHostPlatform"/> (in WorkspaceWindow.Platform.cs). It also
+/// implements <see cref="IShellWindow"/> so the web title bar's window controls drive it. Everything else lives
+/// in the shared core. Created/tracked by <see cref="AppController"/>, which owns the app-global stores it shares.
 /// </summary>
 internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatform {
 	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin context
@@ -53,16 +51,16 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 #if DEBUG
 	// The shared Debug dev-server bring-up (Weavie.Hosting.Web); owns the Vite process + error page.
 	private DevWebBringUp? _devBringUp;
-	// The Vite dev origin the WebView is pointed at, once resolved (null in Release / when serving the bundle).
+	// The Vite dev origin the WebView is pointed at, once resolved (null when serving the bundle).
 	private string? _devOrigin;
-	// Set while a dev-server-loss recovery navigation is in flight (re-entrancy guard); capped attempts stop a
-	// pathological revive→fail→revive loop before falling back to the bundle.
+	// Re-entrancy guard while a dev-server-loss recovery navigation is in flight; capped attempts stop a
+	// revive→fail→revive loop before falling back to the bundle.
 	private bool _recoveringDevServer;
 	private int _devRecoveryAttempts;
 #endif
 
-	// The app's dark background, painted on every host surface before the page loads so the ~0.25s of
-	// WebView2 cold-start shows dark instead of the default white.
+	// Dark background painted on every host surface before the page loads, so the WebView2 cold-start
+	// shows dark instead of the default white.
 	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	public WorkspaceWindow(AppController app, string workspaceRoot) {
@@ -76,8 +74,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		Icon = AppIcon.Shared;
 		BackColor = StartupBackground;
 
-		// The native pieces handed to the core through IHostPlatform: the UI-thread marshal and the dialogs.
-		// Built before the core (its constructor reads the dispatcher off this platform).
+		// Native pieces handed to the core through IHostPlatform: the UI-thread marshal and the dialogs.
+		// Built before the core, whose constructor reads the dispatcher off this platform.
 		_dispatcher = new DelegateUiDispatcher(action => {
 			if (InvokeRequired) {
 				BeginInvoke(action);
@@ -95,7 +93,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			ThemeOverrides = _app.ThemeOverrides,
 			ClaudeSessions = _app.ClaudeSessions,
 		}, workspaceRoot);
-		// On the page's `ready`, push the initial native window state (maximize glyph + blur dim) the core can't know.
+		// On the page's `ready`, push the native window state (maximize glyph + blur dim) the core can't know.
 		_core.Ready += OnPageReady;
 
 		ApplySavedWindowState();
@@ -124,14 +122,14 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 
 	/// <summary>
 	/// True when this window was closed via File ▸ Close Window (<see cref="CloseToWelcome"/>) rather than the
-	/// title-bar X / Alt+F4. The app uses it to decide whether closing the last window falls back to the
-	/// welcome window (explicit Close Window) or quits (X).
+	/// title-bar X. Lets the app fall back to the welcome window when the last window closes via Close Window,
+	/// or quit when it closes via X.
 	/// </summary>
 	public bool ClosedToWelcome { get; private set; }
 
 	/// <summary>
-	/// Closes this window with the intent that, if it's the last one open, the app shows the welcome window
-	/// instead of quitting. The File ▸ Close Window path; hitting the title-bar X quits the app instead.
+	/// Closes this window with the intent that, if it's the last open, the app shows the welcome window
+	/// instead of quitting (the File ▸ Close Window path).
 	/// </summary>
 	public void CloseToWelcome() {
 		ClosedToWelcome = true;
@@ -147,9 +145,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	}
 
 	/// <summary>
-	/// Routes the frameless-window messages to <see cref="CustomChrome"/>: <c>WM_NCCALCSIZE</c> strips the
-	/// caption (the WebView fills the whole client area), <c>WM_NCHITTEST</c> re-supplies the edge resize
-	/// zones. The styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
+	/// Routes frameless-window messages to <see cref="CustomChrome"/>: <c>WM_NCCALCSIZE</c> strips the caption
+	/// (the WebView fills the client area), <c>WM_NCHITTEST</c> re-supplies the edge resize zones. The styles
+	/// stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
 	/// </summary>
 	protected override void WndProc(ref Message m) {
 		// Drop bare Alt/F10 menu-bar activation: there's no native menu bar to focus (it's in the web title bar).
@@ -158,7 +156,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		}
 
 		// IsMaximized (live WS_MAXIMIZE), not WindowState: WinForms updates WindowState on WM_SIZE, which fires
-		// after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal here.
+		// after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal.
 		bool maximized = CustomChrome.IsMaximized(Handle);
 		if (CustomChrome.HandleNcCalcSize(ref m, maximized) || CustomChrome.HandleNcHitTest(Handle, ref m, maximized)) {
 			return;
@@ -209,7 +207,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		_core.PushWindowState(WindowState == FormWindowState.Maximized, _focused);
 
 	// IShellWindow — the platform primitives the web title bar drives (Weavie.Core.Shell). Close() (the ✕) is
-	// satisfied implicitly by Form.Close(); CloseWindow() (File ▸ Close Window) routes through CloseToWelcome().
+	// satisfied by Form.Close(); CloseWindow() (File ▸ Close Window) routes through CloseToWelcome().
 	void IShellWindow.Minimize() => WindowState = FormWindowState.Minimized;
 
 	void IShellWindow.ToggleMaximize() =>
@@ -252,9 +250,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	}
 
 	/// <summary>
-	/// Runs as the window closes — before the handle is destroyed and while the message pump is still alive.
-	/// Persists geometry, then tears the WebView2 down deterministically (the automatic control disposal runs
-	/// only after <see cref="Shutdown"/>, racing WebView2's native teardown and leaving the process alive).
+	/// Runs as the window closes, before the handle is destroyed and while the message pump is still alive.
+	/// Persists geometry, then tears the WebView2 down deterministically — relying on automatic control disposal
+	/// races WebView2's native teardown and can leave the process alive.
 	/// </summary>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
 		SaveWindowState();
@@ -273,7 +271,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	private void Shutdown() {
 		_core.Ready -= OnPageReady;
 		// Tears down the sessions (terminals / IDE-MCP / LSP) and detaches the core's handlers from the
-		// app-global stores. The stores themselves are owned by AppController and not disposed here.
+		// app-global stores. The stores themselves are owned by AppController.
 		_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
 #if DEBUG
 		_devBringUp?.Dispose();

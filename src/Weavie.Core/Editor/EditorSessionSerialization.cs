@@ -4,10 +4,9 @@ using System.Text.Json.Serialization;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. Mirrors
-/// <c>LayoutSerialization</c>. The on-disk format and the web→host wire format are the same shape; the
-/// host→web restore push is a superset (each open entry additionally carries the file's on-disk
-/// <c>content</c>) and is built by <see cref="EditorSessionStore.BuildRestoreJson()"/>.
+/// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. The on-disk
+/// format and the web→host wire format share a shape; the host→web restore push is built by
+/// <see cref="EditorSessionStore.BuildRestoreJson()"/>.
 /// </summary>
 public static class EditorSessionSerialization {
 	/// <summary>On-disk options: camelCase, indented, nulls omitted.</summary>
@@ -29,8 +28,8 @@ public static class EditorSessionSerialization {
 	public static string Serialize(EditorSession session) => JsonSerializer.Serialize(session, Options);
 
 	/// <summary>
-	/// Attempts to parse a session. Returns <c>false</c> with an <paramref name="error"/> message on
-	/// malformed JSON, rather than throwing. A valid-but-empty object parses to the empty session.
+	/// Parses a session. Returns <c>false</c> with an <paramref name="error"/> message on malformed JSON rather
+	/// than throwing. A valid-but-empty object parses to the empty session.
 	/// </summary>
 	public static bool TryDeserialize(string json, out EditorSession? session, out string? error) {
 		try {

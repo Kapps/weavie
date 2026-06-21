@@ -5,13 +5,12 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="ClaudeSessionStore"/> over the in-memory filesystem: a first launch assigns an id and
-/// creates the session (<c>--session-id</c>); a directory is resumed only once <see cref="ClaudeSessionStore.MarkStarted"/>
-/// confirms it came up; an unconfirmed create is re-created rather than resumed (the crux of the resume-loop
-/// bug); distinct directories get distinct ids; confirmed assignments survive reload while unconfirmed ones do
-/// not; a failed resume re-creates the same id fresh; a forgotten (poison) id is dropped so the next launch
-/// mints a brand-new one — converging out of the reported crash loop within two relaunches; and a malformed
-/// file is backed up + reset.
+/// Exercises <see cref="ClaudeSessionStore"/> over the in-memory filesystem: first launch assigns an id and
+/// creates the session (<c>--session-id</c>); a directory resumes only once <see cref="ClaudeSessionStore.MarkStarted"/>
+/// confirms it came up; an unconfirmed create is re-created rather than resumed; distinct directories get
+/// distinct ids; confirmed assignments survive reload while unconfirmed ones do not; a failed resume re-creates
+/// the same id fresh; a forgotten (poison) id is dropped so the next launch mints a fresh one, converging
+/// within two relaunches; and a malformed file is backed up + reset.
 /// </summary>
 public sealed class ClaudeSessionStoreTests {
 	private const string StorePath = "/weavie-claude-session-tests/claude-sessions.json";
@@ -45,8 +44,8 @@ public sealed class ClaudeSessionStoreTests {
 
 	[Fact]
 	public void Resolve_CreateNeverConfirmed_RecreatesInsteadOfResuming() {
-		// The resume-loop regression: a launch that died before the session existed (e.g. a bad PATH) recorded
-		// only an assigned id — it must NOT be resumed later, it must be re-created under the same id.
+		// A launch that died before the session existed (e.g. a bad PATH) recorded only an assigned id; it must
+		// be re-created under the same id, not resumed.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 
@@ -78,7 +77,7 @@ public sealed class ClaudeSessionStoreTests {
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
 		Assert.Equal(id, reloaded.SessionId);
-		Assert.True(reloaded.Resume); // a brand-new process resumes the previously-confirmed conversation
+		Assert.True(reloaded.Resume); // a fresh process resumes the confirmed conversation
 	}
 
 	[Fact]
@@ -88,7 +87,7 @@ public sealed class ClaudeSessionStoreTests {
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
-		Assert.False(reloaded.Resume); // an id that never came up is re-created, not resumed, after a restart
+		Assert.False(reloaded.Resume); // an id that never came up is re-created, not resumed
 	}
 
 	[Fact]
@@ -105,7 +104,7 @@ public sealed class ClaudeSessionStoreTests {
 		Assert.Equal(id, afterFailure.SessionId); // identity stays stable
 		Assert.False(afterFailure.Resume);        // but re-created with --session-id
 		store.MarkStarted(Cwd);
-		Assert.True(store.Resolve(Cwd).Resume);    // and resumes again once re-confirmed
+		Assert.True(store.Resolve(Cwd).Resume);    // resumes again once re-confirmed
 	}
 
 	[Fact]
@@ -118,8 +117,8 @@ public sealed class ClaudeSessionStoreTests {
 		store.Forget(Cwd);
 		var afterForget = store.Resolve(Cwd);
 
-		Assert.NotEqual(poison, afterForget.SessionId); // the poison id is gone — a brand-new one is minted
-		Assert.False(afterForget.Resume);               // and it cold-starts with --session-id
+		Assert.NotEqual(poison, afterForget.SessionId); // poison id gone, a fresh one minted
+		Assert.False(afterForget.Resume);               // cold-starts with --session-id
 	}
 
 	[Fact]
@@ -127,7 +126,7 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 
-		store.Forget(Cwd); // never resolved — nothing to remove, must not throw
+		store.Forget(Cwd); // never resolved: nothing to remove, must not throw
 
 		Assert.False(store.Resolve(Cwd).Resume);
 	}
@@ -142,55 +141,55 @@ public sealed class ClaudeSessionStoreTests {
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
-		Assert.NotEqual(poison, reloaded.SessionId); // the removal was persisted
+		Assert.NotEqual(poison, reloaded.SessionId); // removal was persisted
 	}
 
 	[Fact]
 	public void PoisonId_RecoversToAFreshSessionWithinTwoRelaunches() {
-		// The reported crash loop, replayed at the store level: a confirmed id whose conversation is gone, whose
-		// id even a --session-id re-create can't reclaim. The controller's recovery (MarkResumeFailed on a failed
-		// resume, then Forget on a failed re-create) must converge on a brand-new, resumable session — not loop.
+		// A confirmed id whose conversation is gone and whose id even a --session-id re-create can't reclaim. The
+		// recovery (MarkResumeFailed on a failed resume, then Forget on a failed re-create) must converge on a
+		// fresh, resumable session rather than loop.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string poison = store.Resolve(Cwd).SessionId;
 		store.MarkStarted(Cwd);
 
-		// Relaunch 1: --resume <poison> fails (conversation gone) -> heal as RecreateSameId.
+		// Relaunch 1: --resume <poison> fails (conversation gone) -> RecreateSameId.
 		var resume = store.Resolve(Cwd);
 		Assert.True(resume.Resume);
 		Assert.Equal(poison, resume.SessionId);
 		store.MarkResumeFailed(Cwd);
 
-		// Relaunch 2: --session-id <poison> also fails (id still held) -> heal as ForgetId.
+		// Relaunch 2: --session-id <poison> also fails (id still held) -> ForgetId.
 		var recreate = store.Resolve(Cwd);
 		Assert.False(recreate.Resume);
 		Assert.Equal(poison, recreate.SessionId);
 		store.Forget(Cwd);
 
-		// Relaunch 3: a fresh id is minted and cold-starts — claude has never seen it, so it comes up.
+		// Relaunch 3: a fresh id cold-starts — claude has never seen it, so it comes up.
 		var fresh = store.Resolve(Cwd);
 		Assert.False(fresh.Resume);
 		Assert.NotEqual(poison, fresh.SessionId);
 		store.MarkStarted(Cwd);
 
-		Assert.True(store.Resolve(Cwd).Resume); // and resumes the recovered session thereafter
+		Assert.True(store.Resolve(Cwd).Resume); // resumes the recovered session thereafter
 	}
 
 	[Fact]
 	public void Clear_DropsTrackedId_NextLaunchColdStarts() {
-		// /clear then quit: the id is abandoned, so a relaunch right after cold-starts rather than resuming the
-		// now-stale transcript the clear was meant to escape.
+		// /clear then quit abandons the id, so a relaunch cold-starts rather than resuming the stale transcript
+		// the clear was meant to escape.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string cleared = store.Resolve(Cwd).SessionId;
 		store.MarkStarted(Cwd);
-		Assert.True(store.Resolve(Cwd).Resume); // confirmed → would resume...
+		Assert.True(store.Resolve(Cwd).Resume); // confirmed → would resume
 
 		store.Clear(Cwd);
 		var afterClear = store.Resolve(Cwd);
 
-		Assert.False(afterClear.Resume);                 // ...but a clear forces a cold start
-		Assert.NotEqual(cleared, afterClear.SessionId);  // on a brand-new id, not the cleared one
+		Assert.False(afterClear.Resume);                 // a clear forces a cold start
+		Assert.NotEqual(cleared, afterClear.SessionId);  // on a fresh id, not the cleared one
 	}
 
 	[Fact]
@@ -203,14 +202,13 @@ public sealed class ClaudeSessionStoreTests {
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
-		Assert.False(reloaded.Resume);                 // the clear was persisted: a fresh process cold-starts
+		Assert.False(reloaded.Resume);                 // clear was persisted: a fresh process cold-starts
 		Assert.NotEqual(cleared, reloaded.SessionId);
 	}
 
 	[Fact]
 	public void Adopt_OnFreshDirectory_ResumesThatIdNextLaunch() {
-		// The "real message after a clear" path: claude rotated to its own id, which Weavie observes and adopts
-		// so the next launch resumes that conversation.
+		// claude rotated to its own id, which Weavie adopts so the next launch resumes that conversation.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 
@@ -223,8 +221,8 @@ public sealed class ClaudeSessionStoreTests {
 
 	[Fact]
 	public void ClearThenAdopt_ResumesTheAdoptedConversation() {
-		// /clear then send a message: the stale id is dropped, then the id claude settled on is adopted, so the
-		// next launch resumes the post-clear conversation — not the long one the clear escaped.
+		// /clear then send a message: the stale id is dropped and the id claude settled on is adopted, so the
+		// next launch resumes the post-clear conversation, not the long one the clear escaped.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string stale = store.Resolve(Cwd).SessionId;
@@ -253,8 +251,8 @@ public sealed class ClaudeSessionStoreTests {
 
 	[Fact]
 	public void Adopt_MatchingStartedId_DoesNotRewriteFile() {
-		// The normal flow: claude stays on the id Weavie assigned, so every UserPromptSubmit re-adopts the same
-		// started id — that must be a no-op, never thrashing the persisted file.
+		// claude stays on the assigned id, so every UserPromptSubmit re-adopts the same started id; that must be
+		// a no-op, never thrashing the persisted file.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string id = store.Resolve(Cwd).SessionId;

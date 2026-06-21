@@ -8,9 +8,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Drives the settings MCP tools (<c>listSettings</c>/<c>getSetting</c>/<c>setSetting</c>) end to end
-/// over a real loopback WebSocket — the same surface the embedded <c>claude</c> uses — proving the
-/// server path that backs <em>"set my weavie shell to nushell"</em> without the live CLI.
+/// Drives the settings MCP tools (<c>listSettings</c>/<c>getSetting</c>/<c>setSetting</c>) over a
+/// loopback WebSocket — the surface the embedded <c>claude</c> uses — covering the path that backs
+/// <em>"set my weavie shell to nushell"</em>.
 /// In the <c>Settings</c> collection because <c>setSetting</c> resolves shells against the real PATH.
 /// </summary>
 [Collection("Settings")]
@@ -37,7 +37,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 	private McpServer NewServer(SettingsStore store) =>
 		TestMcp.Server(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
 
-	// A shell guaranteed to validate on this machine — prefer nushell (the acceptance target) when present.
+	// A shell that validates on this machine — prefer nushell (the acceptance target) when present.
 	private static string PresentShell() {
 		if (ExecutableFinder.FindOnPath("nu") is not null) {
 			return "nu";
@@ -61,7 +61,7 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		Assert.Contains("listSettings", names);
 		Assert.Contains("getSetting", names);
 		Assert.Contains("setSetting", names);
-		Assert.Contains("openDiff", names); // the IDE tools are still there
+		Assert.Contains("openDiff", names); // IDE tools present too
 	}
 
 	[Fact]

@@ -4,8 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="ShellWorktreeProvisioner"/> against the real platform shell: a no-op when no
-/// command is configured, a captured-output success, a surfaced non-zero failure, and the lifecycle events.
+/// <see cref="ShellWorktreeProvisioner"/> against the real shell: no-op when unconfigured, captured-output
+/// success, surfaced non-zero failure, and the lifecycle events.
 /// </summary>
 public sealed class ShellWorktreeProvisionerTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-prov-" + Guid.NewGuid().ToString("n"));

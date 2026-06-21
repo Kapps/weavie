@@ -1,11 +1,10 @@
-// "Weavie Dark" — the built-in default theme. A pure-black canvas (#000000) under a deliberately small,
-// green-forward palette: teal-green keywords, green strings, and sea-green numbers carry the Weavie
-// identity, while a single warm amber anchors types so the eye always has somewhere to land. The
-// identifier family is split by role, not by a rainbow of hues — variables are italic, properties a
-// lighter upright shade, functions a quiet neutral — and comments sit in a dark neutral grey so they
-// recede without a colour cast. Few colours (green + amber + neutrals), high contrast. It's a normal
-// VS Code color theme (spec §5): the same `colors` map drives the editor, the terminal, and Weavie's
-// chrome, so overrides (spec §6) and installed Open VSX themes address the exact same keys.
+// "Weavie Dark" — the built-in default theme. A pure-black canvas (#000000) under a small, green-forward
+// palette: teal-green keywords, green strings, and sea-green numbers carry the Weavie identity, while a
+// single warm amber anchors types so the eye has somewhere to land. The identifier family is split by role,
+// not hue — variables italic, properties a lighter upright shade, functions a quiet neutral — and comments
+// a dark neutral grey so they recede without a colour cast. Few colours, high contrast. A normal VS Code
+// color theme (spec §5): the same `colors` map drives editor, terminal, and chrome, so overrides (spec §6)
+// and installed Open VSX themes address the same keys.
 
 import type { VsCodeColorTheme } from "../vscode-theme";
 
@@ -78,7 +77,7 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     "sash.hoverBorder": "#54c6a4",
 
     // ── Chrome surfaces (sidebar / panel / status / title / tabs) ────────────────────────────────────
-    // One step lighter than the pure-black editor, so the canvas reads as the focal well it frames.
+    // One step lighter than the editor, so the canvas reads as the focal well it frames.
     "editorGroup.border": "#191c21",
     "editorGroupHeader.tabsBackground": "#0a0b0e",
     "panel.background": "#0a0b0e",
@@ -330,7 +329,7 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
   ],
   semanticTokenColors: {
     // Types take the lone warm amber accent — the one colour that grabs the eye on the green-and-neutral
-    // field; namespaces are dimmed since they're mostly qualifiers.
+    // field; namespaces dimmed since they're mostly qualifiers.
     class: "#ffb74d",
     interface: "#ffb74d",
     enum: "#ffb74d",

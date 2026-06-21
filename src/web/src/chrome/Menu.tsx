@@ -8,10 +8,9 @@ function leaf(path: string): string {
   return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
 }
 
-// The title bar's menu bar: File + View. Web-rendered dropdowns (the native MenuStrip is gone). File items
-// post `menu-action` to the host (open folder, open recent, close, exit); the View item toggles the in-app
-// file browser. One menu is open at a time; hovering another top-level label while open switches to it
-// (VS Code behavior). Open Recent is a pure-CSS hover flyout.
+// The title bar's web-rendered menu bar: File + View. File items post `menu-action` to the host (open folder,
+// open recent, close, exit); the View item toggles the in-app file browser. One menu is open at a time;
+// hovering another top-level label while open switches to it. Open Recent is a pure-CSS hover flyout.
 export function Menu(props: {
   recents: string[];
   onMenuAction: (action: MenuAction, path?: string) => void;

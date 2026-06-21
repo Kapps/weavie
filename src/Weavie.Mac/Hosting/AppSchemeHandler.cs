@@ -5,20 +5,20 @@ using WebKit;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// Serves the built Solid/Vite web app to the WKWebView over a custom <c>app://</c> scheme, straight from the
-/// bundle's <c>Resources/wwwroot</c> — no network, no localhost port, secure same-origin context (so workers
-/// and the Event Timing API behave). Path resolution + MIME come from the shared <see cref="WwwrootFileResolver"/>;
-/// this owns only the native WKWebView scheme-task binding (and a native fail for a 404).
+/// Serves the built web app to the WKWebView over a custom <c>app://</c> scheme, straight from the bundle's
+/// <c>Resources/wwwroot</c> — no network, no localhost port, secure same-origin context (so workers and the
+/// Event Timing API behave). Path resolution + MIME come from the shared <see cref="WwwrootFileResolver"/>;
+/// this owns only the native scheme-task binding and the 404 fail.
 /// </summary>
 public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
 	private readonly WwwrootFileResolver _resolver;
 
-	/// <summary>Creates a handler that serves files from <paramref name="wwwroot"/> (resolved to a full path).</summary>
+	/// <summary>Creates a handler serving files from <paramref name="wwwroot"/>.</summary>
 	public AppSchemeHandler(string wwwroot) {
 		_resolver = new WwwrootFileResolver(wwwroot);
 	}
 
-	/// <summary>Serves the requested <c>app://</c> URL via the shared resolver, or fails the task on a 404.</summary>
+	/// <summary>Serves the requested <c>app://</c> URL, or fails the task on a 404.</summary>
 	[Export("webView:startURLSchemeTask:")]
 	public void StartUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask) {
 		var url = urlSchemeTask.Request.Url;

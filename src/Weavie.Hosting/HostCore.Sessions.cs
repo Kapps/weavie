@@ -19,11 +19,20 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	/// <summary>
 	/// Wires a session's command handlers + its change/status/diff push subscriptions. The push subscriptions
-	/// are gated on <see cref="IsActiveSession"/> so only the active session updates the page; for a single
-	/// session that gate is always true, so behavior is identical to before.
+	/// are gated on <see cref="IsActiveSession"/> so only the active session updates the page; for a single	/// session that gate is always true, so behavior is identical to before. A gate that suppresses a push for
+	/// a muted session is only half the contract: any state that ACCUMULATES while muted (the review feed) MUST
+	/// also be re-applied to the page when the session is switched in — see <c>PushReviewStateOnSwitch</c> in
+	/// <see cref="SwitchToSlot"/> — or a background session's work never reaches the page once it's focused.
 	/// </summary>
 	private void WireSession(HostSession session) {
-		session.Commands.WebInvoker = InvokeWebCommandAsync;
+		// Web commands post a run-command to the page's SINGLE editor surface, so only the active session may
+		// drive it. A background session's Claude invoking a web (UI) command would otherwise execute it in the
+		// FOREGROUND session — the same cross-session contamination the editor channel prevents for openDiff/
+		// open-file. Reject it loudly (no silent misroute); the user switches to the session and retries.
+		session.Commands.WebInvoker = (id, args, ct) => IsActiveSession(session)
+			? InvokeWebCommandAsync(id, args, ct)
+			: Task.FromResult(CommandResult.Failure(
+				$"Command '{id}' runs in the editor UI and can only run for the focused session; switch to it and retry."));
 		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
 			_ui.Post(() => session.Shell.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
@@ -37,7 +46,6 @@ public sealed partial class HostCore {
 
 		session.Changes.Changed += () => {
 			if (IsActiveSession(session)) {
-				PushChangesToWeb();
 				PushTurnChangesToWeb();
 			}
 		};
@@ -56,6 +64,24 @@ public sealed partial class HostCore {
 		session.Status.Changed += status => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
+				switch (status) {
+					case SessionStatus.Idle:
+					case SessionStatus.NeedsInput:
+						// Edits settled — turn ended, or Claude is waiting on input (a Notification landing AFTER the
+						// turn's Stop). Re-push the review set so its host-decided auto-open flag (re)shows it.
+						// NeedsInput must arm+show like Idle, or a post-turn notification wipes the diff on switch.
+						PushTurnChangesToWeb();
+						break;
+					case SessionStatus.Working:
+					case SessionStatus.Starting:
+						// A genuinely new turn is starting — re-arm so its first file opens when THIS turn ends. Only
+						// Working/Starting reset the arm; NeedsInput must NOT, or the post-turn notification re-fires
+						// the auto-open and fights the user's review navigation.
+						_armedReviewKey = null;
+						break;
+					default:
+						break; // Error — leave the review state as-is
+				}
 			}
 
 			_ui.Post(PushSessionList);
@@ -331,7 +357,15 @@ public sealed partial class HostCore {
 		session.SetEditorOutputActive(true);
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb();
+		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree), so
+		// language intelligence follows the focused session instead of staying pinned to the launch session.
+		PushLspConfigToWeb(session);
 		PostSessionStatus(session.Status.Status);
+		// Catch the page up on the incoming session's inline turn-review: a background Claude records edits in
+		// its own tracker while muted, but the live turn pushes are gated on the active session, so without this
+		// the switched-in session's diffs (and the ← / → walk) wouldn't appear — and the previous session's walk
+		// would linger. Pushed after the status so the web's auto-arm sees the incoming session's idle state.
+		PushReviewStateOnSwitch();
 		// The rail push carries the new active flag, which is what flips the page to this session's terminal
 		// panes (they were already mounted + live). Pushed before focus so the target pane is shown first.
 		PushSessionList();

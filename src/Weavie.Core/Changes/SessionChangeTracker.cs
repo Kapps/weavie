@@ -163,16 +163,6 @@ public sealed class SessionChangeTracker {
 		}
 	}
 
-	/// <summary>The change set as compact per-file add/removed counts (for the changes list).</summary>
-	public IReadOnlyList<ChangeSummary> Summarize() {
-		var summaries = new List<ChangeSummary>();
-		foreach (var change in Changes()) {
-			var (added, removed) = LineDiff.Count(change.BaselineText, change.CurrentText);
-			summaries.Add(new ChangeSummary { Path = change.Path, Added = added, Removed = removed });
-		}
-		return summaries;
-	}
-
 	/// <summary>The change for a single <paramref name="path"/>, or <see langword="null"/> if it has no recorded change.</summary>
 	/// <param name="path">Absolute file path.</param>
 	public FileChange? Get(string path) {

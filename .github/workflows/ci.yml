@@ -84,6 +84,13 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm run build
 
+      # Biome is the web lint+format gate (`biome check` = lint + import-order + formatting). It's
+      # platform-independent, so run it once on Linux rather than across the whole OS matrix.
+      - name: Lint web app (Biome)
+        if: matrix.name == 'linux'
+        working-directory: src/web
+        run: pnpm run lint
+
       # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
       - name: Restore macOS workload
         if: matrix.name == 'macos'
@@ -94,6 +101,34 @@ jobs:
 
       - name: Build
         run: dotnet build ${{ matrix.project }} -c Debug --no-restore
+
+      # Formatting gate. The build already enforces analyzer + IDE code-style rules
+      # (EnableNETAnalyzers + EnforceCodeStyleInBuild), but it does NOT catch pure whitespace
+      # formatting (indentation, multi-line layout) — only `dotnet format` does. Run it on each
+      # shell so the OS-specific shell plus its transitive Core/Hosting sources are verified on the
+      # one OS that can load them. Reuses the restore above (--no-restore).
+      - name: Verify .NET formatting
+        run: dotnet format ${{ matrix.project }} --verify-no-changes --no-restore
+
+      # The shells above transitively cover Core + Hosting, but the test projects, in-repo analyzers,
+      # the runner, the headless host, and the dev tools build only off the matrix. Verify their
+      # formatting on Linux (the one OS that restores them all). Each format restores its own project.
+      - name: Verify .NET formatting (off-matrix projects)
+        if: matrix.name == 'linux'
+        run: |
+          set -e
+          for proj in \
+            src/Weavie.Headless/Weavie.Headless.csproj \
+            src/Weavie.Runner/Weavie.Runner.csproj \
+            src/Weavie.Analyzers/Weavie.Analyzers.csproj \
+            tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
+            tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
+            tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj \
+            tools/Weavie.LspHarness/Weavie.LspHarness.csproj; do
+            echo "::group::dotnet format $proj"
+            dotnet format "$proj" --verify-no-changes
+            echo "::endgroup::"
+          done
 
       # Tests run once, on Linux. The single excluded test passes only on Windows: SettingKind.Path
       # normalization keys on Path.IsPathRooted, so a "C:\..." path isn't rooted on Unix and resolves

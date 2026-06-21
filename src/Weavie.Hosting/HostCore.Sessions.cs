@@ -289,12 +289,21 @@ public sealed partial class HostCore {
 		return session;
 	}
 
-	/// <summary>Brings up the backend for an unloaded (dormant) slot: builds + wires its HostSession. No-op if already loaded.</summary>
+	/// <summary>
+	/// Brings up the backend for an unloaded (dormant) slot: builds + wires its HostSession. A no-op for the
+	/// backend itself when already loaded, but it always (re-)binds the terminals to the slot id — the
+	/// new-session path (<see cref="BuildAndSwitchSlotAsync"/>) hands us a slot whose HostSession was built
+	/// before it reached here, so its panes would otherwise stay unbound. That binding is what tags this
+	/// session's <c>term-output</c> with its rail id; without it the page can't match the output to the
+	/// session's xterm and the Claude + shell panes stay blank. Re-binding is idempotent (the same id), so
+	/// asserting it on a plain switch is harmless.
+	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
 			slot.Session = CreateSession(slot.WorktreePath);
-			slot.Session.BindTerminalsToSlot(slot.Id);
 		}
+
+		slot.Session!.BindTerminalsToSlot(slot.Id);
 	}
 
 	/// <summary>

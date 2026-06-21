@@ -1,15 +1,18 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    The standalone, NativeAOT-published hook relay: the tiny native executable Claude runs as its hook
-    command. It only forwards the hook event over the pipe to the running Weavie and echoes the decision, so
-    it carries no CLR startup cost: a tool call pays ~native-process latency instead of a full managed-exe
-    spawn (~35ms). The relay logic is SHARED with the host's own hook-relay fallback by linking the same two
-    source files rather than forking them; this project deliberately does not reference Weavie.Core, so the
-    AOT surface stays minimal (pipes + stdio only, no reflection, no JSON).
+    The standalone hook relay: the small executable Claude runs as its hook command. It only forwards the
+    hook event over the pipe to the running Weavie and echoes the decision. In Release it is NativeAOT-
+    published, so it carries no CLR startup cost — a tool call pays ~native-process latency instead of a full
+    managed-exe spawn (~35ms). The wire protocol + relay client are SHARED with Weavie.Core's in-process
+    HookBridgeServer by linking the same two source files rather than forking them; this project deliberately
+    does not reference Weavie.Core, so the AOT surface stays minimal (pipes + stdio only, no reflection, no JSON).
 
-    Built + co-located next to the host only in Release (see the host's BuildHookRelay target), mirroring the
-    web-assets pattern; in Debug the host runs itself as the relay instead, keeping the inner loop fast.
+    Built + co-located next to every host that spawns Claude, by the host's HookRelay.targets — Debug as a
+    managed exe (fast inner loop), Release as a single NativeAOT native exe — mirroring the web-assets pattern.
+    The relay is the ONLY hook path: Claude always runs this binary as its hook command, in Debug and Release
+    alike. There is no host-as-relay fallback — the host resolves this binary next to itself and fails loudly
+    if it is missing.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>

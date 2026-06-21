@@ -70,6 +70,8 @@ test-results/
 playwright-report/
 .playwright/
 .recordings/
+# Per-change capture tour override — keep these local, never commit (capture.mjs is the frozen reference).
+tour.local.mjs
 
 # OS
 .DS_Store

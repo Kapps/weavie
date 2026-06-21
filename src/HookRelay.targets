@@ -43,7 +43,7 @@
     <Message Importance="high" Text="weavie: building hook relay (Debug, managed) -> $(OutDir)$(_HookRelayDestSuffix)" />
     <Exec Command="dotnet build &quot;$(_HookRelayProj)&quot; -c $(Configuration) --nologo -v q" />
     <ItemGroup>
-      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.exe" />
+      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayExe)" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.dll" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.deps.json" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.runtimeconfig.json" />

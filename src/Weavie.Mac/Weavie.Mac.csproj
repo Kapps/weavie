@@ -103,4 +103,7 @@
     <Message Importance="high" Text="weavie: built native PTY shim libweavie_pty.dylib ($(PtyClangArchArgs))" />
   </Target>
 
+  <!-- Build + co-locate the standalone hook relay (into the .app's MonoBundle on macOS). -->
+  <Import Project="..\HookRelay.targets" />
+
 </Project>

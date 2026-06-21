@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    The standalone, NativeAOT-published hook relay: the tiny native executable Claude runs as its hook
+    command. It only forwards the hook event over the pipe to the running Weavie and echoes the decision, so
+    it carries no CLR startup cost: a tool call pays ~native-process latency instead of a full managed-exe
+    spawn (~35ms). The relay logic is SHARED with the host's own hook-relay fallback by linking the same two
+    source files rather than forking them; this project deliberately does not reference Weavie.Core, so the
+    AOT surface stays minimal (pipes + stdio only, no reflection, no JSON).
+
+    Built + co-located next to the host only in Release (see the host's BuildHookRelay target), mirroring the
+    web-assets pattern; in Debug the host runs itself as the relay instead, keeping the inner loop fast.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <AssemblyName>weavie-hook-relay</AssemblyName>
+    <PublishAot>true</PublishAot>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Share the exact relay logic with the host's own hook-relay fallback rather than fork it. -->
+    <Compile Include="..\Weavie.Core\Hooks\HookProtocol.cs" Link="HookProtocol.cs" />
+    <Compile Include="..\Weavie.Core\Hooks\HookRelayClient.cs" Link="HookRelayClient.cs" />
+  </ItemGroup>
+
+</Project>

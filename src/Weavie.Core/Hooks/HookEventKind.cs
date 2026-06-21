@@ -2,11 +2,18 @@ namespace Weavie.Core.Hooks;
 
 /// <summary>Which Claude Code hook event a <see cref="HookRequest"/> carries.</summary>
 public enum HookEventKind {
-	/// <summary>Fired before a tool runs; its decision can allow/deny/ask. Weavie's gate + record point.</summary>
+	/// <summary>Fired before a tool runs; Weavie observes it to snapshot the pre-edit baseline for change tracking (the permission gate is now PermissionRequest).</summary>
 	PreToolUse,
 
 	/// <summary>Fired after a tool ran; carries the result. Weavie's "it actually happened" record.</summary>
 	PostToolUse,
+
+	/// <summary>
+	/// Fired only when a permission dialog would appear (a tool not already allowed that would otherwise prompt).
+	/// Weavie's tool-permission GATE: the relay answers allow/deny here, so the prompt never shows. Unlike
+	/// PreToolUse it does NOT fire on every tool call, so an always-allowed tool (Read/Grep) costs nothing.
+	/// </summary>
+	PermissionRequest,
 
 	/// <summary>Fired when the user submits a prompt — Weavie's turn-start boundary (implicitly accepts the prior turn).</summary>
 	UserPromptSubmit,

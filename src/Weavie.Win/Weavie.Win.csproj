@@ -112,4 +112,7 @@
     <Message Importance="high" Text="weavie: staged @(_WebDistToPublish->Count()) web asset(s) into publish/wwwroot." />
   </Target>
 
+  <!-- Build + co-locate the standalone hook relay (Debug managed / Release NativeAOT) next to the host. -->
+  <Import Project="..\HookRelay.targets" />
+
 </Project>

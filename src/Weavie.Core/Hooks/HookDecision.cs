@@ -9,7 +9,7 @@ public enum HookDecisionKind {
 	/// <summary>No opinion — defer to Claude's normal flow (openDiff for edits, the terminal prompt for the rest).</summary>
 	PassThrough,
 
-	/// <summary>Allow the tool without prompting (a future bypass mode).</summary>
+	/// <summary>Allow the tool without prompting (the claude.allowAllTools bypass).</summary>
 	Allow,
 
 	/// <summary>Block the tool.</summary>
@@ -54,7 +54,7 @@ public sealed record HookDecision {
 	/// </summary>
 	/// <param name="evt">The event being decided.</param>
 	public string? ToHookOutputJson(HookEventKind evt) {
-		bool emitDecision = Kind != HookDecisionKind.PassThrough && evt == HookEventKind.PreToolUse;
+		bool emitDecision = Kind != HookDecisionKind.PassThrough && evt is HookEventKind.PreToolUse or HookEventKind.PermissionRequest;
 		bool emitMessage = !string.IsNullOrEmpty(SystemMessage);
 		if (!emitDecision && !emitMessage) {
 			return null;
@@ -70,9 +70,18 @@ public sealed record HookDecision {
 			if (emitDecision) {
 				string decision = Kind == HookDecisionKind.Allow ? "allow" : "deny";
 				writer.WriteStartObject("hookSpecificOutput");
-				writer.WriteString("hookEventName", "PreToolUse");
-				writer.WriteString("permissionDecision", decision);
-				writer.WriteString("permissionDecisionReason", Reason ?? string.Empty);
+				if (evt == HookEventKind.PermissionRequest) {
+					// PermissionRequest nests the verdict in a decision object: {decision:{behavior}}.
+					writer.WriteString("hookEventName", "PermissionRequest");
+					writer.WriteStartObject("decision");
+					writer.WriteString("behavior", decision);
+					writer.WriteEndObject();
+				} else {
+					// PreToolUse uses a flat permissionDecision + reason.
+					writer.WriteString("hookEventName", "PreToolUse");
+					writer.WriteString("permissionDecision", decision);
+					writer.WriteString("permissionDecisionReason", Reason ?? string.Empty);
+				}
 				writer.WriteEndObject();
 			}
 

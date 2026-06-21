@@ -1,0 +1,80 @@
+<Project>
+
+  <!--
+    Co-locates the standalone hook relay (Weavie.HookRelay) next to every host that spawns Claude, so the
+    hook command always launches a dedicated relay binary — never the host re-invoking itself. Imported by
+    each host .csproj. There is deliberately NO runtime fallback: if the relay isn't next to the app the host
+    fails loudly (see IdeIntegration.ResolveRelayBinary), so the relay MUST be produced by the build.
+
+      Debug   -> managed build (fast, no AOT, no C++ toolchain): copy the framework-dependent relay + sidecars.
+      Release -> NativeAOT publish for the host RID: copy the single native exe. Requires the platform C++
+                 build tools ("Desktop development with C++"); without them the Release build fails loudly.
+
+    Destination = the directory the host's AppContext.BaseDirectory resolves to: flat $(OutDir) for the
+    Win/Linux/Headless apps, and the macOS app bundle's Contents/MonoBundle for the .app host (the suffix
+    below). $(OutDir) is only final in the targets phase, so it's combined inline in the targets — not in an
+    evaluation-time property. Mirrors BuildWebAssets/CopyWebAssets; incremental via Inputs/Outputs.
+  -->
+  <PropertyGroup>
+    <_HookRelayProj>$(MSBuildThisFileDirectory)Weavie.HookRelay\Weavie.HookRelay.csproj</_HookRelayProj>
+    <_HookRelayDir>$(MSBuildThisFileDirectory)Weavie.HookRelay\</_HookRelayDir>
+    <_HookRelayExe Condition="$([MSBuild]::IsOSPlatform('Windows'))">weavie-hook-relay.exe</_HookRelayExe>
+    <_HookRelayExe Condition="'$(_HookRelayExe)' == ''">weavie-hook-relay</_HookRelayExe>
+    <_HookRelayRid Condition="'$(RuntimeIdentifier)' != ''">$(RuntimeIdentifier)</_HookRelayRid>
+    <_HookRelayRid Condition="'$(_HookRelayRid)' == ''">$(NETCoreSdkRuntimeIdentifier)</_HookRelayRid>
+    <!-- macOS hosts run managed code from the .app's MonoBundle; that's where the host exe's
+         AppContext.BaseDirectory points, so the relay must sit there (appended to $(OutDir) in the targets). -->
+    <_HookRelayDestSuffix Condition="$(TargetFramework.Contains('-macos'))">$(AssemblyName).app/Contents/MonoBundle/</_HookRelayDestSuffix>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- The relay's sources (its own + the two linked Core files) drive incrementality. -->
+    <_HookRelaySource Include="$(_HookRelayDir)**\*.cs" />
+    <_HookRelaySource Include="$(_HookRelayProj)" />
+    <_HookRelaySource Include="$(MSBuildThisFileDirectory)Weavie.Core\Hooks\HookProtocol.cs" />
+    <_HookRelaySource Include="$(MSBuildThisFileDirectory)Weavie.Core\Hooks\HookRelayClient.cs" />
+  </ItemGroup>
+
+  <Target Name="CoLocateHookRelayDebug"
+          Condition="'$(Configuration)' == 'Debug'"
+          AfterTargets="Build"
+          Inputs="@(_HookRelaySource)"
+          Outputs="$(OutDir)$(_HookRelayDestSuffix)weavie-hook-relay.dll">
+    <Message Importance="high" Text="weavie: building hook relay (Debug, managed) -> $(OutDir)$(_HookRelayDestSuffix)" />
+    <Exec Command="dotnet build &quot;$(_HookRelayProj)&quot; -c $(Configuration) --nologo -v q" />
+    <ItemGroup>
+      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.exe" />
+      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.dll" />
+      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.deps.json" />
+      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.runtimeconfig.json" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_RelayDebugOut)" DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <Target Name="CoLocateHookRelayRelease"
+          Condition="'$(Configuration)' != 'Debug'"
+          AfterTargets="Build"
+          Inputs="@(_HookRelaySource)"
+          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe)">
+    <Message Importance="high" Text="weavie: building hook relay (Release, NativeAOT $(_HookRelayRid)) -> $(OutDir)$(_HookRelayDestSuffix)" />
+    <Exec Command="dotnet publish &quot;$(_HookRelayProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --nologo -v q" />
+    <Copy SourceFiles="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)"
+          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- Carry the co-located relay into `dotnet publish` of the flat hosts (the AfterTargets=Build copy only
+       populates the build OutDir; publish computes its own file set). The macOS .app host carries it via the
+       bundle the build assembles (like the PTY shim); its universal-publish staging is handled there. -->
+  <Target Name="StageHookRelayForPublish"
+          Condition="'$(Configuration)' != 'Debug' And '$(_HookRelayDestSuffix)' == ''"
+          BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="CoLocateHookRelayRelease">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutDir)$(_HookRelayExe)">
+        <RelativePath>$(_HookRelayExe)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+</Project>

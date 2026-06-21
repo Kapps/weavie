@@ -5,7 +5,7 @@ namespace Weavie.Core.Hooks;
 
 /// <summary>
 /// The tiny wire protocol between the hook relay (Claude's <c>command</c> hook) and the in-process
-/// <see cref="HookBridgeServer"/>: a current-user-only named pipe carrying one length-prefixed request and
+/// <c>HookBridgeServer</c>: a current-user-only named pipe carrying one length-prefixed request and
 /// one length-prefixed response. No bearer token — the OS pipe ACL (current user only) is the auth, so a web
 /// page or another OS user cannot reach it (closing the loopback-token exposure the MCP servers carry).
 /// </summary>

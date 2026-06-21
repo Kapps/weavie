@@ -1,4 +1,3 @@
-using System.Reflection;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -128,32 +127,35 @@ public sealed class IdeIntegration : IAsyncDisposable {
 
 	/// <summary>
 	/// Writes a Claude Code settings file (a <c>hooks</c> block only) for the spawned claude's
-	/// <c>--settings</c>, routing PreToolUse/PostToolUse for mutating tools to this instance's hook relay,
-	/// and returns its path. Port-scoped filename, like the MCP config. Returns <c>null</c> if the host
-	/// executable path is unknown (no relay to point at).
+	/// <c>--settings</c>, routing the permission gate (PermissionRequest) + the change-tracking hooks to the
+	/// standalone relay binary co-located with the app, and returns its path. Port-scoped filename, like the
+	/// MCP config. Throws when the relay is missing: there is no fallback, so a build that failed to
+	/// co-locate it surfaces loudly rather than silently degrading.
 	/// </summary>
-	public string? WriteSettingsFile() {
-		string? host = Environment.ProcessPath;
-		if (string.IsNullOrEmpty(host)) {
-			return null;
-		}
-
-		// Framework-dependent dev runs (`dotnet App.dll`) report the dotnet muxer as ProcessPath, so the relay
-		// command must pass the managed entry assembly as the muxer's first arg — a bare `"dotnet" --hook-relay`
-		// can't launch. An apphost/self-contained exe (Windows/macOS, published Linux) is the relay directly.
-		string? entryAssembly = null;
-		if (Path.GetFileNameWithoutExtension(host).Equals("dotnet", StringComparison.OrdinalIgnoreCase)) {
-			string? entry = Assembly.GetEntryAssembly()?.Location;
-			if (!string.IsNullOrEmpty(entry) && entry.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)) {
-				entryAssembly = entry;
-			}
-		}
+	public string WriteSettingsFile() {
+		string relay = ResolveRelayBinary()
+			?? throw new InvalidOperationException(
+				$"Hook relay '{RelayBinaryName}' was not found next to the app at '{AppContext.BaseDirectory}'. "
+				+ "The build co-locates it (see HookRelay.targets); a Release build requires the NativeAOT C++ toolchain.");
 
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
-		File.WriteAllText(path, HookSettings.BuildJson(host, entryAssembly));
+		File.WriteAllText(path, HookSettings.BuildJson(relay));
 		return path;
+	}
+
+	/// <summary>The standalone hook-relay executable's filename for this platform.</summary>
+	private static string RelayBinaryName => OperatingSystem.IsWindows() ? "weavie-hook-relay.exe" : "weavie-hook-relay";
+
+	/// <summary>
+	/// The standalone hook-relay executable co-located with the app by the build, or <see langword="null"/>
+	/// when absent. Resolved against <see cref="AppContext.BaseDirectory"/> so it stays correct wherever the
+	/// app is installed. There is intentionally no host-as-relay fallback; the caller fails loudly on null.
+	/// </summary>
+	private static string? ResolveRelayBinary() {
+		string candidate = Path.Combine(AppContext.BaseDirectory, RelayBinaryName);
+		return File.Exists(candidate) ? candidate : null;
 	}
 
 	/// <summary>

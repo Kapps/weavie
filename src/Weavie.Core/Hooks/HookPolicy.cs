@@ -6,7 +6,7 @@ namespace Weavie.Core.Hooks;
 /// <list type="bullet">
 /// <item><b>allowAllTools off</b> — <see cref="HookDecision.PassThrough"/>: defer to Claude's normal flow
 /// (edits → its mode / the openDiff presenter; Bash → its own terminal prompt).</item>
-/// <item><b>allowAllTools on</b> — <see cref="HookDecision.Allow"/> every PreToolUse for a NON-edit tool
+/// <item><b>allowAllTools on</b> — <see cref="HookDecision.Allow"/> every PermissionRequest for a NON-edit tool
 /// (Bash &amp; other commands): Weavie auto-answers those permission prompts, no <c>--dangerously-skip-permissions</c>
 /// needed. Edits are deliberately left to Claude's mode, so the two axes never contradict.</item>
 /// </list>
@@ -21,7 +21,7 @@ public static class HookPolicy {
 	public static HookDecision Decide(HookRequest request, bool allowAllTools) {
 		ArgumentNullException.ThrowIfNull(request);
 		if (allowAllTools
-			&& request.Event == HookEventKind.PreToolUse
+			&& request.Event == HookEventKind.PermissionRequest
 			&& !IsEditTool(request.ToolName)) {
 			return HookDecision.Allow("Weavie allow-all-tools");
 		}

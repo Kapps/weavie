@@ -50,27 +50,86 @@ async function tour(page) {
   await page.emulateMedia({ colorScheme: "dark" });
   await settle(1200);
 
-  // ── FEATURE UNDER TEST: resume the previous Claude session on relaunch ────────────────────────────────────
-  // This change makes the host launch `claude` with `--resume <id>` (or `--session-id <id>` the first time),
-  // keyed by the session's working directory, so reopening a session continues its prior conversation. It's a
-  // host launch-flag behavior with no new web UI — the authoritative functional proof is temp/resume-proof.mjs
-  // (run 1 logs `--session-id`, run 2 logs `--resume`, same id). This capture is the regression check that the
-  // new launch path still boots the real headless app and brings up the Claude Code pane (the workspace is
-  // pointed at temp/proof-ws, which already holds a persisted session id, so the host boots with `--resume`).
-  await page
-    .locator(".pane-label", { hasText: "Claude Code" })
-    .first()
-    .waitFor({ timeout: 15_000 });
-  await settle(800);
+  // ── FIX UNDER TEST: scrolling Claude Code after a session switch ──────────────────────────────────────────
+  // Claude Code runs INLINE and enables mouse tracking, so the wheel is forwarded to Claude (it scrolls its own
+  // transcript). Switching sessions posted `term-reset`, which did a full RIS on the page's xterm — disabling
+  // mouse tracking. But the incoming session's Claude is already LIVE and only nudged to repaint, so it never
+  // re-issues the mode: the wheel then falls back to xterm's local viewport (a stray web scrollbar) instead of
+  // reaching Claude, so Claude can't be scrolled until a manual resize makes it re-emit the mode. The fix clears
+  // the pane on a switch WITHOUT a mode reset, so mouse tracking survives. This tour creates a 2nd session,
+  // switches back, and reads the Claude xterm's `modes.mouseTrackingMode` — it must stay non-"none".
+  const claudeSurface = page.locator('.terminal-surface[data-kind="terminal:claude"]');
+  const claudeViewport = claudeSurface.locator(".xterm-viewport");
+  await claudeSurface.locator(".xterm").waitFor({ state: "visible", timeout: 20_000 });
+  await settle(4000); // let the first Claude TUI paint and enable mouse tracking
 
-  // The Claude pane is a real xterm bound to the real claude PTY launched via the resume code path; let it
-  // render its startup so the recording shows the agent pane live under the resumed session.
-  const claudePane = page
-    .locator(".pane", { has: page.locator(".pane-label", { hasText: "Claude Code" }) })
-    .first();
-  await claudePane.locator(".xterm").waitFor({ state: "visible", timeout: 15_000 });
-  await claudePane.click().catch(() => {});
-  await settle(7000);
+  // On-page HUD so the recording is self-explanatory. The decisive signal is the Claude xterm's
+  // `modes.mouseTrackingMode`: Claude enables it (so the wheel is forwarded to Claude, which scrolls its
+  // own transcript). The bug was that a session switch reset the terminal and dropped it back to "none",
+  // so the wheel hit xterm's local viewport instead. After the fix it stays enabled across the switch.
+  await page.evaluate(() => {
+    const hud = document.createElement("div");
+    hud.id = "scroll-hud";
+    hud.style.cssText =
+      "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;" +
+      "font:600 14px/1.5 monospace;color:#fff;background:rgba(0,0,0,.82);padding:8px 14px;" +
+      "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;";
+    document.body.appendChild(hud);
+    window.__readClaude = () => {
+      const term = window.__WEAVIE_TERMINALS__?.claude;
+      const modes = term ? term.modes : null;
+      return {
+        // The mode that matters for scrolling on an authed full-screen Claude (forwards the wheel to it).
+        mouseTracking: modes ? modes.mouseTrackingMode : "?",
+        // Modes headless Claude DOES set — stand-ins proving the switch no longer resets the live terminal.
+        bracketedPaste: modes ? modes.bracketedPasteMode : null,
+        focusReporting: modes ? modes.sendFocusMode : null,
+      };
+    };
+    window.__setHud = (label) => {
+      const m = window.__readClaude();
+      // The fix's contract: a session switch must NOT reset the live terminal's modes. Claude set these on
+      // boot; if they survive the switch, mouse tracking (set the same way on an authed Claude) survives too.
+      const preserved = m.bracketedPaste === true && m.focusReporting === true;
+      hud.textContent =
+        `${label}\nClaude xterm modes — bracketedPaste=${m.bracketedPaste}  focusReporting=${m.focusReporting}  mouseTracking="${m.mouseTracking}"\n` +
+        `${preserved ? "✓ terminal modes intact — wheel still reaches Claude" : "⚠ modes reset by the switch — web scrollbar hijacks the wheel"}`;
+      console.log(
+        `[scroll-hud] ${label} :: ${JSON.stringify(m)} :: ${preserved ? "MODES-INTACT" : "MODES-RESET"}`,
+      );
+    };
+  });
+  await page.evaluate(() => window.__setHud("Session 1 (initial)"));
+  await settle(2500);
+
+  // ── Create a 2nd session (rail "+") so there's something to switch between ────────────────────────────────
+  await page.locator(".session-rail-add").click();
+  await page.locator(".session-prompt-input").fill("scroll-fix-demo");
+  await page.locator(".session-prompt-btn-primary").click(); // branch off HEAD → new worktree, switches to it
+  // Two chips now on the rail; wait for the new session's Claude to come up.
+  await page.locator(".session-chip").nth(1).waitFor({ timeout: 30_000 });
+  await settle(6000);
+  await page.evaluate(() => window.__setHud("Session 2 (new worktree) — switched in"));
+  await settle(2000);
+
+  // ── Switch BACK to session 1 — the path that used to break scrolling ─────────────────────────────────────
+  await page.locator(".session-chip").first().click();
+  await settle(5000); // host nudges the live Claude to repaint into the (preserved) alt buffer
+  await page.evaluate(() => window.__setHud("Back on Session 1 (after switch) — wheel test next"));
+  await settle(2500);
+
+  // Wheel over the Claude pane: with the bug this scrolls the stray web viewport (scrollTop moves, scrollbar
+  // visible); with the fix the wheel is forwarded to the TUI and the local viewport stays put.
+  const box = await claudeViewport.boundingBox();
+  if (box) {
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    for (let i = 0; i < 5; i++) {
+      await page.mouse.wheel(0, -120);
+      await settle(180);
+    }
+  }
+  await page.evaluate(() => window.__setHud("Back on Session 1 — after wheel scroll"));
+  await settle(4000);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

@@ -111,6 +111,24 @@ public sealed class ClaudeSessionStore {
 		}
 	}
 
+	/// <summary>
+	/// Abandons <paramref name="workingDirectory"/>'s assigned session id entirely, so the next
+	/// <see cref="Resolve"/> mints a brand-new one and cold-starts cleanly. Used when even re-creating the id
+	/// with <c>--session-id</c> fails — the id itself is poison (claude still holds a record that blocks reusing
+	/// it, yet its conversation is gone), so unlike <see cref="MarkResumeFailed"/> (which keeps the id and only
+	/// drops back to create) there is nothing to preserve: forgetting it is what stops a dead id from
+	/// crash-looping the pane. No-op if the directory was never <see cref="Resolve"/>d. Persists only on a change.
+	/// </summary>
+	public void Forget(string workingDirectory) {
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		string key = Normalize(workingDirectory);
+		lock (_gate) {
+			if (_items.RemoveAll(e => PathEquals(e.Key, key)) > 0) {
+				PersistLocked();
+			}
+		}
+	}
+
 	private Entry? Find(string key) => _items.FirstOrDefault(e => PathEquals(e.Key, key));
 
 	private static string Normalize(string path) =>

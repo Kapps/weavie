@@ -5,7 +5,7 @@ namespace Weavie.Hosting.Web;
 /// (sessions / IDE-MCP / LSP) for that origin, inject the bootstrap globals so the page mounts at the user's
 /// settings with no flash, then navigate. The host supplies only the native WebView ops via
 /// <see cref="IWebSurface"/>. Used directly in Release (against the bundled origin) and via
-/// <see cref="DevWebBringUp"/> in Debug (against the Vite dev origin, or the bundle the developer accepts).
+/// <c>DevWebBringUp</c> in Debug (against the Vite dev origin, or the bundle the developer accepts).
 /// </summary>
 public sealed class WebAppLauncher {
 	private readonly IWebSurface _surface;

@@ -9,7 +9,9 @@ namespace Weavie.Core.Tests;
 /// creates the session (<c>--session-id</c>); a directory is resumed only once <see cref="ClaudeSessionStore.MarkStarted"/>
 /// confirms it came up; an unconfirmed create is re-created rather than resumed (the crux of the resume-loop
 /// bug); distinct directories get distinct ids; confirmed assignments survive reload while unconfirmed ones do
-/// not; a failed resume re-creates the same id fresh; and a malformed file is backed up + reset.
+/// not; a failed resume re-creates the same id fresh; a forgotten (poison) id is dropped so the next launch
+/// mints a brand-new one — converging out of the reported crash loop within two relaunches; and a malformed
+/// file is backed up + reset.
 /// </summary>
 public sealed class ClaudeSessionStoreTests {
 	private const string StorePath = "/weavie-claude-session-tests/claude-sessions.json";
@@ -104,6 +106,74 @@ public sealed class ClaudeSessionStoreTests {
 		Assert.False(afterFailure.Resume);        // but re-created with --session-id
 		store.MarkStarted(Cwd);
 		Assert.True(store.Resolve(Cwd).Resume);    // and resumes again once re-confirmed
+	}
+
+	[Fact]
+	public void Forget_MintsAFreshIdNextTime() {
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		string poison = store.Resolve(Cwd).SessionId;
+		store.MarkStarted(Cwd);
+
+		store.Forget(Cwd);
+		var afterForget = store.Resolve(Cwd);
+
+		Assert.NotEqual(poison, afterForget.SessionId); // the poison id is gone — a brand-new one is minted
+		Assert.False(afterForget.Resume);               // and it cold-starts with --session-id
+	}
+
+	[Fact]
+	public void Forget_UnknownDirectory_IsNoOp() {
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+
+		store.Forget(Cwd); // never resolved — nothing to remove, must not throw
+
+		Assert.False(store.Resolve(Cwd).Resume);
+	}
+
+	[Fact]
+	public void Forget_SurvivesReload() {
+		var fs = new InMemoryFileSystem();
+		var initial = new ClaudeSessionStore(fs, StorePath);
+		string poison = initial.Resolve(Cwd).SessionId;
+		initial.MarkStarted(Cwd);
+		initial.Forget(Cwd);
+
+		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
+
+		Assert.NotEqual(poison, reloaded.SessionId); // the removal was persisted
+	}
+
+	[Fact]
+	public void PoisonId_RecoversToAFreshSessionWithinTwoRelaunches() {
+		// The reported crash loop, replayed at the store level: a confirmed id whose conversation is gone, whose
+		// id even a --session-id re-create can't reclaim. The controller's recovery (MarkResumeFailed on a failed
+		// resume, then Forget on a failed re-create) must converge on a brand-new, resumable session — not loop.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		string poison = store.Resolve(Cwd).SessionId;
+		store.MarkStarted(Cwd);
+
+		// Relaunch 1: --resume <poison> fails (conversation gone) -> heal as RecreateSameId.
+		var resume = store.Resolve(Cwd);
+		Assert.True(resume.Resume);
+		Assert.Equal(poison, resume.SessionId);
+		store.MarkResumeFailed(Cwd);
+
+		// Relaunch 2: --session-id <poison> also fails (id still held) -> heal as ForgetId.
+		var recreate = store.Resolve(Cwd);
+		Assert.False(recreate.Resume);
+		Assert.Equal(poison, recreate.SessionId);
+		store.Forget(Cwd);
+
+		// Relaunch 3: a fresh id is minted and cold-starts — claude has never seen it, so it comes up.
+		var fresh = store.Resolve(Cwd);
+		Assert.False(fresh.Resume);
+		Assert.NotEqual(poison, fresh.SessionId);
+		store.MarkStarted(Cwd);
+
+		Assert.True(store.Resolve(Cwd).Resume); // and resumes the recovered session thereafter
 	}
 
 	[Fact]

@@ -54,6 +54,11 @@ export function TerminalView(props: {
     term.loadAddon(fit);
     term.open(container);
 
+    // Publish this pane's terminal for e2e / diagnostics introspection (read-only) — e.g. asserting that
+    // mouse tracking survives a session switch so the wheel keeps reaching Claude. See global.d.ts.
+    window.__WEAVIE_TERMINALS__ ??= {};
+    window.__WEAVIE_TERMINALS__[props.session] = term;
+
     // Re-fit to the container and force a repaint. Used for every event that can leave the WebGL
     // canvas stale/blank or the PTY sized to the wrong grid: layout changes, OS-window resizes, a
     // lost GL context, and HMR swaps. fit() updates cols/rows (and so notifies the PTY via onResize);
@@ -218,9 +223,26 @@ export function TerminalView(props: {
         }
       } else if (message.type === "term-reset") {
         if (message.session === props.session) {
-          // The host disposed our PTY (e.g. the shell setting changed). Wipe scrollback + state and
-          // re-announce readiness so the host relaunches the child sized to the current pane.
-          term.reset();
+          // Clear the pane for the incoming session, then re-announce readiness so the host (re)attaches
+          // it to the active session's child (a fresh launch, or a repaint nudge for a live one).
+          //
+          // HOW we clear matters. Claude Code runs INLINE (not the alternate buffer) and enables mouse
+          // tracking so the wheel is forwarded to it — Claude scrolls its own transcript. A full reset
+          // (RIS, `term.reset()`) disables mouse tracking. On a session switch the child stays LIVE and
+          // is only nudged to repaint, so it never re-issues the mode — leaving xterm to handle the wheel
+          // itself: it scrolls the local viewport (a stray web scrollbar) instead of reaching Claude, so
+          // Claude can't be scrolled until a manual resize makes it re-emit the mode. That's the bug.
+          //
+          // So only the respawn caller (the child is being relaunched and will re-establish every mode
+          // from scratch) does a full reset. A live-child switch instead clears the screen + scrollback
+          // via control sequences (cursor home, erase display, erase scrollback) which wipe the previous
+          // session's content WITHOUT touching mouse tracking or any other mode — the wheel keeps reaching
+          // the live Claude across the switch.
+          if (message.respawn) {
+            term.reset();
+          } else {
+            term.write("\x1b[H\x1b[2J\x1b[3J");
+          }
           postToHost({
             type: "term-ready",
             session: props.session,
@@ -239,6 +261,9 @@ export function TerminalView(props: {
       window.removeEventListener("resize", refit);
       if (import.meta.hot) {
         import.meta.hot.off("vite:afterUpdate", onHmrUpdate);
+      }
+      if (window.__WEAVIE_TERMINALS__?.[props.session] === term) {
+        delete window.__WEAVIE_TERMINALS__[props.session];
       }
       term.dispose();
     });

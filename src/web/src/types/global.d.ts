@@ -41,5 +41,11 @@ interface Window {
   __WEAVIE_SHELL__?: WeavieShellConfig;
   /** Recents injected by the host for the standalone welcome window (welcome.html). */
   __WEAVIE_WELCOME__?: WeavieWelcomeConfig;
+  /**
+   * Live xterm terminals by session ("claude" | "shell"), published by TerminalView for e2e /
+   * diagnostics introspection (read-only). Lets a test assert per-pane terminal state — e.g.
+   * `modes.mouseTrackingMode`, which must survive a session switch for the wheel to reach Claude.
+   */
+  __WEAVIE_TERMINALS__?: Record<string, import("@xterm/xterm").Terminal>;
   // The LSP bridge config (window.__WEAVIE_LSP__) is augmented onto Window in lsp/lsp-client.ts.
 }

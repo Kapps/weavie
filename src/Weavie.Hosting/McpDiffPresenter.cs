@@ -13,18 +13,18 @@ namespace Weavie.Hosting;
 /// replies with <c>diff-resolved</c>, which completes the awaiting task.
 /// </summary>
 public sealed class McpDiffPresenter : IDiffPresenter {
-	private readonly IHostBridge _bridge;
+	private readonly SessionEditorChannel _channel;
 	private readonly IFileSystem _fileSystem;
 	private readonly FileOpener _fileOpener;
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
 	private int _counter;
 
-	/// <summary>Creates a presenter that renders diffs over the bridge and delegates file opens to <paramref name="fileOpener"/>.</summary>
-	public McpDiffPresenter(IHostBridge bridge, IFileSystem fileSystem, FileOpener fileOpener) {
-		ArgumentNullException.ThrowIfNull(bridge);
+	/// <summary>Creates a presenter that renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground) and delegates file opens to <paramref name="fileOpener"/>.</summary>
+	public McpDiffPresenter(SessionEditorChannel channel, IFileSystem fileSystem, FileOpener fileOpener) {
+		ArgumentNullException.ThrowIfNull(channel);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentNullException.ThrowIfNull(fileOpener);
-		_bridge = bridge;
+		_channel = channel;
 		_fileSystem = fileSystem;
 		_fileOpener = fileOpener;
 	}
@@ -42,12 +42,14 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		cancellationToken.Register(() => {
 			if (_pending.TryRemove(id, out var pending)) {
 				pending.TrySetCanceled();
-				_bridge.PostToWeb($"{{\"type\":\"close-diff\",\"id\":\"{id}\"}}"); // id is a safe slug
+				// Tear the diff out of the page (if it's the active session's, so it's actually rendered there).
+				_channel.EndDiff(id, closeInUi: true);
 			}
 		});
 
 		string original = _fileSystem.FileExists(proposal.OldFilePath) ? _fileSystem.ReadAllText(proposal.OldFilePath) : string.Empty;
-		_bridge.PostToWeb(BuildShowDiff(id, proposal, original));
+		// Held by the channel: rendered now if this session is active, else surfaced when it's switched in.
+		_channel.ShowDiff(id, BuildShowDiff(id, proposal, original));
 		return tcs.Task;
 	}
 
@@ -59,7 +61,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 
 	/// <summary>Asks the webview to close the file's tab (the MCP <c>close_tab</c> tool).</summary>
 	public Task CloseTabAsync(string filePath, CancellationToken cancellationToken) {
-		_bridge.PostToWeb(BuildCloseTab(filePath));
+		_channel.Reveal(BuildCloseTab(filePath));
 		return Task.CompletedTask;
 	}
 
@@ -79,6 +81,8 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	public void Resolve(string id, bool kept, string? finalContents) {
 		if (_pending.TryRemove(id, out var tcs)) {
 			tcs.TrySetResult(kept ? DiffOutcome.Kept(finalContents ?? string.Empty) : DiffOutcome.Rejected());
+			// The page already closed its own review when the user resolved it, so just stop tracking the diff.
+			_channel.EndDiff(id, closeInUi: false);
 		}
 	}
 

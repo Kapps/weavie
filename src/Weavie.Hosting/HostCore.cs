@@ -132,6 +132,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// WebSocket origin is pinned correctly. CreateSession wires its handlers + gated push subscriptions.
 		_primarySession = CreateSession(WorkspaceRoot);
 		_session = _primarySession;
+		// The active session drives the page's single editor: unmute its editor output (sessions are created
+		// muted). A switch hands this off via SwitchToSlot (deactivate previous, activate next).
+		_primarySession.SetEditorOutputActive(true);
 		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
 		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
 		_primarySession.EditorSession = _editorSession.Current;

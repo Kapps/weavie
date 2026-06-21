@@ -306,6 +306,10 @@ public sealed partial class HostCore {
 		if (previous is not null && !ReferenceEquals(previous, session)) {
 			previous.Claude.OutputActive = false;
 			previous.Shell.OutputActive = false;
+			// Mute the outgoing session's editor output BEFORE the rebind below: this tears any live blocking diff
+			// of the previous session out of the page (it re-renders when that session is switched back in) so it
+			// can't linger over the incoming session.
+			previous.SetEditorOutputActive(false);
 		}
 
 		_session = session;
@@ -322,6 +326,10 @@ public sealed partial class HostCore {
 		// session's working copies and reopens this one's. fs-read/write + active-editor already route to the
 		// active session, so edits land in the right worktree the moment _session is swapped above.
 		PushSessionEditorToWeb(session);
+		// Unmute the incoming session's editor output AFTER the rebind, so any work it held while muted — a
+		// background openDiff, files Claude opened — replays onto the now-rebound editor instead of being wiped
+		// by the rebind's release/restore.
+		session.SetEditorOutputActive(true);
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb();
 		PostSessionStatus(session.Status.Status);

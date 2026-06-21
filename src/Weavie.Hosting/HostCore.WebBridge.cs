@@ -596,9 +596,18 @@ public sealed partial class HostCore {
 	private static string FsPath(JsonElement root) =>
 		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
-	/// <summary>Routes a terminal message to the controller for its <c>session</c> pane (default: claude).</summary>
+	/// <summary>
+	/// Routes a terminal message to the controller for its <c>slot</c> (the workspace session it names) and
+	/// <c>session</c> pane (default: claude). Each loaded session has its own live panes now, so the message
+	/// carries which session it came from — input/resize/ready from a background session's pane must reach
+	/// THAT session's controller, not the active one. Falls back to the active session when the slot is
+	/// absent (older protocol) or no longer loaded.
+	/// </summary>
 	private TerminalController? TerminalFor(JsonElement root) {
 		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;
-		return pane == "shell" ? _session?.Shell : _session?.Claude;
+		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
+		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
+		session ??= _session;
+		return pane == "shell" ? session?.Shell : session?.Claude;
 	}
 }

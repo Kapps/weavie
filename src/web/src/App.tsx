@@ -1,4 +1,5 @@
 import {
+  For,
   type JSX,
   Show,
   Suspense,
@@ -85,6 +86,9 @@ const STATUS_LABEL: Record<SessionStatusName, string> = {
   error: "Claude crashed",
 };
 
+// Maps a terminal pane kind ("terminal:claude" / "terminal:shell") to its pane id.
+const paneOf = (kind: string): TermSession => (kind === "terminal:claude" ? "claude" : "shell");
+
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
   // The live pane layout tree: seeded with the default, replaced when the host pushes the persisted
@@ -95,8 +99,22 @@ export default function App(): JSX.Element {
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
-  // A terminal registers its focus fn here on mount (the editor focuses via the controller directly).
+  // Each loaded session's terminal panes register their focus fn here on mount, keyed by `${slot}:${pane}`
+  // (the editor focuses via the controller directly). focusPane resolves the active session's entry.
   const terminalFocus = new Map<string, () => void>();
+
+  // The active backend's loaded sessions each keep their own live xterm pair mounted; only the active
+  // one is shown. termSessionIds is a stable string[] (session ids) so <For> never remounts a session's
+  // terminals across rail pushes — that's what keeps them alive, making a switch pure show/hide. Dormant
+  // sessions (no backend) and other backends' sessions are excluded.
+  const termSessionIds = createMemo(() =>
+    sessions()
+      .filter((s) => s.loaded && s.backendId === activeBackendId())
+      .map((s) => s.id),
+  );
+  // The session whose panes are shown — the active one on the active backend (or null before the first
+  // rail push). Flipping this is what switches which session's terminals are visible.
+  const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
 
   // The active session's Claude status (pane-head dot) and the window's sessions (left rail) both live in
   // chrome/session-store as top-level signals so they survive HMR — see that module. The host pushes
@@ -150,7 +168,13 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    terminalFocus.get(kind)?.();
+    // Every loaded session has its own xterm pair; only the active session's is visible/focusable. Resolve
+    // it by the active session id, so focus lands correctly regardless of effect-flush timing on a switch.
+    const pane = paneOf(kind);
+    const sid = activeTermSessionId();
+    if (sid !== null) {
+      terminalFocus.get(`${sid}:${pane}`)?.();
+    }
   };
 
   // Switch to a session by id. Flushes the outgoing session's pending (debounced) editor session before
@@ -239,8 +263,9 @@ export default function App(): JSX.Element {
     }
   });
 
-  // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable),
-  // so the editor and terminals are created a single time and only repositioned thereafter.
+  // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable), so
+  // the editor surface and each terminal kind's container are created once and only repositioned. Within a
+  // terminal kind, one xterm per loaded session is mounted (only the active shown) — see the For below.
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
@@ -265,7 +290,7 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    const session: TermSession = kind === "terminal:claude" ? "claude" : "shell";
+    const pane = paneOf(kind);
     return (
       <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
         <div class="pane-head">
@@ -282,7 +307,24 @@ export default function App(): JSX.Element {
           </span>
         </div>
         <div class="pane-body">
-          <TerminalView session={session} onReady={(focus) => terminalFocus.set(kind, focus)} />
+          {/* One live xterm per loaded session; only the active one is shown. Keyed by session id so a
+              session keeps its xterm across rail pushes — switching is pure show/hide, no reset/replay. */}
+          <For each={termSessionIds()}>
+            {(sid) => {
+              const isActive = (): boolean => sid === activeTermSessionId();
+              onCleanup(() => terminalFocus.delete(`${sid}:${pane}`));
+              return (
+                <div class="term-host" classList={{ hidden: !isActive() }}>
+                  <TerminalView
+                    slot={sid}
+                    pane={pane}
+                    active={isActive()}
+                    onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
+                  />
+                </div>
+              );
+            }}
+          </For>
         </div>
       </div>
     );

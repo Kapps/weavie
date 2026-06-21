@@ -492,6 +492,10 @@ export async function createEditorHost(
       model.setValue(proposed);
     }
     reviewModels.set(path, model);
+    // Taking over the editor synchronously: invalidate any in-flight async open so its late setModel can't
+    // clobber this review model. This matters when the host re-renders a held diff right after a session switch
+    // — the rebind's restoreSession (an async showFile) is still resolving when this runs.
+    openSeq += 1;
     preReview = { model: editor.getModel(), viewState: editor.saveViewState() };
     editor.setModel(model);
     editor.revealLineInCenter(Math.max(1, line));

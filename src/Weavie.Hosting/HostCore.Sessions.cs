@@ -93,6 +93,9 @@ public sealed partial class HostCore {
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
 
+	/// <summary>Test seam: the session currently driving the page (the active backend), or null before startup.</summary>
+	internal HostSession? ActiveSessionForTest() => _session;
+
 	/// <summary>Every loaded session's live backend (the active one plus any background slots), in rail order.</summary>
 	private List<HostSession> LoadedSessions() {
 		var list = new List<HostSession>();

@@ -140,8 +140,9 @@ public sealed class HostSession : IAsyncDisposable {
 		Ide.HookBridge.Observed += Claude.ObserveHook;
 
 		// Per-session Claude status (the rail/pane indicator): the same hook stream drives it
-		// (UserPromptSubmit/tool use → Working, Notification → NeedsInput, Stop → Idle), and the claude
-		// supervisor drives crash / crash-loop → Error. Observe runs on the hook accept-loop thread.
+		// (SessionStart → Idle out of Starting, UserPromptSubmit/tool use → Working, permission Notification →
+		// NeedsInput, Stop → Idle), and the claude supervisor drives crash / crash-loop → Error. Observe runs on
+		// the hook accept-loop thread.
 		Status = new SessionStatusMachine();
 		Ide.HookBridge.Observed += Status.Observe;
 		Claude.SupervisorChanged += Status.ObserveSupervisor;

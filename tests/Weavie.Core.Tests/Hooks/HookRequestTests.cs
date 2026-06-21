@@ -60,6 +60,16 @@ public sealed class HookRequestTests {
 	}
 
 	[Fact]
+	public void Parse_Notification_CapturesMessageWithoutToolName() {
+		var request = HookRequest.Parse("""{"hook_event_name":"Notification","message":"Claude is waiting for your input","session_id":"s1"}""");
+
+		Assert.NotNull(request);
+		Assert.Equal(HookEventKind.Notification, request!.Event);
+		Assert.Equal("Claude is waiting for your input", request.Message);
+		Assert.Equal(string.Empty, request.ToolName);
+	}
+
+	[Fact]
 	public void Parse_UserPromptSubmit_ParsesWithoutToolName() {
 		var request = HookRequest.Parse("""{"hook_event_name":"UserPromptSubmit","prompt":"hi","session_id":"s1","cwd":"/w"}""");
 

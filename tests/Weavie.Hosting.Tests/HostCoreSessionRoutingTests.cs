@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Hooks;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -111,6 +112,35 @@ public sealed class HostCoreSessionRoutingTests {
 		Assert.True(push.HasValue);
 		// The rejected message never reached the primary's EditorSession, so it's still empty.
 		Assert.Equal(0, push!.Value.GetProperty("session").GetProperty("open").GetArrayLength());
+	}
+
+	[Fact]
+	public async Task DefaultModeEdit_SurfacesInTheTurnReview() {
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest();
+		Assert.NotNull(session);
+		// A fresh session is in Claude's default edit mode — no hook has reported acceptEdits/bypass. This is the
+		// case that used to be gated out of the editor review (the bug): the turn push was suppressed unless
+		// AutoAppliesEdits.
+		Assert.False(session!.ObservedMode.AutoAppliesEdits);
+
+		string file = Path.Combine(host.RepoRoot, "readme.txt"); // exists in the repo ("hello\n")
+		string input = Msg(new { file_path = file });
+
+		// Replay the hook stream of a single Edit: baseline before, the edit lands on disk, post-tool records it —
+		// exactly what the change tracker sees in production (minus the relay/pipe transport).
+		session.Changes.Observe(new HookRequest { Event = HookEventKind.PreToolUse, ToolName = "Edit", ToolInputJson = input });
+		File.WriteAllText(file, "hello\nworld\n");
+		host.Bridge.Clear();
+		session.Changes.Observe(new HookRequest { Event = HookEventKind.PostToolUse, ToolName = "Edit", ToolInputJson = input });
+
+		// With the mode gate removed, a default-mode edit surfaces as a turn-changes review set naming the file —
+		// the change tracker, not openDiff, is the review surface in every mode.
+		var turn = host.Bridge.LastOfType("turn-changes");
+		Assert.True(turn.HasValue, "a default-mode edit should push a turn-changes review set");
+		var files = turn!.Value.GetProperty("files");
+		Assert.Equal(1, files.GetArrayLength());
+		Assert.Equal(file, files[0].GetProperty("path").GetString());
 	}
 
 	[Fact]

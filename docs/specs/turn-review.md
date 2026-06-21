@@ -83,14 +83,15 @@ Review is **implicit**: when a turn ends, the navigator arms itself — no short
 turn-end signal already exists: Claude's `Stop` hook drives the session to **Idle** status (see
 [hook-bridge.md](../concepts/hook-bridge.md)). The web watches the active session's Claude status; on a
 transition **into idle** while the review set is non-empty, it opens the first changed file at its first
-hunk (as a preview tab, so walking files doesn't pile up tabs). `weavie.review.open` (`$mod+Shift+r`)
+hunk (as a preview tab, so walking files doesn't pile up tabs). `weavie.review.open` (palette-only)
 re-enters the walk manually if you navigated away.
 
 ## What already exists (reused, not rebuilt)
 
 - **Auto-apply detection** — Claude owns its edit mode (Shift+Tab); Weavie observes it off the hook
-  stream (`ObservedPermissionMode`). The hosts gate the turn push (and the openDiff auto-keep) on
-  `ObservedPermissionMode.AutoAppliesEdits`.
+  stream (`ObservedPermissionMode`). `AutoAppliesEdits` drives the openDiff auto-keep only; the turn push is
+  unconditional (the change tracker records edits in every mode, so the navigator is the review surface in all
+  modes, default included).
 - **Per-turn change tracking** — `SessionChangeTracker` keeps the review baseline per file and exposes
   `TurnChanges()` / `GetTurn(path)`. (Accumulate changes *when* that baseline advances — see below.)
 - **Inline diff renderer** — decorations + ghost view-zones + the floating toolbar + **hunk navigation**
@@ -182,7 +183,7 @@ is unchanged.
 | `weavie.diff.reject` (existing) | `$mod+Backspace` | **Revert** current hunk on disk, advance |
 | `weavie.review.nextFile` (new) | `$mod+Right` | next file in the review set (land on first change) |
 | `weavie.review.prevFile` (new) | `$mod+Left` | previous file in the review set |
-| `weavie.review.open` (existing, repurposed) | `$mod+Shift+r` | open the first reviewed file at its first change |
+| `weavie.review.open` (existing, repurposed) | _(palette-only)_ | open the first reviewed file at its first change |
 
 `$mod+Left`/`$mod+Right` override Monaco's word-navigation **only while an applied-mode diff is active**
 (the web handlers decline — falling through to the editor — when there is no review diff), so normal

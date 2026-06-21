@@ -21,12 +21,17 @@ public enum HookEventKind {
 	/// <summary>Fired when Claude finishes responding — the turn-end boundary. Drives the session's Idle status.</summary>
 	Stop,
 
-	/// <summary>Fired when Claude needs attention — a permission prompt or an idle "waiting for input" notice. Drives the session's NeedsInput status.</summary>
+	/// <summary>
+	/// Fired when Claude needs attention. A permission prompt drives the session's NeedsInput status; the idle
+	/// "waiting for input" notice (carried in <see cref="HookRequest.Message"/>) is left to settle as-is so it
+	/// neither reopens a finished turn nor clears a pending prompt.
+	/// </summary>
 	Notification,
 
 	/// <summary>
 	/// Fired when a conversation (re)starts; <see cref="HookRequest.Source"/> says why (startup/resume/clear/
-	/// compact). Weavie watches <c>source=clear</c> to drop the resume store's stale id.
+	/// compact). Clears the session status from Starting to Idle (claude is up); Weavie additionally watches
+	/// <c>source=clear</c> to drop the resume store's stale id.
 	/// </summary>
 	SessionStart,
 

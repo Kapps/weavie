@@ -38,13 +38,13 @@ public sealed class HookSettingsTests {
 	}
 
 	[Fact]
-	public void BuildJson_RegistersSessionStartScopedToClear() {
-		// The "clear" matcher relays only /clear (not startup/resume/compact), letting the resume store
-		// drop its stale id.
+	public void BuildJson_RegistersSessionStartForAllSources() {
+		// No matcher: SessionStart relays on every source (startup/resume/clear/compact), so the first one
+		// clears the session status out of Starting; the source-specific handlers filter for themselves.
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var group = doc.RootElement.GetProperty("hooks").GetProperty("SessionStart")[0];
 
-		Assert.Equal("clear", group.GetProperty("matcher").GetString());
+		Assert.False(group.TryGetProperty("matcher", out _));
 	}
 
 	[Fact]

@@ -4,10 +4,9 @@ namespace Weavie.Runner;
 
 /// <summary>
 /// One multi-session <c>Weavie.Headless</c> worker for a workspace — the remote backend a client connects to.
-/// Since the shared <c>HostCore</c> now owns the session model, a single worker rooted at the workspace root
-/// hosts every worktree session inside it (New Session creates worktrees there, exactly like local); the
-/// runner does not spawn a process per session. The runner hands clients <see cref="PageUrl"/> carrying
-/// <see cref="Token"/>; the worker's bridge is reachable only with that token. See docs/specs/remote-sessions.md.
+/// A single worker rooted at the workspace root hosts every worktree session inside it via the shared
+/// <c>HostCore</c>; the runner does not spawn a process per session. Clients get <see cref="PageUrl"/> carrying
+/// <see cref="Token"/>, which alone unlocks the worker's bridge. See docs/specs/remote-sessions.md.
 /// </summary>
 public sealed class WorkspaceBackend {
 	/// <summary>Absolute path to the workspace (git repo) root the worker serves.</summary>

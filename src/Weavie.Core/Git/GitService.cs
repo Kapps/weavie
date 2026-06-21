@@ -7,8 +7,7 @@ namespace Weavie.Core.Git;
 /// <summary>
 /// <see cref="IGitService"/> backed by the <c>git</c> executable on <c>PATH</c>. Each call spawns a
 /// short-lived <c>git</c> process (a transient one-shot helper, exempt from <c>ProcessSupervisor</c>),
-/// captures stdout/stderr, and throws <see cref="GitException"/> when a command that must succeed exits
-/// non-zero or when git can't be started.
+/// captures stdout/stderr, and throws <see cref="GitException"/> when a required command fails.
 /// </summary>
 public sealed class GitService : IGitService {
 	private const string HeadsPrefix = "refs/heads/";
@@ -87,7 +86,7 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
 		ArgumentException.ThrowIfNullOrEmpty(newBranch);
 		ArgumentException.ThrowIfNullOrEmpty(baseRef);
-		// git worktree add creates the leaf directory, but not missing parents — ensure the worktrees root exists.
+		// git worktree add creates the leaf directory but not missing parents — ensure the root exists.
 		string? parent = Path.GetDirectoryName(worktreePath);
 		if (!string.IsNullOrEmpty(parent)) {
 			Directory.CreateDirectory(parent);
@@ -101,13 +100,13 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
 		ArgumentException.ThrowIfNullOrEmpty(branch);
-		// git worktree add creates the leaf directory, but not missing parents — ensure the worktrees root exists.
+		// git worktree add creates the leaf directory but not missing parents — ensure the root exists.
 		string? parent = Path.GetDirectoryName(worktreePath);
 		if (!string.IsNullOrEmpty(parent)) {
 			Directory.CreateDirectory(parent);
 		}
 
-		// No -b: check out the existing branch itself, so HEAD attaches to it and commits land on that branch.
+		// No -b: check out the existing branch, so HEAD attaches to it and commits land there.
 		await RunCheckedAsync(repositoryDirectory, ["worktree", "add", worktreePath, branch], ct).ConfigureAwait(false);
 	}
 
@@ -115,9 +114,9 @@ public sealed class GitService : IGitService {
 	public async Task RemoveWorktreeAsync(string repositoryDirectory, string worktreePath, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
-		// -c core.longpaths=true lets git's own recursive delete handle paths past Windows' 260-char limit: a
-		// worktree with a deep node_modules (pnpm's nested .pnpm store) otherwise fails removal with "Filename
-		// too long". A no-op on other platforms and on shorter paths.
+		// core.longpaths=true lets git's recursive delete handle paths past Windows' 260-char limit (e.g. a
+		// deep node_modules from pnpm's nested .pnpm store), which otherwise fails with "Filename too long".
+		// No-op elsewhere and on shorter paths.
 		string[] args = force
 			? ["-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath]
 			: ["-c", "core.longpaths=true", "worktree", "remove", worktreePath];
@@ -141,8 +140,8 @@ public sealed class GitService : IGitService {
 			return WorktreeChangeState.Clean;
 		}
 
-		// Porcelain marks an untracked path with a leading "??"; any other status code is a tracked change
-		// (modified/staged/deleted/renamed). All untracked ⇒ untracked-only; otherwise tracked changes exist.
+		// Porcelain marks untracked paths with a leading "??"; any other code is a tracked change. All
+		// untracked ⇒ untracked-only; otherwise tracked changes exist.
 		return lines.All(line => line.StartsWith("??", StringComparison.Ordinal))
 			? WorktreeChangeState.UntrackedOnly
 			: WorktreeChangeState.Modified;
@@ -169,9 +168,8 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <summary>
-	/// Parses <c>git worktree list --porcelain</c> output into <see cref="GitWorktree"/> entries. Each
-	/// record is a block of <c>key value</c> lines separated by blank lines; this is a pure function so it
-	/// can be unit-tested without a real repository.
+	/// Parses <c>git worktree list --porcelain</c> output into <see cref="GitWorktree"/> entries — each a
+	/// block of <c>key value</c> lines separated by blank lines. Pure, so it's testable without a repository.
 	/// </summary>
 	public static IReadOnlyList<GitWorktree> ParsePorcelainList(string porcelain) {
 		ArgumentNullException.ThrowIfNull(porcelain);

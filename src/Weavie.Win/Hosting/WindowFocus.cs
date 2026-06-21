@@ -5,8 +5,8 @@ namespace Weavie.Win.Hosting;
 /// <summary>
 /// Foreground/visibility helpers behind <c>weavie.window.toggle</c> (the global <c>ctrl+`</c> hotkey).
 /// WinForms' <c>Activate()</c> alone doesn't reliably steal foreground across processes; pairing it with
-/// <c>SetForegroundWindow</c> does, because the <c>WM_HOTKEY</c>/command that triggered us grants our
-/// process the right to set the foreground window. All methods must be called on the UI thread.
+/// <c>SetForegroundWindow</c> does, since the triggering <c>WM_HOTKEY</c>/command grants our process the right
+/// to set the foreground window. All methods must be called on the UI thread.
 /// </summary>
 internal static class WindowFocus {
 	private const uint GwHwndNext = 2;     // GW_HWNDNEXT — next window down the Z-order
@@ -41,9 +41,9 @@ internal static class WindowFocus {
 	}
 
 	/// <summary>
-	/// Toggles <paramref name="window"/>: bring it to the foreground when it's behind, or — when it's already
-	/// the foreground window — drop it behind by handing focus back to the window that was focused before it
-	/// came forward (no minimize). The behavior behind the global focus hotkey.
+	/// Toggles <paramref name="window"/>: bring it to the foreground when behind, or — when already foreground —
+	/// drop it behind by handing focus back to the previously focused window (no minimize). Behind the global
+	/// focus hotkey.
 	/// </summary>
 	public static void Toggle(Form window) {
 		ArgumentNullException.ThrowIfNull(window);
@@ -54,11 +54,10 @@ internal static class WindowFocus {
 		}
 	}
 
-	// Relinquish foreground without minimizing: activate the next activatable top-level window beneath ours
-	// in the Z-order — which is the window that was focused before we raised ours — so it regains focus and
-	// our window simply drops behind it, still visible. We're allowed to assign foreground to another window
-	// because we currently own it (Toggle only calls this when our window is the foreground one). If nothing
-	// activatable sits behind us (rare — essentially only the bare desktop), sink to the bottom of the Z-order.
+	// Relinquish foreground without minimizing: activate the next activatable top-level window beneath ours in
+	// the Z-order (the one focused before we raised ours), so it regains focus and our window drops behind it,
+	// still visible. Allowed because Toggle only calls this when our window owns the foreground. If nothing
+	// activatable sits behind us (essentially only the bare desktop), sink to the bottom of the Z-order.
 	private static void DropBehind(Form window) {
 		IntPtr next = GetWindow(window.Handle, GwHwndNext);
 		while (next != IntPtr.Zero) {

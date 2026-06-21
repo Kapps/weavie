@@ -1,16 +1,15 @@
 // Detects the "double-shift" gesture (tap + release Shift twice in quick succession, IntelliJ-style) and
-// fires a callback. This deliberately lives outside the keybinding resolver: a chord is key-plus-modifiers,
-// and the resolver explicitly never matches a modifiers-only binding, so a bare double-tap can't be expressed
-// there. Any non-Shift key, or any other modifier held alongside Shift, breaks the sequence — so a normal
-// Shift+letter (or Ctrl+Shift+…) never trips it; only two clean Shift taps with nothing between them do.
-// Capture-phase, like the keybinding resolver, so a focused xterm/Monaco can't swallow the keys first.
+// fires a callback. It lives outside the keybinding resolver because that resolver never matches a
+// modifiers-only binding, so a bare double-tap can't be expressed as a chord. Any non-Shift key or other
+// modifier held alongside Shift breaks the sequence, so only two clean Shift taps trip it. Capture-phase
+// so a focused xterm/Monaco can't swallow the keys first.
 
 const DOUBLE_TAP_WINDOW_MS = 300;
 
 /** Installs the double-shift gesture detector; returns a teardown function. */
 export function installDoubleShift(onTrigger: () => void): () => void {
   let armed = false; // a clean Shift keydown is in flight (no other key/modifier has interfered)
-  let lastTapAt = 0; // timestamp of the previous completed Shift tap (keyup)
+  let lastTapAt = 0; // timestamp of the previous completed Shift tap
 
   const reset = (): void => {
     armed = false;

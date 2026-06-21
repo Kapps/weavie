@@ -6,10 +6,8 @@ namespace Weavie.Win.Terminal;
 
 /// <summary>
 /// The Windows PTY launcher: a <see cref="WindowsConPtyTerminal"/> (ConPTY) backend, claude resolved from the
-/// <c>claude.path</c> setting (a <c>.cmd</c>/<c>.bat</c> shim runs through <c>cmd.exe /c</c>; a native exe — or
-/// a bare <c>claude</c> for CreateProcess to find on PATH — launches directly), and the shell from the
-/// <c>terminal.shell</c> setting (PowerShell gets <c>-NoLogo</c>). The POSIX sibling lives in Weavie.Hosting.
-/// ConPTY ignores <c>TERM</c>, so unlike the POSIX launcher no colour env is injected.
+/// <c>claude.path</c> setting, and the shell from <c>terminal.shell</c>. ConPTY ignores <c>TERM</c>, so no
+/// colour env is injected.
 /// </summary>
 internal sealed class WindowsPtyLauncher : IPtyLauncher {
 	/// <inheritdoc/>
@@ -31,31 +29,12 @@ internal sealed class WindowsPtyLauncher : IPtyLauncher {
 	}
 
 	/// <summary>
-	/// Resolves how to launch claude from the <c>claude.path</c> setting: a <c>.cmd</c>/<c>.bat</c> shim
-	/// (npm install) runs through cmd.exe; a native <c>.exe</c> (or a bare <c>claude</c> for CreateProcess
-	/// to find on PATH) launches directly.
+	/// Resolves how to launch claude from <c>claude.path</c>: a <c>.cmd</c>/<c>.bat</c> shim runs through
+	/// cmd.exe; a native exe (or a bare <c>claude</c> found on PATH) launches directly.
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveClaude(PtyLaunchRequest request) {
 		string claude = request.Settings.GetString("claude.path") ?? "claude";
-		var claudeArgs = new List<string>();
-		if (!string.IsNullOrEmpty(request.McpConfigPath)) {
-			claudeArgs.Add("--mcp-config");
-			claudeArgs.Add(request.McpConfigPath);
-		}
-
-		if (!string.IsNullOrEmpty(request.SettingsFilePath)) {
-			claudeArgs.Add("--settings");
-			claudeArgs.Add(request.SettingsFilePath);
-		}
-
-		if (!string.IsNullOrEmpty(request.SystemPromptFilePath)) {
-			claudeArgs.Add("--append-system-prompt-file");
-			claudeArgs.Add(request.SystemPromptFilePath);
-		}
-
-		// Session resume (--resume/--session-id <id>), already resolved by the controller; empty when off.
-		claudeArgs.AddRange(request.ClaudeSessionArguments);
-
+		var claudeArgs = request.BuildClaudeArguments();
 		string ext = Path.GetExtension(claude).ToLowerInvariant();
 		if (ext is ".cmd" or ".bat") {
 			string comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
@@ -66,9 +45,8 @@ internal sealed class WindowsPtyLauncher : IPtyLauncher {
 	}
 
 	/// <summary>
-	/// Resolves the plain-terminal shell from the <c>terminal.shell</c> setting to a launchable command,
-	/// passing <c>-NoLogo</c> only to PowerShell so its banner is suppressed; other shells (nushell, cmd,
-	/// bash, …) open straight at their prompt with no flags.
+	/// Resolves the plain-terminal shell from <c>terminal.shell</c>, passing <c>-NoLogo</c> only to
+	/// PowerShell to suppress its banner; other shells open with no flags.
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveShell(SettingsStore settings) {
 		string shell = settings.GetString("terminal.shell") ?? "powershell";

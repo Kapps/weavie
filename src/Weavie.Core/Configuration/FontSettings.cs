@@ -1,15 +1,15 @@
-using System.Text;
 using System.Text.Json;
+using Weavie.Core.Json;
 
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// The typography settings — font family, size, and weight — for the two text surfaces (the Monaco
-/// editor and the xterm terminal). A single global <c>font.*</c> default is inherited by both, and
-/// each surface may override any axis via <c>editor.font.*</c> / <c>terminal.font.*</c>. An override
-/// left at its "inherit" sentinel (empty family/weight, <c>0</c> size) falls through to the global.
-/// All are <see cref="ApplyMode.Live"/>: a change re-pushes the resolved fonts to the web app, which
-/// applies them to the editor (<c>updateOptions</c>) and terminal (<c>options</c> + refit) in place.
+/// The typography settings — font family, size, and weight — for the two text surfaces (the Monaco editor and
+/// the xterm terminal). A single global <c>font.*</c> default is inherited by both, and each surface may
+/// override any axis via <c>editor.font.*</c> / <c>terminal.font.*</c>. An override left at its "inherit"
+/// sentinel (empty family/weight, <c>0</c> size) falls through to the global. All are
+/// <see cref="ApplyMode.Live"/>: a change re-pushes the resolved fonts to the web app, which applies them to
+/// the editor (<c>updateOptions</c>) and terminal (<c>options</c> + refit) in place.
 /// </summary>
 public static class FontSettings {
 	/// <summary>Global font family (a CSS font-family stack) inherited by both surfaces.</summary>
@@ -49,8 +49,8 @@ public static class FontSettings {
 		TerminalFamily, TerminalSize, TerminalWeight,
 	];
 
-	// Cross-platform monospace stack: ui-monospace picks the platform UI mono, then named favorites,
-	// then the classic per-OS fallbacks, ending in generic monospace so it never silently fails.
+	// Cross-platform monospace stack: ui-monospace picks the platform UI mono, then named favorites, then the
+	// per-OS fallbacks, ending in generic monospace so it never silently fails.
 	private const string DefaultFamily =
 		"""ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace""";
 
@@ -59,8 +59,8 @@ public static class FontSettings {
 	private const long MinSize = 6;
 	private const long MaxSize = 72;
 
-	// CSS-recognized weights: the keywords plus the numeric scale. Mapped 1:1 onto Monaco's
-	// fontWeight string and xterm's FontWeight, so a value valid here is valid in both renderers.
+	// CSS-recognized weights: the keywords plus the numeric scale. Mapped 1:1 onto Monaco's fontWeight string
+	// and xterm's FontWeight, so a value valid here is valid in both renderers.
 	private static readonly string[] Weights =
 		["normal", "bold", "100", "200", "300", "400", "500", "600", "700", "800", "900"];
 
@@ -115,28 +115,22 @@ public static class FontSettings {
 
 	/// <summary>
 	/// Serializes the resolved editor + terminal fonts as JSON: <c>{"editor":{family,size,weight},
-	/// "terminal":{…}}</c>. When <paramref name="messageType"/> is set, a <c>"type"</c> field is
-	/// written first (for a bridge push); when null, the bare object is produced (for the injected
+	/// "terminal":{…}}</c>. With <paramref name="messageType"/> set, a <c>"type"</c> field is written first (for
+	/// a bridge push); when null, the bare object is produced (for the injected
 	/// <c>window.__WEAVIE_FONTS__</c> global).
 	/// </summary>
 	public static string BuildJson(SettingsStore store, string? messageType) {
 		ArgumentNullException.ThrowIfNull(store);
 		var editor = ResolveEditor(store);
 		var terminal = ResolveTerminal(store);
-
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
+		return JsonWrite.Object(writer => {
 			if (messageType is not null) {
 				writer.WriteString("type", messageType);
 			}
 
 			WriteFont(writer, "editor", editor);
 			WriteFont(writer, "terminal", terminal);
-			writer.WriteEndObject();
-		}
-
-		return Encoding.UTF8.GetString(stream.ToArray());
+		});
 	}
 
 	private static void RegisterOverride(

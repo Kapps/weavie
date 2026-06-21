@@ -5,13 +5,13 @@ using Weavie.Core.Sessions;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// Declares the multi-session commands and wires the Core-handled ones (new / fork / unload / delete) to a host's
-/// <see cref="ISessionHost"/>. The switch commands (next / prev / switch) run in the web (the rail). Like
-/// <c>ThemeCommands</c>, the declarations live in Core so every trigger sees them; the host registers the
-/// handlers once it has a session host. See <c>docs/specs/multi-session-and-worktrees.md</c>.
+/// Declares the multi-session commands and wires the Core-handled ones (new / fork / unload / delete) to a
+/// host's <see cref="ISessionHost"/>. The switch commands (next / prev / switch) run in the web (the rail).
+/// Declarations live in Core so every trigger sees them; the host registers the handlers once it has a session
+/// host. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
-	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry (Claude). The interactive UI uses <see cref="NewSessionPrompt"/>.</summary>
+	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry. The interactive UI uses <see cref="NewSessionPrompt"/>.</summary>
 	public const string NewSession = "weavie.session.new";
 
 	/// <summary>Opens the interactive new-session prompt (branch name + base) in the UI; <c>$mod+Shift+n</c>.</summary>
@@ -38,7 +38,7 @@ public static class SessionCommands {
 	/// <summary>Unloads a session (the active one, or the <c>id</c> arg) into a dormant chip, keeping its worktree on disk.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes a session: removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic/MCP entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
+	/// <summary>Deletes a session: removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the active session).</summary>
@@ -60,8 +60,8 @@ public static class SessionCommands {
 				+ "'prompt' is sent to the new session's Claude as its first message. This is the programmatic entry "
 				+ "(for Claude); the interactive UI uses 'New Session…' (weavie.session.newPrompt).",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
-			// No default keybinding + hidden from the palette: the human-facing entry is the interactive prompt
-			// (NewSessionPrompt, bound to $mod+Shift+n). Still reachable by Claude via listCommands/runCommand.
+			// Hidden from the palette: the human-facing entry is the interactive prompt (NewSessionPrompt). Still
+			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"}}",
 		});
@@ -117,10 +117,9 @@ public static class SessionCommands {
 			Aliases = ["switch session", "go to session", "change session", "pick session"],
 		});
 
-		// $mod+Shift+1..9 → switch to the Nth session on the rail (the session analogue of the pane-focus
-		// Ctrl+1..9). Keybinding-only + hidden from the palette: "switch to session 3" is no clearer a palette
-		// row than the pane equivalent, and the human-facing picker is Switch Session… Each default binding
-		// carries its own 1-based index argument; the web rail switches to that session if one exists there.
+		// $mod+Shift+1..9 → switch to the Nth session on the rail. Keybinding-only + hidden from the palette
+		// (the human-facing picker is Switch Session…). Each default binding carries its own 1-based index
+		// argument; the web rail switches to that session if one exists.
 		var indexBindings = new List<CommandKeybinding>(9);
 		for (int i = 1; i <= 9; i++) {
 			string n = i.ToString(CultureInfo.InvariantCulture);
@@ -148,7 +147,7 @@ public static class SessionCommands {
 				+ "WITHOUT switching the page to it — so its Claude runs and reports status while you stay where you "
 				+ "are. Use Switch Session to bring it to the foreground instead.",
 			Aliases = ["load session", "start session", "wake session", "resume session in background"],
-			// id-targeted (a specific dormant chip); loading the active session is meaningless, so it's not in the palette.
+			// id-targeted (a specific dormant chip); loading the active session is meaningless, so not in the palette.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to load in the background\"}}",
 		});
@@ -196,9 +195,8 @@ public static class SessionCommands {
 	}
 
 	/// <summary>
-	/// Registers the Core-handled session commands (new / fork / close) onto <paramref name="dispatcher"/>,
-	/// routing each to <paramref name="host"/> with leniently-parsed arguments. Returns a disposable that
-	/// unregisters them all.
+	/// Registers the Core-handled session commands onto <paramref name="dispatcher"/>, routing each to
+	/// <paramref name="host"/> with leniently-parsed arguments. Returns a disposable that unregisters them all.
 	/// </summary>
 	public static IDisposable RegisterHandlers(CommandDispatcher dispatcher, ISessionHost host) {
 		ArgumentNullException.ThrowIfNull(dispatcher);
@@ -262,8 +260,7 @@ public static class SessionCommands {
 			return prop.ValueKind switch {
 				JsonValueKind.True => true,
 				JsonValueKind.False => false,
-				// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary
-				// (see [embedded-claude-stringifies-mcp-scalars]).
+				// Embedded Claude sends scalars as JSON strings ("true"/"1"); coerce leniently at the boundary.
 				JsonValueKind.String => bool.TryParse(prop.GetString(), out bool b) ? b : prop.GetString() == "1",
 				JsonValueKind.Number => prop.TryGetInt64(out long n) && n != 0,
 				_ => false,

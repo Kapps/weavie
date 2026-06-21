@@ -1,9 +1,7 @@
-// Registers broad syntax highlighting for ~200 languages from the data-driven catalog. For each language
-// we synthesize a VS Code extension manifest (language id + extensions + grammar + shared generic config)
-// and register it the same way the @codingame default-extension packs do — `registerExtension` +
-// `registerFileUrl` pointing at the bundled grammar asset. Contributions are declarative (no `main`, no
-// extension-host JS); the grammar JSON is fetched lazily from the local bundle on first open of the
-// language. Run once, after the VS Code services are initialized, alongside the curated pack imports.
+// Registers broad syntax highlighting for ~200 languages from the catalog. For each, synthesize a VS Code
+// extension manifest (language id + extensions + grammar + shared generic config) and register it via
+// `registerExtension` + `registerFileUrl` pointing at the bundled grammar asset. Contributions are
+// declarative (no extension-host JS); each grammar JSON is fetched lazily from the bundle on first open.
 
 import {
   ExtensionHostKind,
@@ -24,8 +22,8 @@ let registered = false;
 
 /**
  * Registers every catalog language's grammar + generic config with Monaco. Idempotent. Must run after
- * `initialize(...)` (the languages/textmate services must exist) and before files are opened (Monaco
- * resolves a model's language from its extension at creation time, so the associations must be eager).
+ * `initialize(...)` and before files are opened, since Monaco resolves a model's language from its extension
+ * at creation time so the associations must be eager.
  */
 export function registerBroadGrammars(): void {
   if (registered) {
@@ -36,7 +34,7 @@ export function registerBroadGrammars(): void {
   for (const grammar of buildBroadCatalog()) {
     const grammarUrl = grammarUrlByName[grammar.name];
     if (grammarUrl === undefined) {
-      continue; // catalog entry without a bundled grammar file (shouldn't happen) -> skip
+      continue; // catalog entry without a bundled grammar file (shouldn't happen)
     }
 
     const grammarPath = `./syntaxes/${grammar.name}.tmLanguage.json`;
@@ -57,7 +55,7 @@ export function registerBroadGrammars(): void {
         ],
         grammars: [{ language: grammar.name, scopeName: grammar.scopeName, path: grammarPath }],
       },
-      // Declarative-only: no `main`, so no extension-host JS runs — just the grammar/language contributions.
+      // Declarative-only: no `main`, so no extension-host JS runs.
     } as unknown as IExtensionManifest;
 
     const registration = registerExtension(manifest, ExtensionHostKind.LocalWebWorker, {

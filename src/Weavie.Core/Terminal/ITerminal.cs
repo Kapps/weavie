@@ -23,12 +23,34 @@ public sealed record TerminalStartInfo {
 
 	/// <summary>Initial PTY height in rows.</summary>
 	public int Rows { get; init; } = 24;
+
+	/// <summary>
+	/// The child's full environment: the current process environment, minus <see cref="RemoveEnvironment"/>,
+	/// plus <see cref="Environment"/> (overriding). <paramref name="comparer"/> sets key case-sensitivity —
+	/// <see cref="StringComparer.OrdinalIgnoreCase"/> on Windows, <see cref="StringComparer.Ordinal"/> on POSIX.
+	/// Each PTY backend then serializes the result into its native block.
+	/// </summary>
+	public Dictionary<string, string> BuildEnvironment(StringComparer comparer) {
+		ArgumentNullException.ThrowIfNull(comparer);
+		var merged = new Dictionary<string, string>(comparer);
+		foreach (System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()) {
+			merged[(string)entry.Key] = entry.Value?.ToString() ?? string.Empty;
+		}
+
+		foreach (string name in RemoveEnvironment) {
+			merged.Remove(name);
+		}
+
+		foreach (var (key, value) in Environment) {
+			merged[key] = value;
+		}
+
+		return merged;
+	}
 }
 
 /// <summary>
-/// The terminal seam (the third injected interface alongside the agent backend and the
-/// filesystem). Real implementation = a PTY running a real process; test fake = scripted
-/// bytes. No fallbacks.
+/// The terminal seam. Real implementation = a PTY running a real process; test fake = scripted bytes.
 /// </summary>
 public interface ITerminal : IDisposable {
 	/// <summary>Raised with raw bytes the child wrote to the PTY (off the UI thread).</summary>

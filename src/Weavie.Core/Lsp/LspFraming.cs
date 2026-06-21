@@ -4,17 +4,16 @@ using System.Text;
 namespace Weavie.Core.Lsp;
 
 /// <summary>
-/// Reads and writes Language Server Protocol base-protocol frames — JSON-RPC payloads prefixed by a
-/// <c>Content-Length: N\r\n\r\n</c> header block — over a byte stream (a language server's stdio).
-/// The WebSocket side of the bridge speaks one JSON-RPC message per WebSocket frame, so this header
-/// framing is applied only on the <em>process</em> side; the bridge converts between the two.
+/// Reads and writes LSP base-protocol frames — JSON-RPC payloads prefixed by a
+/// <c>Content-Length: N\r\n\r\n</c> header block — over a language server's stdio. The WebSocket side speaks
+/// one JSON-RPC message per frame, so this header framing applies only on the process side.
 /// </summary>
 public static class LspFraming {
 	private const string ContentLengthHeader = "Content-Length:";
 
 	/// <summary>
-	/// Writes one LSP frame to <paramref name="destination"/>: a <c>Content-Length</c> header followed
-	/// by <paramref name="body"/> (already UTF-8-encoded JSON). Header bytes are ASCII per the spec.
+	/// Writes one LSP frame: a <c>Content-Length</c> header (ASCII per the spec) followed by
+	/// <paramref name="body"/> (UTF-8 JSON).
 	/// </summary>
 	/// <param name="destination">The stream to write the framed message to (a server's stdin).</param>
 	/// <param name="body">The UTF-8 JSON-RPC payload to frame.</param>
@@ -29,9 +28,8 @@ public static class LspFraming {
 	}
 
 	/// <summary>
-	/// Reads one LSP frame from <paramref name="source"/>, returning the JSON body bytes, or
-	/// <see langword="null"/> at a clean end of stream (between messages). Honors only
-	/// <c>Content-Length</c> (the sole required header); any other headers are read and ignored.
+	/// Reads one LSP frame, returning the JSON body bytes, or <see langword="null"/> at a clean end of stream
+	/// (between messages). Honors only <c>Content-Length</c>; other headers are read and ignored.
 	/// </summary>
 	/// <param name="source">The stream to read a framed message from (a server's stdout).</param>
 	/// <param name="ct">Cancellation token.</param>

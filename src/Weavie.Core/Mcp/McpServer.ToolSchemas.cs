@@ -2,7 +2,7 @@ namespace Weavie.Core.Mcp;
 
 // The tools/list JSON entries advertised to Claude, grouped by capability. The constructor stitches the
 // relevant groups into one {"tools":[...]} payload depending on the server mode (IDE vs registry) and which
-// stores were wired. Kept here as data, separate from the server logic in McpServer.cs.
+// stores were wired.
 public sealed partial class McpServer {
 	// IDE RPC tools. openDiff is the star (blocking review); the rest give Claude IDE context.
 	private const string IdeToolEntries =
@@ -39,13 +39,12 @@ public sealed partial class McpServer {
           {"name":"runCommand","description":"Run a weavie command by id. Call listCommands first to find the exact id; never guess ids. 'args' is an optional object whose shape depends on the command (e.g. {\"index\":3} to focus the third pane).","inputSchema":{"type":"object","properties":{"id":{"type":"string"},"args":{"type":"object"}},"required":["id"]}}
         """;
 
-	// Theme tools (model-facing) — the Claude-facing theming surface, advertised on the registry server only
-	// when a ThemeOverridesStore is wired. These are the data-shaped operations: read the theme/overrides
-	// (listThemes/describeTheme) and edit individual override colors (set/transform/remove). The VERB actions —
-	// install, install-from-file, select, undo, reset — are COMMANDS (CoreCommands + ThemeCommands), run via
-	// runCommand so they're also reachable from the palette + keybindings; listCommands documents them. The
-	// override tools act on the ACTIVE theme; its overrides persist in ~/.weavie/theme-overrides.json.
-	// applyThemeTransform.amount is schema-less so the embedded claude may send it as a number or a string.
+	// Theme tools (model-facing), advertised on the registry server only when a ThemeOverridesStore is wired.
+	// The data-shaped operations: read the theme/overrides (listThemes/describeTheme) and edit individual
+	// override colors (set/transform/remove). The VERB actions (install, install-from-file, select, undo,
+	// reset) are COMMANDS run via runCommand. The override tools act on the ACTIVE theme; its overrides persist
+	// in ~/.weavie/theme-overrides.json. applyThemeTransform.amount is schema-less so it may arrive as a number
+	// or a string.
 	private const string ThemeToolEntries =
 		"""
           {"name":"listThemes","description":"List the available color themes (built-in + installed), each with its id, label, type, and whether it is the active theme. Appearance is split into a mode and a theme per polarity: light/dark is controlled by the 'theme.mode' setting (system/light/dark) while 'theme.light' and 'theme.dark' hold the theme for each. To SWITCH theme, run the weavie.theme.select command (runCommand) — a light theme becomes theme.light, a dark theme becomes theme.dark, and the mode flips to match. To change only the mode, run weavie.theme.cycleMode (or set the theme.mode setting). To INSTALL a theme, run weavie.theme.install (Open VSX) or weavie.theme.installFromFile (a local .vsix). Call this FIRST to find a theme id.","inputSchema":{"type":"object","properties":{}}},

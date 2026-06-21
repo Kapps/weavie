@@ -3,8 +3,8 @@ using System.Runtime.InteropServices;
 namespace Weavie.Linux.Native;
 
 /// <summary>
-/// Minimal P/Invoke into GTK 3 — just enough to create the top-level window that hosts the WebKit
-/// view, restore/capture its geometry, and run the main loop.
+/// P/Invoke into GTK 3 — create the top-level window that hosts the WebKit view, capture/restore its
+/// geometry, and run the main loop.
 /// </summary>
 internal static partial class Gtk {
 	private const string Lib = "libgtk-3.so.0";

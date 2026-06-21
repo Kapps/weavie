@@ -4,12 +4,12 @@ using Weavie.Core.Workspaces;
 namespace Weavie.Core.Shell;
 
 /// <summary>
-/// Orchestrates the custom title bar's live message flow, sitting between the web shell and one host
-/// window. The host routes the title-bar messages (<c>window-control</c>, <c>menu-action</c>,
-/// <c>request-file-index</c>) here; this parses them via <see cref="ShellProtocol"/> and drives the
-/// platform primitives (<see cref="IShellWindow"/>) and the workspace file index, pushing replies back
-/// over <c>postToWeb</c>. All of it OS-agnostic, so both hosts share one implementation — the host only
-/// supplies the <see cref="IShellWindow"/> and its bridge's post delegate.
+/// Orchestrates the custom title bar's live message flow between the web shell and one host window. The
+/// host routes title-bar messages (<c>window-control</c>, <c>menu-action</c>, <c>request-file-index</c>)
+/// here; this parses them via <see cref="ShellProtocol"/>, drives the platform primitives
+/// (<see cref="IShellWindow"/>) and the workspace file index, and pushes replies back over
+/// <c>postToWeb</c>. OS-agnostic, so both hosts share it — the host supplies only the
+/// <see cref="IShellWindow"/> and its bridge's post delegate.
 /// </summary>
 public sealed class ShellController {
 	private readonly IShellWindow _window;

@@ -4,11 +4,9 @@ using Weavie.Core.Processes;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// Derives a session's <see cref="SessionStatus"/> from two live inputs: the embedded Claude's hook stream
-/// (UserPromptSubmit / PreToolUse / PostToolUse → Working, Notification → NeedsInput, Stop → Idle) and its
-/// <see cref="ProcessSupervisor"/> state (a crash or crash-loop → Error, a post-crash restart → Starting).
-/// Thread-safe: hook events arrive on the hook pipe's accept-loop thread and supervisor events on the
-/// supervisor's thread, so handlers of <see cref="Changed"/> must marshal to the UI thread before rendering.
+/// Derives a session's <see cref="SessionStatus"/> from the embedded Claude's hook stream and its
+/// <see cref="ProcessSupervisor"/> state. Thread-safe: hook and supervisor events arrive on different
+/// threads, so handlers of <see cref="Changed"/> must marshal to the UI thread before rendering.
 /// </summary>
 public sealed class SessionStatusMachine {
 	private readonly Lock _gate = new();
@@ -44,8 +42,7 @@ public sealed class SessionStatusMachine {
 
 	/// <summary>
 	/// Feeds a supervisor transition for the session's Claude process — wire to
-	/// <see cref="ProcessSupervisor.StateChanged"/>. A crash-loop (<see cref="SupervisorState.Failed"/>) or a
-	/// crash awaiting restart (<see cref="SupervisorState.BackingOff"/> with an exit code) becomes Error; a
+	/// <see cref="ProcessSupervisor.StateChanged"/>. A crash-loop or crash awaiting restart becomes Error; a
 	/// post-crash restart becomes Starting until the new process produces hooks.
 	/// </summary>
 	public void ObserveSupervisor(SupervisorStateChanged change) {

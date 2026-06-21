@@ -1,8 +1,8 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Registers Weavie's built-in settings and owns the per-platform resolution logic for workspace /
-/// shell / claude discovery, so Windows and macOS share one path through the registry's
+/// Registers Weavie's built-in settings and owns the per-platform resolution logic for workspace / shell /
+/// claude discovery, so every host shares one path through the registry's
 /// <see cref="SettingDefinition.ComputeDefault"/> and <see cref="SettingDefinition.Validate"/>.
 /// </summary>
 public static class CoreSettings {
@@ -135,16 +135,16 @@ public static class CoreSettings {
 			Description = "Log startup phase timings (window→navigate on the host, navigate→shell→editor "
 				+ "in the web app) to the console. Off by default; for diagnosing launch latency.",
 			Aliases = ["startup timing", "launch timing", "boot timing", "startup profiling"],
-			// Captured during launch, so a change only takes effect on the next start.
+			// Captured during launch, so a change takes effect on the next start.
 			Apply = ApplyMode.RestartRequired,
 			Default = false,
 		});
 	}
 
 	/// <summary>
-	/// The system-suggested shell: Windows prefers PowerShell 7 (<c>pwsh</c>) then Windows PowerShell;
-	/// Unix uses <c>$SHELL</c> then <c>/bin/zsh</c>. This is the lowest-precedence layer — the value an
-	/// env var or the user file overrides.
+	/// The system-suggested shell: Windows prefers PowerShell 7 (<c>pwsh</c>) then Windows PowerShell; Unix
+	/// uses <c>$SHELL</c> then <c>/bin/zsh</c>. The lowest-precedence layer, overridden by an env var or the
+	/// user file.
 	/// </summary>
 	private static object? DefaultShell() {
 		if (OperatingSystem.IsWindows()) {
@@ -156,8 +156,8 @@ public static class CoreSettings {
 	}
 
 	/// <summary>
-	/// The auto-detected claude binary: a <c>claude</c> on PATH, else the native-installer location, else
-	/// bare <c>claude</c> (let the launcher search PATH). The host applies its own launch shim on top.
+	/// The auto-detected claude binary: a <c>claude</c> on PATH, else the native-installer location, else bare
+	/// <c>claude</c> (let the launcher search PATH). The host applies its own launch shim on top.
 	/// </summary>
 	private static object? DefaultClaudePath() {
 		string? onPath = ExecutableFinder.FindOnPath("claude");

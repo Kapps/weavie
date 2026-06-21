@@ -4,20 +4,18 @@ using Weavie.Core.Shell;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// Win32 helpers that turn a normal WinForms window into a "frameless but functional" one — the host
-/// frame for a VS Code–style title bar drawn entirely in the web content. The window keeps its real
-/// <c>WS_THICKFRAME | WS_CAPTION</c> styles (so Aero Snap, the drop shadow, and work-area maximize all
-/// keep working), but the visual caption is removed by intercepting <c>WM_NCCALCSIZE</c>. Both window
-/// <em>dragging</em> and <em>resizing</em> are driven from the web side, because the <c>Dock.Fill</c>
-/// WebView2 covers the whole client area and swallows the mouse at the window edges:
+/// Win32 helpers that turn a normal WinForms window into a "frameless but functional" one — the host frame
+/// for a VS Code–style title bar drawn entirely in the web content. The window keeps its real
+/// <c>WS_THICKFRAME | WS_CAPTION</c> styles (so Aero Snap, the drop shadow, and work-area maximize keep
+/// working), but the visual caption is removed by intercepting <c>WM_NCCALCSIZE</c>. Both window
+/// <em>dragging</em> and <em>resizing</em> are driven from the web side, since the <c>Dock.Fill</c> WebView2
+/// covers the whole client area and swallows the mouse at the window edges:
 /// <list type="bullet">
 /// <item>Drag: WebView2's non-client-region support maps CSS <c>app-region: drag</c> to <c>HTCAPTION</c>.</item>
 /// <item>Resize: the web draws grab handles at the border and calls <see cref="StartResize"/> on mousedown,
 ///   which hands off to the OS's native resize loop (WebView2 has no resize equivalent of <c>app-region</c>).</item>
 /// </list>
-/// <see cref="HandleNcHitTest"/> still re-supplies the edge codes for completeness, but the WebView covers
-/// those pixels so it rarely fires; the web handles are the real resize path. A <see cref="Form"/> delegates
-/// its <c>WndProc</c> here.
+/// A <see cref="Form"/> delegates its <c>WndProc</c> here.
 /// </summary>
 internal static class CustomChrome {
 	private const int WmNcCalcSize = 0x0083;
@@ -100,10 +98,10 @@ internal static class CustomChrome {
 	private static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref Margins margins);
 
 	/// <summary>
-	/// True when <paramref name="handle"/> is maximized, read live from the window (WS_MAXIMIZE). Use this
-	/// inside <c>WndProc</c> rather than <see cref="Form.WindowState"/>: WinForms only updates WindowState on
-	/// <c>WM_SIZE</c>, which fires <em>after</em> <c>WM_NCCALCSIZE</c>, so during a maximize the NCCALCSIZE
-	/// handler would otherwise still see the old (restored) state and skip the frame inset.
+	/// True when <paramref name="handle"/> is maximized, read live (WS_MAXIMIZE). Use this inside <c>WndProc</c>
+	/// rather than <see cref="Form.WindowState"/>: WinForms updates WindowState on <c>WM_SIZE</c>, which fires
+	/// <em>after</em> <c>WM_NCCALCSIZE</c>, so during a maximize the NCCALCSIZE handler would otherwise see the
+	/// old (restored) state and skip the frame inset.
 	/// </summary>
 	public static bool IsMaximized(IntPtr handle) => handle != IntPtr.Zero && IsZoomed(handle);
 
@@ -147,7 +145,7 @@ internal static class CustomChrome {
 		}
 
 		// Leaving rgrc[0] otherwise unchanged makes client == window: the caption/borders vanish visually
-		// while WS_THICKFRAME stays for snap/shadow. Resize edges come back via WM_NCHITTEST below.
+		// while WS_THICKFRAME stays for snap/shadow. Resize edges come back via WM_NCHITTEST.
 		message.Result = IntPtr.Zero;
 		return true;
 	}
@@ -198,14 +196,12 @@ internal static class CustomChrome {
 
 	/// <summary>
 	/// Swallows the keyboard menu-bar activation (<c>WM_SYSCOMMAND</c> / <c>SC_KEYMENU</c> with no mnemonic)
-	/// that bare <c>Alt</c> and <c>F10</c> generate. This window is frameless and has no native menu bar — the
-	/// File/View menus live in the web title bar — so letting Windows enter menu mode here focuses a menu that
-	/// isn't there: input freezes until another keypress, which then beeps. Everything reachable from that menu
-	/// is also a command (palette + keybindings), so the activation buys nothing and we drop it.
+	/// that bare <c>Alt</c> and <c>F10</c> generate. This frameless window has no native menu bar, so entering
+	/// menu mode would focus a menu that isn't there: input freezes until another keypress, which then beeps.
 	/// <para>
 	/// Only the bare activation (<c>lParam == 0</c>) is consumed. <c>Alt+Space</c> arrives as <c>SC_KEYMENU</c>
-	/// with the space mnemonic in <c>lParam</c>, so it falls through to the default handler and still opens the
-	/// window's system menu (Move/Size/Maximize/Close) for keyboard users. Returns true when it consumed the message.
+	/// with the space mnemonic in <c>lParam</c>, so it falls through and still opens the window's system menu
+	/// (Move/Size/Maximize/Close). Returns true when it consumed the message.
 	/// </para>
 	/// </summary>
 	public static bool HandleSysKeyMenu(ref Message message) {
@@ -221,11 +217,9 @@ internal static class CustomChrome {
 
 	/// <summary>
 	/// Begins a native OS resize of <paramref name="handle"/> from <paramref name="edge"/>, following the cursor
-	/// until the button is released. This is the working resize path for the frameless window: the WebView2
-	/// fills the client area and swallows the mouse at the edges, so the form's <see cref="HandleNcHitTest"/>
-	/// resize zones never fire there. Instead the web draws grab handles at the border and, on mousedown, asks
-	/// the host to call this — the same "web drives the window" handoff the title bar uses for dragging, but for
-	/// a resize edge. No-op for a null handle or an unmapped edge.
+	/// until the button is released. The working resize path for the frameless window: the WebView2 fills the
+	/// client area and swallows the mouse at the edges, so the web draws grab handles and, on mousedown, asks
+	/// the host to call this. No-op for a null handle or an unmapped edge.
 	/// </summary>
 	public static void StartResize(IntPtr handle, ResizeEdge edge) {
 		if (handle == IntPtr.Zero) {

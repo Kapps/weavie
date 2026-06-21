@@ -1,6 +1,6 @@
-// Pure geometry for the layout renderer: turn a layout tree into pane rectangles + splitter handles,
-// and adjust a split's weights when a handle is dragged. Percentages (0-100) throughout, so the
-// renderer can position everything absolutely and let CSS scale to the container's pixel size.
+// Pure geometry for the layout renderer: turn a layout tree into pane rectangles + splitter handles, and
+// adjust a split's weights when a handle is dragged. Percentages (0-100) throughout so the renderer can
+// position everything absolutely.
 
 import type { LayoutNode, SplitDir } from "./types";
 
@@ -36,10 +36,7 @@ function childRect(parent: Rect, dir: SplitDir, pos: number, size: number): Rect
     : { x: parent.x, y: pos, w: parent.w, h: size };
 }
 
-/**
- * Pane kinds in DFS order (left-to-right / top-to-bottom) — the order Ctrl+1..9 selects, and the
- * number shown on each pane.
- */
+/** Pane kinds in DFS order (left-to-right / top-to-bottom): the order Ctrl+1..9 selects and the number shown on each pane. */
 export function paneOrder(root: LayoutNode): string[] {
   const out: string[] = [];
   collectPanes(root, out);
@@ -56,7 +53,7 @@ function collectPanes(node: LayoutNode, out: string[]): void {
   }
 }
 
-/** Maps each pane KIND to its rectangle. Kinds are singletons in v1, so kind is a stable slot key. */
+/** Maps each pane kind to its rectangle. Kinds are singletons in v1, so kind is a stable slot key. */
 export function computeRects(root: LayoutNode): Map<string, Rect> {
   const out = new Map<string, Rect>();
   walkRects(root, FULL, out);

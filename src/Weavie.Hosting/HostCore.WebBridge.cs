@@ -3,6 +3,7 @@ using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
+using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Sessions;
@@ -15,7 +16,7 @@ namespace Weavie.Hosting;
 // The web <-> host message bridge: the inbound OnWebMessage dispatcher and every outbound Push*ToWeb /
 // command / turn / scratch helper. All of it routes through the ACTIVE session (_session) and the bridge, so
 // it's identical on every host — the platform only supplies the bridge, the UI marshal, and the optional
-// native dialogs. Split from HostCore.cs so each file holds one concern.
+// native dialogs.
 public sealed partial class HostCore {
 	private void OnWebMessage(string json) {
 		string type;
@@ -40,7 +41,7 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "switch-session": {
-				string switchId = root.TryGetProperty("id", out var ssEl) ? ssEl.GetString() ?? string.Empty : string.Empty;
+				string switchId = root.GetStringOrEmpty("id");
 				if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
 					SwitchToSlot(target);
 				}
@@ -49,14 +50,13 @@ public sealed partial class HostCore {
 			}
 
 			case "new-session": {
-				string? branch = root.TryGetProperty("branch", out var nsEl) ? nsEl.GetString() : null;
+				string? branch = root.GetStringOrNull("branch");
 				// "existing" ⇒ check out the named branch into a new worktree rather than creating a new branch.
-				bool existing = root.TryGetProperty("existing", out var exEl)
-					&& exEl.ValueKind is JsonValueKind.True or JsonValueKind.False && exEl.GetBoolean();
-				// The page sends base "head" (the active session's HEAD) or "main"; ResolveBaseRefAsync treats
-				// anything other than "main" as the current session's HEAD, so normalize to "current"/"main".
-				// Ignored for an existing-branch checkout (the branch already has a tip).
-				string? baseSpec = root.TryGetProperty("base", out var nbEl) ? nbEl.GetString() : null;
+				bool existing = root.GetBoolOrFalse("existing");
+				// The page sends base "head" (the active session's HEAD) or "main"; normalize to "current"/"main"
+				// (ResolveBaseRefAsync treats anything but "main" as the current session's HEAD). Ignored for an
+				// existing-branch checkout (the branch already has a tip).
+				string? baseSpec = root.GetStringOrNull("base");
 				string? resolvedBase = baseSpec is null
 					? null
 					: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
@@ -65,46 +65,37 @@ public sealed partial class HostCore {
 			}
 
 			case "list-branches": {
-				string branchesReqId = root.TryGetProperty("id", out var lbEl) ? lbEl.GetString() ?? string.Empty : string.Empty;
-				_ = ListBranchesForWebAsync(branchesReqId);
+				_ = ListBranchesForWebAsync(root.GetStringOrEmpty("id"));
 				break;
 			}
 
 			case "delete-session-request": {
-				string reqId = root.TryGetProperty("id", out var reqEl) ? reqEl.GetString() ?? string.Empty : string.Empty;
-				_ = DeleteSessionPromptAsync(reqId);
+				_ = DeleteSessionPromptAsync(root.GetStringOrEmpty("id"));
 				break;
 			}
 
 			case "delete-session": {
-				string deleteId = root.TryGetProperty("id", out var delIdEl) ? delIdEl.GetString() ?? string.Empty : string.Empty;
-				bool deleteForce = root.TryGetProperty("force", out var delForceEl)
-					&& delForceEl.ValueKind is JsonValueKind.True or JsonValueKind.False && delForceEl.GetBoolean();
-				_ = DeleteSessionFromWebAsync(deleteId, deleteForce);
+				_ = DeleteSessionFromWebAsync(root.GetStringOrEmpty("id"), root.GetBoolOrFalse("force"));
 				break;
 			}
 
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
-				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
-				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
 				// Route to the session that OWNS this diff id (ids are process-unique), not blindly to the active
 				// session: a switch between render and resolve must not resolve a different session's diff. An id
 				// no loaded session owns is logged loudly rather than silently dropped (a switch-race / double-resolve).
-				if (!ResolveDiff(diffId, kept, finalContents)) {
+				if (!ResolveDiff(diffId, root.GetBoolOrFalse("kept"), root.GetStringOrNull("finalContents"))) {
 					Log($"[weavie] diff-resolved for unknown id '{diffId}' — no loaded session owns it (switch-race or double-resolve?)");
 				}
 
 				break;
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
-				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
-					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
-				_session?.FileOpener.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
+				_session?.FileOpener.Open(
+					revealPath, root.GetIntOr("line", 1), preview: root.GetBoolOrFalse("preview"), scratch: false);
 				break;
 			case "list-dir":
-				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
+				_session?.ListDirectory(root.GetStringOrEmpty("path"));
 				break;
 			case "active-editor-changed":
 				// Attribute by the owner the page stamped (from the last set-editor-session): a selection emit that
@@ -141,8 +132,7 @@ public sealed partial class HostCore {
 				// lands them on the owning session's provider instead of being refused (and the edits lost).
 				if (ResolveFsSession(FsPath(root)) is { } writeSession) {
 					_bridge.PostToWeb(writeSession.FileProvider.Write(
-						FsId(root), FsPath(root),
-						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+						FsId(root), FsPath(root), root.GetStringOrEmpty("content")));
 				} else {
 					_bridge.PostToWeb(FileProviderProtocol.WriteError(FsId(root), "Path is outside every session worktree."));
 				}
@@ -154,11 +144,14 @@ public sealed partial class HostCore {
 			case "undo-turn":
 				UndoTurn();
 				break;
+			case "reject-hunk":
+				RejectHunk(root);
+				break;
 			case "invoke-command":
 				// A keybinding/palette in the web invoked a Core command — run it on the active session
 				// (fire-and-forget; the web doesn't await a result for its own triggers).
 				InvokeCommandFromWeb(
-					root.TryGetProperty("id", out var ciEl) ? ciEl.GetString() ?? string.Empty : string.Empty,
+					root.GetStringOrEmpty("id"),
 					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null);
 				break;
 			case "command-ack":
@@ -180,9 +173,8 @@ public sealed partial class HostCore {
 				PushFileIndexToWeb();
 				break;
 			case "ready":
-				// The page's bridge listener is live; push the persisted layout so it restores on launch, the
-				// persisted editor session so the editor reopens its files, and the session list so the rail
-				// shows the primary session (+ the "+"). These must go on `ready`, NOT during init — PostToWeb
+				// The page's bridge listener is live; push the persisted layout, editor session, and session
+				// list so the page restores its state. These must go on `ready`, NOT during init — PostToWeb
 				// before navigation no-ops (window.__weavieReceive doesn't exist yet). Then let the shell push
 				// the initial native window state (which only it knows).
 				PushLayoutToWeb();
@@ -207,7 +199,7 @@ public sealed partial class HostCore {
 				break;
 			case "discard-scratch":
 				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
-				_session?.Scratch.Delete(root.TryGetProperty("path", out var dsEl) ? dsEl.GetString() ?? string.Empty : string.Empty);
+				_session?.Scratch.Delete(root.GetStringOrEmpty("path"));
 				break;
 			default:
 				Log($"[weavie] {json}");
@@ -261,7 +253,8 @@ public sealed partial class HostCore {
 
 		// Record on the owning session so a switch can rebind the editor to its worktree's tabs. The primary
 		// also mirrors to the persisted per-workspace store (for launch restore); secondary worktree sessions
-		// are in-memory only for now.
+		// are in-memory only for now. Attribution (rejecting a stale post-switch write) is handled by
+		// EditorMessageTarget above.
 		target.EditorSession = session;
 		if (ReferenceEquals(target, _primarySession)) {
 			_editorSession.Update(session);
@@ -270,18 +263,18 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// The session a page→host editor message (editor-session-changed / active-editor-changed /
-	/// open-editors-changed) is FOR, validated against the active session. The page stamps each with the owner
+	/// open-editors-changed) is FOR, validated against the active session. The page stamps each with the session
 	/// id from the last <c>set-editor-session</c>; a send produced before a switch but processed after it carries
-	/// the previous owner and is rejected (loudly) rather than mutating the wrong session's state. An unstamped
+	/// the previous id and is rejected (loudly) rather than mutating the wrong session's state. An unstamped
 	/// message (older page, or the transitional window before a session ever pushed one) falls back to the active
-	/// session. Returns <c>null</c> when there is no active session or the owner doesn't match it.
+	/// session. Returns <c>null</c> when there is no active session or the id doesn't match it.
 	/// </summary>
 	private HostSession? EditorMessageTarget(JsonElement root, string kind) {
 		if (_session is not { } active) {
 			return null;
 		}
 
-		string? owner = root.TryGetProperty("owner", out var ownerEl) && ownerEl.ValueKind == JsonValueKind.String
+		string? owner = root.TryGetProperty("sessionId", out var ownerEl) && ownerEl.ValueKind == JsonValueKind.String
 			? ownerEl.GetString()
 			: null;
 		if (string.IsNullOrEmpty(owner)) {
@@ -296,16 +289,22 @@ public sealed partial class HostCore {
 		return active;
 	}
 
-	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore, stamped with the active (primary) session's id.</summary>
-	private void PushEditorSessionToWeb() =>
-		_bridge.PostToWeb(_editorSession.BuildRestoreJson((_session ?? _primarySession)?.Id ?? string.Empty));
+	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore, scoped to
+	/// the primary session's root and stamped with its id so a later change can't be misattributed.</summary>
+	private void PushEditorSessionToWeb() {
+		if (_primarySession is not { } primary) {
+			return;
+		}
+
+		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
+			_editorSession.Current, primary.FileSystem, primary.WorkspaceRoot, primary.Id, Log));
+	}
 
 	/// <summary>
-	/// Re-points the page's language clients at a session's own LSP bridge on a switch. Each session has its
-	/// own bridge (own port/token, rooted at its worktree); the launch config (<c>window.__WEAVIE_LSP__</c>) is
-	/// the primary's, so without this a switched-in worktree session's hover/diagnostics/go-to-def would keep
-	/// resolving against the primary's checkout. The web's <c>rebindLanguageServices</c> tears the old clients
-	/// down and reconnects here.
+	/// Re-points the page's language clients at a session's own LSP bridge on a switch. Each session has its own
+	/// bridge (own port/token, rooted at its worktree); the launch config (<c>window.__WEAVIE_LSP__</c>) is the
+	/// primary's, so without this a switched-in worktree session's hover/diagnostics/go-to-def would keep
+	/// resolving against the primary's checkout. The web's <c>rebindLanguageServices</c> reconnects here.
 	/// </summary>
 	private void PushLspConfigToWeb(HostSession session) =>
 		_bridge.PostToWeb($"{{\"type\":\"lsp-config\",\"config\":{session.LspConfigJson}}}");
@@ -332,8 +331,8 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
 	/// review navigator, with the host-decided auto-open flag (see <see cref="ShouldOpenReview"/>). Only in an
-	/// auto-keep mode (acceptEdits/bypass): that's where post-turn review is the surface — default mode reviews
-	/// each edit via the blocking openDiff, so there's nothing to list.
+	/// auto-keep mode (acceptEdits/bypass), where post-turn review is the surface — default mode reviews each
+	/// edit via the blocking openDiff, so there's nothing to list.
 	/// </summary>
 	private void PushTurnChangesToWeb() {
 		if (_session is { } session && session.ObservedMode.AutoAppliesEdits) {
@@ -342,18 +341,16 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Decides — and records — whether the page should auto-open the first review file <em>now</em>: true when
-	/// the active session is idle with auto-applied changes it hasn't opened yet. Keyed on the session + its
-	/// first changed file and armed once, so a trickle of more edits within the same idle doesn't re-jump the
-	/// editor, while a new turn (the key is reset when the session leaves idle) or a switch into another session
-	/// (a different key — and <see cref="PushReviewStateOnSwitch"/> resets it) re-arms. Centralizing the decision
-	/// here, where the status and change set are read together, keeps it race-free; the page just obeys the flag.
+	/// Decides — and records — whether the page should auto-open the first review file: true when the active
+	/// session is idle with auto-applied changes it hasn't opened yet. Keyed on the session + its first changed
+	/// file and armed once, so a trickle of more edits within the same idle doesn't re-jump the editor, while a
+	/// new turn (the key resets when the session leaves idle) or a switch into another session re-arms.
+	/// Centralizing the decision here, where status and change set are read together, keeps it race-free.
 	/// </summary>
 	private bool ShouldOpenReview(HostSession session) {
-		// "Done editing" = the turn ended (Idle) OR Claude is now waiting on input (NeedsInput, the Notification
-		// hook — the post-turn "recap"/prompt state). Both mean the turn's edits are settled and ready to review;
-		// only an actively-Working session has nothing to show yet. Treating NeedsInput as not-done is what made
-		// a post-turn notification wipe the diff on switch-in.
+		// "Done editing" = the turn ended (Idle) OR Claude is waiting on input (NeedsInput, the Notification hook
+		// — the post-turn recap/prompt state). Both mean the turn's edits are settled and ready to review; only
+		// an actively-Working session has nothing to show yet.
 		if (session.Status.Status is not (SessionStatus.Idle or SessionStatus.NeedsInput)) {
 			return false;
 		}
@@ -375,13 +372,12 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Re-projects the active session's inline turn-review onto the page after a session switch. The change
-	/// tracker records edits in <em>every</em> permission mode, but the live turn pushes are gated on
-	/// <c>IsActiveSession</c> — so a session that edited while muted (a background Claude) has a populated
-	/// tracker the page never heard about, and the previous session's ← / → walk is still showing. This catches
-	/// the page up: clear the outgoing session's inline markers, then push the incoming session's review set —
-	/// the real set in an auto-keep mode, an empty set otherwise (which also clears the stale walk). The arm key
-	/// is reset first so the incoming session re-opens its review on switch-in (incl. a switch BACK to a session
-	/// whose review was already opened); per-file inline diffs are fetched on demand as each review file opens.
+	/// tracker records edits in every permission mode, but the live turn pushes are gated on
+	/// <c>IsActiveSession</c> — so a session that edited while muted has a populated tracker the page never heard
+	/// about, and the previous session's ← / → walk is still showing. Clears the outgoing session's inline
+	/// markers, then pushes the incoming session's review set — the real set in an auto-keep mode, an empty set
+	/// otherwise (which also clears the stale walk). The arm key resets first so the incoming session re-opens
+	/// its review on switch-in.
 	/// </summary>
 	private void PushReviewStateOnSwitch() {
 		if (_session is not { } session) {
@@ -405,6 +401,15 @@ public sealed partial class HostCore {
 		}
 	}
 
+	/// <summary>
+	/// Pushes an <c>fs-change</c> removal for a file deleted mid-turn (the change tracker reconciled it off disk),
+	/// so the page closes its tab and clears the inline marker — the vanished-file counterpart to
+	/// <see cref="PushRefreshToWeb"/>. Reaches files the workspace watcher doesn't (it filters by extension), which
+	/// is how a created-then-deleted scratch file would otherwise strand the ← / → review walk on a dead path.
+	/// </summary>
+	private void PushDeletionToWeb(string path) =>
+		_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted"));
+
 	/// <summary>Forwards a workspace-watcher batch (non-Claude on-disk edits) to the page's <c>file://</c> provider.</summary>
 	private void PushWatcherChangesToWeb(IReadOnlyList<WatchedFileChange> changes) {
 		if (FileProviderProtocol.WatchedChanges(changes) is { } json) {
@@ -415,7 +420,7 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Pushes one file's per-turn diff so the page renders it inline. Only in an auto-keep mode
 	/// (acceptEdits/bypass), where the applied turn-markers are the review surface; in default mode openDiff is
-	/// the per-edit review, so a second applied marker would just demand a redundant Accept — suppress it.
+	/// the per-edit review, so a second marker would demand a redundant Accept — suppress it.
 	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
 		if (_session is { } session && session.ObservedMode.AutoAppliesEdits
@@ -424,10 +429,10 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Clears all inline turn markers on a turn boundary (the prior turn is implicitly accepted).</summary>
-	private void PushTurnReset() => _bridge.PostToWeb(ChangeMessages.TurnReset());
-
-	/// <summary>Accepts the whole turn's changes: resets the per-turn baseline and clears the page's inline markers.</summary>
+	/// <summary>
+	/// Keep-all: advances every tracked file's review baseline to current, clearing the page's inline markers and
+	/// pushing the now-empty review set so the ← / → file walk empties too (the debt-clearing action).
+	/// </summary>
 	private void AcceptTurn() {
 		if (_session is null) {
 			return;
@@ -435,39 +440,95 @@ public sealed partial class HostCore {
 
 		_session.Changes.AcceptTurn();
 		_bridge.PostToWeb(ChangeMessages.TurnReset());
+		PushTurnChangesToWeb();
 	}
 
 	/// <summary>
-	/// Undoes the whole turn's changes: reverts every file touched this turn to its turn baseline on disk and
-	/// live-refreshes the editor. Files created this turn truncate to empty (not deleted) — surfaced via a toast.
+	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
+	/// the editor. The delete-vs-truncate decision (a file created since its baseline is DELETED, not truncated)
+	/// lives in <see cref="SessionChangeTracker.RevertFile"/>, so per-hunk, per-file, and whole-set reverts all
+	/// behave identically; the host only keeps the workspace guard and the editor pushes.
 	/// </summary>
 	private void UndoTurn() {
-		if (_session is null) {
+		if (_session is not { } session) {
 			return;
 		}
 
-		var truncated = new List<string>();
-		foreach (var change in _session.Changes.TurnChanges()) {
+		foreach (var change in session.Changes.TurnChanges()) {
+			if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, change.Path)) {
+				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
+				continue;
+			}
+
 			try {
-				if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, change.Path, change.BaselineText)) {
-					Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
-					continue;
-				}
-
-				if (change.BaselineText.Length == 0) {
-					truncated.Add(Path.GetFileName(change.Path));
-				}
-
-				_session.Changes.RecordChange(change.Path);
+				PushAfterRevert(change.Path, session.Changes.RevertFile(change.Path));
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
 			}
 		}
 
-		if (truncated.Count > 0) {
-			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
+		PushTurnChangesToWeb();
+	}
+
+	/// <summary>
+	/// Reverts a single hunk on disk: the web sends the hunk's baseline + current line ranges and a
+	/// <c>guardText</c> snapshot of the current lines, and Core splices the baseline lines back in — sourcing the
+	/// replacement from its own baseline, never from the message. A guard mismatch (a parallel agent / later edit
+	/// moved the file) aborts without writing and re-emits a fresh diff; reverting a created file's last hunk
+	/// deletes it. On success the per-file diff and the review set are re-emitted so the inline diff drops the
+	/// reverted hunk.
+	/// </summary>
+	private void RejectHunk(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
+		if (string.IsNullOrEmpty(path)) {
+			return;
+		}
+
+		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
+			return;
+		}
+
+		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
+		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
+		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
+
+		try {
+			var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText);
+			if (outcome == RevertHunkOutcome.GuardMismatch) {
+				Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+				PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
+				return;
+			}
+
+			PushAfterRevert(path, outcome);
+			PushTurnChangesToWeb(); // the file may have left the review set
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
+
+	/// <summary>
+	/// Pushes the editor refresh for a completed revert (per-hunk or whole-file): an <c>fs-change</c> removal for
+	/// a deleted file (the editor closes its tab), else a reload plus a fresh per-file diff so the reverted
+	/// markers drop.
+	/// </summary>
+	private void PushAfterRevert(string path, RevertHunkOutcome outcome) {
+		if (outcome == RevertHunkOutcome.Deleted) {
+			_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted"));
+		} else {
+			PushRefreshToWeb(path);  // fs-change → the editor reloads the rewritten file
+			PushTurnDiffToWeb(path); // the inline diff drops the reverted hunk(s)
+		}
+	}
+
+	/// <summary>Reads a required integer property from a web message (0 when absent/non-numeric).</summary>
+	private static int JsonInt(JsonElement root, string name) =>
+		root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number ? el.GetInt32() : 0;
 
 	/// <summary>
 	/// Runs a Core command on the active session from a native trigger (e.g. the macOS menu bar), the same path
@@ -496,10 +557,9 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Answers the new-session dialog's branch typeahead: the local branches that can be checked out as a new
-	/// session — every local branch minus those already checked out in a worktree (the primary and any existing
-	/// sessions), which git won't let a second worktree attach. Replies with a <c>branches-result</c> tagged by
-	/// the request <paramref name="id"/>; a non-repo or git failure yields an empty list (the typeahead just
-	/// offers nothing).
+	/// session — every local branch minus those already checked out in a worktree, which git won't let a second
+	/// worktree attach. Replies with a <c>branches-result</c> tagged by <paramref name="id"/>; a non-repo or git
+	/// failure yields an empty list.
 	/// </summary>
 	private async Task ListBranchesForWebAsync(string id) {
 		var git = new GitService();
@@ -533,9 +593,9 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// A worktree that's already gone or half-removed (a prior delete that couldn't unlink the directory,
-		// leaving no .git) can't be inspected and has nothing left to lose — prompt as clean so the user can
-		// still complete the delete, which just reconciles the leftover bookkeeping.
+		// A worktree that's gone or half-removed (no .git) can't be inspected and has nothing left to lose —
+		// prompt as clean so the user can still complete the delete, which just reconciles the leftover
+		// bookkeeping.
 		if (!IsLiveWorktree(slot.WorktreePath)) {
 			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-delete-prompt", id = slot.Id, label = slot.Label, state = "clean" }));
 			return;
@@ -598,7 +658,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// The dispatcher's web invoker: posts a <c>run-command</c> to the page and awaits its <c>command-ack</c>
-	/// (or a 5s timeout). How Claude's <c>runCommand</c> of a web command reaches the UI and gets a result back.
+	/// (or a 5s timeout). How Claude's <c>runCommand</c> of a web command reaches the UI and returns a result.
 	/// </summary>
 	private async Task<CommandResult> InvokeWebCommandAsync(string id, string? argsJson, CancellationToken ct) {
 		string token = Guid.NewGuid().ToString("n");
@@ -639,8 +699,8 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Saves a scratch (untitled) buffer under a real name via the native Save-As dialog: writes its content
 	/// there, deletes the temp, and replies <c>scratch-saved</c>. <c>reopen</c> is true only when the target is
-	/// inside the workspace (the editor can't edit out-of-workspace files). A no-op cancelled reply when the
-	/// host has no native dialog.
+	/// inside the workspace (the editor can't edit out-of-workspace files). Replies cancelled when the host has
+	/// no native dialog.
 	/// </summary>
 	private async Task SaveScratchAsAsync(JsonElement root) {
 		if (_session is not { } session) {
@@ -698,10 +758,10 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Routes a terminal message to the controller for its <c>slot</c> (the workspace session it names) and
-	/// <c>session</c> pane (default: claude). Each loaded session has its own live panes now, so the message
-	/// carries which session it came from — input/resize/ready from a background session's pane must reach
-	/// THAT session's controller, not the active one. Falls back to the active session when the slot is
-	/// absent (older protocol) or no longer loaded.
+	/// <c>session</c> pane (default: claude). Each loaded session has its own live panes, so the message carries
+	/// which session it came from — input/resize/ready from a background session's pane must reach THAT session's
+	/// controller, not the active one. Falls back to the active session when the slot is absent or no longer
+	/// loaded.
 	/// </summary>
 	private TerminalController? TerminalFor(JsonElement root) {
 		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;

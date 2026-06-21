@@ -5,19 +5,17 @@ using Weavie.Linux.Native;
 namespace Weavie.Linux.Hosting;
 
 /// <summary>
-/// The JS &lt;-&gt; C# message bridge.
-///   inbound:  JS calls <c>window.webkit.messageHandlers.weavie.postMessage(json)</c> -&gt; <see cref="MessageReceived"/>.
-///   outbound: <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the GTK main thread.
-/// Bodies are raw JSON strings; typed dispatch lives on each side. The web app speaks the same
-/// <c>window.webkit.messageHandlers</c> / <c>window.__weavieReceive</c> contract as the macOS WKWebView host,
-/// so no web changes are needed.
+/// The JS &lt;-&gt; C# message bridge. Inbound: JS calls
+/// <c>window.webkit.messageHandlers.weavie.postMessage(json)</c> -&gt; <see cref="MessageReceived"/>. Outbound:
+/// <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the GTK main thread. Bodies are raw
+/// JSON; the contract matches the macOS WKWebView host.
 /// </summary>
 internal sealed class HostBridge : IHostBridge {
-	// Kept alive for the lifetime of the bridge: native holds a bare function pointer to this.
+	// Kept alive: native holds a bare function pointer to this.
 	private readonly ScriptMessageCallback _onScriptMessage;
 	private IntPtr _webView;
 
-	/// <summary>Creates a bridge; call <see cref="RegisterOn"/> with the view's user-content manager to wire inbound messages.</summary>
+	/// <summary>Call <see cref="RegisterOn"/> with the view's user-content manager to wire inbound messages.</summary>
 	internal HostBridge() {
 		_onScriptMessage = OnScriptMessage;
 	}
@@ -27,7 +25,7 @@ internal sealed class HostBridge : IHostBridge {
 
 	/// <summary>
 	/// Registers the <c>weavie</c> script-message handler on <paramref name="userContentManager"/> and connects
-	/// the signal that delivers inbound messages. Must be called before the page loads.
+	/// the delivery signal. Must be called before the page loads.
 	/// </summary>
 	internal void RegisterOn(IntPtr userContentManager) {
 		WebKit.webkit_user_content_manager_register_script_message_handler(userContentManager, "weavie");
@@ -55,8 +53,8 @@ internal sealed class HostBridge : IHostBridge {
 			webView, script, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero));
 	}
 
-	// WebKit script-message callback (on the main thread): pull the JS value out of the result, convert
-	// it to a string, free WebKit's copy, and forward the raw JSON body.
+	// WebKit script-message callback (main thread): extract the JS value as a string, free WebKit's copy,
+	// and forward the raw JSON body.
 	private void OnScriptMessage(IntPtr manager, IntPtr jsResult, IntPtr userData) {
 		IntPtr value = WebKit.webkit_javascript_result_get_js_value(jsResult);
 		IntPtr stringPtr = WebKit.jsc_value_to_string(value);

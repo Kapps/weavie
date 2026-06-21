@@ -2,14 +2,13 @@ namespace Weavie.Core.Mcp;
 
 /// <summary>
 /// The system-prompt appendix handed to the embedded <c>claude</c> (via <c>--append-system-prompt-file</c>)
-/// so it understands it is running inside Weavie and prefers the <c>mcp__weavie__*</c> tools — the live
-/// source of truth — over reading Weavie's on-disk config when answering "what is currently set" or
-/// changing themes/settings/layout. Appended (not replacing) so claude keeps its default coding-assistant
-/// identity. Surfaced only when the registry server is wired (i.e. those tools actually exist); see
+/// so it knows it is running inside Weavie and prefers the <c>mcp__weavie__*</c> tools — the live source of
+/// truth — over reading Weavie's on-disk config. Appended, not replacing, so claude keeps its default
+/// coding-assistant identity. Surfaced only when the registry server is wired; see
 /// <see cref="IdeIntegration.WriteSystemPromptFile"/>.
 /// </summary>
 public static class EmbeddedClaudeGuidance {
-	/// <summary>The appendix text. Plain UTF-8; written to a file and referenced by path, so no shell quoting applies.</summary>
+	/// <summary>The appendix text. Plain UTF-8; written to a file and referenced by path.</summary>
 	public const string SystemPromptAppendix =
 		"""
 		You are running embedded in Weavie, an agentic code editor. Weavie exposes its own live state and

@@ -7,10 +7,8 @@ string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
 string workspaceOverride = ResolveWorkspace(args);
 
-// Resolve the listening mode ONCE, up front. Remote listening is opt-in (--remote) and, when on, the
-// ListenMode.Remote case carries a required token — so auth keys off the MODE below, never off "is a token
-// present." A network interface can be bound only via Remote (which mandates the token), so an exposed
-// untokenized host can't be expressed. A contradictory/unsafe combination fails closed here (exit 1).
+// Auth keys off the listening mode, not token presence: only Remote binds the network, and it mandates a
+// token, so an exposed untokenized host can't be expressed. Unsafe combinations fail closed (exit 1).
 var (listen, listenError) = ListenMode.Resolve(args);
 if (listen is null) {
 	Console.Error.WriteLine($"[weavie-headless] {listenError}");
@@ -19,7 +17,7 @@ if (listen is null) {
 
 string bind = listen.BindAddress;
 
-// The host outlives any one page: build it once, then let each browser connection (re)attach its socket.
+// The host outlives any one page: built once, each browser connection (re)attaches its socket.
 var bridge = new WebSocketHostBridge();
 var services = HostServices.CreateDefault();
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
@@ -30,7 +28,7 @@ await using var core = new HostCore(new HeadlessPlatform(bridge), services, work
 await core.StartAsync($"http://127.0.0.1:{port}").ConfigureAwait(false);
 
 var builder = WebApplication.CreateBuilder(args);
-builder.Logging.ClearProviders(); // We print our own concise status; Kestrel's request logging is noise here.
+builder.Logging.ClearProviders(); // We print our own status; Kestrel request logging is noise here.
 builder.WebHost.UseUrls($"http://{bind}:{port}");
 var app = builder.Build();
 
@@ -38,12 +36,10 @@ app.UseWebSockets();
 
 var assets = Directory.Exists(wwwroot) ? new PhysicalFileProvider(wwwroot) : null;
 
-// SINGLE auth gate, default-deny — enabled by the listening MODE, not by token presence. In remote mode
-// (the only mode that binds the network) EVERY request must carry the required token EXCEPT public static
-// assets (the JS/CSS the gated document loads, which hold no secrets). So the document, the bridge, and any
-// endpoint added later are gated automatically — there are no per-route checks to forget. "Public" is the
-// narrow, exact exception: a real file under wwwroot that isn't index.html. Local mode never binds the
-// network, so it needs no gate (the OS loopback is the boundary).
+// Single default-deny auth gate, active only in remote mode (the only mode that binds the network). Every
+// request needs the token except public static assets (JS/CSS holding no secrets) — so the document, the
+// bridge, and any later endpoint are gated automatically. "Public" means a real wwwroot file other than
+// index.html. Local mode binds loopback only, so the OS is the boundary and no gate is needed.
 if (listen is ListenMode.Remote remote) {
 	string authToken = remote.Token;
 	app.Use(async (context, next) => {
@@ -60,9 +56,8 @@ if (listen is ListenMode.Remote remote) {
 	});
 }
 
-// Serve index.html ourselves so we can inject the bootstrap globals (bridge URL + fonts + commands) before
-// the module graph runs — must run before the static middleware, which would otherwise serve it verbatim.
-// Auth is already enforced centrally above (the document is not a public asset, so it required the token).
+// Serve index.html ourselves to inject the bootstrap globals (bridge URL + fonts + commands) before the
+// module graph runs. Must precede the static middleware, which would otherwise serve it verbatim.
 app.Use(async (context, next) => {
 	string path = context.Request.Path.Value ?? "/";
 	if (path is "/" or "/index.html") {
@@ -77,8 +72,7 @@ if (assets is not null) {
 	app.UseStaticFiles(new StaticFileOptions { FileProvider = assets });
 }
 
-// The bridge endpoint: each browser connection drives the (single, long-lived) headless session. Auth is
-// enforced by the central gate above (the bridge path is not a public asset, so it required the token).
+// The bridge endpoint: each browser connection drives the single long-lived headless session.
 app.Map("/weavie-bridge", async context => {
 	if (!context.WebSockets.IsWebSocketRequest) {
 		context.Response.StatusCode = StatusCodes.Status400BadRequest;
@@ -96,7 +90,7 @@ Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{port}{tokenSuffi
 Console.Out.Flush();
 await app.RunAsync().ConfigureAwait(false);
 
-// Best-effort cleanup of the app-global stores' file watchers on shutdown (core disposes the sessions).
+// Best-effort cleanup of the app-global stores' file watchers (core disposes the sessions).
 services.Keybindings.Dispose();
 services.Settings.Dispose();
 return 0;
@@ -155,10 +149,9 @@ static async Task ServeIndexAsync(HttpContext context, string wwwroot, HostCore 
 		return;
 	}
 
-	// The page picks the WebSocket transport from __WEAVIE_BRIDGE_WS__; the rest of the bootstrap is the
-	// same content every host injects (fonts/editor/theme/lsp/commands/keybindings + shell config).
+	// The page picks the WebSocket transport from __WEAVIE_BRIDGE_WS__; the rest is the shared host bootstrap.
 	string bootstrap = $"<script>window.__WEAVIE_BRIDGE_WS__ = \"auto\";{core.BuildBootstrap()}</script>";
-	// Inject right after <head> so the globals exist before the module graph (the module script is at body end).
+	// Inject right after <head> so the globals exist before the module graph runs.
 	html = html.Contains("<head>", StringComparison.Ordinal)
 		? html.Replace("<head>", "<head>" + bootstrap, StringComparison.Ordinal)
 		: bootstrap + html;

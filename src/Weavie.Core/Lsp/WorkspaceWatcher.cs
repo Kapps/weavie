@@ -21,12 +21,10 @@ public enum FileChangeKind {
 public readonly record struct WatchedFileChange(string Uri, FileChangeKind Kind);
 
 /// <summary>
-/// Watches a workspace tree and reports relevant file changes in debounced batches, so the host can
-/// forward <c>workspace/didChangeWatchedFiles</c> to language servers. This is the agentic-editor
-/// correctness path (spec §9): Claude edits files on disk — directly and via the IDE-MCP apply flow —
-/// and servers must hear about it or their diagnostics/types go stale. Changes are filtered to the
-/// languages we serve (by extension) and skip noise directories (<c>node_modules</c>, <c>.git</c>,
-/// build output) so a broad workspace root doesn't drown the servers.
+/// Watches a workspace tree and reports relevant file changes in debounced batches, so the host can forward
+/// <c>workspace/didChangeWatchedFiles</c> to language servers (spec §9): Claude edits files on disk, and
+/// servers must hear about it or their diagnostics/types go stale. Changes are filtered to served languages (by
+/// extension) and skip noise directories (<c>node_modules</c>, <c>.git</c>, build output).
 /// </summary>
 public sealed class WorkspaceWatcher : IDisposable {
 	private readonly string _root;
@@ -99,8 +97,7 @@ public sealed class WorkspaceWatcher : IDisposable {
 			return;
 		}
 
-		// Last-write-wins per path within a batch, except a delete after a create cancels to delete and
-		// a create after a delete is a change — but coarse last-wins is fine for didChangeWatchedFiles.
+		// Last-write-wins per path within a batch; coarse last-wins is fine for didChangeWatchedFiles.
 		_pending[fullPath] = kind;
 		_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
 	}

@@ -1,13 +1,11 @@
-// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (a quiet sage-teal on
-// keywords, deeper green strings, sea-green numbers) on a dimmed paper canvas (#e3e2da — paper, not glaring
-// white). The identifier family is split by HUE so roles never blur, and pitched by a deliberate CONTRAST
-// hierarchy: variables a deep blue (italic) and properties a blue cousin one step up — both dark, because the
-// names you read most should stand hardest off the paper — functions a confident crimson (the lone warm
-// accent), and types a cool cyan-teal. Structural keywords are kept deliberately quieter than the
-// identifiers; comments recede to a soft neutral grey and punctuation stays quiet but legible. Chrome sits
-// one step *darker* than the editor (the mirror of Dark, where it sits one step lighter than black), so the
-// canvas reads as the focal well it frames. Same `colors` map drives editor, terminal, and chrome (spec §5),
-// so overrides (spec §6) and installed Open VSX themes address the exact same keys.
+// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (sage-teal keywords,
+// deeper green strings, sea-green numbers) on a dimmed paper canvas (#e3e2da). The identifier family is
+// split by hue so roles never blur and pitched by contrast: variables deep blue (italic) and properties a
+// blue cousin one step up — both dark, so the names read most stand hardest off the paper — functions
+// crimson (the lone warm accent), and types cool cyan-teal. Keywords stay quieter than identifiers,
+// comments a soft neutral grey, punctuation quiet but legible. Chrome sits one step darker than the editor
+// so the canvas reads as the focal well it frames. The same `colors` map drives editor, terminal, and
+// chrome (spec §5), so overrides (spec §6) and installed Open VSX themes address the same keys.
 
 import type { VsCodeColorTheme } from "../vscode-theme";
 
@@ -80,7 +78,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     "sash.hoverBorder": "#1f9d78",
 
     // ── Chrome surfaces (sidebar / panel / status / title / tabs) ────────────────────────────────────
-    // One step darker than the pure-white editor, so the canvas reads as the focal well it frames.
+    // One step darker than the editor, so the canvas reads as the focal well it frames.
     "editorGroup.border": "#d4d3ca",
     "editorGroupHeader.tabsBackground": "#dbdad2",
     "panel.background": "#dbdad2",
@@ -331,8 +329,8 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     { name: "Invalid", scope: ["invalid", "invalid.illegal"], settings: { foreground: "#c8413b" } },
   ],
   semanticTokenColors: {
-    // Types take a cool cyan-teal — distinct from the green keywords and the blue identifiers;
-    // namespaces are a dimmer teal since they're mostly qualifiers.
+    // Types take a cool cyan-teal, distinct from the green keywords and blue identifiers; namespaces a
+    // dimmer teal since they're mostly qualifiers.
     class: "#0a7286",
     interface: "#0a7286",
     enum: "#0a7286",
@@ -344,7 +342,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     enumMember: "#0d7059",
     number: "#0d7059",
     "variable.readonly": "#0d7059",
-    // Functions are crimson — the lone warm accent, so calls and definitions stand out from the data.
+    // Functions are crimson — the lone warm accent — so calls and definitions stand out from the data.
     function: "#bb3326",
     method: "#bb3326",
     macro: "#4f8676",
@@ -352,8 +350,8 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     string: "#2a7d34",
     operator: "#6b7682",
     comment: { foreground: "#8a949d", fontStyle: "italic" },
-    // Variables (incl. parameters) are a deep blue, italic — pitched dark so the data you scan most stands
-    // hardest off the paper; properties a blue cousin one step up, related-but-distinct.
+    // Variables (incl. parameters) are deep blue, italic — pitched dark so the data scanned most stands
+    // hardest off the paper; properties a related blue cousin one step up.
     variable: { foreground: "#1b3b7a", fontStyle: "italic" },
     parameter: { foreground: "#1b3b7a", fontStyle: "italic" },
     property: "#2f5590",

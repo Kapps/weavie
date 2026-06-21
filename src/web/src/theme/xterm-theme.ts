@@ -1,7 +1,7 @@
-// Builds an xterm.js ITheme from an active theme's resolved palette (spec §6: the terminal is one of the
-// three live-reapply surfaces). Keyed by the same VS Code `terminal.*` workbench color ids the rest of
-// the theme uses, so installed themes and overrides drive the terminal colors for free. Missing keys fall
-// back to the editor colors (background/foreground) or are omitted (xterm keeps its own default for them).
+// Builds an xterm.js ITheme from a theme's resolved palette (spec §6: the terminal is one of the three
+// live-reapply surfaces). Keyed by the same VS Code `terminal.*` color ids the rest of the theme uses, so
+// installed themes and overrides drive the terminal colors for free. Missing keys fall back to the editor
+// colors (background/foreground) or are omitted (xterm keeps its own default).
 
 import type { ITheme } from "@xterm/xterm";
 
@@ -10,8 +10,8 @@ export type XtermTheme = ITheme;
 
 /** Maps a resolved VS Code palette to an xterm ITheme, omitting any key the palette doesn't provide. */
 export function paletteToXtermTheme(colors: Readonly<Record<string, string>>): ITheme {
-  // Build with only-defined keys: under exactOptionalPropertyTypes an optional ITheme field can't be set
-  // to `undefined`, so a missing color must be left off entirely rather than assigned undefined.
+  // Under exactOptionalPropertyTypes an optional ITheme field can't be set to `undefined`, so a missing
+  // color must be left off entirely.
   const theme: Record<string, string> = {};
   const put = (field: string, ...keys: string[]): void => {
     for (const key of keys) {

@@ -7,10 +7,9 @@ public readonly record struct BrowserEntry(string Name, string Path, bool IsDire
 
 /// <summary>
 /// Lists directories for the contextual file browser, scoped to one workspace/session root. Resolves a
-/// requested path (absolute or relative to the root), clamps it inside the root so the browser can't walk
-/// out of the workspace (e.g. via <c>..</c>), and returns entries sorted directories-first then by name.
-/// Pure logic over <see cref="IFileSystem"/> so both hosts share it; the host just serializes the result
-/// onto the bridge.
+/// requested path, clamps it inside the root so the browser can't walk out of the workspace (e.g. via
+/// <c>..</c>), and returns entries sorted directories-first then by name. Pure logic over
+/// <see cref="IFileSystem"/> so every host shares it.
 /// </summary>
 public sealed class WorkspaceBrowser {
 	private readonly IFileSystem _fileSystem;

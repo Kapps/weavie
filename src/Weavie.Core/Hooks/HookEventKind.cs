@@ -2,16 +2,16 @@ namespace Weavie.Core.Hooks;
 
 /// <summary>Which Claude Code hook event a <see cref="HookRequest"/> carries.</summary>
 public enum HookEventKind {
-	/// <summary>Fired before a tool runs; Weavie observes it to snapshot the pre-edit baseline for change tracking (the permission gate is now PermissionRequest).</summary>
+	/// <summary>Fired before a tool runs; Weavie observes it to snapshot the pre-edit baseline for change tracking.</summary>
 	PreToolUse,
 
 	/// <summary>Fired after a tool ran; carries the result. Weavie's "it actually happened" record.</summary>
 	PostToolUse,
 
 	/// <summary>
-	/// Fired only when a permission dialog would appear (a tool not already allowed that would otherwise prompt).
-	/// Weavie's tool-permission GATE: the relay answers allow/deny here, so the prompt never shows. Unlike
-	/// PreToolUse it does NOT fire on every tool call, so an always-allowed tool (Read/Grep) costs nothing.
+	/// Fired only when a permission dialog would appear (a tool not already allowed). Weavie's tool-permission
+	/// gate: the relay answers allow/deny here so the prompt never shows. Unlike PreToolUse it does not fire on
+	/// every tool call, so always-allowed tools (Read/Grep) cost nothing.
 	/// </summary>
 	PermissionRequest,
 
@@ -25,8 +25,8 @@ public enum HookEventKind {
 	Notification,
 
 	/// <summary>
-	/// Fired when a conversation (re)starts; its <see cref="HookRequest.Source"/> says why (startup / resume /
-	/// clear / compact). Weavie watches <c>source=clear</c> (a <c>/clear</c>) to drop the resume store's stale id.
+	/// Fired when a conversation (re)starts; <see cref="HookRequest.Source"/> says why (startup/resume/clear/
+	/// compact). Weavie watches <c>source=clear</c> to drop the resume store's stale id.
 	/// </summary>
 	SessionStart,
 

@@ -4,11 +4,10 @@ using Weavie.Core.Processes;
 namespace Weavie.Runner;
 
 /// <summary>
-/// Turns a <see cref="WorkspaceBackend"/> into a supervised <c>Weavie.Headless</c> worker process rooted at
-/// the workspace root. This is the "worktree mode" of Option C: a plain OS process; the shared HostCore inside
-/// it creates per-session worktrees on demand. Container mode would be a sibling launcher of the same shape
-/// (build a <see cref="ProcessSupervisor"/> over a container) — the rest of the runner is unaware which
-/// produced the worker. See docs/specs/remote-sessions.md.
+/// Turns a <see cref="WorkspaceBackend"/> into a supervised <c>Weavie.Headless</c> worker process rooted at the
+/// workspace root (worktree mode): a plain OS process whose shared HostCore creates per-session worktrees on
+/// demand. A container mode would be a sibling launcher of the same shape, transparent to the rest of the
+/// runner. See docs/specs/remote-sessions.md.
 /// </summary>
 public sealed class HeadlessLauncher {
 	private readonly RunnerOptions _options;
@@ -23,8 +22,8 @@ public sealed class HeadlessLauncher {
 
 	/// <summary>
 	/// Builds (does not start) a supervisor that keeps a headless worker for <paramref name="backend"/> alive.
-	/// Policy is <see cref="RestartPolicy.OnFailure"/>: a crashed worker is relaunched with backoff, a clean
-	/// exit (an intentional stop) is not. Call <see cref="ProcessSupervisor.Start"/> on the result.
+	/// <see cref="RestartPolicy.OnFailure"/>: a crashed worker relaunches with backoff, a clean exit does not.
+	/// Call <see cref="ProcessSupervisor.Start"/> on the result.
 	/// </summary>
 	public ProcessSupervisor BuildSupervisor(WorkspaceBackend backend) {
 		ArgumentNullException.ThrowIfNull(backend);
@@ -73,8 +72,7 @@ public sealed class HeadlessLauncher {
 			info.ArgumentList.Add(_options.HeadlessPath);
 		}
 
-		// Workers are network-exposed: --remote opts into remote listening, which the worker enforces by
-		// REQUIRING the token (it refuses to start otherwise). Auth there keys off this mode, not token presence.
+		// Workers are network-exposed: --remote requires the token (the worker refuses to start otherwise).
 		info.ArgumentList.Add("--remote");
 		info.ArgumentList.Add("--port");
 		info.ArgumentList.Add(backend.Port.ToString());

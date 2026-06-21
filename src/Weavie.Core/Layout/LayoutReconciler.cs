@@ -6,7 +6,7 @@ public sealed record ReconcileOutcome(LayoutDocument Document, bool Mutated, IRe
 /// <summary>
 /// Reconciles a persisted (possibly old, newer, or hand-broken) layout document against the current
 /// <see cref="PaneRegistry"/>. Pure and deterministic. The steps — prune unknown kinds, inject
-/// newly-introduced defaults, bump the seen-level watermark, normalize and repair — are the entire
+/// newly-introduced defaults, bump the seen-level watermark, normalize and repair — are the whole
 /// forward/backward-compatibility story. See <c>docs/specs/layout.md</c>.
 /// </summary>
 public static class LayoutReconciler {

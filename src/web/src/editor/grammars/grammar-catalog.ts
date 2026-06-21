@@ -1,18 +1,15 @@
-// The data join that drives broad highlighting: pair each tm-grammars grammar (grammar file + scope) with
-// the file-extension associations from linguist-languages, keyed on TextMate scope. tm-grammars ships ~250
-// grammars but no file extensions; linguist ships extensions + the `tmScope` that matches a grammar's
-// `scopeName`. The result is the set of languages we register with Monaco (id + extensions + scope), so an
-// opened file resolves to the right language id and tokenizes with the right grammar.
-//
-// The curated @codingame packs (TS/TSX, C#, Go) stay authoritative — they ship full language-configuration
-// and drive LSP selection — so their scopes/extensions are excluded here to avoid double-registration.
+// Joins each tm-grammars grammar (grammar file + scope) with file-extension associations from
+// linguist-languages, keyed on TextMate scope: tm-grammars ships grammars but no extensions, linguist ships
+// extensions + the `tmScope` matching a grammar's `scopeName`. Yields the languages registered with Monaco
+// (id + extensions + scope). Curated @codingame packs (TS/TSX, C#, Go) are excluded to avoid
+// double-registration since they ship full language-configuration and drive LSP selection.
 
 import type { Language } from "linguist-languages";
 import { grammars } from "tm-grammars";
 
-// Import linguist's per-language data files directly via glob rather than its barrel `index.js`: the
-// barrel uses es2022 string-named exports (`export { default as '1C Enterprise' }`) that the dev server's
-// esbuild (es2020 target) refuses to transform. Each `data/*.js` file is a clean `export default {...}`.
+// Import linguist's per-language data files via glob rather than its barrel `index.js`: the barrel uses
+// es2022 string-named exports that the dev server's esbuild (es2020 target) refuses to transform. Each
+// `data/*.js` file is a clean `export default {...}`.
 const linguistData = import.meta.glob<Language>(
   "../../../node_modules/linguist-languages/data/*.js",
   {
@@ -23,7 +20,7 @@ const linguistData = import.meta.glob<Language>(
 
 /** One language to register for broad highlighting: a tm-grammars grammar joined with its file extensions. */
 export interface BroadGrammar {
-  /** The tm-grammars grammar name (== file basename == the Monaco language id we register), e.g. "rust". */
+  /** The tm-grammars grammar name (== file basename == the Monaco language id), e.g. "rust". */
   readonly name: string;
   /** TextMate scope the grammar declares, e.g. "source.rust". */
   readonly scopeName: string;
@@ -34,7 +31,7 @@ export interface BroadGrammar {
 }
 
 // Scopes owned by the curated @codingame packs (see vscode-services.ts) — never re-register these.
-// JavaScript is intentionally NOT curated, so the broad loader fills that gap.
+// JavaScript is intentionally not curated, so the broad loader fills that gap.
 const CURATED_SCOPES = new Set(["source.ts", "source.tsx", "source.cs", "source.go"]);
 // Curated extensions, pre-seeded so a curated language always wins ownership of its extension.
 const CURATED_EXTENSIONS = [
@@ -54,9 +51,9 @@ interface ScopeExtensions {
 }
 
 /**
- * Builds the broad-highlighting catalog: for every tm-grammars grammar with a linguist extension match
- * (and not owned by a curated pack), the language id + scope + the file extensions that resolve to it.
- * Extensions are de-duplicated first-wins (curated pre-seeded), so no two languages claim the same one.
+ * Builds the broad-highlighting catalog: for every tm-grammars grammar with a linguist extension match (and
+ * not curated), the language id + scope + its file extensions. Extensions are de-duplicated first-wins
+ * (curated pre-seeded), so no two languages claim the same one.
  */
 export function buildBroadCatalog(): BroadGrammar[] {
   // linguist: TextMate scope -> the union of file extensions of every language that maps to it.
@@ -84,11 +81,11 @@ export function buildBroadCatalog(): BroadGrammar[] {
     }
     const linguist = byScope.get(grammar.scopeName);
     if (linguist === undefined) {
-      continue; // no file extension -> a file could never resolve to it; skip
+      continue; // no file extension -> a file could never resolve to it
     }
     const extensions = [...linguist.extensions].filter((extension) => !claimed.has(extension));
     if (extensions.length === 0) {
-      continue; // every extension already claimed -> skip to avoid conflicts
+      continue; // every extension already claimed -> avoid conflicts
     }
     for (const extension of extensions) {
       claimed.add(extension);

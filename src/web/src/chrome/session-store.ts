@@ -7,11 +7,10 @@ import {
   onSessionMessage,
 } from "../bridge";
 
-// The session rail aggregates sessions from EVERY connected backend (the local/default host plus each
-// registered remote agent), so local and remote sessions sit in one rail. Each backend pushes its own
-// session-list; we keep them keyed by backend and render the union, tagging each chip with its location.
-// Like layout/store.ts these are TOP-LEVEL module signals (seeded by host pushes, surviving HMR) — see the
-// note in the original store; a component signal would blank the rail on every hot reload.
+// The session rail aggregates sessions from every connected backend (the local host plus each registered
+// remote agent) into one rail. Each backend pushes its own session-list, kept keyed by backend and rendered
+// as a union, tagging each chip with its location. Top-level module signals so they survive HMR; a component
+// signal would blank the rail on every hot reload.
 
 /** One rail chip plus which backend (location) it lives on. */
 export interface RailSession extends SessionChip {
@@ -41,8 +40,8 @@ onSessionMessage((message, backendId) => {
   }
 });
 
-// The merged rail: every backend's chips, local first. A chip is only shown active when it belongs to the
-// backend currently driving the page, so there's never a second highlighted chip from a background backend.
+// The merged rail: every backend's chips, local first. A chip is shown active only when it belongs to the
+// backend currently driving the page, so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
   const active = activeBackendId();
   const out: RailSession[] = [];

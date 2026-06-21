@@ -1,11 +1,10 @@
-// Color math for theme overrides (spec §6). Transforms operate in OKLCH for perceptually-even results
-// — darkening by 20% looks like a uniform 20% everywhere, unlike naive sRGB/HSL scaling. Alpha is
-// always preserved: many VS Code colors are 8-digit hex (overlay alpha), and a transform must only
-// touch the color, never the opacity. Inputs/outputs are CSS hex strings (#rgb, #rgba, #rrggbb,
-// #rrggbbaa); non-hex values (e.g. named colors) are returned unchanged so a transform can't corrupt them.
+// Color math for theme overrides (spec §6). Transforms operate in OKLCH for perceptually-even results, so
+// darkening by 20% looks uniform everywhere unlike naive sRGB/HSL scaling. Alpha is always preserved (many
+// VS Code colors are 8-digit hex overlays, and a transform must touch only the color). Inputs/outputs are
+// CSS hex strings (#rgb, #rgba, #rrggbb, #rrggbbaa); non-hex values are returned unchanged.
 
 interface Rgba {
-  /** Red, green, blue in 0..1 (linear-free sRGB). */
+  /** Red, green, blue in 0..1 (gamma sRGB). */
   r: number;
   g: number;
   b: number;

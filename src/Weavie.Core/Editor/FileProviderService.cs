@@ -3,26 +3,23 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// Serves the editor's host-backed <c>file://</c> provider: answers the page's correlated
+/// Serves the editor's host-backed <c>file://</c> provider: answers correlated
 /// <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c> requests against the session filesystem, scoped to the
-/// workspace. Each method returns the ready-to-send reply JSON (built by <see cref="FileProviderProtocol"/>);
-/// the host just parses the request and posts the result. Shared by the Windows and macOS hosts so the
-/// behaviour is identical (push logic into Core; keep the hosts thin). Reads/writes outside the workspace are
-/// refused — a read becomes a clean FileNotFound (the provider falls through), a write becomes an error the
-/// page surfaces.
+/// workspace. Each method returns ready-to-send reply JSON (built by <see cref="FileProviderProtocol"/>).
+/// Access outside the workspace is refused: a read becomes a clean FileNotFound (the provider falls through),
+/// a write becomes an error the page surfaces.
 /// </summary>
 public sealed class FileProviderService {
 	private readonly IFileSystem _fileSystem;
 	private readonly string _workspaceRoot;
 	private readonly string _scratchRoot;
 
-	/// <summary>Creates the service over <paramref name="fileSystem"/>, constraining all access to <paramref name="workspaceRoot"/>.</summary>
-	/// <param name="fileSystem">The session filesystem to read/write through.</param>
+	/// <summary>Constrains all access to <paramref name="workspaceRoot"/> and <paramref name="scratchRoot"/>.</summary>
+	/// <param name="fileSystem">The session filesystem the editor reads/writes through.</param>
 	/// <param name="workspaceRoot">The session root; access outside it (and the scratch root) is refused.</param>
 	/// <param name="scratchRoot">
-	/// The workspace's scratch directory (see <see cref="ScratchStore"/>) — a second allowed root, so the editor
-	/// can read/write untitled buffers that deliberately live outside the workspace. Required: every session has
-	/// one, and an omitted root would silently refuse all scratch reads/writes.
+	/// The workspace's scratch directory (see <see cref="ScratchStore"/>) — a second allowed root, so untitled
+	/// buffers living outside the workspace are still readable/writable.
 	/// </param>
 	public FileProviderService(IFileSystem fileSystem, string workspaceRoot, string scratchRoot) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -34,8 +31,6 @@ public sealed class FileProviderService {
 	}
 
 	/// <summary>Answers <c>fs-stat</c>: the file's metadata, or <c>exists:false</c> for a missing/out-of-workspace path.</summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="path">The native path to stat.</param>
 	public string Stat(string id, string path) {
 		if (!IsAllowed(path)) {
 			return FileProviderProtocol.StatResult(id, default);
@@ -46,8 +41,6 @@ public sealed class FileProviderService {
 	}
 
 	/// <summary>Answers <c>fs-read</c>: the file's content + etag, a clean FileNotFound, or a loud read error.</summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="path">The native path to read.</param>
 	public string Read(string id, string path) {
 		if (!IsAllowed(path) || !_fileSystem.FileExists(path)) {
 			return FileProviderProtocol.ReadNotFound(id);
@@ -63,9 +56,6 @@ public sealed class FileProviderService {
 	}
 
 	/// <summary>Answers <c>fs-write</c>: persists the buffer to disk and returns the post-write etag, or an error.</summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="path">The native path to write.</param>
-	/// <param name="content">The content to persist.</param>
 	public string Write(string id, string path, string content) {
 		ArgumentNullException.ThrowIfNull(content);
 		if (!IsAllowed(path)) {

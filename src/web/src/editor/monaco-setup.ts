@@ -14,41 +14,30 @@ import {
 import { currentFonts, onFontsChanged } from "../fonts";
 import { registerActiveEditor } from "./vscode-services";
 
-// Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices),
-// which must run before any editor is created. TypeScript/JS intelligence now comes from a real LSP
-// server over the bridge (see lsp/lsp-client.ts), not Monaco's bundled ts.worker — so that worker is
-// intentionally gone (spec §9: replace Monaco's in-browser TS immediately).
+// Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must
+// run before any editor is created. TypeScript/JS intelligence comes from a real LSP server over the bridge
+// (see lsp/lsp-client.ts), not Monaco's bundled ts.worker.
 
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  // The editor starts with NO document — an empty pane until the host opens a file (or, after a hot reload,
-  // the editor host reattaches the file that was open before; see editor-host.ts). File models are created
-  // on open with a real `file://` URI under the workspace: tsserver-family servers (tsgo) give loose
-  // inmemory:/untitled: docs only partial service — they publish diagnostics for file:// docs, not in-memory
-  // ones — so a file:// URI makes it a project file and squiggles flow.
-  // Typography + editor behavior are user settings resolved by the host (global font.* + editor.font.*
-  // overrides; the editor.* options), injected before navigation so we mount at the right font/options,
-  // and live-updated below.
+  // The editor starts with no document — an empty pane until the host opens a file. File models are created
+  // on open with a real `file://` URI under the workspace: tsserver-family servers (tsgo) publish
+  // diagnostics for file:// docs, not in-memory ones, so a file:// URI makes it a project file and squiggles
+  // flow. Typography + editor behavior are user settings resolved by the host and live-updated below.
   const font = currentFonts().editor;
   const editorOptions = currentEditorOptions();
   const editor = monaco.editor.create(container, {
     model: null,
-    // No `theme` here on purpose: the active theme is global and owned by the theme controller (registered
-    // + applied in vscode-services before any editor is created). Passing a `theme` option re-calls setTheme
-    // and would clobber the active theme back to that value — which is exactly what left Monaco on vs-dark.
+    // No `theme` here on purpose: the active theme is global and owned by the theme controller. Passing a
+    // `theme` option re-calls setTheme and would clobber the active theme back to that value.
     fontSize: font.size,
     fontFamily: font.family,
     fontWeight: font.weight,
     automaticLayout: true,
-    // Render overflow widgets (suggest list, parameter hints, hover) in a viewport-fixed DOM node instead
-    // of inside the editor's overflow-guard. Without this they're clipped at the editor pane's edge: in a
-    // split layout the docs flyout flips to the left of the suggest list, runs past the pane boundary, and
-    // gets sheared off (see the JsonSerializer hint). These popovers are transient and only appear while the
-    // user is actively editing, so letting them overlay the neighboring terminal/changes pane is the right
-    // trade — exactly how VSCode behaves. Safe here because panes are tiled with absolute left/top (no
-    // transform ancestor that would trap the fixed-position node).
+    // Render overflow widgets (suggest list, parameter hints, hover) in a viewport-fixed DOM node so they
+    // aren't clipped at the editor pane's edge in a split layout. Safe because panes are tiled with absolute
+    // left/top (no transform ancestor that would trap the fixed-position node).
     fixedOverflowWidgets: true,
-    // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — every one is a typed Weavie
-    // setting now (Core EditorSettings), not a hardcoded constant.
+    // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
     ...toMonacoOptions(editorOptions),
   });
   applySuggestExpandDocs(editorOptions.suggestExpandDocs);
@@ -70,13 +59,13 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   });
   editor.onDidDispose(offEditorOptions);
 
-  // The editor service opens go-to-def / reveal-file targets through this editor (we own layout).
+  // The editor service opens go-to-def / reveal-file targets through this editor.
   registerActiveEditor(editor);
   return editor;
 }
 
 // Maps Weavie's flat editor-option settings onto Monaco's nested IEditorOptions shape. The string-union
-// values are authored to match Monaco's option types exactly, so this is a straight structural mapping.
+// values match Monaco's option types exactly, so this is a straight structural mapping.
 function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
   return {
     inlayHints: { enabled: o.inlayHints },
@@ -97,12 +86,9 @@ function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
   };
 }
 
-// Auto-expand the suggest-widget documentation flyout. Monaco has NO editor option for this — the widget
-// only persists the user's manual expand/collapse toggle under this storage key — so we seed that key from
-// the setting. It's read when the widget is constructed (first completion), so this honors the initial /
-// default state; changing the setting mid-session may need the widget to re-open to take effect. Best-
-// effort but observable: a failure logs (these suggest internals can shift between versions) rather than
-// silently passing or breaking editor creation.
+// Auto-expand the suggest-widget documentation flyout. Monaco has no editor option for this, so seed the
+// storage key the widget reads when constructed (first completion). Changing the setting mid-session may need
+// the widget to re-open to take effect. Best-effort: a failure logs rather than breaking editor creation.
 function applySuggestExpandDocs(enabled: boolean): void {
   try {
     StandaloneServices.get(IStorageService).store(

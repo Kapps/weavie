@@ -56,13 +56,10 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveClaude(PtyLaunchRequest request) {
 		string claude = request.Settings.GetString("claude.path") ?? "claude";
-		string mcp = string.IsNullOrEmpty(request.McpConfigPath) ? string.Empty : $" --mcp-config '{request.McpConfigPath}'";
-		string settings = string.IsNullOrEmpty(request.SettingsFilePath) ? string.Empty : $" --settings '{request.SettingsFilePath}'";
-		string systemPrompt = string.IsNullOrEmpty(request.SystemPromptFilePath) ? string.Empty : $" --append-system-prompt-file '{request.SystemPromptFilePath}'";
-		// Session resume (--resume/--session-id <id>), already resolved by the controller; folded into the exec
-		// string with the id single-quoted like the other paths. Empty when resume is off.
-		string session = FormatExecArgs(request.ClaudeSessionArguments);
-		return (LoginShell(), ["-l", "-i", "-c", $"exec '{claude}'{mcp}{settings}{systemPrompt}{session}"]);
+		// Flags (--mcp-config/--settings/--append-system-prompt-file) and the session-resume args are assembled
+		// once on the request, then folded into the exec string here with each value single-quoted.
+		string args = FormatExecArgs(request.BuildClaudeArguments());
+		return (LoginShell(), ["-l", "-i", "-c", $"exec '{claude}'{args}"]);
 	}
 
 	/// <summary>Folds a resolved arg list into the login-shell exec string: flags as-is, values single-quoted.</summary>

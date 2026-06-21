@@ -16,15 +16,14 @@ using Weavie.Core.Workspaces;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// One Weavie <em>session</em>: the live, workspace-scoped backend a single Claude works in — its two PTY
-/// terminals (claude + shell), the IDE-MCP server + lock file (the session's private channel back to Weavie,
-/// so its openDiff/openFile route here), the LSP bridge rooted at the session cwd, the file opener, and the
-/// Monaco diff presenter. The cwd is a constructor argument, so a worktree session is just a
-/// <see cref="HostSession"/> rooted at a different path — LSP, file browser, file index, and terminals all
-/// re-root for free. Platform-agnostic: it talks to the page through <see cref="IHostBridge"/> and spawns its
-/// PTYs through an injected <see cref="IPtyLauncher"/>, so every host (Win/Mac/Linux/Headless) shares it. A
-/// <c>HostCore</c> owns a set of these via its <see cref="SessionManager"/> and routes the page's terminal /
-/// diff / reveal messages to the active one.
+/// One Weavie session: the live, workspace-scoped backend a single Claude works in — its two PTY terminals
+/// (claude + shell), the IDE-MCP server + lock file (the session's private channel back to Weavie, so its
+/// openDiff/openFile route here), the LSP bridge rooted at the session cwd, the file opener, and the Monaco
+/// diff presenter. The cwd is a constructor argument, so a worktree session is just a <see cref="HostSession"/>
+/// rooted at a different path — LSP, file browser, file index, and terminals all re-root for free.
+/// Platform-agnostic: it talks to the page through <see cref="IHostBridge"/> and spawns its PTYs through an
+/// injected <see cref="IPtyLauncher"/>. A <c>HostCore</c> owns a set of these via its
+/// <see cref="SessionManager"/> and routes the page's terminal / diff / reveal messages to the active one.
 /// </summary>
 public sealed class HostSession : IAsyncDisposable {
 	private readonly IHostBridge _bridge;
@@ -88,7 +87,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// The session's gate for editor-mutating page messages (show-diff/open-file/close-tab): both the file
 		// opener and the diff presenter post through it, so a muted (non-active) session holds its editor work
 		// instead of writing into the page's single, foreground-bound editor. Starts muted — HostCore activates
-		// the session that's actually driving the page (SetEditorOutputActive).
+		// the session driving the page (SetEditorOutputActive).
 		EditorChannel = new SessionEditorChannel(bridge);
 		FileOpener = new FileOpener(EditorChannel, fileSystem, workspaceRoot);
 		DiffPresenter = new McpDiffPresenter(EditorChannel, fileSystem, FileOpener);
@@ -103,9 +102,9 @@ public sealed class HostSession : IAsyncDisposable {
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();
 
-		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the
-		// discovery env so this session's claude connects to us (the SOLE edit feed). The same store backs
-		// the settings MCP tools, so the user can change settings by talking to claude.
+		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the discovery
+		// env so this session's claude connects to us (the SOLE edit feed). The same store backs the settings
+		// MCP tools, so the user can change settings by talking to claude.
 		Ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(DiffPresenter, ObservedMode), [workspaceRoot], "weavie", settings, layout, Editor,
 			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides,
@@ -135,7 +134,7 @@ public sealed class HostSession : IAsyncDisposable {
 		Ide.HookBridge.Observed += Changes.Observe;
 		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
 		Ide.HookBridge.Observed += ObservedMode.Observe;
-		// And keeps the resume store honest with what claude actually did: a /clear (SessionStart source=clear)
+		// Keeps the resume store honest with what claude actually did: a /clear (SessionStart source=clear)
 		// abandons the tracked id so the next launch cold-starts instead of resuming the stale transcript, and
 		// the next real message adopts the id claude settled on. The controller owns the store policy.
 		Ide.HookBridge.Observed += Claude.ObserveHook;
@@ -149,11 +148,10 @@ public sealed class HostSession : IAsyncDisposable {
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{Ide.Port}; registry on 127.0.0.1:{Ide.RegistryPort}; workspace {workspaceRoot}; lock {Ide.LockFilePath}");
 		Console.Out.Flush();
 
-		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved on
-		// PATH) and pipes them to monaco-languageclient in the page. The port, a per-session token, and the
-		// workspace root flow to the page via LspConfigJson (the core injects it before navigation); mirrors
-		// the IDE-MCP loopback + token posture (bind 127.0.0.1, require the token on the WS upgrade; origin
-		// pinned to the app).
+		// LSP bridge: a loopback WS↔stdio proxy that spawns language servers (bring-your-own, resolved on PATH)
+		// and pipes them to monaco-languageclient in the page. The port, a per-session token, and the workspace
+		// root flow to the page via LspConfigJson (injected before navigation); mirrors the IDE-MCP loopback +
+		// token posture (bind 127.0.0.1, require the token on the WS upgrade; origin pinned to the app).
 		string lspToken = IdeLockFile.NewAuthToken();
 		Lsp = new LspBridgeServer(lspToken, workspaceRoot, allowedOrigin: pageOrigin, resolveDescriptor: null);
 		Lsp.Log += Tagged("[lsp]");
@@ -221,11 +219,11 @@ public sealed class HostSession : IAsyncDisposable {
 	public EditorStore Editor { get; }
 
 	/// <summary>
-	/// This session's open editor tabs (paths + opaque view state), held in memory for the window's
-	/// lifetime. The page is the sole writer (debounced <c>editor-session-changed</c>); the core pushes
-	/// it as a <c>set-editor-session</c> on a switch so the editor rebinds to this session's worktree
-	/// files. The primary session also mirrors this to the persisted per-workspace store; secondary
-	/// (worktree) sessions are in-memory only for now.
+	/// This session's open editor tabs (paths + opaque view state), held in memory for the window's lifetime.
+	/// The page is the sole writer (debounced <c>editor-session-changed</c>); the core pushes it as a
+	/// <c>set-editor-session</c> on a switch so the editor rebinds to this session's worktree files. The primary
+	/// session also mirrors this to the persisted per-workspace store; secondary (worktree) sessions are
+	/// in-memory only.
 	/// </summary>
 	public EditorSession EditorSession { get; set; } = EditorSession.Empty;
 
@@ -277,10 +275,9 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>
 	/// Activates or mutes this session's editor output channel (show-diff/open-file/close-tab). HostCore flips
-	/// this in lockstep with the active session — exactly the session backing the page is active — so a background
-	/// session never writes into the page's single editor. (The terminals need no such mute: each session has its
-	/// own live pane, so its output always streams; only the single editor is shared.) On activation the channel
-	/// replays any work held while muted (so a background openDiff surfaces on switch-in).
+	/// this in lockstep with the active session, so a background session never writes into the page's single
+	/// editor. (Terminals need no such mute: each session has its own live pane; only the editor is shared.) On
+	/// activation the channel replays any work held while muted (so a background openDiff surfaces on switch-in).
 	/// </summary>
 	public void SetEditorOutputActive(bool active) {
 		if (active) {
@@ -320,9 +317,9 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		// Terminal disposal now blocks until the PTY children have actually exited (so a worktree delete that
-		// follows teardown can't race a process still rooted at the worktree). Run it off the calling (often UI)
-		// thread so a slow-closing child can't freeze the app during teardown.
+		// Terminal disposal blocks until the PTY children have actually exited (so a worktree delete that follows
+		// teardown can't race a process still rooted at the worktree). Run it off the calling (often UI) thread
+		// so a slow-closing child can't freeze the app during teardown.
 		await Task.Run(() => {
 			Claude.Dispose();
 			Shell.Dispose();

@@ -1,11 +1,9 @@
-// Visual capture for REMOTE SESSIONS (docs/specs/remote-sessions.md): the full feature end to end.
-//   1. The browser is the LOCAL Weavie (connected to a local headless host = the "default" backend).
-//   2. New Session → "Add remote agent…" → register a runner (URL + token).
-//   3. New Session again → pick the remote location → a worktree is created ON THE REMOTE box, and a
-//      remote-badged chip joins the rail alongside the local session.
+// Visual capture for REMOTE SESSIONS (docs/specs/remote-sessions.md), end to end: boot the local Weavie,
+// register a runner, start a remote session (worktree created on the runner), and record the remote-badged
+// chip joining the rail.
 //
-// Run from src/web after `pnpm run build` (so dist exists):  node e2e/capture-remote.mjs
-// Builds Weavie.Headless (copies fresh dist into wwwroot) + Weavie.Runner, records to e2e/.recordings/.
+// Run from src/web after `pnpm run build`:  node e2e/capture-remote.mjs
+// Builds Weavie.Headless + Weavie.Runner, records to e2e/.recordings/.
 
 import { spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
@@ -39,15 +37,14 @@ const runnerDll = join(
 const outDir = join(webRoot, "e2e", ".recordings");
 const viewport = { width: 1280, height: 800 };
 const RUNNER_TOKEN = "capturetoken";
-// The remote gets its own repo so its worktrees don't collide with the local host's (same-machine test only;
-// real local/remote are different machines).
+// The remote gets its own repo so its worktrees don't collide with the local host's on this one machine.
 const remoteRepo = join("/tmp", "weavie-remote-demo");
 
 async function tour(page, localUrl, runnerUrl) {
   const settle = (ms) => page.waitForTimeout(ms);
   await page.emulateMedia({ colorScheme: "dark" });
 
-  // 1. Boot the LOCAL Weavie (the default backend).
+  // 1. Boot the local Weavie.
   await page.goto(`${localUrl}/`, { waitUntil: "load" });
   await page
     .locator("#splash")
@@ -73,7 +70,7 @@ async function tour(page, localUrl, runnerUrl) {
   await settle(1200);
   await page.locator(".session-prompt-btn-primary").click();
 
-  // 4. New Session reopens with the remote location available — pick it.
+  // 4. Pick the now-available remote location.
   await page.locator(".session-prompt-select").waitFor({ timeout: 15_000 });
   await settle(1200);
   await page.locator(".session-prompt-select").selectOption("remote:devbox");
@@ -82,7 +79,7 @@ async function tour(page, localUrl, runnerUrl) {
   await settle(800);
   await page.locator(".session-prompt-btn-primary").click();
 
-  // 5. A remote-badged chip joins the rail (the worktree was created on the remote box).
+  // 5. The remote-badged chip joins the rail; the worktree was created on the runner.
   await page.locator(".session-chip.remote").first().waitFor({ timeout: 30_000 });
   await page.waitForFunction((n) => document.querySelectorAll(".session-chip").length > n, before, {
     timeout: 30_000,

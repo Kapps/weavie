@@ -5,12 +5,11 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Per-theme color overrides (spec §6), persisted to <c>~/.weavie/theme-overrides.json</c> as its own
-/// document — deliberately separate from <c>settings.toml</c>, mirroring how layout is stored. Overrides
-/// are keyed by theme id and do NOT follow the user across theme switches ("I tweaked Dracula" stays with
-/// Dracula); each theme's ops are a sparse, ordered list applied at resolve time, so undo is "pop the last
-/// op". Mirrors <see cref="Weavie.Core.Workspaces.RecentWorkspaces"/>'s persistence conventions: atomic
-/// writes, and a malformed file is backed up to <c>theme-overrides.json.bad</c> and reset, never thrown.
+/// Per-theme color overrides, persisted to <c>~/.weavie/theme-overrides.json</c> as its own document,
+/// separate from <c>settings.toml</c>. Keyed by theme id, so overrides stay with their theme across
+/// switches; each theme's ops are an ordered list applied at resolve time, so undo is "pop the last op".
+/// Persistence mirrors <see cref="Weavie.Core.Workspaces.RecentWorkspaces"/>: atomic writes, and a
+/// malformed file is backed up to <c>theme-overrides.json.bad</c> and reset rather than thrown.
 /// </summary>
 public sealed class ThemeOverridesStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() {
@@ -22,7 +21,7 @@ public sealed class ThemeOverridesStore {
 	private readonly Lock _gate = new();
 	private readonly Dictionary<string, List<ThemeOverrideOp>> _overrides;
 
-	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/theme-overrides.json</c>), loading it now.</summary>
+	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/theme-overrides.json</c>) and loads it.</summary>
 	public ThemeOverridesStore(IFileSystem fileSystem, string? path) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		_fileSystem = fileSystem;
@@ -155,16 +154,8 @@ public sealed class ThemeOverridesStore {
 			return result;
 		} catch (JsonException ex) {
 			Log?.Invoke($"[theme-overrides] {FilePath} is malformed ({ex.Message}); backing up to theme-overrides.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "theme-overrides", Log);
 			return [];
-		}
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[theme-overrides] could not back up malformed overrides: {ex.Message}");
 		}
 	}
 

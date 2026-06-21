@@ -19,10 +19,7 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 	/// <summary>Binds the bridge to the web view it pushes outbound messages into.</summary>
 	public void Attach(WKWebView webView) => _webView = webView;
 
-	/// <summary>
-	/// WKWebView script-message callback: forwards the inbound message body to
-	/// <see cref="MessageReceived"/> as a raw JSON string.
-	/// </summary>
+	/// <summary>WKWebView script-message callback: forwards the inbound body to <see cref="MessageReceived"/>.</summary>
 	[Export("userContentController:didReceiveScriptMessage:")]
 	public void DidReceiveScriptMessage(WKUserContentController userContentController, WKScriptMessage message) => MessageReceived?.Invoke(message.Body?.ToString() ?? string.Empty);
 
@@ -38,14 +35,12 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 		if (NSThread.IsMain) {
 			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error));
 		} else {
-			// Must be async (BeginInvokeOnMainThread = waitUntilDone:false), NOT InvokeOnMainThread.
-			// PTY output arrives on the read thread; the matching input write runs on the main thread.
-			// A *synchronous* hop here blocks the read thread until the main thread is free — but if the
-			// main thread is parked in a blocking write() to a full PTY input buffer, that write can only
-			// drain once the child consumes stdin, which it can't do until its stdout is drained by this
-			// very read thread. That cycle is a hard deadlock (the macOS-only "blank + frozen terminal").
-			// Posting async keeps the read thread draining output unconditionally, mirroring the Windows
-			// HostBridge (webView.BeginInvoke), and the cycle never forms.
+			// Must be async (BeginInvokeOnMainThread), NOT synchronous InvokeOnMainThread. PTY output arrives
+			// on the read thread; the matching input write runs on the main thread. A synchronous hop blocks
+			// the read thread until the main thread is free — but if the main thread is parked in a blocking
+			// write() to a full PTY input buffer, that write can only drain once the child consumes stdin,
+			// which it can't until its stdout is drained by this very read thread: a hard deadlock (the
+			// "blank + frozen terminal"). Posting async keeps the read thread draining output unconditionally.
 			NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
 				webView.EvaluateJavaScript(script, (_, error) => LogIfError(error)));
 		}

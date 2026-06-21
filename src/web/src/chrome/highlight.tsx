@@ -1,10 +1,9 @@
 import { For, type JSX, Show } from "solid-js";
 
-// Render `text` with its fuzzy-matched characters wrapped in <mark class="tb-hl">. `positions` are
-// indices into the *whole* candidate string (e.g. the file's relative path); `sliceStart` is where
-// `text` begins within that candidate, so a row's leaf and dir — both slices of the same path — can be
-// highlighted from one shared set of positions. Adjacent matches coalesce into a single <mark> so a run
-// of hits is one DOM node rather than one per character.
+// Render `text` with its fuzzy-matched characters wrapped in <mark class="tb-hl">. `positions` are indices
+// into the whole candidate string; `sliceStart` is where `text` begins within it, so a row's leaf and dir
+// (both slices of the same path) highlight from one shared set of positions. Adjacent matches coalesce into a
+// single <mark>.
 export function highlightSlice(
   text: string,
   positions: Set<number> | undefined,

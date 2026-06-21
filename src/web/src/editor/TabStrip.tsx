@@ -7,13 +7,12 @@ import type { TabActions } from "./editor-controller";
 import { canonicalFsPath } from "./fs-path";
 import type { EditorSessionEntry } from "./session-types";
 
-// The structural fields the strip renders. Deliberately excludes view state, so the strip doesn't re-render
-// as the cursor/scroll updates the active tab's saved position.
+// The structural fields the strip renders. Excludes view state so cursor/scroll updates don't re-render it.
 interface TabView {
   path: string;
   preview: boolean;
   pinned: boolean;
-  // Unsaved changes: shows a `*` and stays until the (debounced, possibly error-gated) autosave reaches disk.
+  // Unsaved changes: shows a `*` until autosave reaches disk.
   dirty: boolean;
 }
 
@@ -23,10 +22,8 @@ function basename(path: string): string {
 }
 
 /**
- * The editor tab strip: one row per open file, mounted inside the editor pane (NOT a layout pane). Renders
- * from the tab store and drives the controller's tab actions. Mouse gestures manipulate tabs directly; the
- * right-click menu uses the shared command-driven ContextMenu, dispatching the editor-tab COMMANDS (so it's
- * consistent with the palette / Claude and advertises each action's shortcut).
+ * Editor tab strip: one row per open file. Mouse gestures drive the controller's tab actions directly; the
+ * right-click menu dispatches the editor-tab commands via the shared ContextMenu for palette/Claude parity.
  */
 export function TabStrip(props: {
   tabs: () => EditorSessionEntry[];
@@ -60,8 +57,8 @@ export function TabStrip(props: {
   );
   const active = createMemo(() => props.activePath());
 
-  // Right-click context menu, built for the right-clicked tab and rendered by the shared ContextMenu. Each row
-  // targets that tab via the command's `path` arg; keyboard / palette omit it to act on the active tab.
+  // Right-click menu targets the clicked tab via each command's `path` arg; keyboard/palette omit it to act
+  // on the active tab.
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const menuEntries = (view: TabView): ContextMenuEntry[] => {
     const args = { path: view.path };
@@ -101,7 +98,7 @@ export function TabStrip(props: {
                   onClick={() => props.actions.activate(view.path)}
                   onDblClick={() => props.actions.promote(view.path)}
                   onMouseDown={(event) => {
-                    // Middle-click closes (a familiar tab gesture); preventDefault avoids autoscroll.
+                    // Middle-click closes; preventDefault avoids autoscroll.
                     if (event.button === 1) {
                       event.preventDefault();
                       props.actions.close(view.path);

@@ -6,27 +6,24 @@ namespace Weavie.Core.Theming;
 
 /// <summary>
 /// Host-supplied native <c>.vsix</c> picker for the install-from-file command. Returns the chosen absolute
-/// path, or null if the user cancelled (a host without a picker passes null for the delegate itself).
+/// path, or null if the user cancelled.
 /// </summary>
 public delegate Task<string?> VsixFilePicker(CancellationToken ct);
 
 /// <summary>
-/// Wires the Core handlers for the theme <em>verb</em> commands declared in <see cref="CoreCommands"/>:
-/// install / install-from-file / select / cycle-mode / undo-override / reset. These are the theming actions
-/// that became commands (so they're reachable from the palette, a keybinding, and Claude's <c>runCommand</c>
-/// alike), while the data-shaped override editors and the read-only queries stay MCP tools. The handlers act
-/// on the app-global stores — appearance is the <c>theme.mode</c> / <c>theme.light</c> / <c>theme.dark</c>
-/// settings on <see cref="SettingsStore"/> (select routes by polarity + flips the mode; cycle-mode steps
-/// system → light → dark), the per-color tweaks live in <see cref="ThemeOverridesStore"/> — and install reads/writes the themes root
-/// via <see cref="OpenVsxThemeInstaller"/>. Both hosts call <see cref="RegisterHandlers"/> after building the
-/// session dispatcher, supplying a native file picker for the install-from-file flow.
+/// Wires the Core handlers for the theme verb commands in <see cref="CoreCommands"/>: install /
+/// install-from-file / select / cycle-mode / undo-override / reset. These are commands (reachable from the
+/// palette, a keybinding, and Claude's <c>runCommand</c>), while the override editors and read-only queries
+/// stay MCP tools. Appearance is the <c>theme.mode</c> / <c>theme.light</c> / <c>theme.dark</c> settings on
+/// <see cref="SettingsStore"/>; per-color tweaks live in <see cref="ThemeOverridesStore"/>; install
+/// reads/writes the themes root via <see cref="OpenVsxThemeInstaller"/>. Both hosts call
+/// <see cref="RegisterHandlers"/> after building the session dispatcher.
 /// </summary>
 public static class ThemeCommands {
 	/// <summary>
-	/// Registers the Core handlers for the theme verb commands onto <paramref name="dispatcher"/>.
-	/// <paramref name="pickVsixFile"/> supplies the native <c>.vsix</c> picker used when install-from-file is
-	/// run with no <c>path</c> argument (e.g. from the palette); pass null on a host without one (the command
-	/// then requires an explicit <c>path</c>).
+	/// Registers the theme verb command handlers onto <paramref name="dispatcher"/>.
+	/// <paramref name="pickVsixFile"/> supplies the native <c>.vsix</c> picker for install-from-file with no
+	/// <c>path</c> argument; pass null on a host without one (the command then requires an explicit <c>path</c>).
 	/// </summary>
 	public static void RegisterHandlers(
 		CommandDispatcher dispatcher,
@@ -77,8 +74,8 @@ public static class ThemeCommands {
 			path = GetString(args, "path");
 		}
 
-		// No explicit path → open the native picker (the palette/menu flow); an interactively-chosen theme is
-		// almost certainly what the user wants on screen now, so we activate a single contributed theme below.
+		// No explicit path → open the native picker (palette/menu flow). An interactively-chosen theme is almost
+		// certainly what the user wants on screen, so a single contributed theme is activated below.
 		bool interactive = false;
 		if (string.IsNullOrEmpty(path)) {
 			if (pickVsixFile is null) {
@@ -112,8 +109,8 @@ public static class ThemeCommands {
 			return CommandResult.Failure("Select needs an 'id' (use the listThemes tool to see available theme ids).");
 		}
 
-		// Route by the theme's polarity: a light theme fills the light slot, a dark theme the dark slot — and
-		// switch the mode to match, so selecting a theme puts you in that mode showing that theme right now.
+		// Route by polarity: a light theme fills the light slot, a dark theme the dark slot, and the mode
+		// switches to match so the selected theme shows immediately.
 		string? polarity = ThemePolarity(id);
 		if (polarity is null) {
 			return CommandResult.Failure($"Unknown theme '{id}'. Use the listThemes tool to see available themes.");
@@ -128,7 +125,7 @@ public static class ThemeCommands {
 		}
 	}
 
-	// Steps the appearance mode system → light → dark → system. A keybound, palette-visible, no-arg command.
+	// Steps the appearance mode system → light → dark → system.
 	private static CommandResult CycleMode(SettingsStore settings) {
 		string next = ThemeSettings.Mode(settings) switch {
 			"system" => "light",
@@ -149,8 +146,8 @@ public static class ThemeCommands {
 		}
 	}
 
-	// The polarity ("light"/"dark") a theme id belongs to: a built-in's declared type, or an installed theme's
-	// VS Code uiTheme ("vs"/"hc-light" → light; "vs-dark"/"hc-black" → dark). Null when the id is unknown.
+	// The polarity ("light"/"dark") of a theme id: a built-in's declared type, or an installed theme's VS Code
+	// uiTheme ("vs"/"hc-light" → light; otherwise dark). Null when the id is unknown.
 	private static string? ThemePolarity(string id) {
 		foreach (var (builtInId, _, type) in BuiltInThemes.All) {
 			if (builtInId == id) {
@@ -180,8 +177,8 @@ public static class ThemeCommands {
 			: $"Theme '{active}' had no overrides.");
 	}
 
-	// Shared install reporting: report what was added, and — for the interactive picker flow with a single
-	// contributed theme — activate it so it's on screen immediately. A path/Open VSX install stays inert.
+	// Shared install reporting: report what was added, and for the interactive picker flow with a single
+	// contributed theme, activate it immediately. A path/Open VSX install stays inert.
 	private static CommandResult DescribeInstall(
 		IReadOnlyList<InstalledTheme> installed, string source, SettingsStore settings, bool autoSelectSingle) {
 		if (installed.Count == 0) {
@@ -209,8 +206,8 @@ public static class ThemeCommands {
 		settings.Set(key, doc.RootElement);
 	}
 
-	// Parses the runCommand args object (raw JSON, possibly null/malformed) into a document to read string
-	// props from. Returns null on absent/invalid input; disposing a null `using` is a no-op.
+	// Parses the runCommand args object into a document to read string props from. Returns null on
+	// absent/invalid input; disposing a null `using` is a no-op.
 	private static JsonDocument? ParseArgs(string? argsJson) {
 		if (string.IsNullOrEmpty(argsJson)) {
 			return null;

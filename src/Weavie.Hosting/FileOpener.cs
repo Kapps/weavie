@@ -5,15 +5,15 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Loads a file from disk and pushes its contents to the Monaco editor to reveal at a line.
-/// Shared by clickable terminal file:line links and the MCP <c>openFile</c> tool. Relative paths
-/// resolve against the workspace.
+/// Loads a file from disk and pushes its contents to the Monaco editor to reveal at a line. Shared by
+/// clickable terminal file:line links and the MCP <c>openFile</c> tool; relative paths resolve against
+/// the workspace.
 /// </summary>
 public sealed class FileOpener {
 	private readonly SessionEditorChannel _channel;
 	private readonly IFileSystem _fileSystem;
 
-	/// <summary>Creates an opener that pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground), resolving relative paths against <paramref name="workspace"/>.</summary>
+	/// <summary>Pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground); relative paths resolve against <paramref name="workspace"/>.</summary>
 	public FileOpener(SessionEditorChannel channel, IFileSystem fileSystem, string workspace) {
 		ArgumentNullException.ThrowIfNull(channel);
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -26,11 +26,10 @@ public sealed class FileOpener {
 	public string Workspace { get; set; }
 
 	/// <summary>
-	/// Reads the file (relative paths resolve against <see cref="Workspace"/>) and pushes an
-	/// <c>open-file</c> message so Monaco loads it and reveals the given 1-based line; logs and
-	/// returns if the file does not exist. Opens a reusable preview tab when <paramref name="preview"/>
-	/// is set; otherwise a persistent tab. <paramref name="scratch"/> marks an untitled buffer (a fresh
-	/// New File, or a restored scratch) so the editor shows it as "Untitled-N".
+	/// Reads the file and pushes an <c>open-file</c> message so Monaco loads it and reveals the given
+	/// 1-based line; logs and returns if it doesn't exist. <paramref name="preview"/> opens a reusable
+	/// preview tab; <paramref name="scratch"/> marks an untitled buffer so the editor shows it as
+	/// "Untitled-N".
 	/// </summary>
 	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));

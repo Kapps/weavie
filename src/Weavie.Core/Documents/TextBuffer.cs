@@ -3,14 +3,13 @@ using System.Text;
 namespace Weavie.Core.Documents;
 
 /// <summary>
-/// A minimal text buffer implementing exactly the range math the document-model
-/// interface needs, with Monaco line/column semantics. Line endings are normalized
-/// to "\n" on input. This is deliberately tiny — it is a <em>substitute for</em>
-/// Monaco in T1 tests, not a reimplementation of it (Editor &amp; Shared Models:
-/// "keep the interface tiny so parity risk is bounded").
+/// A minimal text buffer with Monaco line/column semantics, implementing exactly the
+/// range math the document-model interface needs. Line endings are normalized to "\n"
+/// on input. Deliberately tiny — a substitute for Monaco, not a reimplementation, so
+/// parity risk stays bounded.
 /// </summary>
 public sealed class TextBuffer {
-	// Start offset of each line (0-based char offsets into _text). Rebuilt on mutation.
+	// 0-based char offset of each line start. Rebuilt on mutation.
 	private int[] _lineStarts;
 
 	/// <summary>Creates a buffer from <paramref name="initialText"/>, normalizing line endings to "\n".</summary>

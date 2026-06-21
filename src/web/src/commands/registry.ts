@@ -1,13 +1,13 @@
-// The web command registry: holds the catalog + resolved keybindings the host injected, lets web features
-// register handlers for their ids, and dispatches. Three triggers land here — keybindings (keybindings.ts),
-// the omnibar command palette (Omnibar.tsx), and the host's run-command (a web command Claude invoked over
-// MCP, which we run + ack). Core commands are forwarded to the host as invoke-command. See docs/specs/commands.md.
+// The web command registry: holds the host-injected catalog + resolved keybindings, lets web features
+// register handlers for their ids, and dispatches. Triggers: keybindings, the omnibar palette, and the
+// host's run-command (a web command Claude invoked over MCP). Core commands are forwarded to the host as
+// invoke-command. See docs/specs/commands.md.
 
 import { hostInjected, log, onHostMessage, postToHost } from "../bridge";
 import type { CommandInfo, ResolvedKeybinding } from "./types";
 
-// A web command handler. Return `false` to decline (let a keybinding's keystroke fall through to the
-// editor/terminal); anything else — including a Promise or undefined — consumes the event.
+// A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
+// anything else, including a Promise or undefined, consumes the event.
 export type CommandHandler = (args: unknown) => void | boolean | Promise<void>;
 
 let commands: CommandInfo[] = hostInjected("__WEAVIE_COMMANDS__", window.__WEAVIE_COMMANDS__, []);
@@ -44,7 +44,7 @@ export function findCommand(id: string): CommandInfo | undefined {
   return commands.find((c) => c.id === id);
 }
 
-/** Subscribe to catalog/keybinding changes (the host pushed an update); returns an unsubscribe function. */
+/** Subscribe to catalog/keybinding changes; returns an unsubscribe function. */
 export function onCommandsChanged(handler: () => void): () => void {
   changeSubscribers.add(handler);
   return () => changeSubscribers.delete(handler);
@@ -70,7 +70,7 @@ export function runForKeybinding(id: string, args: unknown): boolean {
     return false;
   }
   try {
-    // Only an explicit `false` declines; a Promise/undefined consumed the key.
+    // Only an explicit `false` declines; a Promise/undefined consumes the key.
     return handler(args) !== false;
   } catch (error) {
     log("error", `command '${id}' threw: ${String(error)}`);
@@ -104,7 +104,7 @@ export function dispatchCommand(id: string, args?: unknown): void {
 }
 
 // Host → web: catalog/keybinding push (live keybindings.json edit) + run-command (a web command Claude
-// invoked over MCP). For run-command we run the local handler and ack the outcome honestly.
+// invoked over MCP). For run-command we run the local handler and ack the outcome.
 onHostMessage((message) => {
   if (message.type === "commands") {
     commands = message.commands;

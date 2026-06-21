@@ -4,10 +4,9 @@ namespace Weavie.Core.Commands;
 
 /// <summary>
 /// The catalog of declared commands: register a <see cref="CommandDefinition"/> once and everything
-/// downstream (the MCP tool surface, keybinding defaults, the palette, NL mapping) is generated from
-/// it. Core registers its commands at startup via <see cref="CoreCommands"/>; future plugins contribute
-/// definitions the same way. Registration order is preserved for a stable catalog. Mirrors
-/// <c>SettingsRegistry</c> / <c>PaneRegistry</c>.
+/// downstream (the MCP tool surface, keybinding defaults, the palette, NL mapping) is generated from it. Core
+/// registers its commands at startup via <see cref="CoreCommands"/>. Registration order is preserved for a
+/// stable catalog.
 /// </summary>
 public sealed class CommandRegistry {
 	private readonly Dictionary<string, CommandDefinition> _byId = new(StringComparer.Ordinal);
@@ -42,8 +41,8 @@ public sealed class CommandRegistry {
 		return $"Unknown command '{id}'. Call listCommands for the exact ids.{tail}";
 	}
 
-	// Cheap "did you mean": registered ids that contain the unknown id's leaf segment, or share its
-	// namespace prefix. Good enough to nudge a near-miss without a full edit-distance pass.
+	// Cheap "did you mean": registered ids that contain the unknown id's leaf segment, or share its namespace
+	// prefix. Enough to nudge a near-miss without a full edit-distance pass.
 	private IReadOnlyList<string> Suggest(string id) {
 		int lastDot = id.LastIndexOf('.');
 		string leaf = lastDot >= 0 ? id[(lastDot + 1)..] : id;

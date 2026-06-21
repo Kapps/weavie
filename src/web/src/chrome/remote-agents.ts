@@ -2,9 +2,8 @@ import { createSignal } from "solid-js";
 import { connectBackend, log } from "../bridge";
 
 // A registered remote agent: a name plus how to reach its runner's control plane (the long-lived daemon on
-// the remote box). The runner mints the actual worker {url, token}; we resolve that on connect. Stored
-// client-side (localStorage) for now — a first cut so registration works without host plumbing; moving it to
-// a synced Weavie setting is a follow-up (see docs/specs/remote-sessions.md).
+// the remote box). The runner mints the actual worker {url, token}, resolved on connect. Stored client-side
+// in localStorage. See docs/specs/remote-sessions.md.
 export interface RemoteAgent {
   name: string;
   url: string; // the runner control-plane base URL (e.g. http://<tailscale-host>:8800)
@@ -52,8 +51,8 @@ export function connectStoredAgents(): void {
 }
 
 // Resolve the agent's worker bridge via the runner control plane, then wire it as a backend. The runner's
-// GET /backend ensures the (multi-session) worker is up and returns its page URL with its token; we derive the
-// bridge WebSocket URL from it.
+// GET /backend ensures the worker is up and returns its page URL with its token; the bridge WebSocket URL is
+// derived from it.
 async function connectAgent(agent: RemoteAgent): Promise<void> {
   const base = agent.url.replace(/\/+$/, "");
   try {

@@ -44,6 +44,33 @@ public sealed record PtyLaunchRequest {
 	/// the shell. The launcher just appends these to claude's command line in whatever form its OS needs.
 	/// </summary>
 	public IReadOnlyList<string> ClaudeSessionArguments { get; init; } = [];
+
+	/// <summary>
+	/// The ordered claude command-line flags (excluding the executable itself): <c>--mcp-config</c>,
+	/// <c>--settings</c>, <c>--append-system-prompt-file</c> for whichever paths are set, then the session
+	/// arguments. Both PTY launchers share this assembly; each renders it for its OS (a flat arg list on
+	/// Windows, folded into the login-shell exec string on POSIX).
+	/// </summary>
+	public IReadOnlyList<string> BuildClaudeArguments() {
+		var args = new List<string>();
+		if (!string.IsNullOrEmpty(McpConfigPath)) {
+			args.Add("--mcp-config");
+			args.Add(McpConfigPath);
+		}
+
+		if (!string.IsNullOrEmpty(SettingsFilePath)) {
+			args.Add("--settings");
+			args.Add(SettingsFilePath);
+		}
+
+		if (!string.IsNullOrEmpty(SystemPromptFilePath)) {
+			args.Add("--append-system-prompt-file");
+			args.Add(SystemPromptFilePath);
+		}
+
+		args.AddRange(ClaudeSessionArguments);
+		return args;
+	}
 }
 
 /// <summary>A resolved launch spec: what to spawn and with which environment overrides.</summary>

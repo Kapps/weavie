@@ -4,18 +4,16 @@ using Microsoft.AspNetCore.Http;
 namespace Weavie.Runner;
 
 /// <summary>
-/// The runner's auth'd control plane. Auth is enforced by a SINGLE default-deny middleware
-/// (<see cref="Map"/> registers it before any endpoint): every request must present the runner token
-/// (<c>Authorization: Bearer</c> or <c>?token=</c>) — so a new endpoint is gated automatically, with no
-/// per-route check to forget. CORS preflight (OPTIONS) is handled upstream and never reaches here. Each
-/// session's <c>url</c> is built against the request's own host, so reaching the runner at <c>box:9000</c>
-/// yields a backend URL at <c>box:&lt;port&gt;</c>.
+/// The runner's auth'd control plane. A single default-deny middleware (registered by <see cref="Map"/> before
+/// any endpoint) requires the runner token (<c>Authorization: Bearer</c> or <c>?token=</c>) on every request,
+/// so new endpoints are gated automatically. CORS preflight (OPTIONS) is handled upstream. Each backend
+/// <c>url</c> is built against the request's own host, so reaching the runner at <c>box:9000</c> yields a
+/// backend URL at <c>box:&lt;port&gt;</c>.
 /// </summary>
 internal static class ControlApi {
 	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options) {
-		// The one and only auth gate. Registered before the endpoints, so it runs first and covers them all
-		// (and anything added later). Unauthorized → 401 with a fixed hint body for every path (the body is a
-		// constant, never derived from the request — so the response isn't branched on user input).
+		// The one auth gate. Registered first, so it covers every endpoint (and any added later). Unauthorized
+		// → 401 with a constant hint body, never derived from the request.
 		app.Use(async (context, next) => {
 			if (Authorized(context, options)) {
 				await next().ConfigureAwait(false);
@@ -30,8 +28,7 @@ internal static class ControlApi {
 		app.MapGet("/", (HttpContext ctx) =>
 			Results.Content(PickerPage.Html(QueryToken(ctx) ?? string.Empty), "text/html; charset=utf-8"));
 
-		// Ensure the workspace backend is running and return its connect URL + status. The client opens the URL;
-		// inside it, New Session creates worktree sessions on the remote box via the shared HostCore.
+		// Ensure the workspace backend is running and return its connect URL + status.
 		app.MapGet("/backend", (HttpContext ctx) => {
 			var backend = backends.Ensure();
 			return Results.Json(new {

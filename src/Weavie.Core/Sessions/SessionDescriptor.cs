@@ -1,10 +1,9 @@
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The persisted description of one session in a workspace: its identity, the label shown on the rail
-/// (its branch, or the primary's branch), the working directory it is rooted at (a git worktree, or the
-/// workspace root for the primary), and whether it is the primary session. Runtime status is derived live
-/// by <see cref="SessionStatusMachine"/> and is not persisted.
+/// The persisted description of one session in a workspace: identity, rail label, working directory, and
+/// whether it is the primary session. Runtime status is derived live by <see cref="SessionStatusMachine"/>
+/// and is not persisted.
 /// </summary>
 public sealed record SessionDescriptor {
 	/// <summary>This session's stable identity.</summary>

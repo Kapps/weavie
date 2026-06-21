@@ -1,0 +1,146 @@
+/* Left session rail (SessionRail.tsx): one chip per session, status dots, and the remote-location badge. */
+
+/* Left session rail: one chip per session, always present (the "+" is how sessions are discovered).
+   A strip in the body row's flow — it takes its own width so the panes start to its right rather than
+   being clipped under an overlay. Chips carry a deterministic hue + monogram + status. */
+.session-rail {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 40px;
+  padding: 8px 0;
+  background: var(--bar);
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+.session-chip {
+  position: relative;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: 7px;
+  background: hsl(var(--chip-hue, 200) 45% 38%);
+  color: #fff;
+  font: 600 11px var(--ui-font);
+  opacity: 0.7;
+  cursor: pointer;
+}
+.session-chip.active {
+  opacity: 1;
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+/* A dormant (unloaded) worktree: surfaced so it can't leak, but no live backend — rendered faded, with no
+   status dot. Hovering brings it most of the way back so it reads as clickable (click loads it). */
+.session-chip.unloaded {
+  opacity: 0.35;
+}
+.session-chip.unloaded:hover {
+  opacity: 0.75;
+}
+.session-chip-mono {
+  pointer-events: none;
+}
+.session-chip-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--bar);
+  border-radius: 50%;
+  background: transparent;
+}
+.session-chip.status-idle .session-chip-dot {
+  background: var(--ok);
+}
+.session-chip.status-needsInput .session-chip-dot {
+  background: var(--warn);
+}
+.session-chip.status-error .session-chip-dot {
+  background: var(--bad);
+}
+.session-chip.status-working .session-chip-dot {
+  background: var(--busy);
+  animation: weavie-status-pulse 1.2s ease-in-out infinite;
+}
+.session-chip.status-starting .session-chip-dot {
+  background: var(--busy);
+}
+.session-rail-add {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border: 1px dashed var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dim);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+.session-rail-add:hover {
+  color: var(--fg);
+  border-color: var(--dim);
+}
+
+/* Per-session Claude status dot in the pane head: a small filled circle whose color tracks status
+   (idle = calm green, working = pulsing busy, needsInput = amber, error = red, starting = faint). */
+.session-status {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: var(--dim);
+}
+.session-status.status-idle {
+  background: var(--ok);
+}
+.session-status.status-needsInput {
+  background: var(--warn);
+}
+.session-status.status-error {
+  background: var(--bad);
+}
+.session-status.status-working {
+  background: var(--busy);
+  animation: weavie-status-pulse 1.2s ease-in-out infinite;
+}
+.session-status.status-starting {
+  background: var(--busy);
+  opacity: 0.6;
+}
+@keyframes weavie-status-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* A remote session's chip carries a small location badge (the agent name) so local vs remote reads at a glance. */
+.session-chip.remote {
+  position: relative;
+}
+
+.session-chip-loc {
+  position: absolute;
+  bottom: -0.35em;
+  left: 50%;
+  transform: translateX(-50%);
+  max-width: 4.5em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 0 0.3em;
+  background: var(--accent);
+  color: var(--bg);
+  border-radius: 6px;
+  font-size: 0.55em;
+  line-height: 1.4;
+}

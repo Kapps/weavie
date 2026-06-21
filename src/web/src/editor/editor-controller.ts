@@ -1,14 +1,19 @@
 // Owns the Monaco editor lifecycle and all diff/review orchestration on App's behalf: the deferred
-// editor-chunk load (kept off the first-paint path), the openDiff inline-review handshake, and the inline
-// diffs for applied turns and session-change browsing. App wires this to host messages and commands; the
-// editor host + inline-diff layer it drives live in editor-host.ts / inline-diff.ts.
+// editor-chunk load, the openDiff inline-review handshake, and the inline diffs for applied turns and
+// session-change browsing. App wires this to host messages and commands; the editor host + inline-diff layer
+// it drives live in editor-host.ts / inline-diff.ts.
 
 import { type WebBoundMessage, log, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
-import { type InlineDiff, createInlineDiff, firstChangedLine } from "./inline-diff";
+import {
+  type HunkRevert,
+  type InlineDiff,
+  createInlineDiff,
+  firstChangedLine,
+} from "./inline-diff";
 import {
   type ActivateResult,
   activateTab,
@@ -28,21 +33,21 @@ import type { EditorSessionEntry } from "./session-types";
 const EDITOR_INIT_MS = 15_000;
 
 export interface EditorControllerDeps {
-  /** Surface a debounced save that failed to reach disk (never a silent drop). */
+  /** Surface a debounced save that failed to reach disk. */
   onSaveError: (message: string) => void;
   /** Report the file the editor is showing so the browser / title bar can track it. */
   onCurrentFileChanged: (path: string | null) => void;
   /**
-   * Ask the user to confirm discarding unsaved scratch buffers about to be closed (named by `names`). Resolves
-   * true to proceed with the close, false to abort it. The single guard every close path runs through.
+   * Confirm discarding unsaved scratch buffers about to be closed (named by `names`). Resolves true to
+   * proceed, false to abort. The single guard every close path runs through.
    */
   confirmDiscard: (names: string[]) => Promise<boolean>;
 }
 
 /**
  * One changed file in the post-turn review set (the host's `turn-changes` payload): path + line counts plus
- * the 1-based line of its first change, so opening it lands the editor on that first diff. The review surface
- * is the inline toolbar's ← / → file axis — there is no separate panel.
+ * the 1-based line of its first change, so opening it lands on that first diff. The review surface is the
+ * inline toolbar's ← / → file axis.
  */
 export interface ReviewFile {
   path: string;
@@ -66,13 +71,13 @@ export interface InlineDiffActions {
 
 /**
  * Tab operations, exposed so commands (keybindings / palette / Claude) and the tab strip drive the tab set.
- * The targeted operations default to the active tab when `path` is omitted — the keyboard / palette acts on
- * the active tab, the context menu passes the right-clicked tab.
+ * Targeted operations default to the active tab when `path` is omitted; the context menu passes the
+ * right-clicked tab.
  */
 export interface TabActions {
   /** Switch to an already-open tab, restoring its saved view state. */
   activate(path: string): void;
-  /** Close a tab (any state — may close a pinned tab when invoked on it explicitly). Defaults to active. */
+  /** Close a tab (any state — may close a pinned tab when invoked on it explicitly). Default active. */
   close(path?: string): void;
   /** Close all non-pinned tabs. */
   closeAll(): void;
@@ -82,11 +87,11 @@ export interface TabActions {
   closeToLeft(path?: string): void;
   /** Close non-pinned tabs to the right of `path` (default active). */
   closeToRight(path?: string): void;
-  /** Pin or unpin a tab — default active (pinning promotes a preview tab and floats it furthest-left). */
+  /** Pin or unpin a tab (default active); pinning promotes a preview tab and floats it furthest-left. */
   togglePin(path?: string): void;
   /** Promote a preview tab to persistent (default active). */
   promote(path?: string): void;
-  /** Activate the next / previous tab in visual order, wrapping. Returns false if there's nothing to step to. */
+  /** Activate the next / previous tab in visual order, wrapping. False if there's nothing to step to. */
   next(): boolean;
   prev(): boolean;
 }
@@ -94,7 +99,7 @@ export interface TabActions {
 export interface EditorController {
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
-  /** Opens a file (as a preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
+  /** Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
   openFile(path: string, line: number, preview?: boolean): void;
   /** Handles an editor-related host message; returns false for messages this controller doesn't own. */
   handleMessage(message: WebBoundMessage): boolean;
@@ -105,8 +110,8 @@ export interface EditorController {
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
   save(): boolean;
   /**
-   * Update the post-turn review set (the host's `turn-changes` files), used to drive the inline toolbar's
-   * ← / → file walk. Pushed by App on each `turn-changes`; empty when there's nothing to review.
+   * Update the post-turn review set (the host's `turn-changes` files) that drives the inline toolbar's ← / →
+   * file walk. Pushed by App on each `turn-changes`; empty when there's nothing to review.
    */
   setReviewFiles(files: ReviewFile[]): void;
   /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
@@ -123,19 +128,46 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let initTimer: number | undefined;
   // An open-file request that arrived before the editor was ready; replayed when it is.
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
-  // The post-turn review set (host `turn-changes`): the files Claude changed since the last review, in
-  // document order. Drives the inline toolbar's ← / → file walk; empty when there's nothing to review.
+  // The post-turn review set (host `turn-changes`): files Claude changed since the last review, in document
+  // order. Drives the inline toolbar's ← / → file walk; empty when there's nothing to review.
   let reviewFiles: ReviewFile[] = [];
-  // The openDiff under inline review. openDiff blocks per-edit, so at most one is live at a time. `reviewUri`
-  // is the transient review model's URI the inline diff is keyed by (review never touches the real file).
+  // Per-hunk Keep marks, keyed by path → reviewed hunk signatures. Web-only; persists across reopening a file
+  // and across a revert's diff recompute (signatures are stable). Cleared on a turn-reset.
+  const reviewMarks = new Map<string, Set<string>>();
+  // Per-file hunk signatures last rendered (document order), so the Keep walk can tell which files still have
+  // pending hunks without re-deriving each file's geometry.
+  const fileHunks = new Map<string, string[]>();
+
+  const isHunkReviewed = (path: string, signature: string): boolean =>
+    reviewMarks.get(path)?.has(signature) ?? false;
+  const markHunkReviewed = (path: string, signature: string): void => {
+    let marks = reviewMarks.get(path);
+    if (marks === undefined) {
+      marks = new Set<string>();
+      reviewMarks.set(path, marks);
+    }
+    marks.add(signature);
+  };
+  // Whether a file still has a pending (un-kept) hunk. A file whose geometry hasn't been seen is treated as
+  // pending (so the walk opens it to find out); once seen, it's pending iff some signature isn't marked.
+  const fileHasPending = (path: string): boolean => {
+    const signatures = fileHunks.get(path);
+    if (signatures === undefined) {
+      return true;
+    }
+    const marks = reviewMarks.get(path);
+    return signatures.some((signature) => !(marks?.has(signature) ?? false));
+  };
+  // The openDiff under inline review (at most one is live at a time, since openDiff blocks). `reviewUri` is
+  // the transient review model's URI the inline diff is keyed by.
   let activeReview:
     | {
         id: string;
         path: string;
         original: string;
         reviewUri: string | undefined;
-        // We opened a tab for the reviewed file purely to show the proposal (it wasn't already open). On reject
-        // — for a brand-new file, the file was never created — drop that tab again and return to `priorActive`.
+        // A tab was opened purely to show the proposal (the file wasn't already open). On reject, drop it
+        // again and return to `priorActive`.
         addedTab: boolean;
         // The tab that was active before the review, restored if we drop an `addedTab` on reject/cancel.
         priorActive: string | null;
@@ -143,14 +175,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     | undefined;
 
   // Show whichever tab a store mutation just made active. The controller is the single translator of "active
-  // tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco. The working
-  // copy resolves its content from disk through the file provider, so no content is passed.
+  // tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
   const applyActive = (result: ActivateResult): void => {
     deps.onCurrentFileChanged(result.path);
-    // Don't clobber an in-progress review: the reviewed file is made the active tab (so the strip + title name
-    // what's under review), but the editor is showing the TRANSIENT review model keyed by its own URI —
-    // re-showing the file's working copy here would drop the diff. The guard lets that tab become/stay active
-    // without a model swap; the review model is restored off the editor only by resolveReview → endReview.
+    // Don't clobber an in-progress review: the reviewed file is the active tab (so the strip + title name what's
+    // under review), but the editor shows the transient review model — re-showing the working copy here would
+    // drop the diff. The review model is restored off the editor only by resolveReview → endReview.
     if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
       return;
     }
@@ -159,7 +189,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const openFile = (path: string, line: number, preview = false, scratch = false): void => {
     if (host === undefined) {
-      deps.onCurrentFileChanged(path); // optimistic; the editor chunk isn't up yet to show it
+      deps.onCurrentFileChanged(path); // optimistic; the editor chunk isn't up yet
       pendingOpen = { path, line, preview, scratch };
       return;
     }
@@ -178,8 +208,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   const basename = (path: string): string => path.split(/[\\/]/).pop() ?? path;
 
-  // True if `path` is a scratch (untitled) buffer holding real content — the only kind of tab whose close can
-  // lose unsaved work (real files autosave; editing a preview promotes it, so it's never silently dropped).
+  // True if `path` is a scratch (untitled) buffer holding real content — the only tab whose close can lose
+  // unsaved work, since real files autosave.
   const isDirtyScratch = (path: string): boolean => {
     const entry = openTabs().find((tab) => tab.path === path);
     if (entry?.scratch !== true) {
@@ -188,8 +218,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return (host?.contentOf(path) ?? "").trim().length > 0;
   };
 
-  // The ONE guard every close path runs through: if any doomed tab is an unsaved scratch, confirm once before
-  // closing. Resolves true to proceed, false to abort the whole close. Empty scratches need no confirm.
+  // The one guard every close path runs through: if any doomed tab is an unsaved scratch, confirm once before
+  // closing. Resolves true to proceed, false to abort. Empty scratches need no confirm.
   const guardDiscard = async (doomed: string[]): Promise<boolean> => {
     const dirty = doomed.filter(isDirtyScratch);
     if (dirty.length === 0) {
@@ -198,8 +228,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return deps.confirmDiscard(dirty.map(basename));
   };
 
-  // Release a closed tab's working copy. A scratch tab is DISCARDED — its model is dropped without flushing and
-  // the host deletes its temp file; a real file flushes its pending save first.
+  // Release a closed tab's working copy. A scratch tab is discarded — its model is dropped without flushing
+  // and the host deletes its temp file; a real file flushes its pending save first.
   const releaseClosed = (path: string, scratch: boolean): void => {
     if (scratch) {
       host?.closeFile(path, true);
@@ -209,8 +239,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  // Close every tab matching `predicate` (closeMany skips pinned). Guards unsaved scratch work FIRST (one
-  // confirm for the batch), then — if the active tab was among them — switches to the surviving neighbor before
+  // Close every tab matching `predicate` (closeMany skips pinned). Guards unsaved scratch work first (one
+  // confirm for the batch), then switches to the surviving neighbor (if the active tab was among them) before
   // releasing each closed working copy. Async because the discard confirm is.
   const closeBy = async (predicate: (entry: EditorSessionEntry) => boolean): Promise<void> => {
     const doomed = openTabs().filter((entry) => predicate(entry) && entry.pinned !== true);
@@ -234,8 +264,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   const closeTabAction = async (path: string): Promise<void> => {
-    // `path` may arrive from the host (Claude's close_tab) spelled differently than the stored key, so match by
-    // normalized identity, then operate on the entry's own stored path for every downstream lookup.
+    // `path` may arrive from the host (Claude's close_tab) spelled differently than the stored key, so match
+    // by normalized identity, then operate on the entry's own stored path downstream.
     const entry = openTabs().find((tab) => samePath(tab.path, path));
     if (entry === undefined || !(await guardDiscard([entry.path]))) {
       return;
@@ -252,8 +282,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     releaseClosed(result.disposed, scratch);
   };
 
-  // Step through tabs in visual order, wrapping. Returns false (declines the keybinding so it falls through to
-  // the editor) when there's nothing to step to.
+  // Step through tabs in visual order, wrapping. Returns false (so the keybinding falls through to the editor)
+  // when there's nothing to step to.
   const step = (delta: number): boolean => {
     const list = openTabs();
     if (list.length < 2) {
@@ -345,16 +375,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     activeReview = undefined;
-    // endReview returns the proposal's final (possibly tweaked) content, which Claude writes to disk on keep,
-    // and restores the editor off the transient review model. The review never dirtied the file working copy.
+    // endReview returns the proposal's final content (which Claude writes to disk on keep) and restores the
+    // editor off the transient review model. The review never dirtied the working copy.
     const finalContents = host?.endReview(review.path, keep, review.original) ?? "";
     if (review.reviewUri !== undefined) {
       inlineDiff?.clearByUri(review.reviewUri);
     }
-    // A rejected proposal whose tab we'd opened just to review it (a brand-new file was never created; an
-    // existing file we only surfaced): drop that tab and fall back to the previously-active one. endReview has
-    // already put the editor back, so this is a store-only fixup. A kept file stays open — for a new file it
-    // becomes a real working copy when next opened, after Claude's write lands.
+    // A rejected proposal whose tab was opened just to review it: drop it and fall back to the previously
+    // active tab (a store-only fixup; endReview already restored the editor). A kept file stays open.
     if (!keep && review.addedTab) {
       dropReviewTab(review.path, review.priorActive);
     }
@@ -367,11 +395,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     });
   };
 
-  // Brings up the editor off the first-paint path. The splash is held over everything until the editor is
-  // ready, then faded once — so the editor's first paint happens *under* the splash and the reveal shows a
-  // settled UI. We fade on a DETERMINISTIC outcome only: editor ready, or a real failure (chunk load, editor
-  // crash, or an init that never settles within EDITOR_INIT_MS) — which rejects LOUDLY, then frees the splash
-  // so the already-working terminals aren't trapped. No silent timer that dismisses while pretending success.
+  // Brings up the editor off the first-paint path. The splash is held until the editor is ready, then faded
+  // once, so the first paint happens under the splash and the reveal shows a settled UI. Fade on a
+  // deterministic outcome only: editor ready, or a real failure (chunk load, crash, or an init that never
+  // settles within EDITOR_INIT_MS), which then frees the splash so the working terminals aren't trapped.
   const start = (container: HTMLElement): void => {
     const editorReady = import("./editor-host").then(({ createEditorHost }) =>
       createEditorHost(container, deps.onSaveError),
@@ -391,8 +418,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           pendingOpen = undefined;
           openFile(path, line, preview, scratch);
         }
-        // Reflect whatever file the editor ended up showing — a replayed pending-open, or a hot-reload
-        // restore of the previously-open file — so the browser / title bar track it.
+        // Reflect whatever file the editor ended up showing (a replayed pending-open, or a hot-reload restore)
+        // so the browser / title bar track it.
         const model = created.editor.getModel();
         if (model !== null && model.uri.scheme === "file") {
           deps.onCurrentFileChanged(model.uri.fsPath);
@@ -407,18 +434,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       });
   };
 
-  // Open a review file landed on its first change, as a PREVIEW tab so walking the set with ← / → reuses one
-  // tab instead of piling them up. Re-requests the file's turn-diff so its inline applied markers render even
-  // if the per-file turn-diff push was missed (then the toolbar's file-nav is built from `reviewFiles`).
+  // Open a review file landed on its first change, as a preview tab so walking the set with ← / → reuses one
+  // tab. Re-requests the file's turn-diff so its inline applied markers render even if the push was missed.
   const openReviewFile = (file: ReviewFile): void => {
     openFile(file.path, file.line, true);
     postToHost({ type: "get-turn-diff", path: file.path });
   };
 
-  // Step the FILE axis of the review walk: from the file currently shown, move to its neighbour in the review
-  // set (wrapping) and open it at its first change. Returns false (declines the keybinding → falls through to
-  // the editor, so $mod+Left/Right keep word-nav) when there's no multi-file review or the active file isn't
-  // in it.
+  // Step the file axis of the review walk: from the file shown, move to its neighbour (wrapping) and open it
+  // at its first change. Returns false (so $mod+Left/Right keep word-nav) when there's no multi-file review or
+  // the active file isn't in it.
   const stepReviewFile = (delta: number): boolean => {
     if (reviewFiles.length < 2) {
       return false;
@@ -436,15 +461,48 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
+  // The Keep walk reached the end of a file's pending hunks: open the next file (document order, wrapping)
+  // that still has a pending hunk, landing on its first change. Skips fully-kept files; opens an unseen file
+  // (its pending state is unknown until rendered). No-op when nothing pending remains.
+  const advanceToNextPendingFile = (fromPath: string): void => {
+    if (reviewFiles.length === 0) {
+      return;
+    }
+    const idx = reviewFiles.findIndex((f) => samePath(f.path, fromPath));
+    const start = idx === -1 ? 0 : idx;
+    for (let step = 1; step <= reviewFiles.length; step++) {
+      const candidate = reviewFiles[(start + step) % reviewFiles.length];
+      if (candidate === undefined || samePath(candidate.path, fromPath)) {
+        continue;
+      }
+      if (fileHasPending(candidate.path)) {
+        openReviewFile(candidate);
+        return;
+      }
+    }
+  };
+
+  // Flush the file's pending save (so the host's guard reads current content), then ask the host to revert
+  // just this hunk on disk. The host re-emits the file's diff (or an fs-change removal for a created file
+  // emptied by the revert), which re-renders without the reverted hunk.
+  const revertHunk = (path: string, hunk: HunkRevert): void => {
+    const send = (): void => postToHost({ type: "reject-hunk", path, ...hunk });
+    const flushed = host?.flush(path);
+    if (flushed === undefined) {
+      send();
+    } else {
+      void flushed.then(send, send);
+    }
+  };
+
   const handleMessage = (message: WebBoundMessage): boolean => {
     switch (message.type) {
       case "show-diff": {
-        // Render Claude's openDiff proposal INLINE over a TRANSIENT review model (the real file working copy
-        // is never touched): the editor shows `proposed`, diffed vs `original`, with a Keep/Reject toolbar.
+        // Render Claude's openDiff proposal inline over a transient review model (the real working copy is
+        // never touched): the editor shows `proposed`, diffed vs `original`, with a Keep/Reject toolbar.
         const priorActive = activePath();
         const wasOpen = openTabs().some((tab) => samePath(tab.path, message.path));
-        // Reveal the proposal at its first changed hunk, not the top of the file (a one-line tweak deep in a
-        // long file would otherwise open scrolled to line 1, hiding the change).
+        // Reveal the proposal at its first changed hunk, not the top of the file.
         const reviewUri = host?.beginReview(
           message.path,
           message.proposed,
@@ -458,9 +516,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           addedTab: !wasOpen,
           priorActive,
         };
-        // Make the reviewed file the active tab so the tab strip + title name what's under review, rather than
-        // leaving the previously-open file selected. activeReview is set first, so applyActive's guard keeps the
-        // transient review model showing instead of swapping in the file's working copy.
+        // Make the reviewed file the active tab so the tab strip + title name what's under review. activeReview
+        // is set first, so applyActive's guard keeps the transient review model showing.
         applyActive(openTab(message.path));
         if (reviewUri !== undefined) {
           inlineDiff?.setByUri(reviewUri, {
@@ -474,8 +531,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return true;
       }
       case "close-diff":
-        // Host cancelled the openDiff: tear the review down without replying — the host's awaiting task is
-        // already cancelled. Treated like a reject: drop a tab we'd opened just to review, then re-sync title.
+        // Host cancelled the openDiff: tear the review down without replying (the host's awaiting task is
+        // already cancelled). Treated like a reject: drop a tab opened just to review, then re-sync title.
         if (activeReview?.id === message.id) {
           const review = activeReview;
           activeReview = undefined;
@@ -490,11 +547,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         return true;
       case "set-editor-session":
-        // A session switch pushed a different session's tab set. The session store (imported at App's top
-        // level) has already flipped its signal to the incoming session, so rebind the editor: release the
-        // previous session's working copies and reopen the new active tab. On launch this message arrives
-        // before the editor chunk is up (host === undefined) — restoreSession in createEditorHost covers
-        // that case, so there's nothing to do here.
+        // A session switch pushed a different session's tab set; the session store has already flipped its
+        // signal to the incoming session, so rebind the editor. On launch this arrives before the editor chunk
+        // is up (host === undefined), which restoreSession in createEditorHost covers.
         if (host !== undefined) {
           void host.rebindSession().then(() => deps.onCurrentFileChanged(activePath()));
         }
@@ -504,11 +559,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return true;
       case "scratch-saved": {
         // The host saved a scratch buffer under a real name (and deleted its temp file). Either convert the
-        // tab to the saved file or — when it was saved outside the workspace (the host warned via a toast) —
-        // drop the scratch tab; THEN release the scratch model (without flushing — its temp is gone). Switching
-        // the editor to the new model before disposing the old mirrors the close path's ordering.
+        // tab to the saved file or (when saved outside the workspace) drop the scratch tab, then release the
+        // scratch model without flushing. Switch the editor to the new model before disposing the old.
         if (message.savedPath === "") {
-          return true; // the user cancelled the save dialog; leave the scratch tab as-is
+          return true; // the user cancelled the save dialog
         }
         if (message.reopen) {
           const result = convertScratch(message.scratchPath, message.savedPath);
@@ -526,17 +580,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return true;
       }
       case "close-tab":
-        // Claude's close_tab MCP tool: the host resolved the tab name to our path key; close that tab.
+        // Claude's close_tab MCP tool: the host resolved the tab name to our path key.
         tabs.close(message.path);
         return true;
       case "turn-diff": {
-        // Inline diff of this turn's changes, shown in the live editor. Equal baseline/current = no markers.
+        // Inline diff of this turn's changes. Equal baseline/current = no markers.
         if (message.baseline === message.current) {
           inlineDiff?.clear(message.path);
           return true;
         }
-        // The toolbar's ← / → file axis: only when more than one file is under review AND this file is in the
-        // set, so a single-file review (or a stray diff) leaves $mod+Left/Right as editor word-nav.
+        // The toolbar's ← / → file axis: only when more than one file is under review and this file is in the
+        // set, so a single-file review leaves $mod+Left/Right as editor word-nav.
         const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
         const fileNav =
           reviewFiles.length > 1 && idx !== -1
@@ -556,28 +610,66 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           original: message.baseline,
           claudeVersion: message.current,
           mode: "applied",
-          onAccept: () => postToHost({ type: "accept-turn" }),
+          onKeepHunk: (signature) => markHunkReviewed(message.path, signature),
+          isReviewed: (signature) => isHunkReviewed(message.path, signature),
+          onRevertHunk: (hunk) => revertHunk(message.path, hunk),
+          onKeepAll: () => postToHost({ type: "accept-turn" }),
           onUndo: () => postToHost({ type: "undo-turn" }),
+          onHunks: (signatures) => {
+            fileHunks.set(message.path, signatures);
+          },
+          onAdvanceFile: () => advanceToNextPendingFile(message.path),
           ...fileNav,
         });
         return true;
       }
       case "turn-reset":
+        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers and the
+        // web-side review state so a fresh set starts clean.
         inlineDiff?.clearAll();
+        reviewMarks.clear();
+        fileHunks.clear();
         return true;
+      case "fs-change": {
+        // A revert that deleted a created file (or any host-side deletion) lands here. Close a deleted file's
+        // tab cleanly — switch off it and discard its working copy without flushing — before the file provider
+        // fires its DELETED event, so no "Unable to read file" toast shows. Returns false: the provider still
+        // needs to reload updated files.
+        for (const change of message.changes) {
+          if (change.kind !== "deleted") {
+            continue;
+          }
+          // A deleted file can't be opened, so drop it from the ← / → review walk — otherwise stepReviewFile
+          // lands on a path that no longer resolves and navigation stalls. The host also re-pushes a corrected
+          // turn-changes; pruning here keeps the set consistent in the gap before it arrives.
+          reviewFiles = reviewFiles.filter((file) => !samePath(file.path, change.path));
+          inlineDiff?.clear(change.path);
+          const entry = openTabs().find((tab) => samePath(tab.path, change.path));
+          if (entry === undefined) {
+            continue;
+          }
+          const wasActive = activePath() === entry.path;
+          const result = closeTab(entry.path);
+          if (result !== null && wasActive) {
+            applyOrClear(result.next);
+          }
+          host?.closeFile(entry.path, true);
+        }
+        return false;
+      }
       default:
         return false;
     }
   };
 
-  // New File: ask the host to create a scratch buffer; it comes back as an open-file with `scratch: true`.
+  // Ask the host to create a scratch buffer; it comes back as an open-file with `scratch: true`.
   const newFile = (): void => {
     postToHost({ type: "new-scratch" });
   };
 
-  // Save the active editor. A scratch buffer is sent to the host to save under a real name (a native dialog;
-  // its pending autosave is cancelled first so nothing re-creates the temp while the dialog is open). A real
-  // file is already autosaved, so this just consumes the key. Returns true either way (Ctrl+S is handled).
+  // Save the active editor. A scratch buffer is sent to the host to save under a real name via a native dialog
+  // (its pending autosave is cancelled first so nothing re-creates the temp). A real file is already
+  // autosaved, so this just consumes the key. Returns true either way.
   const save = (): boolean => {
     const path = activePath();
     if (path === null) {

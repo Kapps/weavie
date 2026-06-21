@@ -12,20 +12,15 @@ public readonly record struct FileProviderChange(string Path, string Kind);
 
 /// <summary>
 /// Builds the host→web JSON for the editor's host-backed <c>file://</c> provider — the channel through which
-/// Monaco's VSCode working copies read and write the real disk (see
-/// <c>docs/concepts/mcp-registry.md</c> sibling concept and the editor file-management spec). Both the
-/// Windows and macOS hosts emit byte-identical payloads from here (single source of truth, mirroring
-/// <c>Changes/ChangeMessages.cs</c>). Built with <see cref="Utf8JsonWriter"/> rather than
-/// <c>JsonSerializer</c> so the builders stay trim-safe on the macOS target (the reflection serializer is
-/// IL2026-unsafe there). Shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
+/// Monaco's working copies read and write real disk. Built with <see cref="Utf8JsonWriter"/> rather than
+/// <c>JsonSerializer</c> so the builders stay trim-safe on macOS (the reflection serializer is IL2026-unsafe
+/// there). Shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
 /// </summary>
 public static class FileProviderProtocol {
 	/// <summary>
 	/// Reply to <c>fs-stat</c>: existence + kind + mtime/ctime (ms since epoch) + size. A non-existent path is
 	/// a normal answer (<c>exists:false</c>), not an error — the provider turns that into a FileNotFound throw.
 	/// </summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="stat">The file's metadata (default/absent when nothing exists at the path).</param>
 	public static string StatResult(string id, FileStat stat) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		return Build(writer => {
@@ -41,9 +36,6 @@ public static class FileProviderProtocol {
 	}
 
 	/// <summary>Reply to <c>fs-read</c> with the file's content and post-read stat (so the provider sets its etag).</summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="content">The file's UTF-8 text.</param>
-	/// <param name="stat">The file's metadata for the etag.</param>
 	public static string ReadResult(string id, string content, FileStat stat) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(content);
@@ -61,7 +53,6 @@ public static class FileProviderProtocol {
 	/// Reply to <c>fs-read</c> for a missing (or out-of-workspace) path: <c>code:"FileNotFound"</c>, which the
 	/// provider raises as a coded FileNotFound error so the overlay falls through to its empty in-memory layer.
 	/// </summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
 	public static string ReadNotFound(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		return Build(writer => {
@@ -77,8 +68,6 @@ public static class FileProviderProtocol {
 	/// <c>FileNotFound</c> code, so the provider raises an Unknown error that propagates loudly rather than
 	/// silently falling through — a real failure must stay observable.
 	/// </summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="error">A human-readable failure message.</param>
 	public static string ReadError(string id, string error) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(error);
@@ -91,8 +80,6 @@ public static class FileProviderProtocol {
 	}
 
 	/// <summary>Reply to <c>fs-write</c> with the post-write stat so the provider updates its etag without re-statting.</summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="stat">The file's metadata after the write.</param>
 	public static string WriteResult(string id, FileStat stat) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		return Build(writer => {
@@ -105,8 +92,6 @@ public static class FileProviderProtocol {
 	}
 
 	/// <summary>Reply to <c>fs-write</c> for a failed write (out-of-workspace or IO error); the provider rejects the save.</summary>
-	/// <param name="id">The request id to correlate the reply with.</param>
-	/// <param name="error">A human-readable failure message.</param>
 	public static string WriteError(string id, string error) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(error);
@@ -143,10 +128,9 @@ public static class FileProviderProtocol {
 		Changes([new FileProviderChange(path, kind)]);
 
 	/// <summary>
-	/// Builds an <c>fs-change</c> push from a workspace-watcher batch: each <c>file://</c> URI is mapped back to
-	/// a native path and each <see cref="FileChangeKind"/> to its web kind. Used by both hosts to forward
-	/// non-Claude on-disk edits to the provider. Returns <see langword="null"/> when nothing maps (so the host
-	/// skips an empty post).
+	/// Builds an <c>fs-change</c> push from a workspace-watcher batch: each <c>file://</c> URI mapped back to a
+	/// native path and each <see cref="FileChangeKind"/> to its web kind, forwarding non-Claude on-disk edits to
+	/// the provider. Returns <see langword="null"/> when nothing maps (so the host skips an empty post).
 	/// </summary>
 	/// <param name="changes">The watcher's debounced change batch.</param>
 	public static string? WatchedChanges(IReadOnlyList<WatchedFileChange> changes) {

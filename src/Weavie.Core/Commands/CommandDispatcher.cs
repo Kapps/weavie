@@ -5,11 +5,10 @@ public delegate Task<CommandResult> WebCommandInvoker(string id, string? argsJso
 
 /// <summary>
 /// Routes a command invocation to its handler: a registered Core handler for a
-/// <see cref="CommandLocation.Core"/> command, or the host-supplied <see cref="WebInvoker"/> (which
-/// posts a <c>run-command</c> over the bridge and awaits the web's <c>command-ack</c>) for a
+/// <see cref="CommandLocation.Core"/> command, or the host-supplied <see cref="WebInvoker"/> for a
 /// <see cref="CommandLocation.Web"/> command. Both <c>runCommand</c> (MCP) and the web's
-/// <c>invoke-command</c> bridge message land here. Mirrors the <c>SettingsRegistry</c> (catalog) /
-/// <c>SettingsStore</c> (behavior) split: <see cref="CommandRegistry"/> is the catalog, this is the behavior.
+/// <c>invoke-command</c> bridge message land here. <see cref="CommandRegistry"/> is the catalog; this is the
+/// behavior.
 /// </summary>
 public sealed class CommandDispatcher {
 	private readonly Dictionary<string, Func<string?, CancellationToken, Task<CommandResult>>> _handlers =

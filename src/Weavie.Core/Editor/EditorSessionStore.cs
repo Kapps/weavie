@@ -6,11 +6,10 @@ namespace Weavie.Core.Editor;
 /// <summary>
 /// Loads, persists, and serves the per-workspace editor session at
 /// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The host owns one per workspace window; the
-/// web is the only writer (the user opens files / moves the cursor → debounced <c>editor-session-changed</c>
-/// → <see cref="Update"/>), and on launch the host reads disk and pushes <see cref="BuildRestoreJson(string)"/> so
-/// the editor reopens its files at their saved positions. Writes are atomic; a malformed file is backed up
-/// to <c>editor-session.json.bad</c> and reset. Modeled on <c>LayoutStore</c>; sibling of
-/// <see cref="EditorStore"/>. See <c>docs/specs/editor-session.md</c>.
+/// web is the only writer (opening files / moving the cursor → debounced <c>editor-session-changed</c> →
+/// <see cref="Update"/>), and on launch the host pushes <see cref="BuildRestoreJson()"/> so the editor
+/// reopens its files at their saved positions. Writes are atomic; a malformed file is backed up to
+/// <c>editor-session.json.bad</c> and reset. See <c>docs/specs/editor-session.md</c>.
 /// </summary>
 public sealed class EditorSessionStore {
 	private readonly IFileSystem _fileSystem;
@@ -30,8 +29,8 @@ public sealed class EditorSessionStore {
 
 	/// <summary>
 	/// Raised (off the UI thread) when the session changes via <see cref="Update"/>. The web is the sole
-	/// writer today, so hosts don't re-push on this (that would echo); it exists for parity with
-	/// <c>LayoutStore</c> and a future MCP "open file" capability that would change the session host-side.
+	/// writer, so hosts don't re-push on this (that would echo); it exists for a future MCP "open file"
+	/// capability that would change the session host-side.
 	/// </summary>
 	public event Action<EditorSession>? Changed;
 
@@ -58,32 +57,37 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message: the current session (open file paths + opaque
-	/// view state). No file content rides along — the web reopens each file as a working copy resolved from
-	/// disk through the host file provider. Files that no longer exist are skipped and logged; if the active
-	/// file was skipped, <c>active</c> is nulled. <paramref name="owner"/> is the id of the session these tabs
-	/// belong to; the web echoes it on later editor messages so a post-switch send is attributed correctly.
+	/// Builds the host→web <c>set-editor-session</c> message for the current session (open file paths + opaque
+	/// view state). No file content rides along — the web reopens each file as a working copy from disk. Files
+	/// that no longer exist are skipped and logged; if the active file was skipped, <c>active</c> is nulled.
 	/// </summary>
-	public string BuildRestoreJson(string owner) {
+	public string BuildRestoreJson() {
 		EditorSession session;
 		lock (_gate) {
 			session = _current;
 		}
 
-		return BuildRestoreJson(session, _fileSystem, line => Log?.Invoke(line), owner);
+		return BuildRestoreJson(session, _fileSystem, workspaceRoot: null, sessionId: null, line => Log?.Invoke(line));
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message for an arbitrary <paramref name="session"/>:
-	/// open file paths + opaque view state, no file content (the web reopens each as a working copy read
-	/// from disk through the host file provider). Files that no longer exist (checked against
-	/// <paramref name="fileSystem"/>) are skipped and logged via <paramref name="log"/>; if the active file
-	/// was skipped, <c>active</c> is nulled. <paramref name="owner"/> is the id of the session these tabs
-	/// belong to (stamped so the page can attribute its echoed editor messages back to it). Static so a
-	/// per-session switch can build the message for a session's in-memory <see cref="EditorSession"/> without
-	/// its own store.
+	/// Builds the host→web <c>set-editor-session</c> message for an arbitrary <paramref name="session"/>: open
+	/// file paths + opaque view state, no file content. Files that no longer exist are skipped and logged via
+	/// <paramref name="log"/>; if the active file was skipped, <c>active</c> is nulled. Static so a per-session
+	/// switch can build the message for an in-memory <see cref="EditorSession"/> without its own store.
+	/// <para>
+	/// <paramref name="workspaceRoot"/> (when non-null) scopes the restore to this session's tree: an open
+	/// entry that is neither a scratch buffer nor inside the root is dropped, because it belongs to a different
+	/// session's worktree — restoring it here would fail as out-of-root and surface a blank editor. This also
+	/// self-heals an <c>editor-session.json</c> polluted with a foreign worktree path.
+	/// </para>
+	/// <para>
+	/// <paramref name="sessionId"/> stamps the message with the owning session so the page can echo it on the
+	/// next <c>editor-session-changed</c> and the host can reject a stale cross-session write (see
+	/// <c>HandleEditorSessionChanged</c>).
+	/// </para>
 	/// </summary>
-	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, Action<string>? log, string owner) {
+	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, string? workspaceRoot, string? sessionId, Action<string>? log) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 
@@ -92,6 +96,14 @@ public sealed class EditorSessionStore {
 		foreach (var entry in session.Open) {
 			if (!fileSystem.FileExists(entry.Path)) {
 				log?.Invoke($"[editor-session] open file no longer exists; skipping {entry.Path}");
+				continue;
+			}
+
+			// A scratch buffer lives outside the workspace root (its temp dir); every other tab must be inside
+			// it. A tab outside the root belongs to another session's worktree and would be refused as
+			// out-of-root, showing a blank editor.
+			if (workspaceRoot is not null && !entry.Scratch && !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
+				log?.Invoke($"[editor-session] open file is outside this session's workspace; skipping {entry.Path}");
 				continue;
 			}
 
@@ -108,7 +120,7 @@ public sealed class EditorSessionStore {
 		string? active = session.Active is { } a && surviving.Contains(a) ? a : null;
 		var message = new {
 			type = "set-editor-session",
-			owner,
+			sessionId,
 			session = new { active, open },
 		};
 		return JsonSerializer.Serialize(message, EditorSessionSerialization.MessageOptions);
@@ -129,20 +141,12 @@ public sealed class EditorSessionStore {
 
 		if (!EditorSessionSerialization.TryDeserialize(text, out var parsed, out string? error) || parsed is null) {
 			Log?.Invoke($"[editor-session] {FilePath} is malformed ({error}); backing up to editor-session.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "editor-session", Log);
 			PersistLocked(EditorSession.Empty);
 			return EditorSession.Empty;
 		}
 
 		return parsed;
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[editor-session] could not back up malformed session: {ex.Message}");
-		}
 	}
 
 	private void PersistLocked(EditorSession session) {

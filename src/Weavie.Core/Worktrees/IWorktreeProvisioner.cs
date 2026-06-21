@@ -40,10 +40,9 @@ public readonly record struct WorktreeCommandEvent(
 
 /// <summary>
 /// Runs the user-configured setup/teardown shell commands around a worktree's lifecycle: setup after a
-/// worktree is created (host-driven, in the background so the new session isn't blocked) and teardown
-/// before one is discarded (driven from <see cref="WorktreeManager.RemoveAsync"/>, so any caller of the
-/// remove path triggers it). Implementations are one-shot process helpers, exempt from
-/// <c>ProcessSupervisor</c>, and surface output rather than swallowing it.
+/// worktree is created (in the background so the new session isn't blocked) and teardown before one is
+/// discarded (from <see cref="WorktreeManager.RemoveAsync"/>). Implementations are one-shot process helpers,
+/// exempt from <c>ProcessSupervisor</c>, and surface output rather than swallowing it.
 /// </summary>
 public interface IWorktreeProvisioner {
 	/// <summary>Runs the configured setup command in <paramref name="worktreePath"/>; a no-op when none is set.</summary>

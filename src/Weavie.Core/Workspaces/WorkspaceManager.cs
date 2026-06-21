@@ -5,11 +5,10 @@ namespace Weavie.Core.Workspaces;
 public readonly record struct WorkspaceOpen(WorkspaceId Id, string Root, bool AlreadyOpen);
 
 /// <summary>
-/// App-level workspace orchestration shared by both hosts: tracks which workspaces are open, decides
-/// whether an open request should focus an existing window or open a new one (dedupe by
-/// <see cref="WorkspaceId"/>), and keeps the <see cref="RecentWorkspaces"/> list current. The hosts own
-/// the native windows, menu, and folder picker; this owns the portable logic so it isn't duplicated per
-/// platform (the Win/Mac directive: functionality in Core, only UI per host).
+/// App-level workspace orchestration shared by every host: tracks which workspaces are open, decides whether
+/// an open request should focus an existing window or open a new one (dedupe by <see cref="WorkspaceId"/>),
+/// and keeps the <see cref="RecentWorkspaces"/> list current. The hosts own the native windows, menu, and
+/// folder picker; this owns the portable logic.
 /// </summary>
 public sealed class WorkspaceManager {
 	private readonly HashSet<WorkspaceId> _open = [];

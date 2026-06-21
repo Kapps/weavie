@@ -15,9 +15,8 @@ public enum WindowControl {
 }
 
 /// <summary>
-/// A window edge or corner the user grabbed to resize the frameless window. The web draws the grab
-/// handles (the WebView covers the host's real resize border) and names the edge; the host maps it to
-/// the matching <c>HT*</c> code to begin a native OS resize. See <c>ResizeFrame.tsx</c> + <c>CustomChrome</c>.
+/// A window edge or corner grabbed to resize the frameless window. The web names the edge; the host maps
+/// it to the matching <c>HT*</c> code to begin a native resize. See <c>ResizeFrame.tsx</c> + <c>CustomChrome</c>.
 /// </summary>
 public enum ResizeEdge {
 	/// <summary>The left edge.</summary>
@@ -61,9 +60,8 @@ public enum MenuCommand {
 }
 
 /// <summary>
-/// Builds and parses the title-bar bridge messages exchanged with the web shell. All wire JSON for the
-/// custom chrome lives here — one shared contract both hosts use, instead of each host hand-rolling the
-/// same strings. Mirrors the message <c>type</c>s declared in the web's <c>bridge.ts</c>.
+/// Builds and parses the title-bar bridge messages exchanged with the web shell — one shared wire contract
+/// both hosts use. Mirrors the message <c>type</c>s in the web's <c>bridge.ts</c>.
 /// <list type="bullet">
 /// <item>host → web: the <c>__WEAVIE_SHELL__</c> config script, <c>window-state</c>, <c>file-index</c>.</item>
 /// <item>web → host: <c>window-control</c>, <c>menu-action</c> (parsed into the enums above).</item>
@@ -71,11 +69,11 @@ public enum MenuCommand {
 /// </summary>
 public static class ShellProtocol {
 	/// <summary>
-	/// Builds the <c>window.__WEAVIE_SHELL__ = {…};</c> script the host injects before navigation, telling the
-	/// web which platform/title-bar to render, the workspace label, and the recents for File ▸ Open Recent.
+	/// Builds the <c>window.__WEAVIE_SHELL__ = {…};</c> script the host injects before navigation: which
+	/// platform/title-bar to render, the workspace label, and the recents for File ▸ Open Recent.
 	/// </summary>
 	/// <param name="platform">Short platform id, e.g. <c>win</c> or <c>mac</c>.</param>
-	/// <param name="titleBar">Title-bar mode the web should render (<c>custom</c>), or null for native chrome.</param>
+	/// <param name="titleBar">Title-bar mode (<c>custom</c>), or null for native chrome.</param>
 	/// <param name="workspaceLabel">The window's workspace label (folder leaf name).</param>
 	/// <param name="recents">Recent workspace paths (absolute); the web derives leaf names for display.</param>
 	public static string BuildConfigScript(

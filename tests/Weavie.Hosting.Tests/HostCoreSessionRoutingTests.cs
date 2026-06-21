@@ -30,7 +30,7 @@ public sealed class HostCoreSessionRoutingTests {
 
 		var seed = host.Bridge.LastOfType("set-editor-session");
 		Assert.True(seed.HasValue);
-		Assert.False(string.IsNullOrEmpty(seed!.Value.GetProperty("owner").GetString()));
+		Assert.False(string.IsNullOrEmpty(seed!.Value.GetProperty("sessionId").GetString()));
 	}
 
 	[Fact]
@@ -72,10 +72,10 @@ public sealed class HostCoreSessionRoutingTests {
 		string primaryId = host.PrimaryId;
 		string readme = Path.Combine(host.RepoRoot, "readme.txt"); // exists in the repo
 
-		// The page reports the primary's tab set, correctly stamped with the primary owner.
+		// The page reports the primary's tab set, correctly stamped with the primary session id.
 		host.Send(Msg(new {
 			type = "editor-session-changed",
-			owner = primaryId,
+			sessionId = primaryId,
 			session = new { active = readme, open = new[] { new { path = readme } } },
 		}));
 
@@ -96,10 +96,10 @@ public sealed class HostCoreSessionRoutingTests {
 		string primaryId = host.PrimaryId;
 		string readme = Path.Combine(host.RepoRoot, "readme.txt");
 
-		// A straggler stamped with the WRONG owner (a different session) must not contaminate the active one.
+		// A straggler stamped with the WRONG session id (a different session) must not contaminate the active one.
 		host.Send(Msg(new {
 			type = "editor-session-changed",
-			owner = "some-other-session",
+			sessionId = "some-other-session",
 			session = new { active = readme, open = new[] { new { path = readme } } },
 		}));
 

@@ -26,8 +26,8 @@ public enum PaneAnchor {
 
 /// <summary>
 /// Declares a pane kind: its identity, whether it's shown by default, the epoch it was introduced in
-/// (which drives the appears-once compatibility logic), and where a new default lands. Registered once
-/// in <see cref="LayoutPanes"/>; future plugins contribute the same way.
+/// (driving the appears-once compatibility logic), and where a new default lands. Registered in
+/// <see cref="LayoutPanes"/>; plugins contribute the same way.
 /// </summary>
 public sealed record PaneDefinition {
 	/// <summary>The pane kind key (e.g. <c>editor</c>, <c>terminal:claude</c>).</summary>
@@ -45,15 +45,14 @@ public sealed record PaneDefinition {
 	/// <summary>Where a newly-introduced default pane is inserted into an existing layout.</summary>
 	public PaneAnchor DefaultAnchor { get; init; } = PaneAnchor.Main;
 
-	/// <summary>Whether only one instance of this kind may exist (v1: always true).</summary>
+	/// <summary>Whether only one instance of this kind may exist.</summary>
 	public bool Singleton { get; init; } = true;
 }
 
 /// <summary>
-/// The catalog of declared pane kinds — the single source of truth for which default panes exist and
-/// when they were introduced. This is what makes the layout's forward/backward compatibility
-/// data-driven (declare a <see cref="PaneDefinition"/>) rather than code-driven (write a migration).
-/// Registration order is preserved.
+/// The catalog of declared pane kinds — the single source of truth for which default panes exist and when
+/// they were introduced. Makes the layout's forward/backward compatibility data-driven (declare a
+/// <see cref="PaneDefinition"/>) rather than code-driven (write a migration). Registration order is preserved.
 /// </summary>
 public sealed class PaneRegistry {
 	private readonly Dictionary<string, PaneDefinition> _byKind = new(StringComparer.Ordinal);

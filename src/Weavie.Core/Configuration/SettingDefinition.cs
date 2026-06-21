@@ -1,10 +1,10 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// The declared type of a setting — the authority for how a raw value (an env-var string or an MCP
-/// JSON value) is parsed, coerced, and normalized. A kind exists only where it carries distinct
-/// parse/normalize behavior; a mere constraint (an allowed set, a range, must-exist-on-disk) is a
-/// validator, not a kind. See <c>docs/specs/settings.md</c> § "Kinds vs constraints".
+/// The declared type of a setting — the authority for how a raw value (an env-var string or an MCP JSON value)
+/// is parsed, coerced, and normalized. A kind exists only where it carries distinct parse/normalize behavior;
+/// a mere constraint (an allowed set, a range, must-exist-on-disk) is a validator, not a kind. See
+/// <c>docs/specs/settings.md</c> § "Kinds vs constraints".
 /// </summary>
 public enum SettingKind {
 	/// <summary>A verbatim text value.</summary>
@@ -21,9 +21,9 @@ public enum SettingKind {
 }
 
 /// <summary>
-/// How a changed value takes effect. Reported to Claude by <c>setSetting</c> and the contract the
-/// host's change-reaction wiring honors. Only <see cref="ReopensTerminal"/> has an active reaction
-/// wired today; the others are read fresh when the relevant session next starts.
+/// How a changed value takes effect. Reported to Claude by <c>setSetting</c> and the contract the host's
+/// change-reaction wiring honors. Only <see cref="ReopensTerminal"/> has an active reaction wired; the others
+/// are read fresh when the relevant session next starts.
 /// </summary>
 public enum ApplyMode {
 	/// <summary>Observers reflect it immediately; nothing restarts.</summary>
@@ -76,9 +76,9 @@ public readonly record struct ValidationResult {
 
 /// <summary>
 /// A declared setting: the single source of truth for what exists, its kind, default, documentation,
-/// validation, derived env var, and how a change applies. One declaration drives defaults, the file
-/// comment, env-var overrides, the MCP tool surface, and the natural-language mapping Claude uses.
-/// See <c>docs/specs/settings.md</c>.
+/// validation, derived env var, and how a change applies. One declaration drives defaults, the file comment,
+/// env-var overrides, the MCP tool surface, and the natural-language mapping Claude uses. See
+/// <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed record SettingDefinition {
 	/// <summary>The dotted key, e.g. <c>terminal.shell</c>. Unique within the registry.</summary>

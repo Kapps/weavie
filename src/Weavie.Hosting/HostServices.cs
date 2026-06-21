@@ -10,8 +10,8 @@ namespace Weavie.Hosting;
 /// <summary>
 /// The app-global Core stores a <see cref="HostCore"/> drives: user settings, the command catalog + resolved
 /// keybindings, and per-theme overrides. Most hosts build the standard set with <see cref="CreateDefault"/>;
-/// a multi-window host (Windows) builds them once at the app level and shares one instance across its windows,
-/// so they're passed in rather than owned by the core.
+/// a multi-window host (Windows) builds them once and shares one instance across its windows, so they're
+/// passed in rather than owned by the core.
 /// </summary>
 public sealed record HostServices {
 	/// <summary>User settings (<c>~/.weavie/settings.toml</c>) — the change hub the host reacts to.</summary>
@@ -34,7 +34,7 @@ public sealed record HostServices {
 
 	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
-	/// wired — for the hosts that own exactly one workspace per process (Mac/Linux/Headless).
+	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
 	/// </summary>
 	public static HostServices CreateDefault() {
 		var settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);

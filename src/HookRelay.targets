@@ -7,6 +7,12 @@
     fails loudly (see IdeIntegration.ResolveRelayBinary), so the relay MUST be produced by the build.
 
       Debug   -> managed build (fast, no AOT, no C++ toolchain): copy the framework-dependent relay + sidecars.
+                 EXCEPT macOS: the .app host bundles its own runtime in Contents/MonoBundle (a flat layout, not
+                 a shared-framework tree) along with its own libhostfxr. A framework-dependent relay dropped in
+                 there is hijacked by that adjacent hostfxr and can't resolve a runtime ("You must install or
+                 update .NET") — even though one is installed system-wide. So macOS Debug publishes a
+                 self-contained single-file relay (carries its own runtime, ignores adjacent host components;
+                 still no AOT/C++ toolchain) and copies the one exe.
       Release -> NativeAOT publish for the host RID: copy the single native exe. Requires the platform C++
                  build tools ("Desktop development with C++"); without them the Release build fails loudly.
 
@@ -35,20 +41,39 @@
     <_HookRelaySource Include="$(MSBuildThisFileDirectory)Weavie.Core\Hooks\HookRelayClient.cs" />
   </ItemGroup>
 
+  <!-- Win/Linux/Headless Debug: a fast managed (framework-dependent) build — the host resolves the system
+       .NET runtime normally, so the lean relay + sidecars are all that's needed. -->
   <Target Name="CoLocateHookRelayDebug"
-          Condition="'$(Configuration)' == 'Debug'"
+          Condition="'$(Configuration)' == 'Debug' And '$(_HookRelayDestSuffix)' == ''"
           AfterTargets="Build"
           Inputs="@(_HookRelaySource)"
-          Outputs="$(OutDir)$(_HookRelayDestSuffix)weavie-hook-relay.dll">
-    <Message Importance="high" Text="weavie: building hook relay (Debug, managed) -> $(OutDir)$(_HookRelayDestSuffix)" />
+          Outputs="$(OutDir)weavie-hook-relay.dll">
+    <Message Importance="high" Text="weavie: building hook relay (Debug, managed) -> $(OutDir)" />
     <Exec Command="dotnet build &quot;$(_HookRelayProj)&quot; -c $(Configuration) --nologo -v q" />
     <ItemGroup>
-      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.exe" />
+      <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayExe)" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.dll" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.deps.json" />
       <_RelayDebugOut Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\weavie-hook-relay.runtimeconfig.json" />
     </ItemGroup>
-    <Copy SourceFiles="@(_RelayDebugOut)" DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
+    <Copy SourceFiles="@(_RelayDebugOut)" DestinationFolder="$(OutDir)" SkipUnchangedFiles="true" />
+  </Target>
+
+  <!-- macOS Debug: the relay must live in the .app's MonoBundle (where the host's AppContext.BaseDirectory
+       points), right beside the host's bundled runtime + libhostfxr — which would hijack a framework-dependent
+       relay's runtime resolution. Publish self-contained + single-file so it carries its own runtime and uses
+       its statically-linked host instead of the adjacent one. No AOT (PublishAot=false), so it stays a quick
+       managed publish, not a native compile; single-file so it's one exe rather than a runtime folder that
+       would collide with the host's own MonoBundle files. -->
+  <Target Name="CoLocateHookRelayDebugMac"
+          Condition="'$(Configuration)' == 'Debug' And '$(_HookRelayDestSuffix)' != ''"
+          AfterTargets="Build"
+          Inputs="@(_HookRelaySource)"
+          Outputs="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe)">
+    <Message Importance="high" Text="weavie: building hook relay (Debug, self-contained single-file $(_HookRelayRid)) -> $(OutDir)$(_HookRelayDestSuffix)" />
+    <Exec Command="dotnet publish &quot;$(_HookRelayProj)&quot; -c $(Configuration) -r $(_HookRelayRid) --self-contained -p:PublishAot=false -p:PublishSingleFile=true -p:PublishTrimmed=false --nologo -v q" />
+    <Copy SourceFiles="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)"
+          DestinationFolder="$(OutDir)$(_HookRelayDestSuffix)" SkipUnchangedFiles="true" />
   </Target>
 
   <Target Name="CoLocateHookRelayRelease"

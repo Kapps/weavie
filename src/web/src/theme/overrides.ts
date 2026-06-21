@@ -1,8 +1,8 @@
-// Theme overrides (spec §6): a sparse, ordered list of declarative ops layered on the active theme's
-// three color tables. Two op kinds compose freely and apply in order, so "darken all, then set bg pure
-// black" leaves the background pure black. Ordered + declarative ⇒ trivial undo (pop), inspect (list),
-// and survival across theme switches (transforms re-derive; sets re-apply by key). This module owns the
-// schema + resolver + color-math; persistence of the op list lives in ~/.weavie/theme-overrides.json.
+// Theme overrides (spec §6): a sparse, ordered list of declarative ops layered on the active theme's three
+// color tables. The two op kinds compose and apply in order, so "darken all, then set bg pure black"
+// leaves the background pure black. Ordered + declarative gives trivial undo (pop), inspect (list), and
+// survival across theme switches (transforms re-derive; sets re-apply by key). Owns the schema + resolver
+// + color-math; the op list persists in ~/.weavie/theme-overrides.json.
 
 import { type ColorTransform, makeTransform, transformHex } from "./colors";
 import type { SemanticTokenColor, TokenColorRule, VsCodeColorTheme } from "./vscode-theme";
@@ -11,10 +11,10 @@ import type { SemanticTokenColor, TokenColorRule, VsCodeColorTheme } from "./vsc
 export type OverrideTable = "colors" | "tokenColors" | "semanticTokenColors";
 
 /**
- * Directly style one entry. By default the workbench `colors` table (e.g. `editor.background` → `#000000`);
- * with `table` set, a syntax table — a TextMate scope in `tokenColors` (e.g. `keyword.control`) or a
- * semantic selector in `semanticTokenColors` (e.g. `variable.readonly`). Sets a foreground `value`, a
- * `fontStyle` (syntax tables only), or both — at least one is present. Last write wins.
+ * Directly style one entry. Targets the workbench `colors` table by default (e.g. `editor.background`);
+ * with `table` set, a syntax table — a TextMate scope in `tokenColors` or a semantic selector in
+ * `semanticTokenColors`. Sets a foreground `value`, a `fontStyle` (syntax tables only), or both; at least
+ * one is present. Last write wins.
  */
 export interface SetOp {
   kind: "set";
@@ -24,7 +24,7 @@ export interface SetOp {
   value?: string;
   /**
    * Space-separated subset of "italic bold underline strikethrough", or "" to clear inherited styles.
-   * Only meaningful on the syntax tables (`tokenColors`/`semanticTokenColors`); ignored for `colors`.
+   * Meaningful only on the syntax tables; ignored for `colors`.
    */
   fontStyle?: string;
 }
@@ -53,11 +53,10 @@ export interface ResolvedTheme {
 }
 
 /**
- * Resolves the effective theme: the base theme's three color tables with the override ops applied in
- * order. Pure — re-runnable on every change. `set` writes one key in its target table (a `tokenColors`
- * set appends a scope rule that wins by being last); `transform` rewrites every hex across all three
- * tables perceptually (OKLCH) — so "darken everything" dims syntax too — leaving non-hex values and
- * alpha untouched.
+ * Resolves the effective theme: the base theme's three color tables with override ops applied in order.
+ * Pure and re-runnable on every change. `set` writes one key in its target table (a `tokenColors` set
+ * appends a scope rule that wins by being last); `transform` rewrites every hex across all three tables
+ * perceptually (OKLCH), leaving non-hex values and alpha untouched.
  */
 export function resolveTheme(base: VsCodeColorTheme, ops: readonly OverrideOp[]): ResolvedTheme {
   const colors: Record<string, string> = { ...base.colors };
@@ -94,7 +93,7 @@ function applySet(
 ): void {
   switch (op.table ?? "colors") {
     case "colors":
-      // Workbench colors carry no style; a `fontStyle`-only op on this table is a no-op.
+      // Workbench colors carry no style, so a `fontStyle`-only op here is a no-op.
       if (op.value !== undefined) {
         colors[op.key] = op.value;
       }
@@ -105,7 +104,7 @@ function applySet(
       const prevForeground = typeof prev === "string" ? prev : prev?.foreground;
       const foreground = op.value ?? prevForeground;
       if (op.fontStyle === undefined) {
-        // Color-only op: keep the bare-hex form themes author the common case in.
+        // Color-only op: keep the bare-hex form.
         if (foreground !== undefined) {
           semanticTokenColors[op.key] = foreground;
         }
@@ -118,8 +117,8 @@ function applySet(
       return;
     }
     case "tokenColors": {
-      // Append a rule for the exact scope; appended last so it wins for that scope (TextMate last-rule-wins).
-      // A rule omitting `foreground` styles the scope without recoloring it (earlier rules' color stands).
+      // Append a rule for the exact scope; being last, it wins (TextMate last-rule-wins). A rule omitting
+      // `foreground` styles the scope without recoloring it (earlier rules' color stands).
       const settings: TokenColorRule["settings"] = {};
       if (op.value !== undefined) {
         settings.foreground = op.value;

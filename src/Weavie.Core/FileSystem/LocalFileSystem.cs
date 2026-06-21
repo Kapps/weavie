@@ -27,7 +27,7 @@ public sealed class LocalFileSystem : IFileSystem {
 				return true;
 			}
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {
-			// A path we can't stat (race with a delete, ACLs, malformed) reports as absent rather than throwing.
+			// A path we can't stat (delete race, ACLs, malformed) reports as absent rather than throwing.
 		}
 
 		stat = default;
@@ -54,7 +54,7 @@ public sealed class LocalFileSystem : IFileSystem {
 
 			return entries;
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			// A directory we can list the parent of but not enter (ACLs) shouldn't crash the browser.
+			// A directory we can't enter (ACLs) returns empty rather than crashing the browser.
 			return [];
 		}
 	}
@@ -79,8 +79,8 @@ public sealed class LocalFileSystem : IFileSystem {
 			Directory.CreateDirectory(directory);
 		}
 
-		// Write to a sibling temp file then swap into place: File.Replace is atomic and preserves the
-		// destination's attributes/ACLs; File.Move covers the first-write case where there's no target.
+		// Swap a sibling temp file into place: File.Replace is atomic and preserves the destination's
+		// attributes/ACLs; File.Move covers the first-write case where there's no target.
 		string tmp = path + ".tmp";
 		File.WriteAllText(tmp, contents, Utf8NoBom);
 		if (File.Exists(path)) {
@@ -95,7 +95,7 @@ public sealed class LocalFileSystem : IFileSystem {
 		try {
 			File.Delete(path);
 		} catch (DirectoryNotFoundException) {
-			// The containing directory is gone, so the file is too — treat as already absent.
+			// Containing directory is gone, so the file is too — treat as already absent.
 		}
 	}
 }

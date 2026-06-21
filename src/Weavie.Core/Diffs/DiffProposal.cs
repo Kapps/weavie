@@ -1,13 +1,11 @@
 namespace Weavie.Core.Diffs;
 
 /// <summary>
-/// A proposed edit, shaped exactly like Claude Code's IDE-MCP <c>openDiff</c> tool call
-/// (old_file_path / new_file_path / new_file_contents / tab_name). This is the SOLE edit
-/// feed (vault Build Philosophy: no hook/FS-watch fallback). In T1 tests it is constructed
-/// directly; in production it is built from an inbound MCP request.
+/// A proposed edit, shaped like Claude Code's IDE-MCP <c>openDiff</c> tool call (old_file_path /
+/// new_file_path / new_file_contents / tab_name). The sole edit feed: built from an inbound MCP request.
 /// </summary>
 public sealed record DiffProposal {
-	/// <summary>Creates a proposal from the four <c>openDiff</c> fields; all are required and non-empty (except contents, which may be empty).</summary>
+	/// <summary>All fields required and non-empty, except contents, which may be empty.</summary>
 	public DiffProposal(string oldFilePath, string newFilePath, string newFileContents, string tabName) {
 		ArgumentException.ThrowIfNullOrEmpty(oldFilePath);
 		ArgumentException.ThrowIfNullOrEmpty(newFilePath);

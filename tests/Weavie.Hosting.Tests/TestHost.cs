@@ -57,11 +57,11 @@ internal sealed class TestHost : IAsyncDisposable {
 		return new TestHost(tempRoot, repo, services, bridge, core);
 	}
 
-	/// <summary>The primary session's id (its rail slot id), read from the initial set-editor-session owner.</summary>
+	/// <summary>The primary session's id (its rail slot id), read from the initial set-editor-session sessionId.</summary>
 	public string PrimaryId {
 		get {
 			var seed = Bridge.LastOfType("set-editor-session");
-			return seed?.GetProperty("owner").GetString() ?? throw new InvalidOperationException("no set-editor-session seed");
+			return seed?.GetProperty("sessionId").GetString() ?? throw new InvalidOperationException("no set-editor-session seed");
 		}
 	}
 

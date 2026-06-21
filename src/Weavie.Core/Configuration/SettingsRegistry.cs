@@ -4,9 +4,9 @@ namespace Weavie.Core.Configuration;
 
 /// <summary>
 /// The catalog of declared settings: register a <see cref="SettingDefinition"/> once and everything
-/// downstream (defaults, validation, the env var, the MCP tool surface, NL mapping) is generated
-/// from it. Core registers its settings at startup via <see cref="CoreSettings"/>; future plugins
-/// contribute definitions the same way. Registration order is preserved for a stable catalog.
+/// downstream (defaults, validation, the env var, the MCP tool surface, NL mapping) is generated from it. Core
+/// registers its settings at startup via <see cref="CoreSettings"/>. Registration order is preserved for a
+/// stable catalog.
 /// </summary>
 public sealed class SettingsRegistry {
 	private readonly Dictionary<string, SettingDefinition> _byKey = new(StringComparer.Ordinal);

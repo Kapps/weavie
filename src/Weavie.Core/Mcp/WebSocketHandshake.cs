@@ -4,10 +4,10 @@ using System.Text;
 namespace Weavie.Core.Mcp;
 
 /// <summary>
-/// Minimal HTTP/1.1 + WebSocket-upgrade plumbing shared by the two loopback servers (the IDE-MCP server
-/// and the LSP bridge): read the request line + headers, write a bare status response, and complete the
-/// 101 upgrade. Both bind a raw <see cref="TcpListener"/> rather than <c>HttpListener</c> (which would
-/// need URL ACLs on Windows), so they hand-roll this much of the protocol.
+/// Minimal HTTP/1.1 + WebSocket-upgrade plumbing shared by the two loopback servers (the IDE-MCP server and
+/// the LSP bridge): read the request line + headers, write a bare status response, and complete the 101
+/// upgrade. Both bind a raw <see cref="TcpListener"/> rather than <c>HttpListener</c> (which would need URL
+/// ACLs on Windows), so they hand-roll this much of the protocol.
 /// </summary>
 internal static class WebSocketHandshake {
 	private const int MaxHeaderBytes = 64 * 1024;

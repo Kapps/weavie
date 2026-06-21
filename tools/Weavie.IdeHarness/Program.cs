@@ -107,7 +107,7 @@ Console.WriteLine("  (openDiff correctness is covered by McpServerTests; live op
 ptyLog.Flush();
 byte[] raw = await File.ReadAllBytesAsync(ptyLogPath);
 string text = ansi.Replace(Encoding.UTF8.GetString(raw), string.Empty);
-text = new string([.. text.Where(c => c is '\n' or '\t' || (c >= ' ' && c < (char)127))]);
+text = new string([.. text.Where(c => c is '\n' or '\t' or >= ' ' and < ((char)127))]);
 text = Regex.Replace(text, "[ \t]{2,}", " ");
 Console.WriteLine("--- claude output (stripped, last 800 chars) ---");
 Console.WriteLine(text.Length > 800 ? text[^800..] : text);

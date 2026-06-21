@@ -5,7 +5,6 @@ using Weavie.Core.Editor;
 using Weavie.Core.Git;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
-using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
@@ -106,9 +105,6 @@ public sealed partial class HostCore {
 				break;
 			case "open-editors-changed":
 				_session?.UpdateOpenEditors(root);
-				break;
-			case "get-change-diff":
-				PushChangeDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
 			case "get-turn-diff":
 				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
@@ -252,6 +248,16 @@ public sealed partial class HostCore {
 	private void PushEditorSessionToWeb() => _bridge.PostToWeb(_editorSession.BuildRestoreJson());
 
 	/// <summary>
+	/// Re-points the page's language clients at a session's own LSP bridge on a switch. Each session has its
+	/// own bridge (own port/token, rooted at its worktree); the launch config (<c>window.__WEAVIE_LSP__</c>) is
+	/// the primary's, so without this a switched-in worktree session's hover/diagnostics/go-to-def would keep
+	/// resolving against the primary's checkout. The web's <c>rebindLanguageServices</c> tears the old clients
+	/// down and reconnects here.
+	/// </summary>
+	private void PushLspConfigToWeb(HostSession session) =>
+		_bridge.PostToWeb($"{{\"type\":\"lsp-config\",\"config\":{session.LspConfigJson}}}");
+
+	/// <summary>
 	/// Re-walks the ACTIVE session's worktree and pushes its <c>file-index</c> so the omnibar's "Go to File"
 	/// and the file browser re-root to the active session. Runs the walk off the UI thread, and drops the
 	/// result if the user switched again before it finished, so a slow walk from a stale session can't clobber
@@ -270,29 +276,70 @@ public sealed partial class HostCore {
 		});
 	}
 
-	/// <summary>Pushes the session change list (each file's path + added/removed line counts) to the page.</summary>
-	private void PushChangesToWeb() {
-		if (_session is not null) {
-			_bridge.PostToWeb(ChangeMessages.SessionChanges(_session.Changes));
+	/// <summary>
+	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
+	/// review navigator, with the host-decided auto-open flag (see <see cref="ShouldOpenReview"/>). Only in an
+	/// auto-keep mode (acceptEdits/bypass): that's where post-turn review is the surface — default mode reviews
+	/// each edit via the blocking openDiff, so there's nothing to list.
+	/// </summary>
+	private void PushTurnChangesToWeb() {
+		if (_session is { } session && session.ObservedMode.AutoAppliesEdits) {
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session)));
 		}
 	}
 
 	/// <summary>
-	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
-	/// review navigator. Only in an auto-keep mode (acceptEdits/bypass): that's where post-turn review is the
-	/// surface — default mode reviews each edit via the blocking openDiff, so there's nothing to list.
+	/// Decides — and records — whether the page should auto-open the first review file <em>now</em>: true when
+	/// the active session is idle with auto-applied changes it hasn't opened yet. Keyed on the session + its
+	/// first changed file and armed once, so a trickle of more edits within the same idle doesn't re-jump the
+	/// editor, while a new turn (the key is reset when the session leaves idle) or a switch into another session
+	/// (a different key — and <see cref="PushReviewStateOnSwitch"/> resets it) re-arms. Centralizing the decision
+	/// here, where the status and change set are read together, keeps it race-free; the page just obeys the flag.
 	/// </summary>
-	private void PushTurnChangesToWeb() {
-		if (_session is { } session && session.ObservedMode.AutoAppliesEdits) {
-			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
+	private bool ShouldOpenReview(HostSession session) {
+		// "Done editing" = the turn ended (Idle) OR Claude is now waiting on input (NeedsInput, the Notification
+		// hook — the post-turn "recap"/prompt state). Both mean the turn's edits are settled and ready to review;
+		// only an actively-Working session has nothing to show yet. Treating NeedsInput as not-done is what made
+		// a post-turn notification wipe the diff on switch-in.
+		if (session.Status.Status is not (SessionStatus.Idle or SessionStatus.NeedsInput)) {
+			return false;
 		}
+
+		var turn = session.Changes.TurnChanges();
+		if (turn.Count == 0) {
+			return false;
+		}
+
+		// turn[0] is what the page opens as reviewFiles[0]; key the arm on it so a changed first file re-arms.
+		string key = $"{session.Id}:{turn[0].Path}";
+		if (string.Equals(_armedReviewKey, key, StringComparison.Ordinal)) {
+			return false;
+		}
+
+		_armedReviewKey = key;
+		return true;
 	}
 
-	/// <summary>Pushes one file's session diff (baseline vs. current text) to the page for the changes view.</summary>
-	private void PushChangeDiffToWeb(string path) {
-		if (_session?.Changes.Get(path) is { } change) {
-			_bridge.PostToWeb(ChangeMessages.ChangeDiff(change));
+	/// <summary>
+	/// Re-projects the active session's inline turn-review onto the page after a session switch. The change
+	/// tracker records edits in <em>every</em> permission mode, but the live turn pushes are gated on
+	/// <c>IsActiveSession</c> — so a session that edited while muted (a background Claude) has a populated
+	/// tracker the page never heard about, and the previous session's ← / → walk is still showing. This catches
+	/// the page up: clear the outgoing session's inline markers, then push the incoming session's review set —
+	/// the real set in an auto-keep mode, an empty set otherwise (which also clears the stale walk). The arm key
+	/// is reset first so the incoming session re-opens its review on switch-in (incl. a switch BACK to a session
+	/// whose review was already opened); per-file inline diffs are fetched on demand as each review file opens.
+	/// </summary>
+	private void PushReviewStateOnSwitch() {
+		if (_session is not { } session) {
+			return;
 		}
+
+		_armedReviewKey = null;
+		_bridge.PostToWeb(ChangeMessages.TurnReset());
+		_bridge.PostToWeb(session.ObservedMode.AutoAppliesEdits
+			? ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session))
+			: ChangeMessages.EmptyTurnChanges());
 	}
 
 	/// <summary>
@@ -596,9 +643,18 @@ public sealed partial class HostCore {
 	private static string FsPath(JsonElement root) =>
 		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
-	/// <summary>Routes a terminal message to the controller for its <c>session</c> pane (default: claude).</summary>
+	/// <summary>
+	/// Routes a terminal message to the controller for its <c>slot</c> (the workspace session it names) and
+	/// <c>session</c> pane (default: claude). Each loaded session has its own live panes now, so the message
+	/// carries which session it came from — input/resize/ready from a background session's pane must reach
+	/// THAT session's controller, not the active one. Falls back to the active session when the slot is
+	/// absent (older protocol) or no longer loaded.
+	/// </summary>
 	private TerminalController? TerminalFor(JsonElement root) {
 		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;
-		return pane == "shell" ? _session?.Shell : _session?.Claude;
+		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
+		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
+		session ??= _session;
+		return pane == "shell" ? session?.Shell : session?.Claude;
 	}
 }

@@ -10,6 +10,7 @@ import { createSignal } from "solid-js";
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
+import type { WeavieLspConfig } from "./lsp/lsp-client";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
@@ -25,9 +26,11 @@ export interface ThemeSlot {
   theme?: VsCodeColorTheme;
 }
 
-// The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
-// and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
-// the host can route it to the right PTY and the page can route output back to the right xterm pane.
+// The left column hosts two PTY panes per workspace session: "claude" (the interactive Claude Code
+// TUI) and "shell" (a plain login shell). Every terminal message carries its `session` (which pane)
+// AND its `slot` (which workspace session — the rail id) so the host routes it to the right PTY and
+// the page routes output back to the right xterm. Each loaded session keeps its own pair of xterms
+// mounted (only the active one is shown), so switching sessions is pure show/hide with no replay.
 export type TermSession = "claude" | "shell";
 
 // The live state of a session's embedded Claude, derived host-side from its hook stream + process
@@ -101,10 +104,11 @@ export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
-  // Terminal: the xterm pane is mounted and ready to host the PTY child.
-  | { type: "term-ready"; session: TermSession; cols: number; rows: number }
-  | { type: "term-input"; session: TermSession; dataB64: string }
-  | { type: "term-resize"; session: TermSession; cols: number; rows: number }
+  // Terminal: the xterm pane is mounted and ready to host the PTY child. `slot` is the workspace
+  // session (rail id) this pane belongs to; `session` is the pane within it.
+  | { type: "term-ready"; slot: string; session: TermSession; cols: number; rows: number }
+  | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
+  | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   // Session rail → host: switch to a session (binds the page to it) or create a new (worktree) session.
   // new-session carries the branch name and the base: "head" (the active session's HEAD) or "main". Load /
   // unload / delete are commands (weavie.session.*) dispatched via invoke-command, not bespoke messages here.
@@ -195,15 +199,13 @@ export type HostBoundMessage =
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
-  | { type: "term-output"; session: TermSession; dataB64: string }
-  | { type: "term-exit"; session: TermSession; code: number }
-  // Host wants this pane reattached to the active session's child; the pane clears and re-emits
-  // term-ready. `respawn` distinguishes the two callers: true when the host tore the child down and
-  // will relaunch it (shell setting changed) — a full reset is right, the fresh child re-establishes
-  // every mode; false on a session switch, where the child stays LIVE and is only nudged to repaint —
-  // there a full reset would wrongly clobber the running TUI's terminal modes (mouse tracking), so the
-  // pane clears content/scrollback WITHOUT a mode reset (see TerminalView).
-  | { type: "term-reset"; session: TermSession; respawn: boolean }
+  | { type: "term-output"; slot: string; session: TermSession; dataB64: string }
+  | { type: "term-exit"; slot: string; session: TermSession; code: number }
+  // Host asks this pane to reset + re-emit term-ready. The only caller now is a deliberate child
+  // relaunch (the shell setting changed): `respawn` is true so the pane does a full reset, since the
+  // fresh child re-establishes every mode. Session switches no longer reset — each session keeps its
+  // own live xterm and switching is pure show/hide (see TerminalView).
+  | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
@@ -298,10 +300,12 @@ export type WebBoundMessage =
   // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
   // The per-TURN change list (files changed this turn + each file's first-change line). Drives the inline
-  // review walk's ← / → file axis (there is no panel) and the auto-arm on turn end. Pushed in auto-keep modes
-  // only (acceptEdits/bypass); empty after a turn boundary (new turn).
+  // review walk's ← / → file axis (there is no panel). `open` is the host's race-free decision that the page
+  // should auto-open the first file for review now (turn end, or a switch into a session with pending review).
+  // Pushed in auto-keep modes only (acceptEdits/bypass); empty (and open=false) after a turn boundary / switch.
   | {
       type: "turn-changes";
+      open: boolean;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
   // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
@@ -309,6 +313,9 @@ export type WebBoundMessage =
   | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }
   // A turn boundary: clear all inline turn markers (the prior turn is implicitly accepted).
   | { type: "turn-reset" }
+  // A session switch: re-point the editor's language clients at the incoming session's LSP bridge (its own
+  // worktree root + token). Handled by rebindLanguageServices — see lsp/lsp-client.ts.
+  | { type: "lsp-config"; config: WeavieLspConfig }
   // A user-facing notification to surface as a toast (e.g. an autosave write that failed — the user must
   // see that their work didn't reach disk, never a silent drop).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string }

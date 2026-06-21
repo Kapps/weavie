@@ -1,4 +1,5 @@
 using System.Text;
+using System.Text.Json;
 using Weavie.Core.Configuration;
 using Weavie.Core.Hooks;
 using Weavie.Core.Processes;
@@ -31,11 +32,9 @@ public sealed class TerminalController : IDisposable {
 	private FileStream? _ptyLog;
 	private int _columns = 80;
 	private int _rows = 24;
-	// Page messages (restart/crash notices + exit) produced while this session is muted (OutputActive false). A
-	// muted session shares the "claude"/"shell" tag with the visible one, so posting now would paint into the
-	// WRONG pane — but dropping would lose a background session's crash notice (a dead session has no TUI to
-	// repaint it). So buffer here and replay in OnReady when the user switches to this session. Guarded by _gate.
-	private readonly List<string> _pendingMessages = [];
+	// The slot id pre-encoded as a JSON string value (see SlotId), written into every term message so the
+	// page routes this pane's output to its own session's xterm — encoded once per bind, not per chunk.
+	private JsonEncodedText _slotEncoded = JsonEncodedText.Encode("");
 	// Per-launch claude startup detection (claude session only): watches early output to confirm the launch
 	// came up (→ MarkStarted) and, on exit, decides how to heal a launch that died at startup (a dead/poison
 	// session id), keeping ClaudeSessionStore honest. Set each managed launch; null for an unmanaged one.
@@ -130,25 +129,33 @@ public sealed class TerminalController : IDisposable {
 	public event Action<SupervisorStateChanged>? SupervisorChanged;
 
 	/// <summary>
-	/// When false, output from this PTY is not posted to the page — the child keeps running (so a background
-	/// session's claude stays live), its bytes just aren't shown. The session switcher sets this per session
-	/// so only the active session feeds the page's xterm. Defaults true (single-session = always shown).
+	/// The workspace session (rail slot id) this pane belongs to, tagged onto every message so the page routes
+	/// it to this session's own xterm. Every loaded session streams concurrently — a background session's
+	/// output paints into its own (hidden) pane, kept live so switching to it is instant — so there is no
+	/// muting. Set when the session is bound to a slot; empty until then.
 	/// </summary>
-	public bool OutputActive { get; set; } = true;
+	public string SlotId {
+		get;
+		set {
+			field = value;
+			_slotEncoded = JsonEncodedText.Encode(value);
+		}
+	} = "";
 
 	/// <summary>
-	/// Handles the page's <c>term-ready</c> for this pane. If the child isn't running yet (first mount,
-	/// after a <see cref="Restart"/>, or a brand-new session) it launches it in a PTY sized to the given
-	/// columns and rows, and the child paints itself. If the child is <em>already</em> live — a session
-	/// switch re-announced readiness after the page reset the xterm — it instead nudges the PTY size (one row
-	/// shorter, then back) to force the running TUI to redraw into the now-blank pane; otherwise the pane
-	/// stays blank until the user resizes. The decision and the nudge happen under the same lock, so the live
-	/// child can't slip away between them; the start (which must not hold the gate — the supervisor's start
-	/// callback takes it) runs after the lock only on the not-running branch.
+	/// Handles the page's <c>term-ready</c> for this pane (sent when a session's xterm mounts: first page
+	/// load, a refresh, a background slot's pane appearing, or a deliberate <see cref="Restart"/>). If the
+	/// child isn't running yet it launches it in a PTY sized to the given columns and rows, and the child
+	/// paints itself. If the child is <em>already</em> live — a cold (re)attach to a session whose backend
+	/// stayed up — it instead nudges the PTY size (one row shorter, then back) to force the running TUI to
+	/// redraw into the freshly-mounted pane; otherwise the pane stays blank until the user resizes. A
+	/// same-session switch does NOT come through here: each session keeps its own live xterm, so switching is
+	/// pure show/hide on the page with no reset and no re-ready. The decision and the nudge happen under the
+	/// same lock; the start (which must not hold the gate — the supervisor's start callback takes it) runs
+	/// after the lock only on the not-running branch.
 	/// </summary>
 	public void OnReady(int columns, int rows) {
 		bool start;
-		List<string> replay = [];
 		lock (_gate) {
 			_columns = columns;
 			_rows = rows;
@@ -158,18 +165,6 @@ public sealed class TerminalController : IDisposable {
 				start = false;
 				_terminal.Resize(_columns, Math.Max(1, _rows - 1));
 				_terminal.Resize(_columns, _rows);
-			}
-
-			// Notices buffered while this session was muted (see PostOrBuffer). If we're about to (re)spawn they
-			// describe the prior, now-superseded instance — drop them. Otherwise the session is live or died in
-			// place: replay so a crash/restart the user missed shows in THIS pane, now that the page has reset
-			// the xterm and re-emitted term-ready.
-			if (_pendingMessages.Count > 0) {
-				if (!start) {
-					replay.AddRange(_pendingMessages);
-				}
-
-				_pendingMessages.Clear();
 			}
 		}
 
@@ -183,10 +178,6 @@ public sealed class TerminalController : IDisposable {
 
 		if (start) {
 			_supervisor.Start();
-		}
-
-		foreach (string message in replay) {
-			_bridge.PostToWeb(message);
 		}
 	}
 
@@ -215,8 +206,9 @@ public sealed class TerminalController : IDisposable {
 		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
 		Console.Out.Flush();
 		// respawn=true: the child was torn down and will relaunch, re-establishing its modes from scratch,
-		// so the page does a full reset (clean slate). The live-child switch path uses respawn=false instead.
-		_bridge.PostToWeb($"{{\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":true}}");
+		// so the page does a full reset (clean slate). This is the only remaining term-reset caller — a
+		// session switch no longer resets (each session keeps its own live xterm).
+		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":true}}");
 	}
 
 	/// <summary>Opens the scrollback log for the configured path once, honoring the size-cap setting (0 = disabled).</summary>
@@ -389,24 +381,21 @@ public sealed class TerminalController : IDisposable {
 	private void OnOutput(byte[] data) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
-		// Persist to the scrollback log BEFORE the OutputActive gate, so a background (muted) session's output
-		// is still captured for replay when the user later switches to it.
+		// Persist to the scrollback log for replay on a cold (re)attach / resume.
 		_scrollback?.Append(data);
 
-		// Drive the startup watcher BEFORE the OutputActive gate: a background (muted) claude must still confirm
-		// it came up (and self-heal on a failed resume), even though its bytes aren't painted to the page.
+		// Confirm a managed claude launch came up (and self-heal on a failed resume), independent of the page.
 		ObserveClaudeStartup(data);
 
-		if (!OutputActive) {
-			return;
-		}
-
+		// Every loaded session streams to its own xterm (tagged by slot), so output always posts — a background
+		// session paints into its own hidden pane and stays current for an instant switch. The page drops a
+		// background backend's traffic at the bridge, so this never bleeds across backends.
 		_bridge.PostToWeb(TermOutputJson(data));
 	}
 
 	/// <summary>The <c>term-output</c> bridge message carrying <paramref name="data"/> base64-encoded for this pane.</summary>
 	private string TermOutputJson(ReadOnlySpan<byte> data) =>
-		$"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
+		$"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
 
 	/// <summary>
 	/// Feeds claude's early output to the per-launch <see cref="ClaudeStartupWatcher"/>; the moment it has streamed
@@ -472,32 +461,15 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	private void PostExit(int code) {
-		// Host log is unconditional; the page paint is buffered-or-posted by OutputActive (see PostOrBuffer).
+		// Posts to this session's own (slot-tagged) pane; the page drops it if its backend isn't active.
 		Console.WriteLine($"[weavie] terminal[{_session}] child exited: {code}");
 		Console.Out.Flush();
-		PostOrBuffer($"{{\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
+		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
 	}
 
 	private void PostNotice(string text) {
 		string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-		PostOrBuffer($"{{\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
-	}
-
-	/// <summary>
-	/// Posts a page message now if this session is the visible one, else buffers it for replay when the user next
-	/// switches here (<see cref="OnReady"/>). Both claude panes share the "claude" tag, so a muted session must
-	/// not post into the foreground pane — but its restart/crash notices must not be lost either, so they wait
-	/// here rather than being dropped.
-	/// </summary>
-	private void PostOrBuffer(string message) {
-		lock (_gate) {
-			if (!OutputActive) {
-				_pendingMessages.Add(message);
-				return;
-			}
-		}
-
-		_bridge.PostToWeb(message);
+		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
 	}
 
 	private static void LogSupervisor(SupervisorLogEntry entry) {

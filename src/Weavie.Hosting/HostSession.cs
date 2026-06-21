@@ -278,8 +278,9 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>
 	/// Activates or mutes this session's editor output channel (show-diff/open-file/close-tab). HostCore flips
 	/// this in lockstep with the active session — exactly the session backing the page is active — so a background
-	/// session never writes into the page's single editor; mirrors the terminal <c>OutputActive</c> muting. On
-	/// activation the channel replays any work held while muted (so a background openDiff surfaces on switch-in).
+	/// session never writes into the page's single editor. (The terminals need no such mute: each session has its
+	/// own live pane, so its output always streams; only the single editor is shared.) On activation the channel
+	/// replays any work held while muted (so a background openDiff surfaces on switch-in).
 	/// </summary>
 	public void SetEditorOutputActive(bool active) {
 		if (active) {
@@ -287,6 +288,16 @@ public sealed class HostSession : IAsyncDisposable {
 		} else {
 			EditorChannel.Deactivate();
 		}
+	}
+
+	/// <summary>
+	/// Tags this session's terminal panes with their rail <paramref name="slotId"/>, so every <c>term-*</c>
+	/// message names which session it belongs to and the page routes it to that session's own xterm. Called
+	/// when the session is bound to a slot (HostCore's load paths).
+	/// </summary>
+	public void BindTerminalsToSlot(string slotId) {
+		Claude.SlotId = slotId;
+		Shell.SlotId = slotId;
 	}
 
 	/// <summary>

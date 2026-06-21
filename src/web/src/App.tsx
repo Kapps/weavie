@@ -1,4 +1,5 @@
 import {
+  For,
   type JSX,
   Show,
   Suspense,
@@ -38,7 +39,7 @@ import { CommandIds } from "./commands/types";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
-import { type ReviewFile, createEditorController } from "./editor/editor-controller";
+import { createEditorController } from "./editor/editor-controller";
 // Side-effect import: registers the editor session store's set-editor-session listener at top-level module
 // load — BEFORE main.tsx posts "ready" and the host replies with its one-shot restore push. The store
 // otherwise lives only in the dynamically-imported editor chunk (via editor-host), which loads seconds
@@ -51,6 +52,7 @@ import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+import { rebindLanguageServices } from "./lsp/lsp-client";
 import { Toasts, createToasts } from "./notify/Toasts";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
@@ -85,6 +87,9 @@ const STATUS_LABEL: Record<SessionStatusName, string> = {
   error: "Claude crashed",
 };
 
+// Maps a terminal pane kind ("terminal:claude" / "terminal:shell") to its pane id.
+const paneOf = (kind: string): TermSession => (kind === "terminal:claude" ? "claude" : "shell");
+
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
   // The live pane layout tree: seeded with the default, replaced when the host pushes the persisted
@@ -95,8 +100,22 @@ export default function App(): JSX.Element {
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
-  // A terminal registers its focus fn here on mount (the editor focuses via the controller directly).
+  // Each loaded session's terminal panes register their focus fn here on mount, keyed by `${slot}:${pane}`
+  // (the editor focuses via the controller directly). focusPane resolves the active session's entry.
   const terminalFocus = new Map<string, () => void>();
+
+  // The active backend's loaded sessions each keep their own live xterm pair mounted; only the active
+  // one is shown. termSessionIds is a stable string[] (session ids) so <For> never remounts a session's
+  // terminals across rail pushes — that's what keeps them alive, making a switch pure show/hide. Dormant
+  // sessions (no backend) and other backends' sessions are excluded.
+  const termSessionIds = createMemo(() =>
+    sessions()
+      .filter((s) => s.loaded && s.backendId === activeBackendId())
+      .map((s) => s.id),
+  );
+  // The session whose panes are shown — the active one on the active backend (or null before the first
+  // rail push). Flipping this is what switches which session's terminals are visible.
+  const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
 
   // The active session's Claude status (pane-head dot) and the window's sessions (left rail) both live in
   // chrome/session-store as top-level signals so they survive HMR — see that module. The host pushes
@@ -104,10 +123,6 @@ export default function App(): JSX.Element {
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
-  // The post-turn review set: the files Claude changed since the last review (auto-keep modes only — the host
-  // gates the turn-changes push). There is NO panel — review is the inline diff toolbar walked file-by-file
-  // (← / →). This signal exists only to (a) feed the editor controller's file walk and (b) drive auto-arm.
-  const [reviewFiles, setReviewFiles] = createSignal<ReviewFile[]>([]);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
@@ -150,7 +165,13 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    terminalFocus.get(kind)?.();
+    // Every loaded session has its own xterm pair; only the active session's is visible/focusable. Resolve
+    // it by the active session id, so focus lands correctly regardless of effect-flush timing on a switch.
+    const pane = paneOf(kind);
+    const sid = activeTermSessionId();
+    if (sid !== null) {
+      terminalFocus.get(`${sid}:${pane}`)?.();
+    }
   };
 
   // Switch to a session by id. Flushes the outgoing session's pending (debounced) editor session before
@@ -239,8 +260,9 @@ export default function App(): JSX.Element {
     }
   });
 
-  // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable),
-  // so the editor and terminals are created a single time and only repositioned thereafter.
+  // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable), so
+  // the editor surface and each terminal kind's container are created once and only repositioned. Within a
+  // terminal kind, one xterm per loaded session is mounted (only the active shown) — see the For below.
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
@@ -265,7 +287,7 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    const session: TermSession = kind === "terminal:claude" ? "claude" : "shell";
+    const pane = paneOf(kind);
     return (
       <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
         <div class="pane-head">
@@ -282,7 +304,24 @@ export default function App(): JSX.Element {
           </span>
         </div>
         <div class="pane-body">
-          <TerminalView session={session} onReady={(focus) => terminalFocus.set(kind, focus)} />
+          {/* One live xterm per loaded session; only the active one is shown. Keyed by session id so a
+              session keeps its xterm across rail pushes — switching is pure show/hide, no reset/replay. */}
+          <For each={termSessionIds()}>
+            {(sid) => {
+              const isActive = (): boolean => sid === activeTermSessionId();
+              onCleanup(() => terminalFocus.delete(`${sid}:${pane}`));
+              return (
+                <div class="term-host" classList={{ hidden: !isActive() }}>
+                  <TerminalView
+                    slot={sid}
+                    pane={pane}
+                    active={isActive()}
+                    onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
+                  />
+                </div>
+              );
+            }}
+          </For>
         </div>
       </div>
     );
@@ -302,22 +341,9 @@ export default function App(): JSX.Element {
     }
   });
 
-  // Auto-arm review: when the active session's Claude goes idle (turn end — the Stop hook drives Idle) and
-  // there are auto-applied changes to review, open the first changed file landed on its first change, so the
-  // review surface (the inline diff toolbar) is just THERE with no shortcut to summon it. `armedThisIdle`
-  // makes it fire once per idle period — re-running on a later turn-changes push handles the case where the
-  // final change lands just after the idle status — and resets when Claude starts working again.
-  let armedThisIdle = false;
-  createEffect(() => {
-    if (claudeStatus() !== "idle") {
-      armedThisIdle = false;
-      return;
-    }
-    if (!armedThisIdle && reviewFiles().length > 0) {
-      armedThisIdle = true;
-      editor.openFirstReviewFile();
-    }
-  });
+  // Review auto-open is decided HOST-side (it reads the session's status + change set together, so the
+  // decision is race-free across a session switch) and delivered as the `open` flag on `turn-changes` — see
+  // the handler below. No web-side effect: the page just obeys.
 
   onMount(() => {
     // Apply the active theme to Weavie's chrome (spec §6 application surface). The controller owns the
@@ -346,10 +372,17 @@ export default function App(): JSX.Element {
         // xterms are persistent across switches, so focusing the slot is valid even mid-respawn.
         focusPane(message.kind);
       } else if (message.type === "turn-changes") {
-        // The review set (auto-keep modes). Feed the editor controller's ← / → file walk and keep a copy for
-        // the auto-arm effect. No panel renders it — review is the inline toolbar in the editor.
-        setReviewFiles(message.files);
+        // The review set (auto-keep modes). Feed the editor controller's ← / → file walk; if the host decided
+        // this is the moment to surface review (`open`) — turn end, or a switch into a session with pending
+        // review — open the first file. No panel renders it; review is the inline toolbar in the editor.
         editor.setReviewFiles(message.files);
+        if (message.open) {
+          editor.openFirstReviewFile();
+        }
+      } else if (message.type === "lsp-config") {
+        // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
+        // worktree root), tearing the previous session's clients down.
+        rebindLanguageServices(message.config);
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "window-state") {

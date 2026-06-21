@@ -19,11 +19,20 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	/// <summary>
 	/// Wires a session's command handlers + its change/status/diff push subscriptions. The push subscriptions
-	/// are gated on <see cref="IsActiveSession"/> so only the active session updates the page; for a single
-	/// session that gate is always true, so behavior is identical to before.
+	/// are gated on <see cref="IsActiveSession"/> so only the active session updates the page; for a single	/// session that gate is always true, so behavior is identical to before. A gate that suppresses a push for
+	/// a muted session is only half the contract: any state that ACCUMULATES while muted (the review feed) MUST
+	/// also be re-applied to the page when the session is switched in — see <c>PushReviewStateOnSwitch</c> in
+	/// <see cref="SwitchToSlot"/> — or a background session's work never reaches the page once it's focused.
 	/// </summary>
 	private void WireSession(HostSession session) {
-		session.Commands.WebInvoker = InvokeWebCommandAsync;
+		// Web commands post a run-command to the page's SINGLE editor surface, so only the active session may
+		// drive it. A background session's Claude invoking a web (UI) command would otherwise execute it in the
+		// FOREGROUND session — the same cross-session contamination the editor channel prevents for openDiff/
+		// open-file. Reject it loudly (no silent misroute); the user switches to the session and retries.
+		session.Commands.WebInvoker = (id, args, ct) => IsActiveSession(session)
+			? InvokeWebCommandAsync(id, args, ct)
+			: Task.FromResult(CommandResult.Failure(
+				$"Command '{id}' runs in the editor UI and can only run for the focused session; switch to it and retry."));
 		session.Commands.RegisterHandler(CoreCommands.ReopenTerminal, (_, _) => {
 			_ui.Post(() => session.Shell.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
@@ -37,7 +46,6 @@ public sealed partial class HostCore {
 
 		session.Changes.Changed += () => {
 			if (IsActiveSession(session)) {
-				PushChangesToWeb();
 				PushTurnChangesToWeb();
 			}
 		};
@@ -56,6 +64,24 @@ public sealed partial class HostCore {
 		session.Status.Changed += status => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
+				switch (status) {
+					case SessionStatus.Idle:
+					case SessionStatus.NeedsInput:
+						// Edits settled — turn ended, or Claude is waiting on input (a Notification landing AFTER the
+						// turn's Stop). Re-push the review set so its host-decided auto-open flag (re)shows it.
+						// NeedsInput must arm+show like Idle, or a post-turn notification wipes the diff on switch.
+						PushTurnChangesToWeb();
+						break;
+					case SessionStatus.Working:
+					case SessionStatus.Starting:
+						// A genuinely new turn is starting — re-arm so its first file opens when THIS turn ends. Only
+						// Working/Starting reset the arm; NeedsInput must NOT, or the post-turn notification re-fires
+						// the auto-open and fights the user's review navigation.
+						_armedReviewKey = null;
+						break;
+					default:
+						break; // Error — leave the review state as-is
+				}
 			}
 
 			_ui.Post(PushSessionList);
@@ -151,14 +177,16 @@ public sealed partial class HostCore {
 
 	/// <summary>Creates and registers the primary (workspace-root) slot, already loaded with the primary session.</summary>
 	private void AddPrimarySlot(string label) {
-		_sessions?.Add(new SessionSlot {
+		var slot = new SessionSlot {
 			Id = _primarySession!.Id,
 			Label = label,
 			WorktreePath = WorkspaceRoot,
 			IsPrimary = true,
 			Session = _primarySession,
 			LastActiveUtc = DateTimeOffset.UtcNow,
-		}, activate: true);
+		};
+		slot.Session.BindTerminalsToSlot(slot.Id);
+		_sessions?.Add(slot, activate: true);
 	}
 
 	/// <summary>
@@ -271,14 +299,15 @@ public sealed partial class HostCore {
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
 			slot.Session = CreateSession(slot.WorktreePath);
+			slot.Session.BindTerminalsToSlot(slot.Id);
 		}
 	}
 
 	/// <summary>
 	/// Loads a dormant slot's backend IN THE BACKGROUND — creates its <see cref="HostSession"/> and starts its
-	/// terminals so its Claude actually runs and reports status — WITHOUT binding the page to it. The session
-	/// stays muted (<see cref="TerminalController.OutputActive"/> false) until the user switches to it. This is
-	/// the rail's "Load session" (load, don't open). No-op if already loaded.
+	/// terminals so its Claude actually runs and reports status — WITHOUT binding the page to it. Its output
+	/// streams to its own (hidden) pane on the page, kept live so a later switch is instant. This is the rail's
+	/// "Load session" (load, don't open). No-op if already loaded.
 	/// </summary>
 	private void LoadSlotInBackground(SessionSlot slot) {
 		if (slot.Loaded) {
@@ -287,11 +316,8 @@ public sealed partial class HostCore {
 
 		LoadSlot(slot);
 		var session = slot.Session!;
-		// Not the visible session: don't stream its PTY output to the page's xterm (bound to the active session).
-		session.Claude.OutputActive = false;
-		session.Shell.OutputActive = false;
-		// Start the backends now so Claude runs in the background; the page never sent term-ready for this slot,
-		// so without this the child would never spawn.
+		// Start the backends now so Claude runs in the background even before its pane mounts (it would
+		// otherwise spawn on the pane's term-ready); the resize nudge on first mount repaints the live TUI.
 		session.Claude.EnsureStarted();
 		session.Shell.EnsureStarted();
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
@@ -299,10 +325,11 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Binds the page to <paramref name="slot"/>, loading its backend first if it was dormant: mutes the
-	/// previous session's terminals (they keep running in the background), unmutes the new one's, and resets the
-	/// page's xterms so they re-emit term-ready and the new session's terminals start/repaint. Rebinds the
-	/// editor to this slot's worktree tabs, then re-pushes status + the rail.
+	/// Binds the page to <paramref name="slot"/>, loading its backend first if it was dormant. The terminals
+	/// need no work: every loaded session keeps its own live xterm pair on the page, so switching is a pure
+	/// show/hide there (driven by the rail's active flag) — no reset, no replay. This rebinds the single
+	/// editor to the slot's worktree tabs and re-roots the omnibar/file browser, then re-pushes status + the
+	/// rail (whose new active flag tells the page which session's panes to show) + focus.
 	/// </summary>
 	private void SwitchToSlot(SessionSlot slot) {
 		LoadSlot(slot);
@@ -310,27 +337,16 @@ public sealed partial class HostCore {
 
 		var previous = _session;
 		if (previous is not null && !ReferenceEquals(previous, session)) {
-			previous.Claude.OutputActive = false;
-			previous.Shell.OutputActive = false;
 			// Mute the outgoing session's editor output BEFORE the rebind below: this tears any live blocking diff
 			// of the previous session out of the page (it re-renders when that session is switched back in) so it
-			// can't linger over the incoming session.
+			// can't linger over the incoming session. (Terminals need no muting — each has its own pane.)
 			previous.SetEditorOutputActive(false);
 		}
 
 		_session = session;
 		_sessions?.SetActive(slot);
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
-		session.Claude.OutputActive = true;
-		session.Shell.OutputActive = true;
 
-		// Clear the page's xterms; the page re-emits term-ready, which routes to the now-active session's
-		// terminals (OnReady spawns a freshly-created session's PTYs; an already-live TUI is repainted).
-		// respawn=false: the incoming child stays live across a switch, so the page clears content only and
-		// preserves its terminal modes (mouse tracking) — otherwise the wheel stops reaching Claude until a
-		// manual resize re-emits the mode. See TerminalView's term-reset handling.
-		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"claude\",\"respawn\":false}");
-		_bridge.PostToWeb("{\"type\":\"term-reset\",\"session\":\"shell\",\"respawn\":false}");
 		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
 		// session's working copies and reopens this one's. fs-read/write + active-editor already route to the
 		// active session, so edits land in the right worktree the moment _session is swapped above.
@@ -341,10 +357,19 @@ public sealed partial class HostCore {
 		session.SetEditorOutputActive(true);
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb();
+		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree), so
+		// language intelligence follows the focused session instead of staying pinned to the launch session.
+		PushLspConfigToWeb(session);
 		PostSessionStatus(session.Status.Status);
+		// Catch the page up on the incoming session's inline turn-review: a background Claude records edits in
+		// its own tracker while muted, but the live turn pushes are gated on the active session, so without this
+		// the switched-in session's diffs (and the ← / → walk) wouldn't appear — and the previous session's walk
+		// would linger. Pushed after the status so the web's auto-arm sees the incoming session's idle state.
+		PushReviewStateOnSwitch();
+		// The rail push carries the new active flag, which is what flips the page to this session's terminal
+		// panes (they were already mounted + live). Pushed before focus so the target pane is shown first.
 		PushSessionList();
-		// Land keyboard focus in the new session's Claude pane. Pushed last so it wins over the editor rebind
-		// and after term-reset so the (persistent) claude xterm is the one focused.
+		// Land keyboard focus in the new session's Claude pane.
 		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
 	}
 

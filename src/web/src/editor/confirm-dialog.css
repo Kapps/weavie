@@ -1,0 +1,122 @@
+/* Modal confirm dialog shell + buttons (ConfirmDialog.tsx, also reused by DeleteSessionDialog.tsx). */
+
+/* Modal confirm dialog (e.g. "discard unsaved scratch?"): a dimmed backdrop with a centered card. Above the
+   panels/toolbars but below toasts, so a failed-save toast still shows. */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.5);
+  /* Softly defocus the workspace behind the modal so the dialog reads as a floating layer. */
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  /* Modals render through a Portal to <body>, OUTSIDE the .app font scope — without this they fall back
+     to the WebView's default serif and render fuzzily. Re-assert the chrome UI font (Chivo) here so the
+     dialog text is crisp. 13px reads a touch larger than the 12px chrome, which suits a focused dialog. */
+  font: 13px / 1.5 var(--ui-font);
+}
+
+.confirm-dialog {
+  width: min(420px, 86vw);
+  padding: 1em 1.1em;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.55);
+}
+
+.confirm-title {
+  font-weight: 600;
+  margin-bottom: 0.5em;
+}
+
+.confirm-body {
+  color: var(--dim);
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.confirm-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.5em;
+  margin-top: 1.1em;
+}
+
+.confirm-btn {
+  padding: 0.4em 0.9em;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Ghost buttons only. The filled primary/danger buttons set their own hover below; without this exclusion the
+   generic rule's translucent fill outranks their solid background and makes them go dark on hover. */
+.confirm-btn:not(.confirm-btn-primary):not(.confirm-btn-danger):hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.confirm-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.confirm-btn-primary {
+  border-color: var(--accent);
+  background: var(--accent);
+  color: #042019;
+}
+
+.confirm-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+/* Destructive confirm (delete session): a saturated danger red with white text — a deliberate button, not a
+   pale highlight. No contrasting border; hover lightens; focus shows a soft light-red ring (not a same-color
+   halo around the fill). */
+.confirm-btn-danger {
+  border-color: transparent;
+  background: var(--danger);
+  color: #fff;
+}
+
+.confirm-btn-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 85%, #fff);
+}
+
+.confirm-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.confirm-btn-danger:focus-visible {
+  outline-color: color-mix(in srgb, var(--danger) 45%, #fff);
+}
+
+/* Acknowledgement controls inside a delete confirm: a warning line (the untracked two-step) and the checkbox
+   that gates deleting a worktree with tracked changes. */
+.confirm-warn {
+  margin-top: 0.7em;
+  color: var(--bad);
+  font-weight: 600;
+}
+
+.confirm-check {
+  display: flex;
+  align-items: center;
+  gap: 0.5em;
+  margin-top: 0.9em;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.confirm-check input {
+  cursor: pointer;
+}

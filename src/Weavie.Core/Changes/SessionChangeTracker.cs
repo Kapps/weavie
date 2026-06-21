@@ -45,12 +45,28 @@ public sealed class SessionChangeTracker {
 	public event Action<string>? FileChanged;
 
 	/// <summary>
+	/// Raised with the absolute path of a tracked file that has disappeared from disk — deleted by a tool that
+	/// isn't an editor (a <c>Bash</c> rm, a rename, a generated-then-cleaned-up temp) — so the host can close its
+	/// editor tab. Fires from <see cref="Observe"/>'s post-tool reconciliation, alongside a single <see cref="Changed"/>.
+	/// </summary>
+	public event Action<string>? FileDeleted;
+
+	/// <summary>
 	/// Folds a hook event into the change set: PreToolUse on a file-editing tool snapshots the baseline,
-	/// PostToolUse records the new content. Non-editing tools and turn boundaries are ignored — the accumulate
-	/// review baseline never resets on a new prompt.
+	/// PostToolUse records the new content. A non-editing tool (Bash, etc.) records no edit, but its PostToolUse
+	/// still triggers a disk reconciliation (<see cref="ReconcileDeletions"/>) so a file removed mid-turn — e.g.
+	/// a <c>Bash</c> rm of a scratch file — leaves the review set instead of stranding the ← / → walk on a missing
+	/// path. Turn boundaries are ignored, so the review baseline never resets on a new prompt.
 	/// </summary>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
+
+		// A PostToolUse settles a completed tool: reconcile FIRST so a deletion by any tool (the edit tools never
+		// delete; a Bash rm / mv does) drops the vanished file before we record this tool's own edit (if any).
+		if (request.Event == HookEventKind.PostToolUse) {
+			ReconcileDeletions();
+		}
+
 		string? path = ExtractEditPath(request);
 		if (path is null) {
 			return;
@@ -115,6 +131,38 @@ public sealed class SessionChangeTracker {
 
 		Changed?.Invoke();
 		FileChanged?.Invoke(path);
+	}
+
+	/// <summary>
+	/// Reconciles the tracked set against disk: any file that's been recorded but no longer exists was deleted out
+	/// from under us (a <c>Bash</c> rm, a rename, a generated-then-cleaned-up temp). Such a file can't be rendered
+	/// in the inline review — there's nothing on disk to open — so it's dropped from tracking entirely, mirroring
+	/// the revert-deletes-a-created-file path (<see cref="Forget"/>). Raises <see cref="FileDeleted"/> per removed
+	/// path (so the host closes its editor tab + clears the marker) and a single <see cref="Changed"/> so the
+	/// review walk re-pushes without the dead entries. A no-op (no events) when nothing vanished.
+	/// </summary>
+	private void ReconcileDeletions() {
+		List<string>? removed = null;
+		lock (_gate) {
+			// Snapshot keys first: Forget mutates _current while we iterate. Only recorded files (in _current) can
+			// appear in the review walk, so reconciling that set is both necessary and sufficient.
+			foreach (string path in new List<string>(_current.Keys)) {
+				if (!_fileSystem.FileExists(path)) {
+					Forget(path);
+					(removed ??= []).Add(path);
+				}
+			}
+		}
+
+		if (removed is null) {
+			return;
+		}
+
+		foreach (string path in removed) {
+			FileDeleted?.Invoke(path);
+		}
+
+		Changed?.Invoke();
 	}
 
 	/// <summary>

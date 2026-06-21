@@ -639,6 +639,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           if (change.kind !== "deleted") {
             continue;
           }
+          // A deleted file can't be opened, so drop it from the ← / → review walk — otherwise stepReviewFile
+          // lands on a path that no longer resolves and navigation stalls. The host also re-pushes a corrected
+          // turn-changes; pruning here keeps the set consistent in the gap before it arrives.
+          reviewFiles = reviewFiles.filter((file) => !samePath(file.path, change.path));
           inlineDiff?.clear(change.path);
           const entry = openTabs().find((tab) => samePath(tab.path, change.path));
           if (entry === undefined) {

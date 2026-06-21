@@ -3,7 +3,23 @@ import App from "./App";
 import { postToHost } from "./bridge";
 import { mark } from "./startup-timing";
 import "./fonts.css";
+// Chrome stylesheets, split out of the former monolithic styles.css and co-located with the
+// components they style. Import order preserves the cascade: base first, then per-feature sheets.
+// confirm-dialog.css must precede new-session-prompt.css (the prompt scopes overrides onto it).
 import "./styles.css";
+import "./layout/layout.css";
+import "./chrome/session-rail.css";
+import "./chrome/context-menu.css";
+import "./editor/editor.css";
+import "./terminal/terminal.css";
+import "./editor/diff.css";
+import "./files/files.css";
+import "./chrome/titlebar.css";
+import "./chrome/omnibar.css";
+import "./chrome/resize-frame.css";
+import "./notify/notify.css";
+import "./editor/confirm-dialog.css";
+import "./chrome/new-session-prompt.css";
 
 mark("module-eval");
 

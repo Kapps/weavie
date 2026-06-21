@@ -374,6 +374,15 @@ public sealed partial class HostCore {
 		}
 	}
 
+	/// <summary>
+	/// Pushes an <c>fs-change</c> removal for a file deleted mid-turn (the change tracker reconciled it off disk),
+	/// so the page closes its tab and clears the inline marker — the vanished-file counterpart to
+	/// <see cref="PushRefreshToWeb"/>. Reaches files the workspace watcher doesn't (it filters by extension), which
+	/// is how a created-then-deleted scratch file would otherwise strand the ← / → review walk on a dead path.
+	/// </summary>
+	private void PushDeletionToWeb(string path) =>
+		_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted"));
+
 	/// <summary>Forwards a workspace-watcher batch (non-Claude on-disk edits) to the page's <c>file://</c> provider.</summary>
 	private void PushWatcherChangesToWeb(IReadOnlyList<WatchedFileChange> changes) {
 		if (FileProviderProtocol.WatchedChanges(changes) is { } json) {

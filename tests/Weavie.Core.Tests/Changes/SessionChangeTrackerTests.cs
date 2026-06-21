@@ -336,4 +336,86 @@ public sealed class SessionChangeTrackerTests {
 		Assert.True(fileSystem.FileExists("/w/a.txt"));
 		Assert.Equal("", fileSystem.ReadAllText("/w/a.txt"));
 	}
+
+	private static HookRequest Bash(HookEventKind evt, string command) => new() {
+		Event = evt,
+		ToolName = "Bash",
+		ToolInputJson = $$"""{"command":{{JsonSerializer.Serialize(command)}}}""",
+	};
+
+	[Fact]
+	public void Observe_CreatedFileDeletedByBash_DropsFromReviewSet() {
+		// Claude creates a file this turn, then removes it with a Bash rm. The deleting tool's PostToolUse
+		// reconciles the tracked set against disk: the vanished file leaves the review walk (it can't be opened),
+		// raising FileDeleted for it and a single Changed.
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = new SessionChangeTracker(fileSystem);
+		string? deleted = null;
+		tracker.FileDeleted += path => deleted = path;
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/new.txt")); // absent → created since baseline
+		fileSystem.WriteAllText("/w/new.txt", "scratch\n");
+		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/new.txt"));
+		Assert.Single(tracker.TurnChanges());
+
+		int changed = 0;
+		tracker.Changed += () => changed++;
+
+		// Claude deletes it with a Bash rm; the rm's PostToolUse reconciles it off disk.
+		fileSystem.DeleteFile("/w/new.txt");
+		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/new.txt"));
+
+		Assert.Equal("/w/new.txt", deleted);
+		Assert.Equal(1, changed);                    // exactly one re-push of the review set
+		Assert.Empty(tracker.TurnChanges());         // gone from the review walk
+		Assert.Empty(tracker.Changes());             // and from the session diff
+		Assert.Null(tracker.GetTurn("/w/new.txt"));  // dropped from tracking entirely
+	}
+
+	[Fact]
+	public void Observe_PostToolUse_NoDeletion_DoesNotFireChanged() {
+		// Reconciliation fires events ONLY when something actually vanished — a normal tool call over intact files
+		// must not spuriously re-push the review set.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt"));
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
+		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt"));
+
+		int changed = 0;
+		string? deleted = null;
+		tracker.Changed += () => changed++;
+		tracker.FileDeleted += path => deleted = path;
+
+		tracker.Observe(Bash(HookEventKind.PostToolUse, "ls")); // a.txt still on disk
+
+		Assert.Equal(0, changed);
+		Assert.Null(deleted);
+		Assert.Single(tracker.TurnChanges()); // a.txt still pending
+	}
+
+	[Fact]
+	public void Observe_ExistingFileDeletedByBash_LeavesReviewSet() {
+		// A file that existed at baseline and was edited this turn, then deleted by a Bash rm: it can't be rendered
+		// inline (nothing on disk to open), so reconciliation drops it from the review set rather than stranding
+		// ← / → on it.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+		string? deleted = null;
+		tracker.FileDeleted += path => deleted = path;
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt"));
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
+		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt"));
+		Assert.Single(tracker.TurnChanges());
+
+		fileSystem.DeleteFile("/w/a.txt");
+		tracker.Observe(Bash(HookEventKind.PostToolUse, "rm /w/a.txt"));
+
+		Assert.Equal("/w/a.txt", deleted);
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Empty(tracker.Changes());
+	}
 }

@@ -1,0 +1,85 @@
+/* Frameless-window resize handles for the Windows custom chrome (ResizeFrame.tsx). */
+
+/* ── Frameless-window resize handles (Windows custom chrome) ──────────────────────────────────────
+   Thin grab strips at the window border (see ResizeFrame.tsx). The host window is frameless and the
+   WebView2 covers its real resize border, so resize is handed off to the OS natively on mousedown. These
+   are physical pointer hit areas pinned to the window edge — deliberately sized in px (not em/%): they
+   must not scale with the UI font. The frame container is inert; only the handles grab. They sit above
+   the chrome so the edge always wins, and opt out of the draggable caption (`app-region: no-drag`). */
+.resize-frame {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  pointer-events: none;
+}
+
+.resize-handle {
+  position: fixed;
+  pointer-events: auto;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.resize-top,
+.resize-bottom {
+  left: 10px;
+  right: 10px;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.resize-top {
+  top: 0;
+}
+
+.resize-bottom {
+  bottom: 0;
+}
+
+.resize-left,
+.resize-right {
+  top: 10px;
+  bottom: 10px;
+  width: 6px;
+  cursor: ew-resize;
+}
+
+.resize-left {
+  left: 0;
+}
+
+.resize-right {
+  right: 0;
+}
+
+.resize-top-left,
+.resize-top-right,
+.resize-bottom-left,
+.resize-bottom-right {
+  width: 10px;
+  height: 10px;
+}
+
+.resize-top-left {
+  top: 0;
+  left: 0;
+  cursor: nwse-resize;
+}
+
+.resize-top-right {
+  top: 0;
+  right: 0;
+  cursor: nesw-resize;
+}
+
+.resize-bottom-left {
+  bottom: 0;
+  left: 0;
+  cursor: nesw-resize;
+}
+
+.resize-bottom-right {
+  bottom: 0;
+  right: 0;
+  cursor: nwse-resize;
+}

@@ -389,36 +389,24 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Undoes the whole review set: reverts every file that differs from its review baseline back to that baseline
-	/// on disk and live-refreshes the editor. A file created since its baseline is DELETED (matching per-hunk +
-	/// per-file reverts) rather than truncated to a 0-byte file — its tab closes via an fs-change removal. The
-	/// remaining files re-render via the change feed; the review set then empties.
+	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
+	/// the editor. The delete-vs-truncate decision (a file created since its baseline is DELETED, not truncated)
+	/// lives in <see cref="SessionChangeTracker.RevertFile"/>, so per-hunk, per-file, and whole-set reverts all
+	/// behave identically; the host only keeps the workspace guard and the editor pushes.
 	/// </summary>
 	private void UndoTurn() {
-		if (_session is null) {
+		if (_session is not { } session) {
 			return;
 		}
 
-		foreach (var change in _session.Changes.TurnChanges()) {
+		foreach (var change in session.Changes.TurnChanges()) {
+			if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, change.Path)) {
+				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
+				continue;
+			}
+
 			try {
-				if (_session.Changes.WasCreatedSinceBaseline(change.Path)) {
-					if (!BufferStore.IsWithinWorkspace(_session.WorkspaceRoot, change.Path)) {
-						Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
-						continue;
-					}
-
-					_session.FileSystem.DeleteFile(change.Path);
-					_session.Changes.Forget(change.Path);
-					_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "deleted"));
-					continue;
-				}
-
-				if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, change.Path, change.BaselineText)) {
-					Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
-					continue;
-				}
-
-				_session.Changes.RecordChange(change.Path);
+				PushAfterRevert(change.Path, session.Changes.RevertFile(change.Path));
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
 			}
@@ -455,25 +443,31 @@ public sealed partial class HostCore {
 		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
 
 		try {
-			switch (session.Changes.RevertHunk(path, baselineRange, currentRange, guardText)) {
-				case RevertHunkOutcome.GuardMismatch:
-					Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
-					PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
-					break;
-				case RevertHunkOutcome.Reverted:
-					PushRefreshToWeb(path);  // fs-change → the editor reloads the rewritten file
-					PushTurnDiffToWeb(path); // the inline diff drops the reverted hunk
-					PushTurnChangesToWeb();  // the file may have left the review set
-					break;
-				case RevertHunkOutcome.Deleted:
-					_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted")); // the editor closes the tab
-					PushTurnChangesToWeb();
-					break;
-				default:
-					break;
+			var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText);
+			if (outcome == RevertHunkOutcome.GuardMismatch) {
+				Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+				PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
+				return;
 			}
+
+			PushAfterRevert(path, outcome);
+			PushTurnChangesToWeb(); // the file may have left the review set
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Pushes the editor refresh for a completed revert (per-hunk or whole-file): an <c>fs-change</c> removal for
+	/// a deleted file (the editor closes its tab), else a reload plus a fresh per-file diff so the reverted
+	/// markers drop.
+	/// </summary>
+	private void PushAfterRevert(string path, RevertHunkOutcome outcome) {
+		if (outcome == RevertHunkOutcome.Deleted) {
+			_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted"));
+		} else {
+			PushRefreshToWeb(path);  // fs-change → the editor reloads the rewritten file
+			PushTurnDiffToWeb(path); // the inline diff drops the reverted hunk(s)
 		}
 	}
 

@@ -173,26 +173,37 @@ public sealed class SessionChangeTracker {
 		}
 	}
 
-	/// <summary>Whether <paramref name="path"/> did not exist on disk when its review baseline was first captured.</summary>
+	/// <summary>
+	/// Reverts a whole file to its review baseline (the whole-set / per-file undo). Like <see cref="RevertHunk"/>
+	/// it owns the delete-vs-truncate decision in one place: a file created since its baseline is DELETED rather
+	/// than truncated to a 0-byte file; any other file is rewritten to its baseline content. No guard — the whole
+	/// file is being reset, not a single hunk against concurrent edits.
+	/// </summary>
 	/// <param name="path">Absolute file path.</param>
-	public bool WasCreatedSinceBaseline(string path) {
+	public RevertHunkOutcome RevertFile(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
-			return _createdSinceBaseline.Contains(path);
+			string baseline = _reviewBaseline.GetValueOrDefault(path, string.Empty);
+			if (baseline.Length == 0 && _createdSinceBaseline.Contains(path)) {
+				_fileSystem.DeleteFile(path);
+				Forget(path);
+				return RevertHunkOutcome.Deleted;
+			}
+
+			_fileSystem.WriteAllText(path, baseline);
+			_current[path] = baseline;
+			return RevertHunkOutcome.Reverted;
 		}
 	}
 
-	/// <summary>Drops <paramref name="path"/> from every tracked set (e.g. after the file was deleted on revert).</summary>
-	/// <param name="path">Absolute file path.</param>
-	public void Forget(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		lock (_gate) {
-			_current.Remove(path);
-			_baseline.Remove(path);
-			_reviewBaseline.Remove(path);
-			_preEdit.Remove(path);
-			_createdSinceBaseline.Remove(path);
-		}
+	// Drops a path from every tracked set after the file was deleted on revert. Caller holds _gate (the lock is
+	// re-entrant), so this is gate-safe whether reached from RevertHunk or RevertFile.
+	private void Forget(string path) {
+		_current.Remove(path);
+		_baseline.Remove(path);
+		_reviewBaseline.Remove(path);
+		_preEdit.Remove(path);
+		_createdSinceBaseline.Remove(path);
 	}
 
 	/// <summary>

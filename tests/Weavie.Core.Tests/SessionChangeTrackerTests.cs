@@ -299,6 +299,29 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void RevertFile_CreatedFileDeleted_ExistingRestoredToBaseline() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+
+		// a.txt existed at baseline (a0) and was edited; new.txt was created this session.
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
+		tracker.RecordChange("/w/a.txt");
+		tracker.CaptureBaseline("/w/new.txt");
+		fileSystem.WriteAllText("/w/new.txt", "created\n");
+		tracker.RecordChange("/w/new.txt");
+
+		// Whole-file revert: the existing file returns to its baseline; the created file is deleted (not truncated).
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile("/w/a.txt"));
+		Assert.Equal(RevertHunkOutcome.Deleted, tracker.RevertFile("/w/new.txt"));
+
+		Assert.Equal("a0\n", fileSystem.ReadAllText("/w/a.txt"));
+		Assert.False(fileSystem.FileExists("/w/new.txt"));
+		Assert.Empty(tracker.TurnChanges()); // both reverted out of the review set
+	}
+
+	[Fact]
 	public void RevertHunk_EmptiedExistingFile_TruncatesNotDeletes() {
 		// An existing file reverted to an empty baseline is a genuine 0-byte file — NOT a deletion (deletion
 		// keys off existence-at-baseline, not emptiness).

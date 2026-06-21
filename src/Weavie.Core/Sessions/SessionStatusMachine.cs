@@ -27,18 +27,34 @@ public sealed class SessionStatusMachine {
 	/// <summary>Feeds a hook event into the machine — wire to <see cref="HookBridgeServer.Observed"/>.</summary>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
-		SessionStatus? next = request.Event switch {
+		var next = request.Event switch {
 			HookEventKind.UserPromptSubmit => SessionStatus.Working,
 			HookEventKind.PreToolUse => SessionStatus.Working,
 			HookEventKind.PostToolUse => SessionStatus.Working,
-			HookEventKind.Notification => SessionStatus.NeedsInput,
+			HookEventKind.Notification => ClassifyNotification(request),
 			HookEventKind.Stop => SessionStatus.Idle,
+			// First hook of a fresh/resumed/cleared conversation: claude is up and waiting for input, so leave
+			// Starting for the calm green Idle. (A mid-turn compact also fires SessionStart; the next tool call
+			// re-arms Working, so the brief Idle is harmless.)
+			HookEventKind.SessionStart => SessionStatus.Idle,
 			_ => null,
 		};
 		if (next is { } status) {
 			Set(status);
 		}
 	}
+
+	/// <summary>
+	/// Maps a Notification to a status. Claude fires it both for a permission prompt (the user must act →
+	/// NeedsInput) and for the idle "waiting for your input" notice it emits once a turn has settled. The idle
+	/// notice must NOT change status: it arrives right after <see cref="HookEventKind.Stop"/> (so treating it as
+	/// NeedsInput would flip a finished turn back to orange), and it can also fire while a permission prompt is
+	/// still open (so it must not clear a genuine NeedsInput). Returning null leaves the resting state intact.
+	/// </summary>
+	private static SessionStatus? ClassifyNotification(HookRequest request) =>
+		request.Message is { } message && message.Contains("waiting for your input", StringComparison.OrdinalIgnoreCase)
+			? null
+			: SessionStatus.NeedsInput;
 
 	/// <summary>
 	/// Feeds a supervisor transition for the session's Claude process — wire to

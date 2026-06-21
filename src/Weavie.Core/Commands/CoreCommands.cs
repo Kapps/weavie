@@ -41,7 +41,7 @@ public static class CoreCommands {
 	/// <summary>Undoes the whole accumulated review set (acceptEdits/bypass mode); Keep-all is the cosmetic counterpart.</summary>
 	public const string UndoChange = "weavie.diff.undo";
 
-	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; bound to <c>$mod+Shift+r</c>.</summary>
+	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
 	public const string ReviewOpen = "weavie.review.open";
 
 	/// <summary>Walks to the next changed file in the review set; bound to <c>$mod+Right</c>.</summary>
@@ -255,7 +255,6 @@ public static class CoreCommands {
 			Description = "Jump into the post-turn review (acceptEdits/bypass mode) at the first changed file, "
 				+ "landed on its first change. Walk hunks with Next/Previous Change and files with Next/Previous File.",
 			Aliases = ["review changes", "review turn", "turn review", "review", "changed files"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+r" }],
 		});
 
 		registry.Register(new CommandDefinition {

@@ -10,9 +10,9 @@ namespace Weavie.Core.Changes;
 public static class ChangeMessages {
 	/// <summary>
 	/// The per-turn change list: each file changed this turn with its added/removed line counts and the 1-based
-	/// line of its first change, so the review navigator can open the file landed on that first diff. Pushed only
-	/// in an auto-keep mode (acceptEdits/bypass), where post-turn review is the review surface; default mode uses
-	/// the blocking openDiff. <paramref name="open"/> tells the page to auto-open the first file now.
+	/// line of its first change, so the review navigator can open the file landed on that first diff. Built from
+	/// the change tracker, which records edits in every permission mode, so this is the review surface in all
+	/// modes (default included). <paramref name="open"/> tells the page to auto-open the first file now.
 	/// </summary>
 	public static string TurnChanges(SessionChangeTracker tracker, bool open) {
 		ArgumentNullException.ThrowIfNull(tracker);

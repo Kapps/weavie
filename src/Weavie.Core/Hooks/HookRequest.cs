@@ -21,6 +21,13 @@ public sealed record HookRequest {
 	public string? SessionId { get; init; }
 
 	/// <summary>
+	/// For a <see cref="HookEventKind.Notification"/> event, the human-readable notice text (e.g.
+	/// <c>"Claude needs your permission to use Bash"</c> vs the idle <c>"Claude is waiting for your input"</c>);
+	/// lets the status machine tell a permission prompt apart from the post-turn idle notice. Absent on other events.
+	/// </summary>
+	public string? Message { get; init; }
+
+	/// <summary>
 	/// For a <see cref="HookEventKind.SessionStart"/> event, why the conversation (re)started (<c>startup</c>/
 	/// <c>resume</c>/<c>clear</c>/<c>compact</c>); Weavie acts on <c>clear</c>. Absent on other events.
 	/// </summary>
@@ -70,6 +77,7 @@ public sealed record HookRequest {
 				ToolName = toolName ?? string.Empty,
 				ToolInputJson = toolInput,
 				SessionId = GetString(root, "session_id"),
+				Message = GetString(root, "message"),
 				Source = GetString(root, "source"),
 				Cwd = GetString(root, "cwd"),
 				PermissionMode = GetString(root, "permission_mode"),

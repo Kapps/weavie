@@ -62,12 +62,15 @@ The change feed must work in *every* mode, including when Claude stops asking �
 baseline on PreToolUse and records the new content on PostToolUse, because hooks fire before the permission
 check. Edits are recorded whether they were reviewed (default), auto-applied (acceptEdits), or hook-allowed.
 
-- **openDiff** is the per-edit review surface **only in `default` mode**. `PermissionModeDiffPresenter`
-  auto-keeps it when the *observed* mode auto-applies edits (defensive — if Claude calls openDiff under
-  acceptEdits, it is kept without a redundant blocking review).
-- In **acceptEdits / bypass**, the recorded change feed + the **post-turn review navigator** are the surface
-  — see [turn-review.md](turn-review.md). The hosts gate that navigator on
-  `ObservedPermissionMode.AutoAppliesEdits`.
+- The recorded change feed + the **post-turn review navigator** are the review surface in **every** mode,
+  default included — see [turn-review.md](turn-review.md). The embedded `claude` applies its built-in
+  Edit/Write edits directly (recorded via the hook stream) rather than calling the blocking `openDiff`, so the
+  always-recording tracker is the reliable surface; gating the navigator on the observed mode would hide
+  default-mode edits from review entirely. The hosts therefore push the navigator in all modes (they do **not**
+  gate it on `ObservedPermissionMode.AutoAppliesEdits`).
+- **openDiff** stays wired as an optional blocking per-edit review *if* Claude ever calls it.
+  `PermissionModeDiffPresenter` auto-keeps it when the observed mode auto-applies edits (so it never blocks
+  redundantly under acceptEdits). `AutoAppliesEdits` now drives only that openDiff auto-keep, not the navigator.
 
 ## Architecture / placement
 
@@ -85,7 +88,8 @@ Weavie.Core/
     IdeIntegration.cs               // hook decision reads claude.allowAllTools live
   Changes/                    // SessionChangeTracker + the turn/session feeds (see turn-review.md)
 src/Weavie.Win | Mac | Linux/ // each host: construct ObservedPermissionMode, pass it to the presenter,
-                              // subscribe it to HookBridge.Observed, gate the review push on AutoAppliesEdits
+                              // subscribe it to HookBridge.Observed (AutoAppliesEdits drives the openDiff
+                              // auto-keep only; the review push is unconditional)
 ```
 
 ## Open questions / follow-ups

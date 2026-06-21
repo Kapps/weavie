@@ -16,6 +16,13 @@ public sealed class SessionStatusMachineTests {
 		ToolInputJson = "{}",
 	};
 
+	private static HookRequest Notification(string? message) => new() {
+		Event = HookEventKind.Notification,
+		ToolName = string.Empty,
+		ToolInputJson = "{}",
+		Message = message,
+	};
+
 	[Fact]
 	public void InitialStatus_IsStarting() {
 		var machine = new SessionStatusMachine();
@@ -39,6 +46,41 @@ public sealed class SessionStatusMachineTests {
 		var machine = new SessionStatusMachine();
 		machine.Observe(Hook(HookEventKind.Notification));
 		Assert.Equal(SessionStatus.NeedsInput, machine.Status);
+	}
+
+	[Fact]
+	public void PermissionNotification_GoesNeedsInput() {
+		var machine = new SessionStatusMachine();
+		machine.Observe(Notification("Claude needs your permission to use Bash"));
+		Assert.Equal(SessionStatus.NeedsInput, machine.Status);
+	}
+
+	[Fact]
+	public void IdleWaitingNotification_AfterStop_StaysIdle() {
+		// The post-turn "waiting for your input" notice arrives after Stop; it must not flip the finished turn
+		// back to orange.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.Stop));
+		machine.Observe(Notification("Claude is waiting for your input"));
+		Assert.Equal(SessionStatus.Idle, machine.Status);
+	}
+
+	[Fact]
+	public void IdleWaitingNotification_DoesNotClearPendingPermission() {
+		// A pending permission prompt can also age into a "waiting for your input" notice; that must not clear
+		// the genuine NeedsInput.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Notification("Claude needs your permission to use Bash"));
+		machine.Observe(Notification("Claude is waiting for your input"));
+		Assert.Equal(SessionStatus.NeedsInput, machine.Status);
+	}
+
+	[Fact]
+	public void SessionStart_GoesIdle() {
+		// A fresh launch leaves Starting for green Idle the moment claude reports it is up.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.SessionStart));
+		Assert.Equal(SessionStatus.Idle, machine.Status);
 	}
 
 	[Fact]

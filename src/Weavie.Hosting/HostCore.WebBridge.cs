@@ -330,12 +330,14 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Pushes the per-turn change list (each file changed this turn + its first-change line) for the page's
-	/// review navigator, with the host-decided auto-open flag (see <see cref="ShouldOpenReview"/>). Only in an
-	/// auto-keep mode (acceptEdits/bypass), where post-turn review is the surface — default mode reviews each
-	/// edit via the blocking openDiff, so there's nothing to list.
+	/// review navigator, with the host-decided auto-open flag (see <see cref="ShouldOpenReview"/>). Driven by the
+	/// change tracker, which records every edit in every permission mode, so the post-turn review is the review
+	/// surface in default mode too — not just acceptEdits/bypass. The embedded claude applies its built-in
+	/// Edit/Write edits directly (recorded via the hook stream) rather than through the blocking openDiff, so the
+	/// tracker is the reliable surface; gating on the mode would hide default-mode edits from review entirely.
 	/// </summary>
 	private void PushTurnChangesToWeb() {
-		if (_session is { } session && session.ObservedMode.AutoAppliesEdits) {
+		if (_session is { } session) {
 			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session)));
 		}
 	}
@@ -375,9 +377,9 @@ public sealed partial class HostCore {
 	/// tracker records edits in every permission mode, but the live turn pushes are gated on
 	/// <c>IsActiveSession</c> — so a session that edited while muted has a populated tracker the page never heard
 	/// about, and the previous session's ← / → walk is still showing. Clears the outgoing session's inline
-	/// markers, then pushes the incoming session's review set — the real set in an auto-keep mode, an empty set
-	/// otherwise (which also clears the stale walk). The arm key resets first so the incoming session re-opens
-	/// its review on switch-in.
+	/// markers, then pushes the incoming session's review set (in every mode — the change tracker is the universal
+	/// review surface; an empty tracker just yields an empty set, which also clears the stale walk). The arm key
+	/// resets first so the incoming session re-opens its review on switch-in.
 	/// </summary>
 	private void PushReviewStateOnSwitch() {
 		if (_session is not { } session) {
@@ -386,9 +388,7 @@ public sealed partial class HostCore {
 
 		_armedReviewKey = null;
 		_bridge.PostToWeb(ChangeMessages.TurnReset());
-		_bridge.PostToWeb(session.ObservedMode.AutoAppliesEdits
-			? ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session))
-			: ChangeMessages.EmptyTurnChanges());
+		_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session)));
 	}
 
 	/// <summary>
@@ -418,13 +418,13 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Pushes one file's per-turn diff so the page renders it inline. Only in an auto-keep mode
-	/// (acceptEdits/bypass), where the applied turn-markers are the review surface; in default mode openDiff is
-	/// the per-edit review, so a second marker would demand a redundant Accept — suppress it.
+	/// Pushes one file's per-turn diff so the page renders it inline. Driven by the change tracker (which records
+	/// edits in every mode), so the inline markers are the review surface in default mode too — the embedded
+	/// claude applies edits through the hook stream rather than the blocking openDiff, so the tracker is the
+	/// reliable surface rather than a redundant second one.
 	/// </summary>
 	private void PushTurnDiffToWeb(string path) {
-		if (_session is { } session && session.ObservedMode.AutoAppliesEdits
-			&& session.Changes.GetTurn(path) is { } turn) {
+		if (_session is { } session && session.Changes.GetTurn(path) is { } turn) {
 			_bridge.PostToWeb(ChangeMessages.TurnDiff(turn));
 		}
 	}

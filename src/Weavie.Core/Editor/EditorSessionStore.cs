@@ -7,7 +7,7 @@ namespace Weavie.Core.Editor;
 /// Loads, persists, and serves the per-workspace editor session at
 /// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The host owns one per workspace window; the
 /// web is the only writer (the user opens files / moves the cursor → debounced <c>editor-session-changed</c>
-/// → <see cref="Update"/>), and on launch the host reads disk and pushes <see cref="BuildRestoreJson()"/> so
+/// → <see cref="Update"/>), and on launch the host reads disk and pushes <see cref="BuildRestoreJson(string)"/> so
 /// the editor reopens its files at their saved positions. Writes are atomic; a malformed file is backed up
 /// to <c>editor-session.json.bad</c> and reset. Modeled on <c>LayoutStore</c>; sibling of
 /// <see cref="EditorStore"/>. See <c>docs/specs/editor-session.md</c>.
@@ -61,15 +61,16 @@ public sealed class EditorSessionStore {
 	/// Builds the host→web <c>set-editor-session</c> message: the current session (open file paths + opaque
 	/// view state). No file content rides along — the web reopens each file as a working copy resolved from
 	/// disk through the host file provider. Files that no longer exist are skipped and logged; if the active
-	/// file was skipped, <c>active</c> is nulled.
+	/// file was skipped, <c>active</c> is nulled. <paramref name="owner"/> is the id of the session these tabs
+	/// belong to; the web echoes it on later editor messages so a post-switch send is attributed correctly.
 	/// </summary>
-	public string BuildRestoreJson() {
+	public string BuildRestoreJson(string owner) {
 		EditorSession session;
 		lock (_gate) {
 			session = _current;
 		}
 
-		return BuildRestoreJson(session, _fileSystem, line => Log?.Invoke(line));
+		return BuildRestoreJson(session, _fileSystem, line => Log?.Invoke(line), owner);
 	}
 
 	/// <summary>
@@ -77,10 +78,12 @@ public sealed class EditorSessionStore {
 	/// open file paths + opaque view state, no file content (the web reopens each as a working copy read
 	/// from disk through the host file provider). Files that no longer exist (checked against
 	/// <paramref name="fileSystem"/>) are skipped and logged via <paramref name="log"/>; if the active file
-	/// was skipped, <c>active</c> is nulled. Static so a per-session switch can build the message for a
-	/// session's in-memory <see cref="EditorSession"/> without its own store.
+	/// was skipped, <c>active</c> is nulled. <paramref name="owner"/> is the id of the session these tabs
+	/// belong to (stamped so the page can attribute its echoed editor messages back to it). Static so a
+	/// per-session switch can build the message for a session's in-memory <see cref="EditorSession"/> without
+	/// its own store.
 	/// </summary>
-	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, Action<string>? log) {
+	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, Action<string>? log, string owner) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 
@@ -105,6 +108,7 @@ public sealed class EditorSessionStore {
 		string? active = session.Active is { } a && surviving.Contains(a) ? a : null;
 		var message = new {
 			type = "set-editor-session",
+			owner,
 			session = new { active, open },
 		};
 		return JsonSerializer.Serialize(message, EditorSessionSerialization.MessageOptions);

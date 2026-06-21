@@ -70,4 +70,31 @@ public sealed class EditorStoreTests {
 		Assert.Same(editor, store.Active);
 		Assert.Same(editor, observed);
 	}
+
+	[Fact]
+	public void Clear_DropsActiveAndOpenEditors() {
+		var store = new EditorStore();
+		store.SetActive(new ActiveEditor("/work/a.cs", "csharp", "", new EditorSelection(default, default, IsEmpty: true)));
+		store.SetOpenEditors([new OpenEditorTab("/work/a.cs", IsActive: true, IsPinned: false, IsPreview: false)]);
+
+		store.Clear();
+
+		// A backgrounded session reports "nothing open" so its Claude isn't told the user is looking at a file
+		// they have switched away from — getCurrentSelection / getOpenEditors both read empty after Clear.
+		Assert.Null(store.Active);
+		Assert.Empty(store.OpenEditors);
+	}
+
+	[Fact]
+	public void Clear_DoesNotRaiseChanged() {
+		var store = new EditorStore();
+		store.SetActive(new ActiveEditor("/work/a.cs", "csharp", "", new EditorSelection(default, default, IsEmpty: true)));
+
+		bool raised = false;
+		store.Changed += _ => raised = true;
+		store.Clear();
+
+		// Clear must not push a selection_changed to a backgrounded session's Claude.
+		Assert.False(raised);
+	}
 }

@@ -36,11 +36,24 @@ function structureKey(session: EditorSession): string {
 }
 let lastStructure = "";
 
+// The session id the host says these tabs belong to (from the last set-editor-session). Every message we send
+// the host about the editor (editor-session-changed / open-editors-changed / active-editor-changed) carries it,
+// so the host can attribute a debounced send that lands AFTER a session switch to the session it was produced
+// for — and reject it rather than corrupt the now-active session. Null until the first set-editor-session.
+let currentOwner: string | null = null;
+
+/// The session id the editor's tabs currently belong to (for stamping outbound editor messages). Read by
+/// editor-host's active-editor emit so its owner matches the rest.
+export function editorOwner(): string | null {
+  return currentOwner;
+}
+
 // Tell the host the live open-tab set so Claude's getOpenEditors reports it (and close_tab can target it).
 function emitOpenEditors(session: EditorSession): void {
   lastStructure = structureKey(session);
   postToHost({
     type: "open-editors-changed",
+    owner: currentOwner,
     editors: session.open.map((entry) => ({
       path: entry.path,
       isActive: entry.path === session.active,
@@ -52,6 +65,14 @@ function emitOpenEditors(session: EditorSession): void {
 
 onHostMessage((message) => {
   if (message.type === "set-editor-session") {
+    // Adopt the incoming session's owner id, and DROP any pending debounced editor-session-changed: it carries
+    // the PREVIOUS session's tabs and, landing after this rebind, would be written into the incoming session's
+    // EditorSession (the cross-worktree tab-contamination bug). The seed below is now the source of truth.
+    currentOwner = message.owner ?? null;
+    if (postTimer !== undefined) {
+      clearTimeout(postTimer);
+      postTimer = undefined;
+    }
     const seeded = { active: message.session.active, open: normalize(message.session.open) };
     setSession(seeded);
     // Report the restored set so getOpenEditors works immediately, without waiting for a tab change.
@@ -107,7 +128,11 @@ function sendEditorSession(s: EditorSession): void {
     ...(entry.pinned ? { pinned: true } : {}),
     ...(entry.scratch ? { scratch: true } : {}),
   }));
-  postToHost({ type: "editor-session-changed", session: { active: s.active, open } });
+  postToHost({
+    type: "editor-session-changed",
+    owner: currentOwner,
+    session: { active: s.active, open },
+  });
 }
 
 function commit(next: EditorSession): void {

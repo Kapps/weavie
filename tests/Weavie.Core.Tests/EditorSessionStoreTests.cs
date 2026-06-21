@@ -73,10 +73,12 @@ public sealed class EditorSessionStoreTests {
 			Open = [new EditorSessionEntry { Path = FilePath, ViewState = viewStateDoc.RootElement.Clone() }],
 		});
 
-		using var message = JsonDocument.Parse(store.BuildRestoreJson());
+		using var message = JsonDocument.Parse(store.BuildRestoreJson("sess-1"));
 		var session = message.RootElement.GetProperty("session");
 
 		Assert.Equal("set-editor-session", message.RootElement.GetProperty("type").GetString());
+		// The owner id is stamped so the page can attribute its echoed editor messages back to this session.
+		Assert.Equal("sess-1", message.RootElement.GetProperty("owner").GetString());
 		Assert.Equal(FilePath, session.GetProperty("active").GetString());
 		var entry = session.GetProperty("open").EnumerateArray().Single();
 		Assert.Equal(FilePath, entry.GetProperty("path").GetString());
@@ -94,7 +96,7 @@ public sealed class EditorSessionStoreTests {
 			Open = [new EditorSessionEntry { Path = FilePath }],
 		});
 
-		using var message = JsonDocument.Parse(store.BuildRestoreJson());
+		using var message = JsonDocument.Parse(store.BuildRestoreJson("sess-1"));
 		var session = message.RootElement.GetProperty("session");
 
 		Assert.Equal(JsonValueKind.Null, session.GetProperty("active").ValueKind);

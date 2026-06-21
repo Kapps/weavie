@@ -88,7 +88,13 @@ public sealed partial class HostCore {
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
 				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
-				_session?.DiffPresenter.Resolve(diffId, kept, finalContents);
+				// Route to the session that OWNS this diff id (ids are process-unique), not blindly to the active
+				// session: a switch between render and resolve must not resolve a different session's diff. An id
+				// no loaded session owns is logged loudly rather than silently dropped (a switch-race / double-resolve).
+				if (!ResolveDiff(diffId, kept, finalContents)) {
+					Log($"[weavie] diff-resolved for unknown id '{diffId}' — no loaded session owns it (switch-race or double-resolve?)");
+				}
+
 				break;
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
@@ -101,31 +107,44 @@ public sealed partial class HostCore {
 				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
 				break;
 			case "active-editor-changed":
-				_session?.UpdateActiveEditor(root);
+				// Attribute by the owner the page stamped (from the last set-editor-session): a selection emit that
+				// fires after a switch must update the session it was FOR, or be rejected — never the new active one.
+				EditorMessageTarget(root, "active-editor-changed")?.UpdateActiveEditor(root);
 				break;
 			case "open-editors-changed":
-				_session?.UpdateOpenEditors(root);
+				EditorMessageTarget(root, "open-editors-changed")?.UpdateOpenEditors(root);
 				break;
 			case "get-turn-diff":
 				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
 			case "fs-stat":
-				if (_session is not null) {
-					_bridge.PostToWeb(_session.FileProvider.Stat(FsId(root), FsPath(root)));
+				// Route by PATH, not active session: the file the page is statting belongs to whichever session's
+				// worktree contains it, regardless of which session is currently foregrounded (see ResolveFsSession).
+				if (ResolveFsSession(FsPath(root)) is { } statSession) {
+					_bridge.PostToWeb(statSession.FileProvider.Stat(FsId(root), FsPath(root)));
+				} else {
+					_bridge.PostToWeb(FileProviderProtocol.StatResult(FsId(root), default));
 				}
 
 				break;
 			case "fs-read":
-				if (_session is not null) {
-					_bridge.PostToWeb(_session.FileProvider.Read(FsId(root), FsPath(root)));
+				if (ResolveFsSession(FsPath(root)) is { } readSession) {
+					_bridge.PostToWeb(readSession.FileProvider.Read(FsId(root), FsPath(root)));
+				} else {
+					_bridge.PostToWeb(FileProviderProtocol.ReadNotFound(FsId(root)));
 				}
 
 				break;
 			case "fs-write":
-				if (_session is not null) {
-					_bridge.PostToWeb(_session.FileProvider.Write(
+				// Crucial for data safety on a switch: the web flushes the OUTGOING session's working copies as
+				// fs-writes during rebind, which can arrive after _session has already flipped. Routing by path
+				// lands them on the owning session's provider instead of being refused (and the edits lost).
+				if (ResolveFsSession(FsPath(root)) is { } writeSession) {
+					_bridge.PostToWeb(writeSession.FileProvider.Write(
 						FsId(root), FsPath(root),
 						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+				} else {
+					_bridge.PostToWeb(FileProviderProtocol.WriteError(FsId(root), "Path is outside every session worktree."));
 				}
 
 				break;
@@ -221,8 +240,15 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb($"{{\"type\":\"set-layout\",\"document\":{documentJson}}}");
 	}
 
-	/// <summary>Applies an editor session the web sent (open files + view state); records it on the active session, persisting the primary's.</summary>
+	/// <summary>Applies an editor session the web sent (open files + view state); records it on the OWNING session (validated against the active one), persisting the primary's.</summary>
 	private void HandleEditorSessionChanged(JsonElement root) {
+		// Attribute by the stamped owner: a debounced send that lands after a session switch belongs to the
+		// PREVIOUS session and must be rejected, not written into the now-active session (cross-worktree tab
+		// contamination — one worktree's tabs reopened against another that lacks them).
+		if (EditorMessageTarget(root, "editor-session-changed") is not { } target) {
+			return;
+		}
+
 		if (!root.TryGetProperty("session", out var sessionElement)) {
 			return;
 		}
@@ -233,19 +259,46 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// Record on the active session so a switch can rebind the editor to its worktree's tabs. The primary
+		// Record on the owning session so a switch can rebind the editor to its worktree's tabs. The primary
 		// also mirrors to the persisted per-workspace store (for launch restore); secondary worktree sessions
 		// are in-memory only for now.
-		if (_session is { } active) {
-			active.EditorSession = session;
-			if (ReferenceEquals(active, _primarySession)) {
-				_editorSession.Update(session);
-			}
+		target.EditorSession = session;
+		if (ReferenceEquals(target, _primarySession)) {
+			_editorSession.Update(session);
 		}
 	}
 
-	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore.</summary>
-	private void PushEditorSessionToWeb() => _bridge.PostToWeb(_editorSession.BuildRestoreJson());
+	/// <summary>
+	/// The session a page→host editor message (editor-session-changed / active-editor-changed /
+	/// open-editors-changed) is FOR, validated against the active session. The page stamps each with the owner
+	/// id from the last <c>set-editor-session</c>; a send produced before a switch but processed after it carries
+	/// the previous owner and is rejected (loudly) rather than mutating the wrong session's state. An unstamped
+	/// message (older page, or the transitional window before a session ever pushed one) falls back to the active
+	/// session. Returns <c>null</c> when there is no active session or the owner doesn't match it.
+	/// </summary>
+	private HostSession? EditorMessageTarget(JsonElement root, string kind) {
+		if (_session is not { } active) {
+			return null;
+		}
+
+		string? owner = root.TryGetProperty("owner", out var ownerEl) && ownerEl.ValueKind == JsonValueKind.String
+			? ownerEl.GetString()
+			: null;
+		if (string.IsNullOrEmpty(owner)) {
+			return active; // unstamped — attribute to the active session (transitional / older page)
+		}
+
+		if (!string.Equals(owner, active.Id, StringComparison.Ordinal)) {
+			Log($"[weavie] {kind} for session '{owner}' ignored — active session is '{active.Id}' (stale post-switch message)");
+			return null;
+		}
+
+		return active;
+	}
+
+	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore, stamped with the active (primary) session's id.</summary>
+	private void PushEditorSessionToWeb() =>
+		_bridge.PostToWeb(_editorSession.BuildRestoreJson((_session ?? _primarySession)?.Id ?? string.Empty));
 
 	/// <summary>
 	/// Re-points the page's language clients at a session's own LSP bridge on a switch. Each session has its
@@ -654,6 +707,12 @@ public sealed partial class HostCore {
 		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;
 		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
 		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
+		// A NAMED-but-unresolvable slot is worth flagging: input/resize routed to the wrong session is a real
+		// bug, so don't let the active-session fallback hide it. An ABSENT slot is the older protocol — silent.
+		if (!string.IsNullOrEmpty(slot) && session is null) {
+			Log($"[weavie] term message named slot '{slot}' which isn't loaded — falling back to the active session '{_session?.Id}'");
+		}
+
 		session ??= _session;
 		return pane == "shell" ? session?.Shell : session?.Claude;
 	}

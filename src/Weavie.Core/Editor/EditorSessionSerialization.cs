@@ -7,7 +7,7 @@ namespace Weavie.Core.Editor;
 /// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. Mirrors
 /// <c>LayoutSerialization</c>. The on-disk format and the web→host wire format are the same shape; the
 /// host→web restore push is a superset (each open entry additionally carries the file's on-disk
-/// <c>content</c>) and is built by <see cref="EditorSessionStore.BuildRestoreJson()"/>.
+/// <c>content</c>) and is built by <see cref="EditorSessionStore.BuildRestoreJson(string)"/>.
 /// </summary>
 public static class EditorSessionSerialization {
 	/// <summary>On-disk options: camelCase, indented, nulls omitted.</summary>

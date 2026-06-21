@@ -21,7 +21,7 @@ import { startLanguageServices } from "../lsp/lsp-client";
 import { setDirtyPath } from "./dirty-store";
 import { canonicalFsPath } from "./fs-path";
 import { createEditor, monaco } from "./monaco-setup";
-import { captureViewState, editorSession, openTab, promote } from "./session-store";
+import { captureViewState, editorOwner, editorSession, openTab, promote } from "./session-store";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
@@ -159,6 +159,8 @@ export async function createEditorHost(
       uri: model.uri.toString(),
       languageId: model.getLanguageId(),
       text,
+      // Stamp the owning session so a selection emit that fires after a switch is attributed correctly.
+      owner: editorOwner(),
       selection: {
         start: {
           line: (sel?.startLineNumber ?? 1) - 1,

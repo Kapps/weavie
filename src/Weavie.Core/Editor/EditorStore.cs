@@ -151,4 +151,17 @@ public sealed class EditorStore {
 		ArgumentNullException.ThrowIfNull(editors);
 		_openEditors = editors;
 	}
+
+	/// <summary>
+	/// Drops the active file + open-tab mirror — called when the session stops being the foreground editor.
+	/// A background session's Claude must not be told the user is "looking at" a file they've actually
+	/// switched away from (the user views exactly one session at a time): with the store cleared,
+	/// <c>getCurrentSelection</c>/<c>getOpenEditors</c> honestly report nothing until the page re-reports on
+	/// switch-in. Deliberately does NOT raise <see cref="Changed"/> — a backgrounded session's Claude needs
+	/// no <c>selection_changed</c> push, and a raised event would also fire after the socket is irrelevant.
+	/// </summary>
+	public void Clear() {
+		_active = null;
+		_openEditors = [];
+	}
 }

@@ -37,7 +37,7 @@
     "lucide-solid": "^1.20.0",
     "monaco-editor": "npm:@codingame/monaco-vscode-editor-api@25.1.2",
     "monaco-languageclient": "10.7.0",
-    "solid-js": "1.9.3",
+    "solid-js": "1.9.4",
     "tm-grammars": "1.31.15",
     "vscode-languageclient": "9.0.1",
     "vscode-ws-jsonrpc": "3.5.0"
@@ -48,7 +48,7 @@
     "@playwright/test": "1.56.1",
     "@types/ws": "^8.5.13",
     "typescript": "5.7.2",
-    "vite": "6.0.7",
+    "vite": "6.4.3",
     "vite-plugin-solid": "2.11.0",
     "ws": "^8.18.0"
   }

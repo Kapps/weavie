@@ -139,6 +139,16 @@ public static class CoreSettings {
 			Apply = ApplyMode.RestartRequired,
 			Default = false,
 		});
+
+		registry.Register(new SettingDefinition {
+			Key = "diagnostics.ptyLog",
+			Kind = SettingKind.Path,
+			Description = "Tee the Claude pane's raw PTY bytes to this file, for diagnosing the embedded claude / "
+				+ "IDE-MCP handshake. Unset (off) by default; set a path to enable. Only the Claude pane is logged. "
+				+ "Takes effect when the pane next reopens.",
+			Aliases = ["pty log", "terminal log", "claude pty log", "raw terminal log"],
+			Apply = ApplyMode.ReopensTerminal,
+		});
 	}
 
 	/// <summary>

@@ -367,9 +367,11 @@ rejected at set time. `claude.path` is `NextSession` (not `ReopensTerminal`) on 
 the claude pane would destroy the running conversation, so a new binary applies to the next claude
 session.
 
-**Dev/debug toggles stay raw env vars** and are intentionally *not* registered — not user-facing,
-should not appear in `listSettings`: `WEAVIE_PTY_LOG`, `WEAVIE_AUTOBENCH`, `WEAVIE_FPSPROBE`,
-`WEAVIE_SHOT_*`, `WEAVIE_DEBUG_INPUT`.
+The Claude PTY tee is a first-class setting (`diagnostics.ptyLog`, a `Path`, off when unset), so it is
+discoverable and flippable like any other — and still env-overridable via its derived
+`WEAVIE_DIAGNOSTICS_PTYLOG`. The remaining **dev/debug toggles stay raw env vars** and are intentionally
+*not* registered — not user-facing, should not appear in `listSettings`: `WEAVIE_AUTOBENCH`,
+`WEAVIE_FPSPROBE`, `WEAVIE_SHOT_*`, `WEAVIE_DEBUG_INPUT`.
 
 ### Typography (fonts)
 

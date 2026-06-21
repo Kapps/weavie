@@ -18,7 +18,7 @@ namespace Weavie.Hosting;
 /// <see cref="RestartPolicy.Always"/>: a pane is a permanent fixture, so any exit (clean or crash) relaunches
 /// it — only the crash-loop breaker leaves a stopped pane. The session id tags every
 /// <c>term-output</c>/<c>term-exit</c> message so the page routes it to the matching pane. Only the claude
-/// session optionally tees raw PTY bytes to WEAVIE_PTY_LOG for debugging (e.g. the IDE-MCP handshake).
+/// session optionally tees raw PTY bytes to the <c>diagnostics.ptyLog</c> path for debugging (e.g. the IDE-MCP handshake).
 /// </summary>
 public sealed class TerminalController : IDisposable {
 	private static readonly IReadOnlyList<string> NoSessionArgs = [];
@@ -227,10 +227,10 @@ public sealed class TerminalController : IDisposable {
 		lock (_gate) {
 			_terminal?.Dispose();
 
-			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would
-			// clash on the exclusive FileStream, and the log exists for the IDE-MCP handshake anyway.
+			// Only the claude session tees to the diagnostics.ptyLog path: both sessions sharing one path
+			// would clash on the exclusive FileStream, and the log exists for the IDE-MCP handshake anyway.
 			_ptyLog?.Dispose();
-			string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
+			string? logPath = _settings.GetString("diagnostics.ptyLog");
 			_ptyLog = isClaude && !string.IsNullOrEmpty(logPath)
 				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
 				: null;

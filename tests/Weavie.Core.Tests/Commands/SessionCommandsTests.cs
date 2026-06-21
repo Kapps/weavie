@@ -42,10 +42,35 @@ public sealed class SessionCommandsTests {
 		Assert.Equal(CommandLocation.Web, select!.RunsIn);
 		Assert.False(select.ShowInPalette);
 		Assert.Equal(9, select.DefaultKeybindings.Count);
-		Assert.Equal("$mod+Shift+1", select.DefaultKeybindings[0].Key);
+		Assert.Equal("ctrl+Shift+1", select.DefaultKeybindings[0].Key);
 		Assert.Equal("{\"index\":1}", select.DefaultKeybindings[0].ArgsJson);
-		Assert.Equal("$mod+Shift+9", select.DefaultKeybindings[8].Key);
+		Assert.Equal("ctrl+Shift+9", select.DefaultKeybindings[8].Key);
 		Assert.Equal("{\"index\":9}", select.DefaultKeybindings[8].ArgsJson);
+	}
+
+	[Fact]
+	public void Register_NextPrevSession_BindTab_GatedTerminalFocused() {
+		var registry = new CommandRegistry();
+		SessionCommands.Register(registry);
+
+		Assert.True(registry.TryGet(SessionCommands.NextSession, out var next));
+		Assert.True(registry.TryGet(SessionCommands.PrevSession, out var prev));
+
+		// ctrl+Tab / ctrl+Shift+Tab are the editor's tab chords under editorFocused; here they cycle sessions
+		// whenever the editor isn't focused (!editorFocused — the exact complement, so the two never collide;
+		// it also fires on load, before any pane takes focus). Literal ctrl (not $mod) keeps them off macOS's
+		// Cmd+Tab. The guard sits on the binding (not the command) so a command-level When can't hide
+		// Next/Previous Session from the palette while the editor or omnibar holds focus.
+		Assert.Null(next!.When);
+		Assert.Null(prev!.When);
+
+		var nextBinding = Assert.Single(next.DefaultKeybindings);
+		Assert.Equal("ctrl+Tab", nextBinding.Key);
+		Assert.Equal("!editorFocused", nextBinding.When);
+
+		var prevBinding = Assert.Single(prev.DefaultKeybindings);
+		Assert.Equal("ctrl+Shift+Tab", prevBinding.Key);
+		Assert.Equal("!editorFocused", prevBinding.When);
 	}
 
 	[Fact]

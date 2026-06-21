@@ -441,7 +441,7 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
       // Editor tabs. The targeted commands take an optional `path` (the tab context menu passes the
       // right-clicked tab; keyboard / palette omit it to act on the active tab). next/prev return whether they
-      // stepped, so $mod+Tab falls through to the editor when there are <2 tabs.
+      // stepped, so Ctrl+Tab falls through to the editor when there are <2 tabs.
       registerCommand(CommandIds.closeTab, (args) => editor.tabs.close(tabPath(args))),
       registerCommand(CommandIds.nextTab, () => editor.tabs.next()),
       registerCommand(CommandIds.prevTab, () => editor.tabs.prev()),
@@ -457,7 +457,10 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.saveFile, () => editor.save()),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
-      // Next / Previous Session (Ctrl+Shift+] / Ctrl+Shift+[): cycle the rail, wrapping around.
+      // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab whenever the editor isn't focused — gated
+      // !editorFocused so the editor's own Ctrl+Tab still cycles tabs, but it works from the terminal, the
+      // rail, and on load before any pane takes focus): cycle the rail, wrapping around. stepSession returns
+      // false with <2 sessions so the chord falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
       // Ctrl+Shift+1–9 → switch to the Nth session on the rail (the session analogue of Ctrl+1–9 for

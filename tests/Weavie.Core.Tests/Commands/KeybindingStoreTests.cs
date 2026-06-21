@@ -62,6 +62,25 @@ public sealed class KeybindingStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void PerBindingWhen_OverridesCommandWhen_AndFallsBackWhenNull() {
+		var registry = new CommandRegistry();
+		registry.Register(new CommandDefinition {
+			Id = "weavie.test.guarded",
+			Title = "Guarded",
+			RunsIn = CommandLocation.Web,
+			When = "commandLevel",
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "$mod+1", When = "terminalFocused" }, // per-binding overrides
+				new CommandKeybinding { Key = "$mod+2" }, // null → inherits the command-level guard
+			],
+		});
+
+		using var store = new KeybindingStore(registry, FilePath, enableWatcher: false);
+		Assert.Equal("terminalFocused", store.Resolved.Single(b => b.Key == "$mod+1").When);
+		Assert.Equal("commandLevel", store.Resolved.Single(b => b.Key == "$mod+2").When);
+	}
+
+	[Fact]
 	public void UserEntry_Adds_Binding() {
 		File.WriteAllText(FilePath, """[{"key":"$mod+shift+t","command":"weavie.terminal.reopen"}]""");
 		using var store = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);

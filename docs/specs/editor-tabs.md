@@ -106,8 +106,8 @@ the command catalog (`CommandInfo.keys` + `formatKey`) — nothing hardcoded.
 | Command id | Title | Default key | Notes |
 | --- | --- | --- | --- |
 | `weavie.editor.closeTab` | Close Editor | `$mod+w` | Active tab (or context-menu target). |
-| `weavie.editor.nextTab` | Next Editor | `$mod+Tab` | Visual order, wrapping. Assumes the keybinding layer receives `Ctrl+Tab` (no `Ctrl+PageDown` fallback). |
-| `weavie.editor.prevTab` | Previous Editor | `$mod+Shift+Tab` | |
+| `weavie.editor.nextTab` | Next Editor | `ctrl+Tab` | Visual order, wrapping. Gated `editorFocused`; the same chord switches sessions whenever the editor isn't focused (gated `!editorFocused` — see multi-session-and-worktrees.md). Literal `ctrl` (not `$mod`) so it's `Ctrl+Tab` on macOS too — `Cmd+Tab` is the OS app switcher. No `Ctrl+PageDown` fallback. |
+| `weavie.editor.prevTab` | Previous Editor | `ctrl+Shift+Tab` | Gated `editorFocused` (mirror of next). |
 | `weavie.editor.closeAll` | Close All Editors | — | Palette / context menu (the keybinding resolver has no chord support, so no default key). Skips pinned. |
 | `weavie.editor.closeOthers` | Close Other Editors | — | Palette / context menu. Skips pinned. |
 | `weavie.editor.closeToLeft` | Close Editors to the Left | — | Palette / context menu. |

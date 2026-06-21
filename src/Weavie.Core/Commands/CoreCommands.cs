@@ -8,7 +8,7 @@ namespace Weavie.Core.Commands;
 /// and the host binds the <see cref="CommandLocation.Core"/> ones. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public static class CoreCommands {
-	/// <summary>The pane-focus command id; bound to <c>$mod+1..9</c> and dispatched with <c>{ "index": N }</c>.</summary>
+	/// <summary>The pane-focus command id; bound to <c>ctrl+1..9</c> and dispatched with <c>{ "index": N }</c>.</summary>
 	public const string FocusPaneByIndex = "weavie.pane.focusByIndex";
 
 	/// <summary>Shows/hides the workspace file browser.</summary>
@@ -53,10 +53,10 @@ public static class CoreCommands {
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
 
-	/// <summary>Activates the next editor tab in visual order, wrapping; bound to <c>$mod+Tab</c>.</summary>
+	/// <summary>Activates the next editor tab in visual order, wrapping; bound to <c>ctrl+Tab</c> (editor focus).</summary>
 	public const string NextTab = "weavie.editor.nextTab";
 
-	/// <summary>Activates the previous editor tab in visual order, wrapping; bound to <c>$mod+Shift+Tab</c>.</summary>
+	/// <summary>Activates the previous editor tab in visual order, wrapping; bound to <c>ctrl+Shift+Tab</c> (editor focus).</summary>
 	public const string PrevTab = "weavie.editor.prevTab";
 
 	/// <summary>Closes all non-pinned editor tabs.</summary>
@@ -109,12 +109,14 @@ public static class CoreCommands {
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
-		// $mod+1..9 → focus the Nth pane in layout order. Keybinding-only: "focus pane index 3" is not a
-		// meaningful palette row without context. Each default binding carries its own index argument.
+		// ctrl+1..9 → focus the Nth pane in layout order. Literal ctrl (not $mod) so it stays Ctrl on macOS too
+		// — Cmd+1..9 would collide with macOS app/window shortcuts; index-jump nav is Ctrl on every platform.
+		// Keybinding-only: "focus pane index 3" is not a meaningful palette row without context. Each default
+		// binding carries its own index argument.
 		var focusBindings = new List<CommandKeybinding>(9);
 		for (int i = 1; i <= 9; i++) {
 			string n = i.ToString(CultureInfo.InvariantCulture);
-			focusBindings.Add(new CommandKeybinding { Key = $"$mod+{n}", ArgsJson = $"{{\"index\":{n}}}" });
+			focusBindings.Add(new CommandKeybinding { Key = $"ctrl+{n}", ArgsJson = $"{{\"index\":{n}}}" });
 		}
 
 		registry.Register(new CommandDefinition {
@@ -279,7 +281,9 @@ public static class CoreCommands {
 
 		// Editor tabs. closeTab / nextTab / prevTab carry the keyboard bindings and are gated to editor focus
 		// (a tab key shouldn't act while a terminal holds focus). next/prev DECLINE when there are <2 tabs, so
-		// $mod+Tab still falls through to the editor. The bulk closes + pin are palette- and context-menu-driven;
+		// Ctrl+Tab still falls through to the editor. nextTab/prevTab use literal ctrl (not $mod) so they're
+		// Ctrl+Tab on macOS too — Cmd+Tab is the macOS app switcher — and share the chord with session
+		// next/prev, which fire under !editorFocused (the complement of this editorFocused guard). The bulk closes + pin are palette- and context-menu-driven;
 		// they take an optional `path` so the context menu can target the right-clicked tab while the palette
 		// acts on the active one.
 		string tabPathArgs = "{\"path\":{\"type\":\"string\",\"description\":\"Absolute path of the target tab; omit to act on the active tab\"}}";
@@ -303,7 +307,7 @@ public static class CoreCommands {
 			Category = "Editor",
 			Description = "Activate the next editor tab (wraps around).",
 			Aliases = ["next tab", "next editor", "next file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Tab" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab" }],
 			When = "editorFocused",
 		});
 
@@ -314,7 +318,7 @@ public static class CoreCommands {
 			Category = "Editor",
 			Description = "Activate the previous editor tab (wraps around).",
 			Aliases = ["previous tab", "prev tab", "previous editor", "previous file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Tab" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab" }],
 			When = "editorFocused",
 		});
 

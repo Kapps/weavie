@@ -122,7 +122,7 @@ public sealed class CommandTests {
 		Assert.Equal(CommandLocation.Web, focus.RunsIn);
 		Assert.False(focus.ShowInPalette);
 		Assert.Equal(9, focus.DefaultKeybindings.Count);
-		Assert.Equal("$mod+1", focus.DefaultKeybindings[0].Key);
+		Assert.Equal("ctrl+1", focus.DefaultKeybindings[0].Key);
 		Assert.Equal("{\"index\":1}", focus.DefaultKeybindings[0].ArgsJson);
 		Assert.Equal(CommandLocation.Core, registry.Require(CoreCommands.ReopenTerminal).RunsIn);
 	}

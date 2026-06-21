@@ -20,16 +20,16 @@ public static class SessionCommands {
 	/// <summary>Forks the current session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
 	public const string ForkSession = "weavie.session.fork";
 
-	/// <summary>Switches to the next session on the rail; <c>$mod+Shift+]</c>.</summary>
+	/// <summary>Switches to the next session on the rail; <c>ctrl+Tab</c> whenever the editor isn't focused.</summary>
 	public const string NextSession = "weavie.session.next";
 
-	/// <summary>Switches to the previous session on the rail; <c>$mod+Shift+[</c>.</summary>
+	/// <summary>Switches to the previous session on the rail; <c>ctrl+Shift+Tab</c> whenever the editor isn't focused.</summary>
 	public const string PrevSession = "weavie.session.prev";
 
 	/// <summary>Opens the omnibar to pick a session to switch to.</summary>
 	public const string SwitchSession = "weavie.session.switch";
 
-	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>$mod+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
+	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>ctrl+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
 	public const string SelectSessionByIndex = "weavie.session.selectByIndex";
 
 	/// <summary>Loads a dormant session's backend in the background (arg <c>id</c>) without switching the page to it.</summary>
@@ -95,7 +95,14 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the next session on the rail (wraps around).",
 			Aliases = ["next session", "switch to next session"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+]" }],
+			// ctrl+Tab is the editor's next-tab chord when the editor is focused (gated editorFocused); here it
+			// cycles sessions the rest of the time. The guard is !editorFocused (not terminalFocused) so it also
+			// fires from the rail and — crucially — on load, when nothing has taken focus yet: a terminal pane
+			// doesn't auto-focus, so terminalFocused may never have been set. !editorFocused is the exact
+			// complement of the editor's editorFocused tab binding, so the two never both match. Literal ctrl
+			// (not $mod) so it stays Ctrl+Tab on macOS — Cmd+Tab is the OS app switcher. The per-binding guard
+			// keeps the command in the palette regardless of focus (a command-level When would hide it there).
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab", When = "!editorFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -105,7 +112,8 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the previous session on the rail (wraps around).",
 			Aliases = ["previous session", "prev session", "switch to previous session"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+[" }],
+			// Mirror of NextSession: ctrl+Shift+Tab cycles backward whenever the editor isn't focused.
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Shift+Tab", When = "!editorFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -117,13 +125,14 @@ public static class SessionCommands {
 			Aliases = ["switch session", "go to session", "change session", "pick session"],
 		});
 
-		// $mod+Shift+1..9 → switch to the Nth session on the rail. Keybinding-only + hidden from the palette
-		// (the human-facing picker is Switch Session…). Each default binding carries its own 1-based index
-		// argument; the web rail switches to that session if one exists.
+		// ctrl+Shift+1..9 → switch to the Nth session on the rail — the session analogue of ctrl+1..9 (pane
+		// focus). Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+Shift+3/4/5 are screenshot shortcuts.
+		// Keybinding-only + hidden from the palette (the human-facing picker is Switch Session…). Each default
+		// binding carries its own 1-based index argument; the web rail switches to that session if one exists.
 		var indexBindings = new List<CommandKeybinding>(9);
 		for (int i = 1; i <= 9; i++) {
 			string n = i.ToString(CultureInfo.InvariantCulture);
-			indexBindings.Add(new CommandKeybinding { Key = $"$mod+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
+			indexBindings.Add(new CommandKeybinding { Key = $"ctrl+Shift+{n}", ArgsJson = $"{{\"index\":{n}}}" });
 		}
 
 		registry.Register(new CommandDefinition {

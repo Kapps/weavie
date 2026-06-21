@@ -37,6 +37,14 @@ public sealed record CommandKeybinding {
 	public string? ArgsJson { get; init; }
 
 	/// <summary>
+	/// Optional per-binding context-key guard (e.g. <c>terminalFocused</c>); overrides the command's
+	/// <see cref="CommandDefinition.When"/> for this chord only and, unlike it, does <b>not</b> gate the
+	/// command's palette visibility. Lets one chord be focus-scoped while the command stays in the palette.
+	/// Null falls back to the command-level guard. See <see cref="ResolvedKeybinding.When"/>.
+	/// </summary>
+	public string? When { get; init; }
+
+	/// <summary>
 	/// When true, this is an OS-level <em>global</em> hotkey: the host registers it with the OS so it fires
 	/// even when Weavie isn't the focused application (e.g. <c>ctrl+`</c> → focus the window). The web keydown
 	/// resolver ignores global bindings, so they never double-fire while Weavie is focused. See

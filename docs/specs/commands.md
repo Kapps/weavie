@@ -211,7 +211,7 @@ last-good + refuse writes).
 // ~/.weavie/keybindings.json — ask the embedded Claude to "list weavie commands" for all ids
 [
   { "key": "$mod+shift+t", "command": "weavie.terminal.reopen" },
-  { "key": "$mod+1", "command": "-weavie.pane.focusByIndex", "args": { "index": 1 } }, // unbind a default
+  { "key": "ctrl+1", "command": "-weavie.pane.focusByIndex", "args": { "index": 1 } }, // unbind a default
   { "key": "alt+1",  "command": "weavie.pane.focusByIndex", "args": { "index": 1 } }
 ]
 ```
@@ -288,6 +288,15 @@ The evaluator supports `!`, `&&`, `==`, `!=`, and bare-key truthiness (e.g.
 `terminalFocused && !inputFocused`). `||` and parentheses are added if a real command needs them.
 Ctrl+1–9 needs no `when` (global). Context-key set grows with the command set.
 
+A guard can sit on the **command** (`CommandDefinition.When` — gates the keybinding *and* palette
+visibility) **or** on a single **binding** (`CommandKeybinding.When` — gates that chord only, never
+the palette; falls back to the command-level guard when null). The per-binding form lets one chord be
+focus-scoped while the command stays browsable in the palette: e.g. `weavie.session.next` binds
+`ctrl+Tab` with a per-binding `!editorFocused` guard (so the editor's own `ctrl+Tab` next-tab still
+wins under `editorFocused`, while session switching works from the terminal, the rail, and on load),
+yet "Next Session" is always listed in the palette. (Tab/index nav uses literal `ctrl` so it stays
+`Ctrl` on macOS — `$mod` there is `Cmd`, which owns `Cmd+Tab`.)
+
 ## MCP tools (`listCommands` / `runCommand`)
 
 Two tools on `McpServer`, advertised on the **registry server only** (like the settings + layout
@@ -337,7 +346,7 @@ that already exist in the web:
 
 | id | runsIn | default key | palette | replaces / source |
 |----|--------|-------------|---------|-------------------|
-| `weavie.pane.focusByIndex` | Web | `$mod+1`…`$mod+9` (args `{index}`) | no | hardcoded Ctrl+1–9 (`App.tsx`) |
+| `weavie.pane.focusByIndex` | Web | `ctrl+1`…`ctrl+9` (args `{index}`) | no | hardcoded Ctrl+1–9 (`App.tsx`) |
 | `weavie.view.toggleFileBrowser` | Web | `$mod+b` | yes | `toggleBrowser` (`App.tsx`) |
 | `weavie.omnibar.focusFiles` | Web | `$mod+p` | yes | focus omnibar (Go to File) |
 | `weavie.omnibar.focusCommands` | Web | `$mod+shift+p` | yes | focus omnibar in `>` mode |

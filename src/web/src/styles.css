@@ -1620,6 +1620,31 @@ textarea {
   color: var(--fg);
 }
 
+/* Keep-all (the debt-clearing action): a quiet outline button so it reads as secondary to the per-hunk
+   Keep/Revert, while still being one click to clear the whole accumulated review set. */
+.weavie-inline-toolbar .weavie-inline-keepall {
+  background: transparent;
+  color: var(--dim);
+}
+
+.weavie-inline-toolbar .weavie-inline-keepall:hover {
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+/* A hunk the user has KEPT (marked reviewed) stays visible but de-emphasised, so review progress reads at a
+   glance — the green wash fades and the gutter bar goes grey, distinguishing "looked at" from still-pending. */
+.weavie-inline-reviewed {
+  background: rgba(120, 120, 120, 0.08);
+}
+
+.weavie-inline-reviewed-gutter {
+  background: var(--dim);
+  width: 3px !important;
+  margin-left: 3px;
+  opacity: 0.6;
+}
+
 /* Toasts: a top-center stack of transient notifications (e.g. a failed autosave or a session delete
    that couldn't complete), dropping in just below the title bar where the eye naturally lands. Above
    every panel so a failure is never hidden behind the changes/browser overlays. Error toasts persist

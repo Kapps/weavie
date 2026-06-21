@@ -135,6 +135,9 @@ public sealed partial class HostCore {
 			case "undo-turn":
 				UndoTurn();
 				break;
+			case "reject-hunk":
+				RejectHunk(root);
+				break;
 			case "invoke-command":
 				// A keybinding/palette in the web invoked a Core command — run it on the active session
 				// (fire-and-forget; the web doesn't await a result for its own triggers).
@@ -396,10 +399,10 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Clears all inline turn markers on a turn boundary (the prior turn is implicitly accepted).</summary>
-	private void PushTurnReset() => _bridge.PostToWeb(ChangeMessages.TurnReset());
-
-	/// <summary>Accepts the whole turn's changes: resets the per-turn baseline and clears the page's inline markers.</summary>
+	/// <summary>
+	/// Keep-all: advances every tracked file's review baseline to current, clearing the page's inline markers and
+	/// pushing the now-empty review set so the ← / → file walk empties too (the debt-clearing action).
+	/// </summary>
 	private void AcceptTurn() {
 		if (_session is null) {
 			return;
@@ -407,39 +410,95 @@ public sealed partial class HostCore {
 
 		_session.Changes.AcceptTurn();
 		_bridge.PostToWeb(ChangeMessages.TurnReset());
+		PushTurnChangesToWeb();
 	}
 
 	/// <summary>
-	/// Undoes the whole turn's changes: reverts every file touched this turn to its turn baseline on disk and
-	/// live-refreshes the editor. Files created this turn truncate to empty (not deleted) — surfaced via a toast.
+	/// Undoes the whole review set: reverts every changed file to its review baseline on disk and live-refreshes
+	/// the editor. The delete-vs-truncate decision (a file created since its baseline is DELETED, not truncated)
+	/// lives in <see cref="SessionChangeTracker.RevertFile"/>, so per-hunk, per-file, and whole-set reverts all
+	/// behave identically; the host only keeps the workspace guard and the editor pushes.
 	/// </summary>
 	private void UndoTurn() {
-		if (_session is null) {
+		if (_session is not { } session) {
 			return;
 		}
 
-		var truncated = new List<string>();
-		foreach (var change in _session.Changes.TurnChanges()) {
+		foreach (var change in session.Changes.TurnChanges()) {
+			if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, change.Path)) {
+				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
+				continue;
+			}
+
 			try {
-				if (!BufferStore.Save(_session.FileSystem, _session.WorkspaceRoot, change.Path, change.BaselineText)) {
-					Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
-					continue;
-				}
-
-				if (change.BaselineText.Length == 0) {
-					truncated.Add(Path.GetFileName(change.Path));
-				}
-
-				_session.Changes.RecordChange(change.Path);
+				PushAfterRevert(change.Path, session.Changes.RevertFile(change.Path));
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
 			}
 		}
 
-		if (truncated.Count > 0) {
-			Notify("warn", $"Undo emptied {truncated.Count} file(s) created this turn (delete manually): {string.Join(", ", truncated)}");
+		PushTurnChangesToWeb();
+	}
+
+	/// <summary>
+	/// Reverts a single hunk on disk (the one genuinely new capability): the web sends the hunk's baseline +
+	/// current line ranges and a <c>guardText</c> snapshot of the current lines, and Core splices the baseline
+	/// lines back in — sourcing the replacement from its own baseline, never from the message. A guard mismatch
+	/// (a parallel agent / a later edit moved the file) aborts without writing and re-emits a fresh diff;
+	/// reverting a created file's last hunk deletes it (the tab closes via the fs-change removal). On success the
+	/// per-file diff and the review set are re-emitted so the inline diff drops the reverted hunk.
+	/// </summary>
+	private void RejectHunk(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
+		if (string.IsNullOrEmpty(path)) {
+			return;
+		}
+
+		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
+			return;
+		}
+
+		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
+		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
+		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
+
+		try {
+			var outcome = session.Changes.RevertHunk(path, baselineRange, currentRange, guardText);
+			if (outcome == RevertHunkOutcome.GuardMismatch) {
+				Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+				PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
+				return;
+			}
+
+			PushAfterRevert(path, outcome);
+			PushTurnChangesToWeb(); // the file may have left the review set
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
+
+	/// <summary>
+	/// Pushes the editor refresh for a completed revert (per-hunk or whole-file): an <c>fs-change</c> removal for
+	/// a deleted file (the editor closes its tab), else a reload plus a fresh per-file diff so the reverted
+	/// markers drop.
+	/// </summary>
+	private void PushAfterRevert(string path, RevertHunkOutcome outcome) {
+		if (outcome == RevertHunkOutcome.Deleted) {
+			_bridge.PostToWeb(FileProviderProtocol.Changed(path, "deleted"));
+		} else {
+			PushRefreshToWeb(path);  // fs-change → the editor reloads the rewritten file
+			PushTurnDiffToWeb(path); // the inline diff drops the reverted hunk(s)
+		}
+	}
+
+	/// <summary>Reads a required integer property from a web message (0 when absent/non-numeric).</summary>
+	private static int JsonInt(JsonElement root, string name) =>
+		root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number ? el.GetInt32() : 0;
 
 	/// <summary>
 	/// Runs a Core command on the active session from a native trigger (e.g. the macOS menu bar), the same path

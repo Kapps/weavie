@@ -1,0 +1,205 @@
+/* Omnibar / command palette: the title-bar search box and its result/tree/palette rows (Omnibar.tsx). */
+
+/* Omnibar */
+.tb-omnibar {
+  position: relative;
+  width: min(560px, 100%);
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.tb-omnibar-box {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Full title-bar height, flush top and bottom: only the left/right edges are bordered, no rounding. */
+  height: 100%;
+  padding: 0 8px;
+  background: var(--bg);
+  border-left: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  border-radius: 0;
+  color: var(--dim);
+}
+
+.tb-omnibar-box.open,
+.tb-omnibar-box:focus-within {
+  border-color: var(--accent);
+}
+
+.tb-omnibar-icon {
+  display: flex;
+  align-items: center;
+}
+
+.tb-omnibar-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: center;
+}
+
+.tb-omnibar-input::placeholder {
+  color: var(--dim);
+}
+
+.tb-omnibar-input:focus {
+  text-align: left;
+}
+
+.tb-omnibar-pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 60;
+  width: min(640px, 92vw);
+  max-height: 45vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+}
+
+.tb-omnibar-list {
+  list-style: none;
+  margin: 0;
+  padding: 4px;
+  overflow-y: auto;
+}
+
+.tb-omnibar-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  width: 100%;
+  padding: 4px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tb-omnibar-row:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.tb-omnibar-row.selected {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tb-omnibar-row.current .tb-row-leaf {
+  color: var(--accent);
+}
+
+.tb-row-leaf {
+  flex: 0 0 auto;
+}
+
+.tb-row-dir {
+  color: var(--dim);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The fuzzy-matched characters within a result — accent-colored, not the browser's default yellow box. */
+.tb-hl {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* On the current/selected row the leaf already goes accent; keep matched chars distinguishable. */
+.tb-omnibar-row.current .tb-hl,
+.tb-omnibar-row.selected .tb-hl {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Tree mode: a twisty + file/folder icon precede the name; rows indent via inline padding-left per depth. */
+.tb-tree-row {
+  gap: 4px;
+  /* Center the chevron/icon with the name. The base row aligns to the text baseline (correct for the
+     flat leaf+dir search rows), which in tree mode drops the icons off the name's vertical center. */
+  align-items: center;
+}
+
+.tb-tree-twisty,
+.tb-tree-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  /* Reserve the column even when empty: file rows have no chevron, so without a fixed width the
+     twisty collapses and pushes their icons ~14px left of the folder icons at the same depth. */
+  min-width: 14px;
+  color: var(--dim);
+}
+
+.tb-tree-twisty svg,
+.tb-tree-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Air between the icon and the name so rows don't read cramped — the row's own gap (4px) stays tight
+   for the chevron→icon cluster, this opens up only the icon→name side. */
+.tb-tree-icon {
+  margin-right: 5px;
+}
+
+/* ── EXPERIMENT (omnibar variant 3 + caps names): accent outline folder glyphs ──────────────────
+   Folder names keep the all-caps section-label styling; the folder glyph is an unfilled outline in
+   the UI accent (--accent, teal). Files keep the default foreground.
+   Revert: delete this block + the `dir` class on .tb-tree-row in Omnibar.tsx. */
+
+/* Folder names: all-caps section-label styling, bright with generous tracking. */
+.tb-tree-row.dir .tb-row-leaf {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 11px;
+  opacity: 0.9;
+}
+
+/* File names: a little tracking so the dense camelCase doesn't read cramped. */
+.tb-tree-row:not(.dir) .tb-row-leaf {
+  letter-spacing: 0.02em;
+}
+
+/* Folder glyph: unfilled outline in the UI accent (teal) under the caps names. */
+.tb-tree-row.dir .tb-tree-icon {
+  color: var(--accent);
+}
+
+/* Command-palette row: the keybinding hint sits flush right, dimmed and monospaced. */
+.tb-row-keys {
+  margin-left: auto;
+  flex: 0 0 auto;
+  color: var(--dim);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.tb-omnibar-empty,
+.tb-omnibar-more {
+  padding: 10px;
+  color: var(--dim);
+}
+
+.tb-omnibar-more {
+  border-top: 1px solid var(--border);
+  font-size: 11px;
+}

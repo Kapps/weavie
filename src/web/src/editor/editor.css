@@ -1,0 +1,227 @@
+/* Editor chrome: the empty-state placeholder (EditorEmptyState.tsx) and the tab strip (TabStrip.tsx). */
+
+/* Editor empty state: covers the blank Monaco host when no file is open. Opaque background so the void
+   underneath never shows; centered identity + keyboard-first starter actions. Relative sizing (em/%) so it
+   scales with the pane and reads at any split width. */
+.editor-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  padding: 2em;
+  /* Faint brand glow off the top, over the editor background — distinct from a flat empty pane. */
+  background: radial-gradient(120% 80% at 50% -10%, rgb(84 198 164 / 7%) 0%, transparent 55%),
+    var(--bg);
+  color: var(--fg);
+}
+
+.editor-empty-inner {
+  display: flex;
+  flex-direction: column;
+  width: min(28em, 100%);
+}
+
+.editor-empty-head {
+  display: flex;
+  align-items: center;
+  gap: 0.85em;
+  margin-bottom: 1.75em;
+}
+
+.editor-empty-mark {
+  display: inline-flex;
+  font-size: 2.4em; /* WeavieIcon defaults to 1em, so it tracks this */
+  line-height: 1;
+}
+
+.editor-empty-titles {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.editor-empty-wordmark {
+  margin: 0;
+  font-size: 1.7em;
+  font-weight: 650;
+  letter-spacing: -0.02em;
+  color: var(--fg);
+}
+
+.editor-empty-tagline {
+  margin: 0.15em 0 0;
+  font-size: 0.95em;
+  color: var(--dim);
+}
+
+.editor-empty-actions {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2em;
+}
+
+.editor-empty-action {
+  display: flex;
+  align-items: center;
+  gap: 0.85em;
+  width: 100%;
+  padding: 0.6em 0.7em;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 0.5em;
+  color: var(--dim);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+
+.editor-empty-action:hover {
+  background: var(--bar);
+  border-color: var(--border);
+  color: var(--fg);
+}
+
+.editor-empty-action:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  color: var(--fg);
+}
+
+.editor-empty-action > svg {
+  flex: none;
+  color: var(--accent);
+}
+
+.editor-empty-action-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  line-height: 1.3;
+}
+
+.editor-empty-action-label {
+  font-size: 0.95em;
+  font-weight: 600;
+  color: var(--fg);
+}
+
+.editor-empty-action-hint {
+  font-size: 0.8em;
+  color: var(--dim);
+}
+
+/* The action's shortcut badge — keyboard-first: read from the command catalog, never hardcoded. */
+.editor-empty-keys {
+  flex: none;
+  margin-left: auto;
+  padding: 0.15em 0.5em;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  background: var(--bar);
+  color: var(--dim);
+  font-family: inherit;
+  font-size: 0.78em;
+  white-space: nowrap;
+}
+
+/* Editor tab strip: chrome inside the editor pane (not a layout pane). Height is content-driven. */
+.editor-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+  scrollbar-width: thin;
+}
+
+.editor-tab {
+  display: flex;
+  align-items: center;
+  max-width: 16em;
+  border-right: 1px solid var(--border);
+  color: var(--dim);
+  user-select: none;
+}
+
+.editor-tab:hover {
+  color: var(--fg);
+}
+
+/* The clickable label area (activate / double-click promote / middle-click close / right-click menu). */
+.editor-tab-main {
+  display: flex;
+  align-items: center;
+  flex: 1 1 auto;
+  min-width: 0;
+  gap: 0.5em;
+  padding: 0.4em 0.25em 0.4em 0.75em;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The active tab connects to the editor (matches its background) and carries the accent edge. */
+.editor-tab.active {
+  color: var(--fg);
+  background: var(--bg);
+  box-shadow: inset 0 0.15em 0 var(--accent);
+}
+
+.editor-tab.preview .editor-tab-label {
+  font-style: italic;
+}
+
+/* Pinned tabs are compact and float furthest-left (the store orders them; this just narrows them). */
+.editor-tab.pinned {
+  max-width: 10em;
+}
+
+.editor-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Unsaved-changes marker: a `*` after the filename, held until the debounced autosave reaches disk. Never
+   shrinks (it sits outside the ellipsised label) so it stays visible on a narrow tab. */
+.editor-tab-dirty {
+  flex: 0 0 auto;
+  margin-left: -0.25em;
+  color: var(--fg);
+}
+
+.editor-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 0.4em;
+  padding: 0;
+  border: none;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.editor-tab:hover .editor-tab-close,
+.editor-tab.active .editor-tab-close,
+.editor-tab.pinned .editor-tab-close {
+  opacity: 0.7;
+}
+
+.editor-tab-close:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.1);
+}

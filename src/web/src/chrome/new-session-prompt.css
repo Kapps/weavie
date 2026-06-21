@@ -1,0 +1,214 @@
+/* New-session prompt: branch field, typeahead, location row, and two-line action buttons (NewSessionPrompt.tsx).
+   Scoped overrides on the shared .confirm-dialog shell — must load AFTER editor/confirm-dialog.css. */
+
+/* New-session prompt — a branch-name field plus the "branch from" choices, each button carrying its
+   keyboard shortcut as a faint sublabel. Scoped overrides on the shared .confirm-dialog shell: a roomier
+   card, a prominent input, and filled (not ghost) buttons so the secondary actions read as buttons. */
+.session-prompt {
+  /* Everything inside is sized in em, so bumping the dialog's own font-size scales the whole modal up
+     proportionally — a more generous, substantial card than the chrome's 13px. */
+  font-size: 16px;
+  width: min(496px, 92vw);
+  padding: 2em 2.1em 1.8em;
+  border-radius: 13px;
+}
+
+.session-prompt .confirm-title {
+  font-size: 1.2em;
+  margin-bottom: 0.45em;
+}
+
+.session-prompt .confirm-body {
+  font-size: 0.92em;
+  line-height: 1.55;
+}
+
+.session-prompt-input {
+  width: 100%;
+  margin-top: 1.4em;
+  padding: 0.7em 0.8em;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  /* A branch name is an identifier, so type it in the code/mono font — it reads as a value and ties the
+     field to the editor/terminal surfaces. (The chrome elsewhere is Chivo; only this value field is mono.) */
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.95em;
+  transition: border-color 120ms ease;
+}
+
+.session-prompt-input::placeholder {
+  color: var(--dim);
+}
+
+/* Branch typeahead: the input + its existing-branch suggestions. The field wraps both so the dropdown can
+   anchor under the input without shifting the action buttons; the input's own top margin moves to the field. */
+.session-prompt-field {
+  position: relative;
+  margin-top: 1.4em;
+}
+
+.session-prompt-field .session-prompt-input {
+  margin-top: 0;
+}
+
+/* Existing branches matching the typed text. Picking one (arrow+Enter, click, or full name) checks it out as
+   the session, versus typing a new name to create a branch. Anchored as an overlay so the footer stays put. */
+.session-prompt-suggestions {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 0.3em;
+  list-style: none;
+  max-height: 11em;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.session-prompt-suggestion {
+  padding: 0.42em 0.6em;
+  border-radius: 6px;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.session-prompt-suggestion:hover,
+.session-prompt-suggestion.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
+/* New Session location row: a labelled select to pick the local/default host or a registered remote agent. */
+.session-prompt-location {
+  display: flex;
+  align-items: center;
+  gap: 0.7em;
+  margin-top: 1.4em;
+}
+
+.session-prompt-location-label {
+  color: var(--dim);
+  font-size: 0.85em;
+}
+
+.session-prompt-select {
+  flex: 1;
+  padding: 0.55em 0.7em;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.9em;
+}
+
+.session-prompt-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.session-prompt-error {
+  margin-top: 0.8em;
+  color: var(--danger, #f85149);
+  font-size: 0.85em;
+}
+
+/* Just an accent border on focus — a single clean ring, no extra box-shadow glow. */
+.session-prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Actions: Cancel anchored to the left edge (via margin-right:auto on the first child), the two create
+   actions grouped at the right. Both ends are anchored, so the footer reads as balanced — the buttons keep
+   their natural, content-sized width (not stretched to fill, which made them wide squat bars). */
+.session-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 0.6em;
+  margin-top: 2em;
+}
+
+.session-prompt-btn:first-child {
+  margin-right: auto;
+}
+
+/* Two-line button: action label on top, its shortcut faintly below (keyboard-first discoverability).
+   min-width keeps the trio uniform; content + horizontal padding gives a proper ~2:1 button, not a bar. */
+.session-prompt-btn {
+  flex: 0 0 auto;
+  min-width: 7.8em;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.28em;
+  padding: 0.58em 1.2em;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  /* A subtle fill so the secondary actions read as buttons, not bare text (the ghost-transparent look made
+     them near-invisible against the dialog surface). */
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--fg);
+  /* font-family (not the `font` shorthand) so the button adopts the dialog font but the label/key keep the
+     smaller sizes set below — a native button would otherwise fall back to the UA font. */
+  font-family: inherit;
+  line-height: 1.15;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.session-prompt-btn:hover {
+  background: rgba(255, 255, 255, 0.09);
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.session-prompt-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.session-prompt-btn-label {
+  font-size: 0.88em;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.session-prompt-btn-key {
+  font-size: 0.68em;
+  color: var(--dim);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+}
+
+/* Primary (the Enter default) follows the app's house style for "active": an accent border + accent text
+   on a faintly accent-tinted dark surface — not a loud solid fill, which read as too in-your-face. The
+   color-mix tint stays theme-safe (re-derives from --accent), so a re-theme tints it without hardcoding. */
+.session-prompt-btn-primary {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  color: var(--accent);
+}
+
+.session-prompt-btn-primary:hover {
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  border-color: var(--accent);
+}
+
+.session-prompt-btn-primary .session-prompt-btn-key {
+  color: var(--accent);
+  opacity: 0.7;
+}

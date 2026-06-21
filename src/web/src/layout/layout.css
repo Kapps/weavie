@@ -1,0 +1,194 @@
+/* Pane layout: the body row, session/editor columns, split handles, and pane surfaces.
+   The recursive layout renderer (LayoutView.tsx) drives geometry; surfaces live inside the slots. */
+
+/* The body row below the title bar: the session rail on the left + the pane layout filling the rest. A
+   real flex row (not an overlay) so the rail takes its own width and the panes start to its right. */
+.app-body {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* Right-hand editor column (and the diff overlay host). */
+.pane {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+/* Left column: two terminal panes stacked as a focus-driven accordion. */
+.left-col {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.left-pane {
+  display: flex;
+  flex-direction: column;
+  /* flex-basis 0 + grow ratio => active:inactive = 4:1 = 80%/20% of the column height. */
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  border-bottom: 1px solid var(--border);
+  /* No transition on flex-grow: pane switching must be an instant resize so the
+     terminal reflows once at the final size rather than across every animation
+     frame, which reads as jarring. */
+}
+
+.left-pane:last-child {
+  border-bottom: none;
+}
+
+.left-pane.active {
+  flex-grow: 4;
+}
+
+.left-pane:not(.active) {
+  flex-grow: 1;
+}
+
+.pane-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 9px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+
+.pane-label {
+  color: var(--dim);
+  font-weight: 600;
+}
+
+.left-pane.active .pane-label {
+  color: var(--accent);
+}
+
+.pane-body {
+  position: relative;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.splitter {
+  flex: 0 0 5px;
+  cursor: col-resize;
+  background: var(--border);
+}
+
+.splitter:hover {
+  background: var(--accent);
+}
+
+/* Recursive layout renderer: stable, absolutely-positioned pane slots + draggable split handles. The
+   tree drives only geometry; the surfaces inside the slots are never remounted. */
+.layout-root {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--bg);
+}
+
+.pane-slot {
+  position: absolute;
+  overflow: hidden;
+}
+
+.terminal-surface {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+}
+
+.editor-surface {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--border);
+}
+
+/* The Monaco host fills the space below the tab strip. Relative so the editor (inset:0) and the badge
+   position against it, not the whole surface. */
+.editor-pane {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.split-handle {
+  position: absolute;
+  z-index: 15;
+  background: transparent;
+}
+
+.split-handle.vertical {
+  width: 7px;
+  transform: translateX(-3.5px);
+  cursor: col-resize;
+}
+
+.split-handle.horizontal {
+  height: 7px;
+  transform: translateY(-3.5px);
+  cursor: row-resize;
+}
+
+.split-handle:hover {
+  background: var(--accent);
+}
+
+/* Pane-switch shortcut badge (Ctrl+N), shown in the terminal heads and floating in the editor. */
+.pane-shortcut {
+  margin-left: auto;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  color: var(--dim);
+  font-size: 10px;
+  line-height: 16px;
+  user-select: none;
+}
+
+.editor-badge {
+  position: absolute;
+  top: 5px;
+  right: 6px;
+  z-index: 5;
+  margin-left: 0;
+  background: var(--bar);
+  opacity: 0.7;
+}
+
+/* Focused pane: accent the border and its label / badge. */
+.terminal-surface.active,
+.editor-surface.active {
+  border-color: var(--accent);
+}
+
+.terminal-surface.active .pane-label,
+.editor-surface.active .pane-shortcut {
+  color: var(--accent);
+}
+
+.editor {
+  position: absolute;
+  inset: 0;
+}

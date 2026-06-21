@@ -112,10 +112,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	/// <summary>The folder's leaf name for the window title / shell label (e.g. <c>weavie</c> for <c>/src/weavie</c>).</summary>
-	public string WorkspaceLabel =>
-		Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)) is { Length: > 0 } leaf
-			? leaf
-			: WorkspaceRoot;
+	public string WorkspaceLabel => WorkspaceNaming.Label(WorkspaceRoot);
 
 	/// <summary>
 	/// Builds the workspace's live backend: the primary session (terminals + IDE-MCP + LSP), the session set

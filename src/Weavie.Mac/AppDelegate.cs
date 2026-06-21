@@ -2,6 +2,7 @@ using System.Reflection;
 using CoreGraphics;
 using Foundation;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Layout;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
@@ -77,13 +78,12 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 
 		_core = new HostCore(this, _services, workspace);
 
-		// Restore the saved window geometry when present and on-screen, else a centered 1280x840 default.
-		var savedWindow = _core.SavedWindow;
-		bool usedSaved = savedWindow is not null
-			&& IsOnScreen(new CGRect(savedWindow.X, savedWindow.Y, savedWindow.Width, savedWindow.Height));
-		var frame = usedSaved
-			? new CGRect(savedWindow!.X, savedWindow.Y, savedWindow.Width, savedWindow.Height)
-			: new CGRect(0, 0, 1280, 840);
+		// Startup geometry via the shared placement policy (saved-if-valid-and-on-screen, else centered default).
+		var screens = NSScreen.Screens
+			.Select(s => new PixelRect((int)s.VisibleFrame.X, (int)s.VisibleFrame.Y, (int)s.VisibleFrame.Width, (int)s.VisibleFrame.Height))
+			.ToList();
+		var placement = WindowPlacement.Resolve(_core.SavedWindow, screens, 1280, 840);
+		var frame = new CGRect(placement.X, placement.Y, placement.Width, placement.Height);
 		_webView = new WKWebView(frame, config);
 		_bridge.Attach(_webView);
 #if DEBUG
@@ -98,12 +98,12 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 			NSWindowStyle.Titled | NSWindowStyle.Closable | NSWindowStyle.Resizable | NSWindowStyle.Miniaturizable,
 			NSBackingStore.Buffered,
 			false) {
-			Title = $"{WorkspaceLabel(workspace)} — weavie",
+			Title = $"{WorkspaceNaming.Label(workspace)} — weavie",
 			ContentView = _webView,
 		};
-		if (!usedSaved) {
+		if (!placement.UseSaved) {
 			_window.Center();
-		} else if (savedWindow is { Maximized: true }) {
+		} else if (placement.Maximized) {
 			_window.Zoom(null);
 		}
 
@@ -134,9 +134,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 
 		// Unattended screenshot for the deliverable: fire from the native run loop (not a JS timer, which
 		// throttles when occluded). Gated on WEAVIE_SHOT_DIR so the shipped app never writes screenshots.
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
-			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
-			NSTimer.CreateScheduledTimer(delay, repeats: false, _ => CaptureSnapshot());
+		if (ScreenshotRequest.FromEnvironment() is { } shot) {
+			NSTimer.CreateScheduledTimer(shot.DelaySeconds, repeats: false, _ => CaptureSnapshot(shot));
 		}
 	}
 
@@ -266,19 +265,14 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 		};
 	}
 
-	private static bool IsOnScreen(CGRect frame) =>
-		frame.Width > 0 && frame.Height > 0
-		&& NSScreen.Screens.Any(screen => screen.VisibleFrame.IntersectsWith(frame));
 
-	private void CaptureSnapshot() {
-		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
-		if (_webView is null || string.IsNullOrEmpty(dir)) {
+	private void CaptureSnapshot(ScreenshotRequest shot) {
+		if (_webView is null) {
 			return;
 		}
 
-		Directory.CreateDirectory(dir);
-		string? name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
-		string path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
+		Directory.CreateDirectory(shot.DirectoryPath);
+		string path = shot.TargetPath;
 
 		_webView.TakeSnapshot(new WKSnapshotConfiguration(), (image, error) => {
 			if (image is null) {

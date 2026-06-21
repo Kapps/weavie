@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Foundation;
 using Weavie.Hosting;
 using WebKit;
@@ -34,9 +33,7 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 			return;
 		}
 
-		// Encode the JSON payload as a JS string literal argument (trim-safe; no reflection).
-		string literal = $"\"{JsonEncodedText.Encode(json)}\"";
-		string script = $"window.__weavieReceive && window.__weavieReceive({literal});";
+		string script = WebBridgeScript.Receive(json);
 
 		if (NSThread.IsMain) {
 			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error));

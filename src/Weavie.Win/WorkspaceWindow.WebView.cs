@@ -1,5 +1,6 @@
 using Microsoft.Web.WebView2.Core;
 using Weavie.Core;
+using Weavie.Hosting;
 using Weavie.Hosting.Web;
 
 namespace Weavie.Win;
@@ -105,9 +106,8 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 
 	/// <summary>Schedules the unattended deliverable screenshot when WEAVIE_SHOT_DIR is set (never in the shipped app).</summary>
 	private void ScheduleSnapshotIfRequested() {
-		if (!string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR"))) {
-			double delay = double.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SHOT_DELAY"), out double d) ? d : 4.0;
-			ScheduleOnce(delay, () => _ = CaptureSnapshotAsync());
+		if (ScreenshotRequest.FromEnvironment() is { } shot) {
+			ScheduleOnce(shot.DelaySeconds, () => _ = CaptureSnapshotAsync(shot));
 		}
 	}
 
@@ -206,21 +206,17 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 	}
 #endif
 
-	private async Task CaptureSnapshotAsync() {
-		string? dir = Environment.GetEnvironmentVariable("WEAVIE_SHOT_DIR");
+	private async Task CaptureSnapshotAsync(ScreenshotRequest shot) {
 		var core = _webView.CoreWebView2;
-		if (core is null || string.IsNullOrEmpty(dir)) {
+		if (core is null) {
 			return;
 		}
 
-		Directory.CreateDirectory(dir);
-		string? name = Environment.GetEnvironmentVariable("WEAVIE_SHOT_NAME");
-		string path = Path.Combine(dir, string.IsNullOrEmpty(name) ? "step1-latency.png" : name);
-
+		Directory.CreateDirectory(shot.DirectoryPath);
 		try {
-			await using var fileStream = new FileStream(path, FileMode.Create, FileAccess.Write);
+			await using var fileStream = new FileStream(shot.TargetPath, FileMode.Create, FileAccess.Write);
 			await core.CapturePreviewAsync(CoreWebView2CapturePreviewImageFormat.Png, fileStream);
-			Console.WriteLine($"[weavie] snapshot saved: {path}");
+			Console.WriteLine($"[weavie] snapshot saved: {shot.TargetPath}");
 			Console.Out.Flush();
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Console.Error.WriteLine($"[weavie] snapshot save failed: {ex.Message}");

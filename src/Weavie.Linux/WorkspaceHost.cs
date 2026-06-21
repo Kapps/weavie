@@ -1,4 +1,7 @@
 using System.Runtime.InteropServices;
+using Weavie.Core.FileSystem;
+using Weavie.Core.Layout;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
@@ -38,13 +41,14 @@ internal sealed class WorkspaceHost {
 		_services = HostServices.CreateDefault();
 		string workspace = _services.Settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		_core = new HostCore(new LinuxPlatform(_bridge), _services, workspace);
+		var recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
+		recents.Add(workspace);
+		_core = new HostCore(new LinuxPlatform(_bridge, recents), _services, workspace);
 
-		// Restore the saved window geometry when present and sane, else a 1280x840 default.
-		var savedWindow = _core.SavedWindow;
-		bool usedSaved = savedWindow is { Width: > 0, Height: > 0 };
-		int width = usedSaved ? savedWindow!.Width : 1280;
-		int height = usedSaved ? savedWindow!.Height : 840;
+		// Startup geometry via the shared placement policy. Linux can't enumerate monitor work-areas yet (no GDK
+		// binding), so the on-screen guard is inert here — saved bounds are trusted as before — until those rects
+		// are wired through; passing a non-empty screen list to Resolve activates the guard with no other change.
+		var placement = WindowPlacement.Resolve(_core.SavedWindow, [], 1280, 840);
 
 		// Custom app:// scheme on the default web context, the script-message bridge on a fresh user-content
 		// manager, then the view bound to that manager.
@@ -68,11 +72,11 @@ internal sealed class WorkspaceHost {
 		// Window: a single top-level holding the web view, restored to the saved geometry.
 		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
 		Gtk.gtk_window_set_title(_window, "weavie");
-		Gtk.gtk_window_set_default_size(_window, width, height);
+		Gtk.gtk_window_set_default_size(_window, placement.Width, placement.Height);
 		Gtk.gtk_container_add(_window, _webView);
-		if (usedSaved) {
-			Gtk.gtk_window_move(_window, savedWindow!.X, savedWindow.Y);
-			if (savedWindow.Maximized) {
+		if (placement.UseSaved) {
+			Gtk.gtk_window_move(_window, placement.X, placement.Y);
+			if (placement.Maximized) {
 				Gtk.gtk_window_maximize(_window);
 			}
 		}

@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
 using Weavie.Hosting;
 using Weavie.Linux.Native;
 
@@ -51,9 +50,7 @@ internal sealed class HostBridge : IHostBridge {
 			return;
 		}
 
-		// Encode the JSON payload as a JS string literal argument (trim-safe; no reflection).
-		string literal = $"\"{JsonEncodedText.Encode(json)}\"";
-		string script = $"window.__weavieReceive && window.__weavieReceive({literal});";
+		string script = WebBridgeScript.Receive(json);
 		GtkMain.Invoke(() => WebKit.webkit_web_view_evaluate_javascript(
 			webView, script, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero));
 	}

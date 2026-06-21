@@ -6,6 +6,8 @@ using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
 using Weavie.Win.Terminal;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
+using PixelRect = Weavie.Core.Layout.PixelRect;
+using WindowPlacement = Weavie.Core.Layout.WindowPlacement;
 
 namespace Weavie.Win;
 
@@ -70,7 +72,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		_workspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
-		Text = $"{WorkspaceLabel(workspaceRoot)} — weavie";
+		Text = $"{WorkspaceNaming.Label(workspaceRoot)} — weavie";
 		Icon = AppIcon.Shared;
 		BackColor = StartupBackground;
 
@@ -167,22 +169,20 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 
 	/// <summary>Applies the persisted window geometry, or a centered default when there's none or it's off-screen.</summary>
 	private void ApplySavedWindowState() {
-		var saved = _core.SavedWindow;
-		if (saved is not null) {
-			var bounds = new Rectangle(saved.X, saved.Y, saved.Width, saved.Height);
-			if (IsOnScreen(bounds)) {
-				StartPosition = FormStartPosition.Manual;
-				Bounds = bounds;
-				if (saved.Maximized) {
-					WindowState = FormWindowState.Maximized;
-				}
-
-				return;
+		var screens = Screen.AllScreens
+			.Select(s => new PixelRect(s.WorkingArea.X, s.WorkingArea.Y, s.WorkingArea.Width, s.WorkingArea.Height))
+			.ToList();
+		var placement = WindowPlacement.Resolve(_core.SavedWindow, screens, 1280, 840);
+		if (placement.UseSaved) {
+			StartPosition = FormStartPosition.Manual;
+			Bounds = new Rectangle(placement.X, placement.Y, placement.Width, placement.Height);
+			if (placement.Maximized) {
+				WindowState = FormWindowState.Maximized;
 			}
+		} else {
+			ClientSize = new Size(placement.Width, placement.Height);
+			StartPosition = FormStartPosition.CenterScreen;
 		}
-
-		ClientSize = new Size(1280, 840);
-		StartPosition = FormStartPosition.CenterScreen;
 	}
 
 	/// <summary>Persists maximize/restore transitions; drag resize/move is covered by <c>ResizeEnd</c>.</summary>
@@ -249,16 +249,6 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			Height = bounds.Height,
 			Maximized = WindowState == FormWindowState.Maximized,
 		};
-	}
-
-	private static bool IsOnScreen(Rectangle bounds) =>
-		bounds is { Width: > 0, Height: > 0 }
-		&& Screen.AllScreens.Any(screen => screen.WorkingArea.IntersectsWith(bounds));
-
-	/// <summary>The folder's leaf name for the window title (e.g. <c>weavie</c> for <c>C:\src\weavie</c>).</summary>
-	private static string WorkspaceLabel(string root) {
-		string leaf = Path.GetFileName(root.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
-		return string.IsNullOrEmpty(leaf) ? root : leaf;
 	}
 
 	/// <summary>

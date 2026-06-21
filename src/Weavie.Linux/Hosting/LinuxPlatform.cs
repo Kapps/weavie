@@ -1,5 +1,6 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Shell;
+using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Linux.Native;
 
@@ -12,9 +13,13 @@ namespace Weavie.Linux.Hosting;
 /// <c>null</c> and <see cref="HostCore"/> degrades them to no-ops.
 /// </summary>
 internal sealed class LinuxPlatform : IHostPlatform {
-	public LinuxPlatform(HostBridge bridge) {
+	private readonly RecentWorkspaces _recents;
+
+	public LinuxPlatform(HostBridge bridge, RecentWorkspaces recents) {
 		ArgumentNullException.ThrowIfNull(bridge);
+		ArgumentNullException.ThrowIfNull(recents);
 		Bridge = bridge;
+		_recents = recents;
 		Dispatcher = new DelegateUiDispatcher(GtkMain.Invoke);
 		PtyLauncher = new PosixPtyLauncher();
 	}
@@ -30,7 +35,7 @@ internal sealed class LinuxPlatform : IHostPlatform {
 	// Native GTK window decorations, so the web renders no custom title bar.
 	public string? TitleBar => null;
 
-	public IReadOnlyList<string> Recents => [];
+	public IReadOnlyList<string> Recents => _recents.Items;
 
 	public IShellWindow? Window => null;
 

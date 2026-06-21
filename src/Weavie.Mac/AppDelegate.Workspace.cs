@@ -11,12 +11,6 @@ public sealed partial class AppDelegate {
 	private string? ResolveChord(string commandId) =>
 		_services?.Keybindings.Resolved.FirstOrDefault(binding => binding.Command == commandId && !binding.Global)?.Key;
 
-	/// <summary>The folder's leaf name for the window title / shell label (e.g. <c>weavie</c> for <c>/src/weavie</c>).</summary>
-	private static string WorkspaceLabel(string root) {
-		string leaf = Path.GetFileName(root.TrimEnd('/'));
-		return string.IsNullOrEmpty(leaf) ? root : leaf;
-	}
-
 	/// <summary>
 	/// Shows the native "open folder as workspace" picker (File ▸ Open Folder). The chosen folder becomes the
 	/// workspace on the next launch — see <see cref="SwitchWorkspace"/>.

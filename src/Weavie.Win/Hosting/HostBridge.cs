@@ -1,4 +1,3 @@
-using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Hosting;
@@ -50,9 +49,7 @@ public sealed class HostBridge : IHostBridge {
 			return;
 		}
 
-		// Encode the JSON payload as a JS string literal argument (trim-safe; no reflection).
-		string literal = $"\"{JsonEncodedText.Encode(json)}\"";
-		string script = $"window.__weavieReceive && window.__weavieReceive({literal});";
+		string script = WebBridgeScript.Receive(json);
 
 		// ExecuteScriptAsync must run on the UI thread; PTY output arrives off-thread.
 		if (webView.InvokeRequired) {

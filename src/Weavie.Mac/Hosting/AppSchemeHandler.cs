@@ -1,55 +1,36 @@
 using Foundation;
+using Weavie.Hosting.Web;
 using WebKit;
 
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// Serves the built Solid/Vite web app to the WKWebView over a custom <c>app://</c> scheme,
-/// straight from the bundle's <c>Resources/wwwroot</c> — no network, no localhost port, secure
-/// same-origin context (so workers and the Event Timing API behave). Files are read from disk
-/// and returned with a correct MIME type (WebKit refuses ES modules served with the wrong type).
+/// Serves the built Solid/Vite web app to the WKWebView over a custom <c>app://</c> scheme, straight from the
+/// bundle's <c>Resources/wwwroot</c> — no network, no localhost port, secure same-origin context (so workers
+/// and the Event Timing API behave). Path resolution + MIME come from the shared <see cref="WwwrootFileResolver"/>;
+/// this owns only the native WKWebView scheme-task binding (and a native fail for a 404).
 /// </summary>
 public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
-	private readonly string _root;
+	private readonly WwwrootFileResolver _resolver;
 
 	/// <summary>Creates a handler that serves files from <paramref name="wwwroot"/> (resolved to a full path).</summary>
 	public AppSchemeHandler(string wwwroot) {
-		ArgumentException.ThrowIfNullOrEmpty(wwwroot);
-		_root = Path.GetFullPath(wwwroot);
+		_resolver = new WwwrootFileResolver(wwwroot);
 	}
 
-	/// <summary>
-	/// Serves the requested <c>app://</c> URL from the web root: maps "/" to index.html, rejects
-	/// path-traversal escapes, and returns the file bytes with a correct MIME type (404 otherwise).
-	/// </summary>
+	/// <summary>Serves the requested <c>app://</c> URL via the shared resolver, or fails the task on a 404.</summary>
 	[Export("webView:startURLSchemeTask:")]
 	public void StartUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask) {
 		var url = urlSchemeTask.Request.Url;
-		string? requestedPath = url?.Path;
-		if (string.IsNullOrEmpty(requestedPath) || requestedPath == "/") {
-			requestedPath = "/index.html";
-		}
-
-		string resolved = Path.GetFullPath(Path.Combine(_root, requestedPath.TrimStart('/')));
-
-		// Defend against path traversal escaping the web root.
-		if (!resolved.StartsWith(_root + Path.DirectorySeparatorChar, StringComparison.Ordinal)
-			&& resolved != _root) {
+		var response = _resolver.Resolve(url?.Path ?? "/");
+		if (!response.Found) {
 			FailNotFound(urlSchemeTask, url);
 			return;
 		}
 
-		if (!File.Exists(resolved)) {
-			FailNotFound(urlSchemeTask, url);
-			return;
-		}
-
-		byte[] bytes = File.ReadAllBytes(resolved);
-		using var data = NSData.FromArray(bytes);
-		string mime = MimeFor(Path.GetExtension(resolved));
-		using var response = new NSUrlResponse(url!, mime, (nint)bytes.Length, "utf-8");
-
-		urlSchemeTask.DidReceiveResponse(response);
+		using var data = NSData.FromArray(response.Bytes);
+		using var urlResponse = new NSUrlResponse(url!, response.Mime, (nint)response.Bytes.Length, "utf-8");
+		urlSchemeTask.DidReceiveResponse(urlResponse);
 		urlSchemeTask.DidReceiveData(data);
 		urlSchemeTask.DidFinish();
 	}
@@ -65,18 +46,4 @@ public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
 		task.DidReceiveResponse(response);
 		task.DidFinish();
 	}
-
-	private static string MimeFor(string extension) => extension.ToLowerInvariant() switch {
-		".html" => "text/html",
-		".js" or ".mjs" => "text/javascript",
-		".css" => "text/css",
-		".json" or ".map" => "application/json",
-		".svg" => "image/svg+xml",
-		".png" => "image/png",
-		".woff" => "font/woff",
-		".woff2" => "font/woff2",
-		".ttf" => "font/ttf",
-		".wasm" => "application/wasm",
-		_ => "application/octet-stream",
-	};
 }

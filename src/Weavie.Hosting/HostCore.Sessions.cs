@@ -93,6 +93,77 @@ public sealed partial class HostCore {
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
 
+	/// <summary>Every loaded session's live backend (the active one plus any background slots), in rail order.</summary>
+	private List<HostSession> LoadedSessions() {
+		var list = new List<HostSession>();
+		if (_sessions is not null) {
+			foreach (var slot in _sessions.Slots) {
+				if (slot.Session is { } session) {
+					list.Add(session);
+				}
+			}
+		} else if (_session is not null) {
+			// Pre-rail (during StartAsync, before _sessions exists): only the primary is live.
+			list.Add(_session);
+		}
+
+		return list;
+	}
+
+	/// <summary>
+	/// The session that owns <paramref name="path"/> for an <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>: the
+	/// loaded session whose worktree contains it (longest-prefix), else the active session for a workspace
+	/// scratch (untitled-buffer) path, else <c>null</c> — the caller refuses loudly. Routing by path (not by
+	/// the active session) is what keeps a switch from refusing the outgoing session's working-copy flush (lost
+	/// edits) or turning a stale tab's read into a spurious "file not found". A path owned by a NON-active
+	/// session is still served (data safety), but logged — it means a stale editor tab or a switch-race upstream
+	/// we want to chase, not silently treat as normal.
+	/// </summary>
+	private HostSession? ResolveFsSession(string path) {
+		if (string.IsNullOrEmpty(path)) {
+			return null;
+		}
+
+		var sessions = LoadedSessions();
+		if (sessions.Count == 0) {
+			return null;
+		}
+
+		int index = WorkspacePathRouter.OwningRootIndex([.. sessions.Select(s => s.WorkspaceRoot)], path);
+		if (index >= 0) {
+			var owner = sessions[index];
+			if (!ReferenceEquals(owner, _session)) {
+				Log($"[weavie] fs op for {path} routed to background session '{owner.Id}' (active '{_session?.Id}') — likely a stale editor tab");
+			}
+
+			return owner;
+		}
+
+		// Not inside any worktree: a workspace scratch (untitled) buffer lives outside every worktree but is
+		// shared across the window's sessions, so serve it from the active session (whose editor shows it).
+		if (BufferStore.IsWithinWorkspace(WeaviePaths.WorkspaceScratchDir(Id), path)) {
+			return _session;
+		}
+
+		Log($"[weavie] fs op refused: {path} is outside every session worktree and the scratch dir");
+		return null;
+	}
+
+	/// <summary>
+	/// Routes a <c>diff-resolved</c> to the session whose <see cref="McpDiffPresenter"/> owns
+	/// <paramref name="id"/> (diff ids are process-unique, so at most one does). Returns whether any session
+	/// owned it — a <c>false</c> means a switch-race or double-resolve the caller logs loudly.
+	/// </summary>
+	private bool ResolveDiff(string id, bool kept, string? finalContents) {
+		foreach (var session in LoadedSessions()) {
+			if (session.DiffPresenter.Resolve(id, kept, finalContents)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
 	/// <summary>Builds the workspace's worktree manager, or returns <c>null</c> when the root is not a git repo.</summary>
 	private async Task<WorktreeManager?> BuildWorktreeManagerAsync() {
 		var git = new GitService();

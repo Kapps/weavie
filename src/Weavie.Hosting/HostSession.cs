@@ -284,6 +284,10 @@ public sealed class HostSession : IAsyncDisposable {
 			EditorChannel.Activate();
 		} else {
 			EditorChannel.Deactivate();
+			// No longer the foreground editor: drop the active-file/open-tab mirror so this session's Claude
+			// reports "no active editor" (not a stale file the user has switched away from). The page re-reports
+			// both on switch-in (set-editor-session → open-editors-changed; the reopened model → active-editor).
+			Editor.Clear();
 		}
 	}
 

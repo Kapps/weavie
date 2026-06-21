@@ -17,7 +17,11 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly IFileSystem _fileSystem;
 	private readonly FileOpener _fileOpener;
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
-	private int _counter;
+	// Process-wide so diff ids are unique across ALL sessions, not just within one presenter. The page replies
+	// with diff-resolved carrying only the id; the host routes it back to the OWNING session by that id, so two
+	// sessions must never both mint "diff-1" (a switch between render and resolve would otherwise resolve the
+	// wrong session's diff with the wrong contents).
+	private static int _counter;
 
 	/// <summary>Renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground) and delegates file opens to <paramref name="fileOpener"/>.</summary>
 	public McpDiffPresenter(SessionEditorChannel channel, IFileSystem fileSystem, FileOpener fileOpener) {
@@ -77,13 +81,20 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
 	}
 
-	/// <summary>Called when the web view replies with the user's Keep/Reject decision.</summary>
-	public void Resolve(string id, bool kept, string? finalContents) {
-		if (_pending.TryRemove(id, out var tcs)) {
-			tcs.TrySetResult(kept ? DiffOutcome.Kept(finalContents ?? string.Empty) : DiffOutcome.Rejected());
-			// The page already closed its own review when the user resolved it, so just stop tracking the diff.
-			_channel.EndDiff(id, closeInUi: false);
+	/// <summary>
+	/// Called when the web view replies with the user's Keep/Reject decision. Returns <c>true</c> when this
+	/// presenter owned <paramref name="id"/> (so the caller can route a <c>diff-resolved</c> across sessions
+	/// and loudly flag an id no session owns — a switch-race or double-resolve).
+	/// </summary>
+	public bool Resolve(string id, bool kept, string? finalContents) {
+		if (!_pending.TryRemove(id, out var tcs)) {
+			return false;
 		}
+
+		tcs.TrySetResult(kept ? DiffOutcome.Kept(finalContents ?? string.Empty) : DiffOutcome.Rejected());
+		// The page already closed its own review when the user resolved it, so just stop tracking the diff.
+		_channel.EndDiff(id, closeInUi: false);
+		return true;
 	}
 
 	private static string BuildShowDiff(string id, DiffProposal proposal, string original) {

@@ -177,6 +177,9 @@ export type HostBoundMessage =
       uri: string;
       languageId: string;
       text: string;
+      // The session id whose editor this is (from the last set-editor-session); the host rejects a stale
+      // post-switch emit (id != active session) so a background session's Claude isn't told the wrong file.
+      sessionId: string | null;
       selection: {
         start: { line: number; character: number };
         end: { line: number; character: number };
@@ -188,6 +191,8 @@ export type HostBoundMessage =
   // native path); the host derives the uri/label and echoes the path back verbatim on close-tab. No content.
   | {
       type: "open-editors-changed";
+      // The session id these tabs belong to (from the last set-editor-session); host rejects a stale send.
+      sessionId: string | null;
       editors: { path: string; isActive: boolean; isPinned: boolean; isPreview: boolean }[];
     }
   // Custom title bar (Windows): the min / maximize-restore / close buttons.
@@ -261,8 +266,10 @@ export type WebBoundMessage =
   | { type: "close-tab"; path: string }
   // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
   | { type: "set-layout"; document: LayoutDocument }
-  // Host pushes the persisted editor session to restore on launch/Ctrl+R. Carries NO file content — the
-  // web reopens each file as a working copy resolved from disk through the host file:// provider.
+  // Host pushes the persisted editor session to restore on launch/Ctrl+R, and on every session switch. Carries
+  // NO file content — the web reopens each file as a working copy resolved from disk through the host file://
+  // provider. `sessionId` is the session id these tabs belong to; the web echoes it on editor-session-changed /
+  // active-editor-changed / open-editors-changed so a post-switch send is attributed to the right session.
   | { type: "set-editor-session"; sessionId: string | null; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }

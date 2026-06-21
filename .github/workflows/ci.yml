@@ -122,6 +122,7 @@ jobs:
             src/Weavie.Runner/Weavie.Runner.csproj \
             src/Weavie.Analyzers/Weavie.Analyzers.csproj \
             tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
+            tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj \
             tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
             tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj \
             tools/Weavie.LspHarness/Weavie.LspHarness.csproj; do
@@ -138,6 +139,13 @@ jobs:
         run: >
           dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
           --filter "FullyQualifiedName!=Weavie.Core.Tests.SettingsStoreTests.Set_PathKind_WritesLiteralStringForWindowsPath"
+
+      # Hosting/session-routing tests: unit (the editor channel + diff presenter) plus end-to-end integration
+      # over a real HostCore on a temp git repo (the same construction path the headless e2e already exercises
+      # on Linux). Covers the session active/inactive/background/worktree routing invariants.
+      - name: Test (hosting)
+        if: matrix.name == 'linux'
+        run: dotnet test tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj -c Debug
 
       # Headless host (browser-connectable Weavie): built and exercised on Linux, where it runs. Building it
       # copies the web app built above into its wwwroot. The web e2e then drives the bridge transport against

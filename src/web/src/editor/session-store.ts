@@ -31,11 +31,24 @@ function structureKey(session: EditorSession): string {
 }
 let lastStructure = "";
 
+// The session id the host says these tabs belong to (from the last set-editor-session). Every message we send
+// the host about the editor (editor-session-changed / open-editors-changed / active-editor-changed) carries it,
+// so the host can attribute a debounced send that lands AFTER a session switch to the session it was produced
+// for — and reject it rather than corrupt the now-active session. Null until the first set-editor-session.
+let currentOwner: string | null = null;
+
+/// The session id the editor's tabs currently belong to (for stamping outbound editor messages). Read by
+/// editor-host's active-editor emit so its owner matches the rest.
+export function editorOwner(): string | null {
+  return currentOwner;
+}
+
 // Tell the host the live open-tab set so Claude's getOpenEditors reports it (and close_tab can target it).
 function emitOpenEditors(session: EditorSession): void {
   lastStructure = structureKey(session);
   postToHost({
     type: "open-editors-changed",
+    sessionId: currentOwner,
     editors: session.open.map((entry) => ({
       path: entry.path,
       isActive: entry.path === session.active,
@@ -45,14 +58,16 @@ function emitOpenEditors(session: EditorSession): void {
   });
 }
 
-// Which session owns the current tab set — the id from the last set-editor-session push. Stamped onto every
-// editor-session-changed (captured at commit time) so the host can drop a stale change from a session the
-// user has since switched away from, instead of misattributing its tabs to the new one.
-let ownerSessionId: string | null = null;
-
 onHostMessage((message) => {
   if (message.type === "set-editor-session") {
-    ownerSessionId = message.sessionId ?? null;
+    // Adopt the incoming session's id, and DROP any pending debounced editor-session-changed: it carries
+    // the PREVIOUS session's tabs and, landing after this rebind, would be written into the incoming session's
+    // EditorSession (the cross-worktree tab-contamination bug). The seed below is now the source of truth.
+    currentOwner = message.sessionId ?? null;
+    if (postTimer !== undefined) {
+      clearTimeout(postTimer);
+      postTimer = undefined;
+    }
     const seeded = { active: message.session.active, open: normalize(message.session.open) };
     setSession(seeded);
     // Report the restored set so getOpenEditors works immediately, without waiting for a tab change.
@@ -113,10 +128,10 @@ function sendEditorSession(s: EditorSession, owner: string | null): void {
 
 function commit(next: EditorSession): void {
   setSession(next);
-  // Capture the owner now, not when the timer fires: if a session switch lands a new ownerSessionId before
+  // Capture the owner now, not when the timer fires: if a session switch lands a new currentOwner before
   // this debounce fires, this change still describes the session active when the user made it, so it must
   // carry that session's id.
-  const owner = ownerSessionId;
+  const owner = currentOwner;
   if (postTimer !== undefined) {
     clearTimeout(postTimer);
   }
@@ -142,9 +157,9 @@ export function flushEditorSession(): void {
   postTimer = undefined;
   const current = session();
   if (current !== null) {
-    // Runs while the outgoing session still owns the tab set, so the live ownerSessionId records it under the
+    // Runs while the outgoing session still owns the tab set, so the live currentOwner records it under the
     // correct session.
-    sendEditorSession(current, ownerSessionId);
+    sendEditorSession(current, currentOwner);
   }
 }
 

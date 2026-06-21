@@ -244,8 +244,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 			}
 		}
 
-		foreach (var waiter in matched) {
-			waiter.Tcs.TrySetResult(root.GetProperty("params"));
+		foreach (var (_, tcs) in matched) {
+			tcs.TrySetResult(root.GetProperty("params"));
 		}
 	}
 

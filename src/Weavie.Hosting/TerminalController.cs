@@ -35,9 +35,10 @@ public sealed class TerminalController : IDisposable {
 	// WRONG pane — but dropping would lose a background session's crash notice (a dead session has no TUI to
 	// repaint it). So buffer here and replay in OnReady when the user switches to this session. Guarded by _gate.
 	private readonly List<string> _pendingMessages = [];
-	// Per-launch claude resume detection (claude session only): watches early output to confirm a create / catch
-	// a failed resume, keeping ClaudeSessionStore's Started flag honest. Reset each launch; null once it settles.
-	private ClaudeResumeWatcher? _resumeWatcher;
+	// Per-launch claude startup detection (claude session only): watches early output to confirm the launch
+	// came up (→ MarkStarted) and, on exit, decides how to heal a launch that died at startup (a dead/poison
+	// session id), keeping ClaudeSessionStore honest. Set each managed launch; null for an unmanaged one.
+	private ClaudeStartupWatcher? _startupWatcher;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) the given bridge, resolving its
@@ -205,12 +206,14 @@ public sealed class TerminalController : IDisposable {
 				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
 				: null;
 
-			var sessionArgs = isClaude ? ResolveClaudeSessionArgs() : NoSessionArgs;
-			// Watch this launch's early output to keep the session store's Started flag honest — confirm a
-			// --session-id create, or catch a --resume whose id is gone. Only when we passed a managed id.
-			_resumeWatcher = sessionArgs.Count > 0
-				? new ClaudeResumeWatcher(resuming: string.Equals(sessionArgs[0], "--resume", StringComparison.Ordinal))
-				: null;
+			// Resolve this claude launch's managed session id (if any), then watch it: confirm it comes up (so the
+			// next launch can --resume), and on exit heal a launch that died at startup so a dead/poison id can't
+			// crash-loop the pane (see OnTerminalExited). Unmanaged launches (shell, or resume off) skip all this.
+			var managedLaunch = isClaude ? ResolveClaudeLaunch() : null;
+			_startupWatcher = managedLaunch is { } resolved ? new ClaudeStartupWatcher(resuming: resolved.Resume) : null;
+			var sessionArgs = managedLaunch is { } managed
+				? (IReadOnlyList<string>)[managed.Resume ? "--resume" : "--session-id", managed.SessionId]
+				: NoSessionArgs;
 
 			var launch = _launcher.Resolve(new PtyLaunchRequest {
 				IsClaude = isClaude,
@@ -224,7 +227,7 @@ public sealed class TerminalController : IDisposable {
 
 			var terminal = _launcher.CreateTerminal();
 			terminal.Output += OnOutput;
-			terminal.Exited += _supervisor.NotifyExited;
+			terminal.Exited += OnTerminalExited;
 			terminal.Start(new TerminalStartInfo {
 				Command = launch.Command,
 				Arguments = launch.Arguments,
@@ -245,19 +248,18 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// The claude session-resume flag pair for this launch — <c>["--resume", &lt;id&gt;]</c> to reattach to this
-	/// directory's previous Claude conversation, or <c>["--session-id", &lt;id&gt;]</c> to create it the first
-	/// time. Empty when resume is unconfigured (<see cref="ClaudeSessions"/> null) or turned off via
-	/// <c>claude.resumeSession</c> (claude then picks its own id). The resume <em>policy</em> lives here, shared
-	/// across hosts; each <see cref="IPtyLauncher"/> just formats these args for its OS.
+	/// Resolves this directory's managed Claude launch — the stable session id and whether to <c>--resume</c> it
+	/// or create it with <c>--session-id</c> (the caller turns this into the flag pair). Null when resume is
+	/// unconfigured (<see cref="ClaudeSessions"/> null) or turned off via <c>claude.resumeSession</c> (claude
+	/// then picks its own id). The resume <em>policy</em> lives in <see cref="ClaudeSessionStore"/>, shared
+	/// across hosts; each <see cref="IPtyLauncher"/> just formats the resulting args for its OS.
 	/// </summary>
-	private IReadOnlyList<string> ResolveClaudeSessionArgs() {
+	private ClaudeLaunch? ResolveClaudeLaunch() {
 		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
-			return [];
+			return null;
 		}
 
-		var launch = store.Resolve(Workspace);
-		return [launch.Resume ? "--resume" : "--session-id", launch.SessionId];
+		return store.Resolve(Workspace);
 	}
 
 	/// <summary>Tears down the current PTY child and its optional log; the supervisor calls this on stop/dispose.</summary>
@@ -317,8 +319,8 @@ public sealed class TerminalController : IDisposable {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
 
-		// Drive the resume watcher BEFORE the OutputActive gate: a background (muted) claude that fails its
-		// --resume must still self-heal, even though its bytes aren't painted to the page.
+		// Drive the startup watcher BEFORE the OutputActive gate: a background (muted) claude must still confirm
+		// it came up (and self-heal on a failed resume), even though its bytes aren't painted to the page.
 		ObserveClaudeStartup(data);
 
 		if (!OutputActive) {
@@ -330,36 +332,65 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// Feeds claude's early output to the per-launch <see cref="ClaudeResumeWatcher"/> and, the moment it settles,
-	/// reconciles the session store: a confirmed create marks the id started (so the next launch resumes); a
-	/// failed resume forgets it started (so the supervisor's restart re-creates the id instead of looping).
+	/// Feeds claude's early output to the per-launch <see cref="ClaudeStartupWatcher"/>; the moment it has streamed
+	/// enough to be confirmed up, marks the session id started so the <em>next</em> launch resumes it. Failure is
+	/// not decided here (a startup error is indistinguishable from healthy output by content) but on exit — see
+	/// <see cref="OnTerminalExited"/>.
 	/// </summary>
 	private void ObserveClaudeStartup(byte[] data) {
 		if (ClaudeSessions is not { } store) {
 			return;
 		}
 
-		ClaudeStartupOutcome outcome;
+		bool justConfirmed;
 		lock (_gate) {
-			if (_resumeWatcher is not { } watcher) {
+			// Only decode while a managed launch is still unconfirmed; once up, output is irrelevant here.
+			if (_startupWatcher is not { Confirmed: false } watcher) {
 				return;
 			}
 
-			outcome = watcher.Observe(Encoding.UTF8.GetString(data));
-			if (outcome != ClaudeStartupOutcome.Pending) {
-				_resumeWatcher = null; // settled — stop decoding the rest of this launch's output
-			}
+			justConfirmed = watcher.Observe(Encoding.UTF8.GetString(data));
 		}
 
-		switch (outcome) {
-			case ClaudeStartupOutcome.Created:
-				store.MarkStarted(Workspace);
-				break;
-			case ClaudeStartupOutcome.ResumeFailed:
-				store.MarkResumeFailed(Workspace);
-				break;
-			default:
-				break; // Resumed (already marked started) / Pending: nothing to persist
+		if (justConfirmed) {
+			store.MarkStarted(Workspace);
+		}
+	}
+
+	/// <summary>
+	/// The PTY child exited. For a managed claude launch that died before confirming it came up — a crash at
+	/// startup, the signature of a dead/poison session id rather than a healthy run the user quit — this heals the
+	/// session store so the supervisor's relaunch recovers instead of crash-looping: a failed <c>--resume</c>
+	/// re-creates the same id, a failed <c>--session-id</c> forgets the id so the next launch mints a fresh one and
+	/// cold-starts clean. An intentional stop (the supervisor has already left <see cref="SupervisorState.Running"/>
+	/// before tearing the child down) and a clean exit are left alone. The supervisor is always notified last so it
+	/// applies its restart policy regardless.
+	/// </summary>
+	private void OnTerminalExited(int code) {
+		try {
+			// A deliberate stop (Stop/Dispose/Restart) flips the supervisor out of Running before killing the
+			// child, so a non-Running state here means the exit was intentional — never a startup failure to heal.
+			bool unexpected = _supervisor.State == SupervisorState.Running;
+			ClaudeStartupWatcher? watcher;
+			lock (_gate) {
+				watcher = _startupWatcher;
+				_startupWatcher = null;
+			}
+
+			if (unexpected && ClaudeSessions is { } store && watcher is not null) {
+				switch (watcher.OnExit(code)) {
+					case ClaudeStartupRecovery.RecreateSameId:
+						store.MarkResumeFailed(Workspace);
+						break;
+					case ClaudeStartupRecovery.ForgetId:
+						store.Forget(Workspace);
+						break;
+					default:
+						break; // None: came up, or a clean exit — leave the store as-is
+				}
+			}
+		} finally {
+			_supervisor.NotifyExited(code);
 		}
 	}
 

@@ -100,4 +100,47 @@ public sealed class EditorSessionStoreTests {
 		Assert.Equal(JsonValueKind.Null, session.GetProperty("active").ValueKind);
 		Assert.Empty(session.GetProperty("open").EnumerateArray());
 	}
+
+	[Fact]
+	public void BuildRestoreJson_StampsSessionId() {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText("/root/file.ts", "x");
+		var session = new EditorSession { Active = "/root/file.ts", Open = [new EditorSessionEntry { Path = "/root/file.ts" }] };
+
+		using var message = JsonDocument.Parse(
+			EditorSessionStore.BuildRestoreJson(session, fs, "/root", "abc123", log: null));
+
+		Assert.Equal("abc123", message.RootElement.GetProperty("sessionId").GetString());
+	}
+
+	[Fact]
+	public void BuildRestoreJson_DropsTabOutsideWorkspaceRoot() {
+		// A tab pointing at another session's worktree (outside this session's root): a real file on disk, so
+		// the existence check passes, but it must not be restored — this session's file provider would refuse
+		// it out-of-root and the editor would open blank. This is also the self-heal for an already-polluted
+		// editor-session.json. A scratch buffer (outside the root by design) is kept.
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText("/root/in.ts", "x");
+		fs.WriteAllText("/elsewhere/worktree/foreign.ts", "y");
+		fs.WriteAllText("/scratch/untitled-1", "z");
+		var session = new EditorSession {
+			Active = "/elsewhere/worktree/foreign.ts",
+			Open = [
+				new EditorSessionEntry { Path = "/root/in.ts" },
+				new EditorSessionEntry { Path = "/elsewhere/worktree/foreign.ts" },
+				new EditorSessionEntry { Path = "/scratch/untitled-1", Scratch = true },
+			],
+		};
+
+		using var message = JsonDocument.Parse(
+			EditorSessionStore.BuildRestoreJson(session, fs, "/root", sessionId: null, log: null));
+		var open = message.RootElement.GetProperty("session").GetProperty("open").EnumerateArray()
+			.Select(e => e.GetProperty("path").GetString()).ToList();
+
+		Assert.Contains("/root/in.ts", open);
+		Assert.Contains("/scratch/untitled-1", open);
+		Assert.DoesNotContain("/elsewhere/worktree/foreign.ts", open);
+		// The dropped file was active → active is nulled rather than pointing at a tab that won't open.
+		Assert.Equal(JsonValueKind.Null, message.RootElement.GetProperty("session").GetProperty("active").ValueKind);
+	}
 }

@@ -50,91 +50,98 @@ async function tour(page) {
   await page.emulateMedia({ colorScheme: "dark" });
   await settle(1200);
 
-  // ── FIX UNDER TEST: scrolling Claude Code after a session switch ──────────────────────────────────────────
-  // Claude Code runs INLINE and enables mouse tracking, so the wheel is forwarded to Claude (it scrolls its own
-  // transcript). Originally the page shared ONE xterm across sessions and a switch posted `term-reset`, which
-  // could drop mouse tracking and hand the wheel to a stray web viewport. Now each loaded session keeps its OWN
-  // live xterm mounted and switching is pure show/hide — the active session's terminal is never reset, so its
-  // modes are intact by construction. This tour creates a 2nd session, switches back, and reads the (now
-  // per-session) Claude xterm's `modes.mouseTrackingMode` — it must stay non-"none".
+  // ── FIX UNDER TEST: editor state must follow the active session, never leak across worktrees ──────────────
+  // The bug: an `editor-session-changed` carries no session identity, so a debounced tab-set update produced
+  // while a worktree session was active could land after the user switched back to the primary — and the host
+  // would attribute (and persist) the worktree's file paths under the PRIMARY session. On the next launch the
+  // primary editor tries to restore a path that's outside its checkout, the file provider refuses it
+  // out-of-root, and the user gets "Unable to read file … nonexistent file" over a BLANK editor.
+  //
+  // The fix stamps each editor-session message with its owning session id (the host drops a mismatched stale
+  // write) and root-scopes the restore (a tab outside the session's tree is never reopened). The observable
+  // contract this tour drives: after a session switch, every open editor working copy
+  // (window.__WEAVIE_EDITOR_REFS__) is rooted in the ACTIVE session's tree — no foreign worktree path leaks in.
   const claudeSurface = page.locator('.terminal-surface[data-kind="terminal:claude"]');
-  const claudeViewport = claudeSurface.locator(".xterm-viewport");
   await claudeSurface.locator(".xterm").waitFor({ state: "visible", timeout: 20_000 });
-  await settle(4000); // let the first Claude TUI paint and enable mouse tracking
+  await settle(3000);
 
-  // On-page HUD so the recording is self-explanatory. The decisive signal is the Claude xterm's
-  // `modes.mouseTrackingMode`: Claude enables it (so the wheel is forwarded to Claude, which scrolls its
-  // own transcript). The bug was that a session switch reset the terminal and dropped it back to "none",
-  // so the wheel hit xterm's local viewport instead. After the fix it stays enabled across the switch.
+  // On-page HUD + an editor-state reader: which file working copies are open, and whether any sit OUTSIDE the
+  // primary checkout (a leaked worktree path — the symptom the fix prevents). The primary root is the one the
+  // host injected at load (window.__WEAVIE_LSP__.workspace).
   await page.evaluate(() => {
     const hud = document.createElement("div");
-    hud.id = "scroll-hud";
+    hud.id = "editor-iso-hud";
     hud.style.cssText =
-      "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;" +
-      "font:600 14px/1.5 monospace;color:#fff;background:rgba(0,0,0,.82);padding:8px 14px;" +
+      "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;max-width:92vw;" +
+      "font:600 13px/1.55 monospace;color:#fff;background:rgba(0,0,0,.85);padding:9px 14px;" +
       "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;";
     document.body.appendChild(hud);
-    window.__readClaude = () => {
-      // Each loaded session has its own claude xterm (keyed `${slot}:claude`); only the active one is
-      // shown, so pick the visible one (hidden hosts have a null offsetParent).
-      const all = window.__WEAVIE_TERMINALS__ ?? {};
-      const term =
-        Object.entries(all).find(
-          ([key, t]) => key.endsWith(":claude") && t.element?.offsetParent != null,
-        )?.[1] ?? null;
-      const modes = term ? term.modes : null;
-      return {
-        // The mode that matters for scrolling on an authed full-screen Claude (forwards the wheel to it).
-        mouseTracking: modes ? modes.mouseTrackingMode : "?",
-        // Modes headless Claude DOES set — stand-ins proving the switch no longer resets the live terminal.
-        bracketedPaste: modes ? modes.bracketedPasteMode : null,
-        focusReporting: modes ? modes.sendFocusMode : null,
-      };
+
+    const primaryRoot = (window.__WEAVIE_LSP__?.workspace ?? "").replace(/\\/g, "/").replace(/\/$/, "");
+    const underPrimary = (uri) => {
+      // The ref keys are file:// URIs; decode to a comparable path and test against the primary root.
+      const p = decodeURIComponent(uri).replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1").replace(/\\/g, "/");
+      return primaryRoot.length > 0 && p.toLowerCase().startsWith(primaryRoot.toLowerCase());
     };
-    window.__setHud = (label) => {
-      const m = window.__readClaude();
-      // The fix's contract: a session switch must NOT reset the live terminal's modes. Claude set these on
-      // boot; if they survive the switch, mouse tracking (set the same way on an authed Claude) survives too.
-      const preserved = m.bracketedPaste === true && m.focusReporting === true;
+    window.__readEditor = () => {
+      const refs = window.__WEAVIE_EDITOR_REFS__ ?? new Map();
+      const open = [...refs.keys()];
+      const names = open.map((u) => decodeURIComponent(u).split("/").pop());
+      const foreign = open.filter((u) => !underPrimary(u));
+      // Is the visible editor actually showing text (not a blank/failed-open pane)?
+      const lines = document.querySelector(".monaco-editor .view-lines");
+      const textLen = lines ? (lines.textContent ?? "").length : 0;
+      return { open: names, foreignCount: foreign.length, textLen };
+    };
+    window.__setHud = (label, expectClean) => {
+      const m = window.__readEditor();
+      const ok = !expectClean || (m.foreignCount === 0 && m.textLen > 0);
+      hud.style.borderColor = expectClean ? (ok ? "#3ad07a" : "#ff5d5d") : "rgba(255,255,255,.25)";
       hud.textContent =
-        `${label}\nClaude xterm modes — bracketedPaste=${m.bracketedPaste}  focusReporting=${m.focusReporting}  mouseTracking="${m.mouseTracking}"\n` +
-        `${preserved ? "✓ terminal modes intact — wheel still reaches Claude" : "⚠ modes reset by the switch — web scrollbar hijacks the wheel"}`;
-      console.log(
-        `[scroll-hud] ${label} :: ${JSON.stringify(m)} :: ${preserved ? "MODES-INTACT" : "MODES-RESET"}`,
-      );
+        `${label}\nopen working copies: [${m.open.join(", ") || "—"}]   editor text: ${m.textLen} chars\n` +
+        (expectClean
+          ? ok
+            ? "✓ all open files are in the active session's tree — no leaked worktree path, editor not blank"
+            : `⚠ ${m.foreignCount} foreign path(s) / blank editor — the leak the fix prevents`
+          : "(worktree session active — its files live outside the primary checkout, as expected)");
+      console.log(`[editor-iso] ${label} :: ${JSON.stringify(m)}`);
     };
   });
-  await page.evaluate(() => window.__setHud("Session 1 (initial)"));
-  await settle(2500);
 
-  // ── Create a 2nd session (rail "+") so there's something to switch between ────────────────────────────────
+  // Open a file in SESSION 1 (the primary checkout) via the omnibar "Go to File".
+  const openViaOmnibar = async (query) => {
+    const input = page.locator(".tb-omnibar-input");
+    await input.click();
+    await input.fill("");
+    await input.type(query, { delay: 25 });
+    await settle(900);
+    const firstRow = page.locator(".tb-omnibar-row").first();
+    await firstRow.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
+    await page.keyboard.press("Enter");
+    await settle(1500);
+  };
+  await openViaOmnibar("EditorSessionStore");
+  await settle(1500);
+  await page.evaluate(() => window.__setHud("Session 1 (primary) — file open", true));
+  await settle(3000);
+
+  // ── Create a 2nd session: a new worktree off HEAD, switched in automatically ──────────────────────────────
   await page.locator(".session-rail-add").click();
-  await page.locator(".session-prompt-input").fill("scroll-fix-demo");
-  await page.locator(".session-prompt-btn-primary").click(); // branch off HEAD → new worktree, switches to it
-  // Two chips now on the rail; wait for the new session's Claude to come up.
+  await page.locator(".session-prompt-input").fill("editor-iso-demo");
+  await page.locator(".session-prompt-btn-primary").click();
   await page.locator(".session-chip").nth(1).waitFor({ timeout: 30_000 });
-  await settle(6000);
-  await page.evaluate(() => window.__setHud("Session 2 (new worktree) — switched in"));
-  await settle(2000);
+  await settle(5000);
+  // Open a DIFFERENT file in the worktree session — its working copy lives under the worktree, not the primary.
+  await openViaOmnibar("session-store");
+  await settle(1500);
+  await page.evaluate(() => window.__setHud("Session 2 (worktree) — different file open", false));
+  await settle(3000);
 
-  // ── Switch BACK to session 1 — the path that used to break scrolling ─────────────────────────────────────
+  // ── Switch BACK to session 1 — the exact path that used to persist a leaked worktree tab ──────────────────
   await page.locator(".session-chip").first().click();
-  await settle(5000); // pure show/hide: session 1's own live xterm is revealed exactly as it was left
-  await page.evaluate(() => window.__setHud("Back on Session 1 (after switch) — wheel test next"));
-  await settle(2500);
-
-  // Wheel over the Claude pane: with the bug this scrolls the stray web viewport (scrollTop moves, scrollbar
-  // visible); with the fix the wheel is forwarded to the TUI and the local viewport stays put.
-  const box = await claudeViewport.boundingBox();
-  if (box) {
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    for (let i = 0; i < 5; i++) {
-      await page.mouse.wheel(0, -120);
-      await settle(180);
-    }
-  }
-  await page.evaluate(() => window.__setHud("Back on Session 1 — after wheel scroll"));
-  await settle(4000);
+  await settle(4500); // rebind: release the worktree's working copies, reopen the primary session's tab
+  await page.evaluate(() => window.__setHud("Back on Session 1 (primary) — editor rebound", true));
+  await settle(5000);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

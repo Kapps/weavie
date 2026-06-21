@@ -51,13 +51,23 @@ public sealed partial class HostCore {
 
 			case "new-session": {
 				string? branch = root.TryGetProperty("branch", out var nsEl) ? nsEl.GetString() : null;
+				// "existing" ⇒ check out the named branch into a new worktree rather than creating a new branch.
+				bool existing = root.TryGetProperty("existing", out var exEl)
+					&& exEl.ValueKind is JsonValueKind.True or JsonValueKind.False && exEl.GetBoolean();
 				// The page sends base "head" (the active session's HEAD) or "main"; ResolveBaseRefAsync treats
 				// anything other than "main" as the current session's HEAD, so normalize to "current"/"main".
+				// Ignored for an existing-branch checkout (the branch already has a tip).
 				string? baseSpec = root.TryGetProperty("base", out var nbEl) ? nbEl.GetString() : null;
 				string? resolvedBase = baseSpec is null
 					? null
 					: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
-				_ = CreateSessionFromWebAsync(branch, resolvedBase);
+				_ = CreateSessionFromWebAsync(branch, resolvedBase, existing);
+				break;
+			}
+
+			case "list-branches": {
+				string branchesReqId = root.TryGetProperty("id", out var lbEl) ? lbEl.GetString() ?? string.Empty : string.Empty;
+				_ = ListBranchesForWebAsync(branchesReqId);
 				break;
 			}
 
@@ -376,12 +386,35 @@ public sealed partial class HostCore {
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast. The
 	/// rail's "+" is fire-and-forget, so without this a "branch already exists" error would only reach the log.
 	/// </summary>
-	private async Task CreateSessionFromWebAsync(string? branch, string? baseSpec) {
+	private async Task CreateSessionFromWebAsync(string? branch, string? baseSpec, bool attachExisting) {
 		var result = await NewSessionAsync(
-			new NewSessionRequest { Branch = branch, Base = baseSpec }, CancellationToken.None).ConfigureAwait(false);
+			new NewSessionRequest { Branch = branch, Base = baseSpec, AttachExisting = attachExisting }, CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
 			Notify("error", result.Error ?? "Couldn't create the session.");
 		}
+	}
+
+	/// <summary>
+	/// Answers the new-session dialog's branch typeahead: the local branches that can be checked out as a new
+	/// session — every local branch minus those already checked out in a worktree (the primary and any existing
+	/// sessions), which git won't let a second worktree attach. Replies with a <c>branches-result</c> tagged by
+	/// the request <paramref name="id"/>; a non-repo or git failure yields an empty list (the typeahead just
+	/// offers nothing).
+	/// </summary>
+	private async Task ListBranchesForWebAsync(string id) {
+		var git = new GitService();
+		string[] branches = [];
+		try {
+			var all = await git.ListBranchesAsync(WorkspaceRoot, CancellationToken.None).ConfigureAwait(false);
+			var worktrees = await git.ListWorktreesAsync(WorkspaceRoot, CancellationToken.None).ConfigureAwait(false);
+			var checkedOut = new HashSet<string>(
+				worktrees.Where(w => w.Branch is not null).Select(w => w.Branch!), StringComparer.Ordinal);
+			branches = [.. all.Where(b => !checkedOut.Contains(b))];
+		} catch (GitException ex) {
+			Log($"[weavie] list-branches failed: {ex.Message}");
+		}
+
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "branches-result", id, branches }));
 	}
 
 	/// <summary>

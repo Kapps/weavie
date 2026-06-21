@@ -46,6 +46,41 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task Attach_ExistingBranch_AddsWorktreeAndRecord() {
+		var (manager, registry, git) = NewManager();
+		git.Branches.Add("feature");
+
+		var record = await manager.AttachAsync("feature");
+
+		Assert.Equal("feature", record.Branch);
+		Assert.StartsWith(WorktreesDir, record.Path);
+		Assert.Single(registry.Items);
+		Assert.Contains(git.Worktrees, w => w.Branch == "feature" && w.Path == record.Path);
+	}
+
+	[Fact]
+	public async Task Attach_MissingBranch_Throws() {
+		var (manager, _, _) = NewManager();
+
+		// Inverse of Create's guard: attach requires the branch to already exist.
+		await Assert.ThrowsAsync<InvalidOperationException>(() => manager.AttachAsync("nope"));
+	}
+
+	[Fact]
+	public async Task Attach_AlreadyTracked_ReturnsExistingRecord_WithoutDuplicating() {
+		var (manager, registry, git) = NewManager();
+		git.Branches.Add("feature");
+		var first = await manager.AttachAsync("feature");
+		int worktreeCountAfterFirst = git.Worktrees.Count;
+
+		var second = await manager.AttachAsync("feature");
+
+		Assert.Equal(first.Path, second.Path);
+		Assert.Single(registry.Items);
+		Assert.Equal(worktreeCountAfterFirst, git.Worktrees.Count); // no duplicate git worktree add
+	}
+
+	[Fact]
 	public async Task List_ClassifiesManagedPrimaryDirtyMergedOrphanUntracked() {
 		var (manager, registry, git) = NewManager();
 
@@ -257,6 +292,9 @@ public sealed class WorktreeManagerTests {
 
 		public Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) => Task.FromResult(Branches.Contains(branch));
 
+		public Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) =>
+			Task.FromResult<IReadOnlyList<string>>([.. Branches]);
+
 		public Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) => Task.FromResult(DefaultBranch);
 
 		public Task<IReadOnlyList<GitWorktree>> ListWorktreesAsync(string directory, CancellationToken ct = default) =>
@@ -265,6 +303,11 @@ public sealed class WorktreeManagerTests {
 		public Task AddWorktreeAsync(string repositoryDirectory, string worktreePath, string newBranch, string baseRef, CancellationToken ct = default) {
 			Branches.Add(newBranch);
 			Worktrees.Add(new GitWorktree { Path = worktreePath, Branch = newBranch, Head = "1111111" });
+			return Task.CompletedTask;
+		}
+
+		public Task AttachWorktreeAsync(string repositoryDirectory, string worktreePath, string branch, CancellationToken ct = default) {
+			Worktrees.Add(new GitWorktree { Path = worktreePath, Branch = branch, Head = "2222222" });
 			return Task.CompletedTask;
 		}
 

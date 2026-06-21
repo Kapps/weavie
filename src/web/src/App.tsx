@@ -538,6 +538,12 @@ export default function App(): JSX.Element {
             setActiveBackendId(location);
             postToBackend(location, { type: "new-session", branch, base });
           }}
+          onCheckout={(branch, location) => {
+            setNewSessionOpen(false);
+            // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
+            setActiveBackendId(location);
+            postToBackend(location, { type: "new-session", branch, existing: true });
+          }}
           onCancel={() => setNewSessionOpen(false)}
           onAddRemote={() => {
             setNewSessionOpen(false);

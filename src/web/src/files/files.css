@@ -1,0 +1,143 @@
+/* Contextual file browser: floating toggle + left-docked tree panel (FileBrowser.tsx). */
+
+/* Contextual file browser: a floating "Files" button (bottom-left) + a left-docked tree panel rooted at
+   the workspace. Fixed over the app, independent of the pane layout — mirrors the changes overlay. */
+.browser-toggle {
+  position: fixed;
+  left: 14px;
+  bottom: 14px;
+  z-index: 40;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--accent);
+  border-radius: 14px;
+  padding: 5px 12px;
+  font: inherit;
+  cursor: pointer;
+  opacity: 0.9;
+}
+
+.browser-toggle:hover {
+  opacity: 1;
+}
+
+.browser-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(360px, 70vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+.browser-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.browser-title {
+  color: var(--accent);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-close {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  cursor: pointer;
+}
+
+.browser-close svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.browser-close:hover {
+  color: var(--fg);
+}
+
+.browser-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+/* Each level of folder nesting indents its children a fixed amount (no per-row dynamic style). */
+.browser-children {
+  padding-left: 12px;
+}
+
+.browser-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 2px 8px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.browser-row:hover {
+  background: var(--bar);
+}
+
+.browser-row.active {
+  background: var(--bar);
+  color: var(--accent);
+}
+
+.browser-twisty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  color: var(--dim);
+  user-select: none;
+}
+
+.browser-twisty svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.browser-icon {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+}
+
+.browser-icon svg {
+  width: 1.25em;
+  height: 1.25em;
+}
+
+.browser-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-loading {
+  padding: 4px 8px;
+  color: var(--dim);
+  font-style: italic;
+}

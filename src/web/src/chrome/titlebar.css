@@ -1,0 +1,268 @@
+/* Custom/mac title bars, menu bar + dropdowns, and window controls (TitleBar.tsx / MacTitleBar.tsx / Menu.tsx). */
+
+/* ── Custom title bar (Windows) ──────────────────────────────────────────────────────────────────
+   A VS Code–style title bar drawn in-web over a frameless host window: app icon + File/View menus,
+   a center "Go to File" omnibar, and min/maximize/close. The bar background is draggable via
+   `app-region: drag` (WebView2 maps it to the window caption); interactive regions opt out with
+   `no-drag`. Only rendered on Windows (gated on the injected shell config). */
+.titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  height: 38px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+  /* Font intentionally inherited from .app — same UI font (Chivo), weight and 12px size as the rest of
+     the chrome (the menu bar reads better matched to the tabs than enlarged). */
+  -webkit-app-region: drag;
+  app-region: drag;
+}
+
+.titlebar.blurred {
+  color: var(--dim);
+}
+
+/* macOS title-bar strip: the omnibar + Files/Changes toggles, rendered below the native window title bar
+   (which carries the traffic lights + system menu bar). No `app-region: drag` — the native title bar owns
+   window dragging — and no window controls. Only rendered on macOS (gated on the injected shell config). */
+.mac-titlebar {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  height: 38px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+  user-select: none;
+}
+
+.mac-tb-left,
+.mac-tb-right {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  /* Equal min-widths on both ends keep the center omnibar visually centered in the bar. */
+  min-width: 160px;
+  gap: 4px;
+  padding: 0 8px;
+}
+
+.mac-tb-right {
+  justify-content: flex-end;
+}
+
+.mac-tb-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.mac-tb-btn:hover {
+  /* Theme-adaptive subtle hover: a hint of the foreground over the bar, so it works on dark + light. */
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+}
+
+.titlebar.blurred .tb-icon {
+  opacity: 0.6;
+}
+
+.tb-left,
+.tb-center,
+.tb-controls {
+  display: flex;
+  align-items: center;
+}
+
+.tb-left {
+  flex: 0 0 auto;
+  gap: 2px;
+  padding-left: 8px;
+}
+
+.tb-center {
+  flex: 1 1 auto;
+  justify-content: center;
+  /* Full bar height + stretch the omnibar to fill it, so the box is flush top and bottom (no gaps). */
+  align-self: stretch;
+  align-items: stretch;
+  min-width: 0;
+  padding: 0 8px;
+}
+
+.tb-controls {
+  flex: 0 0 auto;
+  /* Stretch to the bar height so the buttons fill it (height: 100%) rather than a hardcoded px height. */
+  align-self: stretch;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.tb-icon {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  padding: 0 6px 0 2px;
+  /* The logo is sized in em (it renders at 1em), so it scales with the chrome font — no fixed px. */
+  font-size: 1.5em;
+}
+
+/* Lucide UI glyphs (search + window controls) sized in em off the chrome font — never a fixed px height. */
+.tb-ctl svg,
+.tb-omnibar-icon svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+/* Menus */
+.tb-menu {
+  display: flex;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+
+.tb-menu-item {
+  position: relative;
+}
+
+.tb-menu-label {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font: inherit;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.tb-menu-label:hover,
+.tb-menu-label.open {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.tb-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  z-index: 60;
+  min-width: 200px;
+  padding: 4px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.tb-dropitem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  width: 100%;
+  padding: 5px 10px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.tb-dropitem:hover {
+  background: var(--accent);
+  color: #042019;
+}
+
+.tb-dropitem.disabled {
+  color: var(--dim);
+  pointer-events: none;
+}
+
+.tb-sep {
+  height: 1px;
+  margin: 4px 6px;
+  background: var(--border);
+}
+
+/* Open Recent flyout (pure-CSS hover submenu) */
+.has-submenu {
+  position: relative;
+}
+
+.tb-submenu {
+  display: none;
+  position: absolute;
+  top: -5px;
+  left: 100%;
+  min-width: 240px;
+  margin-left: 2px;
+  padding: 4px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.5);
+}
+
+.has-submenu:hover .tb-submenu {
+  display: block;
+}
+
+.tb-submenu-arrow {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dim);
+}
+
+.tb-submenu-arrow svg {
+  width: 1em;
+  height: 1em;
+}
+
+.tb-recent-leaf {
+  font-weight: 600;
+}
+
+.tb-recent-path {
+  color: var(--dim);
+  font-size: 11px;
+  margin-left: 16px;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.tb-dropitem:hover .tb-recent-path {
+  color: rgba(6, 35, 29, 0.7);
+}
+
+/* Window controls — fill the full bar height (no fixed px); width stays fixed (it's a horizontal hit area). */
+.tb-ctl {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: 100%;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.tb-ctl:hover {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.tb-close:hover {
+  background: #c42b1c;
+  color: #fff;
+}
+
+.titlebar.blurred .tb-ctl {
+  color: var(--dim);
+}

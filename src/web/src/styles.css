@@ -688,6 +688,16 @@ textarea {
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* One per loaded session, stacked in the pane body; only the active session's is shown. Kept mounted
+   (hidden, not removed) so its xterm + scrollback stay live for an instant switch with no replay. */
+.term-host {
+  position: absolute;
+  inset: 0;
+}
+.term-host.hidden {
+  display: none;
+}
+
 .term {
   position: absolute;
   inset: 0;

@@ -52,12 +52,11 @@ async function tour(page) {
 
   // ── FIX UNDER TEST: scrolling Claude Code after a session switch ──────────────────────────────────────────
   // Claude Code runs INLINE and enables mouse tracking, so the wheel is forwarded to Claude (it scrolls its own
-  // transcript). Switching sessions posted `term-reset`, which did a full RIS on the page's xterm — disabling
-  // mouse tracking. But the incoming session's Claude is already LIVE and only nudged to repaint, so it never
-  // re-issues the mode: the wheel then falls back to xterm's local viewport (a stray web scrollbar) instead of
-  // reaching Claude, so Claude can't be scrolled until a manual resize makes it re-emit the mode. The fix clears
-  // the pane on a switch WITHOUT a mode reset, so mouse tracking survives. This tour creates a 2nd session,
-  // switches back, and reads the Claude xterm's `modes.mouseTrackingMode` — it must stay non-"none".
+  // transcript). Originally the page shared ONE xterm across sessions and a switch posted `term-reset`, which
+  // could drop mouse tracking and hand the wheel to a stray web viewport. Now each loaded session keeps its OWN
+  // live xterm mounted and switching is pure show/hide — the active session's terminal is never reset, so its
+  // modes are intact by construction. This tour creates a 2nd session, switches back, and reads the (now
+  // per-session) Claude xterm's `modes.mouseTrackingMode` — it must stay non-"none".
   const claudeSurface = page.locator('.terminal-surface[data-kind="terminal:claude"]');
   const claudeViewport = claudeSurface.locator(".xterm-viewport");
   await claudeSurface.locator(".xterm").waitFor({ state: "visible", timeout: 20_000 });
@@ -76,7 +75,13 @@ async function tour(page) {
       "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;";
     document.body.appendChild(hud);
     window.__readClaude = () => {
-      const term = window.__WEAVIE_TERMINALS__?.claude;
+      // Each loaded session has its own claude xterm (keyed `${slot}:claude`); only the active one is
+      // shown, so pick the visible one (hidden hosts have a null offsetParent).
+      const all = window.__WEAVIE_TERMINALS__ ?? {};
+      const term =
+        Object.entries(all).find(
+          ([key, t]) => key.endsWith(":claude") && t.element?.offsetParent != null,
+        )?.[1] ?? null;
       const modes = term ? term.modes : null;
       return {
         // The mode that matters for scrolling on an authed full-screen Claude (forwards the wheel to it).
@@ -114,7 +119,7 @@ async function tour(page) {
 
   // ── Switch BACK to session 1 — the path that used to break scrolling ─────────────────────────────────────
   await page.locator(".session-chip").first().click();
-  await settle(5000); // host nudges the live Claude to repaint into the (preserved) alt buffer
+  await settle(5000); // pure show/hide: session 1's own live xterm is revealed exactly as it was left
   await page.evaluate(() => window.__setHud("Back on Session 1 (after switch) — wheel test next"));
   await settle(2500);
 

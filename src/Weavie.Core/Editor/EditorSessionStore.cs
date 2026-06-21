@@ -69,7 +69,7 @@ public sealed class EditorSessionStore {
 			session = _current;
 		}
 
-		return BuildRestoreJson(session, _fileSystem, line => Log?.Invoke(line));
+		return BuildRestoreJson(session, _fileSystem, workspaceRoot: null, sessionId: null, line => Log?.Invoke(line));
 	}
 
 	/// <summary>
@@ -79,8 +79,20 @@ public sealed class EditorSessionStore {
 	/// <paramref name="fileSystem"/>) are skipped and logged via <paramref name="log"/>; if the active file
 	/// was skipped, <c>active</c> is nulled. Static so a per-session switch can build the message for a
 	/// session's in-memory <see cref="EditorSession"/> without its own store.
+	/// <para>
+	/// <paramref name="workspaceRoot"/> (when non-null) scopes the restore to this session's tree: an open
+	/// entry whose path is neither a scratch buffer nor inside the root is dropped, because it belongs to a
+	/// different session's worktree — restoring it through this session's file provider would fail
+	/// "nonexistent file" (out-of-root) and surface a blank editor. This also self-heals an
+	/// <c>editor-session.json</c> already polluted with a foreign worktree path by an earlier build.
+	/// </para>
+	/// <para>
+	/// <paramref name="sessionId"/> stamps the message with the session that owns this tab set, so the page
+	/// can echo it on the next <c>editor-session-changed</c> and the host can reject a stale cross-session
+	/// write (see <c>HandleEditorSessionChanged</c>).
+	/// </para>
 	/// </summary>
-	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, Action<string>? log) {
+	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, string? workspaceRoot, string? sessionId, Action<string>? log) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 
@@ -89,6 +101,14 @@ public sealed class EditorSessionStore {
 		foreach (var entry in session.Open) {
 			if (!fileSystem.FileExists(entry.Path)) {
 				log?.Invoke($"[editor-session] open file no longer exists; skipping {entry.Path}");
+				continue;
+			}
+
+			// A scratch buffer legitimately lives outside the workspace root (its temp dir); every other tab
+			// must be inside it. A tab outside the root belongs to another session's worktree — opening it
+			// through this session's file provider would be refused as out-of-root and show a blank editor.
+			if (workspaceRoot is not null && !entry.Scratch && !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
+				log?.Invoke($"[editor-session] open file is outside this session's workspace; skipping {entry.Path}");
 				continue;
 			}
 
@@ -105,6 +125,7 @@ public sealed class EditorSessionStore {
 		string? active = session.Active is { } a && surviving.Contains(a) ? a : null;
 		var message = new {
 			type = "set-editor-session",
+			sessionId,
 			session = new { active, open },
 		};
 		return JsonSerializer.Serialize(message, EditorSessionSerialization.MessageOptions);

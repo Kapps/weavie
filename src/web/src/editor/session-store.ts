@@ -50,8 +50,14 @@ function emitOpenEditors(session: EditorSession): void {
   });
 }
 
+// Which session owns the current tab set — the id from the last set-editor-session push. Stamped onto every
+// editor-session-changed we send (captured at commit time, below) so the host can drop a stale change from a
+// session the user has since switched away from instead of misattributing its worktree tabs to the new one.
+let ownerSessionId: string | null = null;
+
 onHostMessage((message) => {
   if (message.type === "set-editor-session") {
+    ownerSessionId = message.sessionId ?? null;
     const seeded = { active: message.session.active, open: normalize(message.session.open) };
     setSession(seeded);
     // Report the restored set so getOpenEditors works immediately, without waiting for a tab change.
@@ -99,7 +105,7 @@ let postTimer: ReturnType<typeof setTimeout> | undefined;
 // Send a session to the host as editor-session-changed (the persistence/per-session-rebind channel). Never
 // sends file content — disk is the source of truth. Normalizes each entry to the on-the-wire shape (path +
 // opaque view state + flags); flags are omitted when false so old files round-trip.
-function sendEditorSession(s: EditorSession): void {
+function sendEditorSession(s: EditorSession, owner: string | null): void {
   const open = s.open.map((entry) => ({
     path: entry.path,
     viewState: entry.viewState ?? null,
@@ -107,17 +113,25 @@ function sendEditorSession(s: EditorSession): void {
     ...(entry.pinned ? { pinned: true } : {}),
     ...(entry.scratch ? { scratch: true } : {}),
   }));
-  postToHost({ type: "editor-session-changed", session: { active: s.active, open } });
+  postToHost({
+    type: "editor-session-changed",
+    sessionId: owner,
+    session: { active: s.active, open },
+  });
 }
 
 function commit(next: EditorSession): void {
   setSession(next);
+  // Capture the owner NOW, not when the timer fires: if a session switch lands a new set-editor-session (and
+  // a new ownerSessionId) before this debounce fires, this change still describes the session that was active
+  // when the user made it, so it must carry that session's id — the host then rejects it as stale.
+  const owner = ownerSessionId;
   if (postTimer !== undefined) {
     clearTimeout(postTimer);
   }
   postTimer = setTimeout(() => {
     postTimer = undefined;
-    sendEditorSession(next);
+    sendEditorSession(next, owner);
   }, 300);
 
   // Push the open-tab set immediately when it changes (a new/closed/activated/pinned/promoted tab) — but not
@@ -138,7 +152,9 @@ export function flushEditorSession(): void {
   postTimer = undefined;
   const current = session();
   if (current !== null) {
-    sendEditorSession(current);
+    // Runs before the switch-session message, while the outgoing session still owns the tab set, so stamping
+    // the live ownerSessionId records it under the correct (still-active) session.
+    sendEditorSession(current, ownerSessionId);
   }
 }
 

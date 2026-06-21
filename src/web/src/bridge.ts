@@ -150,7 +150,10 @@ export type HostBoundMessage =
   | { type: "layout-changed"; document: LayoutDocument }
   // The editor session changed (file opened, cursor moved, scrolled); debounced; host persists it. Carries
   // the open-list + active + per-file view state, NEVER file contents (the host reads those from disk).
-  | { type: "editor-session-changed"; session: EditorSession }
+  // `sessionId` stamps which session owned this tab set (from the last set-editor-session); the host drops a
+  // change whose id isn't the active session so a stale debounced write can't leak one worktree's tabs into
+  // another. Null until a set-editor-session has arrived.
+  | { type: "editor-session-changed"; sessionId: string | null; session: EditorSession }
   // New File (Ctrl+N): ask the host to create a fresh scratch buffer (an "Untitled-N" temp file in the
   // workspace scratch dir) and push it back as an open-file with `scratch: true`.
   | { type: "new-scratch" }
@@ -253,7 +256,7 @@ export type WebBoundMessage =
   | { type: "set-layout"; document: LayoutDocument }
   // Host pushes the persisted editor session to restore on launch/Ctrl+R. Carries NO file content — the
   // web reopens each file as a working copy resolved from disk through the host file:// provider.
-  | { type: "set-editor-session"; session: EditorSession }
+  | { type: "set-editor-session"; sessionId: string | null; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via

@@ -379,7 +379,8 @@ public sealed partial class HostCore {
 	/// against its own filesystem (so missing files are dropped).
 	/// </summary>
 	private void PushSessionEditorToWeb(HostSession session) =>
-		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(session.EditorSession, session.FileSystem, Log));
+		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
+			session.EditorSession, session.FileSystem, session.WorkspaceRoot, session.Id, Log));
 
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {

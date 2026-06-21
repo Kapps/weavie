@@ -233,19 +233,44 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		if (_session is not { } active) {
+			return;
+		}
+
+		// Reject a stale cross-session write. The page stamps each editor-session-changed with the id of the
+		// session that owned the tab set when it was produced (carried by the matching set-editor-session push).
+		// A debounced change from a session the user has since switched away from can still land after _session
+		// has flipped — its closure captured the previous session's tabs. Without this guard those worktree
+		// paths would be misattributed to (and, for the primary, persisted under) the now-active session, then
+		// fail to restore next launch as a blank editor (out-of-root). Mirrors the editor channel's
+		// active-session gating. An id-less message (older page) is accepted for back-compat.
+		if (root.TryGetProperty("sessionId", out var idElement) && idElement.ValueKind == JsonValueKind.String) {
+			string? owner = idElement.GetString();
+			if (!string.IsNullOrEmpty(owner) && !string.Equals(owner, active.Id, StringComparison.Ordinal)) {
+				Log($"[weavie] editor-session-changed ignored: from session '{owner}', active is '{active.Id}'");
+				return;
+			}
+		}
+
 		// Record on the active session so a switch can rebind the editor to its worktree's tabs. The primary
 		// also mirrors to the persisted per-workspace store (for launch restore); secondary worktree sessions
 		// are in-memory only for now.
-		if (_session is { } active) {
-			active.EditorSession = session;
-			if (ReferenceEquals(active, _primarySession)) {
-				_editorSession.Update(session);
-			}
+		active.EditorSession = session;
+		if (ReferenceEquals(active, _primarySession)) {
+			_editorSession.Update(session);
 		}
 	}
 
-	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore.</summary>
-	private void PushEditorSessionToWeb() => _bridge.PostToWeb(_editorSession.BuildRestoreJson());
+	/// <summary>Pushes the persisted editor session (open file paths + view state) for launch restore, scoped to
+	/// the primary session's root and stamped with its id so a later change can't be misattributed.</summary>
+	private void PushEditorSessionToWeb() {
+		if (_primarySession is not { } primary) {
+			return;
+		}
+
+		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
+			_editorSession.Current, primary.FileSystem, primary.WorkspaceRoot, primary.Id, Log));
+	}
 
 	/// <summary>
 	/// Re-points the page's language clients at a session's own LSP bridge on a switch. Each session has its

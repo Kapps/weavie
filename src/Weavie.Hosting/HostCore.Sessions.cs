@@ -448,12 +448,18 @@ public sealed partial class HostCore {
 				}
 
 				// Tear the live backend down first so no process keeps a handle on the worktree dir, then remove
-				// the worktree — keeping the branch — and drop the chip from the rail.
+				// the worktree — keeping the branch — and drop the chip from the rail. Past the dirty guard the
+				// deletion is NOT tied to the request's cancellation token: when the session being deleted is the
+				// one whose IDE-MCP server is handling this very call (the common "Claude deletes its own
+				// session" case), UnloadSlotAsync disposes that server, which cancels `ct`. Removing the worktree
+				// under the now-cancelled token would throw OperationCanceledException from git's
+				// Process.WaitForExitAsync mid-delete — crashing the app and leaving the worktree half-removed.
+				// Once committed to deleting, run it to completion (mirrors StartWorktreeSetup's CancellationToken.None).
 				if (target.Loaded) {
 					await UnloadSlotAsync(target).ConfigureAwait(false);
 				}
 
-				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, ct).ConfigureAwait(false);
+				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
 				_sessions?.Remove(target);
 				PushSessionList();
 				result.SetResult(CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept."));
@@ -462,6 +468,11 @@ public sealed partial class HostCore {
 					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
 			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
+			} catch (Exception ex) {
+				// This lambda is posted as async-void onto the UI thread, so an exception escaping it crashes the
+				// app (the unhandled-exception dialog) instead of failing the command. Funnel anything unexpected
+				// back to the awaiting caller, matching the other session commands (Load/Unload/Create).
+				result.SetException(ex);
 			}
 		});
 		return result.Task;

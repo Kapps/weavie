@@ -10,14 +10,14 @@ namespace Weavie.Hosting;
 /// resolve against the workspace.
 /// </summary>
 public sealed class FileOpener {
-	private readonly IHostBridge _bridge;
+	private readonly SessionEditorChannel _channel;
 	private readonly IFileSystem _fileSystem;
 
-	/// <summary>Creates an opener that pushes files to Monaco via the bridge, resolving relative paths against <paramref name="workspace"/>.</summary>
-	public FileOpener(IHostBridge bridge, IFileSystem fileSystem, string workspace) {
-		ArgumentNullException.ThrowIfNull(bridge);
+	/// <summary>Creates an opener that pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground), resolving relative paths against <paramref name="workspace"/>.</summary>
+	public FileOpener(SessionEditorChannel channel, IFileSystem fileSystem, string workspace) {
+		ArgumentNullException.ThrowIfNull(channel);
 		ArgumentNullException.ThrowIfNull(fileSystem);
-		_bridge = bridge;
+		_channel = channel;
 		_fileSystem = fileSystem;
 		Workspace = workspace;
 	}
@@ -52,6 +52,6 @@ public sealed class FileOpener {
 			writer.WriteEndObject();
 		}
 
-		_bridge.PostToWeb(Encoding.UTF8.GetString(stream.ToArray()));
+		_channel.Reveal(Encoding.UTF8.GetString(stream.ToArray()));
 	}
 }

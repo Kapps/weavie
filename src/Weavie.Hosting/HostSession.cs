@@ -85,8 +85,13 @@ public sealed class HostSession : IAsyncDisposable {
 			ClaudeSessions = claudeSessions,
 		};
 		Shell = new TerminalController(bridge, "shell", settings, ptyLauncher) { Workspace = workspaceRoot };
-		FileOpener = new FileOpener(bridge, fileSystem, workspaceRoot);
-		DiffPresenter = new McpDiffPresenter(bridge, fileSystem, FileOpener);
+		// The session's gate for editor-mutating page messages (show-diff/open-file/close-tab): both the file
+		// opener and the diff presenter post through it, so a muted (non-active) session holds its editor work
+		// instead of writing into the page's single, foreground-bound editor. Starts muted — HostCore activates
+		// the session that's actually driving the page (SetEditorOutputActive).
+		EditorChannel = new SessionEditorChannel(bridge);
+		FileOpener = new FileOpener(EditorChannel, fileSystem, workspaceRoot);
+		DiffPresenter = new McpDiffPresenter(EditorChannel, fileSystem, FileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// this session's claude what the user is looking at.
 		Editor = new EditorStore();
@@ -195,6 +200,13 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>Renders Claude's <c>openDiff</c> proposals to the Monaco diff view and resolves them.</summary>
 	public McpDiffPresenter DiffPresenter { get; }
 
+	/// <summary>
+	/// The per-session gate for editor-mutating page messages. Active only while this is the session driving the
+	/// page; a muted session holds its show-diff/open-file/close-tab and replays it on switch-in. See
+	/// <see cref="SetEditorOutputActive"/>.
+	/// </summary>
+	public SessionEditorChannel EditorChannel { get; }
+
 	/// <summary>The IDE-MCP + registry servers for this session.</summary>
 	public IdeIntegration Ide { get; }
 
@@ -258,6 +270,20 @@ public sealed class HostSession : IAsyncDisposable {
 	/// </summary>
 	public void UpdateOpenEditors(JsonElement message) =>
 		Editor.SetOpenEditors(OpenEditorTab.ParseList(message));
+
+	/// <summary>
+	/// Activates or mutes this session's editor output channel (show-diff/open-file/close-tab). HostCore flips
+	/// this in lockstep with the active session — exactly the session backing the page is active — so a background
+	/// session never writes into the page's single editor; mirrors the terminal <c>OutputActive</c> muting. On
+	/// activation the channel replays any work held while muted (so a background openDiff surfaces on switch-in).
+	/// </summary>
+	public void SetEditorOutputActive(bool active) {
+		if (active) {
+			EditorChannel.Activate();
+		} else {
+			EditorChannel.Deactivate();
+		}
+	}
 
 	/// <summary>
 	/// Creates a new scratch (untitled) buffer and opens it as a scratch tab — the host side of New File

@@ -75,6 +75,12 @@ export interface EditorHost {
   contentOf(path: string): string | undefined;
   /** Cancels a file's pending debounced save (so no autosave fires while a scratch save dialog is open). */
   cancelSave(path: string): void;
+  /**
+   * Flushes a file's pending debounced save to disk and resolves once it has landed — so a host action that
+   * reads the file next (a per-hunk revert's guard check) sees the working copy's current content, not a stale
+   * version a debounce hasn't written yet. A no-op (resolves immediately) when the file isn't dirty.
+   */
+  flush(path: string): Promise<void>;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
@@ -431,6 +437,24 @@ export async function createEditorHost(
     return refs.get(key)?.object.textEditorModel.getValue();
   };
 
+  // Flush a file's pending debounced save and await it landing on disk. Used before a per-hunk revert so the
+  // host's guard check reads the working copy's current content rather than a version the debounce hasn't
+  // written yet (the optimistic-concurrency check would otherwise spuriously fail). No-op when not dirty.
+  const flush = async (path: string): Promise<void> => {
+    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
+    const timer = saveTimers.get(key);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      saveTimers.delete(key);
+    }
+    holdingSince.delete(key);
+    const uri = monaco.Uri.parse(key);
+    if (!textFileService.isDirty(uri)) {
+      return;
+    }
+    await textFileService.save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true });
+  };
+
   // Cancel a file's pending debounced save. Called just before opening the native scratch save dialog so an
   // in-flight autosave can't re-create the temp file after the host has saved + deleted it.
   const cancelSave = (path: string): void => {
@@ -615,6 +639,7 @@ export async function createEditorHost(
     closeFile,
     contentOf,
     cancelSave,
+    flush,
     clear,
     rebindSession,
     beginReview,

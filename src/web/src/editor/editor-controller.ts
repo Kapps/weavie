@@ -8,7 +8,12 @@ import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
-import { type InlineDiff, createInlineDiff, firstChangedLine } from "./inline-diff";
+import {
+  type HunkRevert,
+  type InlineDiff,
+  createInlineDiff,
+  firstChangedLine,
+} from "./inline-diff";
 import {
   type ActivateResult,
   activateTab,
@@ -126,6 +131,34 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // The post-turn review set (host `turn-changes`): the files Claude changed since the last review, in
   // document order. Drives the inline toolbar's ← / → file walk; empty when there's nothing to review.
   let reviewFiles: ReviewFile[] = [];
+  // Per-hunk Keep marks, keyed by path → reviewed hunk signatures. Web-only (Keep never touches disk — the
+  // edit already landed); persist across leaving/reopening a file and across a revert's diff recompute (hunk
+  // signatures are stable), so a kept hunk stays kept. Cleared on a turn-reset (Keep-all / session switch).
+  const reviewMarks = new Map<string, Set<string>>();
+  // Per-file hunk signatures last rendered (document order), so the Keep walk can tell which files still have
+  // pending hunks ("advance to the next pending file") without re-deriving each file's geometry.
+  const fileHunks = new Map<string, string[]>();
+
+  const isHunkReviewed = (path: string, signature: string): boolean =>
+    reviewMarks.get(path)?.has(signature) ?? false;
+  const markHunkReviewed = (path: string, signature: string): void => {
+    let marks = reviewMarks.get(path);
+    if (marks === undefined) {
+      marks = new Set<string>();
+      reviewMarks.set(path, marks);
+    }
+    marks.add(signature);
+  };
+  // Whether a file still has a pending (un-kept) hunk. A file whose geometry we haven't seen yet is treated as
+  // pending (so the walk opens it to find out); once seen, it's pending iff some signature isn't marked.
+  const fileHasPending = (path: string): boolean => {
+    const signatures = fileHunks.get(path);
+    if (signatures === undefined) {
+      return true;
+    }
+    const marks = reviewMarks.get(path);
+    return signatures.some((signature) => !(marks?.has(signature) ?? false));
+  };
   // The openDiff under inline review. openDiff blocks per-edit, so at most one is live at a time. `reviewUri`
   // is the transient review model's URI the inline diff is keyed by (review never touches the real file).
   let activeReview:
@@ -436,6 +469,40 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
+  // The Keep walk reached the end of a file's pending hunks: open the next file (in document order, wrapping)
+  // that still has a pending hunk, landing on its first change. Skips files already fully kept; opens an
+  // as-yet-unseen file (its pending state is unknown until rendered). No-op when nothing pending remains.
+  const advanceToNextPendingFile = (fromPath: string): void => {
+    if (reviewFiles.length === 0) {
+      return;
+    }
+    const idx = reviewFiles.findIndex((f) => samePath(f.path, fromPath));
+    const start = idx === -1 ? 0 : idx;
+    for (let step = 1; step <= reviewFiles.length; step++) {
+      const candidate = reviewFiles[(start + step) % reviewFiles.length];
+      if (candidate === undefined || samePath(candidate.path, fromPath)) {
+        continue;
+      }
+      if (fileHasPending(candidate.path)) {
+        openReviewFile(candidate);
+        return;
+      }
+    }
+  };
+
+  // Flush the file's pending save (so the host's guard reads the working copy's current content, not a stale
+  // debounce), then ask the host to revert just this hunk on disk. The host re-emits the file's diff (or, for a
+  // created file emptied by the revert, an fs-change removal), which re-renders without the reverted hunk.
+  const revertHunk = (path: string, hunk: HunkRevert): void => {
+    const send = (): void => postToHost({ type: "reject-hunk", path, ...hunk });
+    const flushed = host?.flush(path);
+    if (flushed === undefined) {
+      send();
+    } else {
+      void flushed.then(send, send);
+    }
+  };
+
   const handleMessage = (message: WebBoundMessage): boolean => {
     switch (message.type) {
       case "show-diff": {
@@ -556,15 +623,49 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           original: message.baseline,
           claudeVersion: message.current,
           mode: "applied",
-          onAccept: () => postToHost({ type: "accept-turn" }),
+          onKeepHunk: (signature) => markHunkReviewed(message.path, signature),
+          isReviewed: (signature) => isHunkReviewed(message.path, signature),
+          onRevertHunk: (hunk) => revertHunk(message.path, hunk),
+          onKeepAll: () => postToHost({ type: "accept-turn" }),
           onUndo: () => postToHost({ type: "undo-turn" }),
+          onHunks: (signatures) => {
+            fileHunks.set(message.path, signatures);
+          },
+          onAdvanceFile: () => advanceToNextPendingFile(message.path),
           ...fileNav,
         });
         return true;
       }
       case "turn-reset":
+        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers and the
+        // web-side review state (the per-hunk Keep marks + cached geometry) so a fresh set starts clean.
         inlineDiff?.clearAll();
+        reviewMarks.clear();
+        fileHunks.clear();
         return true;
+      case "fs-change": {
+        // A revert that deleted a created file (or any host-side deletion) lands here. Close the tab for a
+        // deleted file CLEANLY — switch off it and discard its working copy (no flush, so we don't re-create
+        // the file) — before the file provider fires its DELETED event, so the editor never shows an "Unable to
+        // read file" toast. Not consumed (return false): the provider still needs to reload updated files.
+        for (const change of message.changes) {
+          if (change.kind !== "deleted") {
+            continue;
+          }
+          inlineDiff?.clear(change.path);
+          const entry = openTabs().find((tab) => samePath(tab.path, change.path));
+          if (entry === undefined) {
+            continue;
+          }
+          const wasActive = activePath() === entry.path;
+          const result = closeTab(entry.path);
+          if (result !== null && wasActive) {
+            applyOrClear(result.next);
+          }
+          host?.closeFile(entry.path, true);
+        }
+        return false;
+      }
       default:
         return false;
     }

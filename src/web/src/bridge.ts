@@ -144,6 +144,19 @@ export type HostBoundMessage =
   // Inline diff (acceptEdits mode): undo the whole turn's changes — the host reverts each touched file to its
   // turn baseline on disk and live-refreshes the editor.
   | { type: "undo-turn" }
+  // Inline review (auto-keep modes): revert ONE hunk on disk. The host splices the baseline lines (sourced from
+  // its own baseline, never from this message) back over the current lines. Ranges are 1-based, end-exclusive
+  // (matching VSCode line ranges); `guardText` is the exact current text of [currentStart, currentEndExclusive)
+  // as the web sees it — an optimistic-concurrency check. A mismatch aborts the revert and re-emits the diff.
+  | {
+      type: "reject-hunk";
+      path: string;
+      baselineStart: number;
+      baselineEndExclusive: number;
+      currentStart: number;
+      currentEndExclusive: number;
+      guardText: string;
+    }
   // The file browser asks the host to list a directory under the session root (root when path is "").
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.

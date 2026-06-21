@@ -9,8 +9,9 @@
 // e2e/.recordings/ (gitignored); share that file in your reply.
 
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -28,9 +29,28 @@ const hostDll = join(
   "Weavie.Headless.dll",
 );
 const outDir = join(webRoot, "e2e", ".recordings");
-// Record against the repo by default; override to point at any workspace.
-const workspace = process.env.WEAVIE_CAPTURE_WORKSPACE ?? repoRoot;
 const viewport = { width: 1280, height: 800 };
+
+// This capture demonstrates the post-turn per-hunk review (docs/specs/turn-review.md). That flow is driven by
+// host→web `turn-changes` / `turn-diff` messages a real Claude turn would emit; we inject them directly via
+// window.__weavieReceive (the local-backend delivery hook) so the UI can be shown without an authed Claude.
+// Two files with two hunks each show the web surface: the inline toolbar, per-hunk Keep (web-only mark +
+// de-emphasis + hunk→hunk→file auto-advance), the ← / → file walk with marks that survive reopening, and
+// Keep-all. (Revert — the one disk-touching action — is left to the Core unit tests, since these injected files
+// aren't in the host's real change tracker, so a round-tripped reject-hunk would correctly guard-mismatch.)
+const reviewWorkspace = mkdtempSync(join(tmpdir(), "weavie-review-"));
+// `current` = exactly what's written to disk (so it equals the editor's live model); `baseline` differs in two
+// separate places (an equal line between them ⇒ two hunks).
+const FILE_A_CURRENT = "line one\nline two\nline three\nline four\nline five\n";
+const FILE_A_BASELINE = "line one\nOLD two\nline three\nOLD four\nline five\n";
+const FILE_B_CURRENT = "alpha\nbravo\ncharlie\ndelta\n";
+const FILE_B_BASELINE = "alpha\nBRAVO\ncharlie\ndelta\n";
+writeFileSync(join(reviewWorkspace, "a.txt"), FILE_A_CURRENT);
+writeFileSync(join(reviewWorkspace, "b.txt"), FILE_B_CURRENT);
+const fileA = join(reviewWorkspace, "a.txt");
+const fileB = join(reviewWorkspace, "b.txt");
+// Record against the prepared workspace by default; override to point at any workspace.
+const workspace = process.env.WEAVIE_CAPTURE_WORKSPACE ?? reviewWorkspace;
 
 // ── EDIT PER CHANGE ──────────────────────────────────────────────────────────────────────────────────────
 // Drive the exact UI path your change affects so the recording demonstrates it. The default flow (Omnibar
@@ -50,98 +70,103 @@ async function tour(page) {
   await page.emulateMedia({ colorScheme: "dark" });
   await settle(1200);
 
-  // ── FIX UNDER TEST: editor state must follow the active session, never leak across worktrees ──────────────
-  // The bug: an `editor-session-changed` carries no session identity, so a debounced tab-set update produced
-  // while a worktree session was active could land after the user switched back to the primary — and the host
-  // would attribute (and persist) the worktree's file paths under the PRIMARY session. On the next launch the
-  // primary editor tries to restore a path that's outside its checkout, the file provider refuses it
-  // out-of-root, and the user gets "Unable to read file … nonexistent file" over a BLANK editor.
-  //
-  // The fix stamps each editor-session message with its owning session id (the host drops a mismatched stale
-  // write) and root-scopes the restore (a tab outside the session's tree is never reopened). The observable
-  // contract this tour drives: after a session switch, every open editor working copy
-  // (window.__WEAVIE_EDITOR_REFS__) is rooted in the ACTIVE session's tree — no foreign worktree path leaks in.
-  const claudeSurface = page.locator('.terminal-surface[data-kind="terminal:claude"]');
-  await claudeSurface.locator(".xterm").waitFor({ state: "visible", timeout: 20_000 });
-  await settle(3000);
+  // Deliver a host→web message exactly as the bridge would (the local backend's delivery hook).
+  const deliver = (msg) => page.evaluate((m) => window.__weavieReceive(JSON.stringify(m)), msg);
 
-  // On-page HUD + an editor-state reader: which file working copies are open, and whether any sit OUTSIDE the
-  // primary checkout (a leaked worktree path — the symptom the fix prevents). The primary root is the one the
-  // host injected at load (window.__WEAVIE_LSP__.workspace).
+  // On-page HUD so the recording narrates itself.
   await page.evaluate(() => {
     const hud = document.createElement("div");
-    hud.id = "editor-iso-hud";
+    hud.id = "review-hud";
     hud.style.cssText =
-      "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;max-width:92vw;" +
-      "font:600 13px/1.55 monospace;color:#fff;background:rgba(0,0,0,.85);padding:9px 14px;" +
-      "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;";
+      "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;" +
+      "font:600 14px/1.5 monospace;color:#fff;background:rgba(0,0,0,.82);padding:8px 14px;" +
+      "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;max-width:90vw;";
     document.body.appendChild(hud);
-
-    const primaryRoot = (window.__WEAVIE_LSP__?.workspace ?? "").replace(/\\/g, "/").replace(/\/$/, "");
-    const underPrimary = (uri) => {
-      // The ref keys are file:// URIs; decode to a comparable path and test against the primary root.
-      const p = decodeURIComponent(uri).replace(/^file:\/\//, "").replace(/^\/([A-Za-z]:)/, "$1").replace(/\\/g, "/");
-      return primaryRoot.length > 0 && p.toLowerCase().startsWith(primaryRoot.toLowerCase());
-    };
-    window.__readEditor = () => {
-      const refs = window.__WEAVIE_EDITOR_REFS__ ?? new Map();
-      const open = [...refs.keys()];
-      const names = open.map((u) => decodeURIComponent(u).split("/").pop());
-      const foreign = open.filter((u) => !underPrimary(u));
-      // Is the visible editor actually showing text (not a blank/failed-open pane)?
-      const lines = document.querySelector(".monaco-editor .view-lines");
-      const textLen = lines ? (lines.textContent ?? "").length : 0;
-      return { open: names, foreignCount: foreign.length, textLen };
-    };
-    window.__setHud = (label, expectClean) => {
-      const m = window.__readEditor();
-      const ok = !expectClean || (m.foreignCount === 0 && m.textLen > 0);
-      hud.style.borderColor = expectClean ? (ok ? "#3ad07a" : "#ff5d5d") : "rgba(255,255,255,.25)";
-      hud.textContent =
-        `${label}\nopen working copies: [${m.open.join(", ") || "—"}]   editor text: ${m.textLen} chars\n` +
-        (expectClean
-          ? ok
-            ? "✓ all open files are in the active session's tree — no leaked worktree path, editor not blank"
-            : `⚠ ${m.foreignCount} foreign path(s) / blank editor — the leak the fix prevents`
-          : "(worktree session active — its files live outside the primary checkout, as expected)");
-      console.log(`[editor-iso] ${label} :: ${JSON.stringify(m)}`);
+    window.__setHud = (label) => {
+      hud.textContent = label;
+      console.log(`[review-hud] ${label}`);
     };
   });
 
-  // Open a file in SESSION 1 (the primary checkout) via the omnibar "Go to File".
-  const openViaOmnibar = async (query) => {
-    const input = page.locator(".tb-omnibar-input");
-    await input.click();
-    await input.fill("");
-    await input.type(query, { delay: 25 });
-    await settle(900);
-    const firstRow = page.locator(".tb-omnibar-row").first();
-    await firstRow.waitFor({ state: "visible", timeout: 8000 }).catch(() => {});
-    await page.keyboard.press("Enter");
-    await settle(1500);
-  };
-  await openViaOmnibar("EditorSessionStore");
+  // The two files Claude "changed" this turn, with their first-change lines (1-based).
+  const reviewFiles = [
+    { path: fileA, name: "a.txt", added: 2, removed: 2, line: 2 },
+    { path: fileB, name: "b.txt", added: 1, removed: 1, line: 2 },
+  ];
+
+  // Inject the review set + both files' per-turn diffs (baseline vs current). a.txt opens as a preview tab and
+  // the inline applied toolbar arms over the editor — the 2D review navigator (↑/↓ hunks, ← / → files) the
+  // spec describes. (Pre-injecting b.txt's diff so it renders when the Keep walk auto-advances into it; a real
+  // turn's per-file diffs arrive the same way over the bridge. Revert — the one disk-touching action — is left
+  // to the Core unit tests, since these injected files aren't in the host's change tracker.)
+  await deliver({ type: "open-file", path: fileA, content: "", line: 2, preview: true });
   await settle(1500);
-  await page.evaluate(() => window.__setHud("Session 1 (primary) — file open", true));
+  await deliver({ type: "turn-changes", open: false, files: reviewFiles });
+  await deliver({
+    type: "turn-diff",
+    path: fileA,
+    name: "a.txt",
+    baseline: FILE_A_BASELINE,
+    current: FILE_A_CURRENT,
+  });
+  await deliver({
+    type: "turn-diff",
+    path: fileB,
+    name: "b.txt",
+    baseline: FILE_B_BASELINE,
+    current: FILE_B_CURRENT,
+  });
+  await page.locator(".weavie-inline-toolbar").waitFor({ timeout: 10_000 });
+  await page.evaluate(() =>
+    window.__setHud(
+      "Post-turn review armed — a.txt (1/2), two hunks. Toolbar: Keep / Revert / Keep all + ← name (i/N) →",
+    ),
+  );
   await settle(3000);
 
-  // ── Create a 2nd session: a new worktree off HEAD, switched in automatically ──────────────────────────────
-  await page.locator(".session-rail-add").click();
-  await page.locator(".session-prompt-input").fill("editor-iso-demo");
-  await page.locator(".session-prompt-btn-primary").click();
-  await page.locator(".session-chip").nth(1).waitFor({ timeout: 30_000 });
-  await settle(5000);
-  // Open a DIFFERENT file in the worktree session — its working copy lives under the worktree, not the primary.
-  await openViaOmnibar("session-store");
-  await settle(1500);
-  await page.evaluate(() => window.__setHud("Session 2 (worktree) — different file open", false));
+  // Keep the FIRST hunk (Ctrl+Enter): web-only mark — it de-emphasises (grey) and the cursor auto-advances to
+  // the next PENDING hunk. No disk write. (The keybinding resolver is a document-level capture listener, so it
+  // fires without clicking into Monaco — which would move the cursor off the first hunk.)
+  await page.keyboard.press("Control+Enter");
+  await page.evaluate(() =>
+    window.__setHud(
+      "Kept hunk 1 (Ctrl+Enter) — it greys out, cursor auto-advances to the next pending hunk",
+    ),
+  );
   await settle(3000);
 
-  // ── Switch BACK to session 1 — the exact path that used to persist a leaked worktree tab ──────────────────
-  await page.locator(".session-chip").first().click();
-  await settle(4500); // rebind: release the worktree's working copies, reopen the primary session's tab
-  await page.evaluate(() => window.__setHud("Back on Session 1 (primary) — editor rebound", true));
-  await settle(5000);
+  // Keep the SECOND hunk: no pending hunk left in a.txt, so the walk auto-advances to the next pending FILE
+  // (b.txt), landing on its first change — hunk → hunk → file, all from Ctrl+Enter.
+  await page.keyboard.press("Control+Enter");
+  await settle(2500);
+  await page.evaluate(() =>
+    window.__setHud(
+      "Kept hunk 2 — no pending hunks left in a.txt, so Keep auto-advanced to the next file: b.txt (2/2)",
+    ),
+  );
+  await settle(3000);
+
+  // Walk files manually too: Ctrl+← back to a.txt shows its Keep marks SURVIVED leaving + reopening (both
+  // hunks still grey), the persistence the spec requires.
+  await page.keyboard.press("Control+ArrowLeft");
+  await settle(2500);
+  await page.evaluate(() =>
+    window.__setHud(
+      "Ctrl+← back to a.txt — both hunks are still grey: the Keep marks survived leaving + reopening the file",
+    ),
+  );
+  await settle(3000);
+
+  // Keep-all clears the whole accumulated set in one action (the debt-clearer) — the inline markers + toolbar
+  // vanish across every file.
+  await page.locator(".weavie-inline-keepall").click();
+  await settle(2000);
+  await page.evaluate(() =>
+    window.__setHud(
+      "Keep all — the whole review set cleared in one action; the inline markers are gone",
+    ),
+  );
+  await settle(3500);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

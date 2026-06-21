@@ -15,6 +15,13 @@ public sealed class SessionChangeTrackerTests {
 		Cwd = cwd,
 	};
 
+	private static HookRequest EditWithMode(HookEventKind evt, string path, string mode) => new() {
+		Event = evt,
+		ToolName = "Edit",
+		ToolInputJson = $$"""{"file_path":{{JsonSerializer.Serialize(path)}}}""",
+		PermissionMode = mode,
+	};
+
 	[Fact]
 	public void Observe_EditPrePost_RecordsBaselineVsCurrent() {
 		var fileSystem = new InMemoryFileSystem();
@@ -149,18 +156,29 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void Summarize_CountsAddedAndRemoved() {
+	public void Observe_CapturesEdits_RegardlessOfPermissionMode() {
+		// The tracker is fed by the hook stream, which fires BEFORE the permission check, so an edit is captured
+		// whatever mode Claude is in — and a mode flip mid-turn (default → acceptEdits) never drops the edits made
+		// under the prior mode. Capture must never depend on the observed mode; only the review SURFACE does.
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		fileSystem.WriteAllText("/w/b.txt", "b0\n");
 		var tracker = new SessionChangeTracker(fileSystem);
-		tracker.CaptureBaseline("/w/a.txt");
-		fileSystem.WriteAllText("/w/a.txt", "a\nc\nd\n");
-		tracker.RecordChange("/w/a.txt");
 
-		var summary = Assert.Single(tracker.Summarize());
-		Assert.Equal("/w/a.txt", summary.Path);
-		Assert.Equal(1, summary.Added);   // "d"
-		Assert.Equal(1, summary.Removed); // "b"
+		// Edit 1 lands while Claude is in default mode (each event carries its permission_mode, which the tracker
+		// ignores).
+		tracker.Observe(EditWithMode(HookEventKind.PreToolUse, "/w/a.txt", "default"));
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
+		tracker.Observe(EditWithMode(HookEventKind.PostToolUse, "/w/a.txt", "default"));
+
+		// The user flips to acceptEdits mid-turn (Shift+Tab); edit 2 auto-applies.
+		tracker.Observe(EditWithMode(HookEventKind.PreToolUse, "/w/b.txt", "acceptEdits"));
+		fileSystem.WriteAllText("/w/b.txt", "b1\n");
+		tracker.Observe(EditWithMode(HookEventKind.PostToolUse, "/w/b.txt", "acceptEdits"));
+
+		// Both edits are captured — in the session diff AND this turn's diff — the mode notwithstanding.
+		Assert.Equal(2, tracker.Changes().Count);
+		Assert.Equal(2, tracker.TurnChanges().Count);
 	}
 
 	[Fact]

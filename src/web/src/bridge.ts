@@ -10,6 +10,7 @@ import { createSignal } from "solid-js";
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
+import type { WeavieLspConfig } from "./lsp/lsp-client";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
@@ -298,10 +299,12 @@ export type WebBoundMessage =
   // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
   // The per-TURN change list (files changed this turn + each file's first-change line). Drives the inline
-  // review walk's ← / → file axis (there is no panel) and the auto-arm on turn end. Pushed in auto-keep modes
-  // only (acceptEdits/bypass); empty after a turn boundary (new turn).
+  // review walk's ← / → file axis (there is no panel). `open` is the host's race-free decision that the page
+  // should auto-open the first file for review now (turn end, or a switch into a session with pending review).
+  // Pushed in auto-keep modes only (acceptEdits/bypass); empty (and open=false) after a turn boundary / switch.
   | {
       type: "turn-changes";
+      open: boolean;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
   // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
@@ -309,6 +312,9 @@ export type WebBoundMessage =
   | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }
   // A turn boundary: clear all inline turn markers (the prior turn is implicitly accepted).
   | { type: "turn-reset" }
+  // A session switch: re-point the editor's language clients at the incoming session's LSP bridge (its own
+  // worktree root + token). Handled by rebindLanguageServices — see lsp/lsp-client.ts.
+  | { type: "lsp-config"; config: WeavieLspConfig }
   // A user-facing notification to surface as a toast (e.g. an autosave write that failed — the user must
   // see that their work didn't reach disk, never a silent drop).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string }

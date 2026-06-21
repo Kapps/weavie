@@ -141,7 +141,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 
 	/// <summary>
 	/// Brings the app up via the shared <see cref="WebAppLauncher"/> — backend, bootstrap injection, navigation.
-	/// In Debug, <see cref="DevWebBringUp"/> first tries the Vite dev server and renders a loud error page on
+	/// In Debug, <c>DevWebBringUp</c> first tries the Vite dev server and renders a loud error page on
 	/// failure (never a silent stale-bundle swap); Release loads the bundled <c>app://</c> assets. Fire-and-forget
 	/// so the dev-server readiness poll doesn't block launch; the surface marshals the UI work onto the main thread.
 	/// </summary>

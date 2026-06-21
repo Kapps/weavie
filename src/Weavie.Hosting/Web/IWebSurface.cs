@@ -3,7 +3,7 @@ namespace Weavie.Hosting.Web;
 /// <summary>
 /// The few genuinely native WebView operations the shared web bring-up needs from a host shell — the seam
 /// that lets the dev-server + bootstrap + navigation flow live once in <see cref="WebAppLauncher"/> /
-/// <see cref="DevWebBringUp"/> instead of being reimplemented per OS. WebView2 (Win), WKWebView (Mac) and
+/// <c>DevWebBringUp</c> instead of being reimplemented per OS. WebView2 (Win), WKWebView (Mac) and
 /// WebKitGTK (Linux) each implement these three; every impl is responsible for marshaling onto its own UI
 /// thread, so the shared flow stays thread-agnostic.
 /// </summary>

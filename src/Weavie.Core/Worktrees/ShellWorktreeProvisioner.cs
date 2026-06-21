@@ -6,12 +6,11 @@ namespace Weavie.Core.Worktrees;
 
 /// <summary>
 /// Runs the configured <c>worktree.setupCommand</c> / <c>worktree.teardownCommand</c> through the platform
-/// shell (<c>cmd /c</c> on Windows, <c>/bin/sh -c</c> elsewhere) with the worktree as the working
-/// directory, capturing output. Each run is a short-lived one-shot process (a transient helper, exempt
-/// from <c>ProcessSupervisor</c>), modeled on <see cref="Git.GitService"/>'s process handling. The command
-/// strings are read live through the injected getters, so editing the setting takes effect on the next
-/// run with no restart. Progress and results surface via <see cref="Starting"/> / <see cref="Finished"/>
-/// (the host turns them into toasts + log lines); a failed command is reported, never swallowed.
+/// shell (<c>cmd /c</c> on Windows, <c>/bin/sh -c</c> elsewhere) with the worktree as the working directory,
+/// capturing output. Each run is a short-lived one-shot process, exempt from <c>ProcessSupervisor</c>. The
+/// command strings are read live through the injected getters, so editing the setting takes effect on the
+/// next run. Progress and results surface via <see cref="Starting"/> / <see cref="Finished"/>; a failed
+/// command is reported, never swallowed.
 /// </summary>
 public sealed class ShellWorktreeProvisioner : IWorktreeProvisioner {
 	private readonly Func<string?> _setupCommand;

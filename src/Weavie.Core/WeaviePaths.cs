@@ -3,9 +3,8 @@ using Weavie.Core.Workspaces;
 namespace Weavie.Core;
 
 /// <summary>
-/// Single source of truth for Weavie's on-disk locations. Every subsystem — settings, themes, and
-/// host-internal caches — resolves its path from here so nothing hardcodes its own. All Weavie data
-/// lives under the cross-platform Weavie root, <c>~/.weavie</c>.
+/// Single source of truth for Weavie's on-disk locations: every subsystem resolves its path from here so
+/// nothing hardcodes its own. All Weavie data lives under the Weavie root, <c>~/.weavie</c>.
 /// </summary>
 public static class WeaviePaths {
 	/// <summary>The Weavie root — the user's home directory plus <c>.weavie</c> (e.g. <c>~/.weavie</c>).</summary>
@@ -21,7 +20,7 @@ public static class WeaviePaths {
 	/// <summary>The user keybindings file: <c>~/.weavie/keybindings.json</c> (a list of {key, command, args?, when?} records).</summary>
 	public static string KeybindingsFile { get; } = Path.Combine(Root, "keybindings.json");
 
-	/// <summary>The legacy single-window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>. Superseded by per-workspace layout files; kept for the default store and back-compat.</summary>
+	/// <summary>The single-window layout (pane tree + window geometry): <c>~/.weavie/layout.json</c>. Backs the default store; per-workspace layouts live under <see cref="Workspaces"/>.</summary>
 	public static string LayoutFile { get; } = Path.Combine(Root, "layout.json");
 
 	/// <summary>Root for per-workspace state (each workspace's layout + window geometry): <c>~/.weavie/workspaces</c>.</summary>
@@ -31,14 +30,13 @@ public static class WeaviePaths {
 	public static string RecentsFile { get; } = Path.Combine(Root, "recents.json");
 
 	/// <summary>
-	/// The Claude session id Weavie assigned to each working directory: <c>~/.weavie/claude-sessions.json</c>.
-	/// Lets a reopened session resume its previous Claude conversation instead of cold-starting one. App-global
-	/// (keyed by directory, which is per-session) rather than per-workspace, so any host shares one map. See
-	/// <see cref="Sessions.ClaudeSessionStore"/>.
+	/// The Claude session id assigned to each working directory: <c>~/.weavie/claude-sessions.json</c>. Lets a
+	/// reopened session resume its previous Claude conversation. App-global (keyed by directory) so any host
+	/// shares one map. See <see cref="Sessions.ClaudeSessionStore"/>.
 	/// </summary>
 	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
 
-	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, like layout — never part of settings.toml.</summary>
+	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
@@ -48,94 +46,64 @@ public static class WeaviePaths {
 	public static string Internals { get; } = Path.Combine(Root, "internals");
 
 	/// <summary>
-	/// Resolves a named host-internal cache folder under <see cref="Internals"/>,
+	/// A named host-internal cache folder under <see cref="Internals"/>,
 	/// e.g. <c>Internal("webview2")</c> → <c>~/.weavie/internals/webview2</c>.
 	/// </summary>
-	/// <param name="name">The cache folder name.</param>
-	/// <returns>The absolute path to that folder under <see cref="Internals"/>.</returns>
 	public static string Internal(string name) => Path.Combine(Internals, name);
 
-	/// <summary>
-	/// This workspace's state folder, keyed by its <see cref="WorkspaceId"/>:
-	/// <c>~/.weavie/workspaces/&lt;id&gt;</c>.
-	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's state folder.</returns>
+	/// <summary>A workspace's state folder, keyed by its <see cref="WorkspaceId"/>: <c>~/.weavie/workspaces/&lt;id&gt;</c>.</summary>
 	public static string WorkspaceDir(WorkspaceId id) => Path.Combine(Workspaces, id.Value);
 
-	/// <summary>
-	/// This workspace's pane layout + window geometry:
-	/// <c>~/.weavie/workspaces/&lt;id&gt;/layout.json</c>.
-	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's layout file.</returns>
+	/// <summary>A workspace's pane layout + window geometry: <c>~/.weavie/workspaces/&lt;id&gt;/layout.json</c>.</summary>
 	public static string WorkspaceLayoutFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "layout.json");
 
-	/// <summary>
-	/// This workspace's persisted editor session (open files + per-file Monaco view state):
-	/// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>.
-	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's editor-session file.</returns>
+	/// <summary>A workspace's persisted editor session (open files + per-file Monaco view state): <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>.</summary>
 	public static string WorkspaceEditorSessionFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "editor-session.json");
 
 	/// <summary>
-	/// This workspace's scratch (untitled-buffer) directory:
-	/// <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>. New files (<c>Ctrl+N</c>) are backed by a real temp file
-	/// here — outside the workspace, so they never reach the file tree, the index, git, or Claude — until the
-	/// user saves them under a real name. See <see cref="Editor.ScratchStore"/>.
+	/// A workspace's scratch (untitled-buffer) directory: <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>. New
+	/// files (<c>Ctrl+N</c>) are backed by a temp file here — outside the workspace, so they never reach the
+	/// file tree, the index, git, or Claude — until saved under a real name. See <see cref="Editor.ScratchStore"/>.
 	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's scratch directory.</returns>
 	public static string WorkspaceScratchDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "scratch");
 
 	/// <summary>
-	/// Where this workspace's per-session git worktrees live: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees</c>.
-	/// Kept under the workspace's state folder (outside the repo) so worktree directories never appear in
-	/// the user's project tree, and so cleanup is scoped per workspace.
+	/// A workspace's per-session git worktrees: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees</c>. Outside the
+	/// repo so worktree directories never appear in the user's project tree, and so cleanup is scoped per workspace.
 	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's worktrees directory.</returns>
 	public static string WorkspaceWorktreesDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees");
 
 	/// <summary>
-	/// The registry of worktrees Weavie created for this workspace:
-	/// <c>~/.weavie/workspaces/&lt;id&gt;/worktrees.json</c>. The backbone of the "no leaked worktrees"
-	/// guarantee — reconciled against <c>git worktree list</c> on every load. See <see cref="Worktrees.WorktreeRegistry"/>.
+	/// The registry of worktrees Weavie created for a workspace: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees.json</c>.
+	/// The backbone of the "no leaked worktrees" guarantee — reconciled against <c>git worktree list</c> on
+	/// every load. See <see cref="Worktrees.WorktreeRegistry"/>.
 	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's worktree registry file.</returns>
 	public static string WorkspaceWorktreesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees.json");
 
 	/// <summary>
-	/// This workspace's persisted session set (the sessions and which was active):
+	/// A workspace's persisted session set (the sessions and which was active):
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>. Lets a workspace reopen with the same sessions
 	/// bound to the same worktrees. See <see cref="Sessions.SessionStore"/>.
 	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's session-set file.</returns>
 	public static string WorkspaceSessionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "sessions.json");
 
 	/// <summary>
-	/// Where this workspace's per-session terminal scrollback logs live:
-	/// <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs</c>. One capped append log per (worktree, pane)
-	/// lets a re-attaching client replay a coherent shell screen — and a resumed session show the prior
-	/// process's output faded — instead of a blank pane. See <see cref="Terminal.ScrollbackLog"/>.
+	/// A workspace's per-session terminal scrollback logs: <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs</c>.
+	/// One capped append log per (worktree, pane) lets a re-attaching client replay a coherent shell screen —
+	/// and a resumed session show the prior process's output faded — instead of a blank pane.
+	/// See <see cref="Terminal.ScrollbackLog"/>.
 	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
-	/// <returns>The absolute path to that workspace's terminal-logs directory.</returns>
 	public static string WorkspaceTerminalLogsDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "terminal-logs");
 
 	/// <summary>
 	/// The scrollback log for one session's terminal pane:
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs/&lt;worktreeDigest&gt;-&lt;pane&gt;.log</c>. Keyed by a
-	/// stable digest of the worktree path (not the session's ephemeral id) so the same worktree resumes
-	/// to the same log across reloads.
+	/// stable digest of the worktree path (not the session's ephemeral id) so the same worktree resumes to
+	/// the same log across reloads.
 	/// </summary>
-	/// <param name="id">The workspace identity (a path-derived digest).</param>
+	/// <param name="id">The workspace whose terminal-logs directory holds the file.</param>
 	/// <param name="worktreeDigest">A stable digest of the session's worktree path (e.g. <see cref="WorkspaceId.ForPath"/>).</param>
 	/// <param name="pane">The terminal session tag (e.g. <c>shell</c>).</param>
-	/// <returns>The absolute path to that pane's scrollback log file.</returns>
 	public static string WorkspaceTerminalLogFile(WorkspaceId id, string worktreeDigest, string pane) =>
 		Path.Combine(WorkspaceTerminalLogsDir(id), $"{worktreeDigest}-{pane}.log");
 }

@@ -26,9 +26,7 @@ public sealed record TerminalStartInfo {
 }
 
 /// <summary>
-/// The terminal seam (the third injected interface alongside the agent backend and the
-/// filesystem). Real implementation = a PTY running a real process; test fake = scripted
-/// bytes. No fallbacks.
+/// The terminal seam. Real implementation = a PTY running a real process; test fake = scripted bytes.
 /// </summary>
 public interface ITerminal : IDisposable {
 	/// <summary>Raised with raw bytes the child wrote to the PTY (off the UI thread).</summary>

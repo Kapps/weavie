@@ -13,7 +13,7 @@ public sealed class TextBufferTests {
 
 	[Fact]
 	public void GetText_ReadsAcrossLines_WithMonacoColumns() {
-		// Lines: "hello"(1) "world"(2). Column 1 is before the first char.
+		// Monaco columns are 1-based: column 1 is before the first char.
 		var buffer = new TextBuffer("hello\nworld");
 		var range = new TextRange(new Position(1, 1), new Position(2, 6));
 		Assert.Equal("hello\nworld", buffer.GetText(range));
@@ -56,7 +56,7 @@ public sealed class TextBufferTests {
 	[Fact]
 	public void Apply_BatchEdits_NonOverlapping_AppliedConsistently() {
 		var buffer = new TextBuffer("0123456789");
-		// Replace [1,2)->"A" (the '0') and [1,6) span "45" region: pick disjoint ranges.
+		// Disjoint single-char replacements.
 		var edits = new[]
 		{
 			TextEdit.Replace(new TextRange(new Position(1, 1), new Position(1, 2)), "A"), // '0' -> 'A'

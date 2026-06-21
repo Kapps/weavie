@@ -9,11 +9,10 @@ using Weavie.Core.Theming;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Test factory for the MCP servers. Their production constructors require every dependency
-/// explicitly (optional parameters are banned — see the WV0001 analyzer), so tests that only care
-/// about a subset construct through here and pass just those; the null/seam wiring lives in this one
-/// place instead of being scattered across fixtures. Defaults are allowed here because the analyzer
-/// does not apply to test projects.
+/// Test factory for the MCP servers. Production constructors require every dependency explicitly
+/// (optional parameters are banned — see the WV0001 analyzer), so tests construct through here and
+/// pass only the subset they care about, with the null/seam wiring in one place. Defaults are allowed
+/// here because the analyzer does not apply to test projects.
 /// </summary>
 internal static class TestMcp {
 	/// <summary>Builds an <see cref="McpServer"/> with test defaults for every unspecified dependency.</summary>

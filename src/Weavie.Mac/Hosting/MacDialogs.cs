@@ -8,8 +8,7 @@ namespace Weavie.Mac.Hosting;
 /// <summary>
 /// The macOS native file dialogs <see cref="HostCore"/> needs: the <c>.vsix</c> open picker (install theme
 /// from file) and the Save-As picker (naming an untitled scratch buffer). Both run modally on the main thread
-/// (Cocoa <see cref="NSOpenPanel"/> / <see cref="NSSavePanel"/>); the calls marshal there when invoked off it
-/// (the theme picker is reached from the command dispatcher's background thread).
+/// (<see cref="NSOpenPanel"/> / <see cref="NSSavePanel"/>); calls marshal there when invoked off it.
 /// </summary>
 internal sealed class MacDialogs : IHostDialogs {
 	/// <inheritdoc/>
@@ -21,7 +20,7 @@ internal sealed class MacDialogs : IHostDialogs {
 			panel.CanChooseFiles = true;
 			panel.CanChooseDirectories = false;
 			panel.AllowsMultipleSelection = false;
-			// .vsix has no system-declared UTI, so synthesize a dynamic content type from the extension.
+			// .vsix has no system-declared UTI, so synthesize a content type from the extension.
 			if (UTType.CreateFromExtension("vsix") is { } vsixType) {
 				panel.AllowedContentTypes = [vsixType];
 			}

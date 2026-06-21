@@ -8,9 +8,9 @@ using Weavie.Core.Mcp;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Production <see cref="IDiffPresenter"/>: renders an inbound <c>openDiff</c> as an editable Monaco
-/// diff in the web view and blocks until the user resolves it. Each diff gets an id; the web view
-/// replies with <c>diff-resolved</c>, which completes the awaiting task.
+/// The <see cref="IDiffPresenter"/> that renders an inbound <c>openDiff</c> as an editable Monaco diff in the
+/// web view and blocks until the user resolves it. Each diff gets an id; the web view replies with
+/// <c>diff-resolved</c>, which completes the awaiting task.
 /// </summary>
 public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly SessionEditorChannel _channel;
@@ -19,7 +19,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
 	private int _counter;
 
-	/// <summary>Creates a presenter that renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground) and delegates file opens to <paramref name="fileOpener"/>.</summary>
+	/// <summary>Renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground) and delegates file opens to <paramref name="fileOpener"/>.</summary>
 	public McpDiffPresenter(SessionEditorChannel channel, IFileSystem fileSystem, FileOpener fileOpener) {
 		ArgumentNullException.ThrowIfNull(channel);
 		ArgumentNullException.ThrowIfNull(fileSystem);

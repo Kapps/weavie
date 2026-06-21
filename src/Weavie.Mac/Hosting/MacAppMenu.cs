@@ -4,21 +4,17 @@ using Weavie.Core.Commands;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// Builds the macOS application menu bar (the system menu at the top of the screen). It is the macOS
-/// counterpart of the Windows web title bar's File/View menus, plus the standard App / Edit / Window
-/// menus every Mac app is expected to provide (⌘Q, ⌘C/⌘V, ⌘M, …). The File/View items dispatch the same
-/// Weavie command ids the keybindings and the omnibar palette use, so the menu, the keyboard, and Claude
-/// all drive one set of actions; their shortcuts are read from the keybinding store (never hardcoded) so a
-/// user rebind keeps the menu in sync. The standard App/Edit/Window items use the platform's own
-/// conventions (they aren't Weavie commands).
+/// Builds the macOS application menu bar: File/View menus plus the standard App / Edit / Window menus every
+/// Mac app provides (⌘Q, ⌘C/⌘V, ⌘M, …). File/View items dispatch the same Weavie command ids the keybindings
+/// and omnibar palette use, so menu, keyboard, and Claude drive one set of actions; their shortcuts are read
+/// from the keybinding store (never hardcoded) so a rebind keeps the menu in sync. The App/Edit/Window items
+/// use the platform's own conventions (not Weavie commands).
 /// </summary>
 internal static class MacAppMenu {
 	/// <summary>
-	/// Builds the whole menu bar. <paramref name="runCommand"/> dispatches a Weavie command id;
-	/// <paramref name="resolveChord"/> returns the effective chord for a command id (e.g. <c>$mod+p</c>)
-	/// so the menu can show + bind its shortcut; <paramref name="openFolder"/> shows the native folder
-	/// picker; <paramref name="openRecent"/> opens a recent workspace; <paramref name="recents"/> seeds
-	/// File ▸ Open Recent.
+	/// Builds the whole menu bar.
+	/// <paramref name="resolveChord"/> returns the effective chord for a command id so the menu can show + bind
+	/// its shortcut; <paramref name="recents"/> seeds File ▸ Open Recent.
 	/// </summary>
 	public static NSMenu Build(
 		Action<string> runCommand,
@@ -70,7 +66,7 @@ internal static class MacAppMenu {
 		menu.AddItem(NSMenuItem.SeparatorItem);
 		menu.AddItem(CommandItem("Save", CoreCommands.SaveFile, runCommand, resolveChord));
 		menu.AddItem(NSMenuItem.SeparatorItem);
-		// ⌘W closes the front window (the standard macOS Close shortcut), distinct from ⌘Q (Quit).
+		// ⌘W closes the front window (standard macOS Close), distinct from ⌘Q (Quit).
 		menu.AddItem(new NSMenuItem("Close Window", "w", (_, _) => NSApplication.SharedApplication.KeyWindow?.PerformClose(null)));
 		return Submenu("File", menu);
 	}
@@ -78,7 +74,7 @@ internal static class MacAppMenu {
 	private static NSMenuItem BuildOpenRecentItem(Action<string> openRecent, IReadOnlyList<string> recents) {
 		var submenu = new NSMenu("Open Recent");
 		if (recents.Count == 0) {
-			// An item with no action is auto-disabled (NSMenu.AutoEnablesItems), so it reads as a greyed hint.
+			// An action-less item is auto-disabled (NSMenu.AutoEnablesItems), so it reads as a greyed hint.
 			submenu.AddItem(new NSMenuItem("No Recent Folders"));
 		} else {
 			foreach (string path in recents) {
@@ -90,8 +86,8 @@ internal static class MacAppMenu {
 	}
 
 	private static NSMenuItem BuildEditMenu() {
-		// Standard editing actions routed to the first responder (the focused WKWebView / Monaco / text
-		// field) via the platform selectors, so cut/copy/paste/undo work in the editor and every input.
+		// Standard editing actions routed to the first responder (focused WKWebView / Monaco / text field)
+		// via the platform selectors, so cut/copy/paste/undo work in the editor and every input.
 		var menu = new NSMenu("Edit");
 		menu.AddItem(new NSMenuItem("Undo", new Selector("undo:"), "z"));
 		menu.AddItem(new NSMenuItem("Redo", new Selector("redo:"), "z") {
@@ -121,14 +117,14 @@ internal static class MacAppMenu {
 		menu.AddItem(new NSMenuItem("Minimize", "m", (_, _) => NSApplication.SharedApplication.KeyWindow?.Miniaturize(null)));
 		menu.AddItem(new NSMenuItem("Zoom", (_, _) => NSApplication.SharedApplication.KeyWindow?.PerformZoom(null)));
 		var item = Submenu("Window", menu);
-		// Let macOS own the Window menu (adds the standard window list + "Bring All to Front").
+		// Let macOS own the Window menu (it adds the window list + "Bring All to Front").
 		NSApplication.SharedApplication.WindowsMenu = menu;
 		return item;
 	}
 
 	/// <summary>
-	/// A menu item that dispatches a Weavie command id, binding its effective keyboard shortcut (read from
-	/// the keybinding store) when the chord maps to a single-character menu key equivalent.
+	/// A menu item that dispatches a Weavie command id, binding its effective shortcut when the chord maps to a
+	/// single-character menu key equivalent.
 	/// </summary>
 	private static NSMenuItem CommandItem(
 		string title, string commandId, Action<string> runCommand, Func<string, string?> resolveChord) {
@@ -143,9 +139,9 @@ internal static class MacAppMenu {
 	}
 
 	/// <summary>
-	/// Maps a tinykeys-style chord (e.g. <c>$mod+shift+p</c>) to an NSMenuItem key equivalent + modifier
-	/// mask. Only single-character keys map cleanly; chords whose key is a named key (Enter, Tab, …) or a
-	/// multi-key sequence return false so the item shows no shortcut (it still works via the web resolver).
+	/// Maps a tinykeys-style chord (e.g. <c>$mod+shift+p</c>) to an NSMenuItem key equivalent + modifier mask.
+	/// Only single-character keys map cleanly; named keys (Enter, Tab, …) or multi-key sequences return false so
+	/// the item shows no shortcut (it still works via the web resolver).
 	/// </summary>
 	private static bool TryNativeShortcut(string chord, out string keyEquivalent, out NSEventModifierMask mask) {
 		keyEquivalent = string.Empty;
@@ -156,7 +152,7 @@ internal static class MacAppMenu {
 		}
 
 		keyEquivalent = parsed.Key; // already lowercased, so an uppercase letter never implies an extra Shift
-									// $mod resolves to Command on macOS; Meta is Command too.
+		// $mod and Meta both resolve to Command on macOS.
 		if (parsed.Modifiers.HasFlag(HotkeyModifiers.Mod) || parsed.Modifiers.HasFlag(HotkeyModifiers.Meta)) {
 			mask |= NSEventModifierMask.CommandKeyMask;
 		}

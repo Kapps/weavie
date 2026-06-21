@@ -4,8 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies bring-your-own server resolution: explicit-path handling and graceful "not installed"
-/// behavior. PATH probing of a real server is covered by the LSP harness (which finds vtsls on PATH).
+/// Bring-your-own server resolution: explicit-path handling and graceful "not installed" behavior.
+/// PATH probing of a real server is covered by the LSP harness.
 /// </summary>
 public sealed class ServerResolverTests {
 	[Fact]

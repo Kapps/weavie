@@ -1,14 +1,8 @@
-// A faithful-enough stand-in for the headless "serve" host, for end-to-end testing the web app's
-// remote bridge transport in a real browser. It does two jobs the real serve host will do:
-//
-//   1. serves the built web app (dist/) over HTTP, so the page loads exactly as it will in production;
-//   2. speaks the bridge protocol over a WebSocket at /weavie-bridge — the same HostBound/WebBound JSON
-//      the native shells exchange over their in-process channel.
-//
-// It is deliberately minimal: it records everything the page sends, lets a test push any web-bound
-// message, and answers the host-backed file:// provider (fs-stat / fs-read / fs-write) out of an
-// in-memory file map so the editor can open files. It is NOT the product host — there is no claude,
-// no real filesystem, no LSP — just enough of the contract to drive the web from a test.
+// Minimal stand-in for the headless "serve" host, for testing the web app's remote bridge transport in a
+// real browser. It serves the built web app (dist/) over HTTP and speaks the bridge protocol over a
+// WebSocket at /weavie-bridge — the same HostBound/WebBound JSON the native shells exchange. It records
+// everything the page sends, lets a test push any web-bound message, and answers the file:// provider
+// (fs-stat / fs-read / fs-write) from an in-memory file map. No claude, filesystem, or LSP.
 
 import { readFile } from "node:fs/promises";
 import { type Server, createServer } from "node:http";
@@ -147,8 +141,8 @@ export class MockHost {
     this.answerFileProvider(message);
   }
 
-  // Answer the host-backed file:// provider so the editor can open working copies. Only the three
-  // request shapes the provider issues are handled; everything else is recorded but not replied to.
+  // Answer the file:// provider so the editor can open working copies. Only fs-stat / fs-read / fs-write
+  // are handled; everything else is recorded but not replied to.
   private answerFileProvider(message: Message): void {
     if (message.type === "fs-stat") {
       const content = this.files.get(String(message.path));
@@ -207,17 +201,17 @@ export class MockHost {
   ): Promise<void> {
     const pathname = decodeURIComponent(rawUrl.split("?")[0]);
     const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
-    // Contain the served path inside distDir — a normalized path that escapes is a 403.
+    // Contain the served path inside distDir; a path that escapes is a 403.
     const resolved = normalize(join(this.distDir, relative));
     if (!resolved.startsWith(normalize(this.distDir))) {
       res.writeHead(403).end("forbidden");
       return;
     }
     try {
-      // index.html gets the bootstrap globals injected before the module graph, exactly like the real
-      // serve host (Program.cs ServeIndexAsync) — otherwise the production build throws on the first
-      // host-injected global it reads (see bridge.ts hostInjected). The bridge URL is deliberately left
-      // out: tests advertise it per-navigation via the `?weavie-bridge=` query (see pageUrl).
+      // index.html gets the bootstrap globals injected before the module graph (like the real serve host's
+      // Program.cs ServeIndexAsync); otherwise the build throws on the first host-injected global it reads
+      // (see bridge.ts hostInjected). The bridge URL is left out — tests advertise it per-navigation via
+      // `?weavie-bridge=` (see pageUrl).
       if (relative === "index.html") {
         const html = await readFile(resolved, "utf8");
         res
@@ -236,9 +230,8 @@ export class MockHost {
   }
 }
 
-// The host-injected bootstrap globals the production build requires before navigation (bridge.ts
-// hostInjected throws on any missing one). Minimal but valid stand-ins for the real host's
-// BuildBootstrapScript — enough that the app boots; `__WEAVIE_BRIDGE_WS__` is intentionally omitted so a
+// Bootstrap globals the build requires before navigation (bridge.ts hostInjected throws on any missing
+// one). Minimal stand-ins for the real host's BuildBootstrapScript; `__WEAVIE_BRIDGE_WS__` is omitted so a
 // navigation without `?weavie-bridge=` resolves to the "none" transport.
 const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
 const BOOTSTRAP_GLOBALS: Record<string, unknown> = {

@@ -5,17 +5,16 @@ namespace Weavie.Core.Theming;
 
 /// <summary>
 /// Loads a VS Code color theme's JSON from disk into one self-contained object, resolving the theme's
-/// <c>include</c> chain (a theme may extend another by relative path). The web registers a theme by serving
-/// exactly one JSON file (a <c>data:</c> URL), so includes must be merged away here: the included theme is
-/// the base, and the including theme's <c>colors</c>/<c>semanticTokenColors</c> override per key while its
-/// <c>tokenColors</c> are appended (base rules first, overriding rules last). This is how an installed Open
-/// VSX theme becomes the self-contained shape the web's theme controller consumes (spec §13).
+/// <c>include</c> chain (a theme may extend another by relative path). The web serves a theme as one JSON
+/// file (a <c>data:</c> URL), so includes are merged away here: the included theme is the base, the
+/// including theme's <c>colors</c>/<c>semanticTokenColors</c> override per key, and its <c>tokenColors</c>
+/// are appended (base rules first, overriding rules last).
 /// </summary>
 public sealed class ThemeJsonLoader {
 	private const int MaxIncludeDepth = 16;
 	private readonly IFileSystem _fileSystem;
 
-	/// <summary>Creates the loader over <paramref name="fileSystem"/> (so include-merging is unit-testable in memory).</summary>
+	/// <summary>Creates the loader over <paramref name="fileSystem"/> (so include-merging is testable in memory).</summary>
 	public ThemeJsonLoader(IFileSystem fileSystem) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		_fileSystem = fileSystem;
@@ -56,7 +55,7 @@ public sealed class ThemeJsonLoader {
 
 	// Applies `overlay` onto `baseObj` with VS Code's include semantics: `colors` + `semanticTokenColors`
 	// are shallow object merges (overlay wins per key); `tokenColors` are appended (base first, overlay
-	// last so overriding rules win); every other key is replaced by the overlay's value.
+	// last); every other key is replaced by the overlay's value.
 	private static void MergeOnto(JsonObject baseObj, JsonObject overlay) {
 		foreach (var (key, value) in overlay) {
 			switch (key) {

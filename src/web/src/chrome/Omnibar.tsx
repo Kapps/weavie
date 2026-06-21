@@ -25,9 +25,7 @@ import { canonicalFsPath, samePath } from "../editor/fs-path";
 import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
 
-// Max rows rendered at once — a safety cap so a giant workspace (or a fully expanded tree) never mounts
-// thousands of rows. In tree mode only the current file's ancestor chain is expanded by default, so the
-// visible set stays well under this.
+// Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
 const VIEW_CAP = 300;
 
 interface Row {
@@ -35,8 +33,8 @@ interface Row {
   rel: string;
   leaf: string;
   dir: string;
-  // Offset of `leaf` within `rel`, so fuzzy-match positions (indices into `rel`) map cleanly onto the
-  // leaf/dir spans when highlighting.
+  // Offset of `leaf` within `rel`, so fuzzy-match positions (indices into `rel`) map onto the leaf/dir spans
+  // when highlighting.
   leafStart: number;
 }
 
@@ -56,8 +54,8 @@ function splitPath(abs: string, root: string): Row {
   };
 }
 
-// A node in the client-side file tree built from the flat file index. Dirs carry `children`; files carry
-// `abs` (the openable path). `key` is the dir's relative path (unique), used as the expansion-state key.
+// A node in the client-side file tree. Dirs carry `children`; files carry `abs` (the openable path). `key` is
+// the dir's relative path, used as the expansion-state key.
 interface TreeNode {
   name: string;
   key: string;
@@ -71,8 +69,7 @@ interface TreeRow {
   depth: number;
 }
 
-// Build a sorted tree (dirs first, then files, alpha) from the rows' relative paths. Done in one O(n)
-// pass over all paths — no host round-trips, since the omnibar already holds the whole file index.
+// Build a sorted tree (dirs first, then files, alpha) from the rows' relative paths, in one O(n) pass.
 function buildTree(rows: Row[]): TreeNode[] {
   const root: TreeNode = { name: "", key: "", isDir: true, children: [] };
   const dirs = new Map<string, TreeNode>([["", root]]);
@@ -125,10 +122,9 @@ function ancestorKeys(rel: string): string[] {
   return keys;
 }
 
-// The center omnibar: a VS Code–style quick-open. Default mode is "Go to File": an empty query shows a
-// file tree centered on the current file (its folder expanded); typing flips to a fuzzy-ranked, highlighted
-// flat result list (fzf over the workspace file index). A leading ">" flips to the command palette (fuzzy
-// over the command catalog, Enter runs the command). Focusing it asks the host for the file index.
+// The center omnibar: a quick-open. Default "Go to File" mode shows a file tree centered on the current file
+// when the query is empty, and a fuzzy-ranked highlighted flat list (fzf over the file index) when typing. A
+// leading ">" flips to the command palette. Focusing it asks the host for the file index.
 export function Omnibar(props: {
   files: string[];
   root: string | null;
@@ -145,10 +141,9 @@ export function Omnibar(props: {
   let rootRef!: HTMLDivElement;
   let listRef: HTMLUListElement | undefined;
 
-  // The element that held focus when the omnibar opened (the editor's Monaco textarea, an xterm, …). On
-  // close we hand focus back to it — both because that's where the keyboard belongs, and because the
-  // `when`-context (editorFocused/terminalFocused) is derived from focusin; blurring to <body> would leave
-  // it false, so editor-gated chords like Ctrl+Tab would silently stop matching. See App's onFocusIn.
+  // The element that held focus when the omnibar opened. On close we hand focus back to it: the
+  // `when`-context (editorFocused/terminalFocused) is derived from focusin, so blurring to <body> would leave
+  // it false and editor-gated chords like Ctrl+Tab would stop matching. See App's onFocusIn.
   let priorFocus: HTMLElement | null = null;
 
   // The command catalog, kept live as the host pushes keybinding/catalog changes.
@@ -161,12 +156,12 @@ export function Omnibar(props: {
   });
 
   const commandMode = (): boolean => query().startsWith(">");
-  // File mode with an empty query → the tree; with text → the flat ranked list.
+  // Empty file query → the tree; with text → the flat ranked list.
   const treeMode = (): boolean => !commandMode() && query().trim().length === 0;
   const searchMode = (): boolean => !commandMode() && query().trim().length > 0;
 
-  // One fzf finder over the file index, rebuilt only when the index changes (not per keystroke). fzf's
-  // built-in scoring rewards word/segment and camelCase boundaries, so "FSR" ranks FileStreamReader.
+  // One fzf finder over the file index, rebuilt only when the index changes. fzf's scoring rewards
+  // word/segment and camelCase boundaries, so "FSR" ranks FileStreamReader.
   const fileFinder = createMemo(
     () => new Fzf(rows(), { selector: (r) => r.rel, tiebreakers: [byLengthAsc] }),
   );
@@ -247,14 +242,14 @@ export function Omnibar(props: {
     (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
   };
 
-  // True while an open tree-mode session still needs to center on the current file. The omnibar opens
-  // and asks the host for the file index in the same tick, so the first reveal usually runs against an
-  // empty/stale `rows()`; this lets the later file-index arrival finish the reveal.
+  // True while an open tree-mode session still needs to center on the current file. The first reveal usually
+  // runs against an empty `rows()` (the file index is requested in the same tick), so this lets the later
+  // file-index arrival finish the reveal.
   const [pendingReveal, setPendingReveal] = createSignal(false);
 
-  // Expand the current file's folder chain and center the selection on it — the contextual "reveal".
-  // Returns false when there is a current file but it isn't in the index yet (the host's file-index
-  // reply is still in flight); the caller re-attempts once `rows()` arrives.
+  // Expand the current file's folder chain and center the selection on it. Returns false when there's a
+  // current file not yet in the index (the host's reply is in flight); the caller re-attempts once `rows()`
+  // arrives.
   const focusCurrentInTree = (): boolean => {
     const cf = props.currentFile;
     let revealed = true;
@@ -292,10 +287,8 @@ export function Omnibar(props: {
     }),
   );
 
-  // The file index arrives asynchronously — the host replies to onRequestIndex after we've already
-  // opened — so the first reveal usually runs against an empty `rows()`, leaving the current file's
-  // folders collapsed. Finish the reveal once the index lands, then stop (it's now loaded, so later
-  // manual expand/collapse must stand).
+  // The file index arrives asynchronously, so the first reveal usually leaves the current file's folders
+  // collapsed. Finish the reveal once the index lands, then stop so later manual expand/collapse stands.
   createEffect(
     on(
       rows,
@@ -342,8 +335,8 @@ export function Omnibar(props: {
     ),
   );
 
-  // Return focus to wherever it was before we opened, so the keyboard lands back in the editor/terminal and
-  // its `when`-context is restored. Falls back to blurring the input if there's nothing valid to return to.
+  // Return focus to wherever it was before opening, so the keyboard lands back in the editor/terminal and its
+  // `when`-context is restored. Falls back to blurring the input if there's nothing valid to return to.
   const restorePriorFocus = (): void => {
     const target = priorFocus;
     priorFocus = null;
@@ -364,9 +357,8 @@ export function Omnibar(props: {
     if (abs === undefined) {
       return;
     }
-    // Open with the canonical (lowercase-drive) form the editor keys its working copies / tabs by, so a
-    // file already open under Monaco's `fsPath` spelling is reused instead of opening a second editor for
-    // the same on-disk file (the file:// provider matches URIs case-sensitively). See editor/fs-path.ts.
+    // Open with the canonical (lowercase-drive) form the editor keys its working copies by, so a file already
+    // open under Monaco's `fsPath` spelling is reused instead of opening a second editor. See editor/fs-path.ts.
     props.onOpenFile(canonicalFsPath(abs));
     close();
   };
@@ -393,9 +385,8 @@ export function Omnibar(props: {
     queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, visibleRows().length - 1))));
   };
 
-  // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at
-  // the same-or-shallower depth (the next sibling/uncle). Left: collapse an expanded dir, else jump up to
-  // the parent row.
+  // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at the
+  // same-or-shallower depth. Left: collapse an expanded dir, else jump up to the parent row.
   const treeMoveLevel = (dir: 1 | -1): void => {
     const rowsV = visibleRows();
     const i = selected();
@@ -498,9 +489,8 @@ export function Omnibar(props: {
           value={query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
           onFocus={(e) => {
-            // Remember the element we're stealing focus from (the focus event's relatedTarget) so close can
-            // hand it back. Fires for both a click and the programmatic inputRef.focus() (double-shift / the
-            // focus command). Ignore a target inside the omnibar itself so re-entry never overwrites it.
+            // Remember the element we're stealing focus from so close can hand it back. Ignore a target
+            // inside the omnibar itself so re-entry never overwrites it.
             const from = e.relatedTarget as HTMLElement | null;
             if (from !== null && !rootRef.contains(from)) {
               priorFocus = from;
@@ -575,7 +565,7 @@ export function Omnibar(props: {
                                 samePath(item.row.abs, props.currentFile),
                             }}
                             onMouseDown={(e) => {
-                              // mousedown (not click) fires before the input's focusout closes the popover.
+                              // mousedown fires before the input's focusout closes the popover.
                               e.preventDefault();
                               setSelected(i());
                               openFile(item.row.abs);

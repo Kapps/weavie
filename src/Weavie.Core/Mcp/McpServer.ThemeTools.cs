@@ -9,7 +9,7 @@ namespace Weavie.Core.Mcp;
 // The model-facing theming tools (registry server): the data-shaped operations — list/describe the active
 // theme and edit its individual color overrides (set/transform/remove), which persist per theme in
 // ~/.weavie/theme-overrides.json. The verb actions (install / install-from-file / select / undo / reset) are
-// COMMANDS instead (see ThemeCommands), reached via runCommand. Split from McpServer.cs to keep it focused.
+// COMMANDS instead (see ThemeCommands), reached via runCommand.
 public sealed partial class McpServer {
 	private async Task HandleListThemesAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
 		string active = ActiveThemeId();
@@ -51,8 +51,8 @@ public sealed partial class McpServer {
 		string json = WriteJson(writer => {
 			writer.WriteString("active", active);
 			writer.WriteString("label", ThemeLabel(active));
-			// Appearance is decoupled: report the mode + the theme chosen for each polarity, so the model can
-			// reason about light/dark without re-deriving it. 'active' is the concrete theme overrides apply to.
+			// Report the mode + the theme chosen for each polarity so the model can reason about light/dark.
+			// 'active' is the concrete theme overrides apply to.
 			if (_settings is not null) {
 				writer.WriteString("mode", ThemeSettings.Mode(_settings));
 				writer.WriteString("lightTheme", ThemeSettings.LightThemeId(_settings));
@@ -84,8 +84,8 @@ public sealed partial class McpServer {
 		}
 
 		// An op sets a foreground color ('value'), a font style ('fontStyle'), or both — at least one. An empty
-		// 'value' reads as absent; an empty 'fontStyle' is meaningful (clears inherited styles), so the presence
-		// test for it is null-vs-not, not IsNullOrEmpty.
+		// 'value' reads as absent; an empty 'fontStyle' is meaningful (clears inherited styles), so its presence
+		// test is null-vs-not, not IsNullOrEmpty.
 		string? value = GetStringArg(args, "value");
 		bool hasValue = !string.IsNullOrEmpty(value);
 		string? fontStyle = GetStringArg(args, "fontStyle");
@@ -225,7 +225,7 @@ public sealed partial class McpServer {
 			return true;
 		}
 
-		// The embedded claude routinely stringifies scalars ("0.2"); coerce like the settings boundary does.
+		// The embedded claude routinely stringifies scalars ("0.2"); coerce them.
 		return element.ValueKind == JsonValueKind.String
 			&& double.TryParse(element.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value);
 	}

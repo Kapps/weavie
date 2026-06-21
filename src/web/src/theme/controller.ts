@@ -1,12 +1,11 @@
-// The runtime theme controller: the single source of truth for the active appearance (mode + the theme per
-// polarity + their override ops), and the thing that drives all three render surfaces (spec §6) — Monaco,
-// xterm, and Weavie's chrome — off one resolved palette. Light/dark is decoupled from the theme: it holds
-// BOTH the light and dark themes and renders whichever the active polarity selects, so a `system`-mode OS
-// switch (or a mode change) re-themes instantly with no host round-trip. Deliberately monaco-free (no
-// editor-chunk imports) so it lives on the entry/first-paint path; the editor chunk bridges controller →
-// Monaco via onMonacoThemeChanged. Mirrors fonts.ts: state is seeded synchronously from a host-injected
-// global so the terminal/editor read the right theme at creation, and one permanent bridge listener fans
-// live host pushes out to every surface (plus one matchMedia listener for live OS light/dark flips).
+// The runtime theme controller: the single source of truth for the active appearance (mode + theme per
+// polarity + override ops), driving all three render surfaces (spec §6) — Monaco, xterm, chrome — off one
+// resolved palette. It holds both the light and dark themes and renders whichever the active polarity
+// selects, so a `system`-mode OS switch (or mode change) re-themes instantly with no host round-trip.
+// Monaco-free (no editor-chunk imports) so it lives on the first-paint path; the editor chunk bridges
+// controller → Monaco via onMonacoThemeChanged. State is seeded synchronously from a host-injected global
+// so the terminal/editor read the right theme at creation, and one permanent bridge listener fans live
+// host pushes out to every surface (plus a matchMedia listener for OS light/dark flips).
 
 import { hostInjected, onHostMessage } from "../bridge";
 import type { ThemeMode, ThemeSlot } from "../bridge";
@@ -25,10 +24,9 @@ export interface MonacoThemeUpdate {
 }
 
 /**
- * Host-injected initial appearance (mirrors __WEAVIE_FONTS__): the active mode and the theme for each
- * polarity. Each slot carries the theme id, its override ops, and — for installed (non-built-in) themes —
- * the converted VS Code theme JSON. Built-ins carry only the id (their JSON is resolved here from the
- * bundled registry).
+ * Host-injected initial appearance: the active mode and the theme for each polarity. Each slot carries the
+ * theme id, its override ops, and — for installed (non-built-in) themes — the converted VS Code theme JSON.
+ * Built-ins carry only the id; their JSON resolves here from the bundled registry.
  */
 interface InjectedTheme {
   mode: ThemeMode;
@@ -96,9 +94,9 @@ function activeSlot(s: ThemeState): Slot {
 // terminal or the editor is created (which happens before any host push).
 let version = 1;
 let state: ThemeState = (() => {
-  // Dev fallback is the built-in Weavie Light/Dark pair (ids only — resolveSlot resolves the JSON from
-  // BUILTIN_THEMES); in the shipped app the host always injects __WEAVIE_THEME__, and a missing value
-  // throws (see hostInjected). Mirrors fonts.ts/editor-options.ts/commands.
+  // Dev fallback is the built-in Weavie Light/Dark pair (ids only; resolveSlot resolves the JSON from
+  // BUILTIN_THEMES). In the shipped app the host always injects __WEAVIE_THEME__, and a missing value
+  // throws (see hostInjected).
   const injected = hostInjected<InjectedTheme>("__WEAVIE_THEME__", window.__WEAVIE_THEME__, {
     mode: "system",
     light: { id: WEAVIE_LIGHT_ID },
@@ -112,12 +110,12 @@ const monacoSubscribers = new Set<(update: MonacoThemeUpdate) => void>();
 
 function monacoUpdate(): MonacoThemeUpdate {
   // Effective theme = the active slot's base token tables + its resolved (override-applied) workbench colors.
-  // The id is bumped per change because the theme is registered as an extension and can't be mutated in
-  // place — a fresh id forces a clean re-register + setTheme.
+  // The id is bumped per change because a registered-extension theme can't be mutated in place; a fresh id
+  // forces a clean re-register + setTheme.
   const slot = activeSlot(state);
   return {
-    // A Monaco theme settingsId must be a clean token — '#', '/', '.', and spaces break theme lookup — and
-    // unique per change so a re-register actually switches. Derive one from the theme id + version counter.
+    // A Monaco settingsId must be a clean token ('#', '/', '.', and spaces break theme lookup) and unique
+    // per change so a re-register actually switches. Derived from the theme id + version counter.
     id: `weavie-theme-${slot.id.replace(/[^a-zA-Z0-9]+/g, "-")}-${version}`,
     theme: { ...slot.base, ...slot.resolved },
   };
@@ -154,8 +152,8 @@ export function applyChromeTheme(): void {
   const slot = activeSlot(state);
   applyColorsToCssVars(slot.resolved.colors);
   deriveChromeVars(slot.resolved.colors);
-  // Keep the UA color-scheme in step so native form controls / scrollbars / the pre-theme flash match the
-  // active polarity (the editor was dark-only before; a light theme needs the page to read as light).
+  // Keep the UA color-scheme in step so native form controls, scrollbars, and the pre-theme flash match
+  // the active polarity.
   document.documentElement.style.colorScheme = slot.base.type === "light" ? "light" : "dark";
 }
 
@@ -178,9 +176,9 @@ function setActive(injected: InjectedTheme): void {
   reapplyActive();
 }
 
-// One permanent bridge listener fans host appearance pushes (a mode/theme switch or an override edit) out to
-// the three surfaces — mirrors fonts.ts. Installed themes arrive with their converted JSON; built-ins carry
-// only the id, resolved here against the bundled registry.
+// One permanent bridge listener fans host appearance pushes (a mode/theme switch or an override edit) out
+// to the three surfaces. Installed themes arrive with their converted JSON; built-ins carry only the id,
+// resolved here against the bundled registry.
 onHostMessage((message) => {
   if (message.type === "theme") {
     setActive({ mode: message.mode, light: message.light, dark: message.dark });

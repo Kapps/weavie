@@ -5,10 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies the scratch (untitled-buffer) store: sequential "Untitled-N" allocation that skips taken numbers,
-/// scoped delete, and the launch-time garbage collection of buffers no longer referenced by the session. Also
-/// pins the file provider's second allowed root (the scratch dir) so untitled buffers — which live outside the
-/// workspace — can still be read/written, while truly-out-of-bounds paths stay refused.
+/// Scratch (untitled-buffer) store: sequential "Untitled-N" allocation skipping taken numbers, scoped delete,
+/// and GC of unreferenced buffers. Also pins the file provider's scratch root so untitled buffers (outside the
+/// workspace) are read/writable while out-of-bounds paths stay refused.
 /// </summary>
 public sealed class ScratchStoreTests {
 	private static string TempDir(string label) =>
@@ -88,6 +87,6 @@ public sealed class ScratchStoreTests {
 
 		Assert.True(fs.FileExists(scratchFile));
 		Assert.True(fs.FileExists(workspaceFile));
-		Assert.False(fs.FileExists(outsideFile)); // outside both roots — refused
+		Assert.False(fs.FileExists(outsideFile)); // outside both roots
 	}
 }

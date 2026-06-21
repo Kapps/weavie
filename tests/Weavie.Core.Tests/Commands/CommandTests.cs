@@ -4,8 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises the command catalog + dispatcher: registration, unknown-id reporting with suggestions,
-/// Core handler dispatch, web routing through the host-supplied invoker, and the registration guards.
+/// Command catalog + dispatcher: registration, unknown-id suggestions, Core handler dispatch,
+/// web routing through the host invoker, and registration guards.
 /// </summary>
 public sealed class CommandTests {
 	private static CommandRegistry RegistryWith(params CommandDefinition[] definitions) {
@@ -34,7 +34,7 @@ public sealed class CommandTests {
 		var registry = RegistryWith(Web("weavie.pane.focusByIndex"), Web("weavie.diff.toggleLayout"));
 		var ex = Assert.Throws<UnknownCommandException>(() => registry.Require("weavie.pane.focus"));
 		Assert.Equal("weavie.pane.focus", ex.Id);
-		// "focus" leaf matches focusByIndex; the namespace "weavie" matches both.
+		// "focus" leaf matches focusByIndex.
 		Assert.Contains("Did you mean", ex.Message, StringComparison.Ordinal);
 		Assert.Contains("weavie.pane.focusByIndex", ex.Message, StringComparison.Ordinal);
 	}
@@ -111,7 +111,7 @@ public sealed class CommandTests {
 		var dispatcher = new CommandDispatcher(RegistryWith(Core("weavie.terminal.reopen")));
 		var handle = dispatcher.RegisterHandler("weavie.terminal.reopen", (_, _) => Task.FromResult(CommandResult.Success()));
 		handle.Dispose();
-		// Re-registering after dispose must succeed (the slot was freed).
+		// Dispose frees the slot, so re-registering succeeds.
 		dispatcher.RegisterHandler("weavie.terminal.reopen", (_, _) => Task.FromResult(CommandResult.Success()));
 	}
 

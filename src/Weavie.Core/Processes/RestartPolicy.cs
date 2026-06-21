@@ -1,8 +1,6 @@
 namespace Weavie.Core.Processes;
 
-/// <summary>
-/// When a supervised process exits, whether <see cref="ProcessSupervisor"/> relaunches it.
-/// </summary>
+/// <summary>Whether <see cref="ProcessSupervisor"/> relaunches a supervised process when it exits.</summary>
 public enum RestartPolicy {
 	/// <summary>Launch once; never relaunch, whatever the exit code.</summary>
 	Never,
@@ -11,8 +9,8 @@ public enum RestartPolicy {
 	OnFailure,
 
 	/// <summary>
-	/// Relaunch after every exit, clean or crash — for a process that is a permanent fixture of the UI
-	/// (a terminal pane), where a stopped, empty panel is never the desired end state.
+	/// Relaunch after every exit, clean or crash — for a permanent UI fixture (a terminal pane) where a
+	/// stopped, empty panel is never the desired end state.
 	/// </summary>
 	Always,
 }

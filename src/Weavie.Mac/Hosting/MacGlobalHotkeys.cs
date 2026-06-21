@@ -6,11 +6,10 @@ namespace Weavie.Mac.Hosting;
 
 /// <summary>
 /// The macOS <see cref="IGlobalHotkeyRegistrar"/>: registers system-wide hotkeys with Carbon's
-/// <c>RegisterEventHotKey</c> (the API that works without Accessibility/Input-Monitoring permissions and
-/// fires even when Weavie is unfocused) and routes presses through a single application-level Carbon event
-/// handler. App-global (one per process), driven by <see cref="GlobalHotkeyService"/>. All Carbon calls and
-/// the callback run on the main thread; <see cref="Apply"/> marshals onto it via the main dispatch queue.
-/// Windows sibling: <c>Weavie.Win.Hosting.WindowsGlobalHotkeys</c>.
+/// <c>RegisterEventHotKey</c> (works without Accessibility/Input-Monitoring permissions and fires even when
+/// Weavie is unfocused) and routes presses through a single application-level Carbon event handler. One per
+/// process. All Carbon calls and the callback run on the main thread; <see cref="Apply"/> marshals onto it
+/// via the main dispatch queue.
 /// </summary>
 internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	private const string CarbonFramework = "/System/Library/Frameworks/Carbon.framework/Carbon";
@@ -43,8 +42,8 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 	private delegate int EventHandlerProc(IntPtr callRef, IntPtr theEvent, IntPtr userData);
 
-	// Carbon virtual key codes (kVK_*, HIToolbox/Events.h) for the named keys + punctuation a chord can name.
-	// Letters/digits are added below; function keys are non-sequential so they get their own table.
+	// Carbon virtual key codes (kVK_*, HIToolbox/Events.h) for named keys + punctuation a chord can name.
+	// Letters/digits and function keys have their own tables below.
 	private static readonly Dictionary<string, uint> KeyCodes = new(StringComparer.Ordinal) {
 		["space"] = 49,
 		["enter"] = 36,
@@ -77,7 +76,7 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 		["/"] = 44,
 	};
 
-	// kVK_ANSI_A..Z indexed by letter; non-alphabetical order on the physical Mac keyboard.
+	// kVK_ANSI_A..Z indexed by letter; codes follow the physical key layout, not alphabetical order.
 	private static readonly Dictionary<char, uint> Letters = new() {
 		['a'] = 0,
 		['b'] = 11,
@@ -120,7 +119,7 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 		['9'] = 25,
 	};
 
-	// F1..F20 — also non-sequential.
+	// F1..F20 key codes (non-sequential).
 	private static readonly uint[] FunctionKeys =
 		[122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90];
 
@@ -133,7 +132,7 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	private uint _nextId = 1;
 	private bool _disposed;
 
-	/// <summary>Creates the registrar; the application Carbon event handler is installed lazily on first <see cref="Apply"/>.</summary>
+	/// <summary>Creates the registrar; the Carbon event handler is installed lazily on first <see cref="Apply"/>.</summary>
 	public MacGlobalHotkeys() {
 		_handler = OnHotKeyEvent;
 	}
@@ -211,7 +210,7 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 		}
 	}
 
-	// Install the single application keyboard-hotkey handler once. Returns whether it's installed.
+	// Install the single application keyboard-hotkey handler once; returns whether it's installed.
 	private bool EnsureHandlerInstalled() {
 		if (_handlerRef != IntPtr.Zero) {
 			return true;
@@ -268,7 +267,7 @@ internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	private static bool TryMap(GlobalHotkey hotkey, out uint code, out uint modifiers) {
 		var mods = (CarbonModifiers)0;
 		var m = hotkey.Modifiers;
-		// $mod resolves to Cmd on macOS (Ctrl on Windows — see the Windows registrar).
+		// $mod and Meta both resolve to Cmd on macOS.
 		if (m.HasFlag(HotkeyModifiers.Mod) || m.HasFlag(HotkeyModifiers.Meta)) {
 			mods |= CarbonModifiers.Cmd;
 		}

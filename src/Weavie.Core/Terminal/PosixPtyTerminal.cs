@@ -4,12 +4,11 @@ using static Weavie.Core.Terminal.NativeMethods;
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// Real POSIX PTY (macOS + Linux). Opens a master pseudo-terminal and launches the child — via
-/// <c>forkpty</c> on macOS (so the child acquires the slave as its controlling terminal) or
-/// <c>posix_spawn</c> (+ <c>POSIX_SPAWN_SETSID</c>) on Linux — then reads child output on a background
-/// thread and writes input to the master. The command must be an absolute path (neither path searches
-/// PATH) — callers launch a login shell that execs the real target so env/PATH resolve regardless of
-/// how the app was started.
+/// Real POSIX PTY (macOS + Linux). Opens a master pseudo-terminal and launches the child — via <c>forkpty</c>
+/// on macOS (so it acquires the slave as its controlling terminal) or <c>posix_spawn</c> (+
+/// <c>POSIX_SPAWN_SETSID</c>) on Linux — then reads child output on a background thread and writes input to the
+/// master. The command must be an absolute path (no PATH search); callers launch a login shell that execs the
+/// real target so env/PATH resolve regardless of how the app was started.
 /// </summary>
 public sealed class PosixPtyTerminal : ITerminal {
 	private readonly Lock _gate = new();
@@ -50,12 +49,10 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	/// <summary>
-	/// Opens a PTY and launches the child, returning the master fd and child pid. On macOS this goes
-	/// through the native <c>weavie_pty_spawn</c> (forkpty) so the child acquires the slave as its
-	/// controlling terminal — interactive shells such as nushell abort with "no TTY for interactive
-	/// shell" without one, and macOS (unlike Linux) doesn't grant the ctty merely by opening the slave.
-	/// When the shim dylib isn't on the load path (unit tests run outside the .app bundle) it falls back
-	/// to the managed posix_spawn path, which is also what Linux always uses.
+	/// Opens a PTY and launches the child, returning the master fd and child pid. On macOS this goes through the
+	/// native <c>weavie_pty_spawn</c> (forkpty) so the child acquires the slave as its controlling terminal,
+	/// which interactive shells such as nushell require. Falls back to the managed posix_spawn path (also what
+	/// Linux always uses) when the shim dylib isn't on the load path (tests run outside the .app bundle).
 	/// </summary>
 	private static (int Master, int Pid) OpenAndSpawn(TerminalStartInfo startInfo) {
 		if (OperatingSystem.IsMacOS()) {
@@ -111,8 +108,8 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 
 		try {
-			// macOS gets this via POSIX_SPAWN_CLOEXEC_DEFAULT; Linux has no such spawn flag, so mark
-			// the master close-on-exec explicitly to keep it from leaking into the spawned child.
+			// macOS gets this via POSIX_SPAWN_CLOEXEC_DEFAULT; Linux has no such flag, so mark the master
+			// close-on-exec explicitly to keep it from leaking into the spawned child.
 			if (!OperatingSystem.IsMacOS()) {
 				fcntl(master, F_SETFD, FD_CLOEXEC);
 			}
@@ -139,10 +136,10 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	private static int SpawnChild(TerminalStartInfo startInfo, string slavePath) {
-		// posix_spawn_file_actions_t / posix_spawnattr_t are objects *_init initializes in place: on glibc
-		// they are large structs, on macOS an opaque pointer. Hand each a zeroed, generously sized native
-		// buffer and pass that pointer by value (see NativeMethods) — passing the address of an 8-byte
-		// managed slot would let glibc's *_init overrun it ("stack smashing detected").
+		// posix_spawn_file_actions_t / posix_spawnattr_t are objects *_init initializes in place (large
+		// structs on glibc, an opaque pointer on macOS). Hand each a zeroed, generously sized native buffer
+		// and pass that pointer by value (see NativeMethods); passing an 8-byte managed slot would let
+		// glibc's *_init overrun it ("stack smashing detected").
 		nint fileActions = Marshal.AllocHGlobal(SpawnObjectSize);
 		nint attr = Marshal.AllocHGlobal(SpawnObjectSize);
 		try {
@@ -151,8 +148,7 @@ public sealed class PosixPtyTerminal : ITerminal {
 			posix_spawn_file_actions_init(fileActions);
 			posix_spawnattr_init(attr);
 
-			// Child: chdir into the workspace (if any), then make the slave tty fd 0/1/2
-			// (after setsid -> controlling terminal).
+			// Child: chdir into the workspace (if any), then make the slave tty fd 0/1/2.
 			if (!string.IsNullOrEmpty(startInfo.WorkingDirectory)) {
 				posix_spawn_file_actions_addchdir_np(fileActions, startInfo.WorkingDirectory);
 			}
@@ -291,11 +287,10 @@ public sealed class PosixPtyTerminal : ITerminal {
 	}
 
 	/// <summary>
-	/// Sets the pty's window size. On macOS this goes through the native <c>weavie_set_winsize</c> shim
-	/// (libc's variadic <c>ioctl</c> can't be P/Invoked correctly on arm64-apple — the resize is silently
-	/// dropped, leaving a full-screen TUI like claude blank); elsewhere, and when the shim dylib isn't on
-	/// the load path (unit tests outside the .app bundle), it falls back to the managed <c>ioctl</c>, which
-	/// is correct on Linux and macOS-x64.
+	/// Sets the pty's window size. On macOS this goes through the native <c>weavie_set_winsize</c> shim (libc's
+	/// variadic <c>ioctl</c> can't be P/Invoked correctly on arm64-apple, silently dropping the resize and
+	/// leaving a full-screen TUI like claude blank). Falls back to the managed <c>ioctl</c> elsewhere, and when
+	/// the shim dylib isn't on the load path (tests outside the .app bundle).
 	/// </summary>
 	private static void SetWindowSize(int fd, ushort rows, ushort cols) {
 		if (OperatingSystem.IsMacOS()) {
@@ -323,14 +318,11 @@ public sealed class PosixPtyTerminal : ITerminal {
 			_running = false;
 		}
 
-		// Terminate the child's whole process GROUP, not just the leader. The child is a session/group leader
-		// (forkpty's login_tty on macOS, POSIX_SPAWN_SETSID on Linux), so its pgid == pid and kill(-pid, …)
-		// reaches the subprocesses it spawned — e.g. claude's node children, which inherit the slave PTY as
-		// their stdio. Killing only the leader leaves them holding the slave open, so the master read() never
-		// sees EOF; macOS's close() then blocks indefinitely waiting for that in-flight read to drain, which
-		// freezes the app on Cmd+Q (the read thread sits in read() while the UI thread sits in close()).
-		// SIGTERM first for a clean exit, escalating to SIGKILL if the read thread — which unwinds once the
-		// dying child releases the slave — hasn't exited in time.
+		// Terminate the child's whole process group, not just the leader. The child is a session/group leader,
+		// so kill(-pid, …) reaches the subprocesses it spawned (e.g. claude's node children, which inherit the
+		// slave PTY). Killing only the leader leaves them holding the slave open, so the master read() never
+		// sees EOF and macOS's close() blocks forever waiting on that in-flight read, freezing the app on
+		// Cmd+Q. SIGTERM first, escalating to SIGKILL if the read thread hasn't exited in time.
 		if (pid > 0 && running) {
 			kill(-pid, SIGTERM);
 		}
@@ -342,10 +334,9 @@ public sealed class PosixPtyTerminal : ITerminal {
 		}
 
 		lock (_gate) {
-			// Close only once no read() is in flight (the read thread has exited): on macOS close() blocks
-			// until a concurrent read() on the same fd returns. If a stray holder outside the group somehow
-			// kept the slave open, skip the close rather than hang teardown — the leaked fd lives on a
-			// background thread and is reclaimed when the process exits, never a frozen UI.
+			// Close only once no read() is in flight (the read thread has exited), since on macOS close()
+			// blocks until a concurrent read() on the same fd returns. If a stray holder kept the slave open,
+			// skip the close rather than hang teardown — the leaked fd is reclaimed when the process exits.
 			if (_masterFd >= 0 && readThreadDone) {
 				close(_masterFd);
 				_masterFd = -1;

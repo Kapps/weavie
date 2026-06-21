@@ -22,8 +22,8 @@ export const DEFAULT_LAYOUT_ROOT: LayoutNode = {
   ],
 };
 
-// The latest layout document pushed by the host. The listener is registered at module load — which
-// runs before main.tsx sends "ready" — so the host's set-layout reply can never race ahead of it.
+// The latest layout document pushed by the host. The listener is registered at module load (before
+// main.tsx sends "ready") so the host's set-layout reply can never race ahead of it.
 const [document, setDocument] = createSignal<LayoutDocument | null>(null);
 
 onHostMessage((message) => {

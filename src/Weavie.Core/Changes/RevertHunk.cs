@@ -10,7 +10,7 @@ public readonly record struct LineRange(int Start, int EndExclusive);
 
 /// <summary>The result of <see cref="SessionChangeTracker.RevertHunk"/>.</summary>
 public enum RevertHunkOutcome {
-	/// <summary>The current lines didn't match the guard text — nothing was written (a concurrent edit moved the file).</summary>
+	/// <summary>The current lines didn't match the guard text — nothing was written (a concurrent edit).</summary>
 	GuardMismatch,
 
 	/// <summary>The hunk was reverted; the file was rewritten on disk with the baseline lines spliced back in.</summary>

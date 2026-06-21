@@ -1,27 +1,23 @@
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// A capped, on-disk record of one terminal pane's <em>output</em>, so a client that (re)attaches to a
-/// session can replay a coherent screen instead of a blank pane — and a <em>resumed</em> session (the
-/// process restarted, or the whole backend rebooted) can show the previous process's output faded above
-/// the live stream. This is the shell's analogue to claude's <c>--resume</c>: the shell has no durable
-/// state of its own, so its scrollback is persisted here. Only the shell pane is logged (claude is a
+/// A capped, on-disk record of one terminal pane's output, so a client that (re)attaches can replay a coherent
+/// screen instead of a blank pane, and a resumed session can show the previous process's output faded above the
+/// live stream. The shell's analogue to claude's <c>--resume</c>; only the shell pane is logged (claude is a
 /// full-screen TUI that repaints itself).
 ///
-/// <para>The log is a single byte stream — raw PTY output — plus an in-memory <em>boundary</em>: the byte
-/// offset of the most recent process (re)start. Bytes before the boundary are previous-process history
-/// (rendered faded on replay); bytes after it are the current live process (rendered raw, to reconstruct
-/// its screen). The boundary is tracked in memory rather than as a sentinel in the stream, so it can never
-/// clash with real output or be split by a trim.</para>
+/// <para>The log is a single raw-PTY-output byte stream plus an in-memory boundary: the byte offset of the most
+/// recent process (re)start. Bytes before it are previous-process history (rendered faded on replay); bytes
+/// after it are the live process (rendered raw). The boundary is in memory, not a stream sentinel, so it can
+/// never clash with real output or be split by a trim.</para>
 ///
-/// <para>All file access is serialized by an internal lock, and every operation degrades to a no-op on an
-/// I/O error (the log is best-effort: losing scrollback must never break a session). The cap is enforced
-/// by trimming the front at a newline boundary — ANSI escape sequences never contain <c>\n</c>, so a
-/// newline-aligned cut never splits one.</para>
+/// <para>File access is serialized by an internal lock, and every operation degrades to a no-op on I/O error
+/// (best-effort: losing scrollback must never break a session). The cap is enforced by trimming the front at a
+/// newline boundary — ANSI escapes never contain <c>\n</c>, so a newline-aligned cut never splits one.</para>
 /// </summary>
 public sealed class ScrollbackLog : IDisposable {
-	// Dim-grey SGR wrapping the faded (previous-process) region, and a faint separator marking the restart
-	// point. Inner SGR is stripped from the faded text (see SanitizeForFaded) so nothing re-colors it.
+	// Dim-grey SGR wrapping the faded (previous-process) region, plus a separator marking the restart point.
+	// Inner SGR is stripped from the faded text (see SanitizeForFaded) so nothing re-colors it.
 	private static readonly byte[] FadedPrefix = "[90m"u8.ToArray();
 	private static readonly byte[] FadedSuffix = "[0m"u8.ToArray();
 	private static readonly byte[] Separator = "\r\n[90m── session resumed ──[0m\r\n"u8.ToArray();
@@ -34,10 +30,9 @@ public sealed class ScrollbackLog : IDisposable {
 
 	/// <summary>
 	/// Opens (or creates) the log at <paramref name="path"/>, capped at <paramref name="capBytes"/>. The
-	/// boundary starts at the existing file length, so any content already on disk (a prior process, a
-	/// prior boot) is treated as faded history until the next <see cref="MarkBoundary"/>. An I/O failure
-	/// here leaves the log disabled (all operations become no-ops) rather than throwing — a session must
-	/// come up even if its scrollback can't be persisted.
+	/// boundary starts at the existing file length, so any content already on disk is treated as faded history
+	/// until the next <see cref="MarkBoundary"/>. An I/O failure here disables the log (all operations become
+	/// no-ops) rather than throwing — a session must come up even if its scrollback can't be persisted.
 	/// </summary>
 	public ScrollbackLog(string path, int capBytes) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
@@ -48,7 +43,7 @@ public sealed class ScrollbackLog : IDisposable {
 				Directory.CreateDirectory(dir);
 			}
 
-			// ReadWrite so BuildReplay can read back through the same handle; Open seeks to end for appends.
+			// ReadWrite so BuildReplay can read back through the same handle; seek to end for appends.
 			_stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
 			_stream.Seek(0, SeekOrigin.End);
 			_boundary = _stream.Length;

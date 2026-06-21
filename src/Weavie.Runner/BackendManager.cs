@@ -5,10 +5,9 @@ using Weavie.Core.Processes;
 namespace Weavie.Runner;
 
 /// <summary>
-/// The runner's manager: owns the (single, multi-session) <see cref="WorkspaceBackend"/> worker for the
-/// configured workspace, starting it on demand and supervising it. Worktree sessions are created inside the
-/// worker by the shared <c>HostCore</c>, so the manager only provisions + auths the backend — it does not
-/// manage individual sessions. See docs/specs/remote-sessions.md.
+/// Owns the single multi-session <see cref="WorkspaceBackend"/> worker for the configured workspace, starting
+/// and supervising it on demand. Worktree sessions live inside the worker's shared <c>HostCore</c>, so the
+/// manager only provisions + auths the backend, not individual sessions. See docs/specs/remote-sessions.md.
 /// </summary>
 public sealed class BackendManager : IAsyncDisposable {
 	private readonly RunnerOptions _options;
@@ -24,7 +23,7 @@ public sealed class BackendManager : IAsyncDisposable {
 		_launcher = launcher;
 	}
 
-	/// <summary>The current backend, or <c>null</c> before the first <see cref="Ensure"/>.</summary>
+	/// <summary>The current backend, or <c>null</c> before the first <see cref="Ensure"/> call.</summary>
 	public WorkspaceBackend? Current {
 		get {
 			lock (_gate) {
@@ -34,9 +33,9 @@ public sealed class BackendManager : IAsyncDisposable {
 	}
 
 	/// <summary>
-	/// Returns the workspace backend, starting a fresh worker when none is running (or the previous one tripped
-	/// its supervisor breaker). The returned worker may still be <c>starting</c>; the client connects to its URL
-	/// and the bridge re-attaches once it is up.
+	/// Returns the workspace backend, starting a fresh worker when none runs (or the previous one tripped its
+	/// supervisor breaker). The worker may still be <c>starting</c>; the client connects to its URL and the
+	/// bridge re-attaches once it is up.
 	/// </summary>
 	public WorkspaceBackend Ensure() {
 		lock (_gate) {

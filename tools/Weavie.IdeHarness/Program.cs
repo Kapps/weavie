@@ -3,12 +3,11 @@ using System.Text.RegularExpressions;
 using Weavie.Core.Mcp;
 using Weavie.Core.Terminal;
 
-// Dev harness (NOT shipped): launches the real interactive `claude` wired to our IDE-MCP server
-// and verifies the reverse-engineered handshake (connect/auth/initialize/tools/list) end to end.
-// It does NOT puppeteer claude's TUI — the only input is Enter, retried until connected, to clear
-// the first-run "trust this folder?" prompt. Live openDiff is driven by a human in the real app;
-// openDiff protocol correctness is covered deterministically by McpServerTests.
-// Spawns claude => spends subscription usage (authorized). Config via env:
+// Dev harness (not shipped): launches the real interactive `claude` wired to our IDE-MCP server and verifies
+// the handshake (connect/auth/initialize/tools/list) end to end. It does not puppeteer claude's TUI — the only
+// input is Enter, retried until connected, to clear the first-run "trust this folder?" prompt. openDiff
+// correctness is covered deterministically by McpServerTests. Spawns claude => spends subscription usage.
+// Config via env:
 //   WEAVIE_HARNESS_SECONDS   how long to run (default 25)
 //   WEAVIE_HARNESS_WORKSPACE workspace dir (default a fresh /tmp dir)
 
@@ -74,10 +73,8 @@ terminal.Start(new TerminalStartInfo {
 });
 Console.WriteLine($"[harness] spawned: {shell} -l -c '{claudeCmd}' in {workspace}");
 
-// Verify the handshake. The only input we send is Enter (idempotent retry until connected)
-// to clear the first-run "trust this folder?" prompt — NOT keystroke-timed TUI puppeteering.
-// Live openDiff is exercised by a human driving claude in the real app; openDiff correctness
-// is covered deterministically by the WS-client unit tests.
+// Verify the handshake. The only input is Enter, retried until connected, to clear the first-run "trust this
+// folder?" prompt — not keystroke-timed TUI puppeteering.
 var start = DateTime.UtcNow;
 var deadline = start.AddSeconds(seconds);
 double lastTrustEnter = 0.0;

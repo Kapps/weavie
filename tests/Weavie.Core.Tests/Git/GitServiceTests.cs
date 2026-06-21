@@ -3,7 +3,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>Unit tests for <see cref="GitService"/>'s pure <c>git worktree list --porcelain</c> parser.</summary>
+/// <summary>Tests for the <see cref="GitService"/> <c>git worktree list --porcelain</c> parser.</summary>
 public sealed class GitServiceTests {
 	[Fact]
 	public void ParsePorcelain_ParsesBranchesBareAndDetached() {

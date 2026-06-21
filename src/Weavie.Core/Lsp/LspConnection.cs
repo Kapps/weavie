@@ -6,11 +6,11 @@ using System.Text.Json;
 namespace Weavie.Core.Lsp;
 
 /// <summary>
-/// One live bridge session: a browser-side <see cref="WebSocket"/> (the <c>monaco-languageclient</c>)
-/// piped to a spawned language server's stdio. The host is a dumb proxy — each WebSocket text frame is
-/// exactly one JSON-RPC message, re-framed with <c>Content-Length</c> headers onto the server's stdin,
-/// and each <c>Content-Length</c> frame from the server's stdout is sent back as one WebSocket frame.
-/// The server's stderr is forwarded to the log. Tearing down either side tears down the other.
+/// One live bridge session: a browser-side <see cref="WebSocket"/> (the <c>monaco-languageclient</c>) piped to
+/// a spawned language server's stdio. A dumb proxy — each WebSocket text frame is one JSON-RPC message,
+/// re-framed with <c>Content-Length</c> headers onto the server's stdin, and each <c>Content-Length</c> frame
+/// from stdout is sent back as one WebSocket frame. Server stderr is forwarded to the log. Tearing down either
+/// side tears down the other.
 /// </summary>
 internal sealed class LspConnection {
 	private readonly WebSocket _socket;
@@ -31,8 +31,8 @@ internal sealed class LspConnection {
 		using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		var token = linked.Token;
 
-		// Each pump is written to return normally on every expected failure (cancellation, a closed
-		// socket, a disposed/EOF stream), so once one finishes we cancel and the rest unwind cleanly.
+		// Each pump returns normally on every expected failure, so once one finishes we cancel and the rest
+		// unwind cleanly.
 		var pumps = new[] {
 			PumpClientToServerAsync(token),
 			PumpServerToClientAsync(token),
@@ -83,8 +83,8 @@ internal sealed class LspConnection {
 
 	/// <summary>
 	/// Injects a host-originated JSON-RPC notification into the server's stdin (e.g.
-	/// <c>workspace/didChangeWatchedFiles</c>). Shares the stdin write lock with the client→server pump
-	/// so frames never interleave. Best-effort: silently no-ops if the server is gone.
+	/// <c>workspace/didChangeWatchedFiles</c>). Shares the stdin write lock with the client pump so frames
+	/// never interleave. Best-effort: no-ops if the server is gone.
 	/// </summary>
 	/// <param name="method">The notification method name.</param>
 	/// <param name="paramsJson">The pre-serialized JSON for the notification's <c>params</c>.</param>

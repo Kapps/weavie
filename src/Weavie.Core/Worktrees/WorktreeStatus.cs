@@ -36,7 +36,7 @@ public sealed record WorktreeStatus {
 	/// <summary>A Weavie-created worktree git no longer knows about — a stale registry row to prune.</summary>
 	public bool IsOrphan => IsManaged && !Exists;
 
-	/// <summary>A worktree git reports that Weavie did not create (external, or its registry row was lost) — surfaced, not hidden.</summary>
+	/// <summary>A worktree git reports that Weavie did not create (external, or its registry row was lost).</summary>
 	public bool IsUntracked => !IsManaged && !IsPrimary && Exists;
 
 	/// <summary>Removable without losing work: present, not the primary checkout, clean, and fully merged.</summary>

@@ -3,15 +3,13 @@ using System.Text.Json;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// Loads the user keybindings from <c>~/.weavie/keybindings.json</c>, merges them over the command
-/// defaults, and is the change hub the host re-pushes from. The file is a JSON array of
+/// Loads the user keybindings from <c>~/.weavie/keybindings.json</c>, merges them over the command defaults,
+/// and is the change hub the host re-pushes from. The file is a JSON array of
 /// <c>{ "key", "command", "args"?, "when"? }</c> records; a <c>"command": "-&lt;id&gt;"</c> entry unbinds a
-/// default (VS Code's syntax). The merged list is shipped to the web (which resolves keydowns against it)
-/// and feeds <c>listCommands</c>.
+/// default (VS Code's syntax). The merged list is shipped to the web and feeds <c>listCommands</c>.
 ///
-/// Read-only from Core's side (there is no <c>setKeybinding</c> tool in v1): the only writer is the user
-/// editing the file, watched the same way <c>SettingsStore</c> watches settings — a debounced,
-/// parse-guarded <see cref="FileSystemWatcher"/>, so a half-typed save never thrashes reactions and a
+/// Read-only from Core's side: the only writer is the user editing the file, watched via a debounced,
+/// parse-guarded <see cref="FileSystemWatcher"/> so a half-typed save never thrashes reactions and a
 /// malformed file keeps the last-good resolved list (logged loudly). See <c>docs/specs/commands.md</c>.
 /// </summary>
 public sealed class KeybindingStore : IDisposable {
@@ -25,9 +23,9 @@ public sealed class KeybindingStore : IDisposable {
 	private bool _disposed;
 
 	/// <summary>
-	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/keybindings.json</c>),
-	/// loading + merging now and—unless <paramref name="enableWatcher"/> is false—watching the file for
-	/// external edits. The parent directory is created so the watcher can attach.
+	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/keybindings.json</c>), loading +
+	/// merging now and — unless <paramref name="enableWatcher"/> is false — watching the file for external
+	/// edits. The parent directory is created so the watcher can attach.
 	/// </summary>
 	public KeybindingStore(CommandRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -59,7 +57,7 @@ public sealed class KeybindingStore : IDisposable {
 	/// <summary>Raised (off the UI thread) when the resolved bindings change after a file edit.</summary>
 	public event Action? KeybindingsChanged;
 
-	/// <summary>Diagnostic log line — loud surfacing of parse errors and dropped (unknown-command) entries.</summary>
+	/// <summary>Diagnostic log line: parse errors and dropped (unknown-command) entries.</summary>
 	public event Action<string>? Log;
 
 	/// <summary>The keybindings file backing this store.</summary>
@@ -124,9 +122,8 @@ public sealed class KeybindingStore : IDisposable {
 		}
 	}
 
-	// Reads + merges the file, swapping in the new resolved list. Returns whether the resolved JSON
-	// actually changed (so the watch path only fires the event on a real change). A malformed file keeps
-	// the last-good resolved list (defaults survive even on the first load).
+	// Reads + merges the file, swapping in the new resolved list. Returns whether the resolved JSON actually
+	// changed, so the watch path only fires on a real change. A malformed file keeps the last-good list.
 	private bool ReloadLocked() {
 		var merged = MergeLocked(ReadUserEntriesLocked());
 		string json = CommandCatalog.BuildKeybindingsArrayJson(merged);
@@ -154,8 +151,8 @@ public sealed class KeybindingStore : IDisposable {
 			}
 		}
 
-		// Apply user entries in order: unbind removes matching (key, command); a normal entry adds/overrides
-		// (the web resolves last-match-first, so later user entries win for the same key).
+		// Apply user entries in order: unbind removes a matching (key, command); a normal entry adds/overrides
+		// (the web resolves last-match-first, so later entries win for the same key).
 		foreach (var entry in userEntries) {
 			if (entry.IsUnbind) {
 				result.RemoveAll(b =>

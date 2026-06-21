@@ -4,9 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Weavie's tool-permission gate (the <c>claude.allowAllTools</c> axis): when on, it auto-allows non-edit
-/// PermissionRequest events (the dialog-time hook); edits (governed by Claude's own mode) and the
-/// observation-only PreToolUse/PostToolUse events pass through.
+/// The <c>claude.allowAllTools</c> gate: when on, auto-allows non-edit PermissionRequest events;
+/// edits (governed by Claude's own mode) and observation-only PreToolUse/PostToolUse pass through.
 /// </summary>
 public sealed class HookPolicyTests {
 	private static HookRequest Req(string tool) =>
@@ -28,12 +27,12 @@ public sealed class HookPolicyTests {
 	[InlineData("MultiEdit")]
 	[InlineData("NotebookEdit")]
 	public void AllowAllOn_EditTool_PassesThrough(string tool) =>
-		// Edits follow Claude's own mode, never auto-allowed here, so the two permission axes never contradict.
+		// Edits follow Claude's own mode, never auto-allowed here.
 		Assert.Equal(HookDecisionKind.PassThrough, HookPolicy.Decide(Req(tool), allowAllTools: true).Kind);
 
 	[Fact]
 	public void AllowAllOn_PreToolUse_PassesThrough() {
-		// The gate is PermissionRequest now; PreToolUse is observation-only (change tracking) and never decides.
+		// PreToolUse is observation-only (change tracking) and never decides.
 		var pre = new HookRequest { Event = HookEventKind.PreToolUse, ToolName = "Bash", ToolInputJson = "{}" };
 		Assert.Equal(HookDecisionKind.PassThrough, HookPolicy.Decide(pre, allowAllTools: true).Kind);
 	}

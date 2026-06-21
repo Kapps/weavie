@@ -7,9 +7,8 @@ namespace Weavie.Core.Sessions;
 /// <summary>
 /// The per-workspace set of sessions (and which one was active), persisted to
 /// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a workspace reopens with the same sessions bound
-/// to the same worktrees. Mirrors <see cref="Worktrees.WorktreeRegistry"/> /
-/// <see cref="Weavie.Core.Workspaces.RecentWorkspaces"/> conventions: atomic writes; a malformed file is
-/// backed up to <c>sessions.json.bad</c> and reset rather than throwing.
+/// to the same worktrees. Atomic writes; a malformed file is backed up to <c>sessions.json.bad</c> and
+/// reset rather than throwing.
 /// </summary>
 public sealed class SessionStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };

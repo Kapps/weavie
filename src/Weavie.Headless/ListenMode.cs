@@ -3,18 +3,16 @@ using System.Net;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The host's listening decision, resolved once from CLI/env. Remote listening is OPT-IN (<c>--remote</c>);
-/// when on, a token is <b>required</b> — the <see cref="Remote"/> case carries a non-null token, so auth
-/// enforcement keys off the <em>mode</em> (is this remote?), never off "did the server happen to have a
-/// token." A network interface can be bound <b>only</b> via <see cref="Remote"/>, which mandates the token,
-/// so an exposed-but-unauthenticated host is literally unrepresentable. <see cref="Local"/> binds loopback
-/// and needs no auth (the OS loopback is the trust boundary).
+/// The host's listening decision, resolved once from CLI/env. Remote listening is opt-in (<c>--remote</c>) and
+/// the <see cref="Remote"/> case carries a non-null token, so auth keys off the mode, not token presence. Only
+/// <see cref="Remote"/> can bind a network interface and it mandates the token, so an exposed-but-unauthenticated
+/// host is unrepresentable. <see cref="Local"/> binds loopback and needs no auth.
 /// </summary>
 internal abstract record ListenMode {
 	private ListenMode() {
 	}
 
-	/// <summary>Loopback only, no auth. The default — local dev / a host driven by a native shell.</summary>
+	/// <summary>Loopback only, no auth. The default for local dev / a host driven by a native shell.</summary>
 	internal sealed record Local : ListenMode;
 
 	/// <summary>A network bind with a required token; auth is enforced for every request.</summary>
@@ -24,10 +22,9 @@ internal abstract record ListenMode {
 	public string BindAddress => this is Remote remote ? remote.Bind : "127.0.0.1";
 
 	/// <summary>
-	/// Resolves the mode, or returns <c>(null, error)</c> for a contradictory/unsafe combination so the caller
-	/// prints the message and exits non-zero (fail closed). It never yields a remote mode without a token, and
-	/// it refuses to bind a network interface unless <c>--remote</c> was given — so exposure can't happen by
-	/// accident, and "exposed" always implies "authenticated."
+	/// Resolves the mode, or <c>(null, error)</c> for an unsafe combination so the caller fails closed. Never
+	/// yields remote without a token, and refuses a network bind unless <c>--remote</c> was given, so "exposed"
+	/// always implies "authenticated."
 	/// </summary>
 	public static (ListenMode? Mode, string? Error) Resolve(string[] args) {
 		bool remote = HasFlag(args, "--remote")
@@ -42,8 +39,8 @@ internal abstract record ListenMode {
 				: (new Remote(string.IsNullOrEmpty(bind) ? "0.0.0.0" : bind, token), null);
 		}
 
-		// Local mode: refuse anything that would expose the host or imply auth, so the only way to bind a
-		// network interface is the --remote path (which mandates a token).
+		// Local mode: refuse anything that would expose the host or imply auth, so a network bind is only
+		// reachable via --remote (which mandates a token).
 		if (bind is not null && !IsLoopback(bind)) {
 			return (null, $"--bind '{bind}' exposes a network interface and requires --remote (which mandates a token). Refusing.");
 		}

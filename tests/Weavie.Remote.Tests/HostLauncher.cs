@@ -6,14 +6,13 @@ using System.Text;
 namespace Weavie.Remote.Tests;
 
 /// <summary>
-/// Locates the built host dlls and launches them as real processes for black-box auth probing. These tests
-/// assert against exactly what ships (the full Kestrel pipeline + the central auth gate + the fail-closed
-/// startup), so no internal seam can pass while the wiring is bypassable.
+/// Locates the built host dlls and launches them as real processes for black-box auth probing — asserting
+/// against exactly what ships (Kestrel pipeline + central auth gate + fail-closed startup).
 /// </summary>
 internal static class Hosts {
 	public static string RepoRoot { get; } = FindRepoRoot();
 
-	// The hosts build in the same configuration as this test assembly; derive it from our own output path.
+	// Hosts build in the same configuration as this test assembly; derive it from our own output path.
 	public static string Config { get; } =
 		AppContext.BaseDirectory.Replace('\\', '/').Contains("/Release/", StringComparison.Ordinal) ? "Release" : "Debug";
 
@@ -46,9 +45,9 @@ internal static class Hosts {
 }
 
 /// <summary>
-/// A launched host process. <see cref="StartAsync"/> waits for a readiness marker (and fails if the process
-/// exits first); <see cref="RunToExitAsync"/> runs a process expected to refuse and exit. Disposing kills the
-/// whole tree (so a runner's spawned worker can't linger).
+/// A launched host process. <see cref="StartAsync"/> waits for a readiness marker (failing if the process
+/// exits first); <see cref="RunToExitAsync"/> runs a process expected to refuse and exit. Disposing kills
+/// the whole tree so a runner's spawned worker can't linger.
 /// </summary>
 public sealed class HostHandle : IAsyncDisposable {
 	private readonly Process _process;
@@ -103,8 +102,8 @@ public sealed class HostHandle : IAsyncDisposable {
 
 		try {
 			await ready.Task.WaitAsync(timeout).ConfigureAwait(false);
-			// The hosts print the banner just BEFORE app.RunAsync() actually binds the port, so the marker alone
-			// races the listener. Poll an actual TCP connect until it accepts, closing the race deterministically.
+			// The banner prints before the port actually binds, so the marker races the listener. Poll a real
+			// TCP connect until it accepts to close the race deterministically.
 			await WaitForPortAsync(port, process, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
 		} catch {
 			TreeKill(process);

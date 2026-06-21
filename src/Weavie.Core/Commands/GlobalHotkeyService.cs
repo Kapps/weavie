@@ -2,15 +2,13 @@ namespace Weavie.Core.Commands;
 
 /// <summary>
 /// The cross-platform half of global hotkeys: it owns <em>which</em> hotkeys exist and what they do, while a
-/// per-OS <see cref="IGlobalHotkeyRegistrar"/> owns the native registration. It reads the global bindings out
-/// of the <see cref="KeybindingStore"/> (those marked <see cref="ResolvedKeybinding.Global"/>), parses each
-/// chord, and hands the set to the registrar — re-applying whenever the user edits
-/// <c>~/.weavie/keybindings.json</c>. When the registrar reports a press, it invokes the bound command
-/// through the <see cref="CommandDispatcher"/>, exactly like any other trigger (keybinding, palette, MCP).
+/// per-OS <see cref="IGlobalHotkeyRegistrar"/> owns the native registration. It reads the
+/// <see cref="ResolvedKeybinding.Global"/> bindings from the <see cref="KeybindingStore"/>, parses each chord,
+/// and hands the set to the registrar — re-applying when the user edits <c>~/.weavie/keybindings.json</c>. On
+/// a press it invokes the bound command through the <see cref="CommandDispatcher"/>, like any other trigger.
 ///
-/// Lives at app scope (one per process): a global hotkey isn't tied to any one window. Both hosts construct
-/// one with their platform registrar and an app-level dispatcher carrying the window-focus handler. Disposing
-/// it detaches the store subscription and disposes the registrar. See <c>docs/specs/commands.md</c>.
+/// Lives at app scope (one per process): a global hotkey isn't tied to any one window. Disposing it detaches
+/// the store subscription and disposes the registrar. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public sealed class GlobalHotkeyService : IDisposable {
 	private readonly KeybindingStore _keybindings;
@@ -20,9 +18,8 @@ public sealed class GlobalHotkeyService : IDisposable {
 	private bool _disposed;
 
 	/// <summary>
-	/// Wires the service over <paramref name="keybindings"/> + <paramref name="dispatcher"/> +
-	/// <paramref name="registrar"/>, applies the current global bindings immediately, and re-applies on each
-	/// keybindings-file change. The service takes ownership of <paramref name="registrar"/> (disposes it).
+	/// Wires the service, applies the current global bindings immediately, and re-applies on each
+	/// keybindings-file change. Takes ownership of <paramref name="registrar"/> (disposes it).
 	/// </summary>
 	public GlobalHotkeyService(KeybindingStore keybindings, CommandDispatcher dispatcher, IGlobalHotkeyRegistrar registrar) {
 		ArgumentNullException.ThrowIfNull(keybindings);
@@ -38,7 +35,7 @@ public sealed class GlobalHotkeyService : IDisposable {
 		_keybindings.KeybindingsChanged += _onKeybindingsChanged;
 	}
 
-	/// <summary>Diagnostic log line — surfaces dispatch failures (a global command with no handler, etc.).</summary>
+	/// <summary>Diagnostic log line: dispatch failures (a global command with no handler, etc.).</summary>
 	public event Action<string>? Log;
 
 	/// <inheritdoc/>
@@ -54,7 +51,7 @@ public sealed class GlobalHotkeyService : IDisposable {
 	}
 
 	// Recompute the global hotkey set from the resolved bindings and hand it to the registrar. A global
-	// binding with no key (modifiers-only) can't be a hotkey — drop it loudly rather than register garbage.
+	// binding with no key (modifiers-only) can't be a hotkey, so drop it loudly rather than register garbage.
 	private void Apply() {
 		var hotkeys = new List<GlobalHotkey>();
 		foreach (var binding in _keybindings.Resolved) {

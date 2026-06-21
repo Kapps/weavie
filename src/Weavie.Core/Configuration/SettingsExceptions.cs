@@ -41,8 +41,8 @@ public sealed class SettingValidationException : Exception {
 }
 
 /// <summary>
-/// Thrown when a write is refused because <c>settings.toml</c> currently has parse errors — we never
-/// clobber an unparseable file the user is mid-edit on.
+/// Thrown when a write is refused because <c>settings.toml</c> has parse errors: never clobber an unparseable
+/// file the user is mid-edit on.
 /// </summary>
 public sealed class SettingsFileMalformedException : Exception {
 	/// <summary>Creates the exception with the parse-failure <paramref name="message"/>.</summary>

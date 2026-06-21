@@ -1,9 +1,8 @@
 namespace Weavie.Remote.Tests;
 
 /// <summary>
-/// The token variants every auth surface must reject — missing, empty, wrong, wrong-length (short/long), and
-/// case-flipped — versus the one correct token. Centralized so the headless and runner suites probe the exact
-/// same matrix.
+/// The token variants every auth surface must reject — missing, empty, wrong, wrong-length (short/long),
+/// case-flipped — versus the one correct token. Centralized so headless and runner suites share the matrix.
 /// </summary>
 internal static class Tokens {
 	/// <summary>The host's configured token (32 lowercase hex chars), the only value that authorizes.</summary>

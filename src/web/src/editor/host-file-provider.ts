@@ -1,13 +1,8 @@
 // The host-backed `file://` provider: the bridge through which Monaco's VSCode working copies read and write
-// the REAL disk. monaco-vscode-api's file service backs `file://` with an OverlayFileSystemProvider whose only
-// layer is an empty in-memory FS, so resolving a `file://` model reference (createModelReference →
-// TextFileEditorModel.resolve → fileService.readFile) used to fail with "Unable to read file …" and break
-// every feature that resolves one (occurrence highlighting, peek/references, format, …). This module fills
-// that gap: a provider registered in FRONT of the empty layer (priority 1) that proxies stat/read/write to
-// the C# host (→ real disk) over a correlated bridge, and turns host `fs-change` pushes into the file
-// service's change event so VSCode reloads the affected working copies. No workbench/UI is involved — this is
-// purely the file-service substrate. See docs/specs/file-management-and-sessions.md and the plan in
-// memory file-scheme-empty-provider.md.
+// real disk. monaco-vscode-api backs `file://` with an empty in-memory overlay layer, so a provider
+// registered in front of it (priority 1) proxies stat/read/write to the C# host over a correlated bridge and
+// turns host `fs-change` pushes into the file service's change event so VSCode reloads affected working
+// copies. Purely the file-service substrate, no workbench/UI. See docs/specs/file-management-and-sessions.md.
 
 import { Emitter } from "@codingame/monaco-vscode-api/vscode/vs/base/common/event";
 import type { IDisposable } from "@codingame/monaco-vscode-api/vscode/vs/base/common/lifecycle";
@@ -95,8 +90,8 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   private readonly _onDidChangeFile = new Emitter<readonly IFileChange[]>();
   readonly onDidChangeFile = this._onDidChangeFile.event;
 
-  // We don't watch per-resource; the host pushes fs-change for the whole workspace (Claude edits + the
-  // workspace watcher). VSCode still calls watch() for every resolved model — make it a cheap no-op.
+  // No per-resource watching; the host pushes fs-change for the whole workspace. VSCode still calls watch()
+  // for every resolved model, so make it a cheap no-op.
   watch(): IDisposable {
     return { dispose: () => undefined };
   }
@@ -122,16 +117,16 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
     if (result.type === "fs-read-result" && result.ok && result.content !== undefined) {
       return encoder.encode(result.content);
     }
-    // FileNotFound is a coded error the overlay catches → it falls through to the empty in-memory layer
-    // (which also reports not-found), so a genuinely missing file reads as missing instead of erroring.
+    // FileNotFound is a coded error the overlay catches and falls through to the empty in-memory layer, so a
+    // genuinely missing file reads as missing instead of erroring.
     if (result.type === "fs-read-result" && result.code === "FileNotFound") {
       throw FileSystemProviderError.create(
         `Unable to resolve nonexistent file '${resource.toString()}'`,
         FileSystemProviderErrorCode.FileNotFound,
       );
     }
-    // A real read failure on an existing file is Unknown — NOT in the overlay's fall-through set, so it
-    // propagates loudly rather than being silently swallowed.
+    // A real read failure on an existing file is Unknown — not in the overlay's fall-through set, so it
+    // propagates rather than being swallowed.
     const error = result.type === "fs-read-result" ? result.error : undefined;
     throw FileSystemProviderError.create(
       error ?? `Unable to read file '${resource.toString()}'`,
@@ -174,9 +169,8 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   fireChanges(changes: { path: string; kind: "updated" | "added" | "deleted" }[]): void {
     const events: IFileChange[] = changes.map((change) => ({
       type: mapChangeType(change.kind),
-      // Same drive-case canonicalization as the editor's open path (see canonicalFsPath): the host sends an
-      // uppercase-drive `C:\…`, the open working copy is `file:///c%3A/…`, and `file://` matching is
-      // case-sensitive — without this the change never matches the model and the working copy never reloads.
+      // Drive-case canonicalization (see canonicalFsPath): the host sends `C:\…`, the open working copy is
+      // `file:///c%3A/…`, and `file://` matching is case-sensitive, so without this the change never matches.
       resource: URI.file(canonicalFsPath(change.path)),
     }));
     if (events.length > 0) {
@@ -185,8 +179,8 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   }
 
   private unsupported(op: string): FileSystemProviderError {
-    // NoPermissions is in the overlay's fall-through set, so an accidental dir op degrades to "no delegate
-    // handled it" rather than crashing — the editor never asks the file:// provider to mutate directories.
+    // NoPermissions is in the overlay's fall-through set, so an accidental dir op degrades rather than
+    // crashing; the editor never asks the file:// provider to mutate directories.
     return FileSystemProviderError.create(
       `host file provider: ${op} is not supported`,
       FileSystemProviderErrorCode.NoPermissions,
@@ -198,8 +192,7 @@ let installed = false;
 
 /**
  * Registers the host-backed `file://` provider in front of the empty in-memory layer and wires the correlated
- * bridge client. Must run AFTER `initialize()` (the file service must exist). Idempotent — a second call (e.g.
- * a dev hot reload that re-imports this module) is a no-op, so the overlay + listener are installed once.
+ * bridge client. Must run after `initialize()` (the file service must exist). Idempotent.
  */
 export function installHostFileProvider(): void {
   if (installed) {
@@ -208,7 +201,7 @@ export function installHostFileProvider(): void {
   installed = true;
 
   const provider = new HostFileProvider();
-  // Priority 1 > the default empty in-memory layer at priority 0, so our provider answers first and the
+  // Priority 1 > the default empty in-memory layer at priority 0, so this provider answers first and the
   // empty layer remains only as the not-found fall-through.
   registerFileSystemOverlay(1, provider);
 

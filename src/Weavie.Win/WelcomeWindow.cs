@@ -7,12 +7,11 @@ using Weavie.Win.Hosting;
 namespace Weavie.Win;
 
 /// <summary>
-/// The app's empty state: a standalone, ordinary OS-chrome window (not the frameless workspace chrome)
-/// whose body is a WebView2 rendering the shared web app's welcome screen (welcome.html). Deliberately has
-/// <em>no</em> session — no terminals, Claude, MCP, or LSP load until a folder is opened. The web view
-/// drives the app back through the same <c>menu-action</c> bridge messages the title-bar File menu uses
-/// (open-folder / open-recent), so the welcome UI is written once and shared with macOS. Closing it with
-/// nothing else open quits the app (see <see cref="AppController"/>).
+/// The app's empty state: an ordinary OS-chrome window whose body is a WebView2 rendering the shared web
+/// app's welcome screen (welcome.html). Deliberately has <em>no</em> session — no terminals, Claude, MCP,
+/// or LSP until a folder is opened. It drives the app back through the same <c>menu-action</c> bridge
+/// messages the File menu uses (open-folder / open-recent). Closing it with nothing else open quits the
+/// app (see <see cref="AppController"/>).
 /// </summary>
 internal sealed class WelcomeWindow : Form {
 	// Synthetic host for the virtual-host mapping; mirrors WorkspaceWindow / the macOS app:// scheme.
@@ -35,8 +34,8 @@ internal sealed class WelcomeWindow : Form {
 	private const double WidthFraction = 0.5;
 	private const double HeightFraction = 0.62;
 
-	// The welcome page's dark background, painted on the host surfaces before the page loads so the
-	// WebView2 cold-start shows dark instead of white. Matches welcome.html's pre-JS splash.
+	// Dark background painted on host surfaces before the page loads, so the WebView2 cold-start shows
+	// dark instead of white. Matches welcome.html's pre-JS splash.
 	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	private readonly AppController _app;
@@ -73,9 +72,8 @@ internal sealed class WelcomeWindow : Form {
 	}
 
 	/// <summary>
-	/// Drops bare Alt/F10 menu-bar activation, as the workspace window does: this window has no menu bar
-	/// (just the web welcome screen), so entering menu mode would only freeze input and beep. Alt+Space still
-	/// opens the system menu.
+	/// Drops bare Alt/F10 menu-bar activation: this window has no menu bar, so menu mode would only freeze
+	/// input and beep. Alt+Space still opens the system menu.
 	/// </summary>
 	protected override void WndProc(ref Message m) {
 		if (CustomChrome.HandleSysKeyMenu(ref m)) {
@@ -110,7 +108,7 @@ internal sealed class WelcomeWindow : Form {
 	private async Task InitializeAsync() {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 		// SetVirtualHostNameToFolderMapping throws if the folder is absent; ensure it exists so a build
-		// without web assets still opens the window (navigation 404s) instead of crashing.
+		// without web assets still opens (navigation 404s) instead of crashing.
 		Directory.CreateDirectory(wwwroot);
 
 		string userDataFolder = WeaviePaths.Internal("webview2");
@@ -132,10 +130,8 @@ internal sealed class WelcomeWindow : Form {
 		// round-trip). Re-injected + reloaded if a recent is later pruned (RefreshRecentsAsync).
 		await InjectRecentsAsync();
 
-		// The welcome screen is the empty state — no session, and no dev server of its own — so it always serves
-		// the bundled wwwroot over https://weavie.app/. Each workspace window owns its own per-instance Vite dev
-		// server in Debug; the welcome deliberately doesn't probe for or reuse one (a cross-process reuse is
-		// exactly the worktree cross-talk we removed).
+		// The welcome screen is the empty state — no session, no dev server — so it always serves the bundled
+		// wwwroot over https://weavie.app/, deliberately never probing for a workspace's Vite dev server.
 		core.Navigate($"https://{AppHost}/welcome.html");
 	}
 
@@ -171,7 +167,7 @@ internal sealed class WelcomeWindow : Form {
 				HandleMenuAction(root);
 				break;
 			default:
-				// ready / log / anything else — surface for diagnostics and unattended capture.
+				// ready / log / anything else: surface for diagnostics and unattended capture.
 				Console.WriteLine($"[weavie] (welcome) {json}");
 				Console.Out.Flush();
 				break;
@@ -203,7 +199,7 @@ internal sealed class WelcomeWindow : Form {
 		_webView.CoreWebView2?.Reload();
 	}
 
-	/// <summary>Tears the WebView2 down deterministically before the handle is destroyed (mirrors WorkspaceWindow).</summary>
+	/// <summary>Tears the WebView2 down deterministically before the handle is destroyed.</summary>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
 		if (_webViewTornDown) {
 			return;

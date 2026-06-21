@@ -1,10 +1,9 @@
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// Builds the Windows menu bar for a workspace window — the native UI for the Core open-folder /
-/// recents functionality (<see cref="AppController"/> + <c>WorkspaceManager</c>). Dark-styled to match
-/// the web chrome (styles.css <c>--bar</c>/<c>--fg</c>/<c>--border</c>), since the default WinForms
-/// MenuStrip is light gray. Mac sibling: the NSMenu built in AppDelegate.
+/// Builds the Windows menu bar for a workspace window — the native UI for open-folder / recents
+/// (<see cref="AppController"/> + <c>WorkspaceManager</c>). Dark-styled to match the web chrome, since the
+/// default WinForms MenuStrip is light gray.
 /// </summary>
 internal static class AppMenu {
 	private static readonly Color BarColor = Color.FromArgb(0x25, 0x25, 0x26);
@@ -15,8 +14,8 @@ internal static class AppMenu {
 
 	/// <summary>
 	/// Installs the dark menu renderer process-wide. Setting the global <see cref="ToolStripManager.Renderer"/>
-	/// (rather than a per-strip renderer) is the reliable way to override WinForms' light default — a
-	/// per-instance renderer is silently ignored unless render mode is flipped. Idempotent; UI thread only.
+	/// reliably overrides WinForms' light default — a per-instance renderer is silently ignored unless render
+	/// mode is flipped. Idempotent; UI thread only.
 	/// </summary>
 	public static void UseDarkChrome() {
 		if (_darkChromeInstalled) {
@@ -48,8 +47,8 @@ internal static class AppMenu {
 		// Seed one item so the submenu arrow shows before it's first opened.
 		openRecent.DropDownItems.Add(new ToolStripMenuItem("(loading…)") { Enabled = false });
 
-		// Close Window (vs. the title-bar X): closing the LAST window this way falls back to the welcome
-		// window rather than quitting — see AppController.OnWorkspaceWindowClosed.
+		// Closing the LAST window this way (vs. the title-bar X) falls back to the welcome window rather than
+		// quitting — see AppController.OnWorkspaceWindowClosed.
 		var closeWindow = new ToolStripMenuItem("Close Window", null, (_, _) => owner.CloseToWelcome()) {
 			ShortcutKeys = Keys.Control | Keys.W,
 			ForeColor = FgColor,
@@ -92,8 +91,8 @@ internal static class AppMenu {
 	}
 
 	/// <summary>
-	/// A dark menu renderer that paints backgrounds and text explicitly (the stock professional renderer is
-	/// light gray). Borders/margins still come from the dark color table.
+	/// A dark menu renderer that paints backgrounds and text explicitly (the stock renderer is light gray).
+	/// Borders/margins come from the dark color table.
 	/// </summary>
 	private sealed class DarkRenderer() : ToolStripProfessionalRenderer(new DarkColorTable()) {
 		protected override void OnRenderToolStripBackground(ToolStripRenderEventArgs e) =>

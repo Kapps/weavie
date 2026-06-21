@@ -6,8 +6,8 @@ import "../fonts.css";
 import "./welcome.css";
 
 // Entry for welcome.html — the standalone empty-state window. No bridge listeners, layout, editor, or
-// terminals: the host injects the recent workspaces as window.__WEAVIE_WELCOME__ before navigation, and
-// the view drives the host back with the existing `menu-action` (open-folder / open-recent) messages.
+// terminals: the host injects recent workspaces as window.__WEAVIE_WELCOME__ before navigation, and the
+// view drives the host back with `menu-action` (open-folder / open-recent) messages.
 const root = document.getElementById("root");
 if (root === null) {
   throw new Error("missing #root");

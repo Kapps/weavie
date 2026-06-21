@@ -4,21 +4,16 @@ using Weavie.Core.Terminal;
 namespace Weavie.Win.Terminal;
 
 /// <summary>
-/// Headless self-check for the ConPTY path (run via <c>Weavie.Win.exe --pty-smoke</c>). Spawns a
-/// throwaway pseudo console running <c>cmd /c echo</c>, collects the rendered output, and confirms
-/// the marker round-trips and the child's exit code is observed. Exercises the entire Windows
-/// terminal stack — pipes, CreatePseudoConsole, the proc-thread attribute list, CreateProcess, the
-/// read loop, and exit detection — without needing the WebView2 UI. Diagnostic only.
+/// Headless self-check for the ConPTY path (<c>Weavie.Win.exe --pty-smoke</c>): spawns a throwaway
+/// pseudo console, echoes a marker, and confirms it round-trips. Exercises the whole Windows terminal
+/// stack without the WebView2 UI. Diagnostic only.
 /// </summary>
 internal static class PtySmoke {
 	private const string Marker = "weavie-pty-ok";
 
 	public static int Run() {
 		// Optionally log to a file (WEAVIE_SMOKE_LOG) to keep the smoke's own diagnostics out of the
-		// captured stream when stdout is redirected. The child's output no longer leaks onto a
-		// redirected parent stdout: WindowsConPtyTerminal spawns with STARTF_USESTDHANDLES + NULL std
-		// handles so the child attaches solely to the pseudoconsole, never the parent's stdio (see
-		// SpawnChild).
+		// captured stream when stdout is redirected.
 		string? logPath = Environment.GetEnvironmentVariable("WEAVIE_SMOKE_LOG");
 		void Log(string line) {
 			if (string.IsNullOrEmpty(logPath)) {
@@ -45,8 +40,7 @@ internal static class PtySmoke {
 			}
 		};
 
-		// Drive an interactive cmd.exe (mirrors the long-lived `claude` workload): wait for the
-		// prompt, ask it to echo the marker, then exit.
+		// Drive an interactive cmd.exe (mirrors the long-lived `claude` workload): echo the marker, exit.
 		string comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";
 		terminal.Start(new TerminalStartInfo {
 			Command = comspec,

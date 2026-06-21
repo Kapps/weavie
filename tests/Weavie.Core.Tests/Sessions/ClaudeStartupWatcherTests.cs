@@ -5,17 +5,17 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Exercises <see cref="ClaudeStartupWatcher"/>: a launch is confirmed up only once it streams a full TUI's
-/// worth of output (never on the mere first byte — the regression that let a fast-failing create masquerade as
-/// started); confirmation settles once; and exit maps to the right recovery — a clean exit or a confirmed run
-/// heals nothing, an unconfirmed crash re-creates the same id when resuming or forgets a poison create id.
+/// worth of output, not on the first byte; confirmation settles once; and exit maps to the right recovery —
+/// a clean exit or confirmed run heals nothing, an unconfirmed crash re-creates the same id when resuming or
+/// forgets a poison create id.
 /// </summary>
 public sealed class ClaudeStartupWatcherTests {
-	// Mirrors the watcher's internal confirmation threshold; one chunk this size crosses it.
+	// The watcher's confirmation threshold; one chunk this size crosses it.
 	private const int Confirmed = 4096;
 
 	[Fact]
 	public void ShortError_DoesNotConfirm() {
-		// The bug: a create launch was confirmed on its first output, so an error line then exit looked "started".
+		// An error line under the threshold must not confirm, even though it is the first output.
 		var watcher = new ClaudeStartupWatcher(resuming: false);
 
 		Assert.False(watcher.Observe("No conversation found with session ID: e74af419\n"));

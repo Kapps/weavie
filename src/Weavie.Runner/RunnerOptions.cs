@@ -3,10 +3,8 @@ using System.Security.Cryptography;
 namespace Weavie.Runner;
 
 /// <summary>
-/// Resolved configuration for the runner daemon, read once at startup from CLI args, then environment
-/// variables, then defaults. <see cref="RunnerToken"/> gates the control plane; <see cref="Bind"/> /
-/// <see cref="Port"/> are where the control plane listens; <see cref="WorkspaceRoot"/> is the repository
-/// whose worktrees back sessions; <see cref="HeadlessPath"/> is the Weavie.Headless build the workers run.
+/// Resolved configuration for the runner daemon, read once at startup from CLI args, then environment, then
+/// defaults.
 /// </summary>
 public sealed record RunnerOptions {
 	/// <summary>The repository root whose worktrees back sessions (the box's checkout).</summary>
@@ -28,10 +26,9 @@ public sealed record RunnerOptions {
 	public required string RunnerToken { get; init; }
 
 	/// <summary>
-	/// Builds the options from process args + environment, generating a token when none is supplied. Returns
-	/// <c>(null, error)</c> — for the caller to print and exit non-zero — when the Weavie.Headless worker binary
-	/// can't be located (or an explicit <c>--headless</c> path doesn't exist), so a missing worker fails LOUDLY
-	/// at startup instead of silently handing the supervisor a dead path to crash-loop on.
+	/// Builds the options from args + environment, generating a token when none is supplied. Returns
+	/// <c>(null, error)</c> when the Weavie.Headless worker binary can't be located, so a missing worker fails
+	/// loudly at startup instead of crash-looping the supervisor on a dead path.
 	/// </summary>
 	public static (RunnerOptions? Options, string? Error) Resolve(string[] args) {
 		string? workspace = Arg(args, "--workspace") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_WORKSPACE");
@@ -73,10 +70,9 @@ public sealed record RunnerOptions {
 	}
 
 	/// <summary>
-	/// Resolves the worker binary, or <c>(null, error)</c> when it can't be found — never a path it hasn't
-	/// confirmed exists. An explicit <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> must point at a real file.
-	/// Otherwise it probes the known build locations and errors listing every path it checked, so a build/config
-	/// mismatch is obvious at startup instead of surfacing later as a crash-looping worker.
+	/// Resolves the worker binary, or <c>(null, error)</c> when it can't be found — never an unconfirmed path. An
+	/// explicit <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> must point at a real file; otherwise it probes
+	/// the known build locations and, on failure, errors listing every path it checked.
 	/// </summary>
 	private static (string? Path, string? Error) ResolveHeadlessPath(string[] args) {
 		string? explicitPath = Arg(args, "--headless") ?? Environment.GetEnvironmentVariable("WEAVIE_HEADLESS_PATH");
@@ -100,10 +96,9 @@ public sealed record RunnerOptions {
 	}
 
 	/// <summary>
-	/// The build locations to probe for the worker dll, nearest-first: the sibling Weavie.Headless project
-	/// output (a dev build), then a copy beside the runner (a published layout). Only the <em>last</em>
-	/// <c>Weavie.Runner</c> path segment is rewritten, so a checkout that itself lives under a
-	/// <c>Weavie.Runner</c> directory can't be corrupted into the wrong sibling path.
+	/// The build locations to probe for the worker dll, nearest-first: the sibling Weavie.Headless project output
+	/// (dev build), then a copy beside the runner (published layout). Only the last <c>Weavie.Runner</c> path
+	/// segment is rewritten, so a checkout under a <c>Weavie.Runner</c> directory can't be corrupted.
 	/// </summary>
 	private static IReadOnlyList<string> ProbeCandidates() {
 		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/<tfm>/

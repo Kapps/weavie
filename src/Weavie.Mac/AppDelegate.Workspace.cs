@@ -4,16 +4,16 @@ using Foundation;
 
 namespace Weavie.Mac;
 
-// Workspace + chrome wiring: the keybinding-chord lookup that feeds the native menu, and File ▸ Open Folder /
-// Open Recent (a workspace switch via app relaunch). Split from AppDelegate.cs so each file holds one concern.
+// Workspace + chrome wiring: the keybinding-chord lookup feeding the native menu, and File ▸ Open Folder /
+// Open Recent (a workspace switch via app relaunch).
 public sealed partial class AppDelegate {
-	/// <summary>The effective chord for a command id (the first non-global resolved binding), or null if unbound.</summary>
+	/// <summary>The effective chord for a command id (first non-global resolved binding), or null if unbound.</summary>
 	private string? ResolveChord(string commandId) =>
 		_services?.Keybindings.Resolved.FirstOrDefault(binding => binding.Command == commandId && !binding.Global)?.Key;
 
 	/// <summary>
-	/// Shows the native "open folder as workspace" picker (File ▸ Open Folder). The chosen folder becomes the
-	/// workspace on the next launch — see <see cref="SwitchWorkspace"/>.
+	/// Shows the native folder picker (File ▸ Open Folder); the chosen folder becomes the workspace via
+	/// <see cref="SwitchWorkspace"/>.
 	/// </summary>
 	private void OpenFolderInteractive() {
 		var panel = NSOpenPanel.OpenPanel;
@@ -28,9 +28,8 @@ public sealed partial class AppDelegate {
 	}
 
 	/// <summary>
-	/// Switches the workspace to <paramref name="path"/>: records it in recents, persists it as the
-	/// <c>workspace</c> setting, and relaunches the app (a fresh instance opens the new folder, then this one
-	/// exits). v1 hosts a single workspace per process, so a switch is a clean relaunch.
+	/// Switches the workspace to <paramref name="path"/>: records it in recents, persists the <c>workspace</c>
+	/// setting, and relaunches the app. A process hosts one workspace, so a switch is a clean relaunch.
 	/// </summary>
 	private void SwitchWorkspace(string path) {
 		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) {
@@ -43,12 +42,12 @@ public sealed partial class AppDelegate {
 		}
 
 		_recents?.Add(path);
-		// Build the JSON string element by hand (JsonSerializer.Serialize is trim-unsafe — IL2026 — on macOS).
+		// Build the JSON string element by hand: JsonSerializer.Serialize is trim-unsafe (IL2026) on macOS.
 		_services?.Settings.Set("workspace", JsonDocument.Parse("\"" + JsonEncodedText.Encode(path) + "\"").RootElement.Clone());
 		RelaunchApp();
 	}
 
-	/// <summary>Launches a fresh instance of the app bundle (which reads the updated workspace) and quits this one.</summary>
+	/// <summary>Launches a fresh instance of the app bundle and quits this one.</summary>
 	private static void RelaunchApp() {
 		string bundlePath = NSBundle.MainBundle.BundlePath;
 		try {

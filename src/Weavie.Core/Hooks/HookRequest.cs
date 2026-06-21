@@ -3,10 +3,9 @@ using System.Text.Json;
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// A parsed Claude Code hook event — the JSON Claude pipes to a <c>command</c> hook's stdin, relayed to
-/// Weavie over the hook pipe. Carries enough to record a change (the tool plus its raw input) and to route
-/// a decision. Malformed payloads parse to <see langword="null"/>, and the bridge then stays out of the way.
-/// Non-tool events (turn boundaries like <c>UserPromptSubmit</c>/<c>Stop</c>) carry an empty tool name.
+/// A parsed Claude Code hook event — the JSON Claude pipes to a <c>command</c> hook's stdin, relayed over the
+/// hook pipe. Carries enough to record a change (tool plus raw input) and route a decision. Malformed payloads
+/// parse to <see langword="null"/>. Non-tool events (turn boundaries) carry an empty tool name.
 /// </summary>
 public sealed record HookRequest {
 	/// <summary>The hook event (pre/post tool use, or a turn boundary).</summary>
@@ -22,8 +21,8 @@ public sealed record HookRequest {
 	public string? SessionId { get; init; }
 
 	/// <summary>
-	/// For a <see cref="HookEventKind.SessionStart"/> event, why the conversation (re)started — <c>startup</c> /
-	/// <c>resume</c> / <c>clear</c> / <c>compact</c>. Weavie acts on <c>clear</c>. Absent on other events.
+	/// For a <see cref="HookEventKind.SessionStart"/> event, why the conversation (re)started (<c>startup</c>/
+	/// <c>resume</c>/<c>clear</c>/<c>compact</c>); Weavie acts on <c>clear</c>. Absent on other events.
 	/// </summary>
 	public string? Source { get; init; }
 
@@ -31,17 +30,15 @@ public sealed record HookRequest {
 	public string? Cwd { get; init; }
 
 	/// <summary>
-	/// Claude Code's own permission mode at the time of the event (<c>default</c>/<c>acceptEdits</c>/<c>plan</c>/
-	/// <c>bypassPermissions</c>), when the payload carries it. Claude OWNS this (the user cycles it with
-	/// Shift+Tab); Weavie only OBSERVES it here to know whether edits are auto-applying. Absent on payloads
-	/// that don't report it.
+	/// Claude's own permission mode at the time of the event (<c>default</c>/<c>acceptEdits</c>/<c>plan</c>/
+	/// <c>bypassPermissions</c>), when the payload carries it. Claude owns this (the user cycles it with
+	/// Shift+Tab); Weavie observes it to know whether edits are auto-applying.
 	/// </summary>
 	public string? PermissionMode { get; init; }
 
 	/// <summary>
-	/// Parses a hook stdin payload. Returns <see langword="null"/> if the JSON is malformed, or for a
-	/// <em>tool</em> event missing its tool name — the caller treats that as "no opinion", leaving Claude's
-	/// normal flow untouched. Non-tool events (turn boundaries) parse with an empty tool name.
+	/// Parses a hook stdin payload. Returns <see langword="null"/> for malformed JSON or a tool event missing
+	/// its tool name (treated as "no opinion"). Non-tool events parse with an empty tool name.
 	/// </summary>
 	/// <param name="json">The JSON text Claude wrote to the hook's stdin.</param>
 	public static HookRequest? Parse(string json) {
@@ -58,9 +55,8 @@ public sealed record HookRequest {
 
 			var evt = MapEvent(GetString(root, "hook_event_name"));
 			string? toolName = GetString(root, "tool_name");
-			// Non-tool events (turn boundaries UserPromptSubmit/Stop/Notification, and SessionStart) legitimately
-			// carry no tool name; everything else — tool events and unrecognized junk — needs one, else there's
-			// nothing to act on.
+			// Turn boundaries and SessionStart legitimately carry no tool name; everything else needs one,
+			// else there's nothing to act on.
 			bool isNonToolEvent = evt is HookEventKind.UserPromptSubmit or HookEventKind.Stop
 				or HookEventKind.Notification or HookEventKind.SessionStart;
 			if (!isNonToolEvent && string.IsNullOrEmpty(toolName)) {

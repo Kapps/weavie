@@ -6,8 +6,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Verifies the per-theme overrides store: ordered append, per-theme isolation, undo/clear, a polymorphic
-/// (set + transform) persistence round-trip, and the malformed-file backup-and-reset contract it inherits
-/// from the layout/recents persistence conventions.
+/// (set + transform) persistence round-trip, and the malformed-file backup-and-reset contract.
 /// </summary>
 public sealed class ThemeOverridesStoreTests {
 	private static string TempPath() => Path.Combine(Path.GetTempPath(), $"weavie-theme-overrides-{Guid.NewGuid():N}.json");
@@ -43,7 +42,7 @@ public sealed class ThemeOverridesStoreTests {
 		store.Append("dracula", new ThemeOverrideSet { Key = "editor.foreground", Value = "#ff00ff" });
 		store.Append("dracula", new ThemeOverrideTransform { Op = "lighten", Amount = 0.1, Target = "all" });
 
-		// A fresh store over the same filesystem must read the ops back with their concrete kinds intact.
+		// A fresh store must read the ops back with their concrete kinds intact.
 		var reloaded = new ThemeOverridesStore(fs, path);
 		var ops = reloaded.Get("dracula");
 		Assert.Equal(2, ops.Count);
@@ -59,13 +58,13 @@ public sealed class ThemeOverridesStoreTests {
 		var fs = new InMemoryFileSystem();
 		string path = TempPath();
 		var store = new ThemeOverridesStore(fs, path);
-		// A style-only override (italic variables) carries a fontStyle and no foreground value.
+		// Style-only override: fontStyle, no foreground value.
 		store.Append("weavie-dark", new ThemeOverrideSet {
 			Table = "semanticTokenColors",
 			Key = "variable",
 			FontStyle = "italic",
 		});
-		// And one that sets both color + style.
+		// One that sets both color + style.
 		store.Append("weavie-dark", new ThemeOverrideSet {
 			Table = "tokenColors",
 			Key = "comment",

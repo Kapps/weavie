@@ -6,10 +6,8 @@ using Weavie.Win.Hosting;
 namespace Weavie.Win;
 
 // The Windows IHostPlatform: the native surface HostCore reaches through. The workspace window owns the bridge,
-// the WinForms UI marshal, the ConPTY launcher, the dialogs, and the web title bar (it is the IShellWindow), so
-// it implements the seam directly (explicit members keep it off the public API). Global hotkeys are app-level
-// (AppController owns one registrar for the whole process), so HotkeyRegistrar is null here. Split from
-// WorkspaceWindow.cs so each file holds one concern.
+// UI marshal, ConPTY launcher, dialogs, and web title bar, so it implements the seam directly (explicit members
+// keep it off the public API). Global hotkeys are app-level (AppController), so HotkeyRegistrar is null here.
 internal sealed partial class WorkspaceWindow {
 	IHostBridge IHostPlatform.Bridge => _bridge;
 

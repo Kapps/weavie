@@ -1,10 +1,9 @@
 namespace Weavie.Runner;
 
 /// <summary>
-/// The runner's minimal landing page: it ensures the workspace backend is up and offers a single "Open Weavie"
-/// link into it. Once connected, the user works entirely in the real app against the remote backend — including
-/// New Session, which creates worktree sessions on the remote box via the shared HostCore. It exists so the
-/// runner is usable + demonstrable from a plain browser before the native-shell "connect to runner" UI lands.
+/// The runner's minimal landing page: ensures the workspace backend is up and offers a single "Open Weavie"
+/// link into it, so the runner is usable from a plain browser. Once connected, the user works in the real app
+/// against the remote backend, including New Session (worktrees on the remote box via the shared HostCore).
 /// </summary>
 internal static class PickerPage {
 	public static string Unauthorized() =>

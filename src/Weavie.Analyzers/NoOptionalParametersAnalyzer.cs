@@ -8,11 +8,9 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Weavie.Analyzers;
 
 /// <summary>
-/// Bans optional (default-valued) parameters so that adding a parameter to an existing method is a
-/// compile error at every call site, forcing each caller to make a decision rather than silently
-/// inheriting a default. Two idioms that genuinely require a default are carved out:
-/// <see cref="System.Threading.CancellationToken"/> parameters and parameters marked with a
-/// <c>[Caller*]</c> attribute (which only function as defaults).
+/// Bans optional (default-valued) parameters so adding a parameter is a compile error at every call
+/// site, forcing each caller to make an explicit decision. Exempts the two idioms that require a
+/// default: <see cref="System.Threading.CancellationToken"/> and <c>[Caller*]</c> parameters.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class NoOptionalParametersAnalyzer : DiagnosticAnalyzer {

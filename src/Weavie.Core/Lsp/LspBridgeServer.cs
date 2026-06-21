@@ -10,14 +10,13 @@ using Weavie.Core.Mcp;
 namespace Weavie.Core.Lsp;
 
 /// <summary>
-/// The host half of the language-server bridge: a loopback WebSocket server that proxies each
-/// authenticated connection to a spawned language server over stdio (the <c>vscode-ws-jsonrpc</c>
-/// pattern). The WebView's <c>monaco-languageclient</c> connects to
-/// <c>ws://127.0.0.1:{Port}/{selector}?token={token}</c>, where <c>selector</c> is an LSP language id
-/// (or server id); the host resolves the matching <see cref="LanguageServerDescriptor"/>, finds the
-/// server on <c>PATH</c> (<see cref="ServerResolver"/>), spawns it rooted at the workspace, and pipes
-/// it. One subprocess per connection isolates failures. Mirrors the IDE-MCP server's loopback + token
-/// posture: bind 127.0.0.1 only and require the per-session token on the upgrade.
+/// The host half of the language-server bridge: a loopback WebSocket server that proxies each authenticated
+/// connection to a spawned language server over stdio (the <c>vscode-ws-jsonrpc</c> pattern). The WebView's
+/// <c>monaco-languageclient</c> connects to <c>ws://127.0.0.1:{Port}/{selector}?token={token}</c>, where
+/// <c>selector</c> is an LSP language id (or server id); the host resolves the matching
+/// <see cref="LanguageServerDescriptor"/>, finds the server on <c>PATH</c> (<see cref="ServerResolver"/>),
+/// spawns it rooted at the workspace, and pipes it. One subprocess per connection isolates failures. Binds
+/// 127.0.0.1 only and requires the per-session token on the upgrade.
 /// </summary>
 public sealed class LspBridgeServer : IAsyncDisposable {
 	private readonly string _authToken;
@@ -25,8 +24,8 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	private readonly string? _allowedOrigin;
 	private readonly Func<string, LanguageServerDescriptor?> _resolveDescriptor;
 	private readonly ConcurrentDictionary<LspConnection, byte> _connections = new();
-	// Every in-flight client-handling task (handshake → proxy → process teardown). Tracked so DisposeAsync
-	// can await them and guarantee each spawned server process is killed and reaped before it returns.
+	// Every in-flight client-handling task, tracked so DisposeAsync can await them and guarantee each spawned
+	// server process is killed and reaped before it returns.
 	private readonly ConcurrentDictionary<Task, byte> _clientTasks = new();
 	private readonly IReadOnlySet<string> _watchedExtensions;
 	private readonly Lock _watcherLock = new();
@@ -36,9 +35,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	private WorkspaceWatcher? _watcher;
 	private Task? _acceptLoop;
 
-	/// <summary>
-	/// Creates the bridge. Call <see cref="Start"/> to begin listening.
-	/// </summary>
+	/// <summary>Creates the bridge. Call <see cref="Start"/> to begin listening.</summary>
 	/// <param name="authToken">Per-session token required as the <c>token</c> query parameter on the upgrade.</param>
 	/// <param name="workspaceRoot">Working directory the servers are spawned in (the project root).</param>
 	/// <param name="allowedOrigin">If non-null, an <c>Origin</c> header, when present, must equal this.</param>
@@ -64,10 +61,9 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 	public event Action<string>? Log;
 
 	/// <summary>
-	/// Raised with each debounced batch of on-disk changes the workspace watcher reports — the same batch sent
-	/// to the language servers — so the host can also forward them to the editor's <c>file://</c> provider in
-	/// the page (covering non-Claude on-disk edits). Fires whether or not any LSP server is currently
-	/// connected, as long as the watcher is running. Invoked off the UI thread.
+	/// Raised with each debounced batch of on-disk changes the workspace watcher reports (the same batch sent to
+	/// the language servers), so the host can also forward them to the editor's <c>file://</c> provider in the
+	/// page. Fires whenever the watcher is running, even with no LSP server connected. Invoked off the UI thread.
 	/// </summary>
 	public event Action<IReadOnlyList<WatchedFileChange>>? FileChanges;
 
@@ -105,8 +101,7 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		}
 	}
 
-	// Hold a reference to each client task so DisposeAsync can await it; drop it once it finishes so the
-	// set only ever holds live connections.
+	// Hold a reference to each client task so DisposeAsync can await it; drop it once it finishes.
 	private void TrackClient(Task task) {
 		_clientTasks[task] = 1;
 		_ = task.ContinueWith(t => _clientTasks.TryRemove(t, out _), TaskScheduler.Default);
@@ -182,8 +177,8 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		using var ws = WebSocket.CreateFromStream(stream, isServer: true, subProtocol: null, keepAliveInterval: TimeSpan.FromSeconds(30));
 		var connection = new LspConnection(ws, process, descriptor.DisplayName, Emit);
 
-		// Track the live connection so the workspace watcher can forward didChangeWatchedFiles to it,
-		// and lazily start watching once there's at least one server to notify (§9).
+		// Track the live connection so the watcher can forward didChangeWatchedFiles to it, and lazily start
+		// watching once there's at least one server to notify (§9).
 		_connections[connection] = 1;
 		EnsureWatcherStarted();
 		try {
@@ -204,9 +199,9 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 		}
 	}
 
-	// Forward a debounced batch of on-disk changes (incl. Claude/MCP edits) to every live server as a
-	// single workspace/didChangeWatchedFiles notification, so diagnostics/types don't go stale (§9). The same
-	// batch is mirrored to the page's file:// provider via FileChanges (independent of LSP connection state).
+	// Forward a debounced batch of on-disk changes to every live server as one
+	// workspace/didChangeWatchedFiles notification so diagnostics/types don't go stale (§9), and mirror the
+	// same batch to the page's file:// provider via FileChanges (independent of LSP connection state).
 	private void BroadcastFileChanges(IReadOnlyList<WatchedFileChange> changes) {
 		if (changes.Count == 0) {
 			return;
@@ -283,13 +278,11 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		// Stop accepting, then cancel: in-flight connections observe the cancel, unwind their pumps, and
-		// kill + reap their spawned server process (LspConnection.TerminateProcessAsync, which kills the
-		// whole process tree). We await the accept loop and every client task so no language server is still
-		// alive — and so no handle is still held on the workspace directory — by the time this returns. That
-		// determinism is what lets a session's worktree be removed right after disposal without losing a race
-		// to a still-running server (on Windows a live cwd/handle makes `git worktree remove` fail with
-		// "Directory not empty").
+		// Stop accepting, then cancel: in-flight connections unwind their pumps and kill+reap their spawned
+		// server process (whole process tree). Await the accept loop and every client task so no server is
+		// still alive (and no handle is still held on the workspace directory) by the time this returns, so a
+		// session's worktree can be removed right after disposal without racing a still-running server (on
+		// Windows a live cwd/handle makes `git worktree remove` fail with "Directory not empty").
 		_listener?.Stop();
 		if (_cts is not null) {
 			await _cts.CancelAsync().ConfigureAwait(false);
@@ -302,8 +295,8 @@ public sealed class LspBridgeServer : IAsyncDisposable {
 
 			await Task.WhenAll([.. _clientTasks.Keys]).ConfigureAwait(false);
 		} catch (Exception ex) {
-			// Teardown is best-effort but must remain observable: a connection that faulted on its way down
-			// is logged, never swallowed silently, and never rethrown out of dispose.
+			// Best-effort teardown, but kept observable: a connection that faulted on its way down is logged,
+			// never swallowed silently or rethrown out of dispose.
 			Emit($"teardown error draining connections: {ex.Message}");
 		}
 

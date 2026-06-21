@@ -1,8 +1,7 @@
-// Public surface of the theming subsystem (spec §6). It owns the VS Code theme shape, the override schema
-// + resolver + color-math, the built-in themes, and the runtime controller that drives all three render
-// surfaces (Monaco, xterm, chrome) off one resolved palette. The Monaco-specific registration lives in
-// ./monaco-theme (it pulls in monaco) and is imported directly from the editor chunk — never re-exported
-// here, so this barrel stays monaco-free and safe to import on the first-paint path.
+// Public surface of the theming subsystem (spec §6): the VS Code theme shape, the override schema +
+// resolver + color-math, the built-in themes, and the runtime controller that drives all three render
+// surfaces off one resolved palette. Monaco registration lives in ./monaco-theme and is never re-exported
+// here, keeping this barrel monaco-free and safe on the first-paint path.
 
 export { isHexColor, makeTransform, transformHex, type ColorTransform } from "./colors";
 export {

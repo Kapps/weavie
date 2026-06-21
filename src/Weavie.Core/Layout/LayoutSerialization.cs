@@ -5,8 +5,7 @@ namespace Weavie.Core.Layout;
 
 /// <summary>
 /// JSON (de)serialization for <see cref="LayoutDocument"/>: camelCase names, indented output, and the
-/// polymorphic node discriminator. The on-disk format and the wire format the web/MCP layers see are
-/// one and the same.
+/// polymorphic node discriminator. The on-disk and wire (web/MCP) formats are identical.
 /// </summary>
 public static class LayoutSerialization {
 	/// <summary>Shared options: camelCase property and enum names, indented output, nulls omitted.</summary>
@@ -17,8 +16,8 @@ public static class LayoutSerialization {
 		Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
 	};
 
-	// Same as Options but not indented — for the host↔web bridge, where the document is embedded in a
-	// single-line message and newlines would have to be escaped.
+	// Like Options but not indented — for the host↔web bridge, where the document rides in a single-line
+	// message and newlines would have to be escaped.
 	private static readonly JsonSerializerOptions CompactOptions = new() {
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
 		DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
@@ -32,8 +31,8 @@ public static class LayoutSerialization {
 	public static string SerializeCompact(LayoutDocument document) => JsonSerializer.Serialize(document, CompactOptions);
 
 	/// <summary>
-	/// Attempts to parse a document. Returns <c>false</c> with an <paramref name="error"/> message on
-	/// malformed JSON or a document missing its root, rather than throwing.
+	/// Parses a document without throwing. Returns <c>false</c> with an <paramref name="error"/> message on
+	/// malformed JSON or a document missing its root.
 	/// </summary>
 	public static bool TryDeserialize(string json, out LayoutDocument? document, out string? error) {
 		try {

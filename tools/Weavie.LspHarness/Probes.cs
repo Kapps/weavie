@@ -1,10 +1,9 @@
 namespace Weavie.LspHarness;
 
 /// <summary>
-/// A per-language test fixture for the LSP harness: a small source file with a deliberate type error
-/// (to exercise diagnostics), positions to probe hover and completion, and any project files the
-/// server needs to recognize a project (tsconfig / .csproj / go.mod). Keyed by the recipe id so the
-/// one harness drives every language through the same WS↔stdio bridge.
+/// A per-language test fixture for the LSP harness: a small source file with a deliberate type error (for
+/// diagnostics), positions to probe hover and completion, and any project files the server needs (tsconfig /
+/// .csproj / go.mod). Keyed by recipe id so one harness drives every language through the same bridge.
 /// </summary>
 internal sealed record LanguageProbe {
 	public required string LanguageId { get; init; }

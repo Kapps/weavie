@@ -1,11 +1,10 @@
 namespace Weavie.Core.Shell;
 
 /// <summary>
-/// The OS-specific window primitives the web title bar drives — the only part of the custom-chrome flow
-/// that can't live in Core, because minimizing/maximizing a window and showing a folder picker are
-/// platform calls (WinForms, Cocoa). A host's workspace window implements this; <see cref="ShellController"/>
-/// parses the web's title-bar messages and calls these. Keep it tiny: everything else (message parse/build,
-/// the file index) stays in Core and is shared across platforms.
+/// The OS-specific window primitives the web title bar drives — the part of the custom-chrome flow that
+/// needs platform calls (WinForms, Cocoa). A host's workspace window implements this;
+/// <see cref="ShellController"/> parses the web's title-bar messages and calls these. Keep it tiny:
+/// message parse/build and the file index stay in Core, shared across platforms.
 /// </summary>
 public interface IShellWindow {
 	/// <summary>Minimizes this window.</summary>
@@ -15,9 +14,8 @@ public interface IShellWindow {
 	void ToggleMaximize();
 
 	/// <summary>
-	/// Begins an interactive resize of this window from <paramref name="edge"/>, following the cursor until the
-	/// button is released. Used by the frameless custom chrome: the WebView covers the host's real resize
-	/// border, so the web draws grab handles at the edges and calls this to hand off to the OS's native resize.
+	/// Begins an interactive native resize from <paramref name="edge"/>, following the cursor. The frameless
+	/// WebView covers the host's real resize border, so the web draws grab handles and hands off to the OS here.
 	/// </summary>
 	void StartResize(ResizeEdge edge);
 
@@ -25,8 +23,8 @@ public interface IShellWindow {
 	void Close();
 
 	/// <summary>
-	/// Closes this window via the File ▸ Close Window menu item. Distinct from <see cref="Close"/> so a host
-	/// can give the menu different last-window behavior (e.g. fall back to a welcome window) than the ✕.
+	/// Closes this window via File ▸ Close Window. Distinct from <see cref="Close"/> so a host can give the
+	/// menu different last-window behavior (e.g. fall back to a welcome window) than the ✕.
 	/// </summary>
 	void CloseWindow();
 

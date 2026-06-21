@@ -5,10 +5,8 @@ namespace Weavie.Core.Workspaces;
 /// <summary>
 /// Builds a flat list of every file under one workspace root, for the omnibar's "Go to File" quick-open.
 /// Walks <see cref="IFileSystem"/> recursively, pruning the noise directories in <see cref="WorkspacePaths"/>
-/// (so <c>node_modules</c>/<c>.git</c>/build output never get descended into) and capping the result so a
-/// pathological tree can't produce an unbounded payload. Pure logic over the filesystem seam, like
-/// <see cref="WorkspaceBrowser"/>, so both hosts share it and it's testable in-memory; the host just
-/// serializes the result onto the bridge.
+/// and capping the result so a pathological tree can't produce an unbounded payload. Pure logic over the
+/// filesystem seam, so every host shares it and it's testable in-memory.
 /// </summary>
 public sealed class WorkspaceFileIndex {
 	/// <summary>Default ceiling on returned files; a tree larger than this is truncated (and logged).</summary>
@@ -50,11 +48,11 @@ public sealed class WorkspaceFileIndex {
 	}
 
 	/// <summary>
-	/// Depth-first walk collecting files into <paramref name="sink"/>. Returns true if the cap was hit
-	/// (the walk stops early). Directories are enumerated, ignored ones pruned, the rest recursed.
+	/// Depth-first walk collecting files into <paramref name="sink"/>. Returns true if the cap was hit (the walk
+	/// stops early). Ignored directories are pruned, the rest recursed.
 	/// </summary>
 	private bool Walk(string directory, List<string> sink, int cap) {
-		// Iterative DFS so a deep tree can't blow the stack; an explicit stack also makes the cap check cheap.
+		// Iterative DFS so a deep tree can't blow the stack.
 		var stack = new Stack<string>();
 		stack.Push(directory);
 

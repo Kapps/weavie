@@ -4,9 +4,9 @@ import { postToHost } from "../bridge";
 import { WeavieIcon } from "../chrome/WeavieIcon";
 
 // The empty-state screen: app mark + wordmark, an Open Folder action, and the recent-workspaces list.
-// Lives in the shared web app (not native per-OS chrome) so Windows and macOS render the same thing. The
-// recents arrive from the host as window.__WEAVIE_WELCOME__; both actions post the same `menu-action`
-// messages the title-bar File menu uses, which the host routes to its open-folder / open-workspace calls.
+// Lives in the shared web app (not per-OS chrome) so every host renders the same thing. Recents arrive as
+// window.__WEAVIE_WELCOME__; both actions post the `menu-action` messages the host routes to open-folder /
+// open-recent.
 export function Welcome(): JSX.Element {
   const recents = (): string[] => window.__WEAVIE_WELCOME__?.recents ?? [];
   const openFolder = (): void => postToHost({ type: "menu-action", action: "open-folder" });
@@ -60,8 +60,8 @@ export function Welcome(): JSX.Element {
   );
 }
 
-// Leaf folder name for the row title (e.g. "weavie" for C:\Users\me\src\weavie), tolerating either
-// separator and a trailing slash; falls back to the full path when there's no separator.
+// Leaf folder name for the row title, tolerating either separator and a trailing slash; falls back to
+// the full path when there's no separator.
 function folderLeaf(path: string): string {
   const trimmed = path.replace(/[\\/]+$/, "");
   const cut = Math.max(trimmed.lastIndexOf("\\"), trimmed.lastIndexOf("/"));

@@ -3,11 +3,10 @@ using Weavie.Core.Git;
 namespace Weavie.Core.Worktrees;
 
 /// <summary>
-/// Creates, lists, classifies, and removes the git worktrees that back Weavie's per-session work, and —
-/// crucially — keeps the persisted <see cref="WorktreeRegistry"/> reconciled with what git actually
-/// reports, so a crash, an external <c>git worktree remove</c>, or a worktree Weavie never created can
-/// never silently leak. Every list/reconcile compares the registry against live <c>git worktree list</c>
-/// output and reports the drift; removal is guarded against discarding uncommitted work.
+/// Creates, lists, classifies, and removes the git worktrees that back Weavie's per-session work, keeping
+/// the persisted <see cref="WorktreeRegistry"/> reconciled with what git actually reports so nothing silently
+/// leaks. Every list/reconcile compares the registry against live <c>git worktree list</c> output and reports
+/// the drift; removal is guarded against discarding uncommitted work.
 /// </summary>
 public sealed class WorktreeManager {
 	private static readonly StringComparer PathComparer =
@@ -69,10 +68,9 @@ public sealed class WorktreeManager {
 	}
 
 	/// <summary>
-	/// Creates a worktree checked out on the <em>existing</em> branch <paramref name="branch"/> (the inverse
-	/// of <see cref="CreateAsync"/>'s guard — here the branch must already exist), records it, and returns the
-	/// record. If Weavie already tracks a worktree for this branch, its existing record is returned unchanged
-	/// so callers reuse it rather than creating a duplicate. Throws when the branch doesn't exist.
+	/// Creates a worktree checked out on the existing branch <paramref name="branch"/>, records it, and returns
+	/// the record. If Weavie already tracks a worktree for this branch, its existing record is returned so callers
+	/// reuse it rather than creating a duplicate. Throws when the branch doesn't exist.
 	/// </summary>
 	public async Task<WorktreeRecord> AttachAsync(string branch, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(branch);
@@ -89,8 +87,8 @@ public sealed class WorktreeManager {
 		var record = new WorktreeRecord {
 			Branch = branch,
 			Path = Normalize(path),
-			// The branch already has a tip; there's no distinct base. Record the branch itself as the base ref —
-			// nothing branches on this value, it's persisted bookkeeping only.
+			// The branch already has a tip; there's no distinct base. Record the branch itself — this value is
+			// persisted bookkeeping only, nothing branches on it.
 			BaseRef = branch,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
 		};
@@ -99,11 +97,10 @@ public sealed class WorktreeManager {
 	}
 
 	/// <summary>
-	/// Reconciles the registry against live <c>git worktree list</c> output and returns a status for every
-	/// worktree: those Weavie created (<see cref="WorktreeStatus.IsManaged"/>), the primary checkout, and
-	/// any worktree present in git but not the registry (so externally-created or registry-lost worktrees
-	/// are still surfaced). Managed entries git no longer knows about appear with
-	/// <see cref="WorktreeStatus.Exists"/> false so the caller can prune them.
+	/// Returns a status for every worktree: those Weavie created (<see cref="WorktreeStatus.IsManaged"/>), the
+	/// primary checkout, and any worktree present in git but not the registry (so externally-created ones are
+	/// still surfaced). Managed entries git no longer knows about appear with <see cref="WorktreeStatus.Exists"/>
+	/// false so the caller can prune them.
 	/// </summary>
 	public async Task<IReadOnlyList<WorktreeStatus>> ListAsync(CancellationToken ct = default) {
 		var gitWorktrees = await _git.ListWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
@@ -181,18 +178,16 @@ public sealed class WorktreeManager {
 				throw new WorktreeDirtyException(path);
 			}
 
-			// Run the teardown command while the working tree still exists, then remove it. Teardown is
-			// best-effort cleanup: a non-zero exit is surfaced by the provisioner but does not abort the
-			// removal the user asked for. Only after passing the dirty guard, so a refused removal runs nothing.
+			// Teardown while the working tree still exists, then remove it. Teardown is
+			// best-effort: a non-zero exit is surfaced by the provisioner but doesn't abort the removal.
+			// Runs only after the dirty guard passes, so a refused removal runs nothing.
 			await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
 			await RemoveWorktreeWithRetryAsync(path, force, ct).ConfigureAwait(false);
 		} else if (Directory.Exists(normalized)) {
-			// git no longer tracks this path, yet the directory is still on disk: an earlier removal stripped
-			// git's own record but couldn't unlink the files (a lingering lock left a half-removed worktree). No
-			// git command can finish this — `git worktree remove` would only answer "is not a working tree" — and
-			// we refuse to drop the registry row and report success while the directory leaks. Surface it loudly so
-			// the failure stays observable instead of becoming a silent leak. (Note: no repo-wide `git worktree
-			// prune` here — that global op could drop an unrelated worktree's record.)
+			// git no longer tracks this path, yet the directory is still on disk: an earlier removal stripped git's
+			// record but couldn't unlink the files (a lingering lock). No git command can finish this, and we refuse
+			// to report success while the directory leaks, so surface it loudly rather than let it become a silent
+			// leak. (No repo-wide `git worktree prune` here — that global op could drop an unrelated worktree's record.)
 			throw new WorktreeOrphanException(normalized);
 		}
 		// else: git doesn't track it and the directory is already gone — nothing to remove; fall through to drop
@@ -205,11 +200,10 @@ public sealed class WorktreeManager {
 		Registry.Remove(normalized);
 	}
 
-	// Attempts before a removal failure is surfaced. On Windows a brief lock — antivirus, the search indexer,
-	// Explorer, or a child process still closing — can make `git worktree remove` fail with "Directory not
-	// empty" even once the session's own handles are released. A short bounded retry simply re-runs git (git
-	// stays the one removing the worktree) so the lock can clear. Each retry is logged; the final attempt's
-	// exception propagates, so an unresolved failure surfaces loudly rather than being papered over.
+	// Attempts before a removal failure is surfaced. On Windows a brief lock (antivirus, the indexer, Explorer,
+	// a child process still closing) can make `git worktree remove` fail with "Directory not empty" even after
+	// the session's own handles are released. A short bounded retry re-runs git so the lock can clear; the
+	// final attempt's exception propagates, so an unresolved failure surfaces loudly.
 	private const int MaxRemoveAttempts = 4;
 	private static readonly int[] RemoveRetryDelaysMs = [150, 350, 800];
 	private static readonly string[] FileLockPhrases =
@@ -229,8 +223,7 @@ public sealed class WorktreeManager {
 	}
 
 	// Whether git's failure is a transient OS file lock (worth re-running git) rather than a real error. A
-	// still-open handle on Windows surfaces as one of these phrases; anything else — including "Filename too
-	// long" — is not transient and is surfaced rather than retried.
+	// still-open handle on Windows surfaces as one of these phrases; anything else is surfaced, not retried.
 	private static bool IsTransientFileLock(GitException ex) =>
 		FileLockPhrases.Any(p => ex.Message.Contains(p, StringComparison.OrdinalIgnoreCase));
 
@@ -240,11 +233,10 @@ public sealed class WorktreeManager {
 	}
 
 	/// <summary>
-	/// Drops registry rows whose worktree git no longer reports — reconciling Weavie's registry against live
-	/// <c>git worktree list</c> output — and returns a report plus the post-reconcile statuses. Never deletes a
-	/// worktree that still exists, and never mutates git's own bookkeeping: there is no repo-wide
-	/// <c>git worktree prune</c> (which could drop an unrelated worktree's record), so nothing with real work in
-	/// it — anyone's — is touched.
+	/// Drops registry rows whose worktree git no longer reports and returns a report plus the post-reconcile
+	/// statuses. Never deletes a worktree that still exists, and never runs a repo-wide
+	/// <c>git worktree prune</c> (which could drop an unrelated worktree's record), so nothing with real work
+	/// in it is touched.
 	/// </summary>
 	public async Task<WorktreeReconcileReport> ReconcileAsync(CancellationToken ct = default) {
 		var statuses = await ListAsync(ct).ConfigureAwait(false);

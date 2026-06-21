@@ -4,9 +4,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="WorkspaceId"/>: path normalization (trailing separators, relative vs absolute,
-/// case folding on Windows) collapses equivalent paths to one id, distinct paths get distinct ids, and the
-/// value is a short folder-safe hex digest.
+/// <see cref="WorkspaceId"/>: normalization (trailing separators, relative vs absolute, case folding on
+/// Windows) collapses equivalent paths to one id, distinct paths differ, and the value is a short
+/// folder-safe hex digest.
 /// </summary>
 public sealed class WorkspaceIdTests {
 	private static string Temp(string leaf) => Path.Combine(Path.GetTempPath(), "weavie-wsid-tests", leaf);
@@ -38,7 +38,7 @@ public sealed class WorkspaceIdTests {
 	[Fact]
 	public void ForPath_CaseInsensitiveOnWindows() {
 		if (!OperatingSystem.IsWindows()) {
-			return; // case folding is Windows-only (matching the case-insensitive filesystem)
+			return; // case folding is Windows-only, matching its case-insensitive filesystem
 		}
 
 		Assert.Equal(WorkspaceId.ForPath(@"C:\Temp\Weavie\Proj"), WorkspaceId.ForPath(@"c:\temp\weavie\proj"));

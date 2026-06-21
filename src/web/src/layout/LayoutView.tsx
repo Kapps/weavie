@@ -8,9 +8,9 @@ import {
 } from "./geometry";
 import type { LayoutNode } from "./types";
 
-// Pane kinds are singletons in v1, so the slots are a stable, never-reordered list. That's what keeps
-// the live xterm / Monaco surfaces inside them created once and only ever repositioned — never
-// remounted (a remount would wipe terminal scrollback / editor state). The tree drives geometry only.
+// Pane kinds are singletons in v1, so the slots are a stable, never-reordered list. This keeps the live
+// xterm / Monaco surfaces repositioned rather than remounted (a remount would wipe terminal scrollback /
+// editor state). The tree drives geometry only.
 const KINDS = ["terminal:claude", "terminal:shell", "editor"] as const;
 
 function slotStyle(rect: Rect | undefined): string {

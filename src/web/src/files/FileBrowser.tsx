@@ -22,10 +22,9 @@ function leafName(path: string): string {
   return parts.length > 0 ? parts[parts.length - 1]! : path;
 }
 
-// A single tree row + (when open) its children, nested in a container that indents them via CSS. Folders
-// toggle open/closed and lazily request their listing the first time they open; files open in the editor
-// on click. A folder that is an ancestor of the current file starts open, cascading a request down to the
-// current file's directory — the contextual "reveal" behavior.
+// A single tree row + (when open) its children. Folders toggle open/closed and lazily request their
+// listing the first time they open; files open in the editor on click. A folder that is an ancestor of
+// the current file starts open, cascading a request down to that file's directory ("reveal" behavior).
 function Node(props: {
   entry: DirEntry;
   listings: DirListings;
@@ -38,8 +37,8 @@ function Node(props: {
   );
   const children = (): DirEntry[] | undefined => props.listings[props.entry.path];
 
-  // Whenever this folder is open and its listing hasn't loaded, ask the host for it. Covers both a manual
-  // toggle and the auto-open of an ancestor; once loaded the condition is false, so it fires at most once.
+  // When this folder is open and its listing hasn't loaded, ask the host for it. Covers a manual toggle
+  // and an ancestor's auto-open; once loaded the condition is false, so it fires at most once.
   createEffect(() => {
     if (props.entry.isDir && open() && children() === undefined) {
       props.onExpand(props.entry.path);
@@ -98,8 +97,7 @@ function Node(props: {
 }
 
 // The contextual file browser: a fixed overlay (not a layout pane) rooted at the session's workspace
-// directory. Surfaced on demand; folders expand lazily; clicking a file opens it in the editor. Sits as
-// a fixed overlay above the editor and pane tree so it never collides with them.
+// directory, sitting above the editor and pane tree. Folders expand lazily; clicking a file opens it.
 export default function FileBrowser(props: {
   root: string;
   listings: DirListings;

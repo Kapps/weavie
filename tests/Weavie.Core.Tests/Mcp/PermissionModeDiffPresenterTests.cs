@@ -6,9 +6,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// The openDiff auto-keep policy, keyed on Claude's OBSERVED edit mode (not a Weavie setting): <c>default</c>
-/// delegates to the inner presenter (the blocking review); <c>acceptEdits</c>/<c>bypassPermissions</c>
-/// auto-keep without consulting it.
+/// The openDiff auto-keep policy, keyed on Claude's observed edit mode: <c>default</c> delegates to
+/// the inner presenter (the blocking review); <c>acceptEdits</c>/<c>bypassPermissions</c> auto-keep
+/// without consulting it.
 /// </summary>
 public sealed class PermissionModeDiffPresenterTests {
 	private static DiffProposal Proposal() => new("/a.txt", "/a.txt", "new", "a.txt");
@@ -31,13 +31,13 @@ public sealed class PermissionModeDiffPresenterTests {
 
 		var outcome = await presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
 
-		Assert.Single(inner.Presented);                  // the inner review was consulted
+		Assert.Single(inner.Presented);                  // inner review consulted
 		Assert.Equal(DiffResult.Rejected, outcome.Result);
 	}
 
 	[Fact]
 	public async Task AcceptEdits_AutoKeepsWithoutConsultingInner() {
-		var inner = FakeDiffPresenter.AlwaysReject();    // would reject if it were consulted
+		var inner = FakeDiffPresenter.AlwaysReject();    // would reject if consulted
 		var presenter = new PermissionModeDiffPresenter(inner, Mode("acceptEdits"));
 
 		var outcome = await presenter.PresentDiffAsync(Proposal(), CancellationToken.None);

@@ -1,11 +1,10 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Resolves an executable by name against <c>PATH</c> — the cross-platform replacement for the
-/// per-host <c>FindOnPath</c> helpers that lived in the <c>TerminalController</c>s. On Windows it
-/// honors <c>PATHEXT</c> (so <c>"pwsh"</c> resolves to <c>pwsh.exe</c>, <c>"claude"</c> to
-/// <c>claude.cmd</c>, etc.); on Unix it matches the name verbatim. Backs both the registered
-/// settings' defaults/validators and the controllers' launch resolution.
+/// Resolves an executable by name against <c>PATH</c>, cross-platform. On Windows it honors <c>PATHEXT</c> (so
+/// <c>"pwsh"</c> resolves to <c>pwsh.exe</c>, <c>"claude"</c> to <c>claude.cmd</c>, etc.); on Unix it matches
+/// the name verbatim. Backs both the registered settings' defaults/validators and the controllers' launch
+/// resolution.
 /// </summary>
 public static class ExecutableFinder {
 	/// <summary>

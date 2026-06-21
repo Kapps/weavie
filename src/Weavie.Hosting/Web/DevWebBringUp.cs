@@ -40,7 +40,7 @@ public sealed class DevWebBringUp : IDisposable {
 
 	/// <summary>
 	/// Tries to (re)start the dev server. On success, brings the app up against it and returns the dev origin;
-	/// on failure, renders the loud error page and returns <c>null</c>. Used for both the initial attempt and Retry.
+	/// on failure, renders the loud error page and returns <c>null</c>. Used for the initial attempt and Retry.
 	/// </summary>
 	public async Task<string?> RunAsync() {
 		string? origin = await _devServer.StartAsync().ConfigureAwait(false);

@@ -13,11 +13,10 @@ using Weavie.Core.Theming;
 namespace Weavie.Core.Mcp;
 
 /// <summary>
-/// The Claude Code "IDE" endpoint: a localhost WebSocket server speaking MCP/JSON-RPC 2.0.
-/// Claude connects as the client and calls tools into us (openDiff/openFile/...). We bind
-/// 127.0.0.1 only and enforce the per-session auth token on the WebSocket upgrade
-/// (mitigating CVE-2025-52882). The protocol is reverse-engineered (coder/claudecode.nvim)
-/// and verified empirically against the installed CLI.
+/// The Claude Code "IDE" endpoint: a localhost WebSocket server speaking MCP/JSON-RPC 2.0. Claude connects as
+/// the client and calls tools into us (openDiff/openFile/...). Binds 127.0.0.1 only and enforces the
+/// per-session auth token on the WebSocket upgrade (mitigating CVE-2025-52882). The protocol is
+/// reverse-engineered from coder/claudecode.nvim and verified against the installed CLI.
 /// </summary>
 public sealed partial class McpServer : IAsyncDisposable {
 	private readonly string _authToken;
@@ -35,16 +34,16 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private TcpListener? _listener;
 	private CancellationTokenSource? _cts;
 
-	// The currently connected, authenticated client socket — captured so a host-driven active-editor
-	// change can push an unsolicited selection_changed notification. volatile: written by the accept
-	// task, read from the thread that raises ActiveEditorStore.Changed.
+	// The currently connected, authenticated client socket, captured so a host-driven active-editor change can
+	// push an unsolicited selection_changed notification. volatile: written by the accept task, read from the
+	// thread that raises ActiveEditorStore.Changed.
 	private volatile WebSocket? _activeWebSocket;
 
 	/// <summary>
-	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter that
-	/// handles inbound tool calls and the advertised workspace folders. When a
-	/// <paramref name="settings"/> store is supplied, the settings tools (<c>listSettings</c> /
-	/// <c>getSetting</c> / <c>setSetting</c>) are advertised and served. Call <see cref="Start"/> to begin listening.
+	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter that handles
+	/// inbound tool calls, and the advertised workspace folders. When a <paramref name="settings"/> store is
+	/// supplied, the settings tools (<c>listSettings</c> / <c>getSetting</c> / <c>setSetting</c>) are advertised
+	/// and served. Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
 		string authToken,
@@ -75,13 +74,13 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_keybindings = keybindings;
 		_themeOverrides = themeOverrides;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
-		// file/selection changes, so the embedded claude always knows what they're looking at.
+		// file/selection changes, so the embedded claude knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
 
-		// Registry mode advertises ONLY the capability tools (settings + layout + commands) — this is the
-		// model-facing MCP server registered via .mcp.json, kept separate from the IDE server whose
-		// openDiff-style tools Claude Code filters out before they reach the model. The default (IDE) mode
-		// advertises the IDE RPC tools, plus the settings tools when a store is present.
+		// Registry mode advertises ONLY the capability tools (settings + layout + commands): the model-facing
+		// MCP server registered via .mcp.json, kept separate from the IDE server whose openDiff-style tools
+		// Claude Code filters out before they reach the model. The default (IDE) mode advertises the IDE RPC
+		// tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
 			var parts = new List<string> { SettingsToolEntries };
@@ -112,7 +111,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	/// <summary>The loopback port the server is listening on; 0 until <see cref="Start"/> is called.</summary>
 	public int Port { get; private set; }
 
-	/// <summary>Diagnostic log line (handshake, dispatch). Used to verify the protocol empirically.</summary>
+	/// <summary>Diagnostic log line (handshake, dispatch).</summary>
 	public event Action<string>? Log;
 
 	/// <summary>Raised when an authenticated client completes the WebSocket upgrade.</summary>
@@ -164,9 +163,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 					return;
 				}
 
-				// CVE-2025-52882: never upgrade without the correct per-session token. Accept it via the
-				// IDE header (lock-file discovery) or a standard `Authorization: Bearer` (how Claude Code
-				// presents headers for a `.mcp.json` ws server — the capability-registry connection).
+				// CVE-2025-52882: never upgrade without the correct per-session token. Accept it via the IDE
+				// header (lock-file discovery) or a standard `Authorization: Bearer` (how Claude Code presents
+				// headers for a `.mcp.json` ws server — the capability-registry connection).
 				headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
 				string? bearer = null;
 				if (headers.TryGetValue("authorization", out string? authHeader)
@@ -273,7 +272,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleInitializeAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
-		// Echo the client's protocolVersion (sources disagree on the exact value; echoing is robust).
+		// Echo the client's protocolVersion (echoing is robust to version disagreement).
 		string protocolVersion = "2025-03-26";
 		if (root.TryGetProperty("params", out var p) &&
 			p.TryGetProperty("protocolVersion", out var pv) &&
@@ -303,8 +302,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "openFile":
 				string? path = args.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
 				if (!string.IsNullOrEmpty(path)) {
-					// `preview` defaults to false (a persistent tab). Coerced leniently — embedded Claude sends
-					// scalar args as JSON strings ("true"), like env vars at this boundary.
+					// `preview` defaults to false (a persistent tab). Coerced leniently: embedded Claude sends
+					// scalar args as JSON strings ("true").
 					await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ct).ConfigureAwait(false);
 				}
 
@@ -315,7 +314,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				break;
 			case "getOpenEditors":
 				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). The page reports the
-				// real open-tab set via open-editors-changed; empty until it does.
+				// open-tab set via open-editors-changed; empty until it does.
 				await SendToolTextAsync(ws, idRaw, BuildOpenEditorsResult(_editor?.OpenEditors, _editor?.Active), ct).ConfigureAwait(false);
 				break;
 			case "getCurrentSelection":
@@ -501,7 +500,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		// Prefer the keybinding store's catalog (it includes each command's current keys); fall back to the
-		// registry alone (no keys) if no keybinding store was wired.
+		// registry alone (no keys) when no keybinding store was wired.
 		string commandsArray = _keybindings is not null
 			? _keybindings.BuildCommandsJson()
 			: CommandCatalog.BuildCommandsArrayJson(_commands.Registry.Definitions, []);
@@ -523,8 +522,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 			return;
 		}
 
-		// Pass the args object through as raw JSON (the web/core handler coerces leniently); the embedded
-		// claude routinely stringifies scalars, so handlers must tolerate that like the settings boundary does.
+		// Pass the args object through as raw JSON; the web/core handler coerces leniently, since the embedded
+		// claude routinely stringifies scalars.
 		string? argsJson = hasArgs && args.TryGetProperty("args", out var aEl) && aEl.ValueKind == JsonValueKind.Object
 			? aEl.GetRawText()
 			: null;
@@ -568,10 +567,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		if (outcome.Result == DiffResult.Kept) {
-			// Conformant openDiff accept: return FILE_SAVED + the (possibly user-edited) final contents and
-			// DO NOT write the file — Claude performs the disk write from these returned contents. A
-			// server-side write double-writes and desyncs Claude's own permission prompt, which then
-			// re-writes onto the already-created file ("file already exists"). Matches coder/claudecode.nvim;
+			// Conformant openDiff accept: return FILE_SAVED + the (possibly user-edited) final contents and DO
+			// NOT write the file — Claude performs the disk write from these returned contents. A server-side
+			// write double-writes and desyncs Claude's own permission prompt. Matches coder/claudecode.nvim;
 			// see docs/specs/permission-modes-and-change-tracking.md.
 			await SendToolTextsAsync(ws, idRaw, ["FILE_SAVED", outcome.FinalContents ?? newContents], ct).ConfigureAwait(false);
 			Emit($"openDiff KEEP -> {newPath} (Claude writes)");
@@ -584,16 +582,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private Task SendToolTextAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
 		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}]}}", ct);
 
-	// Multi-item text content — the MCP shape Claude expects from openDiff: [FILE_SAVED, <final contents>]
-	// on accept, [DIFF_REJECTED, <tab_name>] on reject (matches coder/claudecode.nvim).
+	// Multi-item text content — the MCP shape openDiff expects: [FILE_SAVED, <final contents>] on accept,
+	// [DIFF_REJECTED, <tab_name>] on reject (matches coder/claudecode.nvim).
 	private Task SendToolTextsAsync(WebSocket ws, string? idRaw, IReadOnlyList<string> texts, CancellationToken ct) {
 		string items = string.Join(",", texts.Select(t => $"{{\"type\":\"text\",\"text\":{JsonString(t)}}}"));
 		return SendResultAsync(ws, idRaw, $"{{\"content\":[{items}]}}", ct);
 	}
 
-	// getWorkspaceFolders: a JSON-stringified {success, folders:[{name,uri,path}], rootPath} inside one
-	// text item — the shape Claude parses (coder/claudecode.nvim). The earlier ad-hoc top-level
-	// "workspaceFolders" field with a "workspace" placeholder text was not read by Claude.
+	// getWorkspaceFolders: a JSON-stringified {success, folders:[{name,uri,path}], rootPath} inside one text
+	// item — the shape Claude parses (coder/claudecode.nvim).
 	private string BuildWorkspaceFoldersJson() {
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
@@ -624,10 +621,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	// Active-editor context. The page reports the user's active file + selection via the bridge; we both
-	// answer getCurrentSelection/getOpenEditors from it and push a selection_changed notification so the
-	// embedded claude tracks "what the user is looking at" without having to ask. Matches the VS Code /
-	// claudecode.nvim IDE protocol (text/filePath/fileUrl + 0-based selection range).
+	// Active-editor context. The page reports the user's active file + selection via the bridge; we answer
+	// getCurrentSelection/getOpenEditors from it and push a selection_changed notification so the embedded
+	// claude tracks "what the user is looking at" without asking. Matches the VS Code / claudecode.nvim IDE
+	// protocol (text/filePath/fileUrl + 0-based selection range).
 	private void OnActiveEditorChanged(ActiveEditor active) {
 		var ws = _activeWebSocket;
 		if (ws is null || ws.State != WebSocketState.Open) {
@@ -644,7 +641,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			await SendRawAsync(ws, notification, CancellationToken.None).ConfigureAwait(false);
 			Emit($"selection_changed -> {active.FilePath}");
 		} catch (Exception ex) when (ex is IOException or WebSocketException or OperationCanceledException or ObjectDisposedException or InvalidOperationException) {
-			// Best-effort: the notification is advisory, so a closing/dropped socket just means no push.
+			// Best-effort: the notification is advisory, so a dropped socket just means no push.
 		}
 	}
 
@@ -671,8 +668,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 	});
 
 	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty,isPinned,isPreview}] }
-	// — the real open-tab set the page reported, or an empty list until it reports one. languageId is filled
-	// for the active tab from the active-editor report; isDirty is false (Weavie auto-saves on a debounce).
+	// — the open-tab set the page reported, or an empty list until it reports one. languageId is filled for the
+	// active tab from the active-editor report; isDirty is false (Weavie auto-saves on a debounce).
 	private static string BuildOpenEditorsResult(IReadOnlyList<OpenEditorTab>? tabs, ActiveEditor? active) =>
 		WriteJson(writer => {
 			writer.WriteStartArray("tabs");
@@ -722,7 +719,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	// Reads a boolean MCP arg leniently: a real bool, or the string "true"/"false" (embedded Claude sends
-	// scalar args as JSON strings). Absent or anything else → false.
+	// scalars as JSON strings). Absent or anything else → false.
 	private static bool ReadLenientBool(JsonElement args, string name) {
 		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty(name, out var value)) {
 			return false;

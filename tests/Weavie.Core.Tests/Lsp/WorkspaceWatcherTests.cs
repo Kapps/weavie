@@ -5,10 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Verifies the workspace watcher detects on-disk changes (the agentic-editor path that feeds
-/// <c>workspace/didChangeWatchedFiles</c>), filters to served extensions, skips noise directories,
-/// and reports deletions. Uses the real filesystem with generous polling (FileSystemWatcher is
-/// inherently asynchronous), so timing is tolerant rather than exact.
+/// Workspace watcher (feeds <c>workspace/didChangeWatchedFiles</c>): detects on-disk changes, filters
+/// to served extensions, skips noise directories, and reports deletions. Uses the real filesystem with
+/// generous polling, since FileSystemWatcher is asynchronous.
 /// </summary>
 public sealed class WorkspaceWatcherTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), $"weavie-watch-{Guid.NewGuid():N}");

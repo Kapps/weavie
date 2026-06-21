@@ -1,18 +1,11 @@
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// Weavie's tool-permission gate — the axis Weavie owns, orthogonal to Claude's own edit mode (which Weavie
-/// only observes, see <see cref="ObservedPermissionMode"/>). Driven by the <c>claude.allowAllTools</c> setting:
-/// <list type="bullet">
-/// <item><b>allowAllTools off</b> — <see cref="HookDecision.PassThrough"/>: defer to Claude's normal flow
-/// (edits → its mode / the openDiff presenter; Bash → its own terminal prompt).</item>
-/// <item><b>allowAllTools on</b> — <see cref="HookDecision.Allow"/> every PermissionRequest for a NON-edit tool
-/// (Bash &amp; other commands): Weavie auto-answers those permission prompts, no <c>--dangerously-skip-permissions</c>
-/// needed. Edits are deliberately left to Claude's mode, so the two axes never contradict.</item>
-/// </list>
-/// Edit tools always pass through here; their handling is Claude's edit mode, and a hook <c>allow</c> would
-/// override it (hook &gt; ask in Claude's precedence). The bridge still OBSERVES every call regardless, so the
-/// change feed is unaffected. A user <c>deny</c> rule still wins (deny &gt; hook).
+/// Weavie's tool-permission gate, orthogonal to Claude's own edit mode (which Weavie only observes — see
+/// <see cref="ObservedPermissionMode"/>). Driven by the <c>claude.allowAllTools</c> setting: when off, every
+/// request passes through to Claude's normal flow; when on, every PermissionRequest for a non-edit tool is
+/// auto-allowed (no <c>--dangerously-skip-permissions</c> needed). Edits always pass through so Claude's edit
+/// mode governs them — a hook <c>allow</c> would override it (hook &gt; ask). A user <c>deny</c> rule still wins.
 /// </summary>
 public static class HookPolicy {
 	/// <summary>Returns the bridge's verdict for <paramref name="request"/> given the <c>claude.allowAllTools</c> setting.</summary>

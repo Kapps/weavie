@@ -4,9 +4,9 @@ using System.Text.Json;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// Serializes the command catalog and the resolved keybindings to JSON — the one source used by both the
-/// MCP <c>listCommands</c> tool and the web injection (<c>__WEAVIE_COMMANDS__</c> / <c>__WEAVIE_KEYBINDINGS__</c>)
-/// plus the live <c>commands</c> push. Mirrors <c>SettingsStore.BuildCatalogJson</c>'s Utf8JsonWriter style.
+/// Serializes the command catalog and the resolved keybindings to JSON — the one source used by the MCP
+/// <c>listCommands</c> tool, the web injection (<c>__WEAVIE_COMMANDS__</c> / <c>__WEAVIE_KEYBINDINGS__</c>),
+/// and the live <c>commands</c> push.
 /// </summary>
 public static class CommandCatalog {
 	/// <summary>
@@ -86,8 +86,8 @@ public static class CommandCatalog {
 					writer.WriteString("when", binding.When);
 				}
 
-				// Emit `global` only when set (absent ⇒ false), keeping the array lean. The web resolver
-				// skips global bindings — the host registers them with the OS instead.
+				// Emit `global` only when set (absent ⇒ false). The web resolver skips global bindings; the
+				// host registers them with the OS instead.
 				if (binding.Global) {
 					writer.WriteBoolean("global", true);
 				}

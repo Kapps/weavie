@@ -5,9 +5,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="WorkspaceManager"/>: a first open is not already-open and bumps recents, a repeat
-/// open of the same folder reports already-open without growing the open set, close frees the slot, and
-/// distinct folders track independently.
+/// <see cref="WorkspaceManager"/>: a first open bumps recents, a repeat open of the same folder reports
+/// already-open without growing the open set, close frees the slot, and distinct folders track
+/// independently.
 /// </summary>
 public sealed class WorkspaceManagerTests {
 	private static WorkspaceManager NewManager() =>

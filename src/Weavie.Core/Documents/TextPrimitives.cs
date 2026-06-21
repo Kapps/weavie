@@ -1,9 +1,8 @@
 namespace Weavie.Core.Documents;
 
 /// <summary>
-/// A caret position using Monaco/LSP-on-the-wire conventions: 1-based line,
-/// 1-based column where column 1 is before the first character and column
-/// (lineLength + 1) is after the last.
+/// A caret position in Monaco/LSP conventions: 1-based line, 1-based column where
+/// column 1 is before the first character and column (lineLength + 1) is after the last.
 /// </summary>
 public readonly record struct Position(int LineNumber, int Column) {
 	/// <summary>The position before the first character of the document (line 1, column 1).</summary>
@@ -21,8 +20,8 @@ public readonly record struct TextRange(Position Start, Position End) {
 
 /// <summary>
 /// A structured edit: replace everything in <see cref="Range"/> with <see cref="Text"/>.
-/// Insertion is an empty range; deletion is empty text. This is the only mutation
-/// primitive the document model exposes (see Headless &amp; Testing: "apply a structured edit").
+/// Insertion is an empty range; deletion is empty text. The only mutation primitive
+/// the document model exposes.
 /// </summary>
 public readonly record struct TextEdit(TextRange Range, string Text) {
 	/// <summary>Builds an insertion edit: inserts <paramref name="text"/> at <paramref name="at"/> without removing anything.</summary>

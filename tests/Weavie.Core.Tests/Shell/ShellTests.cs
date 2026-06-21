@@ -6,7 +6,7 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>The shared title-bar wire contract: building host→web JSON and parsing web→host actions.</summary>
+/// <summary>Title-bar wire contract: host→web JSON and web→host action parsing.</summary>
 public sealed class ShellProtocolTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
@@ -95,7 +95,7 @@ public sealed class ShellProtocolTests {
 		Assert.False(ShellProtocol.TryParseMenuAction(Parse("""{"action":"nope"}"""), out _, out _));
 }
 
-/// <summary>The controller routing title-bar messages to the platform window + file index.</summary>
+/// <summary>Controller routing title-bar messages to the platform window + file index.</summary>
 public sealed class ShellControllerTests {
 	private sealed class FakeWindow : IShellWindow {
 		public List<string> Calls { get; } = [];

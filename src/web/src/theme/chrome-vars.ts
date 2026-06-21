@@ -1,8 +1,7 @@
 // Derives Weavie's chrome semantic CSS vars (--bg/--bar/--border/--fg/--accent/--dim) from the active
-// theme's resolved palette. The chrome (styles.css) keeps its small, stable vocabulary; this maps each
-// var to the closest VS Code workbench color id (spec §5) so the title bar, panels, menus, omnibar, and
-// splitters all track the active theme instead of hardcoding colors. The companion to apply.ts, which
-// publishes the raw --weavie-<key> vars; these six are the chrome's own higher-level names.
+// theme's resolved palette, mapping each to the closest VS Code workbench color id (spec §5) so the
+// title bar, panels, menus, omnibar, and splitters all track the active theme. These higher-level names
+// complement apply.ts, which publishes the raw --weavie-<key> vars.
 
 /** Sets the chrome's --bg/--bar/--border/--fg/--accent/--dim vars on :root from a resolved palette. */
 export function deriveChromeVars(colors: Readonly<Record<string, string>>): void {
@@ -23,8 +22,8 @@ export function deriveChromeVars(colors: Readonly<Record<string, string>>): void
   };
 
   set("--bg", pick("editor.background"));
-  // The chrome's secondary "bar" surface — title bar, pane heads, menus, toolbars, popovers: a slightly
-  // elevated panel distinct from the editor background.
+  // The "bar" surface (title bar, pane heads, menus, toolbars, popovers): an elevated panel distinct
+  // from the editor background.
   set("--bar", pick("editorWidget.background", "dropdown.background", "sideBar.background"));
   set("--border", pick("panel.border", "editorGroup.border", "widget.border"));
   set("--fg", pick("editor.foreground", "foreground"));

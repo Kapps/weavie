@@ -4,8 +4,8 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// The observed-mode mirror: Weavie reflects Claude's reported <c>permission_mode</c> off the hook stream and
-/// reports whether edits are auto-applying. Also covers <see cref="HookRequest.Parse"/> reading the field.
+/// Mirrors Claude's reported <c>permission_mode</c> off the hook stream and reports whether edits
+/// auto-apply. Also covers <see cref="HookRequest.Parse"/> reading the field.
 /// </summary>
 public sealed class ObservedPermissionModeTests {
 	private static HookRequest Pre(string? mode) =>
@@ -34,7 +34,7 @@ public sealed class ObservedPermissionModeTests {
 	public void Observe_KeepsLastKnownMode_WhenEventOmitsIt() {
 		var observed = new ObservedPermissionMode();
 		observed.Observe(Pre("acceptEdits"));
-		observed.Observe(Pre(null)); // an event that doesn't carry permission_mode
+		observed.Observe(Pre(null)); // event without permission_mode
 		Assert.Equal("acceptEdits", observed.Current);
 	}
 

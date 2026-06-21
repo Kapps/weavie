@@ -1,15 +1,13 @@
 namespace Weavie.Core.Lsp;
 
 /// <summary>
-/// The built-in set of <see cref="LanguageServerDescriptor"/> recipes. Bring-up grows this list one
-/// milestone at a time (M0/M1 TypeScript, M2 C#, M3 Go). Lookup is by LSP language id, matching the
-/// id Monaco assigns a model — the bridge URL carries that id so the host knows which server to spawn.
+/// The built-in set of <see cref="LanguageServerDescriptor"/> recipes. Lookup is by LSP language id, matching
+/// the id Monaco assigns a model — the bridge URL carries that id so the host knows which server to spawn.
 /// </summary>
 public static class LanguageServerCatalog {
 	/// <summary>
-	/// TypeScript / JavaScript. Prefers <c>tsgo</c> (ts-go / TypeScript 7's native LSP) per the spec's
-	/// "replace Monaco's bundled TS immediately", falling back to the tsserver-based <c>vtsls</c> then
-	/// the classic <c>typescript-language-server</c> if tsgo isn't installed (bring-your-own, on PATH).
+	/// TypeScript / JavaScript. Prefers <c>tsgo</c> (TypeScript 7's native LSP), falling back to the
+	/// tsserver-based <c>vtsls</c> then the classic <c>typescript-language-server</c> (bring-your-own, on PATH).
 	/// </summary>
 	public static LanguageServerDescriptor TypeScript { get; } = new() {
 		Id = "typescript",
@@ -24,10 +22,7 @@ public static class LanguageServerCatalog {
 		RootMarkers = ["tsconfig.json", "jsconfig.json", "package.json", ".git"],
 	};
 
-	/// <summary>
-	/// C#. Served by <c>csharp-ls</c> (a Roslyn-based .NET global tool; speaks LSP over stdio with no
-	/// flags). The heavier Roslyn <c>Microsoft.CodeAnalysis.LanguageServer</c> is a deferred upgrade.
-	/// </summary>
+	/// <summary>C#. Served by <c>csharp-ls</c> (a Roslyn-based .NET global tool; speaks LSP over stdio, no flags).</summary>
 	public static LanguageServerDescriptor CSharp { get; } = new() {
 		Id = "csharp",
 		DisplayName = "C#",
@@ -37,10 +32,7 @@ public static class LanguageServerCatalog {
 		RootMarkers = [".sln", ".slnx", ".csproj", ".git"],
 	};
 
-	/// <summary>
-	/// Go. Served by <c>gopls</c> (the reference Go LSP; serves over stdio with no flags). Acquired via
-	/// <c>go install golang.org/x/tools/gopls@latest</c> (bring-your-own, on PATH).
-	/// </summary>
+	/// <summary>Go. Served by <c>gopls</c> (the reference Go LSP; serves over stdio, no flags; bring-your-own, on PATH).</summary>
 	public static LanguageServerDescriptor Go { get; } = new() {
 		Id = "go",
 		DisplayName = "Go",

@@ -26,14 +26,13 @@ public sealed record SetResult {
 public readonly record struct SettingChange(string Key, object? OldValue, object? NewValue, SettingSource Source);
 
 /// <summary>
-/// Loads, resolves, and persists user settings as TOML at <c>~/.weavie/settings.toml</c>, and is the
-/// change hub the host reacts to. Resolution precedence is env var → user file → registered default;
-/// values are coerced to their declared <see cref="SettingKind"/> and validated. Writes go through
-/// Tomlyn's comment-preserving <see cref="DocumentSyntax"/> (unknown <c>[plugins.*]</c> subtrees and
-/// user comments survive a round-trip) and are atomic. A debounced, parse-guarded
-/// <see cref="FileSystemWatcher"/> turns hand-edits into the same <see cref="SettingChanged"/> events
-/// that <see cref="Set"/> raises, diffing against the in-memory resolved state so self-writes never
-/// double-fire. See <c>docs/specs/settings.md</c>.
+/// Loads, resolves, and persists user settings as TOML at <c>~/.weavie/settings.toml</c>, and is the change
+/// hub the host reacts to. Resolution precedence is env var → user file → registered default; values are
+/// coerced to their declared <see cref="SettingKind"/> and validated. Writes go through Tomlyn's
+/// comment-preserving <see cref="DocumentSyntax"/> (unknown <c>[plugins.*]</c> subtrees and user comments
+/// survive a round-trip) and are atomic. A debounced, parse-guarded <see cref="FileSystemWatcher"/> turns
+/// hand-edits into the same <see cref="SettingChanged"/> events that <see cref="Set"/> raises, diffing against
+/// the in-memory resolved state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed class SettingsStore : IDisposable {
 	private const string WorkspaceKey = "workspace";
@@ -51,9 +50,9 @@ public sealed class SettingsStore : IDisposable {
 	private bool _disposed;
 
 	/// <summary>
-	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>),
-	/// loading current values and—unless <paramref name="enableWatcher"/> is false—watching the file
-	/// for external edits. The parent directory is created so the watcher can attach.
+	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>), loading
+	/// current values and — unless <paramref name="enableWatcher"/> is false — watching the file for external
+	/// edits. The parent directory is created so the watcher can attach.
 	/// </summary>
 	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -87,7 +86,7 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Raised (off the UI thread) once per resolved value that actually changed.</summary>
 	public event Action<SettingChange>? SettingChanged;
 
-	/// <summary>Diagnostic log line — loud surfacing of parse errors and ignored invalid values.</summary>
+	/// <summary>Diagnostic log line: parse errors and ignored invalid values.</summary>
 	public event Action<string>? Log;
 
 	/// <summary>The settings file backing this store.</summary>
@@ -115,11 +114,10 @@ public sealed class SettingsStore : IDisposable {
 	public long GetInt(string key, long fallback) => Resolve(key).Value is long l ? l : fallback;
 
 	/// <summary>
-	/// Resolves <paramref name="key"/> as a bool, trusting the registered default (env → file → default,
-	/// see <see cref="Resolve"/>). Unlike <see cref="GetBool"/> it takes no literal fallback: the default
-	/// lives only in the setting's registration. Throws if the resolved value isn't a bool, which can only
-	/// happen if the setting was registered with a non-bool default — a programming error surfaced loudly
-	/// rather than papered over with a stale literal.
+	/// Resolves <paramref name="key"/> as a bool, trusting the registered default (env → file → default). Unlike
+	/// <see cref="GetBool"/> it takes no literal fallback: the default lives only in the setting's registration.
+	/// Throws if the resolved value isn't a bool — only possible if the setting was registered with a non-bool
+	/// default, a programming error surfaced loudly.
 	/// </summary>
 	public bool RequireBool(string key) => Resolve(key).Value is bool b ? b : throw WrongKind(key, "bool");
 
@@ -496,8 +494,8 @@ public sealed class SettingsStore : IDisposable {
 			existing.Value = valueSyntax;
 		} else {
 			var keyValue = new KeyValueSyntax(BuildKeySyntax(definition.Key), valueSyntax) {
-				// Self-document a newly written key with its description; never touches an existing line,
-				// so a comment the user wrote themselves is preserved.
+				// Self-document a newly written key with its description; never touches an existing line, so a
+				// user's own comment is preserved.
 				LeadingTrivia = [
 					new SyntaxTrivia(TokenKind.Comment, "# " + definition.Description),
 					new SyntaxTrivia(TokenKind.NewLine, "\n"),

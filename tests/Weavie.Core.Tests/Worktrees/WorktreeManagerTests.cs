@@ -6,10 +6,9 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="WorktreeManager"/>'s orchestration and — the heart of the no-leak guarantee —
-/// its classification of every worktree against the registry: managed/primary/orphan/untracked,
-/// dirty/merged, the dirty-removal guard, and reconcile pruning. Uses a <see cref="FakeGitService"/> so
-/// the logic is exercised deterministically without a real repository.
+/// <see cref="WorktreeManager"/> orchestration and its classification of every worktree against the
+/// registry: managed/primary/orphan/untracked, dirty/merged, the dirty-removal guard, and reconcile
+/// pruning. Uses a <see cref="FakeGitService"/> for deterministic logic without a real repository.
 /// </summary>
 public sealed class WorktreeManagerTests {
 	private const string RegistryPath = "/weavie-wt-mgr-tests/worktrees.json";
@@ -62,7 +61,7 @@ public sealed class WorktreeManagerTests {
 	public async Task Attach_MissingBranch_Throws() {
 		var (manager, _, _) = NewManager();
 
-		// Inverse of Create's guard: attach requires the branch to already exist.
+		// Attach requires the branch to already exist (inverse of Create's guard).
 		await Assert.ThrowsAsync<InvalidOperationException>(() => manager.AttachAsync("nope"));
 	}
 
@@ -96,7 +95,7 @@ public sealed class WorktreeManagerTests {
 		registry.Add(new WorktreeRecord { Branch = "wip", Path = wipPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
 		git.DirtyPaths.Add(wipPath);
 
-		// Untracked: git knows it, Weavie's registry does not.
+		// Untracked: git knows it, the registry does not.
 		string extPath = Path.Combine(WorktreesDir, "external");
 		git.Worktrees.Add(new GitWorktree { Path = extPath, Branch = "external", Head = "e1" });
 
@@ -165,7 +164,7 @@ public sealed class WorktreeManagerTests {
 		string wtPath = Path.Combine(WorktreesDir, "locked");
 		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "locked", Head = "l1" });
 		registry.Add(new WorktreeRecord { Branch = "locked", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
-		// The first removal attempt loses to a transient file lock; the bounded retry then succeeds.
+		// The first attempt loses to a transient file lock; the bounded retry succeeds.
 		git.RemoveWorktreeFailures.Enqueue(new GitException(
 			"git worktree remove failed (exit 255): error: failed to delete '...': Directory not empty"));
 		var logs = new List<string>();
@@ -184,7 +183,7 @@ public sealed class WorktreeManagerTests {
 		string wtPath = Path.Combine(WorktreesDir, "broken");
 		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
 		registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
-		// A non-lock failure must surface immediately, not be retried as if it were a transient lock.
+		// A non-lock failure must surface immediately, not be retried as a transient lock.
 		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: some other error"));
 		var logs = new List<string>();
 		manager.Log += logs.Add;

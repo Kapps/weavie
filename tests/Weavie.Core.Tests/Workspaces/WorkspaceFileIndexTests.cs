@@ -6,7 +6,7 @@ namespace Weavie.Core.Tests;
 
 /// <summary>The recursive workspace file index backing the omnibar quick-open.</summary>
 public sealed class WorkspaceFileIndexTests {
-	// InMemoryFileSystem normalizes seed paths to full paths; expectations must too (drive letter on Windows).
+	// InMemoryFileSystem normalizes to full paths (drive letter on Windows); expectations must match.
 	private static string Full(string p) => Path.GetFullPath(p);
 
 	[Fact]

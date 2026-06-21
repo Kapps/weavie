@@ -6,16 +6,15 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// The spine (Headless &amp; Testing: "the example flow = the first test"):
-/// an openDiff-shaped edit -&gt; document model -&gt; (user types into it) -&gt; save -&gt; in-memory FS.
-/// This is the whole edit-feed contract exercised end to end with the test fakes.
+/// The edit-feed contract end to end with test fakes:
+/// openDiff-shaped edit -&gt; document model -&gt; user types into it -&gt; save -&gt; in-memory FS.
 /// </summary>
 public sealed class ExampleFlowTests {
 	private const string FilePath = "/workspace/src/greeter.cs";
 
 	[Fact]
 	public void OpenDiff_Keep_SavesProposedContentsToFileSystem() {
-		// The file already exists on disk with original contents.
+		// File already on disk with original contents.
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(FilePath, "public static string Greet() => \"hi\";\n");
 		var factory = new InMemoryDocumentModelFactory(fs);
@@ -29,7 +28,7 @@ public sealed class ExampleFlowTests {
 
 		var session = DiffSession.Open(proposal, fs, factory);
 
-		// The original is presented on the left for the diff.
+		// Original presented on the diff's left side.
 		Assert.Equal("public static string Greet() => \"hi\";\n", session.OriginalContents);
 
 		var outcome = session.Keep();
@@ -53,8 +52,7 @@ public sealed class ExampleFlowTests {
 
 		var session = DiffSession.Open(proposal, fs, factory);
 
-		// The user tweaks Claude's proposed edit in the diff before keeping:
-		// insert "// reviewed\n" at the top of the proposed (right) side.
+		// User tweaks the proposal before keeping: insert "// reviewed\n" atop the right side.
 		session.ProposedDocument.ApplyEdit(TextEdit.Insert(Position.Start, "// reviewed\n"));
 		Assert.True(session.ProposedDocument.IsDirty);
 

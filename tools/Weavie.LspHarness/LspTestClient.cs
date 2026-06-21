@@ -8,12 +8,10 @@ using System.Text.Json.Nodes;
 namespace Weavie.LspHarness;
 
 /// <summary>
-/// A minimal LSP/JSON-RPC client over the bridge's loopback WebSocket — the deterministic stand-in
-/// for <c>monaco-languageclient</c>. It sends one JSON-RPC message per WebSocket frame (exactly what
-/// the bridge expects), matches responses to requests by id, auto-answers the server-initiated
-/// requests a real server makes during startup (<c>workspace/configuration</c>,
-/// <c>client/registerCapability</c>, <c>window/workDoneProgress/create</c>, …), and collects
-/// <c>publishDiagnostics</c> notifications so the harness can assert on them.
+/// A minimal LSP/JSON-RPC client over the bridge's loopback WebSocket — the deterministic stand-in for
+/// <c>monaco-languageclient</c>. Sends one JSON-RPC message per frame, matches responses to requests by id,
+/// auto-answers the server-initiated startup requests (<c>workspace/configuration</c>,
+/// <c>client/registerCapability</c>, …), and collects <c>publishDiagnostics</c> for the harness to assert on.
 /// </summary>
 internal sealed class LspTestClient : IAsyncDisposable {
 	private readonly ClientWebSocket _ws = new();
@@ -78,10 +76,9 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	/// <c>diagnostics</c> array. Resolves immediately if one already arrived.
 	/// </summary>
 	public async Task<JsonElement> WaitForDiagnosticsAsync(string uri, TimeSpan timeout, CancellationToken ct) {
-		// Servers emit their own canonical URI form (vscode lowercases the Windows drive and
-		// percent-encodes the colon), so match on the normalized local path, not the raw string.
-		// Many servers (gopls) push an INITIAL empty publishDiagnostics, then the real one once the
-		// package loads — so keep waiting for a non-empty report until the timeout, then return what we have.
+		// Servers emit their own canonical URI form, so match on the normalized local path, not the raw string.
+		// Some servers (gopls) push an initial empty publishDiagnostics then the real one once the package
+		// loads, so keep waiting for a non-empty report until the timeout, then return what we have.
 		string target = NormalizeUri(uri);
 		var stopwatch = Stopwatch.StartNew();
 		while (true) {
@@ -125,8 +122,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 			return uri;
 		}
 
-		// On Windows, an encoded-drive file URI (file:///c%3A/..) yields LocalPath "/c:/.."; strip the
-		// leading slash so the drive path is real. Avoid Path.GetFullPath — it throws on "/c:/..".
+		// On Windows, an encoded-drive file URI (file:///c%3A/..) yields LocalPath "/c:/.."; strip the leading
+		// slash so the drive path is real. Avoid Path.GetFullPath — it throws on "/c:/..".
 		if (OperatingSystem.IsWindows() && path.Length >= 3 && path[0] == '/' && char.IsLetter(path[1]) && path[2] == ':') {
 			path = path[1..];
 		}
@@ -184,8 +181,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	private async Task DispatchAsync(string json, CancellationToken ct) {
 		using var doc = JsonDocument.Parse(json);
 		var root = doc.RootElement.Clone();
-		// LSP request ids may be integer OR string (ts-go uses string ids for its server→client
-		// requests). Treat both as ids — else we never reply and the server blocks forever.
+		// LSP request ids may be integer or string. Treat both as ids — else we never reply and the
+		// server blocks forever.
 		bool hasId = root.TryGetProperty("id", out var idEl)
 			&& idEl.ValueKind is JsonValueKind.Number or JsonValueKind.String;
 		bool hasMethod = root.TryGetProperty("method", out var methodEl);
@@ -249,8 +246,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 		}
 	}
 
-	// Real servers make a handful of requests to the client during startup. We answer the ones that
-	// matter (configuration, workspace folders) and acknowledge the rest with null so startup proceeds.
+	// Answer the requests servers make during startup: the ones that matter (configuration, workspace
+	// folders) get real replies, the rest get null so startup proceeds.
 	private async Task ReplyToServerRequestAsync(string method, JsonElement id, JsonElement root, CancellationToken ct) {
 		if (method == "client/registerCapability"
 			&& root.TryGetProperty("params", out var rp)
@@ -278,8 +275,8 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	}
 
 	private JsonArray ConfigurationResponse(JsonElement root) {
-		// Reply with the adapter's default settings (or empty) once per requested item, so servers that
-		// gate features on configuration (gopls semantic tokens) get what they need.
+		// Reply with the default settings (or empty) once per requested item, so servers that gate features
+		// on configuration (gopls semantic tokens) get what they need.
 		int count = root.TryGetProperty("params", out var p) && p.TryGetProperty("items", out var items)
 			? items.GetArrayLength()
 			: 1;

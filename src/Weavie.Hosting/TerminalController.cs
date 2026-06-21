@@ -42,7 +42,7 @@ public sealed class TerminalController : IDisposable {
 	// Shell-only: the on-disk scrollback log this pane's output is tee'd to, for replay on (re)attach and faded
 	// history on resume. Null = not configured (the claude pane, or persistence disabled). Created when
 	// ScrollbackLogPath is set; unlike _ptyLog it SURVIVES process restarts (so a restart shows prior output
-	// faded), and is closed only when the controller is disposed.
+	// faded), and is closed only on dispose.
 	private ScrollbackLog? _scrollback;
 
 	/// <summary>
@@ -130,9 +130,8 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// The workspace session (rail slot id) this pane belongs to, tagged onto every message so the page routes
-	/// it to this session's own xterm. Every loaded session streams concurrently — a background session's
-	/// output paints into its own (hidden) pane, kept live so switching to it is instant — so there is no
-	/// muting. Set when the session is bound to a slot; empty until then.
+	/// it to this session's own xterm. Every loaded session streams concurrently into its own (hidden) pane, so
+	/// switching to it is instant and nothing is muted. Set when the session is bound to a slot; empty until then.
 	/// </summary>
 	public string SlotId {
 		get;
@@ -143,16 +142,13 @@ public sealed class TerminalController : IDisposable {
 	} = "";
 
 	/// <summary>
-	/// Handles the page's <c>term-ready</c> for this pane (sent when a session's xterm mounts: first page
-	/// load, a refresh, a background slot's pane appearing, or a deliberate <see cref="Restart"/>). If the
-	/// child isn't running yet it launches it in a PTY sized to the given columns and rows, and the child
-	/// paints itself. If the child is <em>already</em> live — a cold (re)attach to a session whose backend
-	/// stayed up — it instead nudges the PTY size (one row shorter, then back) to force the running TUI to
-	/// redraw into the freshly-mounted pane; otherwise the pane stays blank until the user resizes. A
-	/// same-session switch does NOT come through here: each session keeps its own live xterm, so switching is
-	/// pure show/hide on the page with no reset and no re-ready. The decision and the nudge happen under the
-	/// same lock; the start (which must not hold the gate — the supervisor's start callback takes it) runs
-	/// after the lock only on the not-running branch.
+	/// Handles the page's <c>term-ready</c> for this pane (sent when a session's xterm mounts: first page load, a
+	/// refresh, a background slot's pane appearing, or a deliberate <see cref="Restart"/>). If the child isn't
+	/// running yet it launches it in a PTY sized to the given columns and rows. If the child is already live — a
+	/// cold (re)attach to a session whose backend stayed up — it nudges the PTY size (one row shorter, then back)
+	/// to force the running TUI to redraw into the freshly-mounted pane; otherwise the pane stays blank until the
+	/// user resizes. The decision and nudge happen under the lock; the start (which must not hold the gate — the
+	/// supervisor's start callback takes it) runs after the lock only on the not-running branch.
 	/// </summary>
 	public void OnReady(int columns, int rows) {
 		bool start;
@@ -205,9 +201,9 @@ public sealed class TerminalController : IDisposable {
 		_supervisor.Stop();
 		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
 		Console.Out.Flush();
-		// respawn=true: the child was torn down and will relaunch, re-establishing its modes from scratch,
-		// so the page does a full reset (clean slate). This is the only remaining term-reset caller — a
-		// session switch no longer resets (each session keeps its own live xterm).
+		// respawn=true: the child was torn down and will relaunch, re-establishing its modes from scratch, so the
+		// page does a full reset (clean slate). The sole term-reset caller — a session switch keeps each
+		// session's own live xterm and doesn't reset.
 		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":true}}");
 	}
 
@@ -286,11 +282,10 @@ public sealed class TerminalController : IDisposable {
 	/// <summary>
 	/// Keeps <see cref="ClaudeSessions"/> aligned with the conversation claude is ACTUALLY in, observed off the
 	/// hook stream — so <c>--resume</c> tracks reality across a <c>/clear</c>. A <c>/clear</c> (SessionStart with
-	/// <c>source=clear</c>) abandons the tracked id, so quitting right after a clear cold-starts fresh next launch
-	/// instead of resuming the now-stale transcript; the next real user message (UserPromptSubmit) then adopts
-	/// whatever id claude settled on, so a cleared-then-used session resumes its new conversation. No-op for the
-	/// shell pane (no store), when <c>claude.resumeSession</c> is off, or for any other event. Runs on the hook
-	/// accept-loop thread; the store is thread-safe.
+	/// <c>source=clear</c>) abandons the tracked id, so quitting right after a clear cold-starts fresh; the next
+	/// user message (UserPromptSubmit) adopts whatever id claude settled on. No-op for the shell pane, when
+	/// <c>claude.resumeSession</c> is off, or for any other event. Runs on the hook accept-loop thread; the store
+	/// is thread-safe.
 	/// </summary>
 	public void ObserveHook(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
@@ -312,10 +307,9 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Resolves this directory's managed Claude launch — the stable session id and whether to <c>--resume</c> it
-	/// or create it with <c>--session-id</c> (the caller turns this into the flag pair). Null when resume is
-	/// unconfigured (<see cref="ClaudeSessions"/> null) or turned off via <c>claude.resumeSession</c> (claude
-	/// then picks its own id). The resume <em>policy</em> lives in <see cref="ClaudeSessionStore"/>, shared
-	/// across hosts; each <see cref="IPtyLauncher"/> just formats the resulting args for its OS.
+	/// or create it with <c>--session-id</c>. Null when resume is unconfigured (<see cref="ClaudeSessions"/>
+	/// null) or turned off via <c>claude.resumeSession</c> (claude then picks its own id). The resume policy
+	/// lives in <see cref="ClaudeSessionStore"/>; each <see cref="IPtyLauncher"/> formats the resulting args.
 	/// </summary>
 	private ClaudeLaunch? ResolveClaudeLaunch() {
 		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
@@ -327,10 +321,10 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>Tears down the current PTY child and its optional log; the supervisor calls this on stop/dispose.</summary>
 	private void StopTerminal() {
-		// Detach under the gate, then dispose OUTSIDE it. Disposing a ConPTY now blocks until its child has
-		// actually exited (so a worktree delete that follows teardown can't race a still-open handle); during
-		// that wait the child's final output can fire OnOutput → ObserveClaudeStartup, which itself takes _gate.
-		// Holding the gate across Dispose would deadlock the two — detach-then-dispose tears down fully without it.
+		// Detach under the gate, then dispose OUTSIDE it. Disposing a ConPTY blocks until its child has actually
+		// exited (so a worktree delete that follows teardown can't race a still-open handle); during that wait
+		// the child's final output can fire OnOutput → ObserveClaudeStartup, which itself takes _gate. Holding
+		// the gate across Dispose would deadlock the two — detach-then-dispose tears down fully without it.
 		ITerminal? terminal;
 		FileStream? ptyLog;
 		lock (_gate) {
@@ -424,13 +418,12 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// The PTY child exited. For a managed claude launch that died before confirming it came up — a crash at
-	/// startup, the signature of a dead/poison session id rather than a healthy run the user quit — this heals the
-	/// session store so the supervisor's relaunch recovers instead of crash-looping: a failed <c>--resume</c>
-	/// re-creates the same id, a failed <c>--session-id</c> forgets the id so the next launch mints a fresh one and
-	/// cold-starts clean. An intentional stop (the supervisor has already left <see cref="SupervisorState.Running"/>
-	/// before tearing the child down) and a clean exit are left alone. The supervisor is always notified last so it
-	/// applies its restart policy regardless.
+	/// The PTY child exited. For a managed claude launch that died before confirming it came up — the signature
+	/// of a dead/poison session id rather than a healthy run the user quit — this heals the session store so the
+	/// relaunch recovers instead of crash-looping: a failed <c>--resume</c> re-creates the same id, a failed
+	/// <c>--session-id</c> forgets the id so the next launch cold-starts clean. An intentional stop (supervisor
+	/// already out of <see cref="SupervisorState.Running"/>) and a clean exit are left alone. The supervisor is
+	/// notified last so it applies its restart policy regardless.
 	/// </summary>
 	private void OnTerminalExited(int code) {
 		try {

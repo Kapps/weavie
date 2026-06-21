@@ -5,15 +5,14 @@ using System.Text.Json;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Installs VS Code color themes from the <see href="https://open-vsx.org">Open VSX</see> registry
-/// into the Weavie themes root (<see cref="WeaviePaths.Themes"/>), per spec §8/§13. A theme ships as a
-/// <c>.vsix</c> (a ZIP) — pure declarative data (theme JSON + a <c>package.json</c> manifest), no
-/// extension host. The host owns this (network + filesystem); we download, unzip, read the manifest's
-/// <c>contributes.themes[]</c>, and record selectable themes in <c>~/.weavie/themes/index.json</c>.
-/// The raw theme JSON is kept as the lossless source of truth; conversion happens at load (web side).
+/// Installs VS Code color themes from the <see href="https://open-vsx.org">Open VSX</see> registry into
+/// the Weavie themes root (<see cref="WeaviePaths.Themes"/>). A theme ships as a <c>.vsix</c> (a ZIP of
+/// declarative theme JSON + a <c>package.json</c> manifest). Downloads, unzips, reads the manifest's
+/// <c>contributes.themes[]</c>, and records selectable themes in <c>~/.weavie/themes/index.json</c>. The
+/// raw theme JSON is kept as the lossless source of truth; conversion happens at load on the web side.
 /// </summary>
 public sealed class OpenVsxThemeInstaller {
-	/// <summary>The public Open VSX registry base URL used when no other registry is supplied.</summary>
+	/// <summary>Default public Open VSX registry base URL.</summary>
 	public const string DefaultRegistry = "https://open-vsx.org";
 	private const string IndexFileName = "index.json";
 
@@ -21,23 +20,22 @@ public sealed class OpenVsxThemeInstaller {
 	private readonly string _registry;
 
 	/// <summary>Creates the installer. Pass an <see cref="HttpClient"/> to share/mock; one is created otherwise.</summary>
-	/// <param name="http">HTTP client used for registry calls; a default is created if null.</param>
-	/// <param name="registry">Registry base URL; defaults to the public Open VSX.</param>
+	/// <param name="http">HTTP client for registry calls; a default is created if null.</param>
+	/// <param name="registry">Registry base URL.</param>
 	public OpenVsxThemeInstaller(HttpClient? http, string registry) {
 		_http = http ?? new HttpClient();
 		_registry = registry.TrimEnd('/');
 	}
 
-	/// <summary>The path of the themes index file: <c>~/.weavie/themes/index.json</c>.</summary>
+	/// <summary>Path of the themes index file: <c>~/.weavie/themes/index.json</c>.</summary>
 	public static string IndexPath => Path.Combine(WeaviePaths.Themes, IndexFileName);
 
 	/// <summary>
-	/// Downloads and installs the extension <c>{namespace}.{name}</c> (latest, or a specific
-	/// <paramref name="version"/>) from Open VSX, returning the themes it contributes. Re-installing
-	/// replaces the prior copy of that extension.
+	/// Downloads and installs the extension <c>{namespace}.{name}</c> from Open VSX, returning the themes it
+	/// contributes. Re-installing replaces the prior copy of that extension.
 	/// </summary>
 	/// <param name="ns">Open VSX namespace (publisher).</param>
-	/// <param name="name">Extension name.</param>
+	/// <param name="name">Open VSX extension name.</param>
 	/// <param name="version">Specific version, or null for the latest.</param>
 	/// <param name="ct">Cancellation token.</param>
 	public async Task<IReadOnlyList<InstalledTheme>> InstallAsync(string ns, string name, string? version, CancellationToken ct) {
@@ -58,10 +56,9 @@ public sealed class OpenVsxThemeInstaller {
 	}
 
 	/// <summary>
-	/// Installs a VS Code color theme from a local <c>.vsix</c> file — the same ZIP an Open VSX download is —
-	/// returning the themes it contributes. The extension's identity (publisher / name / version) is read
-	/// from the vsix's own manifest, so a re-install (from file or Open VSX) replaces the prior copy of that
-	/// extension and the resulting theme ids match either install path.
+	/// Installs a VS Code color theme from a local <c>.vsix</c> file, returning the themes it contributes. The
+	/// extension's identity (publisher / name / version) is read from the vsix's manifest, so the resulting
+	/// theme ids and replace-on-reinstall behavior match an Open VSX install of the same extension.
 	/// </summary>
 	/// <param name="vsixPath">Absolute path to a <c>.vsix</c> file.</param>
 	/// <param name="ct">Cancellation token.</param>
@@ -76,7 +73,7 @@ public sealed class OpenVsxThemeInstaller {
 		return await ExtractAndIndexAsync(publisher, name, version, vsix, ct).ConfigureAwait(false);
 	}
 
-	/// <summary>Lists the themes recorded in the index (empty if nothing is installed yet).</summary>
+	/// <summary>Lists the themes recorded in the index (empty if none installed).</summary>
 	public static IReadOnlyList<InstalledTheme> ListInstalled() {
 		if (!File.Exists(IndexPath)) {
 			return [];
@@ -90,8 +87,8 @@ public sealed class OpenVsxThemeInstaller {
 	}
 
 	/// <summary>
-	/// Parses Open VSX extension metadata, returning the <c>.vsix</c> download URL and resolved version
-	/// (both null if absent). Pure — no I/O — so it's unit-testable against captured responses.
+	/// Parses Open VSX extension metadata, returning the <c>.vsix</c> download URL and resolved version (both
+	/// null if absent). Pure (no I/O) so it's unit-testable against captured responses.
 	/// </summary>
 	/// <param name="metadataJson">The JSON body from <c>/api/{namespace}/{name}</c>.</param>
 	public static (string? DownloadUrl, string? Version) ParseMetadata(string metadataJson) {
@@ -111,7 +108,7 @@ public sealed class OpenVsxThemeInstaller {
 	/// theme's relative <c>path</c> to an absolute path under <paramref name="extensionDir"/>. Pure.
 	/// </summary>
 	/// <param name="packageJson">The extension's <c>package.json</c> contents.</param>
-	/// <param name="extensionDir">The unpacked extension directory (theme paths are relative to it).</param>
+	/// <param name="extensionDir">Unpacked extension directory (theme paths are relative to it).</param>
 	public static IReadOnlyList<ThemeContribution> ParseThemeContributions(string packageJson, string extensionDir) {
 		using var doc = JsonDocument.Parse(packageJson);
 		if (!doc.RootElement.TryGetProperty("contributes", out var contributes)
@@ -140,10 +137,9 @@ public sealed class OpenVsxThemeInstaller {
 
 	/// <summary>
 	/// Reads an extension's identity (<c>publisher</c>, <c>name</c>, <c>version</c>) from its
-	/// <c>package.json</c> — the coordinates a local-file install needs (an Open VSX install gets them from
-	/// the registry instead). Throws <see cref="InvalidOperationException"/> if any are missing. Pure.
+	/// <c>package.json</c> — the coordinates a local-file install needs. Throws
+	/// <see cref="InvalidOperationException"/> if any are missing. Pure.
 	/// </summary>
-	/// <param name="packageJson">The extension's <c>package.json</c> contents.</param>
 	public static (string Publisher, string Name, string Version) ParseExtensionIdentity(string packageJson) {
 		using var doc = JsonDocument.Parse(packageJson);
 		var root = doc.RootElement;
@@ -158,9 +154,9 @@ public sealed class OpenVsxThemeInstaller {
 		return (publisher, name, version);
 	}
 
-	// Shared install tail for both the Open VSX download and a local-file install: extract the .vsix into the
-	// themes root under a per-extension directory (replacing any prior copy), read the manifest's contributed
-	// themes, record them in the index, and return them.
+	// Shared install tail for Open VSX and local-file installs: extract the .vsix into the themes root under a
+	// per-extension directory (replacing any prior copy), read the manifest's contributed themes, record them
+	// in the index, and return them.
 	private static async Task<IReadOnlyList<InstalledTheme>> ExtractAndIndexAsync(
 		string ns, string name, string version, byte[] vsix, CancellationToken ct) {
 		string extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{version}");
@@ -185,8 +181,8 @@ public sealed class OpenVsxThemeInstaller {
 		return installed;
 	}
 
-	// Reads the extension's package.json straight out of the .vsix ZIP (entries use forward slashes), so a
-	// local-file install can learn the extension's coordinates before choosing an extract directory.
+	// Reads package.json straight out of the .vsix ZIP, so a local-file install can learn the extension's
+	// coordinates before choosing an extract directory.
 	private static string ReadExtensionManifest(byte[] vsix) {
 		using var archive = new ZipArchive(new MemoryStream(vsix), ZipArchiveMode.Read);
 		var entry = archive.GetEntry("extension/package.json")

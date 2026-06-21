@@ -2,10 +2,8 @@ import { type JSX, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 
 /**
- * A small modal confirm dialog (portaled, centered over a backdrop). Keyboard-first: Enter confirms, Escape
- * cancels — handled on a capture-phase listener so the global keybinding resolver and editor never see those
- * keys while the dialog is up. Used for the "discard unsaved scratch?" guard on close; the Save-As name prompt
- * is a native OS dialog instead. Styled via CSS classes (this build's solid-js/web has no object style binding).
+ * Portaled modal confirm dialog. Enter confirms, Escape cancels via a capture-phase listener so the global
+ * keybinding resolver and editor never see those keys while it's up.
  */
 export function ConfirmDialog(props: {
   title: string;
@@ -44,7 +42,7 @@ export function ConfirmDialog(props: {
               type="button"
               class="confirm-btn confirm-btn-primary"
               ref={(el) => {
-                // Focus the primary action so Enter/Space act on it immediately (keyboard-first).
+                // Focus the primary action so Enter/Space act on it immediately.
                 queueMicrotask(() => el.focus());
               }}
               onClick={() => props.onConfirm()}

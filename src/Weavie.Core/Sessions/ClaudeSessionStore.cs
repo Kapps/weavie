@@ -123,13 +123,60 @@ public sealed class ClaudeSessionStore {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		string key = Normalize(workingDirectory);
 		lock (_gate) {
-			if (_items.RemoveAll(e => PathEquals(e.Key, key)) > 0) {
+			if (RemoveLocked(key)) {
+				PersistLocked();
+			}
+		}
+	}
+
+	/// <summary>
+	/// Drops <paramref name="workingDirectory"/>'s tracked id because the user ran <c>/clear</c>: claude has left
+	/// that conversation for a fresh one, so resuming the old id would reattach to the now-stale transcript the
+	/// clear was meant to escape. Forgetting it means a relaunch right after a clear cold-starts fresh; the next
+	/// real user message re-establishes tracking on whatever id claude settled on via <see cref="Adopt"/>. No-op
+	/// if the directory was never <see cref="Resolve"/>d. Persists only on a change.
+	/// </summary>
+	public void Clear(string workingDirectory) {
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		string key = Normalize(workingDirectory);
+		lock (_gate) {
+			if (RemoveLocked(key)) {
+				PersistLocked();
+			}
+		}
+	}
+
+	/// <summary>
+	/// Records the session id claude reports it is ACTUALLY in for <paramref name="workingDirectory"/> (observed
+	/// off the hook stream on a real user message), marking it started so the next launch <c>--resume</c>s that
+	/// conversation. Realigns the store after claude rotated its id out from under Weavie — chiefly a <c>/clear</c>
+	/// (which <see cref="Clear"/> first emptied), but also any other drift. Creates the entry if the directory was
+	/// cleared/forgotten; otherwise repoints the existing id. A no-op when the id already matches and is started,
+	/// so the normal flow (claude stays on the id Weavie assigned) never thrashes the file. Persists only on a change.
+	/// </summary>
+	public void Adopt(string workingDirectory, string sessionId) {
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(sessionId);
+		string key = Normalize(workingDirectory);
+		lock (_gate) {
+			var entry = Find(key);
+			if (entry is null) {
+				_items.Add(new Entry { Key = key, Id = sessionId, Started = true });
+				PersistLocked();
+				return;
+			}
+
+			if (!string.Equals(entry.Id, sessionId, StringComparison.Ordinal) || !entry.Started) {
+				entry.Id = sessionId;
+				entry.Started = true;
 				PersistLocked();
 			}
 		}
 	}
 
 	private Entry? Find(string key) => _items.FirstOrDefault(e => PathEquals(e.Key, key));
+
+	private bool RemoveLocked(string key) => _items.RemoveAll(e => PathEquals(e.Key, key)) > 0;
 
 	private static string Normalize(string path) =>
 		Path.GetFullPath(path).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
@@ -188,7 +235,7 @@ public sealed class ClaudeSessionStore {
 
 	private sealed class Entry {
 		public required string Key { get; init; }
-		public required string Id { get; init; }
+		public required string Id { get; set; }
 		public bool Started { get; set; }
 	}
 

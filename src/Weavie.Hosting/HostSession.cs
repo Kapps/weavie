@@ -135,6 +135,10 @@ public sealed class HostSession : IAsyncDisposable {
 		Ide.HookBridge.Observed += Changes.Observe;
 		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
 		Ide.HookBridge.Observed += ObservedMode.Observe;
+		// And keeps the resume store honest with what claude actually did: a /clear (SessionStart source=clear)
+		// abandons the tracked id so the next launch cold-starts instead of resuming the stale transcript, and
+		// the next real message adopts the id claude settled on. The controller owns the store policy.
+		Ide.HookBridge.Observed += Claude.ObserveHook;
 
 		// Per-session Claude status (the rail/pane indicator): the same hook stream drives it
 		// (UserPromptSubmit/tool use → Working, Notification → NeedsInput, Stop → Idle), and the claude

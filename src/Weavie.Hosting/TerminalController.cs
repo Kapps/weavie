@@ -1,5 +1,6 @@
 using System.Text;
 using Weavie.Core.Configuration;
+using Weavie.Core.Hooks;
 using Weavie.Core.Processes;
 using Weavie.Core.Sessions;
 using Weavie.Core.Terminal;
@@ -287,6 +288,33 @@ public sealed class TerminalController : IDisposable {
 
 		if (attempt > 0) {
 			PostNotice($"\r\n[weavie] {_session} exited - restarting...\r\n");
+		}
+	}
+
+	/// <summary>
+	/// Keeps <see cref="ClaudeSessions"/> aligned with the conversation claude is ACTUALLY in, observed off the
+	/// hook stream — so <c>--resume</c> tracks reality across a <c>/clear</c>. A <c>/clear</c> (SessionStart with
+	/// <c>source=clear</c>) abandons the tracked id, so quitting right after a clear cold-starts fresh next launch
+	/// instead of resuming the now-stale transcript; the next real user message (UserPromptSubmit) then adopts
+	/// whatever id claude settled on, so a cleared-then-used session resumes its new conversation. No-op for the
+	/// shell pane (no store), when <c>claude.resumeSession</c> is off, or for any other event. Runs on the hook
+	/// accept-loop thread; the store is thread-safe.
+	/// </summary>
+	public void ObserveHook(HookRequest request) {
+		ArgumentNullException.ThrowIfNull(request);
+		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
+			return;
+		}
+
+		switch (request.Event) {
+			case HookEventKind.SessionStart when request.Source == "clear":
+				store.Clear(Workspace);
+				break;
+			case HookEventKind.UserPromptSubmit when !string.IsNullOrEmpty(request.SessionId):
+				store.Adopt(Workspace, request.SessionId);
+				break;
+			default:
+				break;
 		}
 	}
 

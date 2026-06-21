@@ -17,6 +17,12 @@ public enum HookEventKind {
 	/// <summary>Fired when Claude needs attention — a permission prompt or an idle "waiting for input" notice. Drives the session's NeedsInput status.</summary>
 	Notification,
 
+	/// <summary>
+	/// Fired when a conversation (re)starts; its <see cref="HookRequest.Source"/> says why (startup / resume /
+	/// clear / compact). Weavie watches <c>source=clear</c> (a <c>/clear</c>) to drop the resume store's stale id.
+	/// </summary>
+	SessionStart,
+
 	/// <summary>Any other hook event (unrecognized name): observed, never acted on.</summary>
 	Other,
 }

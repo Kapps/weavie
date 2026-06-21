@@ -1,0 +1,11 @@
+# Normalize line endings. The .editorconfig mandates `end_of_line = lf`, and the CI
+# `dotnet format --verify-no-changes` gate enforces it — but GitHub's Windows runners
+# default to core.autocrlf=true, which rewrites LF to CRLF on checkout and makes the gate
+# fail with ENDOFLINE errors. Pinning eol=lf here keeps the working tree LF on every
+# platform (CI and local Windows alike), so the repo and the formatter agree.
+* text=auto eol=lf
+
+# Binary assets: never touch their bytes.
+*.png binary
+*.ico binary
+*.woff2 binary

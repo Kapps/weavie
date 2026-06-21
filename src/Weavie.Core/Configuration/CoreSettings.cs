@@ -47,6 +47,23 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = "terminal.persistScrollbackKb",
+			Kind = SettingKind.Int,
+			Description = "How much of the shell terminal's recent output (in KiB) to persist on disk per "
+				+ "session, so a reattaching client (a browser refresh, a session switch, a resumed remote "
+				+ "backend) replays a coherent screen instead of a blank pane — and a restarted shell shows "
+				+ "its previous output faded. 256 by default; 0 disables persistence. Claude is never logged "
+				+ "(it resumes its own conversation). Takes effect on the next session.",
+			Aliases = ["scrollback", "terminal history", "persist scrollback", "shell history size",
+				"terminal scrollback", "remember terminal output"],
+			Apply = ApplyMode.NextSession,
+			Default = 256L,
+			Validate = static value => value is long kb && kb >= 0
+				? ValidationResult.Success
+				: ValidationResult.Failure("terminal.persistScrollbackKb must be 0 (off) or a positive number of KiB."),
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = "claude.path",
 			Kind = SettingKind.Path,
 			Description = "Path to the claude binary (auto-detected when unset).",

@@ -11,6 +11,7 @@ import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
 import type { WeavieLspConfig } from "./lsp/lsp-client";
+import { createPendingRequests } from "./pending-requests";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
@@ -609,29 +610,18 @@ export function onSessionMessage(handler: SessionMessageHandler): () => void {
 // branches. branches-result routes cross-backend (isSessionMessage), so correlate replies by a unique id and
 // resolve empty if the host never answers — the typeahead offers nothing rather than hanging.
 const BRANCHES_TIMEOUT_MS = 10_000;
-let branchSeq = 0;
-const pendingBranchRequests = new Map<string, (branches: string[]) => void>();
+const branchRequests = createPendingRequests<string[]>("br");
 onSessionMessage((message) => {
   if (message.type === "branches-result") {
-    pendingBranchRequests.get(message.id)?.(message.branches);
+    branchRequests.settle(message.id, message.branches);
   }
 });
 
 /** Ask `backendId` for the local branches available to check out as a new session (empty on timeout). */
 export function requestBranches(backendId: string): Promise<string[]> {
-  const id = `br${++branchSeq}`;
-  return new Promise<string[]>((resolve) => {
-    const timer = setTimeout(() => {
-      pendingBranchRequests.delete(id);
-      resolve([]);
-    }, BRANCHES_TIMEOUT_MS);
-    pendingBranchRequests.set(id, (branches) => {
-      clearTimeout(timer);
-      pendingBranchRequests.delete(id);
-      resolve(branches);
-    });
-    postToBackend(backendId, { type: "list-branches", id });
-  });
+  const { id, promise } = branchRequests.open(BRANCHES_TIMEOUT_MS, () => []);
+  postToBackend(backendId, { type: "list-branches", id });
+  return promise;
 }
 
 // Reads a config value the C# host injects as a window.__WEAVIE_*__ global before navigation. In the

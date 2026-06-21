@@ -13,6 +13,7 @@ import {
   getService,
 } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
+import { debounce } from "../debounce";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { setDirtyPath } from "./dirty-store";
 import { canonicalFsPath } from "./fs-path";
@@ -136,7 +137,6 @@ export async function createEditorHost(
   // Tell the host which file + selection is active so the embedded Claude knows what the user is looking at.
   // Debounced — cursor moves fire rapidly and Claude only needs the settled state. The transient review
   // model is suppressed; it isn't a file the user is working on.
-  let emitTimer: ReturnType<typeof setTimeout> | undefined;
   const emitActiveEditor = (): void => {
     const model = editor.getModel();
     if (model === null || !isUserFileModel(model)) {
@@ -160,12 +160,7 @@ export async function createEditorHost(
       },
     });
   };
-  const scheduleEmitActiveEditor = (): void => {
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
-    emitTimer = setTimeout(emitActiveEditor, 150);
-  };
+  const scheduleEmitActiveEditor = debounce(emitActiveEditor, 150);
   // Every subscription is collected here so dispose() tears them all down — including listeners on models
   // that outlive the widget, so a rebuilt host never stacks a second set of handlers on a surviving model.
   const disposables: monaco.IDisposable[] = [
@@ -189,7 +184,6 @@ export async function createEditorHost(
   // or hot reload reopens it at the same position. Data-only via captureViewState: never changes the active
   // tab or order, so there's no captureViewState↔show loop. Only a real file working copy is captured.
   // Debounced; scroll feeds it too.
-  let viewStateTimer: ReturnType<typeof setTimeout> | undefined;
   const snapshotViewState = (): void => {
     const model = editor.getModel();
     if (model === null || !isUserFileModel(model)) {
@@ -197,12 +191,7 @@ export async function createEditorHost(
     }
     captureViewState(model.uri.fsPath, editor.saveViewState() ?? null);
   };
-  const scheduleSnapshotViewState = (): void => {
-    if (viewStateTimer !== undefined) {
-      clearTimeout(viewStateTimer);
-    }
-    viewStateTimer = setTimeout(snapshotViewState, 200);
-  };
+  const scheduleSnapshotViewState = debounce(snapshotViewState, 200);
   disposables.push(
     editor.onDidChangeCursorSelection(scheduleSnapshotViewState),
     editor.onDidScrollChange(scheduleSnapshotViewState),
@@ -540,16 +529,11 @@ export async function createEditorHost(
     for (const key of [...saveTimers.keys()]) {
       flushSave(key);
     }
-    if (emitTimer !== undefined) {
-      clearTimeout(emitTimer);
-    }
+    scheduleEmitActiveEditor.cancel();
     // Flush the active tab's view state synchronously (the debounced timer would be dropped by teardown) so
     // the rebuilt host's restoreSession() reopens it precisely. The tab set already lives in the store, so
     // only the active position needs flushing here.
-    if (viewStateTimer !== undefined) {
-      clearTimeout(viewStateTimer);
-      viewStateTimer = undefined;
-    }
+    scheduleSnapshotViewState.cancel();
     snapshotViewState();
     for (const subscription of disposables) {
       subscription.dispose();

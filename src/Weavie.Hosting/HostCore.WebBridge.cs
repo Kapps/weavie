@@ -3,6 +3,7 @@ using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
+using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Sessions;
@@ -40,7 +41,7 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "switch-session": {
-				string switchId = root.TryGetProperty("id", out var ssEl) ? ssEl.GetString() ?? string.Empty : string.Empty;
+				string switchId = root.GetStringOr("id");
 				if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
 					SwitchToSlot(target);
 				}
@@ -51,8 +52,7 @@ public sealed partial class HostCore {
 			case "new-session": {
 				string? branch = root.TryGetProperty("branch", out var nsEl) ? nsEl.GetString() : null;
 				// "existing" ⇒ check out the named branch into a new worktree rather than creating a new branch.
-				bool existing = root.TryGetProperty("existing", out var exEl)
-					&& exEl.ValueKind is JsonValueKind.True or JsonValueKind.False && exEl.GetBoolean();
+				bool existing = root.GetBoolOr("existing");
 				// The page sends base "head" (the active session's HEAD) or "main"; normalize to "current"/"main"
 				// (ResolveBaseRefAsync treats anything but "main" as the current session's HEAD). Ignored for an
 				// existing-branch checkout (the branch already has a tip).
@@ -65,40 +65,38 @@ public sealed partial class HostCore {
 			}
 
 			case "list-branches": {
-				string branchesReqId = root.TryGetProperty("id", out var lbEl) ? lbEl.GetString() ?? string.Empty : string.Empty;
+				string branchesReqId = root.GetStringOr("id");
 				_ = ListBranchesForWebAsync(branchesReqId);
 				break;
 			}
 
 			case "delete-session-request": {
-				string reqId = root.TryGetProperty("id", out var reqEl) ? reqEl.GetString() ?? string.Empty : string.Empty;
+				string reqId = root.GetStringOr("id");
 				_ = DeleteSessionPromptAsync(reqId);
 				break;
 			}
 
 			case "delete-session": {
-				string deleteId = root.TryGetProperty("id", out var delIdEl) ? delIdEl.GetString() ?? string.Empty : string.Empty;
-				bool deleteForce = root.TryGetProperty("force", out var delForceEl)
-					&& delForceEl.ValueKind is JsonValueKind.True or JsonValueKind.False && delForceEl.GetBoolean();
+				string deleteId = root.GetStringOr("id");
+				bool deleteForce = root.GetBoolOr("force");
 				_ = DeleteSessionFromWebAsync(deleteId, deleteForce);
 				break;
 			}
 
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
-				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
+				bool kept = root.GetBoolOr("kept");
 				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
 				_session?.DiffPresenter.Resolve(diffId, kept, finalContents);
 				break;
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
-				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
-					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
+				int revealLine = root.GetInt32Or("line", 1);
+				bool revealPreview = root.GetBoolOr("preview");
 				_session?.FileOpener.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
 				break;
 			case "list-dir":
-				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
+				_session?.ListDirectory(root.GetStringOr("path"));
 				break;
 			case "active-editor-changed":
 				_session?.UpdateActiveEditor(root);
@@ -111,21 +109,21 @@ public sealed partial class HostCore {
 				break;
 			case "fs-stat":
 				if (_session is not null) {
-					_bridge.PostToWeb(_session.FileProvider.Stat(FsId(root), FsPath(root)));
+					_bridge.PostToWeb(_session.FileProvider.Stat(root.GetStringOr("id"), root.GetStringOr("path")));
 				}
 
 				break;
 			case "fs-read":
 				if (_session is not null) {
-					_bridge.PostToWeb(_session.FileProvider.Read(FsId(root), FsPath(root)));
+					_bridge.PostToWeb(_session.FileProvider.Read(root.GetStringOr("id"), root.GetStringOr("path")));
 				}
 
 				break;
 			case "fs-write":
 				if (_session is not null) {
 					_bridge.PostToWeb(_session.FileProvider.Write(
-						FsId(root), FsPath(root),
-						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+						root.GetStringOr("id"), root.GetStringOr("path"),
+						root.GetStringOr("content")));
 				}
 
 				break;
@@ -466,8 +464,8 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
-		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
+		var baselineRange = new LineRange(root.GetInt32Or("baselineStart"), root.GetInt32Or("baselineEndExclusive"));
+		var currentRange = new LineRange(root.GetInt32Or("currentStart"), root.GetInt32Or("currentEndExclusive"));
 		string guardText = root.TryGetProperty("guardText", out var gEl) ? gEl.GetString() ?? string.Empty : string.Empty;
 
 		try {
@@ -499,10 +497,6 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Reads a required integer property from a web message (0 when absent/non-numeric).</summary>
-	private static int JsonInt(JsonElement root, string name) =>
-		root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number ? el.GetInt32() : 0;
-
 	/// <summary>
 	/// Runs a Core command on the active session from a native trigger (e.g. the macOS menu bar), the same path
 	/// the web's <c>invoke-command</c> takes. Fire-and-forget; failures are logged.
@@ -514,7 +508,7 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>
-		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
+		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonWire.Quote(level)},\"message\":{JsonWire.Quote(message)}}}");
 
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast. The
@@ -640,7 +634,7 @@ public sealed partial class HostCore {
 		try {
 			string argsPart = string.IsNullOrEmpty(argsJson) ? "null" : argsJson;
 			_bridge.PostToWeb(
-				$"{{\"type\":\"run-command\",\"id\":{JsonString(id)},\"args\":{argsPart},\"token\":{JsonString(token)}}}");
+				$"{{\"type\":\"run-command\",\"id\":{JsonWire.Quote(id)},\"args\":{argsPart},\"token\":{JsonWire.Quote(token)}}}");
 
 			using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
 			timeout.CancelAfter(TimeSpan.FromSeconds(5));
@@ -660,7 +654,7 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		bool ok = root.TryGetProperty("ok", out var okEl) && okEl.ValueKind is JsonValueKind.True or JsonValueKind.False && okEl.GetBoolean();
+		bool ok = root.GetBoolOr("ok");
 		string? error = root.TryGetProperty("error", out var errEl) && errEl.ValueKind == JsonValueKind.String ? errEl.GetString() : null;
 		completion.TrySetResult(ok ? CommandResult.Success() : CommandResult.Failure(error ?? "The command failed in the UI."));
 	}
@@ -716,18 +710,7 @@ public sealed partial class HostCore {
 	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>
 	private void PostScratchSaved(string scratchPath, string savedPath, bool reopen) =>
 		_bridge.PostToWeb(
-			$"{{\"type\":\"scratch-saved\",\"scratchPath\":{JsonString(scratchPath)},\"savedPath\":{JsonString(savedPath)},\"reopen\":{(reopen ? "true" : "false")}}}");
-
-	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
-	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value) + "\"";
-
-	/// <summary>The correlation <c>id</c> of an fs-stat/read/write request.</summary>
-	private static string FsId(JsonElement root) =>
-		root.TryGetProperty("id", out var idEl) ? idEl.GetString() ?? string.Empty : string.Empty;
-
-	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
-	private static string FsPath(JsonElement root) =>
-		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
+			$"{{\"type\":\"scratch-saved\",\"scratchPath\":{JsonWire.Quote(scratchPath)},\"savedPath\":{JsonWire.Quote(savedPath)},\"reopen\":{(reopen ? "true" : "false")}}}");
 
 	/// <summary>
 	/// Routes a terminal message to the controller for its <c>slot</c> (the workspace session it names) and

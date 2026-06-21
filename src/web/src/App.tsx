@@ -33,9 +33,10 @@ import { connectStoredAgents } from "./chrome/remote-agents";
 import { type RailSession, claudeStatus, sessions } from "./chrome/session-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
-import { installKeybindings } from "./commands/keybindings";
-import { dispatchCommand, registerCommand } from "./commands/registry";
+import { formatKey, installKeybindings } from "./commands/keybindings";
+import { dispatchCommand, getKeybindings, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
+import { debounce } from "./debounce";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
@@ -72,9 +73,6 @@ const MAC_TITLEBAR = SHELL?.titleBar === "mac";
 // Either title-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
 const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
-// Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
-const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
-
 // Human-readable tooltip for each Claude status, shown on the pane-head status dot.
 const STATUS_LABEL: Record<SessionStatusName, string> = {
   starting: "Claude is starting",
@@ -97,6 +95,17 @@ export default function App(): JSX.Element {
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
+  // The pane-switch badge, read from the resolved keybindings by matching the focus-pane binding whose
+  // index arg is this pane's number (never hardcoded). Unbound → just the number.
+  const paneShortcut = (kind: string): string => {
+    const number = numberOf(kind);
+    const match = getKeybindings().find(
+      (binding) =>
+        binding.command === CommandIds.focusPaneByIndex &&
+        (binding.args as { index?: unknown } | undefined)?.index === number,
+    );
+    return match !== undefined ? formatKey(match.key) : `${number}`;
+  };
   // Each loaded session's terminal panes register their focus fn here on mount, keyed by `${slot}:${pane}`
   // (the editor focuses via the controller directly). focusPane resolves the active session's entry.
   const terminalFocus = new Map<string, () => void>();
@@ -227,16 +236,13 @@ export default function App(): JSX.Element {
 
   // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
   // layout, so we never overwrite the saved state with the default before it has loaded.
-  let persistTimer = 0;
+  const flushLayout = debounce(sendLayout, 400);
   const persistRoot = (root: LayoutNode): void => {
     const base = layoutDocument();
     if (base === null) {
       return;
     }
-    window.clearTimeout(persistTimer);
-    persistTimer = window.setTimeout(() => {
-      sendLayout({ ...base, root });
-    }, 400);
+    flushLayout({ ...base, root });
   };
 
   // A splitter drag: show the new sizes immediately, persist on a debounce.
@@ -274,10 +280,7 @@ export default function App(): JSX.Element {
             </Show>
           </div>
           {/* Pane-switch badge: top-right of the PANE (over the tab strip), not over the editor content. */}
-          <span class="pane-shortcut editor-badge">
-            {CTRL_LABEL}
-            {numberOf("editor")}
-          </span>
+          <span class="pane-shortcut editor-badge">{paneShortcut("editor")}</span>
         </div>
       );
     }
@@ -292,10 +295,7 @@ export default function App(): JSX.Element {
               title={STATUS_LABEL[claudeStatus() as SessionStatusName]}
             />
           </Show>
-          <span class="pane-shortcut">
-            {CTRL_LABEL}
-            {numberOf(kind)}
-          </span>
+          <span class="pane-shortcut">{paneShortcut(kind)}</span>
         </div>
         <div class="pane-body">
           {/* One live xterm per loaded session; only the active one is shown. Keyed by session id so a
@@ -499,7 +499,7 @@ export default function App(): JSX.Element {
     document.addEventListener("focusin", onFocusIn);
 
     onCleanup(() => {
-      window.clearTimeout(persistTimer);
+      flushLayout.cancel();
       offKeybindings();
       offDoubleShift();
       for (const off of offCommands) {

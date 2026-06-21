@@ -184,7 +184,9 @@ export function Omnibar(props: {
   const view = createMemo<Scored[]>(() => filtered().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
-  const treeNodes = createMemo<TreeNode[]>(() => buildTree(rows()));
+  // Only the tree view consumes this, so skip the build (an O(n) pass plus a recursive sort) while the user
+  // is typing a query or in command mode — `visibleRows` already short-circuits to [] off tree mode.
+  const treeNodes = createMemo<TreeNode[]>(() => (treeMode() ? buildTree(rows()) : []));
   const visibleRows = createMemo<TreeRow[]>(() => {
     if (!treeMode()) {
       return [];

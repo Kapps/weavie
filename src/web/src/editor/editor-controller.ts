@@ -318,8 +318,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void closeBy((entry) => targets.has(entry.path));
   };
 
-  // Resolve a targeted op's subject: the explicit path (context menu) or the active tab (keyboard / palette).
-  const target = (path: string | undefined): string | null => path ?? activePath();
+  // Run `fn` on a targeted op's subject: the explicit path (context menu) or the active tab (keyboard /
+  // palette). A no-op when there's no active tab and no explicit path.
+  const withTarget = (path: string | undefined, fn: (subject: string) => void): void => {
+    const subject = path ?? activePath();
+    if (subject !== null) {
+      fn(subject);
+    }
+  };
 
   const tabs: TabActions = {
     activate: (path) => {
@@ -328,43 +334,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         applyActive(result);
       }
     },
-    close: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        void closeTabAction(subject);
-      }
-    },
+    close: (path) => withTarget(path, (s) => void closeTabAction(s)),
     closeAll: () => void closeBy(() => true),
-    closeOthers: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        void closeBy((entry) => entry.path !== subject);
-      }
-    },
-    closeToLeft: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        closeRelative(subject, "left");
-      }
-    },
-    closeToRight: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        closeRelative(subject, "right");
-      }
-    },
-    togglePin: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        togglePin(subject);
-      }
-    },
-    promote: (path) => {
-      const subject = target(path);
-      if (subject !== null) {
-        promote(subject);
-      }
-    },
+    closeOthers: (path) => withTarget(path, (s) => void closeBy((entry) => entry.path !== s)),
+    closeToLeft: (path) => withTarget(path, (s) => closeRelative(s, "left")),
+    closeToRight: (path) => withTarget(path, (s) => closeRelative(s, "right")),
+    togglePin: (path) => withTarget(path, (s) => togglePin(s)),
+    promote: (path) => withTarget(path, (s) => promote(s)),
     next: () => step(1),
     prev: () => step(-1),
   };

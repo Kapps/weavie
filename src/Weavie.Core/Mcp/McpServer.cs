@@ -7,6 +7,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
+using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Theming;
 
@@ -280,7 +281,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			protocolVersion = pv.GetString() ?? protocolVersion;
 		}
 
-		string result = "{\"protocolVersion\":" + JsonString(protocolVersion) +
+		string result = "{\"protocolVersion\":" + JsonWire.Quote(protocolVersion) +
 			",\"capabilities\":{\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"weavie\",\"version\":\"0.1.0\"}}";
 		await SendResultAsync(ws, idRaw, result, ct).ConfigureAwait(false);
 	}
@@ -382,18 +383,29 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
+	// Guards a capability handler whose backing store is optional: when absent, emits the given "<thing> not
+	// available" tool error and returns null so the caller early-returns; otherwise returns the store so the
+	// `is { } store` pattern at the call site keeps it non-null. The store is only wired when its capability
+	// was registered, so a well-behaved client never hits this — it's the defensive path.
+	private async Task<T?> RequireStoreAsync<T>(
+		T? store, string unavailableMessage, WebSocket ws, string? idRaw, CancellationToken ct) where T : class {
+		if (store is null) {
+			await SendToolErrorAsync(ws, idRaw, unavailableMessage, ct).ConfigureAwait(false);
+		}
+
+		return store;
+	}
+
 	private async Task HandleListSettingsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_settings, "Settings are not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } settings) {
 			return;
 		}
 
-		await SendToolTextAsync(ws, idRaw, _settings.BuildCatalogJson(), ct).ConfigureAwait(false);
+		await SendToolTextAsync(ws, idRaw, settings.BuildCatalogJson(), ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleGetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_settings, "Settings are not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } settings) {
 			return;
 		}
 
@@ -404,15 +416,14 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			await SendToolTextAsync(ws, idRaw, _settings.BuildGetJson(key), ct).ConfigureAwait(false);
+			await SendToolTextAsync(ws, idRaw, settings.BuildGetJson(key), ct).ConfigureAwait(false);
 		} catch (UnknownSettingException ex) {
 			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
 	private async Task HandleSetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_settings, "Settings are not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } settings) {
 			return;
 		}
 
@@ -429,7 +440,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			var result = _settings.Set(key, valueElement);
+			var result = settings.Set(key, valueElement);
 			await SendToolTextAsync(ws, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
 			Emit($"setSetting {key} = {valueElement.GetRawText()}");
 		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
@@ -451,17 +462,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleGetLayoutAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_layout is null) {
-			await SendToolErrorAsync(ws, idRaw, "Layout is not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_layout, "Layout is not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } layout) {
 			return;
 		}
 
-		await SendToolTextAsync(ws, idRaw, LayoutSerialization.SerializeCompact(_layout.Current), ct).ConfigureAwait(false);
+		await SendToolTextAsync(ws, idRaw, LayoutSerialization.SerializeCompact(layout.Current), ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleSetLayoutAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_layout is null) {
-			await SendToolErrorAsync(ws, idRaw, "Layout is not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_layout, "Layout is not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } layout) {
 			return;
 		}
 
@@ -485,7 +494,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		string? focused = args.TryGetProperty("focused", out var focusedElement) ? focusedElement.GetString() : null;
 		try {
-			var result = _layout.SetPanes(root, focused, LayoutSource.Mcp);
+			var result = layout.SetPanes(root, focused, LayoutSource.Mcp);
 			await SendToolTextAsync(ws, idRaw, result.Summary, ct).ConfigureAwait(false);
 			Emit($"setLayout applied ({result.Summary})");
 		} catch (LayoutValidationException ex) {
@@ -494,8 +503,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleListCommandsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_commands is null) {
-			await SendToolErrorAsync(ws, idRaw, "Commands are not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_commands, "Commands are not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } commands) {
 			return;
 		}
 
@@ -503,13 +511,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// registry alone (no keys) when no keybinding store was wired.
 		string commandsArray = _keybindings is not null
 			? _keybindings.BuildCommandsJson()
-			: CommandCatalog.BuildCommandsArrayJson(_commands.Registry.Definitions, []);
+			: CommandCatalog.BuildCommandsArrayJson(commands.Registry.Definitions, []);
 		await SendToolTextAsync(ws, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleRunCommandAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_commands is null) {
-			await SendToolErrorAsync(ws, idRaw, "Commands are not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_commands, "Commands are not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } commands) {
 			return;
 		}
 
@@ -529,7 +536,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			: null;
 
 		try {
-			var result = await _commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
+			var result = await commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
 			if (result.Ok) {
 				await SendToolTextAsync(ws, idRaw, result.Message ?? $"Ran {id}.", ct).ConfigureAwait(false);
 				Emit($"runCommand {id} ok");
@@ -543,7 +550,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private Task SendToolErrorAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
-		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}],\"isError\":true}}", ct);
+		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonWire.Quote(text)}}}],\"isError\":true}}", ct);
 
 	private async Task HandleOpenDiffAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
 		string? GetArg(string key) => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) ? v.GetString() : null;
@@ -580,12 +587,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private Task SendToolTextAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
-		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}]}}", ct);
+		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonWire.Quote(text)}}}]}}", ct);
 
 	// Multi-item text content — the MCP shape openDiff expects: [FILE_SAVED, <final contents>] on accept,
 	// [DIFF_REJECTED, <tab_name>] on reject (matches coder/claudecode.nvim).
 	private Task SendToolTextsAsync(WebSocket ws, string? idRaw, IReadOnlyList<string> texts, CancellationToken ct) {
-		string items = string.Join(",", texts.Select(t => $"{{\"type\":\"text\",\"text\":{JsonString(t)}}}"));
+		string items = string.Join(",", texts.Select(t => $"{{\"type\":\"text\",\"text\":{JsonWire.Quote(t)}}}"));
 		return SendResultAsync(ws, idRaw, $"{{\"content\":[{items}]}}", ct);
 	}
 
@@ -770,7 +777,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private async Task SendErrorAsync(WebSocket ws, string? idRaw, int code, string messageText, CancellationToken ct) {
 		string id = idRaw ?? "null";
-		await SendRawAsync(ws, $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{JsonString(messageText)}}}}}", ct).ConfigureAwait(false);
+		await SendRawAsync(ws, $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{JsonWire.Quote(messageText)}}}}}", ct).ConfigureAwait(false);
 	}
 
 	private async Task SendRawAsync(WebSocket ws, string json, CancellationToken ct) {
@@ -784,9 +791,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private void Emit(string message) => Log?.Invoke(message);
-
-	/// <summary>Encodes a string as a JSON string literal (trim-safe; no reflection).</summary>
-	private static string JsonString(string value) => "\"" + JsonEncodedText.Encode(value).ToString() + "\"";
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {

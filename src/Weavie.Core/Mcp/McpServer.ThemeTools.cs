@@ -41,13 +41,12 @@ public sealed partial class McpServer {
 	}
 
 	private async Task HandleDescribeThemeAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_themeOverrides, "Theming is not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } themeOverrides) {
 			return;
 		}
 
 		string active = ActiveThemeId();
-		var overrides = _themeOverrides.Get(active);
+		var overrides = themeOverrides.Get(active);
 		string json = WriteJson(writer => {
 			writer.WriteString("active", active);
 			writer.WriteString("label", ThemeLabel(active));
@@ -66,8 +65,7 @@ public sealed partial class McpServer {
 	}
 
 	private async Task HandleSetThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_themeOverrides, "Theming is not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } themeOverrides) {
 			return;
 		}
 
@@ -106,7 +104,7 @@ public sealed partial class McpServer {
 		}
 
 		string active = ActiveThemeId();
-		_themeOverrides.Append(active, new ThemeOverrideSet {
+		themeOverrides.Append(active, new ThemeOverrideSet {
 			Table = table,
 			Key = key,
 			Value = hasValue ? value : null,
@@ -142,8 +140,7 @@ public sealed partial class McpServer {
 	}
 
 	private async Task HandleApplyThemeTransformAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_themeOverrides, "Theming is not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } themeOverrides) {
 			return;
 		}
 
@@ -165,14 +162,13 @@ public sealed partial class McpServer {
 		}
 
 		string active = ActiveThemeId();
-		_themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
+		themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
 		string scope = target is null or "all" ? string.Empty : $" ({target})";
 		await SendToolTextAsync(ws, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)}{scope} to theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleRemoveThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
+		if (await RequireStoreAsync(_themeOverrides, "Theming is not available.", ws, idRaw, ct).ConfigureAwait(false) is not { } themeOverrides) {
 			return;
 		}
 
@@ -183,14 +179,14 @@ public sealed partial class McpServer {
 		}
 
 		string active = ActiveThemeId();
-		var ops = _themeOverrides.Get(active);
+		var ops = themeOverrides.Get(active);
 		var kept = ops.Where(op => op is not ThemeOverrideSet set || set.Key != key).ToList();
 		if (kept.Count == ops.Count) {
 			await SendToolTextAsync(ws, idRaw, $"No 'set' override for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 			return;
 		}
 
-		_themeOverrides.SetOps(active, kept);
+		themeOverrides.SetOps(active, kept);
 		await SendToolTextAsync(ws, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 	}
 

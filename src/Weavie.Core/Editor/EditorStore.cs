@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Json;
 
 namespace Weavie.Core.Editor;
 
@@ -40,10 +41,7 @@ public sealed record ActiveEditor(string FilePath, string? LanguageId, string Se
 
 		var start = ParsePosition(selection, "start");
 		var end = ParsePosition(selection, "end");
-		bool isEmpty = selection.TryGetProperty("isEmpty", out var emptyElement)
-			&& emptyElement.ValueKind is JsonValueKind.True or JsonValueKind.False
-				? emptyElement.GetBoolean()
-				: start == end;
+		bool isEmpty = selection.GetBoolOr("isEmpty", start == end);
 		return new EditorSelection(start, end, isEmpty);
 	}
 
@@ -98,16 +96,12 @@ public sealed record OpenEditorTab(string FilePath, bool IsActive, bool IsPinned
 				continue;
 			}
 
-			list.Add(new OpenEditorTab(path, ReadBool(entry, "isActive"), ReadBool(entry, "isPinned"), ReadBool(entry, "isPreview")));
+			list.Add(new OpenEditorTab(
+				path, entry.GetBoolOr("isActive"), entry.GetBoolOr("isPinned"), entry.GetBoolOr("isPreview")));
 		}
 
 		return list;
 	}
-
-	private static bool ReadBool(JsonElement entry, string name) =>
-		entry.TryGetProperty(name, out var value)
-		&& value.ValueKind is JsonValueKind.True or JsonValueKind.False
-		&& value.GetBoolean();
 }
 
 /// <summary>

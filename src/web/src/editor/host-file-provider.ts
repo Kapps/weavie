@@ -19,6 +19,7 @@ import {
   registerFileSystemOverlay,
 } from "@codingame/monaco-vscode-files-service-override";
 import { type WebBoundMessage, onHostMessage, postToHost } from "../bridge";
+import { createPendingRequests } from "../pending-requests";
 import { canonicalFsPath } from "./fs-path";
 
 // A correlated request can't wedge a model resolve forever: if the host never replies (a dropped message, a
@@ -33,8 +34,7 @@ type FsResult =
 const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
-let seq = 0;
-const pending = new Map<string, (result: FsResult) => void>();
+const fsRequests = createPendingRequests<FsResult>("fs");
 
 /** Sends one correlated fs request and resolves with the matching host reply (rejects on timeout). */
 function request(message: {
@@ -42,27 +42,17 @@ function request(message: {
   path: string;
   content?: string;
 }): Promise<FsResult> {
-  const id = `fs${++seq}`;
-  return new Promise<FsResult>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      pending.delete(id);
-      reject(
-        new Error(
-          `file provider: ${message.type} ${message.path} timed out after ${REQUEST_TIMEOUT_MS}ms`,
-        ),
-      );
-    }, REQUEST_TIMEOUT_MS);
-    pending.set(id, (result) => {
-      clearTimeout(timer);
-      pending.delete(id);
-      resolve(result);
-    });
-    if (message.type === "fs-write") {
-      postToHost({ type: "fs-write", id, path: message.path, content: message.content ?? "" });
-    } else {
-      postToHost({ type: message.type, id, path: message.path });
-    }
+  const { id, promise } = fsRequests.open(REQUEST_TIMEOUT_MS, () => {
+    throw new Error(
+      `file provider: ${message.type} ${message.path} timed out after ${REQUEST_TIMEOUT_MS}ms`,
+    );
   });
+  if (message.type === "fs-write") {
+    postToHost({ type: "fs-write", id, path: message.path, content: message.content ?? "" });
+  } else {
+    postToHost({ type: message.type, id, path: message.path });
+  }
+  return promise;
 }
 
 function mapChangeType(kind: "updated" | "added" | "deleted"): FileChangeType {
@@ -211,7 +201,7 @@ export function installHostFileProvider(): void {
       message.type === "fs-read-result" ||
       message.type === "fs-write-result"
     ) {
-      pending.get(message.id)?.(message);
+      fsRequests.settle(message.id, message);
     } else if (message.type === "fs-change") {
       provider.fireChanges(message.changes);
     }

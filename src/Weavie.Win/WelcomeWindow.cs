@@ -2,7 +2,6 @@ using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
-using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
@@ -45,12 +44,6 @@ internal sealed class WelcomeWindow : Form {
 	private readonly WebView2 _webView;
 	private bool _webViewTornDown;
 	private string? _recentsScriptId;
-#if DEBUG
-	// The reused Vite dev origin, if one was serving at launch (null when serving the bundle). Lets
-	// OnNavigationCompleted recover a reload that fails because that server went away — the welcome never
-	// starts its own, so it falls back to the always-mapped bundle rather than dead-ending on Chromium's page.
-	private string? _devOrigin;
-#endif
 
 	public WelcomeWindow(AppController app) {
 		ArgumentNullException.ThrowIfNull(app);
@@ -139,21 +132,11 @@ internal sealed class WelcomeWindow : Form {
 		// round-trip). Re-injected + reloaded if a recent is later pruned (RefreshRecentsAsync).
 		await InjectRecentsAsync();
 
-		// Origin: the bundled wwwroot over https://weavie.app/. In Debug, reuse a Vite dev server if one is
-		// already serving (a workspace window started it) for hot reload — but never start one ourselves, so
-		// closing the welcome can't kill a server a workspace depends on. Otherwise fall back to the bundle.
-		string origin = $"https://{AppHost}";
-#if DEBUG
-		string? devOrigin = await ReachableDevOriginAsync();
-		if (devOrigin is not null) {
-			origin = devOrigin;
-			_devOrigin = devOrigin;
-			// Recover a reload that fails because the workspace that owned this dev server closed, killing it.
-			core.NavigationCompleted += OnNavigationCompleted;
-			Console.WriteLine($"[weavie] welcome: reusing dev server at {devOrigin}");
-		}
-#endif
-		core.Navigate($"{origin}/welcome.html");
+		// The welcome screen is the empty state — no session, and no dev server of its own — so it always serves
+		// the bundled wwwroot over https://weavie.app/. Each workspace window owns its own per-instance Vite dev
+		// server in Debug; the welcome deliberately doesn't probe for or reuse one (a cross-process reuse is
+		// exactly the worktree cross-talk we removed).
+		core.Navigate($"https://{AppHost}/welcome.html");
 	}
 
 	/// <summary>(Re)injects the current recents as <c>window.__WEAVIE_WELCOME__</c> for the next document load.</summary>
@@ -219,48 +202,6 @@ internal sealed class WelcomeWindow : Form {
 		await InjectRecentsAsync();
 		_webView.CoreWebView2?.Reload();
 	}
-
-#if DEBUG
-	/// <summary>
-	/// If a reload of the reused Vite dev origin fails because the server went away (the workspace that
-	/// started it closed), don't dead-end on Chromium's "localhost could not be reached" page — the welcome
-	/// never starts its own server, so fall back to the always-mapped bundle. One-shot: unsubscribes after.
-	/// </summary>
-	private void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e) {
-		if (e.IsSuccess || _devOrigin is null
-			|| e.WebErrorStatus is not (
-				CoreWebView2WebErrorStatus.CannotConnect
-				or CoreWebView2WebErrorStatus.ServerUnreachable
-				or CoreWebView2WebErrorStatus.HostNameNotResolved
-				or CoreWebView2WebErrorStatus.ConnectionAborted
-				or CoreWebView2WebErrorStatus.ConnectionReset
-				or CoreWebView2WebErrorStatus.Disconnected
-				or CoreWebView2WebErrorStatus.Timeout)) {
-			return;
-		}
-
-		var core = _webView.CoreWebView2;
-		if (core is null) {
-			return;
-		}
-
-		_devOrigin = null;
-		core.NavigationCompleted -= OnNavigationCompleted;
-		Console.WriteLine($"[weavie] welcome: dev server unreachable ({e.WebErrorStatus}); loading bundled wwwroot at https://{AppHost}");
-		core.Navigate($"https://{AppHost}/welcome.html");
-	}
-
-	/// <summary>Returns the Vite dev origin if one is already serving, else null. Never starts a server.</summary>
-	private static async Task<string?> ReachableDevOriginAsync() {
-		using var http = new System.Net.Http.HttpClient { Timeout = TimeSpan.FromSeconds(1) };
-		try {
-			using var resp = await http.GetAsync($"{WebDevServer.Origin}/");
-			return resp.IsSuccessStatusCode ? WebDevServer.Origin : null;
-		} catch {
-			return null;
-		}
-	}
-#endif
 
 	/// <summary>Tears the WebView2 down deterministically before the handle is destroyed (mirrors WorkspaceWindow).</summary>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e) {

@@ -308,6 +308,15 @@ already owns PTY lifetime; the delta is a per-PTY replay buffer). The two PTYs a
 - **Claude** is a full-screen redrawing TUI whose meaningful state (the conversation) is already durable
   in its transcript, so it is **not** tee'd; resume reconstructs it via `--continue` and lets it repaint.
 
+**Same-backend session switching does not use replay at all.** Each loaded session keeps its own pair of
+xterms mounted on the page; switching sessions is pure show/hide (the host stops muting and tags every
+`term-*` message with the session `slot` so each session's output streams to its own xterm). Because the
+visible terminal is never torn down or re-fed, switching is instant and faithful — no reset, no replay,
+no garbled redraw. The on-disk scrollback log is therefore only for **cold** (re)attach — a page refresh,
+a never-yet-viewed background slot's first paint, a cross-backend attach, or a resumed/rebooted worker —
+where the page genuinely has no live xterm. Replay fidelity there (raw-byte replay of an interactive
+shell) stays imperfect by design; the polished path is the live switch.
+
 ## Deferred
 
 - **LSP over the bridge.** Today the LSP bridge is a separate loopback WS not surfaced to a remote
@@ -325,12 +334,16 @@ already owns PTY lifetime; the delta is a per-PTY replay buffer). The two PTYs a
 - **Cross-origin hardening.** The runner control plane currently returns `Access-Control-Allow-Origin: *`
   (token-gated); pair with TLS + tighter origins.
 - **Reconnection build-out.** The model is specified in [Reconnection](#reconnection-attach-resume-durability).
-  **Built (static-verified):** server-side terminal scrollback — the shell PTY's output is tee'd to a capped
-  on-disk log per worktree (`ScrollbackLog`, keyed via `WeaviePaths.WorkspaceTerminalLogFile`), replayed on
-  `term-ready` with the previous process's output faded above the live stream; gated by the
-  `terminal.persistScrollbackKb` setting (0 disables); claude is not tee'd (it rides `--resume`). Still
-  unbuilt: the exclusive lease, resume vs attach off the remote `SessionSlot`, and the "has live work?"
-  unload guard.
+  **Built (static-verified):** (1) **per-session live terminals** — every loaded session keeps its own
+  `claude`+`shell` xterm mounted on the page; the host tags each `term-*` message with the session `slot`
+  and no longer mutes background sessions or resets/re-attaches on switch, so switching sessions is pure
+  show/hide (instant, faithful, no replay). WebGL is mounted only for the visible session's panes (one GPU
+  context per visible pane, not per session). (2) **server-side terminal scrollback** for the *cold*
+  (re)attach path — the shell PTY's output is tee'd to a capped on-disk log per worktree (`ScrollbackLog`,
+  keyed via `WeaviePaths.WorkspaceTerminalLogFile`), replayed on `term-ready` with the previous process's
+  output faded above the live stream; gated by `terminal.persistScrollbackKb` (0 disables); claude is not
+  tee'd (it rides `--resume`). Still unbuilt: the exclusive lease, resume vs attach off the remote
+  `SessionSlot`, and the "has live work?" unload guard.
 - **Mirrored / shared attach.** Two live viewers at once — output broadcast + arbitrated input +
   synchronized editing + LSP multiplexing. Deferred opt-in beyond the v1 exclusive lease.
 - **Server-side session registry + ownership + attach-by-URL.** Required by use cases 2/3: enumerate

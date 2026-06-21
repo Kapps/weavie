@@ -16,7 +16,10 @@ public sealed class PermissionModeDiffPresenterTests {
 	private static ObservedPermissionMode Mode(string mode) {
 		var observed = new ObservedPermissionMode();
 		observed.Observe(new HookRequest {
-			Event = HookEventKind.PreToolUse, ToolName = "Edit", ToolInputJson = "{}", PermissionMode = mode,
+			Event = HookEventKind.PreToolUse,
+			ToolName = "Edit",
+			ToolInputJson = "{}",
+			PermissionMode = mode,
 		});
 		return observed;
 	}

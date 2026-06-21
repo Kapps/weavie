@@ -2,7 +2,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, type ILink, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { type JSX, onCleanup, onMount } from "solid-js";
+import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "../bridge";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
@@ -19,18 +19,26 @@ function revealFromMatch(matchText: string): void {
   }
 }
 
-// xterm.js pane wired to one C# PTY session over the bridge:
+// xterm.js pane wired to one C# PTY over the bridge:
 //   PTY bytes  -> { term-output } -> term.write(Uint8Array)
 //   keystrokes -> term.onData    -> { term-input }
 //   layout     -> FitAddon       -> { term-resize }
-// On mount it reports { term-ready } so the host launches the session's child (the interactive
-// `claude` TUI for "claude", a plain login shell for "shell") sized to match. Every message it
-// sends and receives is tagged with `session` so two panes can share the single bridge channel.
+// On mount it reports { term-ready } so the host launches (or repaints) this session's child sized to
+// match. Every message it sends and receives is tagged with `slot` (the workspace session) AND `session`
+// (the pane within it) so the host routes to the right PTY and the page routes output back to the right
+// xterm. Each loaded session keeps its own pane mounted; only the active one is shown, so switching
+// sessions is pure show/hide here — no reset, no replay (see the `active` effect below).
 export function TerminalView(props: {
-  session: TermSession;
-  // Called once on mount with a function that moves keyboard focus into this terminal, so the layout
-  // can delegate Ctrl+N pane switching to the live xterm (its hidden textarea, not the container div).
-  onReady?: (focus: () => void) => void;
+  // The workspace session (rail id) and pane this xterm is bound to.
+  slot: string;
+  pane: TermSession;
+  // Whether this is the visible session for its pane. Reactive: drives WebGL mount/dispose (one GPU
+  // context per visible pane, not one per session — otherwise N sessions would blow the browser's
+  // WebGL-context cap). A hidden pane keeps its Terminal + buffer alive, so switching back is instant.
+  active: boolean;
+  // Called once on mount with a function that moves keyboard focus into this terminal's hidden textarea,
+  // so the layout can delegate Ctrl+N / focus-pane to the active session's live xterm.
+  onFocusReady?: (focus: () => void) => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
 
@@ -49,6 +57,8 @@ export function TerminalView(props: {
   });
   const fit = new FitAddon();
   const encoder = new TextEncoder();
+  // This pane's introspection key (e2e/diagnostics): slot + pane, so two sessions' panes don't collide.
+  const termKey = `${props.slot}:${props.pane}`;
 
   onMount(() => {
     term.loadAddon(fit);
@@ -57,12 +67,13 @@ export function TerminalView(props: {
     // Publish this pane's terminal for e2e / diagnostics introspection (read-only) — e.g. asserting that
     // mouse tracking survives a session switch so the wheel keeps reaching Claude. See global.d.ts.
     window.__WEAVIE_TERMINALS__ ??= {};
-    window.__WEAVIE_TERMINALS__[props.session] = term;
+    window.__WEAVIE_TERMINALS__[termKey] = term;
 
     // Re-fit to the container and force a repaint. Used for every event that can leave the WebGL
     // canvas stale/blank or the PTY sized to the wrong grid: layout changes, OS-window resizes, a
-    // lost GL context, and HMR swaps. fit() updates cols/rows (and so notifies the PTY via onResize);
-    // refresh() guarantees a paint even when the size is unchanged (the blank-after-HMR case).
+    // lost GL context, becoming visible, and HMR swaps. fit() updates cols/rows (and so notifies the PTY
+    // via onResize); refresh() guarantees a paint even when the size is unchanged (the blank-after-HMR
+    // case). fit/refresh throw when the pane has zero size (a hidden session) — caught and ignored.
     const refit = (): void => {
       try {
         fit.fit();
@@ -111,7 +122,24 @@ export function TerminalView(props: {
         log("warn", `WebGL terminal renderer unavailable, using fallback: ${String(error)}`);
       }
     };
-    mountWebgl();
+
+    // Visibility-driven GPU management. Keep a WebGL context only for the visible pane: with one xterm per
+    // session, mounting WebGL for every hidden session would exceed the browser's context cap and start
+    // dropping canvases. On show: (re)mount WebGL and refit to the now-laid-out container (next frame,
+    // after the show has reflowed). On hide: drop the GPU context but keep the Terminal + its scrollback
+    // buffer alive, so switching back is instant and faithful.
+    createEffect(() => {
+      if (props.active) {
+        if (webgl === null) {
+          mountWebgl();
+        }
+        requestAnimationFrame(() => refit());
+      } else if (webgl !== null) {
+        webgl.dispose();
+        webgl = null;
+      }
+    });
+
     // OSC 8 hyperlinks Claude emits (file:// URIs) -> reveal in Monaco.
     term.options.linkHandler = {
       activate: (_event, uri) => {
@@ -165,20 +193,28 @@ export function TerminalView(props: {
     term.onData((data) => {
       postToHost({
         type: "term-input",
-        session: props.session,
+        slot: props.slot,
+        session: props.pane,
         dataB64: bytesToBase64(encoder.encode(data)),
       });
     });
 
     term.onResize(({ cols, rows }) => {
-      postToHost({ type: "term-resize", session: props.session, cols, rows });
+      postToHost({ type: "term-resize", slot: props.slot, session: props.pane, cols, rows });
     });
 
-    // Ask the host to start this session's PTY child sized to the fitted terminal.
-    postToHost({ type: "term-ready", session: props.session, cols: term.cols, rows: term.rows });
+    // Ask the host to start (or repaint) this session's PTY child sized to the fitted terminal.
+    postToHost({
+      type: "term-ready",
+      slot: props.slot,
+      session: props.pane,
+      cols: term.cols,
+      rows: term.rows,
+    });
 
-    // Hand the layout a way to focus this terminal (Ctrl+N pane switching delegates here).
-    props.onReady?.(() => term.focus());
+    // Register this pane's focus fn so the layout can land keyboard focus here (Ctrl+N / focus-pane).
+    // Every loaded session's pane registers; the layout resolves which one to focus by the active session.
+    props.onFocusReady?.(() => term.focus());
 
     const resizeObserver = new ResizeObserver(() => refit());
     resizeObserver.observe(container);
@@ -212,32 +248,22 @@ export function TerminalView(props: {
     }
 
     const offHost = onHostMessage((message) => {
-      // The bridge channel is shared across sessions; ignore traffic for the other pane.
+      // The bridge channel is shared across panes AND sessions; ignore traffic that isn't this exact
+      // (slot, pane) pair so each session's output only reaches its own xterm.
       if (message.type === "term-output") {
-        if (message.session === props.session) {
+        if (message.slot === props.slot && message.session === props.pane) {
           term.write(base64ToBytes(message.dataB64));
         }
       } else if (message.type === "term-exit") {
-        if (message.session === props.session) {
+        if (message.slot === props.slot && message.session === props.pane) {
           term.write(`\r\n\x1b[90m[process exited: ${message.code}]\x1b[0m\r\n`);
         }
       } else if (message.type === "term-reset") {
-        if (message.session === props.session) {
-          // Clear the pane for the incoming session, then re-announce readiness so the host (re)attaches
-          // it to the active session's child (a fresh launch, or a repaint nudge for a live one).
-          //
-          // HOW we clear matters. Claude Code runs INLINE (not the alternate buffer) and enables mouse
-          // tracking so the wheel is forwarded to it — Claude scrolls its own transcript. A full reset
-          // (RIS, `term.reset()`) disables mouse tracking. On a session switch the child stays LIVE and
-          // is only nudged to repaint, so it never re-issues the mode — leaving xterm to handle the wheel
-          // itself: it scrolls the local viewport (a stray web scrollbar) instead of reaching Claude, so
-          // Claude can't be scrolled until a manual resize makes it re-emit the mode. That's the bug.
-          //
-          // So only the respawn caller (the child is being relaunched and will re-establish every mode
-          // from scratch) does a full reset. A live-child switch instead clears the screen + scrollback
-          // via control sequences (cursor home, erase display, erase scrollback) which wipe the previous
-          // session's content WITHOUT touching mouse tracking or any other mode — the wheel keeps reaching
-          // the live Claude across the switch.
+        if (message.slot === props.slot && message.session === props.pane) {
+          // The only caller now is a deliberate child relaunch (the shell setting changed): the fresh
+          // child re-establishes every mode, so a full reset is right. (Session switches no longer
+          // reset — this pane stays live and is simply shown/hidden.) A non-respawn reset, if it ever
+          // arrives, clears content + scrollback WITHOUT touching terminal modes (mouse tracking).
           if (message.respawn) {
             term.reset();
           } else {
@@ -245,7 +271,8 @@ export function TerminalView(props: {
           }
           postToHost({
             type: "term-ready",
-            session: props.session,
+            slot: props.slot,
+            session: props.pane,
             cols: term.cols,
             rows: term.rows,
           });
@@ -262,9 +289,10 @@ export function TerminalView(props: {
       if (import.meta.hot) {
         import.meta.hot.off("vite:afterUpdate", onHmrUpdate);
       }
-      if (window.__WEAVIE_TERMINALS__?.[props.session] === term) {
-        delete window.__WEAVIE_TERMINALS__[props.session];
+      if (window.__WEAVIE_TERMINALS__?.[termKey] === term) {
+        delete window.__WEAVIE_TERMINALS__[termKey];
       }
+      webgl?.dispose();
       term.dispose();
     });
   });

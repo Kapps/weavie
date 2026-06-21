@@ -56,7 +56,9 @@ public sealed class SessionChangeTrackerTests {
 	public void Observe_NonEditingTool_Ignored() {
 		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
 		var bash = new HookRequest {
-			Event = HookEventKind.PreToolUse, ToolName = "Bash", ToolInputJson = """{"command":"ls"}""",
+			Event = HookEventKind.PreToolUse,
+			ToolName = "Bash",
+			ToolInputJson = """{"command":"ls"}""",
 		};
 
 		tracker.Observe(bash);
@@ -115,7 +117,9 @@ public sealed class SessionChangeTrackerTests {
 		tracker.TurnBegan += () => fired++;
 
 		tracker.Observe(new HookRequest {
-			Event = HookEventKind.UserPromptSubmit, ToolName = string.Empty, ToolInputJson = "{}",
+			Event = HookEventKind.UserPromptSubmit,
+			ToolName = string.Empty,
+			ToolInputJson = "{}",
 		});
 
 		Assert.Equal(1, fired);

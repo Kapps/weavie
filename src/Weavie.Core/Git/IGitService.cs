@@ -71,9 +71,6 @@ public interface IGitService {
 	/// </summary>
 	Task RemoveWorktreeAsync(string repositoryDirectory, string worktreePath, bool force, CancellationToken ct = default);
 
-	/// <summary>Prunes administrative entries for worktrees whose directories were removed out-of-band.</summary>
-	Task PruneWorktreesAsync(string repositoryDirectory, CancellationToken ct = default);
-
 	/// <summary>True when <paramref name="worktreeDirectory"/> has uncommitted changes (tracked or untracked).</summary>
 	Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default);
 

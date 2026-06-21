@@ -61,11 +61,16 @@ public sealed class ThemeOverridesStoreTests {
 		var store = new ThemeOverridesStore(fs, path);
 		// A style-only override (italic variables) carries a fontStyle and no foreground value.
 		store.Append("weavie-dark", new ThemeOverrideSet {
-			Table = "semanticTokenColors", Key = "variable", FontStyle = "italic",
+			Table = "semanticTokenColors",
+			Key = "variable",
+			FontStyle = "italic",
 		});
 		// And one that sets both color + style.
 		store.Append("weavie-dark", new ThemeOverrideSet {
-			Table = "tokenColors", Key = "comment", Value = "#6a6a6a", FontStyle = "italic",
+			Table = "tokenColors",
+			Key = "comment",
+			Value = "#6a6a6a",
+			FontStyle = "italic",
 		});
 
 		var reloaded = new ThemeOverridesStore(fs, path);

@@ -154,6 +154,25 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		Assert.False(manual.IsManaged);
 	}
 
+	[Fact]
+	public async Task HalfRemovedWorktree_DirectoryRemains_RemoveThrowsOrphan_WithoutLeakingSilently() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("half", "main");
+
+		// Simulate a lock-induced half-removal: git's own record is gone (its remove ran), but the directory is
+		// still on disk with leftover files - the state a Windows file lock leaves behind. The registry row
+		// survives (the out-of-band git remove didn't touch it).
+		RunGit(_repo, "worktree", "remove", "--force", record.Path);
+		Directory.CreateDirectory(record.Path);
+		File.WriteAllText(Path.Combine(record.Path, "leftover.txt"), "locked\n");
+
+		// RemoveAsync must NOT report success and drop the row while the directory leaks - it surfaces loudly.
+		await Assert.ThrowsAsync<WorktreeOrphanException>(
+			() => manager.RemoveAsync(record.Path, deleteBranch: false, force: false));
+		Assert.True(Directory.Exists(record.Path));
+		Assert.NotNull(manager.Registry.FindByBranch("half"));
+	}
+
 	private static void RunGit(string workingDirectory, params string[] args) {
 		var info = new ProcessStartInfo {
 			FileName = "git",

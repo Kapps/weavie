@@ -26,9 +26,11 @@ export interface ThemeSlot {
   theme?: VsCodeColorTheme;
 }
 
-// The left column hosts two independent PTY sessions: "claude" (the interactive Claude Code TUI)
-// and "shell" (a plain login shell). Every terminal message carries which session it belongs to so
-// the host can route it to the right PTY and the page can route output back to the right xterm pane.
+// The left column hosts two PTY panes per workspace session: "claude" (the interactive Claude Code
+// TUI) and "shell" (a plain login shell). Every terminal message carries its `session` (which pane)
+// AND its `slot` (which workspace session — the rail id) so the host routes it to the right PTY and
+// the page routes output back to the right xterm. Each loaded session keeps its own pair of xterms
+// mounted (only the active one is shown), so switching sessions is pure show/hide with no replay.
 export type TermSession = "claude" | "shell";
 
 // The live state of a session's embedded Claude, derived host-side from its hook stream + process
@@ -102,10 +104,11 @@ export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
-  // Terminal: the xterm pane is mounted and ready to host the PTY child.
-  | { type: "term-ready"; session: TermSession; cols: number; rows: number }
-  | { type: "term-input"; session: TermSession; dataB64: string }
-  | { type: "term-resize"; session: TermSession; cols: number; rows: number }
+  // Terminal: the xterm pane is mounted and ready to host the PTY child. `slot` is the workspace
+  // session (rail id) this pane belongs to; `session` is the pane within it.
+  | { type: "term-ready"; slot: string; session: TermSession; cols: number; rows: number }
+  | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
+  | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   // Session rail → host: switch to a session (binds the page to it) or create a new (worktree) session.
   // new-session carries the branch name and the base: "head" (the active session's HEAD) or "main". Load /
   // unload / delete are commands (weavie.session.*) dispatched via invoke-command, not bespoke messages here.
@@ -196,15 +199,13 @@ export type HostBoundMessage =
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
-  | { type: "term-output"; session: TermSession; dataB64: string }
-  | { type: "term-exit"; session: TermSession; code: number }
-  // Host wants this pane reattached to the active session's child; the pane clears and re-emits
-  // term-ready. `respawn` distinguishes the two callers: true when the host tore the child down and
-  // will relaunch it (shell setting changed) — a full reset is right, the fresh child re-establishes
-  // every mode; false on a session switch, where the child stays LIVE and is only nudged to repaint —
-  // there a full reset would wrongly clobber the running TUI's terminal modes (mouse tracking), so the
-  // pane clears content/scrollback WITHOUT a mode reset (see TerminalView).
-  | { type: "term-reset"; session: TermSession; respawn: boolean }
+  | { type: "term-output"; slot: string; session: TermSession; dataB64: string }
+  | { type: "term-exit"; slot: string; session: TermSession; code: number }
+  // Host asks this pane to reset + re-emit term-ready. The only caller now is a deliberate child
+  // relaunch (the shell setting changed): `respawn` is true so the pane does a full reset, since the
+  // fresh child re-establishes every mode. Session switches no longer reset — each session keeps its
+  // own live xterm and switching is pure show/hide (see TerminalView).
+  | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).

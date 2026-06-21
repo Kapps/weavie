@@ -18,8 +18,24 @@ const webRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const repoRoot = resolve(webRoot, "..", "..");
 const headlessProject = join(repoRoot, "src", "Weavie.Headless", "Weavie.Headless.csproj");
 const runnerProject = join(repoRoot, "src", "Weavie.Runner", "Weavie.Runner.csproj");
-const headlessDll = join(repoRoot, "src", "Weavie.Headless", "bin", "Debug", "net10.0", "Weavie.Headless.dll");
-const runnerDll = join(repoRoot, "src", "Weavie.Runner", "bin", "Debug", "net10.0", "Weavie.Runner.dll");
+const headlessDll = join(
+  repoRoot,
+  "src",
+  "Weavie.Headless",
+  "bin",
+  "Debug",
+  "net10.0",
+  "Weavie.Headless.dll",
+);
+const runnerDll = join(
+  repoRoot,
+  "src",
+  "Weavie.Runner",
+  "bin",
+  "Debug",
+  "net10.0",
+  "Weavie.Runner.dll",
+);
 const outDir = join(webRoot, "e2e", ".recordings");
 const viewport = { width: 1280, height: 800 };
 const RUNNER_TOKEN = "capturetoken";
@@ -33,7 +49,10 @@ async function tour(page, localUrl, runnerUrl) {
 
   // 1. Boot the LOCAL Weavie (the default backend).
   await page.goto(`${localUrl}/`, { waitUntil: "load" });
-  await page.locator("#splash").waitFor({ state: "detached", timeout: 45_000 }).catch(() => {});
+  await page
+    .locator("#splash")
+    .waitFor({ state: "detached", timeout: 45_000 })
+    .catch(() => {});
   await settle(2500);
   const before = await page.locator(".session-chip").count();
   console.log(`[capture] local chips: ${before}`);
@@ -68,7 +87,9 @@ async function tour(page, localUrl, runnerUrl) {
   await page.waitForFunction((n) => document.querySelectorAll(".session-chip").length > n, before, {
     timeout: 30_000,
   });
-  console.log(`[capture] chips after remote New Session: ${await page.locator(".session-chip").count()}`);
+  console.log(
+    `[capture] chips after remote New Session: ${await page.locator(".session-chip").count()}`,
+  );
   await settle(3500);
 }
 
@@ -143,8 +164,21 @@ async function main() {
   console.log(`[capture] launching runner on ${runnerUrl} (workspace: ${remoteRepo})…`);
   const runner = spawn(
     "dotnet",
-    [runnerDll, "--workspace", remoteRepo, "--token", RUNNER_TOKEN, "--port", String(runnerPort),
-     "--bind", "127.0.0.1", "--worker-bind", "127.0.0.1", "--headless", headlessDll],
+    [
+      runnerDll,
+      "--workspace",
+      remoteRepo,
+      "--token",
+      RUNNER_TOKEN,
+      "--port",
+      String(runnerPort),
+      "--bind",
+      "127.0.0.1",
+      "--worker-bind",
+      "127.0.0.1",
+      "--headless",
+      headlessDll,
+    ],
     { stdio: ["ignore", "pipe", "inherit"] },
   );
 
@@ -154,7 +188,10 @@ async function main() {
       waitForLine(runner, "control plane: http://", 60_000),
     ]);
     const browser = await chromium.launch();
-    const context = await browser.newContext({ viewport, recordVideo: { dir: outDir, size: viewport } });
+    const context = await browser.newContext({
+      viewport,
+      recordVideo: { dir: outDir, size: viewport },
+    });
     const page = await context.newPage();
     page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
     page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));

@@ -322,8 +322,6 @@ public sealed class WorktreeManagerTests {
 			return Task.CompletedTask;
 		}
 
-		public Task PruneWorktreesAsync(string repositoryDirectory, CancellationToken ct = default) => Task.CompletedTask;
-
 		public Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) =>
 			Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory)));
 

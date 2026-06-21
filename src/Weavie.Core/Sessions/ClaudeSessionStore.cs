@@ -200,16 +200,8 @@ public sealed class ClaudeSessionStore {
 				.Select(e => new Entry { Key = e.Cwd, Id = e.Id, Started = e.Started })];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[claude-sessions] {FilePath} is malformed ({ex.Message}); backing up to claude-sessions.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "claude-sessions", Log);
 			return [];
-		}
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[claude-sessions] could not back up malformed file: {ex.Message}");
 		}
 	}
 

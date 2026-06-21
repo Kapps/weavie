@@ -1,5 +1,5 @@
-using System.Text;
 using System.Text.Json;
+using Weavie.Core.Json;
 
 namespace Weavie.Core.Configuration;
 
@@ -155,9 +155,7 @@ public static class EditorSettings {
 	/// </summary>
 	public static string BuildJson(SettingsStore store, string? messageType) {
 		ArgumentNullException.ThrowIfNull(store);
-
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
+		return JsonWrite.ToText(writer => {
 			if (messageType is not null) {
 				writer.WriteStartObject();
 				writer.WriteString("type", messageType);
@@ -167,9 +165,7 @@ public static class EditorSettings {
 			} else {
 				WriteOptions(writer, store);
 			}
-		}
-
-		return Encoding.UTF8.GetString(stream.ToArray());
+		});
 	}
 
 	// Values are read with the fallback-free Require* accessors: the resolved value already carries the

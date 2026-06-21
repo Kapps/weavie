@@ -152,6 +152,7 @@ internal static class MacAppMenu {
 		}
 
 		keyEquivalent = parsed.Key; // already lowercased, so an uppercase letter never implies an extra Shift
+
 		// $mod and Meta both resolve to Command on macOS.
 		if (parsed.Modifiers.HasFlag(HotkeyModifiers.Mod) || parsed.Modifiers.HasFlag(HotkeyModifiers.Meta)) {
 			mask |= NSEventModifierMask.CommandKeyMask;

@@ -107,16 +107,8 @@ public sealed class RecentWorkspaces {
 				: [];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[recents] {FilePath} is malformed ({ex.Message}); backing up to recents.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "recents", Log);
 			return [];
-		}
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[recents] could not back up malformed recents: {ex.Message}");
 		}
 	}
 

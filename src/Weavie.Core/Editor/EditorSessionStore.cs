@@ -141,20 +141,12 @@ public sealed class EditorSessionStore {
 
 		if (!EditorSessionSerialization.TryDeserialize(text, out var parsed, out string? error) || parsed is null) {
 			Log?.Invoke($"[editor-session] {FilePath} is malformed ({error}); backing up to editor-session.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "editor-session", Log);
 			PersistLocked(EditorSession.Empty);
 			return EditorSession.Empty;
 		}
 
 		return parsed;
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[editor-session] could not back up malformed session: {ex.Message}");
-		}
 	}
 
 	private void PersistLocked(EditorSession session) {

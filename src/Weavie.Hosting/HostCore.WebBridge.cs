@@ -3,6 +3,7 @@ using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
 using Weavie.Core.Git;
+using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Sessions;
@@ -40,7 +41,7 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "switch-session": {
-				string switchId = root.TryGetProperty("id", out var ssEl) ? ssEl.GetString() ?? string.Empty : string.Empty;
+				string switchId = root.GetStringOrEmpty("id");
 				if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
 					SwitchToSlot(target);
 				}
@@ -49,14 +50,13 @@ public sealed partial class HostCore {
 			}
 
 			case "new-session": {
-				string? branch = root.TryGetProperty("branch", out var nsEl) ? nsEl.GetString() : null;
+				string? branch = root.GetStringOrNull("branch");
 				// "existing" ⇒ check out the named branch into a new worktree rather than creating a new branch.
-				bool existing = root.TryGetProperty("existing", out var exEl)
-					&& exEl.ValueKind is JsonValueKind.True or JsonValueKind.False && exEl.GetBoolean();
+				bool existing = root.GetBoolOrFalse("existing");
 				// The page sends base "head" (the active session's HEAD) or "main"; normalize to "current"/"main"
 				// (ResolveBaseRefAsync treats anything but "main" as the current session's HEAD). Ignored for an
 				// existing-branch checkout (the branch already has a tip).
-				string? baseSpec = root.TryGetProperty("base", out var nbEl) ? nbEl.GetString() : null;
+				string? baseSpec = root.GetStringOrNull("base");
 				string? resolvedBase = baseSpec is null
 					? null
 					: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
@@ -65,40 +65,31 @@ public sealed partial class HostCore {
 			}
 
 			case "list-branches": {
-				string branchesReqId = root.TryGetProperty("id", out var lbEl) ? lbEl.GetString() ?? string.Empty : string.Empty;
-				_ = ListBranchesForWebAsync(branchesReqId);
+				_ = ListBranchesForWebAsync(root.GetStringOrEmpty("id"));
 				break;
 			}
 
 			case "delete-session-request": {
-				string reqId = root.TryGetProperty("id", out var reqEl) ? reqEl.GetString() ?? string.Empty : string.Empty;
-				_ = DeleteSessionPromptAsync(reqId);
+				_ = DeleteSessionPromptAsync(root.GetStringOrEmpty("id"));
 				break;
 			}
 
 			case "delete-session": {
-				string deleteId = root.TryGetProperty("id", out var delIdEl) ? delIdEl.GetString() ?? string.Empty : string.Empty;
-				bool deleteForce = root.TryGetProperty("force", out var delForceEl)
-					&& delForceEl.ValueKind is JsonValueKind.True or JsonValueKind.False && delForceEl.GetBoolean();
-				_ = DeleteSessionFromWebAsync(deleteId, deleteForce);
+				_ = DeleteSessionFromWebAsync(root.GetStringOrEmpty("id"), root.GetBoolOrFalse("force"));
 				break;
 			}
 
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
-				bool kept = root.TryGetProperty("kept", out var keptEl) && keptEl.GetBoolean();
-				string? finalContents = root.TryGetProperty("finalContents", out var fcEl) ? fcEl.GetString() : null;
-				_session?.DiffPresenter.Resolve(diffId, kept, finalContents);
+				_session?.DiffPresenter.Resolve(diffId, root.GetBoolOrFalse("kept"), root.GetStringOrNull("finalContents"));
 				break;
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
-				int revealLine = root.TryGetProperty("line", out var lnEl) ? lnEl.GetInt32() : 1;
-				bool revealPreview = root.TryGetProperty("preview", out var pvEl)
-					&& pvEl.ValueKind is JsonValueKind.True or JsonValueKind.False && pvEl.GetBoolean();
-				_session?.FileOpener.Open(revealPath, revealLine, preview: revealPreview, scratch: false);
+				_session?.FileOpener.Open(
+					revealPath, root.GetIntOr("line", 1), preview: root.GetBoolOrFalse("preview"), scratch: false);
 				break;
 			case "list-dir":
-				_session?.ListDirectory(root.TryGetProperty("path", out var dirEl) ? dirEl.GetString() ?? string.Empty : string.Empty);
+				_session?.ListDirectory(root.GetStringOrEmpty("path"));
 				break;
 			case "active-editor-changed":
 				_session?.UpdateActiveEditor(root);
@@ -123,9 +114,7 @@ public sealed partial class HostCore {
 				break;
 			case "fs-write":
 				if (_session is not null) {
-					_bridge.PostToWeb(_session.FileProvider.Write(
-						FsId(root), FsPath(root),
-						root.TryGetProperty("content", out var fsContentEl) ? fsContentEl.GetString() ?? string.Empty : string.Empty));
+					_bridge.PostToWeb(_session.FileProvider.Write(FsId(root), FsPath(root), root.GetStringOrEmpty("content")));
 				}
 
 				break;
@@ -142,7 +131,7 @@ public sealed partial class HostCore {
 				// A keybinding/palette in the web invoked a Core command — run it on the active session
 				// (fire-and-forget; the web doesn't await a result for its own triggers).
 				InvokeCommandFromWeb(
-					root.TryGetProperty("id", out var ciEl) ? ciEl.GetString() ?? string.Empty : string.Empty,
+					root.GetStringOrEmpty("id"),
 					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null);
 				break;
 			case "command-ack":
@@ -190,7 +179,7 @@ public sealed partial class HostCore {
 				break;
 			case "discard-scratch":
 				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
-				_session?.Scratch.Delete(root.TryGetProperty("path", out var dsEl) ? dsEl.GetString() ?? string.Empty : string.Empty);
+				_session?.Scratch.Delete(root.GetStringOrEmpty("path"));
 				break;
 			default:
 				Log($"[weavie] {json}");

@@ -144,16 +144,8 @@ public sealed class SessionStore {
 				})];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[sessions] {FilePath} is malformed ({ex.Message}); backing up to sessions.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "sessions", Log);
 			return [];
-		}
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[sessions] could not back up malformed session set: {ex.Message}");
 		}
 	}
 

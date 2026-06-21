@@ -6,7 +6,6 @@
   "packageManager": "pnpm@11.8.0",
   "scripts": {
     "preinstall": "node -e \"if (!(process.env.npm_config_user_agent || '').startsWith('pnpm')) { console.error('This project uses pnpm. Run: corepack pnpm install (not npm/yarn).'); process.exit(1); }\"",
-    "dev": "vite",
     "build": "tsc --noEmit && vite build",
     "typecheck": "tsc --noEmit",
     "lint": "biome check .",

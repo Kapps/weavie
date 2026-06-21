@@ -38,10 +38,11 @@ export default defineConfig(({ command }) => ({
   // Dev (`serve`): the server hosts from the origin root, where a relative base breaks the HMR
   // client and module URLs — so use an absolute base.
   base: command === "serve" ? "/" : "./",
-  // Hot reload: the .NET host (Debug) spawns this dev server itself and points the WebView at it —
-  // no second terminal. strictPort so the host can rely on a fixed URL (fail loud if 5173 is taken).
+  // Hot reload: the .NET host (Debug) spawns this dev server itself and points its WebView at it — no second
+  // terminal. The host assigns a *per-instance* free port via `--port N --strictPort`, so multiple worktrees /
+  // Debug instances each get their own isolated server instead of colliding on (and silently reusing) one fixed
+  // 5173. No `port` is pinned here; strictPort keeps a bare `vite` run failing loud rather than wandering ports.
   server: {
-    port: 5173,
     strictPort: true,
   },
   // Dev only: monaco-vscode-api's default-extension packages register their assets (theme JSON,

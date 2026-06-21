@@ -35,6 +35,10 @@ public sealed class FontSettingsTests : IDisposable {
 
 	private SettingsStore NewStore() => new(Registry(), FilePath, enableWatcher: false);
 
+	// The registered global default size, read from resolution instead of hardcoded — a change to the default
+	// const ripples here automatically, keeping these tests about inheritance rather than a magic number.
+	private static long GlobalDefaultSize(SettingsStore store) => (long)store.Resolve(FontSettings.GlobalSize).Value!;
+
 	private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
 	[Fact]
@@ -44,8 +48,9 @@ public sealed class FontSettingsTests : IDisposable {
 		var editor = FontSettings.ResolveEditor(store);
 		var terminal = FontSettings.ResolveTerminal(store);
 
-		Assert.Equal(13, editor.Size);
-		Assert.Equal(13, terminal.Size);
+		long globalDefault = GlobalDefaultSize(store);
+		Assert.Equal(globalDefault, editor.Size);
+		Assert.Equal(globalDefault, terminal.Size);
 		Assert.Equal("normal", editor.Weight);
 		Assert.Equal("normal", terminal.Weight);
 		Assert.Contains("monospace", editor.Family, StringComparison.Ordinal);
@@ -63,8 +68,8 @@ public sealed class FontSettingsTests : IDisposable {
 
 		Assert.Equal(18, editor.Size);
 		Assert.Equal("JetBrains Mono", editor.Family);
-		// Terminal untouched — still the global default.
-		Assert.Equal(13, terminal.Size);
+		// Terminal untouched — still resolves to the global default.
+		Assert.Equal(GlobalDefaultSize(store), terminal.Size);
 		Assert.Contains("monospace", terminal.Family, StringComparison.Ordinal);
 	}
 
@@ -123,7 +128,7 @@ public sealed class FontSettingsTests : IDisposable {
 		using var bare = JsonDocument.Parse(FontSettings.BuildJson(store, messageType: null));
 		Assert.False(bare.RootElement.TryGetProperty("type", out _));
 		var editor = bare.RootElement.GetProperty("editor");
-		Assert.Equal(13, editor.GetProperty("size").GetInt32());
+		Assert.Equal(GlobalDefaultSize(store), editor.GetProperty("size").GetInt64());
 		Assert.Equal("normal", editor.GetProperty("weight").GetString());
 		Assert.False(string.IsNullOrEmpty(editor.GetProperty("family").GetString()));
 		Assert.Equal(11, bare.RootElement.GetProperty("terminal").GetProperty("size").GetInt32());

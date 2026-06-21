@@ -54,7 +54,7 @@ public static class FontSettings {
 	private const string DefaultFamily =
 		"""ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace""";
 
-	private const long DefaultSize = 13;
+	private const long DefaultSize = 16;
 	private const string DefaultWeight = "normal";
 	private const long MinSize = 6;
 	private const long MaxSize = 72;

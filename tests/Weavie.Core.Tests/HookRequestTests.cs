@@ -32,10 +32,21 @@ public sealed class HookRequestTests {
 
 	[Fact]
 	public void Parse_UnknownEvent_MapsToOther() {
-		var request = HookRequest.Parse("""{"hook_event_name":"SessionStart","tool_name":"X"}""");
+		var request = HookRequest.Parse("""{"hook_event_name":"PreCompact","tool_name":"X"}""");
 
 		Assert.NotNull(request);
 		Assert.Equal(HookEventKind.Other, request!.Event);
+	}
+
+	[Fact]
+	public void Parse_SessionStartClear_ParsesSourceWithoutToolName() {
+		var request = HookRequest.Parse("""{"hook_event_name":"SessionStart","source":"clear","session_id":"s2","cwd":"/w"}""");
+
+		Assert.NotNull(request);
+		Assert.Equal(HookEventKind.SessionStart, request!.Event);
+		Assert.Equal("clear", request.Source);
+		Assert.Equal(string.Empty, request.ToolName);
+		Assert.Equal("s2", request.SessionId);
 	}
 
 	[Fact]

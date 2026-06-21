@@ -3,24 +3,29 @@
 // class would otherwise fail the build).
 #if DEBUG
 using System.Diagnostics;
+using System.Net;
+using System.Net.Sockets;
+using Weavie.Core.Processes;
 
 namespace Weavie.Hosting.Web;
 
 /// <summary>
-/// Owns the Vite dev server for hot-module reload during Debug runs, shared by every desktop host. It reuses a
-/// dev server already serving the port, or spawns Vite itself (so there's no second terminal to babysit), waits
-/// for it to serve, and the caller points its WebView at <see cref="Origin"/>. A server this instance spawned is
-/// killed on <see cref="Dispose"/>; a reused one is left alone. <see cref="StartAsync"/> returns <c>null</c> when
-/// the source dir or the server is unavailable, and records the reason in <see cref="LastFailure"/> so the caller
-/// can show the developer <em>why</em> rather than silently degrading to a stale bundle.
+/// Owns the Vite dev server for hot-module reload during Debug runs, shared by every desktop host. Each instance
+/// binds its <em>own</em> free port (picked once, then held for the instance's lifetime) and spawns Vite there
+/// with <c>--strictPort</c>, so several worktrees / Debug instances run side by side without cross-talk — unlike
+/// the old fixed-5173 server, where a second instance silently reused the first's server (serving the wrong
+/// worktree's build over the wrong HMR socket). The caller points its WebView at <see cref="Origin"/>.
+///
+/// <para>The Vite process is kept alive by a <see cref="ProcessSupervisor"/> (policy <see cref="RestartPolicy.Always"/>):
+/// a mid-session crash is relaunched on the <em>same</em> port, so the WebView's origin stays valid and its HMR
+/// client simply reconnects. Graceful teardown happens on <see cref="Dispose"/>; the host's kill-on-close Job
+/// Object is the OS backstop that reaps the tree even on a hard kill where no managed code runs.</para>
+///
+/// <para><see cref="StartAsync"/> returns <c>null</c> when the source dir is missing or the server never serves,
+/// recording the reason in <see cref="LastFailure"/> so the caller can show the developer <em>why</em> rather
+/// than silently degrading to a stale bundle.</para>
 /// </summary>
 public sealed class WebDevServer : IDisposable {
-	// Must match `server.port` (strictPort) in src/web/vite.config.ts. Use the `localhost` host (not 127.0.0.1)
-	// so the browser's Origin header equals what we hand the LSP bridge as the allowed origin — the bridge
-	// compares the two byte-for-byte.
-	/// <summary>The origin Vite serves on (strict port), shared by every host's dev-server wiring.</summary>
-	public const string Origin = "http://localhost:5173";
-	private const string ProbeUrl = Origin + "/";
 	private const int RecentCap = 40;
 
 	private readonly Action<string> _log;
@@ -28,7 +33,15 @@ public sealed class WebDevServer : IDisposable {
 	// Tail of the dev server's output, so a failure can show the developer *why* it didn't come up (e.g. the
 	// broken-dependency stack trace) instead of the host silently serving a stale bundle.
 	private readonly Queue<string> _recent = new();
+	private readonly ProcessSupervisor _supervisor;
 	private Process? _process;
+	private int _port;
+	private string _probeUrl = string.Empty;
+
+	/// <summary>The origin Vite serves on once <see cref="StartAsync"/> has picked a port (empty before then).
+	/// Uses the <c>localhost</c> host (not 127.0.0.1) so the browser's Origin header equals what the host hands
+	/// the LSP bridge as the allowed origin — the bridge compares the two byte-for-byte.</summary>
+	public string Origin { get; private set; } = string.Empty;
 
 	/// <summary>Set whenever <see cref="StartAsync"/> returns <c>null</c>: the failure reason plus the tail of
 	/// captured Vite output. Cleared at the start of each <see cref="StartAsync"/>.</summary>
@@ -40,11 +53,21 @@ public sealed class WebDevServer : IDisposable {
 		ArgumentNullException.ThrowIfNull(log);
 		_log = log;
 		_webDevRoot = webDevRoot;
+		// Vite is a permanent fixture of a Debug run, so policy Always: any exit (crash or otherwise) relaunches
+		// with backoff until the crash-loop breaker trips. Lifecycle logging is folded into the captured output.
+		_supervisor = new ProcessSupervisor(
+			name: "vite",
+			start: StartProcess,
+			stop: StopProcess,
+			options: new SupervisionOptions { Policy = RestartPolicy.Always },
+			log: entry => Emit(entry.Message),
+			clock: null);
 	}
 
 	/// <summary>
-	/// Reuses or spawns the Vite dev server and polls until it serves. Returns <see cref="Origin"/> on success,
-	/// or <c>null</c> (with <see cref="LastFailure"/> populated) if the source dir is missing or it never comes up.
+	/// Picks this instance's port (once), starts the supervised Vite process, and polls until it serves. Returns
+	/// <see cref="Origin"/> on success, or <c>null</c> (with <see cref="LastFailure"/> populated) if the source dir
+	/// is missing or it never comes up. Safe to call again (Retry / revive): a running server is left as-is.
 	/// </summary>
 	public async Task<string?> StartAsync() {
 		LastFailure = null;
@@ -53,55 +76,85 @@ public sealed class WebDevServer : IDisposable {
 			return null;
 		}
 
-		// Reuse a dev server already serving the port instead of spawning a second one. Vite uses strictPort, so
-		// a second `pnpm run dev` would only collide ("Port 5173 already in use") and exit, leaving the WebView
-		// bound to a server this instance neither owns nor reaps — and when that foreign server later dies the
-		// page breaks (ERR_CONNECTION_REFUSED) with no fallback. A hand-started server, or one from a not-yet-
-		// reaped prior run, is reused as-is; _process stays null so Dispose never kills a server we didn't start.
-		using (var probeHttp = new HttpClient { Timeout = TimeSpan.FromSeconds(2) }) {
-			if (await ProbeAsync(probeHttp).ConfigureAwait(false)) {
-				Emit($"reusing dev server already serving at {Origin}");
-				return Origin;
+		// Pick a free port once and keep it for the instance's lifetime: every supervised restart reuses it, so a
+		// mid-session Vite crash doesn't invalidate the WebView's origin. A per-instance port (vs. a shared 5173)
+		// is what lets multiple worktrees run at the same time without the old cross-talk.
+		if (_port == 0) {
+			_port = PickFreePort();
+			Origin = $"http://localhost:{_port}";
+			_probeUrl = Origin + "/";
+		}
+
+		// No-op if the supervisor is already Running/BackingOff (e.g. a revive after a transient crash); it
+		// relaunches Vite on the same port if it had given up (Failed → Start).
+		_supervisor.Start();
+
+		if (await WaitUntilReadyAsync(TimeSpan.FromSeconds(40)).ConfigureAwait(false)) {
+			return Origin;
+		}
+
+		// Bring-up failed: halt background restarts so the error page's Retry (which calls StartAsync again) gets
+		// a clean start, and a broken Vite isn't left hot-looping behind the rendered error page.
+		_supervisor.Stop();
+		return null;
+	}
+
+	/// <summary>Spawns a fresh Vite on this instance's port and wires its exit back to the supervisor. The
+	/// supervisor's <c>start</c> delegate; an exception here is treated by the supervisor as a failed launch.</summary>
+	private void StartProcess(int attempt) {
+		var process = new Process {
+			StartInfo = new ProcessStartInfo {
+				// Spawn Vite directly rather than via a pnpm/npm shim. The shim exits as soon as Vite is up,
+				// severing the parent→child chain Kill(entireProcessTree) walks on teardown — so node(vite)/
+				// esbuild would orphan. Launching Vite's entry with node makes the process the actual Vite
+				// process, so its lone child (esbuild) is reaped reliably. --strictPort fails loud if the port
+				// we picked was grabbed in the (tiny) window since we released it, rather than wandering ports.
+				FileName = "node",
+				Arguments = $"node_modules/vite/bin/vite.js --port {_port} --strictPort",
+				WorkingDirectory = _webDevRoot!,
+				UseShellExecute = false,
+				CreateNoWindow = true,
+				RedirectStandardOutput = true,
+				RedirectStandardError = true,
+			},
+			EnableRaisingEvents = true,
+		};
+		process.OutputDataReceived += (_, e) => {
+			if (e.Data is not null) {
+				Emit(e.Data);
 			}
+		};
+		process.ErrorDataReceived += (_, e) => {
+			if (e.Data is not null) {
+				Emit(e.Data);
+			}
+		};
+		// Capture *this* launch so a later restart's exit can't be misattributed (mirrors HeadlessLauncher).
+		process.Exited += (_, _) => _supervisor.NotifyExited(SafeExitCode(process));
+		process.Start();
+		process.BeginOutputReadLine();
+		process.BeginErrorReadLine();
+		_process = process;
+	}
+
+	/// <summary>Kills the current Vite tree. The supervisor's <c>stop</c> delegate; a safe no-op when idle.</summary>
+	private void StopProcess() {
+		var process = _process;
+		if (process is null) {
+			return;
 		}
 
 		try {
-			_process = new Process {
-				StartInfo = new ProcessStartInfo {
-					// Spawn Vite directly rather than via a pnpm shim. The shim exits as soon as Vite is up,
-					// severing the parent→child chain Kill(entireProcessTree) walks on teardown — so node(vite)/
-					// esbuild would orphan (holding port 5173, keeping the run session alive). Launching Vite's
-					// entry with node makes _process the actual Vite process, so its lone child (esbuild) is reaped
-					// reliably. (`dev` is just `vite`.)
-					FileName = "node",
-					Arguments = "node_modules/vite/bin/vite.js",
-					WorkingDirectory = _webDevRoot,
-					UseShellExecute = false,
-					CreateNoWindow = true,
-					RedirectStandardOutput = true,
-					RedirectStandardError = true,
-				},
-				EnableRaisingEvents = true,
-			};
-			_process.OutputDataReceived += (_, e) => {
-				if (e.Data is not null) {
-					Emit(e.Data);
-				}
-			};
-			_process.ErrorDataReceived += (_, e) => {
-				if (e.Data is not null) {
-					Emit(e.Data);
-				}
-			};
-			_process.Start();
-			_process.BeginOutputReadLine();
-			_process.BeginErrorReadLine();
-		} catch (Exception ex) {
-			SetFailure($"failed to start Vite (node): {ex.Message}");
-			return null;
+			if (!process.HasExited) {
+				process.Kill(entireProcessTree: true);
+				process.WaitForExit(3000);
+			}
+		} catch {
+			// Best-effort teardown — the host's kill-on-close Job Object reaps any survivor when the host exits.
+		} finally {
+			process.Dispose();
+			_process = null;
 		}
-
-		return await WaitUntilReadyAsync(TimeSpan.FromSeconds(40)).ConfigureAwait(false) ? Origin : null;
 	}
 
 	private async Task<bool> WaitUntilReadyAsync(TimeSpan timeout) {
@@ -111,31 +164,48 @@ public sealed class WebDevServer : IDisposable {
 			if (await ProbeAsync(http).ConfigureAwait(false)) {
 				return true;
 			}
-			// If our process died and nothing else is already serving the port, stop waiting. (Race guard: if
-			// another server grabbed the port between our up-front probe and this spawn, our spawn exits fast on
-			// the strict-port collision but the probe still succeeds — reuse it.)
-			if (_process is { HasExited: true }) {
-				bool up = await ProbeAsync(http).ConfigureAwait(false);
-				if (!up) {
-					SetFailure($"Vite exited (code {_process.ExitCode}) before the server was ready");
-				}
 
-				return up;
+			// The supervisor relaunches a crashing Vite with backoff; if it has given up (crash-loop breaker
+			// tripped), there's nothing left to wait for — fail now with the captured output explaining why.
+			if (_supervisor.State == SupervisorState.Failed) {
+				SetFailure("Vite crashed repeatedly during startup; the supervisor gave up restarting it");
+				return false;
 			}
 
 			await Task.Delay(250).ConfigureAwait(false);
 		}
 
-		SetFailure($"dev server did not respond at {ProbeUrl} within {timeout.TotalSeconds:N0}s");
+		SetFailure($"dev server did not respond at {_probeUrl} within {timeout.TotalSeconds:N0}s");
 		return false;
 	}
 
-	private static async Task<bool> ProbeAsync(HttpClient http) {
+	private async Task<bool> ProbeAsync(HttpClient http) {
 		try {
-			using var resp = await http.GetAsync(ProbeUrl).ConfigureAwait(false);
+			using var resp = await http.GetAsync(_probeUrl).ConfigureAwait(false);
 			return resp.IsSuccessStatusCode;
 		} catch {
 			return false;
+		}
+	}
+
+	/// <summary>Reserves a free loopback TCP port from the OS and releases it for Vite to bind. The OS won't hand
+	/// out a port already in use, so concurrent instances never collide; the brief release→bind window is covered
+	/// by Vite's <c>--strictPort</c> (it fails loud rather than silently moving to another port).</summary>
+	private static int PickFreePort() {
+		var listener = new TcpListener(IPAddress.Loopback, 0);
+		listener.Start();
+		try {
+			return ((IPEndPoint)listener.LocalEndpoint).Port;
+		} finally {
+			listener.Stop();
+		}
+	}
+
+	private static int SafeExitCode(Process process) {
+		try {
+			return process.HasExited ? process.ExitCode : -1;
+		} catch {
+			return -1;
 		}
 	}
 
@@ -155,24 +225,8 @@ public sealed class WebDevServer : IDisposable {
 		LastFailure = new DevServerFailureInfo(reason, _recent.ToArray());
 	}
 
-	/// <summary>Kills the Vite process this instance spawned (a reused server is left running).</summary>
-	public void Dispose() {
-		if (_process is null) {
-			return;
-		}
-
-		try {
-			if (!_process.HasExited) {
-				_process.Kill(entireProcessTree: true);
-				_process.WaitForExit(3000);
-			}
-		} catch {
-			// Best-effort teardown — the OS reaps the tree when the host exits regardless.
-		} finally {
-			_process.Dispose();
-			_process = null;
-		}
-	}
+	/// <summary>Stops and disposes the supervised Vite process (graceful teardown on a clean host exit).</summary>
+	public void Dispose() => _supervisor.Dispose();
 }
 
 /// <summary>Why the Vite dev server failed to come up, plus the tail of its captured output — enough for the

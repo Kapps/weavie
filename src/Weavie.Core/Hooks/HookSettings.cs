@@ -51,6 +51,11 @@ public static class HookSettings {
 			// tool-scoped, so no matcher; short timeouts since the handlers only update in-memory session state.
 			WriteEvent(writer, "Stop", command, timeoutSeconds: 10, matcher: null);
 			WriteEvent(writer, "Notification", command, timeoutSeconds: 10, matcher: null);
+			// /clear only: SessionStart matches on its source, so "clear" relays just the clears (not startup/
+			// resume/compact). Lets the resume store drop the now-stale session id so a quit right after a clear
+			// cold-starts fresh instead of resuming the cleared transcript. Short timeout — the handler just
+			// updates the in-memory store.
+			WriteEvent(writer, "SessionStart", command, timeoutSeconds: 10, matcher: "clear");
 			writer.WriteEndObject();
 			writer.WriteEndObject();
 		}

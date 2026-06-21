@@ -42,6 +42,26 @@ point: the claude controller is handed the store and renders the flag for its `W
 session is untouched. All four hosts wire it (Linux / macOS / Headless single session keyed by the
 workspace; Windows `HostSession` keyed by each worktree, sharing one app-level store).
 
+## Clearing (`/clear`)
+
+`/clear` starts claude on a *fresh* conversation but leaves the previous transcript on disk, so a naive
+resume of Weavie's assigned id reattaches to the long, pre-clear conversation — the very thing the clear was
+meant to escape (claude then greets you with its "resume this stale session?" prompt). Weavie keeps the store
+honest with what claude actually did, off the same hook stream the change feed rides:
+
+- **On `/clear`** — claude fires a `SessionStart` hook with `source=clear` (registered in `HookSettings` with
+  the `clear` matcher, so only clears relay). `TerminalController.ObserveHook` calls
+  `ClaudeSessionStore.Clear(cwd)`, which **drops** the tracked id. Quit right after a clear and the next launch
+  cold-starts fresh — nothing stale to resume.
+- **On the next real message** — the `UserPromptSubmit` hook carries the id claude settled on;
+  `ObserveHook` calls `ClaudeSessionStore.Adopt(cwd, sessionId)`, which **re-tracks** it (started). A
+  cleared-*then-used* session therefore resumes its new, post-clear conversation. `Adopt` is a no-op when the
+  id already matches and is started, so the normal flow (claude stays on Weavie's assigned id) never thrashes
+  the file.
+
+Together this is "null out on clear, re-track on the first message": clear-then-quit → fresh; clear-then-work
+→ resumes the new conversation. Only the claude pane and only while `claude.resumeSession` is on.
+
 ## The setting
 
 `claude.resumeSession` (bool, default **on**, `ApplyMode.NextSession`) — a first-class, discoverable

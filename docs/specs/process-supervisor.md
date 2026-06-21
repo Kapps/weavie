@@ -1,6 +1,7 @@
 # Process supervisor
 
-**Status:** core engine implemented + adopted by the terminal panes; further adopters planned.
+**Status:** core engine implemented + adopted by the terminal panes and the Vite dev server; further
+adopters planned. Orphan-on-hard-kill is closed by a host-level kill-on-close Job Object (see below).
 
 Weavie spawns several long-lived child processes (the embedded `claude` TUI, shell panes, language
 servers, the dev server). Before this, each was managed ad-hoc by its own owner — none auto-restarted on
@@ -90,18 +91,36 @@ and on a supervised restart writes a one-line `[weavie] … restarting…` notic
 `term-output` channel (no web-protocol change). A crash-loop trip prints a "stopped" notice and posts
 `term-exit`.
 
+**Implemented — Vite dev server** (`WebDevServer`, Debug only): policy `Always`. Each instance binds its own
+free port (picked once, held for its lifetime) and spawns Vite with `--strictPort`; a mid-session crash is
+relaunched on the same port, so the WebView's origin stays valid and its HMR client just reconnects. Bring-up
+failure stops the supervisor so the error page's Retry gets a clean start. This per-instance port (vs. a fixed
+5173 that a second instance silently *reused*) is what lets multiple worktrees / Debug instances run side by
+side without cross-talk.
+
 **Planned:**
 
 - **Language servers** (`LspConnection` / `LspBridgeServer`): policy `OnFailure` (or `Always`). Caveat: a
   restarted LSP needs the full `initialize` handshake replayed and open documents re-synced — the `start`
   delegate must own that re-init, so this is more than dropping the supervisor in. Not yet wired.
-- **Vite dev server** (`WebDevServer`, Win debug): policy `Always` — a clean adopter (already kills its
-  process tree on dispose).
 - **Hook-bridge pipe server lifecycle:** the loopback pipe server is in-process (lives with the host), so it
   isn't supervised; only note that the *relay* it talks to is transient and exempt.
+
+## Orphan prevention (hard kill)
+
+`ProcessSupervisor` owns *graceful* teardown — its `stop` delegate kills the tree on a clean shutdown. But the
+supervisor is managed code in cross-platform Core, and the orphan problem is the host dying with **no managed
+code running** (a debugger Stop, a crash): no `Dispose`, no `stop`, nothing. The only thing that reaps children
+then is an OS primitive. On Windows that's a **Job Object** with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
+(`Weavie.Win.Hosting.ChildProcessJob`, installed once at `Program.Main`): the host process is assigned to the
+job, children inherit it, and when the host dies by any means the OS closes the job handle and terminates
+everything still inside. This covers *every* child (Vite, ConPTY shells, language servers, `claude`), not just
+supervised ones — so it's the backstop behind the supervisor, not a replacement for it. Mac/Linux hosts need
+their own equivalent (`PR_SET_PDEATHSIG` / a process group) — not yet wired.
 
 ## Follow-ups
 
 - File logging to `~/.weavie/logs/<name>.log`, with a verbosity **setting**.
 - A "processes" status panel in the UI, driven by `StateChanged` (state + restart count per child).
-- Generalize tree-kill on shutdown so no supervised child can orphan (today only `WebDevServer` does it).
+- Extend the kill-on-close orphan guard to the Mac/Linux hosts (`PR_SET_PDEATHSIG` / a process group); only
+  the Windows host has it today (see *Orphan prevention* above).

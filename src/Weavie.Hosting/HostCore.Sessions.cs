@@ -350,6 +350,10 @@ public sealed partial class HostCore {
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
+		if (request.AttachExisting) {
+			return AttachExistingSessionAsync(request.Branch, ct);
+		}
+
 		return CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, ct);
 	}
 
@@ -438,8 +442,8 @@ public sealed partial class HostCore {
 				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under force:false.)
 				// Skip when the worktree is already gone or half-removed (no .git) — there's nothing left to lose,
-				// and RemoveAsync just prunes the leftover bookkeeping. Without this, a prior delete that couldn't
-				// unlink the directory leaves a folder git can no longer read, and `git status` would block retries.
+				// and git can no longer answer git status there. A half-removed worktree (directory still on
+				// disk) is surfaced loudly by RemoveAsync rather than silently "succeeding".
 				if (!force && IsLiveWorktree(worktreePath)
 					&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 					result.SetResult(CommandResult.Failure(
@@ -459,6 +463,14 @@ public sealed partial class HostCore {
 					await UnloadSlotAsync(target).ConfigureAwait(false);
 				}
 
+				// Settle before removal: the unload above awaited this session's PTY children and LSP server tree
+				// to exit, but Windows can lag on releasing their handles, and external scanners (Defender, the
+				// search indexer) may briefly hold a lock. A short, deliberate pause lets git's single one-shot
+				// remove succeed instead of partial-failing and orphaning the directory (git deletes its own
+				// record mid-failure, which no retry can recover). Bounded and intentional, not a retry loop
+				// papering over a hang. None: the unload disposed this session's IDE-MCP server, which may
+				// already have cancelled ct.
+				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
 				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
 				_sessions?.Remove(target);
 				PushSessionList();
@@ -466,6 +478,8 @@ public sealed partial class HostCore {
 			} catch (WorktreeDirtyException) {
 				result.SetResult(CommandResult.Failure(
 					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
+			} catch (WorktreeOrphanException ex) {
+				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
 			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
 			} catch (Exception ex) {
@@ -532,7 +546,63 @@ public sealed partial class HostCore {
 		// Run the user's setup command (e.g. `pnpm install`) in the background so the session opens now;
 		// it toasts "setting up… → ready/failed" as it goes.
 		StartWorktreeSetup(record.Path);
+		return await BuildAndSwitchSlotAsync(branch, record, prompt, $"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
+	}
 
+	/// <summary>
+	/// Creates a session by checking out an <em>existing</em> branch into a new worktree. If Weavie already has
+	/// a session for that branch — or the branch is the primary checkout's own branch (git won't let it be
+	/// checked out twice) — switches to that session instead of creating a duplicate.
+	/// </summary>
+	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, CancellationToken ct) {
+		if (_worktrees is not { } worktrees) {
+			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
+		}
+
+		if (string.IsNullOrWhiteSpace(requestedBranch)) {
+			return CommandResult.Failure("Pick an existing branch to check out.");
+		}
+
+		string branch = requestedBranch.Trim();
+
+		// Already a live/dormant Weavie session for this branch (slot ids are the branch name)? Switch to it.
+		if (_sessions?.Find(branch) is { } existingSlot) {
+			return await SwitchToExistingAsync(existingSlot, branch).ConfigureAwait(false);
+		}
+
+		// The branch checked out in the primary repo can't be attached to a second worktree (git refuses), so
+		// the right move is to focus the primary session.
+		try {
+			string? primaryBranch = await new GitService().GetCurrentBranchAsync(WorkspaceRoot, ct).ConfigureAwait(false);
+			if (string.Equals(primaryBranch, branch, StringComparison.Ordinal) && PrimarySlot() is { } primarySlot) {
+				return await SwitchToExistingAsync(primarySlot, branch).ConfigureAwait(false);
+			}
+		} catch (GitException ex) {
+			return CommandResult.Failure($"Couldn't read the current branch: {ex.Message}");
+		}
+
+		// Only run setup on a freshly-created worktree; a branch Weavie already tracks reuses its existing one.
+		bool freshWorktree = worktrees.Registry.FindByBranch(branch) is null;
+		WorktreeRecord record;
+		try {
+			record = await worktrees.AttachAsync(branch, ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
+			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
+		}
+
+		if (freshWorktree) {
+			StartWorktreeSetup(record.Path);
+		}
+
+		return await BuildAndSwitchSlotAsync(branch, record, prompt: null, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
+	}
+
+	/// <summary>
+	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
+	/// switches to it on the UI thread (optionally seeding a first prompt). Shared by the new-branch and
+	/// existing-branch paths.
+	/// </summary>
+	private Task<CommandResult> BuildAndSwitchSlotAsync(string branch, WorktreeRecord record, string? prompt, string successMessage) {
 		var result = new TaskCompletionSource<CommandResult>();
 		_ui.Post(() => {
 			try {
@@ -549,12 +619,26 @@ public sealed partial class HostCore {
 					SeedFirstPrompt(slot.Session!, prompt);
 				}
 
-				result.SetResult(CommandResult.Success($"Created session on branch '{branch}' at {record.Path}."));
+				result.SetResult(CommandResult.Success(successMessage));
 			} catch (Exception ex) {
 				result.SetException(ex);
 			}
 		});
-		return await result.Task.ConfigureAwait(false);
+		return result.Task;
+	}
+
+	/// <summary>Switches to an already-existing session slot (on the UI thread) and reports it.</summary>
+	private Task<CommandResult> SwitchToExistingAsync(SessionSlot slot, string branch) {
+		var result = new TaskCompletionSource<CommandResult>();
+		_ui.Post(() => {
+			try {
+				SwitchToSlot(slot);
+				result.SetResult(CommandResult.Success($"Switched to the existing session for '{branch}'."));
+			} catch (Exception ex) {
+				result.SetException(ex);
+			}
+		});
+		return result.Task;
 	}
 
 	private async Task<string> ResolveBaseRefAsync(string? baseSpec, CancellationToken ct) {

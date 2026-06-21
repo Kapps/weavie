@@ -115,7 +115,12 @@ export type HostBoundMessage =
   // reply with a session-delete-prompt; delete-session is the confirmed delete, its `force` set for a dirty
   // worktree. The host surfaces outcomes/failures as toasts.
   | { type: "switch-session"; id: string }
-  | { type: "new-session"; branch?: string; base?: "head" | "main" }
+  // new-session: `existing` true ⇒ check out the EXISTING branch named by `branch` (base ignored); otherwise
+  // create a new branch off `base`. list-branches asks the chosen backend for the local branches available to
+  // check out (every local branch minus those already in a worktree), answered by a branches-result tagged
+  // with the request `id` — used by the New Session dialog's branch typeahead.
+  | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
+  | { type: "list-branches"; id: string }
   | { type: "delete-session-request"; id: string }
   | { type: "delete-session"; id: string; force: boolean }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
@@ -318,6 +323,9 @@ export type WebBoundMessage =
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
   | { type: "file-index"; root: string; files: string[] }
+  // Host answers list-branches with the local branches available to check out, tagged by the request `id`.
+  // Routed cross-backend (see isSessionMessage) so the New Session dialog can query a non-active backend.
+  | { type: "branches-result"; id: string; branches: string[] }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
@@ -338,10 +346,12 @@ const sessionListeners = new Set<SessionMessageHandler>();
 const [activeBackend, setActiveBackend] = createSignal("local");
 const LOCAL_BACKEND_ID = "local";
 
-// session-list / session-status are the only message types aggregated across backends (they feed the rail).
-// Everything else belongs to whichever backend the page is bound to.
+// session-list / session-status feed the cross-backend rail; branches-result answers the New Session dialog's
+// typeahead, which can target a backend that isn't the active one — so it too must route cross-backend (tagged
+// with its origin) rather than being dropped by the active-backend gate. Everything else belongs to whichever
+// backend the page is bound to.
 function isSessionMessage(type: string): boolean {
-  return type === "session-list" || type === "session-status";
+  return type === "session-list" || type === "session-status" || type === "branches-result";
 }
 
 // Parse one inbound host->web JSON line and route it. Session messages fan out to the rail listeners tagged
@@ -579,6 +589,35 @@ export function onSessionMessage(handler: SessionMessageHandler): () => void {
   return () => {
     sessionListeners.delete(handler);
   };
+}
+
+// New Session branch typeahead: ask a chosen backend (local or a remote agent) for its checkout-able local
+// branches. branches-result routes cross-backend (isSessionMessage), so we correlate replies by a unique id
+// and resolve empty if the host never answers — the typeahead simply offers nothing rather than hanging.
+const BRANCHES_TIMEOUT_MS = 10_000;
+let branchSeq = 0;
+const pendingBranchRequests = new Map<string, (branches: string[]) => void>();
+onSessionMessage((message) => {
+  if (message.type === "branches-result") {
+    pendingBranchRequests.get(message.id)?.(message.branches);
+  }
+});
+
+/** Ask `backendId` for the local branches available to check out as a new session (empty on timeout). */
+export function requestBranches(backendId: string): Promise<string[]> {
+  const id = `br${++branchSeq}`;
+  return new Promise<string[]>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingBranchRequests.delete(id);
+      resolve([]);
+    }, BRANCHES_TIMEOUT_MS);
+    pendingBranchRequests.set(id, (branches) => {
+      clearTimeout(timer);
+      pendingBranchRequests.delete(id);
+      resolve(branches);
+    });
+    postToBackend(backendId, { type: "list-branches", id });
+  });
 }
 
 // Reads a config value the C# host injects as a window.__WEAVIE_*__ global before navigation. In the

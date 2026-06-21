@@ -7,11 +7,17 @@ public sealed record NewSessionRequest {
 	/// <summary>The branch (and worktree) name to create; <c>null</c> ⇒ the host prompts or auto-names.</summary>
 	public string? Branch { get; init; }
 
-	/// <summary>The base to branch from: <c>"current"</c> (the active session's HEAD), <c>"main"</c>, or a ref; <c>null</c> ⇒ host default.</summary>
+	/// <summary>The base to branch from: <c>"current"</c> (the active session's HEAD), <c>"main"</c>, or a ref; <c>null</c> ⇒ host default. Ignored when <see cref="AttachExisting"/> is set.</summary>
 	public string? Base { get; init; }
 
 	/// <summary>An optional first prompt to seed into the new session's Claude.</summary>
 	public string? Prompt { get; init; }
+
+	/// <summary>
+	/// When true, <see cref="Branch"/> names an <em>existing</em> branch to check out into a new worktree
+	/// (no new branch, no base); if a session already exists for it, the host switches to that instead.
+	/// </summary>
+	public bool AttachExisting { get; init; }
 }
 
 /// <summary>Arguments for forking the current session into a new worktree off its HEAD.</summary>

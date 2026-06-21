@@ -1,11 +1,9 @@
 using Weavie.Runner;
 
-var options = RunnerOptions.Resolve(args);
-
-if (!File.Exists(options.HeadlessPath)
-	&& !options.HeadlessPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
-	&& Path.GetDirectoryName(options.HeadlessPath) is { Length: > 0 }) {
-	Console.WriteLine($"[weavie-runner] warning: headless binary not found at {options.HeadlessPath}; pass --headless <path>.");
+var (options, optionsError) = RunnerOptions.Resolve(args);
+if (options is null) {
+	Console.Error.WriteLine($"[weavie-runner] {optionsError}");
+	return 1;
 }
 
 if (!Directory.Exists(Path.Combine(options.WorkspaceRoot, ".git"))) {

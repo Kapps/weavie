@@ -55,13 +55,15 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Create a new session on its own git worktree + branch. With no 'branch' the host "
 				+ "auto-names one (avoiding existing branches). 'base' is 'current' (the active session's HEAD; the "
-				+ "default) or 'main'. An optional 'prompt' is sent to the new session's Claude as its first message. "
-				+ "This is the programmatic entry (for Claude); the interactive UI uses 'New Session…' (weavie.session.newPrompt).",
-			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session"],
+				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
+				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
+				+ "'prompt' is sent to the new session's Claude as its first message. This is the programmatic entry "
+				+ "(for Claude); the interactive UI uses 'New Session…' (weavie.session.newPrompt).",
+			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
 			// No default keybinding + hidden from the palette: the human-facing entry is the interactive prompt
 			// (NewSessionPrompt, bound to $mod+Shift+n). Still reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"prompt\":{\"type\":\"string\"}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -208,6 +210,7 @@ public static class SessionCommands {
 					Branch = GetString(argsJson, "branch"),
 					Base = GetString(argsJson, "base"),
 					Prompt = GetString(argsJson, "prompt"),
+					AttachExisting = GetBool(argsJson, "existing"),
 				},
 				ct)),
 			dispatcher.RegisterHandler(ForkSession, (argsJson, ct) => host.ForkSessionAsync(

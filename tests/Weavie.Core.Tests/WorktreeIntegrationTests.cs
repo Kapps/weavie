@@ -109,6 +109,40 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Attach_ExistingBranch_ChecksOutThatBranch() {
+		var manager = NewManager();
+		// A branch that exists but isn't checked out anywhere.
+		RunGit(_repo, "branch", "existing", "main");
+
+		var record = await manager.AttachAsync("existing");
+
+		Assert.Equal("existing", record.Branch);
+		Assert.True(Directory.Exists(record.Path));
+		// HEAD is attached to the existing branch itself (so commits land on it), not a fresh branch.
+		Assert.Equal("existing", await _git.GetCurrentBranchAsync(record.Path));
+		Assert.NotNull(manager.Registry.FindByBranch("existing"));
+	}
+
+	[Fact]
+	public async Task Attach_BranchCheckedOutElsewhere_Throws() {
+		var manager = NewManager();
+		// 'main' is already checked out in the primary repo, so a second worktree can't attach to it.
+		await Assert.ThrowsAsync<GitException>(() => manager.AttachAsync("main"));
+	}
+
+	[Fact]
+	public async Task ListBranches_ReturnsLocalBranches() {
+		RunGit(_repo, "branch", "alpha", "main");
+		RunGit(_repo, "branch", "beta", "main");
+
+		var branches = await _git.ListBranchesAsync(_repo);
+
+		Assert.Contains("main", branches);
+		Assert.Contains("alpha", branches);
+		Assert.Contains("beta", branches);
+	}
+
+	[Fact]
 	public async Task ExternallyCreatedWorktree_SurfacedAsUntracked() {
 		var manager = NewManager();
 		string manualPath = Path.Combine(_root, "manual");
@@ -118,6 +152,25 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var manual = list.Single(s => s.Branch == "manual");
 		Assert.True(manual.IsUntracked);
 		Assert.False(manual.IsManaged);
+	}
+
+	[Fact]
+	public async Task HalfRemovedWorktree_DirectoryRemains_RemoveThrowsOrphan_WithoutLeakingSilently() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("half", "main");
+
+		// Simulate a lock-induced half-removal: git's own record is gone (its remove ran), but the directory is
+		// still on disk with leftover files - the state a Windows file lock leaves behind. The registry row
+		// survives (the out-of-band git remove didn't touch it).
+		RunGit(_repo, "worktree", "remove", "--force", record.Path);
+		Directory.CreateDirectory(record.Path);
+		File.WriteAllText(Path.Combine(record.Path, "leftover.txt"), "locked\n");
+
+		// RemoveAsync must NOT report success and drop the row while the directory leaks - it surfaces loudly.
+		await Assert.ThrowsAsync<WorktreeOrphanException>(
+			() => manager.RemoveAsync(record.Path, deleteBranch: false, force: false));
+		Assert.True(Directory.Exists(record.Path));
+		Assert.NotNull(manager.Registry.FindByBranch("half"));
 	}
 
 	private static void RunGit(string workingDirectory, params string[] args) {

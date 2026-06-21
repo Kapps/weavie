@@ -26,6 +26,18 @@ public sealed class HookSettingsTests {
 	}
 
 	[Fact]
+	public void BuildJson_RegistersSessionStartScopedToClear() {
+		// SessionStart matches on its source, so the "clear" matcher relays only /clear (not startup/resume/
+		// compact) — the event that lets the resume store drop its now-stale id.
+		using var doc = JsonDocument.Parse(HookSettings.BuildJson(HostPath));
+		var group = doc.RootElement.GetProperty("hooks").GetProperty("SessionStart")[0];
+
+		Assert.Equal("clear", group.GetProperty("matcher").GetString());
+		string command = group.GetProperty("hooks")[0].GetProperty("command").GetString()!;
+		Assert.Contains("--hook-relay", command, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void BuildJson_QuotesHostPath() {
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(HostPath));
 		string command = doc.RootElement.GetProperty("hooks").GetProperty("PreToolUse")[0]

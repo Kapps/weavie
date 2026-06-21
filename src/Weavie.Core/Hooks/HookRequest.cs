@@ -21,6 +21,12 @@ public sealed record HookRequest {
 	/// <summary>Claude's session id, when present.</summary>
 	public string? SessionId { get; init; }
 
+	/// <summary>
+	/// For a <see cref="HookEventKind.SessionStart"/> event, why the conversation (re)started — <c>startup</c> /
+	/// <c>resume</c> / <c>clear</c> / <c>compact</c>. Weavie acts on <c>clear</c>. Absent on other events.
+	/// </summary>
+	public string? Source { get; init; }
+
 	/// <summary>The working directory the tool runs in, when present.</summary>
 	public string? Cwd { get; init; }
 
@@ -52,10 +58,12 @@ public sealed record HookRequest {
 
 			var evt = MapEvent(GetString(root, "hook_event_name"));
 			string? toolName = GetString(root, "tool_name");
-			// Turn-boundary + status events (UserPromptSubmit/Stop/Notification) legitimately carry no tool name;
-			// everything else — tool events and unrecognized junk — needs one, else there's nothing to act on.
-			bool isTurnEvent = evt is HookEventKind.UserPromptSubmit or HookEventKind.Stop or HookEventKind.Notification;
-			if (!isTurnEvent && string.IsNullOrEmpty(toolName)) {
+			// Non-tool events (turn boundaries UserPromptSubmit/Stop/Notification, and SessionStart) legitimately
+			// carry no tool name; everything else — tool events and unrecognized junk — needs one, else there's
+			// nothing to act on.
+			bool isNonToolEvent = evt is HookEventKind.UserPromptSubmit or HookEventKind.Stop
+				or HookEventKind.Notification or HookEventKind.SessionStart;
+			if (!isNonToolEvent && string.IsNullOrEmpty(toolName)) {
 				return null;
 			}
 
@@ -66,6 +74,7 @@ public sealed record HookRequest {
 				ToolName = toolName ?? string.Empty,
 				ToolInputJson = toolInput,
 				SessionId = GetString(root, "session_id"),
+				Source = GetString(root, "source"),
 				Cwd = GetString(root, "cwd"),
 				PermissionMode = GetString(root, "permission_mode"),
 			};
@@ -80,6 +89,7 @@ public sealed record HookRequest {
 		"UserPromptSubmit" => HookEventKind.UserPromptSubmit,
 		"Stop" => HookEventKind.Stop,
 		"Notification" => HookEventKind.Notification,
+		"SessionStart" => HookEventKind.SessionStart,
 		_ => HookEventKind.Other,
 	};
 

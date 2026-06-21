@@ -44,6 +44,14 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		var result = await RunCheckedAsync(directory, ["for-each-ref", "--format=%(refname:short)", "refs/heads"], ct).ConfigureAwait(false);
+		return [.. result.StdOut.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
+	}
+
+	/// <inheritdoc/>
 	public async Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
 		var origin = await RunAsync(directory, ["symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"], ct).ConfigureAwait(false);
@@ -89,6 +97,21 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task AttachWorktreeAsync(string repositoryDirectory, string worktreePath, string branch, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
+		ArgumentException.ThrowIfNullOrEmpty(branch);
+		// git worktree add creates the leaf directory, but not missing parents — ensure the worktrees root exists.
+		string? parent = Path.GetDirectoryName(worktreePath);
+		if (!string.IsNullOrEmpty(parent)) {
+			Directory.CreateDirectory(parent);
+		}
+
+		// No -b: check out the existing branch itself, so HEAD attaches to it and commits land on that branch.
+		await RunCheckedAsync(repositoryDirectory, ["worktree", "add", worktreePath, branch], ct).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc/>
 	public async Task RemoveWorktreeAsync(string repositoryDirectory, string worktreePath, bool force, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
@@ -99,12 +122,6 @@ public sealed class GitService : IGitService {
 			? ["-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath]
 			: ["-c", "core.longpaths=true", "worktree", "remove", worktreePath];
 		await RunCheckedAsync(repositoryDirectory, args, ct).ConfigureAwait(false);
-	}
-
-	/// <inheritdoc/>
-	public async Task PruneWorktreesAsync(string repositoryDirectory, CancellationToken ct = default) {
-		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
-		await RunCheckedAsync(repositoryDirectory, ["worktree", "prune"], ct).ConfigureAwait(false);
 	}
 
 	/// <inheritdoc/>

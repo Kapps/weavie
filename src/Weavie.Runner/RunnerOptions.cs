@@ -27,13 +27,20 @@ public sealed record RunnerOptions {
 	/// <summary>The bearer token a client must present to drive the control plane.</summary>
 	public required string RunnerToken { get; init; }
 
-	/// <summary>Builds the options from process args + environment, generating a token when none is supplied.</summary>
-	public static RunnerOptions Resolve(string[] args) {
+	/// <summary>
+	/// Builds the options from process args + environment, generating a token when none is supplied. Returns
+	/// <c>(null, error)</c> — for the caller to print and exit non-zero — when the Weavie.Headless worker binary
+	/// can't be located (or an explicit <c>--headless</c> path doesn't exist), so a missing worker fails LOUDLY
+	/// at startup instead of silently handing the supervisor a dead path to crash-loop on.
+	/// </summary>
+	public static (RunnerOptions? Options, string? Error) Resolve(string[] args) {
 		string? workspace = Arg(args, "--workspace") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_WORKSPACE");
 		string root = string.IsNullOrEmpty(workspace) ? Environment.CurrentDirectory : Path.GetFullPath(workspace);
 
-		string? headless = Arg(args, "--headless") ?? Environment.GetEnvironmentVariable("WEAVIE_HEADLESS_PATH");
-		string headlessPath = string.IsNullOrEmpty(headless) ? ProbeHeadlessPath() : Path.GetFullPath(headless);
+		var (headlessPath, headlessError) = ResolveHeadlessPath(args);
+		if (headlessPath is null) {
+			return (null, headlessError);
+		}
 
 		string bind = Arg(args, "--bind") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_BIND") ?? "0.0.0.0";
 		string workerBind = Arg(args, "--worker-bind") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_WORKER_BIND") ?? bind;
@@ -42,14 +49,14 @@ public sealed record RunnerOptions {
 		string? token = Arg(args, "--token") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_TOKEN");
 		string runnerToken = string.IsNullOrEmpty(token) ? NewToken() : token;
 
-		return new RunnerOptions {
+		return (new RunnerOptions {
 			WorkspaceRoot = root,
 			HeadlessPath = headlessPath,
 			Bind = bind,
 			WorkerBind = workerBind,
 			Port = port,
 			RunnerToken = runnerToken,
-		};
+		}, null);
 	}
 
 	/// <summary>A URL-safe random token (128 bits of entropy, lowercase hex).</summary>
@@ -66,15 +73,57 @@ public sealed record RunnerOptions {
 	}
 
 	/// <summary>
-	/// Best-effort default for the worker binary: the sibling Weavie.Headless build output, derived from the
-	/// runner's own base directory by swapping the project name in the path (works for a standard dev build).
-	/// Override with <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> when that convention doesn't hold.
+	/// Resolves the worker binary, or <c>(null, error)</c> when it can't be found — never a path it hasn't
+	/// confirmed exists. An explicit <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> must point at a real file.
+	/// Otherwise it probes the known build locations and errors listing every path it checked, so a build/config
+	/// mismatch is obvious at startup instead of surfacing later as a crash-looping worker.
 	/// </summary>
-	private static string ProbeHeadlessPath() {
-		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/net10.0/
-		string candidate = baseDir
-			.Replace($"{Path.DirectorySeparatorChar}Weavie.Runner{Path.DirectorySeparatorChar}", $"{Path.DirectorySeparatorChar}Weavie.Headless{Path.DirectorySeparatorChar}", StringComparison.Ordinal);
-		string dll = Path.Combine(candidate, "Weavie.Headless.dll");
-		return File.Exists(dll) ? dll : Path.Combine(baseDir, "Weavie.Headless.dll");
+	private static (string? Path, string? Error) ResolveHeadlessPath(string[] args) {
+		string? explicitPath = Arg(args, "--headless") ?? Environment.GetEnvironmentVariable("WEAVIE_HEADLESS_PATH");
+		if (!string.IsNullOrEmpty(explicitPath)) {
+			string full = Path.GetFullPath(explicitPath);
+			return File.Exists(full)
+				? (full, null)
+				: (null, $"--headless '{explicitPath}' does not exist (resolved to '{full}').");
+		}
+
+		var candidates = ProbeCandidates();
+		foreach (string candidate in candidates) {
+			if (File.Exists(candidate)) {
+				return (candidate, null);
+			}
+		}
+
+		return (null,
+			"could not locate the Weavie.Headless worker binary. Checked:\n  " + string.Join("\n  ", candidates)
+			+ "\nBuild Weavie.Headless in the same configuration as the runner, or pass --headless <path-to-Weavie.Headless.dll>.");
+	}
+
+	/// <summary>
+	/// The build locations to probe for the worker dll, nearest-first: the sibling Weavie.Headless project
+	/// output (a dev build), then a copy beside the runner (a published layout). Only the <em>last</em>
+	/// <c>Weavie.Runner</c> path segment is rewritten, so a checkout that itself lives under a
+	/// <c>Weavie.Runner</c> directory can't be corrupted into the wrong sibling path.
+	/// </summary>
+	private static IReadOnlyList<string> ProbeCandidates() {
+		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/<tfm>/
+		string sibling = ReplaceLast(
+			baseDir,
+			$"{Path.DirectorySeparatorChar}Weavie.Runner{Path.DirectorySeparatorChar}",
+			$"{Path.DirectorySeparatorChar}Weavie.Headless{Path.DirectorySeparatorChar}");
+
+		string siblingDll = Path.Combine(sibling, "Weavie.Headless.dll");
+		string colocatedDll = Path.Combine(baseDir, "Weavie.Headless.dll");
+		return string.Equals(siblingDll, colocatedDll, StringComparison.Ordinal)
+			? [colocatedDll]
+			: [siblingDll, colocatedDll];
+	}
+
+	/// <summary>Replaces the LAST occurrence of <paramref name="find"/> only (or returns the string unchanged).</summary>
+	private static string ReplaceLast(string value, string find, string replacement) {
+		int index = value.LastIndexOf(find, StringComparison.Ordinal);
+		return index < 0
+			? value
+			: string.Concat(value.AsSpan(0, index), replacement, value.AsSpan(index + find.Length));
 	}
 }

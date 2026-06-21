@@ -177,6 +177,96 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
+	public void Clear_DropsTrackedId_NextLaunchColdStarts() {
+		// /clear then quit: the id is abandoned, so a relaunch right after cold-starts rather than resuming the
+		// now-stale transcript the clear was meant to escape.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		string cleared = store.Resolve(Cwd).SessionId;
+		store.MarkStarted(Cwd);
+		Assert.True(store.Resolve(Cwd).Resume); // confirmed → would resume...
+
+		store.Clear(Cwd);
+		var afterClear = store.Resolve(Cwd);
+
+		Assert.False(afterClear.Resume);                 // ...but a clear forces a cold start
+		Assert.NotEqual(cleared, afterClear.SessionId);  // on a brand-new id, not the cleared one
+	}
+
+	[Fact]
+	public void Clear_ThenReloaded_ColdStarts() {
+		var fs = new InMemoryFileSystem();
+		var initial = new ClaudeSessionStore(fs, StorePath);
+		string cleared = initial.Resolve(Cwd).SessionId;
+		initial.MarkStarted(Cwd);
+		initial.Clear(Cwd);
+
+		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
+
+		Assert.False(reloaded.Resume);                 // the clear was persisted: a fresh process cold-starts
+		Assert.NotEqual(cleared, reloaded.SessionId);
+	}
+
+	[Fact]
+	public void Adopt_OnFreshDirectory_ResumesThatIdNextLaunch() {
+		// The "real message after a clear" path: claude rotated to its own id, which Weavie observes and adopts
+		// so the next launch resumes that conversation.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+
+		store.Adopt(Cwd, "claude-rotated-id");
+		var launch = store.Resolve(Cwd);
+
+		Assert.True(launch.Resume);
+		Assert.Equal("claude-rotated-id", launch.SessionId);
+	}
+
+	[Fact]
+	public void ClearThenAdopt_ResumesTheAdoptedConversation() {
+		// /clear then send a message: the stale id is dropped, then the id claude settled on is adopted, so the
+		// next launch resumes the post-clear conversation — not the long one the clear escaped.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		string stale = store.Resolve(Cwd).SessionId;
+		store.MarkStarted(Cwd);
+
+		store.Clear(Cwd);
+		store.Adopt(Cwd, "post-clear-id");
+		var launch = store.Resolve(Cwd);
+
+		Assert.True(launch.Resume);
+		Assert.Equal("post-clear-id", launch.SessionId);
+		Assert.NotEqual(stale, launch.SessionId);
+	}
+
+	[Fact]
+	public void Adopt_RepointsAnExistingId() {
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		store.Resolve(Cwd);
+		store.MarkStarted(Cwd);
+
+		store.Adopt(Cwd, "different-id");
+
+		Assert.Equal("different-id", store.Resolve(Cwd).SessionId);
+	}
+
+	[Fact]
+	public void Adopt_MatchingStartedId_DoesNotRewriteFile() {
+		// The normal flow: claude stays on the id Weavie assigned, so every UserPromptSubmit re-adopts the same
+		// started id — that must be a no-op, never thrashing the persisted file.
+		var fs = new InMemoryFileSystem();
+		var store = new ClaudeSessionStore(fs, StorePath);
+		string id = store.Resolve(Cwd).SessionId;
+		store.MarkStarted(Cwd);
+		string afterStart = fs.ReadAllText(StorePath);
+
+		store.Adopt(Cwd, id);
+
+		Assert.Equal(afterStart, fs.ReadAllText(StorePath)); // identical bytes — no rewrite
+	}
+
+	[Fact]
 	public void MalformedFile_BacksUpAndResets() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(StorePath, "{ broken ");

@@ -4,12 +4,15 @@
 # biome and esbuild fetch their platform binaries that way, so the `biome check` lint and the
 # Vite/esbuild build need them approved.
 #
-# overrides: vite pulls esbuild 0.24.x while @codingame/esbuild-import-meta-url-plugin pulls 0.28.x;
+# overrides: vite and @codingame/esbuild-import-meta-url-plugin pull different esbuild versions;
 # npm's flat tree collapsed them to one, but pnpm keeps both, so the plugin's esbuild `Plugin` type
-# stops matching vite's in vite.config.ts. Pin the single version vite uses (the plugin's API is stable
-# across these releases).
+# stops matching vite's in vite.config.ts. Pin a single version inside vite's range (the plugin's API
+# is stable across these releases). 0.25.x also closes GHSA-67mh-4wv8-2f99 (dev server SSRF).
+# dompurify is pulled transitively by the monaco-vscode quickaccess override; pin a patched release to
+# close the XSS / prototype-pollution advisories affecting <=3.3.x.
 allowBuilds:
   '@biomejs/biome': true
   esbuild: true
 overrides:
-  esbuild: 0.24.2
+  esbuild: 0.25.12
+  dompurify: 3.4.11

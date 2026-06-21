@@ -145,7 +145,9 @@ public sealed class KeybindingStore : IDisposable {
 					Key = binding.Key,
 					Command = definition.Id,
 					ArgsJson = binding.ArgsJson,
-					When = definition.When,
+					// A per-binding guard overrides the command-level one (and never gates palette visibility),
+					// so one chord can be focus-scoped while the command stays in the palette.
+					When = binding.When ?? definition.When,
 					Global = binding.Global,
 				});
 			}

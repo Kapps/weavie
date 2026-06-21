@@ -208,25 +208,32 @@ diff while you're in A, badge B `NeedsInput` — **never yank focus**.
 ## Commands & keybindings
 
 Declared once in Core (`CommandDefinition`), surfaced to palette + keybindings + Claude. New chords
-must dodge the taken ones: `$mod+1–9` (pane focus), `$mod+Tab` (editor tabs), `$mod+N`/`$mod+W` (new
-file / close tab).
+must dodge the taken ones: `ctrl+1–9` (pane focus), `$mod+N`/`$mod+W` (new file / close tab).
+Navigation/index chords use **literal `ctrl`** (not `$mod`) so they stay `Ctrl` on macOS too — `Cmd+Tab`
+is the OS app switcher and `Cmd+1–9` collide with OS shortcuts; app verbs (save/new/close) keep `$mod`
+(`Cmd` is correct there). `ctrl+Tab` / `ctrl+Shift+Tab` are shared by focus: editor tabs when the editor
+is focused, session next/prev otherwise. The session bindings are gated `!editorFocused` (the exact
+complement of the editor's `editorFocused` tab binding) rather than `terminalFocused` — so they also fire
+from the rail and on load, when no pane has taken focus yet (a terminal pane doesn't auto-focus, so
+`terminalFocused` may never have been set). The guard is a per-binding `when` on the `CommandKeybinding`,
+so the command still lists in the palette.
 
 | Id | Title | Runs in | Default chord | Args (`ArgsSchemaJson`) |
 |---|---|---|---|---|
 | `weavie.session.new` | New Session | Core | `$mod+Shift+n` | `{ branch?, base?: "current"\|"main", prompt? }` |
 | `weavie.session.fork` | Fork Session | Core | — (palette + MCP) | `{ branch?, handoff? }` (off current `HEAD`) |
-| `weavie.session.next` | Next Session | Web | `$mod+Shift+]` | — |
-| `weavie.session.prev` | Previous Session | Web | `$mod+Shift+[` | — |
+| `weavie.session.next` | Next Session | Web | `ctrl+Tab` (when `!editorFocused`) | — |
+| `weavie.session.prev` | Previous Session | Web | `ctrl+Shift+Tab` (when `!editorFocused`) | — |
 | `weavie.session.switch` | Switch Session… | Web | — (palette) | — |
-| `weavie.session.selectByIndex` | Switch to Session by Number | Web | `$mod+Shift+1–9` | `{ index }` (1-based, rail order) |
+| `weavie.session.selectByIndex` | Switch to Session by Number | Web | `ctrl+Shift+1–9` | `{ index }` (1-based, rail order) |
 | `weavie.session.unload` | Unload Session | Core | — (rail menu + palette) | `{ id? }` (default: active) |
 | `weavie.session.delete` | Delete Session | Core | — (rail menu + palette, guarded) | `{ id?, force? }` (default: active; `force` overrides the dirty guard) |
 
 Notes: the GUI `+` invokes `weavie.session.new` with **only** `branch` (no `prompt`) — fresh Claude.
 `base` defaults to `current` (the session you're branching from); `main` is the alternate. Args
 follow the embedded-Claude scalar-coercion convention (lenient at the MCP boundary —
-[embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`$mod+Shift+1–9` →
-`weavie.session.selectByIndex`) mirrors the pane-focus `$mod+1–9`: a chord with no session at that
+[embedded-claude-stringifies-mcp-scalars]). Direct-index switch (`ctrl+Shift+1–9` →
+`weavie.session.selectByIndex`) mirrors the pane-focus `ctrl+1–9`: a chord with no session at that
 rail number falls through (declines), and the rail chip's tooltip advertises its number (read from the
 catalog, never hardcoded). Every switch path — new, rail click, cycle, and direct-index — ends with the
 host pushing a `focus-pane` (`terminal:claude`) so the user lands in the new session's Claude rather than

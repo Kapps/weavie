@@ -451,8 +451,8 @@ public sealed partial class HostCore {
 				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
 				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under force:false.)
 				// Skip when the worktree is already gone or half-removed (no .git) — there's nothing left to lose,
-				// and RemoveAsync just prunes the leftover bookkeeping. Without this, a prior delete that couldn't
-				// unlink the directory leaves a folder git can no longer read, and `git status` would block retries.
+				// and git can no longer answer git status there. A half-removed worktree (directory still on
+				// disk) is surfaced loudly by RemoveAsync rather than silently "succeeding".
 				if (!force && IsLiveWorktree(worktreePath)
 					&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 					result.SetResult(CommandResult.Failure(
@@ -472,6 +472,14 @@ public sealed partial class HostCore {
 					await UnloadSlotAsync(target).ConfigureAwait(false);
 				}
 
+				// Settle before removal: the unload above awaited this session's PTY children and LSP server tree
+				// to exit, but Windows can lag on releasing their handles, and external scanners (Defender, the
+				// search indexer) may briefly hold a lock. A short, deliberate pause lets git's single one-shot
+				// remove succeed instead of partial-failing and orphaning the directory (git deletes its own
+				// record mid-failure, which no retry can recover). Bounded and intentional, not a retry loop
+				// papering over a hang. None: the unload disposed this session's IDE-MCP server, which may
+				// already have cancelled ct.
+				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
 				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
 				_sessions?.Remove(target);
 				PushSessionList();
@@ -479,6 +487,8 @@ public sealed partial class HostCore {
 			} catch (WorktreeDirtyException) {
 				result.SetResult(CommandResult.Failure(
 					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
+			} catch (WorktreeOrphanException ex) {
+				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
 			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
 			} catch (Exception ex) {

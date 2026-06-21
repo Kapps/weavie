@@ -125,12 +125,6 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task PruneWorktreesAsync(string repositoryDirectory, CancellationToken ct = default) {
-		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
-		await RunCheckedAsync(repositoryDirectory, ["worktree", "prune"], ct).ConfigureAwait(false);
-	}
-
-	/// <inheritdoc/>
 	public async Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
 		var result = await RunCheckedAsync(worktreeDirectory, ["status", "--porcelain"], ct).ConfigureAwait(false);

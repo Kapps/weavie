@@ -186,10 +186,17 @@ public sealed class WorktreeManager {
 			// removal the user asked for. Only after passing the dirty guard, so a refused removal runs nothing.
 			await _provisioner.RunTeardownAsync(path, ct).ConfigureAwait(false);
 			await RemoveWorktreeWithRetryAsync(path, force, ct).ConfigureAwait(false);
-		} else {
-			// The working directory is already gone from git's point of view; clean up its admin entry.
-			await _git.PruneWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
+		} else if (Directory.Exists(normalized)) {
+			// git no longer tracks this path, yet the directory is still on disk: an earlier removal stripped
+			// git's own record but couldn't unlink the files (a lingering lock left a half-removed worktree). No
+			// git command can finish this — `git worktree remove` would only answer "is not a working tree" — and
+			// we refuse to drop the registry row and report success while the directory leaks. Surface it loudly so
+			// the failure stays observable instead of becoming a silent leak. (Note: no repo-wide `git worktree
+			// prune` here — that global op could drop an unrelated worktree's record.)
+			throw new WorktreeOrphanException(normalized);
 		}
+		// else: git doesn't track it and the directory is already gone — nothing to remove; fall through to drop
+		// the stale registry row below.
 
 		if (deleteBranch && record is not null) {
 			await _git.DeleteBranchAsync(_repositoryRoot, record.Branch, force, ct).ConfigureAwait(false);
@@ -233,12 +240,13 @@ public sealed class WorktreeManager {
 	}
 
 	/// <summary>
-	/// Prunes stale git worktree admin entries, drops registry rows whose worktree no longer exists, and
-	/// returns a report plus the post-reconcile statuses. Never deletes a worktree that still exists — it
-	/// only reconciles bookkeeping, so nothing with real work in it is touched.
+	/// Drops registry rows whose worktree git no longer reports — reconciling Weavie's registry against live
+	/// <c>git worktree list</c> output — and returns a report plus the post-reconcile statuses. Never deletes a
+	/// worktree that still exists, and never mutates git's own bookkeeping: there is no repo-wide
+	/// <c>git worktree prune</c> (which could drop an unrelated worktree's record), so nothing with real work in
+	/// it — anyone's — is touched.
 	/// </summary>
 	public async Task<WorktreeReconcileReport> ReconcileAsync(CancellationToken ct = default) {
-		await _git.PruneWorktreesAsync(_repositoryRoot, ct).ConfigureAwait(false);
 		var statuses = await ListAsync(ct).ConfigureAwait(false);
 
 		int pruned = 0;

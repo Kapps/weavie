@@ -34,25 +34,7 @@ internal sealed class WindowsPtyLauncher : IPtyLauncher {
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveClaude(PtyLaunchRequest request) {
 		string claude = request.Settings.GetString("claude.path") ?? "claude";
-		var claudeArgs = new List<string>();
-		if (!string.IsNullOrEmpty(request.McpConfigPath)) {
-			claudeArgs.Add("--mcp-config");
-			claudeArgs.Add(request.McpConfigPath);
-		}
-
-		if (!string.IsNullOrEmpty(request.SettingsFilePath)) {
-			claudeArgs.Add("--settings");
-			claudeArgs.Add(request.SettingsFilePath);
-		}
-
-		if (!string.IsNullOrEmpty(request.SystemPromptFilePath)) {
-			claudeArgs.Add("--append-system-prompt-file");
-			claudeArgs.Add(request.SystemPromptFilePath);
-		}
-
-		// Session resume (--resume/--session-id <id>), already resolved by the controller; empty when off.
-		claudeArgs.AddRange(request.ClaudeSessionArguments);
-
+		var claudeArgs = request.BuildClaudeArguments();
 		string ext = Path.GetExtension(claude).ToLowerInvariant();
 		if (ext is ".cmd" or ".bat") {
 			string comspec = Environment.GetEnvironmentVariable("ComSpec") ?? "cmd.exe";

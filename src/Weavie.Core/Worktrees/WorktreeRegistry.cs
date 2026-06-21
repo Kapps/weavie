@@ -126,16 +126,8 @@ public sealed class WorktreeRegistry {
 				})];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[worktrees] {FilePath} is malformed ({ex.Message}); backing up to worktrees.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "worktrees", Log);
 			return [];
-		}
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[worktrees] could not back up malformed registry: {ex.Message}");
 		}
 	}
 

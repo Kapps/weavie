@@ -164,19 +164,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 	/// Names are sorted case-insensitively as Win32 requires.
 	/// </summary>
 	private static nint BuildEnvironmentBlock(TerminalStartInfo startInfo) {
-		var merged = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-		foreach (System.Collections.DictionaryEntry entry in Environment.GetEnvironmentVariables()) {
-			merged[(string)entry.Key] = entry.Value?.ToString() ?? string.Empty;
-		}
-
-		foreach (string name in startInfo.RemoveEnvironment) {
-			merged.Remove(name);
-		}
-
-		foreach (var (key, value) in startInfo.Environment) {
-			merged[key] = value;
-		}
-
+		var merged = startInfo.BuildEnvironment(StringComparer.OrdinalIgnoreCase);
 		var sb = new StringBuilder();
 		foreach (string? key in merged.Keys.OrderBy(k => k, StringComparer.OrdinalIgnoreCase)) {
 			sb.Append(key).Append('=').Append(merged[key]).Append('\0');

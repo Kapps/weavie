@@ -7,6 +7,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diffs;
 using Weavie.Core.Editor;
+using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Theming;
 
@@ -271,6 +272,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
+	// Returns the registry or reports it as unavailable (caught in HandleToolCallAsync). Lets each tool handler
+	// open with `var x = Require(_x, "X");` instead of repeating a null-guard + early SendToolError.
+	private static T Require<T>(T? registry, string what) where T : class =>
+		registry ?? throw new ToolUnavailableException($"{what} is not available.");
+
 	private async Task HandleInitializeAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
 		// Echo the client's protocolVersion (echoing is robust to version disagreement).
 		string protocolVersion = "2025-03-26";
@@ -286,6 +292,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleToolCallAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
+		try {
+			await DispatchToolAsync(ws, root, idRaw, ct).ConfigureAwait(false);
+		} catch (ToolUnavailableException ex) {
+			// A handler asked for a registry the IDE-mode server wasn't wired with; report it as a tool error.
+			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
+	}
+
+	private async Task DispatchToolAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
 		if (!root.TryGetProperty("params", out var p) || !p.TryGetProperty("name", out var nameEl)) {
 			await SendErrorAsync(ws, idRaw, -32602, "Invalid params", ct).ConfigureAwait(false);
 			return;
@@ -383,53 +398,40 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleListSettingsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		await SendToolTextAsync(ws, idRaw, _settings.BuildCatalogJson(), ct).ConfigureAwait(false);
+		var settings = Require(_settings, "Settings");
+		await SendToolTextAsync(ws, idRaw, settings.BuildCatalogJson(), ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleGetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string? key = args.ValueKind == JsonValueKind.Object && args.TryGetProperty("key", out var k) ? k.GetString() : null;
+		var settings = Require(_settings, "Settings");
+		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
 			await SendToolErrorAsync(ws, idRaw, "getSetting requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		try {
-			await SendToolTextAsync(ws, idRaw, _settings.BuildGetJson(key), ct).ConfigureAwait(false);
+			await SendToolTextAsync(ws, idRaw, settings.BuildGetJson(key), ct).ConfigureAwait(false);
 		} catch (UnknownSettingException ex) {
 			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
 	private async Task HandleSetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_settings is null) {
-			await SendToolErrorAsync(ws, idRaw, "Settings are not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		bool hasArgs = args.ValueKind == JsonValueKind.Object;
-		string? key = hasArgs && args.TryGetProperty("key", out var k) ? k.GetString() : null;
+		var settings = Require(_settings, "Settings");
+		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
 			await SendToolErrorAsync(ws, idRaw, "setSetting requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
-		if (!hasArgs || !args.TryGetProperty("value", out var valueElement)) {
+		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("value", out var valueElement)) {
 			await SendToolErrorAsync(ws, idRaw, "setSetting requires a 'value'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		try {
-			var result = _settings.Set(key, valueElement);
+			var result = settings.Set(key, valueElement);
 			await SendToolTextAsync(ws, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
 			Emit($"setSetting {key} = {valueElement.GetRawText()}");
 		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
@@ -451,20 +453,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleGetLayoutAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_layout is null) {
-			await SendToolErrorAsync(ws, idRaw, "Layout is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		await SendToolTextAsync(ws, idRaw, LayoutSerialization.SerializeCompact(_layout.Current), ct).ConfigureAwait(false);
+		var layout = Require(_layout, "Layout");
+		await SendToolTextAsync(ws, idRaw, LayoutSerialization.SerializeCompact(layout.Current), ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleSetLayoutAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_layout is null) {
-			await SendToolErrorAsync(ws, idRaw, "Layout is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
+		var layout = Require(_layout, "Layout");
 		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("root", out var rootElement)) {
 			await SendToolErrorAsync(ws, idRaw, "setLayout requires a 'root' layout tree.", ct).ConfigureAwait(false);
 			return;
@@ -483,9 +477,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			return;
 		}
 
-		string? focused = args.TryGetProperty("focused", out var focusedElement) ? focusedElement.GetString() : null;
+		string? focused = args.GetStringOrNull("focused");
 		try {
-			var result = _layout.SetPanes(root, focused, LayoutSource.Mcp);
+			var result = layout.SetPanes(root, focused, LayoutSource.Mcp);
 			await SendToolTextAsync(ws, idRaw, result.Summary, ct).ConfigureAwait(false);
 			Emit($"setLayout applied ({result.Summary})");
 		} catch (LayoutValidationException ex) {
@@ -494,29 +488,19 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	private async Task HandleListCommandsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_commands is null) {
-			await SendToolErrorAsync(ws, idRaw, "Commands are not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
+		var commands = Require(_commands, "Commands");
 		// Prefer the keybinding store's catalog (it includes each command's current keys); fall back to the
 		// registry alone (no keys) when no keybinding store was wired.
 		string commandsArray = _keybindings is not null
 			? _keybindings.BuildCommandsJson()
-			: CommandCatalog.BuildCommandsArrayJson(_commands.Registry.Definitions, []);
+			: CommandCatalog.BuildCommandsArrayJson(commands.Registry.Definitions, []);
 		await SendToolTextAsync(ws, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleRunCommandAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_commands is null) {
-			await SendToolErrorAsync(ws, idRaw, "Commands are not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
+		var commands = Require(_commands, "Commands");
 		bool hasArgs = args.ValueKind == JsonValueKind.Object;
-		string? id = hasArgs && args.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.String
-			? idEl.GetString()
-			: null;
+		string? id = args.GetStringOrNull("id");
 		if (string.IsNullOrEmpty(id)) {
 			await SendToolErrorAsync(ws, idRaw, "runCommand requires an 'id'.", ct).ConfigureAwait(false);
 			return;
@@ -529,7 +513,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			: null;
 
 		try {
-			var result = await _commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
+			var result = await commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
 			if (result.Ok) {
 				await SendToolTextAsync(ws, idRaw, result.Message ?? $"Ran {id}.", ct).ConfigureAwait(false);
 				Emit($"runCommand {id} ok");
@@ -646,7 +630,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	}
 
 	// selection_changed notification params: { text, filePath, fileUrl, selection:{start,end,isEmpty} }.
-	private static string BuildSelectionChangedParams(ActiveEditor active) => WriteJson(writer => {
+	private static string BuildSelectionChangedParams(ActiveEditor active) => JsonWrite.Object(writer => {
 		writer.WriteString("text", active.SelectedText);
 		writer.WriteString("filePath", active.FilePath);
 		writer.WriteString("fileUrl", PathToFileUri(active.FilePath));
@@ -654,7 +638,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	});
 
 	// getCurrentSelection/getLatestSelection text item: stringified { success, text, filePath, selection }.
-	private static string BuildSelectionResult(ActiveEditor? active) => WriteJson(writer => {
+	private static string BuildSelectionResult(ActiveEditor? active) => JsonWrite.Object(writer => {
 		if (active is null) {
 			writer.WriteBoolean("success", false);
 			writer.WriteString("message", "No active editor");
@@ -671,7 +655,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	// — the open-tab set the page reported, or an empty list until it reports one. languageId is filled for the
 	// active tab from the active-editor report; isDirty is false (Weavie auto-saves on a debounce).
 	private static string BuildOpenEditorsResult(IReadOnlyList<OpenEditorTab>? tabs, ActiveEditor? active) =>
-		WriteJson(writer => {
+		JsonWrite.Object(writer => {
 			writer.WriteStartArray("tabs");
 			foreach (var tab in tabs ?? []) {
 				writer.WriteStartObject();
@@ -746,18 +730,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 		writer.WriteNumber("line", position.Line);
 		writer.WriteNumber("character", position.Character);
 		writer.WriteEndObject();
-	}
-
-	// Builds a JSON object string: opens/closes the root object around `body`.
-	private static string WriteJson(Action<Utf8JsonWriter> body) {
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
-			body(writer);
-			writer.WriteEndObject();
-		}
-
-		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
 	private async Task SendResultAsync(WebSocket ws, string? idRaw, string resultJson, CancellationToken ct) {

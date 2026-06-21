@@ -161,7 +161,7 @@ public sealed class LayoutStore {
 
 		if (!LayoutSerialization.TryDeserialize(text, out var parsed, out string? error) || parsed is null) {
 			Log?.Invoke($"[layout] {FilePath} is malformed ({error}); backing up to layout.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "layout", Log);
 			var fresh = LayoutPanes.Default(_registry);
 			PersistLocked(fresh);
 			return fresh;
@@ -174,14 +174,6 @@ public sealed class LayoutStore {
 		}
 
 		return outcome.Document;
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[layout] could not back up malformed layout: {ex.Message}");
-		}
 	}
 
 	private void PersistLocked(LayoutDocument document) {

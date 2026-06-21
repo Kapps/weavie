@@ -154,16 +154,8 @@ public sealed class ThemeOverridesStore {
 			return result;
 		} catch (JsonException ex) {
 			Log?.Invoke($"[theme-overrides] {FilePath} is malformed ({ex.Message}); backing up to theme-overrides.json.bad and resetting");
-			BackupBadFileLocked(text);
+			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "theme-overrides", Log);
 			return [];
-		}
-	}
-
-	private void BackupBadFileLocked(string text) {
-		try {
-			_fileSystem.WriteAllText(FilePath + ".bad", text);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[theme-overrides] could not back up malformed overrides: {ex.Message}");
 		}
 	}
 

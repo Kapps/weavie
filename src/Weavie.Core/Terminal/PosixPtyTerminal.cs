@@ -202,22 +202,8 @@ public sealed class PosixPtyTerminal : ITerminal {
 	private static unsafe void Zero(IntPtr buffer, int length) =>
 		new Span<byte>((void*)buffer, length).Clear();
 
-	private static List<string> BuildEnvironment(TerminalStartInfo startInfo) {
-		var merged = new Dictionary<string, string>(StringComparer.Ordinal);
-		foreach (System.Collections.DictionaryEntry entry in System.Environment.GetEnvironmentVariables()) {
-			merged[(string)entry.Key] = entry.Value?.ToString() ?? string.Empty;
-		}
-
-		foreach (string name in startInfo.RemoveEnvironment) {
-			merged.Remove(name);
-		}
-
-		foreach (var (key, value) in startInfo.Environment) {
-			merged[key] = value;
-		}
-
-		return [.. merged.Select(kv => $"{kv.Key}={kv.Value}")];
-	}
+	private static List<string> BuildEnvironment(TerminalStartInfo startInfo) =>
+		[.. startInfo.BuildEnvironment(StringComparer.Ordinal).Select(kv => $"{kv.Key}={kv.Value}")];
 
 	private void ReadLoop() {
 		byte[] buffer = new byte[8192];

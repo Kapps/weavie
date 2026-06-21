@@ -208,13 +208,13 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			}
 
 			if (ThemeSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
+				PushThemeToWeb();
 			}
 		};
 		_settings.SettingChanged += _onSettingChanged;
 		_onThemeOverridesChanged = themeId => {
 			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
-				_bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
+				PushThemeToWeb();
 			}
 		};
 		_themeOverrides.Changed += _onThemeOverridesChanged;
@@ -230,6 +230,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
 	}
+
+	// Re-pushes the resolved theme (settings + overrides) so the web applies it live.
+	private void PushThemeToWeb() => _bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
 
 	private static void Log(string line) {
 		Console.WriteLine(line);

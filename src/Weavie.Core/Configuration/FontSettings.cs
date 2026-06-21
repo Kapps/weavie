@@ -1,5 +1,5 @@
-using System.Text;
 using System.Text.Json;
+using Weavie.Core.Json;
 
 namespace Weavie.Core.Configuration;
 
@@ -123,20 +123,14 @@ public static class FontSettings {
 		ArgumentNullException.ThrowIfNull(store);
 		var editor = ResolveEditor(store);
 		var terminal = ResolveTerminal(store);
-
-		using var stream = new MemoryStream();
-		using (var writer = new Utf8JsonWriter(stream)) {
-			writer.WriteStartObject();
+		return JsonWrite.Object(writer => {
 			if (messageType is not null) {
 				writer.WriteString("type", messageType);
 			}
 
 			WriteFont(writer, "editor", editor);
 			WriteFont(writer, "terminal", terminal);
-			writer.WriteEndObject();
-		}
-
-		return Encoding.UTF8.GetString(stream.ToArray());
+		});
 	}
 
 	private static void RegisterOverride(

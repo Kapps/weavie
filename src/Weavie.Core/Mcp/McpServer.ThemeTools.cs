@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Net.WebSockets;
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.Json;
 using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
@@ -13,7 +14,7 @@ namespace Weavie.Core.Mcp;
 public sealed partial class McpServer {
 	private async Task HandleListThemesAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
 		string active = ActiveThemeId();
-		string json = WriteJson(writer => {
+		string json = JsonWrite.Object(writer => {
 			writer.WriteStartArray("themes");
 			foreach (var (id, label, type) in BuiltInThemes.All) {
 				writer.WriteStartObject();
@@ -41,14 +42,10 @@ public sealed partial class McpServer {
 	}
 
 	private async Task HandleDescribeThemeAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
+		var themeOverrides = Require(_themeOverrides, "Theming");
 		string active = ActiveThemeId();
-		var overrides = _themeOverrides.Get(active);
-		string json = WriteJson(writer => {
+		var overrides = themeOverrides.Get(active);
+		string json = JsonWrite.Object(writer => {
 			writer.WriteString("active", active);
 			writer.WriteString("label", ThemeLabel(active));
 			// Report the mode + the theme chosen for each polarity so the model can reason about light/dark.
@@ -66,18 +63,14 @@ public sealed partial class McpServer {
 	}
 
 	private async Task HandleSetThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string? key = GetStringArg(args, "key");
+		var themeOverrides = Require(_themeOverrides, "Theming");
+		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
 			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'key' (a VS Code color id, e.g. editor.background).", ct).ConfigureAwait(false);
 			return;
 		}
 
-		string? table = GetStringArg(args, "table");
+		string? table = args.GetStringOrNull("table");
 		if (table is not (null or "colors" or "tokenColors" or "semanticTokenColors")) {
 			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'table' must be one of: colors, tokenColors, semanticTokenColors.", ct).ConfigureAwait(false);
 			return;
@@ -86,9 +79,9 @@ public sealed partial class McpServer {
 		// An op sets a foreground color ('value'), a font style ('fontStyle'), or both — at least one. An empty
 		// 'value' reads as absent; an empty 'fontStyle' is meaningful (clears inherited styles), so its presence
 		// test is null-vs-not, not IsNullOrEmpty.
-		string? value = GetStringArg(args, "value");
+		string? value = args.GetStringOrNull("value");
 		bool hasValue = !string.IsNullOrEmpty(value);
-		string? fontStyle = GetStringArg(args, "fontStyle");
+		string? fontStyle = args.GetStringOrNull("fontStyle");
 		bool hasFontStyle = fontStyle is not null;
 		if (!hasValue && !hasFontStyle) {
 			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'value' (a hex color, e.g. #000000) and/or a 'fontStyle' (e.g. italic).", ct).ConfigureAwait(false);
@@ -106,7 +99,7 @@ public sealed partial class McpServer {
 		}
 
 		string active = ActiveThemeId();
-		_themeOverrides.Append(active, new ThemeOverrideSet {
+		themeOverrides.Append(active, new ThemeOverrideSet {
 			Table = table,
 			Key = key,
 			Value = hasValue ? value : null,
@@ -142,12 +135,8 @@ public sealed partial class McpServer {
 	}
 
 	private async Task HandleApplyThemeTransformAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string? op = GetStringArg(args, "op");
+		var themeOverrides = Require(_themeOverrides, "Theming");
+		string? op = args.GetStringOrNull("op");
 		if (string.IsNullOrEmpty(op) || !IsValidTransformOp(op)) {
 			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform requires 'op' one of: darken, lighten, saturate, desaturate, contrast.", ct).ConfigureAwait(false);
 			return;
@@ -158,39 +147,35 @@ public sealed partial class McpServer {
 			return;
 		}
 
-		string? target = GetStringArg(args, "target");
+		string? target = args.GetStringOrNull("target");
 		if (target is not (null or "all" or "colors" or "tokenColors" or "semanticTokenColors" or "syntax")) {
 			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform 'target' must be one of: all, colors, tokenColors, semanticTokenColors, syntax.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		string active = ActiveThemeId();
-		_themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
+		themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
 		string scope = target is null or "all" ? string.Empty : $" ({target})";
 		await SendToolTextAsync(ws, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)}{scope} to theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleRemoveThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
-		if (_themeOverrides is null) {
-			await SendToolErrorAsync(ws, idRaw, "Theming is not available.", ct).ConfigureAwait(false);
-			return;
-		}
-
-		string? key = GetStringArg(args, "key");
+		var themeOverrides = Require(_themeOverrides, "Theming");
+		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
 			await SendToolErrorAsync(ws, idRaw, "removeThemeOverride requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		string active = ActiveThemeId();
-		var ops = _themeOverrides.Get(active);
+		var ops = themeOverrides.Get(active);
 		var kept = ops.Where(op => op is not ThemeOverrideSet set || set.Key != key).ToList();
 		if (kept.Count == ops.Count) {
 			await SendToolTextAsync(ws, idRaw, $"No 'set' override for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 			return;
 		}
 
-		_themeOverrides.SetOps(active, kept);
+		themeOverrides.SetOps(active, kept);
 		await SendToolTextAsync(ws, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
@@ -209,11 +194,6 @@ public sealed partial class McpServer {
 
 	private static bool IsValidTransformOp(string op) =>
 		op is "darken" or "lighten" or "saturate" or "desaturate" or "contrast";
-
-	private static string? GetStringArg(JsonElement args, string key) =>
-		args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String
-			? value.GetString()
-			: null;
 
 	private static bool TryGetDoubleArg(JsonElement args, string key, out double value) {
 		value = 0;

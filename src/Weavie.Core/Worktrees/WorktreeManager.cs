@@ -69,6 +69,36 @@ public sealed class WorktreeManager {
 	}
 
 	/// <summary>
+	/// Creates a worktree checked out on the <em>existing</em> branch <paramref name="branch"/> (the inverse
+	/// of <see cref="CreateAsync"/>'s guard — here the branch must already exist), records it, and returns the
+	/// record. If Weavie already tracks a worktree for this branch, its existing record is returned unchanged
+	/// so callers reuse it rather than creating a duplicate. Throws when the branch doesn't exist.
+	/// </summary>
+	public async Task<WorktreeRecord> AttachAsync(string branch, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(branch);
+		if (Registry.FindByBranch(branch) is { } existing) {
+			return existing;
+		}
+
+		if (!await _git.BranchExistsAsync(_repositoryRoot, branch, ct).ConfigureAwait(false)) {
+			throw new InvalidOperationException($"Branch '{branch}' doesn't exist; pick an existing branch or create a new one.");
+		}
+
+		string path = AllocatePath(branch);
+		await _git.AttachWorktreeAsync(_repositoryRoot, path, branch, ct).ConfigureAwait(false);
+		var record = new WorktreeRecord {
+			Branch = branch,
+			Path = Normalize(path),
+			// The branch already has a tip; there's no distinct base. Record the branch itself as the base ref —
+			// nothing branches on this value, it's persisted bookkeeping only.
+			BaseRef = branch,
+			CreatedAtUtc = DateTimeOffset.UtcNow,
+		};
+		Registry.Add(record);
+		return record;
+	}
+
+	/// <summary>
 	/// Reconciles the registry against live <c>git worktree list</c> output and returns a status for every
 	/// worktree: those Weavie created (<see cref="WorktreeStatus.IsManaged"/>), the primary checkout, and
 	/// any worktree present in git but not the registry (so externally-created or registry-lost worktrees

@@ -36,6 +36,12 @@ public interface IGitService {
 	Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default);
 
 	/// <summary>
+	/// The short names of all local branches (<c>git for-each-ref refs/heads</c>), for offering an existing
+	/// branch to check out as a session. Remote-tracking branches are out of scope for now.
+	/// </summary>
+	Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default);
+
+	/// <summary>
 	/// The repository's default branch — <c>origin/HEAD</c>'s target if set, else <c>main</c> or
 	/// <c>master</c> if present, else <c>null</c>. Used as the "branch off main" base.
 	/// </summary>
@@ -50,6 +56,13 @@ public interface IGitService {
 	/// exists or is checked out elsewhere.
 	/// </summary>
 	Task AddWorktreeAsync(string repositoryDirectory, string worktreePath, string newBranch, string baseRef, CancellationToken ct = default);
+
+	/// <summary>
+	/// Creates a worktree at <paramref name="worktreePath"/> checked out on the <em>existing</em> branch
+	/// <paramref name="branch"/> (<c>git worktree add</c> with no <c>-b</c>), so commits flow onto that branch.
+	/// Throws if the branch doesn't exist or is already checked out in another worktree.
+	/// </summary>
+	Task AttachWorktreeAsync(string repositoryDirectory, string worktreePath, string branch, CancellationToken ct = default);
 
 	/// <summary>
 	/// Removes the worktree at <paramref name="worktreePath"/> (<c>git worktree remove</c>). When

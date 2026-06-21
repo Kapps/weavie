@@ -1832,6 +1832,54 @@ textarea {
   color: var(--dim);
 }
 
+/* Branch typeahead: the input + its existing-branch suggestions. The field wraps both so the dropdown can
+   anchor under the input without shifting the action buttons; the input's own top margin moves to the field. */
+.session-prompt-field {
+  position: relative;
+  margin-top: 1.4em;
+}
+
+.session-prompt-field .session-prompt-input {
+  margin-top: 0;
+}
+
+/* Existing branches matching the typed text. Picking one (arrow+Enter, click, or full name) checks it out as
+   the session, versus typing a new name to create a branch. Anchored as an overlay so the footer stays put. */
+.session-prompt-suggestions {
+  position: absolute;
+  z-index: 5;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  margin: 0;
+  padding: 0.3em;
+  list-style: none;
+  max-height: 11em;
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+
+.session-prompt-suggestion {
+  padding: 0.42em 0.6em;
+  border-radius: 6px;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+  color: var(--fg);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+}
+
+.session-prompt-suggestion:hover,
+.session-prompt-suggestion.active {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--accent);
+}
+
 /* New Session location row: a labelled select to pick the local/default host or a registered remote agent. */
 .session-prompt-location {
   display: flex;

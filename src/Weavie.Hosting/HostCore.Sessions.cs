@@ -55,12 +55,6 @@ public sealed partial class HostCore {
 				PushTurnDiffToWeb(path);
 			}
 		};
-		session.Changes.TurnBegan += () => {
-			if (IsActiveSession(session)) {
-				PushTurnReset();
-				PushTurnChangesToWeb();
-			}
-		};
 		session.Status.Changed += status => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);

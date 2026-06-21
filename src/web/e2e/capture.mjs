@@ -9,8 +9,9 @@
 // e2e/.recordings/ (gitignored); share that file in your reply.
 
 import { spawn } from "node:child_process";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { createServer } from "node:net";
+import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "@playwright/test";
@@ -28,9 +29,28 @@ const hostDll = join(
   "Weavie.Headless.dll",
 );
 const outDir = join(webRoot, "e2e", ".recordings");
-// Record against the repo by default; override to point at any workspace.
-const workspace = process.env.WEAVIE_CAPTURE_WORKSPACE ?? repoRoot;
 const viewport = { width: 1280, height: 800 };
+
+// This capture demonstrates the post-turn per-hunk review (docs/specs/turn-review.md). That flow is driven by
+// host→web `turn-changes` / `turn-diff` messages a real Claude turn would emit; we inject them directly via
+// window.__weavieReceive (the local-backend delivery hook) so the UI can be shown without an authed Claude.
+// Two files with two hunks each show the web surface: the inline toolbar, per-hunk Keep (web-only mark +
+// de-emphasis + hunk→hunk→file auto-advance), the ← / → file walk with marks that survive reopening, and
+// Keep-all. (Revert — the one disk-touching action — is left to the Core unit tests, since these injected files
+// aren't in the host's real change tracker, so a round-tripped reject-hunk would correctly guard-mismatch.)
+const reviewWorkspace = mkdtempSync(join(tmpdir(), "weavie-review-"));
+// `current` = exactly what's written to disk (so it equals the editor's live model); `baseline` differs in two
+// separate places (an equal line between them ⇒ two hunks).
+const FILE_A_CURRENT = "line one\nline two\nline three\nline four\nline five\n";
+const FILE_A_BASELINE = "line one\nOLD two\nline three\nOLD four\nline five\n";
+const FILE_B_CURRENT = "alpha\nbravo\ncharlie\ndelta\n";
+const FILE_B_BASELINE = "alpha\nBRAVO\ncharlie\ndelta\n";
+writeFileSync(join(reviewWorkspace, "a.txt"), FILE_A_CURRENT);
+writeFileSync(join(reviewWorkspace, "b.txt"), FILE_B_CURRENT);
+const fileA = join(reviewWorkspace, "a.txt");
+const fileB = join(reviewWorkspace, "b.txt");
+// Record against the prepared workspace by default; override to point at any workspace.
+const workspace = process.env.WEAVIE_CAPTURE_WORKSPACE ?? reviewWorkspace;
 
 // ── EDIT PER CHANGE ──────────────────────────────────────────────────────────────────────────────────────
 // Drive the exact UI path your change affects so the recording demonstrates it. The default flow (Omnibar
@@ -50,91 +70,103 @@ async function tour(page) {
   await page.emulateMedia({ colorScheme: "dark" });
   await settle(1200);
 
-  // ── FIX UNDER TEST: scrolling Claude Code after a session switch ──────────────────────────────────────────
-  // Claude Code runs INLINE and enables mouse tracking, so the wheel is forwarded to Claude (it scrolls its own
-  // transcript). Originally the page shared ONE xterm across sessions and a switch posted `term-reset`, which
-  // could drop mouse tracking and hand the wheel to a stray web viewport. Now each loaded session keeps its OWN
-  // live xterm mounted and switching is pure show/hide — the active session's terminal is never reset, so its
-  // modes are intact by construction. This tour creates a 2nd session, switches back, and reads the (now
-  // per-session) Claude xterm's `modes.mouseTrackingMode` — it must stay non-"none".
-  const claudeSurface = page.locator('.terminal-surface[data-kind="terminal:claude"]');
-  const claudeViewport = claudeSurface.locator(".xterm-viewport");
-  await claudeSurface.locator(".xterm").waitFor({ state: "visible", timeout: 20_000 });
-  await settle(4000); // let the first Claude TUI paint and enable mouse tracking
+  // Deliver a host→web message exactly as the bridge would (the local backend's delivery hook).
+  const deliver = (msg) => page.evaluate((m) => window.__weavieReceive(JSON.stringify(m)), msg);
 
-  // On-page HUD so the recording is self-explanatory. The decisive signal is the Claude xterm's
-  // `modes.mouseTrackingMode`: Claude enables it (so the wheel is forwarded to Claude, which scrolls its
-  // own transcript). The bug was that a session switch reset the terminal and dropped it back to "none",
-  // so the wheel hit xterm's local viewport instead. After the fix it stays enabled across the switch.
+  // On-page HUD so the recording narrates itself.
   await page.evaluate(() => {
     const hud = document.createElement("div");
-    hud.id = "scroll-hud";
+    hud.id = "review-hud";
     hud.style.cssText =
       "position:fixed;left:50%;top:14px;transform:translateX(-50%);z-index:99999;" +
       "font:600 14px/1.5 monospace;color:#fff;background:rgba(0,0,0,.82);padding:8px 14px;" +
-      "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;";
+      "border-radius:8px;border:1px solid rgba(255,255,255,.25);white-space:pre;text-align:center;max-width:90vw;";
     document.body.appendChild(hud);
-    window.__readClaude = () => {
-      // Each loaded session has its own claude xterm (keyed `${slot}:claude`); only the active one is
-      // shown, so pick the visible one (hidden hosts have a null offsetParent).
-      const all = window.__WEAVIE_TERMINALS__ ?? {};
-      const term =
-        Object.entries(all).find(
-          ([key, t]) => key.endsWith(":claude") && t.element?.offsetParent != null,
-        )?.[1] ?? null;
-      const modes = term ? term.modes : null;
-      return {
-        // The mode that matters for scrolling on an authed full-screen Claude (forwards the wheel to it).
-        mouseTracking: modes ? modes.mouseTrackingMode : "?",
-        // Modes headless Claude DOES set — stand-ins proving the switch no longer resets the live terminal.
-        bracketedPaste: modes ? modes.bracketedPasteMode : null,
-        focusReporting: modes ? modes.sendFocusMode : null,
-      };
-    };
     window.__setHud = (label) => {
-      const m = window.__readClaude();
-      // The fix's contract: a session switch must NOT reset the live terminal's modes. Claude set these on
-      // boot; if they survive the switch, mouse tracking (set the same way on an authed Claude) survives too.
-      const preserved = m.bracketedPaste === true && m.focusReporting === true;
-      hud.textContent =
-        `${label}\nClaude xterm modes — bracketedPaste=${m.bracketedPaste}  focusReporting=${m.focusReporting}  mouseTracking="${m.mouseTracking}"\n` +
-        `${preserved ? "✓ terminal modes intact — wheel still reaches Claude" : "⚠ modes reset by the switch — web scrollbar hijacks the wheel"}`;
-      console.log(
-        `[scroll-hud] ${label} :: ${JSON.stringify(m)} :: ${preserved ? "MODES-INTACT" : "MODES-RESET"}`,
-      );
+      hud.textContent = label;
+      console.log(`[review-hud] ${label}`);
     };
   });
-  await page.evaluate(() => window.__setHud("Session 1 (initial)"));
-  await settle(2500);
 
-  // ── Create a 2nd session (rail "+") so there's something to switch between ────────────────────────────────
-  await page.locator(".session-rail-add").click();
-  await page.locator(".session-prompt-input").fill("scroll-fix-demo");
-  await page.locator(".session-prompt-btn-primary").click(); // branch off HEAD → new worktree, switches to it
-  // Two chips now on the rail; wait for the new session's Claude to come up.
-  await page.locator(".session-chip").nth(1).waitFor({ timeout: 30_000 });
-  await settle(6000);
-  await page.evaluate(() => window.__setHud("Session 2 (new worktree) — switched in"));
+  // The two files Claude "changed" this turn, with their first-change lines (1-based).
+  const reviewFiles = [
+    { path: fileA, name: "a.txt", added: 2, removed: 2, line: 2 },
+    { path: fileB, name: "b.txt", added: 1, removed: 1, line: 2 },
+  ];
+
+  // Inject the review set + both files' per-turn diffs (baseline vs current). a.txt opens as a preview tab and
+  // the inline applied toolbar arms over the editor — the 2D review navigator (↑/↓ hunks, ← / → files) the
+  // spec describes. (Pre-injecting b.txt's diff so it renders when the Keep walk auto-advances into it; a real
+  // turn's per-file diffs arrive the same way over the bridge. Revert — the one disk-touching action — is left
+  // to the Core unit tests, since these injected files aren't in the host's change tracker.)
+  await deliver({ type: "open-file", path: fileA, content: "", line: 2, preview: true });
+  await settle(1500);
+  await deliver({ type: "turn-changes", open: false, files: reviewFiles });
+  await deliver({
+    type: "turn-diff",
+    path: fileA,
+    name: "a.txt",
+    baseline: FILE_A_BASELINE,
+    current: FILE_A_CURRENT,
+  });
+  await deliver({
+    type: "turn-diff",
+    path: fileB,
+    name: "b.txt",
+    baseline: FILE_B_BASELINE,
+    current: FILE_B_CURRENT,
+  });
+  await page.locator(".weavie-inline-toolbar").waitFor({ timeout: 10_000 });
+  await page.evaluate(() =>
+    window.__setHud(
+      "Post-turn review armed — a.txt (1/2), two hunks. Toolbar: Keep / Revert / Keep all + ← name (i/N) →",
+    ),
+  );
+  await settle(3000);
+
+  // Keep the FIRST hunk (Ctrl+Enter): web-only mark — it de-emphasises (grey) and the cursor auto-advances to
+  // the next PENDING hunk. No disk write. (The keybinding resolver is a document-level capture listener, so it
+  // fires without clicking into Monaco — which would move the cursor off the first hunk.)
+  await page.keyboard.press("Control+Enter");
+  await page.evaluate(() =>
+    window.__setHud(
+      "Kept hunk 1 (Ctrl+Enter) — it greys out, cursor auto-advances to the next pending hunk",
+    ),
+  );
+  await settle(3000);
+
+  // Keep the SECOND hunk: no pending hunk left in a.txt, so the walk auto-advances to the next pending FILE
+  // (b.txt), landing on its first change — hunk → hunk → file, all from Ctrl+Enter.
+  await page.keyboard.press("Control+Enter");
+  await settle(2500);
+  await page.evaluate(() =>
+    window.__setHud(
+      "Kept hunk 2 — no pending hunks left in a.txt, so Keep auto-advanced to the next file: b.txt (2/2)",
+    ),
+  );
+  await settle(3000);
+
+  // Walk files manually too: Ctrl+← back to a.txt shows its Keep marks SURVIVED leaving + reopening (both
+  // hunks still grey), the persistence the spec requires.
+  await page.keyboard.press("Control+ArrowLeft");
+  await settle(2500);
+  await page.evaluate(() =>
+    window.__setHud(
+      "Ctrl+← back to a.txt — both hunks are still grey: the Keep marks survived leaving + reopening the file",
+    ),
+  );
+  await settle(3000);
+
+  // Keep-all clears the whole accumulated set in one action (the debt-clearer) — the inline markers + toolbar
+  // vanish across every file.
+  await page.locator(".weavie-inline-keepall").click();
   await settle(2000);
-
-  // ── Switch BACK to session 1 — the path that used to break scrolling ─────────────────────────────────────
-  await page.locator(".session-chip").first().click();
-  await settle(5000); // pure show/hide: session 1's own live xterm is revealed exactly as it was left
-  await page.evaluate(() => window.__setHud("Back on Session 1 (after switch) — wheel test next"));
-  await settle(2500);
-
-  // Wheel over the Claude pane: with the bug this scrolls the stray web viewport (scrollTop moves, scrollbar
-  // visible); with the fix the wheel is forwarded to the TUI and the local viewport stays put.
-  const box = await claudeViewport.boundingBox();
-  if (box) {
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
-    for (let i = 0; i < 5; i++) {
-      await page.mouse.wheel(0, -120);
-      await settle(180);
-    }
-  }
-  await page.evaluate(() => window.__setHud("Back on Session 1 — after wheel scroll"));
-  await settle(4000);
+  await page.evaluate(() =>
+    window.__setHud(
+      "Keep all — the whole review set cleared in one action; the inline markers are gone",
+    ),
+  );
+  await settle(3500);
 }
 // ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 

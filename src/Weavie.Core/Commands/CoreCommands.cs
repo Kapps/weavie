@@ -34,13 +34,13 @@ public static class CoreCommands {
 	/// <summary>Jumps to the previous change hunk in the inline diff.</summary>
 	public const string PrevChange = "weavie.diff.prevChange";
 
-	/// <summary>Accepts the active inline diff (keep a proposed edit, or clear the turn's markers).</summary>
+	/// <summary>Keeps the current change: a proposed edit (default-mode openDiff) or, in post-turn review, the current hunk (mark reviewed + advance).</summary>
 	public const string AcceptChange = "weavie.diff.accept";
 
-	/// <summary>Rejects the active inline diff proposal (default-mode review only).</summary>
+	/// <summary>Rejects the current change: a proposed edit (default-mode openDiff) or, in post-turn review, the current hunk (revert it on disk + advance).</summary>
 	public const string RejectChange = "weavie.diff.reject";
 
-	/// <summary>Undoes the current turn's inline changes (acceptEdits/bypass mode).</summary>
+	/// <summary>Undoes the whole accumulated review set (acceptEdits/bypass mode); Keep-all is the cosmetic counterpart.</summary>
 	public const string UndoChange = "weavie.diff.undo";
 
 	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; bound to <c>$mod+Shift+r</c>.</summary>
@@ -218,31 +218,33 @@ public static class CoreCommands {
 
 		registry.Register(new CommandDefinition {
 			Id = AcceptChange,
-			Title = "Accept Change",
+			Title = "Keep Change",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
-			Description = "Keep the proposed edit under review, or clear the current turn's inline markers.",
-			Aliases = ["accept change", "keep change", "keep edit", "accept edit"],
+			Description = "Keep the proposed edit under review (default-mode openDiff), or — in post-turn review "
+				+ "(acceptEdits/bypass) — keep the current hunk (mark it reviewed) and advance to the next pending hunk.",
+			Aliases = ["accept change", "keep change", "keep edit", "keep hunk", "accept edit"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter" }],
 		});
 
 		registry.Register(new CommandDefinition {
 			Id = RejectChange,
-			Title = "Reject Change",
+			Title = "Revert Change",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
-			Description = "Reject the proposed edit under review (default-mode openDiff).",
-			Aliases = ["reject change", "reject edit", "discard proposal"],
+			Description = "Reject the proposed edit under review (default-mode openDiff), or — in post-turn review "
+				+ "(acceptEdits/bypass) — revert the current hunk on disk and advance.",
+			Aliases = ["reject change", "revert hunk", "reject edit", "discard proposal"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace" }],
 		});
 
 		registry.Register(new CommandDefinition {
 			Id = UndoChange,
-			Title = "Undo Change",
+			Title = "Undo All Changes",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
-			Description = "Revert the current turn's changes (acceptEdits/bypass mode).",
-			Aliases = ["undo change", "undo turn", "revert changes", "revert turn"],
+			Description = "Revert the whole accumulated review set on disk (acceptEdits/bypass mode).",
+			Aliases = ["undo change", "undo turn", "revert changes", "revert turn", "undo all"],
 		});
 
 		// Post-turn review (acceptEdits/bypass mode): there is no panel — review happens inline in the editor

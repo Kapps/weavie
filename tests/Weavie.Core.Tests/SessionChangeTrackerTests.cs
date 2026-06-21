@@ -80,49 +80,42 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void TurnChanges_TracksOnlyThisTurnAgainstTurnBaseline() {
+	public void TurnChanges_AccumulateAcrossPrompts_UntilAccepted() {
+		// The accumulate model: the review baseline is "last reviewed", advancing only on keep-all (AcceptTurn)
+		// or a revert — NOT on a new prompt. So a change survives a new prompt and piles up until acknowledged.
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText("/w/a.txt", "v0\n");
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		fileSystem.WriteAllText("/w/b.txt", "b0\n");
 		var tracker = new SessionChangeTracker(fileSystem);
 
-		// Turn 1: a.txt v0 -> v1.
+		// Turn 1: a.txt a0 -> a1.
 		tracker.CaptureBaseline("/w/a.txt");
-		fileSystem.WriteAllText("/w/a.txt", "v1\n");
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
 		tracker.RecordChange("/w/a.txt");
 
-		var turn1 = Assert.Single(tracker.TurnChanges());
-		Assert.Equal("v0\n", turn1.BaselineText);
-		Assert.Equal("v1\n", turn1.CurrentText);
-
-		// New turn: prior changes implicitly accepted -> turn baseline resets to current (v1).
-		tracker.BeginTurn();
-		Assert.Empty(tracker.TurnChanges());
-
-		// Turn 2: a.txt v1 -> v2. The turn diff is v1->v2, NOT the session v0->v2.
-		tracker.CaptureBaseline("/w/a.txt");
-		fileSystem.WriteAllText("/w/a.txt", "v2\n");
-		tracker.RecordChange("/w/a.txt");
-
-		var turn2 = Assert.Single(tracker.TurnChanges());
-		Assert.Equal("v1\n", turn2.BaselineText);
-		Assert.Equal("v2\n", turn2.CurrentText);
-		// Session diff still spans the whole session.
-		Assert.Equal("v0\n", Assert.Single(tracker.Changes()).BaselineText);
-	}
-
-	[Fact]
-	public void BeginTurn_RaisesTurnBegan() {
-		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
-		int fired = 0;
-		tracker.TurnBegan += () => fired++;
-
+		// A new prompt arrives — it must NOT reset the review baseline (no turn-scoped clear any more).
 		tracker.Observe(new HookRequest {
 			Event = HookEventKind.UserPromptSubmit,
 			ToolName = string.Empty,
 			ToolInputJson = "{}",
 		});
+		Assert.Single(tracker.TurnChanges()); // a.txt still pending after the new prompt
 
-		Assert.Equal(1, fired);
+		// Turn 2: edit b.txt; both files accumulate in the review set.
+		tracker.CaptureBaseline("/w/b.txt");
+		fileSystem.WriteAllText("/w/b.txt", "b1\n");
+		tracker.RecordChange("/w/b.txt");
+		Assert.Equal(2, tracker.TurnChanges().Count);
+
+		// a.txt's review diff is still against its ORIGINAL baseline (a0), not reset to a1 by the prompt.
+		var aChange = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(aChange);
+		Assert.Equal("a0\n", aChange!.BaselineText);
+		Assert.Equal("a1\n", aChange.CurrentText);
+
+		// Keep-all clears the whole accumulated set in one action.
+		tracker.AcceptTurn();
+		Assert.Empty(tracker.TurnChanges());
 	}
 
 	[Fact]
@@ -247,5 +240,79 @@ public sealed class SessionChangeTrackerTests {
 		tracker.RecordChange("/w/a.txt"); // current == baseline
 
 		Assert.Empty(tracker.Changes());
+	}
+
+	[Fact]
+	public void RevertHunk_MiddleHunk_RestoresThoseLinesLeavingOthersIntact() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt"); // review baseline = a\nb\nc\nd\ne\n
+											 // Claude changes line 2 (b->B) and line 4 (d->D): two hunks separated by the equal line c.
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n");
+		tracker.RecordChange("/w/a.txt");
+
+		// Revert ONLY the second hunk (line 4: D -> d). 1-based, end-exclusive ranges; guard = the current line.
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		// Exactly line 4 restored; the first hunk's change (B on line 2) is left intact on disk.
+		Assert.Equal("a\nB\nc\nd\ne\n", fileSystem.ReadAllText("/w/a.txt"));
+		// The review diff now shows only the still-pending first hunk, against the unchanged baseline.
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\nc\nd\ne\n", change!.BaselineText);
+		Assert.Equal("a\nB\nc\nd\ne\n", change.CurrentText);
+	}
+
+	[Fact]
+	public void RevertHunk_GuardMismatch_WritesNothing() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
+		var tracker = new SessionChangeTracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
+		tracker.RecordChange("/w/a.txt");
+
+		// A concurrent edit moved the file after the web snapshotted its guard text.
+		fileSystem.WriteAllText("/w/a.txt", "a\nXYZ\n");
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
+
+		Assert.Equal(RevertHunkOutcome.GuardMismatch, outcome);
+		Assert.Equal("a\nXYZ\n", fileSystem.ReadAllText("/w/a.txt")); // untouched — no clobber
+	}
+
+	[Fact]
+	public void RevertHunk_CreatedFile_DeletesIt() {
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = new SessionChangeTracker(fileSystem);
+		tracker.CaptureBaseline("/w/new.txt"); // absent at baseline → created since baseline, baseline ""
+		fileSystem.WriteAllText("/w/new.txt", "hello\nworld\n");
+		tracker.RecordChange("/w/new.txt");
+
+		// The whole content is one added hunk: an empty baseline range, the current lines as the modified range.
+		var outcome = tracker.RevertHunk("/w/new.txt", new LineRange(1, 1), new LineRange(1, 4), "hello\nworld\n");
+
+		Assert.Equal(RevertHunkOutcome.Deleted, outcome);
+		Assert.False(fileSystem.FileExists("/w/new.txt")); // deleted, not truncated to a 0-byte file
+		Assert.Empty(tracker.TurnChanges()); // dropped from the review set entirely
+	}
+
+	[Fact]
+	public void RevertHunk_EmptiedExistingFile_TruncatesNotDeletes() {
+		// An existing file reverted to an empty baseline is a genuine 0-byte file — NOT a deletion (deletion
+		// keys off existence-at-baseline, not emptiness).
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", ""); // existed at baseline, empty
+		var tracker = new SessionChangeTracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "added\n");
+		tracker.RecordChange("/w/a.txt");
+
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(1, 1), new LineRange(1, 2), "added");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.True(fileSystem.FileExists("/w/a.txt"));
+		Assert.Equal("", fileSystem.ReadAllText("/w/a.txt"));
 	}
 }

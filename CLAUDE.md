@@ -12,10 +12,11 @@ load it only when you need it.
   Claude. Capabilities are *registered* in Core and surfaced as MCP tools: **settings** (being
   built now) and **commands** (named actions, not yet implemented). See
   [docs/concepts/mcp-registry.md](docs/concepts/mcp-registry.md).
-- **Hook bridge** — the spawned `claude` runs Weavie itself (via `--hook-relay`) as its
-  PreToolUse/PostToolUse hook, delivered through a per-instance `--settings` file. The relay forwards
+- **Hook bridge** — the spawned `claude` runs a standalone relay binary (`Weavie.HookRelay`, co-located with the host
+  by the build) as its hooks — PermissionRequest (the permission gate, fires only when a tool would prompt)
+  plus PreToolUse/PostToolUse (the change-tracking feed) — via a per-instance `--settings` file. The relay forwards
   each tool call over a current-user-only named pipe (no token) to the in-process `HookBridgeServer`,
-  which records every mutating tool call (the change-tracking feed) and returns an allow/deny/pass-through
+  which records every mutating tool call and returns an allow/deny/pass-through
   decision — letting Weavie observe + gate tools without `--dangerously-skip-permissions`. See
   [docs/concepts/hook-bridge.md](docs/concepts/hook-bridge.md).
 - **Host core** — every platform host (Win/Mac/Linux/Headless) is a thin shell over one shared

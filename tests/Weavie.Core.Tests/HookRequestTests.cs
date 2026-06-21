@@ -31,6 +31,16 @@ public sealed class HookRequestTests {
 	}
 
 	[Fact]
+	public void Parse_PermissionRequest_MapsEventAndMode() {
+		var request = HookRequest.Parse("""{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"rm -rf x"},"permission_mode":"default"}""");
+
+		Assert.NotNull(request);
+		Assert.Equal(HookEventKind.PermissionRequest, request!.Event);
+		Assert.Equal("Bash", request.ToolName);
+		Assert.Equal("default", request.PermissionMode);
+	}
+
+	[Fact]
 	public void Parse_UnknownEvent_MapsToOther() {
 		var request = HookRequest.Parse("""{"hook_event_name":"PreCompact","tool_name":"X"}""");
 

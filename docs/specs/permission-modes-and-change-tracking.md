@@ -38,22 +38,22 @@ post-turn review surface and the openDiff auto-keep. There is no second source o
 ## Enforcement: the hook is the single gate
 
 Claude is always launched in its own `default` mode (Weavie passes no `--permission-mode` /
-`--dangerously-skip-permissions`), and Weavie's PreToolUse hook is the decision point:
+`--dangerously-skip-permissions`), and Weavie's PermissionRequest hook is the decision point (it fires only when a prompt would otherwise appear, so an auto-allowed tool costs nothing):
 
 - **`claude.allowAllTools` off** → the hook passes through: Claude's normal flow (edits → its mode / the
   openDiff review; Bash → its own terminal prompt).
-- **`claude.allowAllTools` on** → the hook returns `permissionDecision: allow` for every non-edit PreToolUse
-  (Bash & commands), suppressing the prompt. Edit tools always pass through here — their permission is the
+- **`claude.allowAllTools` on** → the hook returns `decision.behavior: allow` for every non-edit PermissionRequest
+  (Bash, PowerShell, WebFetch, MCP), suppressing the prompt. Edit tools always pass through here — their permission is the
   edit mode, and a hook `allow` would override it, breaking the orthogonality.
 
 Precedence in Claude Code is `deny > hook > ask > allow`, so a user's own `deny` rule still wins and the hook
 reliably suppresses an otherwise-`ask` prompt. `HookPolicy.Decide(request, allowAllTools)` is the seam; the
 live setting is read per call in `IdeIntegration`. See [../concepts/hook-bridge.md](../concepts/hook-bridge.md).
 
-> **v1 scope.** The hook's tool matcher routes `Bash|Write|Edit|MultiEdit|NotebookEdit`, so `allowAllTools`
-> auto-allows **Bash** today (the non-edit tool that routinely prompts). Widening the matcher to every
-> prompting tool (WebFetch, …) and growing `allowAllTools` into per-tool control is the next iteration —
-> tracked under [Follow-ups](#open-questions--follow-ups).
+> **Coverage.** The gate is the `PermissionRequest` hook with a `*` matcher, so `allowAllTools` auto-allows
+> *every* non-edit tool that would prompt (Bash, PowerShell, WebFetch, MCP). PermissionRequest fires only
+> when a dialog would appear, so it never runs for auto-allowed tools; `PreToolUse`/`PostToolUse` stay scoped
+> to the edit tools for change tracking. Per-tool control remains a possible refinement.
 
 ## Change tracking (permission-independent)
 
@@ -76,7 +76,7 @@ Weavie.Core/
   Hooks/
     HookRequest.cs            // + PermissionMode (parsed from permission_mode)
     ObservedPermissionMode.cs // the observed-mode mirror (Observe / Current / AutoAppliesEdits)
-    HookPolicy.cs             // Decide(request, allowAllTools): allow non-edit PreToolUse when on
+    HookPolicy.cs             // Decide(request, allowAllTools): allow non-edit PermissionRequest when on
     HookSettings.cs           // the hooks block (tool matcher) written to claude's --settings
   Configuration/
     CoreSettings.cs           // claude.allowAllTools (Bool, Live) — replaces claude.permissionMode
@@ -90,9 +90,9 @@ src/Weavie.Win | Mac | Linux/ // each host: construct ObservedPermissionMode, pa
 
 ## Open questions / follow-ups
 
-- **Widen the hook matcher** beyond `Bash|…|edits` so `allowAllTools` covers every prompting tool (WebFetch,
-  …). Needs a quick check of Claude Code's "match all tools" matcher form before changing the known-good
-  matcher (it also routes the change-tracking events, so a wrong matcher would break tracking).
+- **Widen the hook matcher (DONE).** The permission gate is the `PermissionRequest` hook with a `*` matcher,
+  so `allowAllTools` covers every prompting tool. `PreToolUse`/`PostToolUse` are kept separate and edit-scoped
+  for change tracking, so the gate's broad matcher never touches the tracking events.
 - **Per-tool permission.** Grow `claude.allowAllTools` (bool) into a per-tool allow/deny/ask map — the
   fine-grained version of the tool axis. Edits still defer to the mode unless explicitly overridden.
 - **UI mode indicator.** Surface the observed edit mode (and the `allowAllTools` state) in the chrome so both

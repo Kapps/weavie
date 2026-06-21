@@ -80,8 +80,7 @@ native window, geometry, and main-thread marshaling stripped out. Three files:
 - **`Program.cs`** — Kestrel on `127.0.0.1:<port>` (env `WEAVIE_SERVE_PORT`, default 8700). Serves the
   built `wwwroot`, injecting the bootstrap globals (`__WEAVIE_BRIDGE_WS__="auto"` + fonts + command /
   keybinding catalog) into `index.html` before the module graph runs — the document-start injection the
-  native shells do via `AddUserScript`. Exposes the `/weavie-bridge` WebSocket upgrade. Also handles the
-  `--hook-relay` branch (the spawned claude runs this exe as its tool hook), like the other hosts.
+  native shells do via `AddUserScript`. Exposes the `/weavie-bridge` WebSocket upgrade.
 - **`HeadlessSession`** — builds the same `Weavie.Core` graph the native shells do (settings, commands /
   keybindings, the two terminal controllers, the `FileProviderService`, the IDE/registry MCP servers, the
   `LayoutStore` + `EditorSessionStore`, change tracking) and runs the identical `OnWebMessage` dispatch,

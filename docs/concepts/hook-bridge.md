@@ -27,16 +27,16 @@ empty = no opinion → normal flow). We deliver a hooks block to *our* claude on
 `--settings` file (additive merge — the user's own hooks still fire; scope comes from the child's argv, so a
 claude the user launches by hand is unaffected).
 
-The hook program is **the Weavie host itself** run as `--hook-relay` (like `--pty-smoke`) — no separate binary
-to ship, and the host knows its own path (`Environment.ProcessPath`). The relay is transient (one process per
-tool call) and **fails open**: any error exits 0 with empty stdout, so a hiccup never blocks Claude. (At a few
-tool-calls/min the ~100 ms cold start is invisible; if it ever matters, the relay is a drop-in NativeAOT
-binary — the pipe protocol is unchanged.)
+The hook program is a **standalone relay binary** (`Weavie.HookRelay`), co-located with the host by the build
+(Debug: a managed exe; Release: a single NativeAOT native exe — see `HookRelay.targets`). The host resolves it
+next to itself (`AppContext.BaseDirectory`) and **fails loudly if it is missing** — there is deliberately no
+host-as-relay fallback. The relay is transient (one process per tool call) and **fails open** at runtime: any
+error exits 0 with empty stdout, so a hiccup never blocks Claude.
 
 ```mermaid
 sequenceDiagram
     participant C as claude (default mode)
-    participant R as relay (host --hook-relay)
+    participant R as relay (Weavie.HookRelay)
     participant S as HookBridgeServer (in-process)
     participant W as Weavie UI / change feed
     C->>R: spawn hook, tool event JSON on stdin
@@ -73,10 +73,10 @@ Two invariants keep it safe:
 - `HookRequest` — parses the stdin JSON (event, tool, raw `tool_input`, session, cwd).
 - `HookDecision` / `HookPolicy` — the verdict + its stdout JSON serialization (`hookSpecificOutput` permission
   block and/or top-level `systemMessage`); `Decide(request, allowAllTools)` is the gate seam — `PassThrough`
-  unless `claude.allowAllTools` is on, when a non-edit `PreToolUse` returns `Allow`. `IdeIntegration` attaches
+  unless `claude.allowAllTools` is on, when a non-edit `PermissionRequest` returns `Allow` (PreToolUse stays edit-scoped, for change tracking). `IdeIntegration` attaches
   the edit jump-link `systemMessage`, and an `ObservedPermissionMode` subscribes to the same stream.
 - `HookBridgeServer` — the in-process pipe listener; raises `Observed`, replies with the decision.
-- `HookRelayClient` — the `--hook-relay` side: stdin → pipe → stdout, fail-open.
+- `HookRelayClient` — the relay logic, linked into the standalone `Weavie.HookRelay` exe: stdin → pipe → stdout, fail-open.
 - `HookSettings` — builds the `--settings` hooks JSON.
 - Wiring: `IdeIntegration` owns the server + `WriteSettingsFile()` + `WEAVIE_HOOK_PIPE`; the hosts append
   `--settings` and log/consume the `Observed` feed.

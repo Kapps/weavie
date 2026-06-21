@@ -1,14 +1,7 @@
 using System.Text;
 using Microsoft.Extensions.FileProviders;
-using Weavie.Core.Hooks;
 using Weavie.Headless;
 using Weavie.Hosting;
-
-// Hook relay (no UI): the spawned claude runs this exe as its PreToolUse/PostToolUse command hook; forward
-// the event over the pipe to the running instance and echo its decision. Must branch before anything else.
-if (args.Length > 0 && args[0] == "--hook-relay") {
-	return HookRelayClient.Run();
-}
 
 string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);

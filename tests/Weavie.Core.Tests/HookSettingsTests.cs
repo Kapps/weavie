@@ -4,24 +4,37 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>The <c>--settings</c> JSON: a hooks block routing the mutating tools to the relay for both events.</summary>
+/// <summary>The <c>--settings</c> JSON: a hooks block routing PermissionRequest (the permission gate, every tool) and the edit tools' PreToolUse/PostToolUse (change tracking) to the standalone relay binary.</summary>
 public sealed class HookSettingsTests {
-	private const string HostPath = @"C:\Program Files\Weavie\Weavie.Win.exe";
+	private const string RelayPath = @"C:\app\weavie-hook-relay.exe";
 
 	[Fact]
-	public void BuildJson_RoutesMutatingToolsToRelayForBothEvents() {
-		using var doc = JsonDocument.Parse(HookSettings.BuildJson(HostPath));
+	public void BuildJson_PermissionRequestGatesAllTools_PreAndPostObserveEditsOnly() {
+		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var hooks = doc.RootElement.GetProperty("hooks");
 
-		foreach (string eventName in new[] { "PreToolUse", "PostToolUse" }) {
-			var group = hooks.GetProperty(eventName)[0];
-			Assert.Equal(HookSettings.ToolMatcher, group.GetProperty("matcher").GetString());
+		// The permission gate matches EVERY tool so claude.allowAllTools can bypass any tool that would prompt;
+		// it fires only on a real prompt, so auto-allowed tools cost nothing.
+		Assert.Equal("*", HookSettings.PermissionMatcher);
+		Assert.Equal(HookSettings.PermissionMatcher, hooks.GetProperty("PermissionRequest")[0].GetProperty("matcher").GetString());
 
-			var hook = group.GetProperty("hooks")[0];
-			Assert.Equal("command", hook.GetProperty("type").GetString());
-			string command = hook.GetProperty("command").GetString()!;
-			Assert.Contains("--hook-relay", command, StringComparison.Ordinal);
-			Assert.Contains("Weavie.Win.exe", command, StringComparison.Ordinal);
+		// Pre/PostToolUse are observation-only (change tracking), scoped to the edit tools.
+		Assert.DoesNotContain("Bash", HookSettings.ObserveMatcher, StringComparison.Ordinal);
+		foreach (string eventName in new[] { "PreToolUse", "PostToolUse" }) {
+			Assert.Equal(HookSettings.ObserveMatcher, hooks.GetProperty(eventName)[0].GetProperty("matcher").GetString());
+		}
+	}
+
+	[Fact]
+	public void BuildJson_EveryHookRunsTheStandaloneRelayDirectly() {
+		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
+		var hooks = doc.RootElement.GetProperty("hooks");
+
+		// Every hook runs the standalone relay binary directly — no host, no --hook-relay flag, no fork.
+		foreach (string eventName in new[] { "PreToolUse", "PostToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "Notification", "SessionStart" }) {
+			string command = hooks.GetProperty(eventName)[0].GetProperty("hooks")[0].GetProperty("command").GetString()!;
+			Assert.Equal("\"" + RelayPath + "\"", command);
+			Assert.DoesNotContain("--hook-relay", command, StringComparison.Ordinal);
 		}
 	}
 
@@ -29,35 +42,19 @@ public sealed class HookSettingsTests {
 	public void BuildJson_RegistersSessionStartScopedToClear() {
 		// SessionStart matches on its source, so the "clear" matcher relays only /clear (not startup/resume/
 		// compact) — the event that lets the resume store drop its now-stale id.
-		using var doc = JsonDocument.Parse(HookSettings.BuildJson(HostPath));
+		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var group = doc.RootElement.GetProperty("hooks").GetProperty("SessionStart")[0];
 
 		Assert.Equal("clear", group.GetProperty("matcher").GetString());
-		string command = group.GetProperty("hooks")[0].GetProperty("command").GetString()!;
-		Assert.Contains("--hook-relay", command, StringComparison.Ordinal);
 	}
 
 	[Fact]
-	public void BuildJson_QuotesHostPath() {
-		using var doc = JsonDocument.Parse(HookSettings.BuildJson(HostPath));
-		string command = doc.RootElement.GetProperty("hooks").GetProperty("PreToolUse")[0]
+	public void BuildJson_QuotesRelayPath() {
+		using var doc = JsonDocument.Parse(HookSettings.BuildJson(@"C:\Program Files\Weavie\weavie-hook-relay.exe"));
+		string command = doc.RootElement.GetProperty("hooks").GetProperty("PermissionRequest")[0]
 			.GetProperty("hooks")[0].GetProperty("command").GetString()!;
 
-		// The path is quoted on the command line so a host path with spaces survives the shell.
-		Assert.StartsWith("\"" + HostPath + "\"", command, StringComparison.Ordinal);
-	}
-
-	[Fact]
-	public void BuildJson_MuxerRun_PassesEntryAssemblyBeforeRelayFlag() {
-		// A framework-dependent Linux dev run: ProcessPath is the dotnet muxer, so the managed entry .dll
-		// must precede --hook-relay or the muxer can't launch the relay ("dotnet --hook-relay" fails).
-		const string muxer = "/usr/local/share/dotnet/dotnet";
-		const string entry = "/home/user/weavie/src/Weavie.Linux/bin/Debug/net10.0/Weavie.Linux.dll";
-
-		using var doc = JsonDocument.Parse(HookSettings.BuildJson(muxer, entry));
-		string command = doc.RootElement.GetProperty("hooks").GetProperty("PreToolUse")[0]
-			.GetProperty("hooks")[0].GetProperty("command").GetString()!;
-
-		Assert.Equal($"\"{muxer}\" \"{entry}\" --hook-relay", command);
+		// Quoted so a relay path with spaces survives the shell.
+		Assert.Equal("\"C:\\Program Files\\Weavie\\weavie-hook-relay.exe\"", command);
 	}
 }

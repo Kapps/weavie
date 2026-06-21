@@ -4,11 +4,11 @@ namespace Weavie.Core.Hooks;
 
 /// <summary>
 /// The relay side of the hook bridge: the program Claude runs as its <c>command</c> hook. Reads the hook JSON
-/// from stdin, forwards it to the in-process <see cref="HookBridgeServer"/> over the pipe named by
+/// from stdin, forwards it to the in-process <c>HookBridgeServer</c> over the pipe named by
 /// <see cref="HookProtocol.PipeEnvVar"/>, and writes the decision (if any) back to stdout for Claude. Fails
 /// OPEN: any error (no pipe, no server, timeout) exits 0 with no stdout, so Claude proceeds through its normal
-/// flow — the bridge never blocks a tool because the recorder hiccupped. Hosted as the running host
-/// executable's <c>--hook-relay</c> subcommand, so there is no separate binary to ship.
+/// flow — the bridge never blocks a tool because the recorder hiccupped. It lives in the standalone <c>Weavie.HookRelay</c> executable (which links this file),
+/// co-located with the host by the build (Debug managed, Release NativeAOT).
 /// </summary>
 public static class HookRelayClient {
 	private const int ConnectTimeoutMs = 5000;

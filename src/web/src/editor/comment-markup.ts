@@ -188,7 +188,14 @@ function xmlDocToProse(lines: string[]): string[] {
       /<returns>(.*?)<\/returns>/gi,
       (_m, desc) => `Returns: ${String(desc).trim()}`,
     );
-    line = line.replace(/<[^>]+>/g, ""); // drop any leftover tags
+    // Drop any leftover tags, looping until stable so a crafted nested tag (e.g. `<<x>script>`) can't survive a
+    // single pass and leave a tag behind. The parsed text is only ever inserted as textContent (never
+    // innerHTML), but a complete strip keeps it robust regardless.
+    let prev: string;
+    do {
+      prev = line;
+      line = line.replace(/<[^>]*>/g, "");
+    } while (line !== prev);
     return line.trimEnd();
   });
 }

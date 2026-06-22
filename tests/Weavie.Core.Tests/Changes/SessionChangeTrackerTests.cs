@@ -8,6 +8,11 @@ namespace Weavie.Core.Tests;
 
 /// <summary>Change tracker fed by the hook stream: baseline at PreToolUse, current at PostToolUse.</summary>
 public sealed class SessionChangeTrackerTests {
+	// Scope every tracker under test to the "/w" worktree (the path every fixture file lives under), so an edit
+	// outside it is dropped — exercising the same scoping the host wires from the worktree + scratch roots.
+	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
+		new(fileSystem, path => path.StartsWith("/w", StringComparison.Ordinal));
+
 	private static HookRequest Edit(HookEventKind evt, string path, string? cwd = null) => new() {
 		Event = evt,
 		ToolName = "Edit",
@@ -26,7 +31,7 @@ public sealed class SessionChangeTrackerTests {
 	public void Observe_EditPrePost_RecordsBaselineVsCurrent() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "old\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt"));
 		fileSystem.WriteAllText("/w/a.txt", "new\n"); // edit lands between pre and post
@@ -41,7 +46,7 @@ public sealed class SessionChangeTrackerTests {
 	[Fact]
 	public void Observe_CreatedFile_BaselineIsEmpty() {
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/new.txt")); // absent → baseline ""
 		fileSystem.WriteAllText("/w/new.txt", "hello\n");
@@ -54,7 +59,7 @@ public sealed class SessionChangeTrackerTests {
 
 	[Fact]
 	public void Observe_NonEditingTool_Ignored() {
-		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
+		var tracker = Tracker(new InMemoryFileSystem());
 		var bash = new HookRequest {
 			Event = HookEventKind.PreToolUse,
 			ToolName = "Bash",
@@ -67,10 +72,27 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void Observe_EditOutsideScope_Dropped() {
+		// Claude editing a file outside its worktree (e.g. its own memory under ~/.claude) is out of scope: the
+		// editor's file:// provider won't serve it, so tracking it would push an unopenable diff. It's dropped.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/elsewhere/memory.md", "old\n");
+		var tracker = Tracker(fileSystem);
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/elsewhere/memory.md"));
+		fileSystem.WriteAllText("/elsewhere/memory.md", "new\n");
+		tracker.Observe(Edit(HookEventKind.PostToolUse, "/elsewhere/memory.md"));
+
+		Assert.Empty(tracker.Changes());
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Null(tracker.Get("/elsewhere/memory.md"));
+	}
+
+	[Fact]
 	public void RecordChange_RaisesChanged() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "x");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		int fired = 0;
 		tracker.Changed += () => fired++;
 
@@ -86,7 +108,7 @@ public sealed class SessionChangeTrackerTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
 		fileSystem.WriteAllText("/w/b.txt", "b0\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		// Turn 1: a.txt a0 -> a1.
 		tracker.CaptureBaseline("/w/a.txt");
@@ -122,7 +144,7 @@ public sealed class SessionChangeTrackerTests {
 	public void AcceptTurn_ClearsTurnDiffButKeepsSessionDiff() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "v0\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt");
 		fileSystem.WriteAllText("/w/a.txt", "v1\n");
 		tracker.RecordChange("/w/a.txt");
@@ -135,7 +157,7 @@ public sealed class SessionChangeTrackerTests {
 
 	[Fact]
 	public void GetTurn_UntouchedThisTurn_ReturnsNull() {
-		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
+		var tracker = Tracker(new InMemoryFileSystem());
 		Assert.Null(tracker.GetTurn("/w/never.txt"));
 	}
 
@@ -143,7 +165,7 @@ public sealed class SessionChangeTrackerTests {
 	public void RecordChange_RaisesFileChangedWithPath() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "x");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		string? changedPath = null;
 		tracker.FileChanged += path => changedPath = path;
 
@@ -159,7 +181,7 @@ public sealed class SessionChangeTrackerTests {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
 		fileSystem.WriteAllText("/w/b.txt", "b0\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		// Edit 1 lands in default mode.
 		tracker.Observe(EditWithMode(HookEventKind.PreToolUse, "/w/a.txt", "default"));
@@ -180,7 +202,7 @@ public sealed class SessionChangeTrackerTests {
 	public void EditLocationFor_PostEdit_ReturnsWorkspaceRelativePathAndChangedLine() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/src/a.txt", "one\ntwo\nthree\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/src/a.txt", cwd: "/w"));
 		fileSystem.WriteAllText("/w/src/a.txt", "one\nTWO\nthree\n"); // line 2 changed
@@ -194,7 +216,7 @@ public sealed class SessionChangeTrackerTests {
 	public void EditLocationFor_PinpointsThisEdit_NotTheTurnsFirstChange() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "1\n2\n3\n4\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		// First edit changes line 1; the turn baseline sticks at "1\n2\n3\n4\n".
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w"));
@@ -212,7 +234,7 @@ public sealed class SessionChangeTrackerTests {
 
 	[Fact]
 	public void EditLocationFor_PreToolUse_ReturnsNull() {
-		var tracker = new SessionChangeTracker(new InMemoryFileSystem());
+		var tracker = Tracker(new InMemoryFileSystem());
 		Assert.Null(tracker.EditLocationFor(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w")));
 	}
 
@@ -220,7 +242,7 @@ public sealed class SessionChangeTrackerTests {
 	public void EditLocationFor_NoNetChange_ReturnsNull() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "same\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt", cwd: "/w"));
 		var post = Edit(HookEventKind.PostToolUse, "/w/a.txt", cwd: "/w"); // content unchanged
@@ -233,7 +255,7 @@ public sealed class SessionChangeTrackerTests {
 	public void Changes_NoNetChange_NotReported() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "same");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt");
 		tracker.RecordChange("/w/a.txt"); // current == baseline
 
@@ -244,7 +266,7 @@ public sealed class SessionChangeTrackerTests {
 	public void RevertHunk_MiddleHunk_RestoresThoseLinesLeavingOthersIntact() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt"); // baseline = a\nb\nc\nd\ne\n
 											 // Lines 2 (b->B) and 4 (d->D) change: two hunks separated by equal line c.
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n");
@@ -267,7 +289,7 @@ public sealed class SessionChangeTrackerTests {
 	public void RevertHunk_GuardMismatch_WritesNothing() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt");
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
 		tracker.RecordChange("/w/a.txt");
@@ -283,7 +305,7 @@ public sealed class SessionChangeTrackerTests {
 	[Fact]
 	public void RevertHunk_CreatedFile_DeletesIt() {
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/new.txt"); // absent at baseline → baseline ""
 		fileSystem.WriteAllText("/w/new.txt", "hello\nworld\n");
 		tracker.RecordChange("/w/new.txt");
@@ -300,7 +322,7 @@ public sealed class SessionChangeTrackerTests {
 	public void RevertFile_CreatedFileDeleted_ExistingRestoredToBaseline() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 
 		// a.txt existed at baseline (a0) and was edited; new.txt was created this session.
 		tracker.CaptureBaseline("/w/a.txt");
@@ -325,7 +347,7 @@ public sealed class SessionChangeTrackerTests {
 		// existence-at-baseline, not emptiness.
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", ""); // existed at baseline, empty
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.CaptureBaseline("/w/a.txt");
 		fileSystem.WriteAllText("/w/a.txt", "added\n");
 		tracker.RecordChange("/w/a.txt");
@@ -349,7 +371,7 @@ public sealed class SessionChangeTrackerTests {
 		// reconciles the tracked set against disk: the vanished file leaves the review walk (it can't be opened),
 		// raising FileDeleted for it and a single Changed.
 		var fileSystem = new InMemoryFileSystem();
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		string? deleted = null;
 		tracker.FileDeleted += path => deleted = path;
 
@@ -378,7 +400,7 @@ public sealed class SessionChangeTrackerTests {
 		// must not spuriously re-push the review set.
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/a.txt"));
 		fileSystem.WriteAllText("/w/a.txt", "a1\n");
 		tracker.Observe(Edit(HookEventKind.PostToolUse, "/w/a.txt"));
@@ -402,7 +424,7 @@ public sealed class SessionChangeTrackerTests {
 		// ← / → on it.
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		var tracker = Tracker(fileSystem);
 		string? deleted = null;
 		tracker.FileDeleted += path => deleted = path;
 

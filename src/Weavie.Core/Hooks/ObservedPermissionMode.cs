@@ -14,6 +14,13 @@ public sealed class ObservedPermissionMode {
 	public string Current => _current;
 
 	/// <summary>
+	/// Raised when the observed mode actually changes value (not on every event). Lets the host react to a
+	/// Shift+Tab — e.g. tear down a stale blocking openDiff when Claude flips into an auto-apply mode. Fires on
+	/// the hook accept loop.
+	/// </summary>
+	public event Action? Changed;
+
+	/// <summary>
 	/// True when Claude is auto-applying edits without a per-edit review (<c>acceptEdits</c> or
 	/// <c>bypassPermissions</c>), the condition under which the post-turn review navigator is the review surface.
 	/// </summary>
@@ -23,8 +30,11 @@ public sealed class ObservedPermissionMode {
 	/// <param name="request">The observed hook event.</param>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
-		if (!string.IsNullOrEmpty(request.PermissionMode)) {
-			_current = request.PermissionMode;
+		if (string.IsNullOrEmpty(request.PermissionMode) || request.PermissionMode == _current) {
+			return;
 		}
+
+		_current = request.PermissionMode;
+		Changed?.Invoke();
 	}
 }

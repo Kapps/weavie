@@ -22,7 +22,8 @@ public sealed class ChangeMessagesTests {
 	public void TurnChanges_ListsFilesAndCarriesOpenFlag() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\n");
-		var tracker = new SessionChangeTracker(fileSystem);
+		// CaptureBaseline/RecordChange are called directly here (not via Observe), so scope is moot; accept all.
+		var tracker = new SessionChangeTracker(fileSystem, _ => true);
 		tracker.CaptureBaseline("/w/a.txt");
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		tracker.RecordChange("/w/a.txt");

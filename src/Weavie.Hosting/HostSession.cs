@@ -96,8 +96,12 @@ public sealed class HostSession : IAsyncDisposable {
 		Editor = new EditorStore();
 
 		// Built before the IDE-MCP server so its EditLocationFor can back the hook bridge's edit jump-links
-		// (the bridge decision runs after the tracker has folded in the PostToolUse content).
-		Changes = new SessionChangeTracker(fileSystem);
+		// (the bridge decision runs after the tracker has folded in the PostToolUse content). Scoped to the same
+		// roots the file provider serves (worktree + scratch) so an edit Claude makes outside this session — its
+		// own memory/config under ~/.claude, say — is never tracked and so never pushed as an unopenable diff.
+		Changes = new SessionChangeTracker(
+			fileSystem,
+			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
 		// Mirrors Claude's own edit mode (default/acceptEdits/plan), observed off the hook stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();
@@ -134,6 +138,16 @@ public sealed class HostSession : IAsyncDisposable {
 		Ide.HookBridge.Observed += Changes.Observe;
 		// The same stream mirrors Claude's observed edit mode (its permission_mode field).
 		Ide.HookBridge.Observed += ObservedMode.Observe;
+		// When Claude flips into an auto-apply mode (e.g. the user hits Shift+Tab to acceptEdits to clear a
+		// pending default-mode openDiff in the TUI rather than resolving it in Weavie), tear down any stale
+		// blocking openDiff. Left alone it would strand its transient review model over the editor and block the
+		// post-turn review from opening files. Fires on the hook accept loop; EndDiff only touches the page when
+		// this session is the active one.
+		ObservedMode.Changed += () => {
+			if (ObservedMode.AutoAppliesEdits) {
+				DiffPresenter.DismissPending();
+			}
+		};
 		// Keeps the resume store honest with what claude actually did: a /clear (SessionStart source=clear)
 		// abandons the tracked id so the next launch cold-starts instead of resuming the stale transcript, and
 		// the next real message adopts the id claude settled on. The controller owns the store policy.

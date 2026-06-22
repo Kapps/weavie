@@ -43,13 +43,8 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		var tcs = new TaskCompletionSource<DiffOutcome>(TaskCreationOptions.RunContinuationsAsynchronously);
 		_pending[id] = tcs;
 
-		cancellationToken.Register(() => {
-			if (_pending.TryRemove(id, out var pending)) {
-				pending.TrySetCanceled();
-				// Tear the diff out of the page (if it's the active session's, so it's actually rendered there).
-				_channel.EndDiff(id, closeInUi: true);
-			}
-		});
+		// Tear the diff out of the page (if it's the active session's, so it's actually rendered there).
+		cancellationToken.Register(() => Abandon(id));
 
 		string original = _fileSystem.FileExists(proposal.OldFilePath) ? _fileSystem.ReadAllText(proposal.OldFilePath) : string.Empty;
 		// Held by the channel: rendered now if this session is active, else surfaced when it's switched in.
@@ -79,6 +74,29 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		}
 
 		return System.Text.Encoding.UTF8.GetString(stream.ToArray());
+	}
+
+	/// <summary>
+	/// Abandons every still-pending openDiff because Claude flipped into an auto-apply edit mode
+	/// (acceptEdits/bypassPermissions) — typically the user hitting Shift+Tab to clear a default-mode review in
+	/// the TUI instead of resolving it in Weavie. A blocking review is no longer the surface, and a left-over
+	/// one would strand its transient review model over the editor and block the post-turn review from opening
+	/// files. Cancels each awaiting task (the MCP server then sends no response — Claude already moved on) and
+	/// closes the stale review in the page. Wired to <c>ObservedPermissionMode.Changed</c> in HostSession.
+	/// </summary>
+	public void DismissPending() {
+		foreach (string id in _pending.Keys) {
+			Abandon(id);
+		}
+	}
+
+	// Drops a pending diff and, when it's the active session's rendered one, tears it out of the page. Shared by
+	// the per-request cancellation token and the auto-apply dismissal above.
+	private void Abandon(string id) {
+		if (_pending.TryRemove(id, out var pending)) {
+			pending.TrySetCanceled();
+			_channel.EndDiff(id, closeInUi: true);
+		}
 	}
 
 	/// <summary>

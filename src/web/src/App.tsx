@@ -150,6 +150,7 @@ export default function App(): JSX.Element {
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
     onSaveError: (message) => addToast("error", message),
+    onOpenError: (message) => addToast("error", message),
     onCurrentFileChanged: setCurrentFile,
     confirmDiscard,
   });

@@ -42,19 +42,26 @@ public sealed class FontSettingsTests : IDisposable {
 	private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
 	[Fact]
-	public void Defaults_BothSurfacesInheritTheGlobal() {
+	public void Defaults_SizeAndWeightInheritGlobal_EachSurfaceFamilyDefaultsToItsBundledMono() {
 		using var store = NewStore();
 
 		var editor = FontSettings.ResolveEditor(store);
 		var terminal = FontSettings.ResolveTerminal(store);
 
+		// Size and weight inherit the global default on both surfaces.
 		long globalDefault = GlobalDefaultSize(store);
 		Assert.Equal(globalDefault, editor.Size);
 		Assert.Equal(globalDefault, terminal.Size);
 		Assert.Equal("normal", editor.Weight);
 		Assert.Equal("normal", terminal.Weight);
+
+		// Each surface's family has its own default leading with a bundled font (editor → Go Mono,
+		// terminal → JetBrains Mono); both end in generic monospace, and they don't match each other.
+		Assert.Contains("Go Mono", editor.Family, StringComparison.Ordinal);
 		Assert.Contains("monospace", editor.Family, StringComparison.Ordinal);
-		Assert.Equal(editor.Family, terminal.Family);
+		Assert.Contains("JetBrains Mono", terminal.Family, StringComparison.Ordinal);
+		Assert.Contains("monospace", terminal.Family, StringComparison.Ordinal);
+		Assert.NotEqual(editor.Family, terminal.Family);
 	}
 
 	[Fact]
@@ -68,7 +75,7 @@ public sealed class FontSettingsTests : IDisposable {
 
 		Assert.Equal(18, editor.Size);
 		Assert.Equal("JetBrains Mono", editor.Family);
-		// Terminal untouched — still resolves to the global default.
+		// Terminal untouched — still resolves to its own family default.
 		Assert.Equal(GlobalDefaultSize(store), terminal.Size);
 		Assert.Contains("monospace", terminal.Family, StringComparison.Ordinal);
 	}

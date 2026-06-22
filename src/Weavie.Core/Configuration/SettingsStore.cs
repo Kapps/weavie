@@ -22,6 +22,18 @@ public sealed record SetResult {
 	public required ApplyMode Apply { get; init; }
 }
 
+/// <summary>The outcome of a <see cref="SettingsStore.Clear"/> — what to tell the user.</summary>
+public sealed record ClearResult {
+	/// <summary>Whether a user-file override was actually present and removed.</summary>
+	public required bool Removed { get; init; }
+
+	/// <summary>The env var that still overrides the resolved value (so it's unchanged), or <c>null</c>.</summary>
+	public string? ShadowedByEnv { get; init; }
+
+	/// <summary>How the change takes effect.</summary>
+	public required ApplyMode Apply { get; init; }
+}
+
 /// <summary>A single resolved-value change, raised to subscribers of <see cref="SettingsStore.SettingChanged"/>.</summary>
 public readonly record struct SettingChange(string Key, object? OldValue, object? NewValue, SettingSource Source);
 
@@ -161,6 +173,37 @@ public sealed class SettingsStore : IDisposable {
 
 			string? shadow = ResolveLocked(definition).Source == SettingSource.Environment ? definition.EnvVar : null;
 			result = new SetResult { Written = true, ShadowedByEnv = shadow, Apply = definition.Apply };
+		}
+
+		RaiseChanges(changes);
+		return result;
+	}
+
+	/// <summary>
+	/// Removes <paramref name="key"/>'s user-file override (if any), so it falls back to its env var or
+	/// registered default, raising <see cref="SettingChanged"/> if the effective value changed. The inverse of
+	/// <see cref="Set"/>. Returns whether an override was present and how the change applies. Throws
+	/// <see cref="UnknownSettingException"/> for an unknown key, or <see cref="SettingsFileMalformedException"/>
+	/// when the file has parse errors and can't be safely rewritten.
+	/// </summary>
+	public ClearResult Clear(string key) {
+		List<SettingChange> changes;
+		ClearResult result;
+		lock (_gate) {
+			var definition = _registry.Require(key);
+			if (_malformed) {
+				throw new SettingsFileMalformedException(
+					$"{FilePath} has TOML parse errors; fix or delete it before changing settings.");
+			}
+
+			bool removed = RemoveKeyLocked(definition.Key);
+			if (removed) {
+				SaveAtomicLocked();
+			}
+
+			changes = RecomputeAndDiffLocked();
+			string? shadow = ResolveLocked(definition).Source == SettingSource.Environment ? definition.EnvVar : null;
+			result = new ClearResult { Removed = removed, ShadowedByEnv = shadow, Apply = definition.Apply };
 		}
 
 		RaiseChanges(changes);
@@ -515,6 +558,53 @@ public sealed class SettingsStore : IDisposable {
 		}
 
 		return null;
+	}
+
+	// Removes every user-file entry for `key` — both the root-level dotted form Set writes
+	// (`terminal.font.family = …`) and entries nested under a hand-edited [table] / [table.sub] header.
+	// Collects matches before removing (can't mutate the syntax list mid-enumeration); rebuilds the model so
+	// resolution reflects the deletion. Returns whether anything was removed. An emptied table header is left
+	// in place — harmless, and pruning it risks dropping a user's comments.
+	private bool RemoveKeyLocked(string key) {
+		bool removed = false;
+
+		var rootMatches = new List<KeyValueSyntax>();
+		foreach (var keyValue in _doc.KeyValues) {
+			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
+				rootMatches.Add(keyValue);
+			}
+		}
+
+		foreach (var match in rootMatches) {
+			_doc.KeyValues.RemoveChild(match);
+			removed = true;
+		}
+
+		foreach (var table in _doc.Tables) {
+			if (table.Name is not { } tableName) {
+				continue;
+			}
+
+			string prefix = DottedKeyName(tableName);
+			var itemMatches = new List<KeyValueSyntax>();
+			foreach (var item in table.Items) {
+				if (item.Key is { } syntax
+					&& string.Equals($"{prefix}.{DottedKeyName(syntax)}", key, StringComparison.Ordinal)) {
+					itemMatches.Add(item);
+				}
+			}
+
+			foreach (var match in itemMatches) {
+				table.Items.RemoveChild(match);
+				removed = true;
+			}
+		}
+
+		if (removed) {
+			_model = _doc.ToModel();
+		}
+
+		return removed;
 	}
 
 	private void SaveAtomicLocked() {

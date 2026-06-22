@@ -54,6 +54,16 @@ public static class FontSettings {
 	private const string DefaultFamily =
 		"""ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace""";
 
+	// Terminal default leads with JetBrains Mono, which we bundle (see web/src/fonts.css) so it renders even
+	// where it isn't installed; the rest is the cross-platform fallback chain ending in generic monospace.
+	private const string DefaultTerminalFamily =
+		"\"JetBrains Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
+
+	// Editor default leads with Go Mono, which we bundle (see web/src/fonts.css) so it renders even where it
+	// isn't installed; the rest is the cross-platform fallback chain ending in generic monospace.
+	private const string DefaultEditorFamily =
+		"\"Go Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
+
 	private const long DefaultSize = 16;
 	private const string DefaultWeight = "normal";
 	private const long MinSize = 6;
@@ -101,8 +111,9 @@ public static class FontSettings {
 			Default = DefaultWeight,
 		});
 
-		RegisterOverride(registry, EditorFamily, EditorSize, EditorWeight, "editor", ["editor font"]);
-		RegisterOverride(registry, TerminalFamily, TerminalSize, TerminalWeight, "terminal", ["terminal font"]);
+		RegisterOverride(registry, EditorFamily, EditorSize, EditorWeight, "editor", ["editor font"], DefaultEditorFamily);
+		RegisterOverride(
+			registry, TerminalFamily, TerminalSize, TerminalWeight, "terminal", ["terminal font"], DefaultTerminalFamily);
 	}
 
 	/// <summary>The editor's effective font after applying its overrides over the global default.</summary>
@@ -135,14 +146,14 @@ public static class FontSettings {
 
 	private static void RegisterOverride(
 		SettingsRegistry registry, string familyKey, string sizeKey, string weightKey, string surface,
-		IReadOnlyList<string> aliasRoots) {
+		IReadOnlyList<string> aliasRoots, string familyDefault) {
 		registry.Register(new SettingDefinition {
 			Key = familyKey,
 			Kind = SettingKind.String,
 			Description = $"Font family for the {surface} only; empty inherits the global font.family.",
 			Aliases = [.. aliasRoots, $"{surface} font family"],
 			Apply = ApplyMode.Live,
-			Default = string.Empty,
+			Default = familyDefault,
 		});
 
 		registry.Register(new SettingDefinition {

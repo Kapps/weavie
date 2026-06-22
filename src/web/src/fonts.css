@@ -1,15 +1,59 @@
-/* Bundled UI typeface — Chivo (SIL Open Font License 1.1; license shipped at public/fonts/OFL.txt).
-   A sturdy news-grotesque for Weavie's chrome — tabs, title bar, menus, panels — deliberately NOT the
-   soft system-UI / VS Code (Segoe UI) look, and chosen because it stays crisp/technical at 12–14px text
-   size (where a display grotesque washes out). The single variable woff2 covers the whole 100–900 weight
-   range. Monaco and xterm keep their own monospace (driven by settings), so only chrome adopts this.
-   Lives in public/ and is referenced absolutely so both entries — the workspace (index.html) and the
-   welcome window (welcome.html) — resolve it at the web root under the custom app scheme. Imported by
-   both main.tsx and welcome/index.tsx. */
+/* Bundled fonts. All live in public/ and are referenced absolutely so the two entries — the workspace
+   (index.html) and the welcome window (welcome.html) — resolve them at the web root under the custom app
+   scheme. Imported once by both main.tsx and welcome/index.tsx. The per-surface defaults live in
+   FontSettings.cs; bundling means each renders even on machines where the font isn't installed.
+
+   • Chivo — Weavie's chrome typeface (tabs, title bar, menus, panels), deliberately NOT the soft
+     system-UI / VS Code (Segoe UI) look, and chosen because it stays crisp/technical at 12–14px (where
+     a display grotesque washes out). Single variable woff2 (100–900). SIL OFL 1.1: public/fonts/OFL.txt.
+   • JetBrains Mono — the terminal's default monospace. Single variable woff2 (100–900). SIL OFL 1.1:
+     public/fonts/JetBrainsMono-OFL.txt.
+   • Go Mono (Bigelow & Holmes, for the Go project) — the editor's default monospace. Not a variable
+     font, so four static faces (regular/bold/italic/bold-italic). BSD-3-Clause: public/fonts/GoMono-LICENSE.txt. */
 @font-face {
   font-family: "Chivo";
   font-style: normal;
   font-weight: 100 900;
   font-display: swap;
   src: url("/fonts/chivo-variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/jetbrains-mono-variable.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Go Mono";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/go-mono.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Go Mono";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/go-mono-bold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Go Mono";
+  font-style: italic;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/fonts/go-mono-italic.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Go Mono";
+  font-style: italic;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/fonts/go-mono-bold-italic.woff2") format("woff2");
 }

@@ -64,6 +64,9 @@ export function TerminalView(props: {
     window.__WEAVIE_TERMINALS__ ??= {};
     window.__WEAVIE_TERMINALS__[termKey] = term;
 
+    // Set on unmount so the async fonts.ready callback below never touches a disposed terminal.
+    let disposed = false;
+
     // Re-fit to the container and force a repaint, for any event that can leave the WebGL canvas
     // stale/blank or the PTY sized to the wrong grid (layout/window resize, lost GL context, becoming
     // visible, HMR). fit() updates cols/rows (notifying the PTY); refresh() guarantees a paint even at an
@@ -180,6 +183,19 @@ export function TerminalView(props: {
 
     refit();
 
+    // The default terminal font (JetBrains Mono) is a bundled webfont that can finish loading AFTER
+    // term.open() has measured glyph-cell metrics against the fallback font — leaving text misaligned
+    // until something refits. Once fonts are ready, re-assert fontFamily (forcing xterm to re-measure)
+    // and refit so the PTY's cols/rows match the real metrics. No-op when the font was already loaded.
+    void document.fonts.ready.then(() => {
+      if (disposed) {
+        return;
+      }
+
+      term.options.fontFamily = currentFonts().terminal.family;
+      refit();
+    });
+
     term.onData((data) => {
       postToHost({
         type: "term-input",
@@ -267,6 +283,7 @@ export function TerminalView(props: {
     });
 
     onCleanup(() => {
+      disposed = true;
       offHost();
       offFonts();
       offTheme();

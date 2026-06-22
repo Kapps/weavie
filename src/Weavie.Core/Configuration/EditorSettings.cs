@@ -68,11 +68,14 @@ public static class EditorSettings {
 	/// <summary>Auto-expand the documentation flyout beside the autocomplete list (custom behavior).</summary>
 	public const string SuggestExpandDocs = "editor.suggest.expandDocs";
 
+	/// <summary>Render multi-line and doc comments as styled prose (custom behavior, not a Monaco option).</summary>
+	public const string CommentProse = "editor.commentProse";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
-		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs,
+		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse,
 	];
 
 	// 300ms before the hover reveals — Monaco's standard default; long enough to avoid flicker on a quick mouse
@@ -145,6 +148,14 @@ public static class EditorSettings {
 			["suggestion docs", "completion documentation", "expand suggestion docs", "autocomplete docs",
 				"show completion documentation"],
 			true));
+
+		registry.Register(Toggle(CommentProse,
+			"Render multi-line and documentation comments as styled prose — wrapped text, numbered and "
+				+ "bulleted lists, and inline `code` chips — collapsing the raw comment in place. Click a "
+				+ "rendered comment to edit its source.",
+			["comment prose", "render comments", "pretty comments", "comment rendering", "prose comments",
+				"format comments"],
+			true));
 	}
 
 	/// <summary>
@@ -189,6 +200,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("indentGuides", store.RequireBool(IndentGuides));
 		writer.WriteNumber("hoverDelay", store.RequireInt(HoverDelay));
 		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
+		writer.WriteBoolean("commentProse", store.RequireBool(CommentProse));
 		writer.WriteEndObject();
 	}
 

@@ -95,6 +95,7 @@ export interface EditorOptionsSpec {
   indentGuides: boolean;
   hoverDelay: number;
   suggestExpandDocs: boolean;
+  commentProse: boolean;
 }
 
 export type HostBoundMessage =

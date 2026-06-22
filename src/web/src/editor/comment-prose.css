@@ -1,0 +1,66 @@
+/* Comment-prose view zones (comment-prose.ts): a collapsed multi-line / doc comment rendered as wrapped prose
+   in place of its raw lines. Sits inside Monaco's view-zone layer, aligned to the code's left edge, styled to
+   read as a quieter, friendlier version of the comment it replaces. */
+
+/* The outer zone node Monaco positions + force-sizes. Monaco renders the view-zones layer beneath the
+   (absolutely-positioned, z-auto) `.view-lines` text layer, which would otherwise swallow clicks over the
+   prose. The zone node is already position:absolute, so a small positive z-index lifts it above the text layer
+   while staying under sticky-scroll (z-index 4). The inner content node is what we measure to size the zone. */
+.weavie-comment-prose-zone {
+  z-index: 3;
+  pointer-events: auto;
+}
+
+.weavie-comment-prose {
+  /* Align with the code: Monaco's content starts after the gutter; the zone container already accounts for it,
+     so only a small left inset keeps the prose off the very edge. */
+  padding: 2px 16px 6px 0;
+  /* A subtly different face from the monospace code, but inherit the editor's comment colour (var --dim falls
+     back to a muted grey) so it still reads as a comment, not body text. */
+  font-family: var(--prose-font), system-ui, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--dim, #8a8f99);
+  cursor: text;
+  /* A faint left rule echoes a comment's gutter, hinting the block is a single editable unit. */
+  border-left: 2px solid var(--border, #3a3d44);
+  padding-left: 10px;
+}
+
+.weavie-comment-prose:hover {
+  border-left-color: var(--accent, #6ea8fe);
+}
+
+.weavie-comment-prose p {
+  margin: 0 0 6px;
+}
+
+.weavie-comment-prose p:last-child,
+.weavie-comment-prose ul:last-child,
+.weavie-comment-prose ol:last-child {
+  margin-bottom: 0;
+}
+
+.weavie-comment-prose ul,
+.weavie-comment-prose ol {
+  margin: 0 0 6px;
+  padding-left: 22px;
+}
+
+.weavie-comment-prose li {
+  margin: 1px 0;
+}
+
+/* Inline code chips: a small pill that lifts `bake` / `go run` style spans out of the prose, matching the
+   screenshot. Monospace + a faint fill + border so they read as code without shouting. */
+.weavie-comment-prose .weavie-comment-code {
+  font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas,
+    monospace;
+  font-size: 0.92em;
+  padding: 0.5px 5px;
+  border-radius: 4px;
+  background: var(--bar, rgba(127, 127, 127, 0.16));
+  border: 1px solid var(--border, rgba(127, 127, 127, 0.28));
+  color: var(--fg, #c9d1d9);
+  white-space: nowrap;
+}

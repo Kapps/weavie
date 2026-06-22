@@ -15,4 +15,26 @@
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
+  <!--
+    One-command deploy: `dotnet publish Weavie.Runner` yields a runnable runner with its worker beside it,
+    so there's nothing else to publish. The runner spawns Weavie.Headless but deliberately does NOT
+    reference it: a ProjectReference would copy Weavie.Headless.dll yet DROP the worker's wwwroot/ and the
+    co-located hook relay (both staged by the worker's OWN publish targets), leaving a worker that serves a
+    fallback page and throws the moment it spawns claude. So publish the worker as a complete unit into a
+    `worker/` subfolder of the runner's publish output; ProbeCandidates() looks there. A subfolder — not
+    the runner's own dir — keeps the two Sdk.Web apps' same-named files (web.config, etc.) from colliding.
+    Configuration / RID / self-contained are propagated so the worker's RID-specific bits (NativeAOT relay,
+    apphost) match the runner's.
+  -->
+  <Target Name="StageHeadlessWorker" AfterTargets="Publish">
+    <PropertyGroup>
+      <_WorkerProj>$(MSBuildThisFileDirectory)..\Weavie.Headless\Weavie.Headless.csproj</_WorkerProj>
+      <_WorkerOut>$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(PublishDir)', 'worker'))</_WorkerOut>
+      <_WorkerRid Condition="'$(RuntimeIdentifier)' != ''">-r $(RuntimeIdentifier)</_WorkerRid>
+      <_WorkerSelfContained Condition="'$(SelfContained)' != ''">--self-contained $(SelfContained)</_WorkerSelfContained>
+    </PropertyGroup>
+    <Message Importance="high" Text="weavie: publishing Weavie.Headless worker -> $(_WorkerOut)" />
+    <Exec Command="dotnet publish &quot;$(_WorkerProj)&quot; -c $(Configuration) $(_WorkerRid) $(_WorkerSelfContained) -o &quot;$(_WorkerOut)&quot; --nologo" />
+  </Target>
+
 </Project>

@@ -1,10 +1,9 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Text;
-using Weavie.Core.Terminal;
-using static Weavie.Win.Terminal.ConPtyNativeMethods;
+using static Weavie.Core.Terminal.ConPtyNativeMethods;
 
-namespace Weavie.Win.Terminal;
+namespace Weavie.Core.Terminal;
 
 /// <summary>
 /// Real Windows PTY via ConPTY: opens a pseudo console, launches the child attached to it with
@@ -13,7 +12,7 @@ namespace Weavie.Win.Terminal;
 /// <see cref="ITerminal"/> for identical host wiring. <c>CreateProcess</c> searches PATH, so the
 /// command need not be absolute.
 /// </summary>
-internal sealed class WindowsConPtyTerminal : ITerminal {
+public sealed class WindowsConPtyTerminal : ITerminal {
 	// How long Dispose waits for the child to exit after the pseudo console is closed, then how long it
 	// waits after force-terminating. Bounded so teardown can't hang; the force step kills rather than abandons.
 	private static readonly TimeSpan GracefulExitTimeout = TimeSpan.FromSeconds(3);
@@ -30,11 +29,15 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 	private volatile bool _running;
 	private int _exitRaised;
 
+	/// <inheritdoc/>
 	public event Action<byte[]>? Output;
+	/// <inheritdoc/>
 	public event Action<int>? Exited;
 
+	/// <inheritdoc/>
 	public bool IsRunning => _running;
 
+	/// <inheritdoc/>
 	public void Start(TerminalStartInfo startInfo) {
 		ArgumentNullException.ThrowIfNull(startInfo);
 
@@ -215,6 +218,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 		sb.Append('"');
 	}
 
+	/// <inheritdoc/>
 	public void Write(byte[] data) {
 		ArgumentNullException.ThrowIfNull(data);
 		if (!_running || _inputWrite == 0 || data.Length == 0) {
@@ -239,6 +243,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 		}
 	}
 
+	/// <inheritdoc/>
 	public void Resize(int columns, int rows) {
 		if (_hPC == 0) {
 			return;
@@ -290,6 +295,7 @@ internal sealed class WindowsConPtyTerminal : ITerminal {
 		Exited?.Invoke(code);
 	}
 
+	/// <inheritdoc/>
 	public void Dispose() {
 		nint process;
 		Thread? readThread;

@@ -5,15 +5,16 @@ using Weavie.Hosting;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The headless platform shell: a WebSocket bridge, inline dispatch (no UI thread), POSIX PTYs, and no native
-/// window / hotkey / dialog capabilities. The thinnest <see cref="IHostPlatform"/>.
+/// The headless platform shell: a WebSocket bridge, inline dispatch (no UI thread), the per-OS PTY backend
+/// (ConPTY on Windows, POSIX elsewhere — the worker runs claude/shell on whatever box it's deployed to), and
+/// no native window / hotkey / dialog capabilities. The thinnest <see cref="IHostPlatform"/>.
 /// </summary>
 internal sealed class HeadlessPlatform : IHostPlatform {
 	public HeadlessPlatform(IHostBridge bridge) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		Bridge = bridge;
 		Dispatcher = new InlineUiDispatcher();
-		PtyLauncher = new PosixPtyLauncher();
+		PtyLauncher = OperatingSystem.IsWindows() ? new WindowsPtyLauncher() : new PosixPtyLauncher();
 	}
 
 	public IHostBridge Bridge { get; }

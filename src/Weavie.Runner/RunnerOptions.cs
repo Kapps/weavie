@@ -97,21 +97,24 @@ public sealed record RunnerOptions {
 
 	/// <summary>
 	/// The build locations to probe for the worker dll, nearest-first: the sibling Weavie.Headless project output
-	/// (dev build), then a copy beside the runner (published layout). Only the last <c>Weavie.Runner</c> path
-	/// segment is rewritten, so a checkout under a <c>Weavie.Runner</c> directory can't be corrupted.
+	/// (dev <c>dotnet run</c>), the <c>worker/</c> subfolder that <c>dotnet publish Weavie.Runner</c> stages next
+	/// to the runner (the deployed layout — see Weavie.Runner.csproj), then a manual same-dir co-locate. Only the
+	/// last <c>Weavie.Runner</c> path segment is rewritten, so a checkout under a <c>Weavie.Runner</c> directory
+	/// can't be corrupted.
 	/// </summary>
 	private static IReadOnlyList<string> ProbeCandidates() {
-		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/<tfm>/
+		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/<tfm>/ (dev) or the deploy dir
 		string sibling = ReplaceLast(
 			baseDir,
 			$"{Path.DirectorySeparatorChar}Weavie.Runner{Path.DirectorySeparatorChar}",
 			$"{Path.DirectorySeparatorChar}Weavie.Headless{Path.DirectorySeparatorChar}");
 
-		string siblingDll = Path.Combine(sibling, "Weavie.Headless.dll");
-		string colocatedDll = Path.Combine(baseDir, "Weavie.Headless.dll");
-		return string.Equals(siblingDll, colocatedDll, StringComparison.Ordinal)
-			? [colocatedDll]
-			: [siblingDll, colocatedDll];
+		string[] candidates = [
+			Path.Combine(sibling, "Weavie.Headless.dll"),
+			Path.Combine(baseDir, "worker", "Weavie.Headless.dll"),
+			Path.Combine(baseDir, "Weavie.Headless.dll"),
+		];
+		return candidates.Distinct(StringComparer.Ordinal).ToList();
 	}
 
 	/// <summary>Replaces the LAST occurrence of <paramref name="find"/> only (or returns the string unchanged).</summary>

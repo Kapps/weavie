@@ -1,15 +1,15 @@
 using Weavie.Core.Configuration;
 using Weavie.Core.Terminal;
-using Weavie.Hosting;
 
-namespace Weavie.Win.Terminal;
+namespace Weavie.Hosting;
 
 /// <summary>
 /// The Windows PTY launcher: a <see cref="WindowsConPtyTerminal"/> (ConPTY) backend, claude resolved from the
 /// <c>claude.path</c> setting, and the shell from <c>terminal.shell</c>. ConPTY ignores <c>TERM</c>, so no
-/// colour env is injected.
+/// colour env is injected. The POSIX sibling is <see cref="PosixPtyLauncher"/>; both live here so every host —
+/// the native Windows shell and the headless worker running on Windows — picks the right one per OS.
 /// </summary>
-internal sealed class WindowsPtyLauncher : IPtyLauncher {
+public sealed class WindowsPtyLauncher : IPtyLauncher {
 	/// <inheritdoc/>
 	public ITerminal CreateTerminal() => new WindowsConPtyTerminal();
 

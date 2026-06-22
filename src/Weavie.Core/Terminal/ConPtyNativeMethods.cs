@@ -1,6 +1,6 @@
 using System.Runtime.InteropServices;
 
-namespace Weavie.Win.Terminal;
+namespace Weavie.Core.Terminal;
 
 /// <summary>
 /// kernel32 P/Invoke for a Windows pseudo console (ConPTY): anonymous pipes feed

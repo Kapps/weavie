@@ -166,9 +166,12 @@ The Win-only members fold into the shared controller with no behavior change for
 - `SupervisorChanged` re-broadcasts supervisor transitions for the per-session status machine (fires
   into zero subscribers on hosts that don't use it — free).
 
-Because `WindowsConPtyTerminal` is `internal` to `Weavie.Win`, the Win `IPtyLauncher` lives Win-side
-and is injected; the POSIX launcher lives in `Weavie.Hosting`. Deleting Win's three private copies
-removes ~479 lines.
+Both PTY launchers live in shared code — `PosixPtyLauncher` and `WindowsPtyLauncher` in `Weavie.Hosting`,
+with their backends (`PosixPtyTerminal`, `WindowsConPtyTerminal` + `ConPtyNativeMethods`) in
+`Weavie.Core.Terminal`. Each host injects the launcher for the OS it runs on; the Windows shell and the
+headless worker both pick `WindowsPtyLauncher` via `OperatingSystem.IsWindows()`, so a headless worker
+deployed on Windows gets ConPTY rather than the POSIX backend's `libc` P/Invoke. (Originally the ConPTY
+backend was `internal` to `Weavie.Win`; it moved to shared code so the worker could run on Windows.)
 
 ## Session coordinator extraction
 

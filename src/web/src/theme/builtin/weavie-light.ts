@@ -1,9 +1,11 @@
-// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (sage-teal keywords,
+// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (deep forest-green keywords,
 // deeper green strings, sea-green numbers) on a dimmed paper canvas (#e3e2da). The identifier family is
-// split by hue so roles never blur and pitched by contrast: variables deep blue (italic) and properties a
-// blue cousin one step up — both dark, so the names read most stand hardest off the paper — functions
-// crimson (the lone warm accent), and types cool cyan-teal. Keywords stay quieter than identifiers,
-// comments a soft neutral grey, punctuation quiet but legible. Chrome sits one step darker than the editor
+// split by hue so roles never blur and pitched by contrast: variables a deep blue and properties a
+// quieter steel-blue cousin — the names scanned most, present without shouting — functions
+// crimson (the lone warm accent), and types cool cyan-teal. Keywords sit a notch below identifiers but
+// hold ~6.5:1 on the paper; comments an upright neutral grey held legible at ~6.5:1 (doc-comment prose reads
+// the same neutral — only the XML/doc <tags> take the keyword green); punctuation quiet but legible. Chrome
+// sits one step darker than the editor
 // so the canvas reads as the focal well it frames. The same `colors` map drives editor, terminal, and
 // chrome (spec §5), so overrides (spec §6) and installed Open VSX themes address the same keys.
 
@@ -163,7 +165,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "Comment",
       scope: ["comment", "punctuation.definition.comment", "string.comment"],
-      settings: { foreground: "#8a949d", fontStyle: "italic" },
+      settings: { foreground: "#474e58" },
     },
     {
       name: "String",
@@ -204,12 +206,12 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "keyword.operator.expression",
         "keyword.operator.logical",
       ],
-      settings: { foreground: "#4f8676" },
+      settings: { foreground: "#14563b" },
     },
     {
       name: "Storage / type keyword / modifier",
       scope: ["storage", "storage.type", "storage.modifier", "keyword.declaration"],
-      settings: { foreground: "#4f8676" },
+      settings: { foreground: "#14563b" },
     },
     {
       name: "Operator / accessor",
@@ -247,7 +249,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "variable.parameter",
         "meta.parameter",
       ],
-      settings: { foreground: "#1b3b7a", fontStyle: "italic" },
+      settings: { foreground: "#2a4490" },
     },
     {
       name: "Property",
@@ -267,12 +269,12 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "Language variable (this / self / super)",
       scope: ["variable.language", "variable.language.this"],
-      settings: { foreground: "#4f8676", fontStyle: "italic" },
+      settings: { foreground: "#14563b" },
     },
     {
       name: "Tag",
       scope: ["entity.name.tag", "punctuation.definition.tag"],
-      settings: { foreground: "#4f8676" },
+      settings: { foreground: "#14563b" },
     },
     {
       name: "Tag attribute",
@@ -345,15 +347,15 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     // Functions are crimson — the lone warm accent — so calls and definitions stand out from the data.
     function: "#bb3326",
     method: "#bb3326",
-    macro: "#4f8676",
-    keyword: "#4f8676",
+    macro: "#14563b",
+    keyword: "#14563b",
     string: "#2a7d34",
     operator: "#6b7682",
-    comment: { foreground: "#8a949d", fontStyle: "italic" },
-    // Variables (incl. parameters) are deep blue, italic — pitched dark so the data scanned most stands
-    // hardest off the paper; properties a related blue cousin one step up.
-    variable: { foreground: "#1b3b7a", fontStyle: "italic" },
-    parameter: { foreground: "#1b3b7a", fontStyle: "italic" },
+    comment: "#474e58",
+    // Variables (incl. parameters) are a deep blue — the data scanned most, present without shouting at
+    // ~6.9:1; properties a quieter steel-blue cousin one step up.
+    variable: "#2a4490",
+    parameter: "#2a4490",
     property: "#2f5590",
     "property.readonly": "#2f5590",
   },

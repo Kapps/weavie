@@ -90,19 +90,21 @@
     SDK uses to place the native executable and dylibs). Doing it BEFORE ComputeFilesToPublish means
     the files are part of the bundle the publish step codesigns, not added after the seal. Depends on
     _ComputeVariables so $(_RelativeAppBundlePath) is set, and on the producer targets so the web dist
-    and the shim exist. The hook relay is staged the same way from HookRelay.targets. Release-only:
-    Debug runs the Vite dev server and never publishes. -->
+    and the shim exist. Sources are the NEUTRAL build outputs ($(WebRoot)/dist, the intermediate
+    dylib) — never the build .app — so this is independent of when the SDK assembles the bundle. The
+    hook relay is staged the same way from HookRelay.targets. Release-only: Debug runs the Vite dev
+    server and never publishes. -->
   <Target Name="StageBundleResourcesForPublish"
           Condition="'$(Configuration)' != 'Debug'"
           BeforeTargets="ComputeFilesToPublish"
-          DependsOnTargets="_ComputeVariables;BuildWebAssets;CopyWebAssets;BuildPtyShim">
+          DependsOnTargets="_ComputeVariables;BuildWebAssets;BuildPtyShim">
     <ItemGroup>
       <_PublishWebDist Include="$(WebRoot)/dist/**/*" />
       <ResolvedFileToPublish Include="@(_PublishWebDist)">
         <RelativePath>$(_RelativeAppBundlePath)/Contents/Resources/wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
-      <ResolvedFileToPublish Include="$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib">
+      <ResolvedFileToPublish Include="$(PtyShimIntermediate)">
         <RelativePath>$(_RelativeAppBundlePath)/Contents/MonoBundle/libweavie_pty.dylib</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
@@ -124,18 +126,34 @@
     fail ("can't be in the same fat output file"). One arch per slice lets the SDK's lipo step produce
     the universal dylib. When there's no RID (a plain single-arch build) fall back to a fat binary so
     the .app still runs on either architecture.
+
+    Compile to a neutral intermediate path ($(IntermediateOutputPath)), NOT straight into the bundle:
+    clang/ld won't create a missing output directory, and the bundle's Contents/MonoBundle isn't
+    guaranteed to exist yet (it's created by the SDK's bundle-assembly, whose ordering relative to this
+    target is not fixed — especially once publish staging pulls this target into its graph). Building to
+    the intermediate dir (always present after compile) and then COPYING into the bundle sidesteps that:
+    the Copy task creates Contents/MonoBundle on demand. The publish staging reads the same intermediate
+    artifact, so it never depends on the build .app existing either.
   -->
+  <PropertyGroup>
+    <PtyShimIntermediate>$(IntermediateOutputPath)libweavie_pty.dylib</PtyShimIntermediate>
+  </PropertyGroup>
   <Target Name="BuildPtyShim" AfterTargets="Build"
           Inputs="$(MSBuildProjectDirectory)/native/weavie_pty.c"
-          Outputs="$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib">
+          Outputs="$(PtyShimIntermediate)">
     <PropertyGroup>
-      <PtyShimPath>$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib</PtyShimPath>
       <PtyClangArchArgs Condition="$(RuntimeIdentifier.EndsWith('-arm64'))">-arch arm64</PtyClangArchArgs>
       <PtyClangArchArgs Condition="$(RuntimeIdentifier.EndsWith('-x64'))">-arch x86_64</PtyClangArchArgs>
       <PtyClangArchArgs Condition="'$(PtyClangArchArgs)' == ''">-arch arm64 -arch x86_64</PtyClangArchArgs>
     </PropertyGroup>
-    <Exec Command="clang -dynamiclib -O2 $(PtyClangArchArgs) -o &quot;$(PtyShimPath)&quot; &quot;$(MSBuildProjectDirectory)/native/weavie_pty.c&quot;" />
-    <Exec Command="codesign --force --sign - &quot;$(PtyShimPath)&quot;" />
+    <MakeDir Directories="$(IntermediateOutputPath)" />
+    <Exec Command="clang -dynamiclib -O2 $(PtyClangArchArgs) -o &quot;$(PtyShimIntermediate)&quot; &quot;$(MSBuildProjectDirectory)/native/weavie_pty.c&quot;" />
+    <Exec Command="codesign --force --sign - &quot;$(PtyShimIntermediate)&quot;" />
+    <!-- Co-locate into the build .app so a plain `dotnet build` produces a runnable bundle; Copy creates
+         Contents/MonoBundle if the SDK hasn't yet. (Publish gets it via StageBundleResourcesForPublish.) -->
+    <Copy SourceFiles="$(PtyShimIntermediate)"
+          DestinationFolder="$(OutDir)$(AssemblyName).app/Contents/MonoBundle"
+          SkipUnchangedFiles="true" />
     <Message Importance="high" Text="weavie: built native PTY shim libweavie_pty.dylib ($(PtyClangArchArgs))" />
   </Target>
 

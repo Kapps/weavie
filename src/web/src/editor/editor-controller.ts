@@ -35,6 +35,8 @@ const EDITOR_INIT_MS = 15_000;
 export interface EditorControllerDeps {
   /** Surface a debounced save that failed to reach disk. */
   onSaveError: (message: string) => void;
+  /** Surface a file that couldn't be opened (read), so a failed open errors loudly instead of a blank tab. */
+  onOpenError: (message: string) => void;
   /** Report the file the editor is showing so the browser / title bar can track it. */
   onCurrentFileChanged: (path: string | null) => void;
   /**
@@ -184,7 +186,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
       return;
     }
-    host?.show(result.path, result.placement);
+    // If the file can't be read, the host toasts and the editor never swaps its model — so don't leave this tab
+    // sitting active over a stale/blank pane. Close it and fall back to a surviving neighbor (or clear).
+    void host?.show(result.path, result.placement).then((ok) => {
+      if (!ok) {
+        rollbackFailedOpen(result.path);
+      }
+    });
+  };
+
+  // Drop a tab whose open just failed: it never resolved a working copy (nothing to release), so just remove it
+  // and, if it was the active tab, switch to its neighbor. A cascade is fine — if the neighbor is also
+  // unreadable its own open fails and rolls back in turn, until a readable tab or an empty pane is reached.
+  const rollbackFailedOpen = (path: string): void => {
+    const wasActive = activePath();
+    const result = closeTab(path);
+    if (result === null) {
+      return;
+    }
+    if (path === wasActive) {
+      applyOrClear(result.next);
+    }
   };
 
   const openFile = (path: string, line: number, preview = false, scratch = false): void => {
@@ -401,7 +423,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // settles within EDITOR_INIT_MS), which then frees the splash so the working terminals aren't trapped.
   const start = (container: HTMLElement): void => {
     const editorReady = import("./editor-host").then(({ createEditorHost }) =>
-      createEditorHost(container, deps.onSaveError),
+      createEditorHost(container, deps.onSaveError, deps.onOpenError),
     );
     const initDeadline = new Promise<never>((_, reject) => {
       initTimer = window.setTimeout(

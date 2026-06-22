@@ -52,9 +52,11 @@ export interface EditorHost {
   /**
    * Switches the editor to a file working copy. `placement` either reveals a 1-based `line` (fresh open /
    * navigation) or restores the tab's saved Monaco view state (switching back to an open tab). The single
-   * path that swaps the editor to a file — user open, tab switch, and restore all use it.
+   * path that swaps the editor to a file — user open, tab switch, and restore all use it. Resolves `true`
+   * when the file was shown (or the open was superseded by a newer one), `false` when it couldn't be read —
+   * the host has already toasted the reason, and the caller rolls its now-broken tab back.
    */
-  show(path: string, placement: { line: number } | { viewState: unknown }): void;
+  show(path: string, placement: { line: number } | { viewState: unknown }): Promise<boolean>;
   /**
    * Closes a tab: flushes its pending save, then releases its refcounted working-copy reference. The only
    * site that disposes a reference, and only on an explicit user close (never dispose(), which keeps
@@ -108,11 +110,14 @@ function isUserFileModel(model: monaco.editor.ITextModel): boolean {
 /**
  * Brings up the editor: initializes the VSCode services (must precede editor creation), creates the editor
  * in `container`, and wires lazy per-language LSP. The caller (App) catches failures so a broken editor
- * never takes down the terminal panes. `onSaveError` surfaces a failed debounced save as a user-facing toast.
+ * never takes down the terminal panes. `onSaveError` surfaces a failed debounced save as a user-facing toast;
+ * `onOpenError` does the same for a file that couldn't be opened (read), so a failed open errors loudly
+ * instead of stranding a blank tab.
  */
 export async function createEditorHost(
   container: HTMLElement,
   onSaveError?: (message: string) => void,
+  onOpenError?: (message: string) => void,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -344,14 +349,14 @@ export async function createEditorHost(
       | { line: number }
       | { selection: monaco.IRange }
       | { viewState: monaco.editor.ICodeEditorViewState | null },
-  ): Promise<void> => {
+  ): Promise<boolean> => {
     // Snapshot the outgoing tab's position before swapping away (data-only store write; never loops back).
     snapshotViewState();
     const token = ++openSeq;
     try {
       const ref = await ensureRef(uri);
       if (token !== openSeq) {
-        return; // superseded by a newer open
+        return true; // superseded by a newer open — that open owns the editor; not this tab's failure
       }
       editor.setModel(ref.object.textEditorModel);
       if ("line" in placement) {
@@ -365,17 +370,30 @@ export async function createEditorHost(
       } else if (placement.viewState !== null) {
         editor.restoreViewState(placement.viewState);
       }
+      return true;
     } catch (error) {
+      // A genuine read failure (file outside the session's served roots, deleted, or unreadable). If a newer
+      // open already superseded this one, stay quiet — that open owns the editor now. Otherwise error loudly:
+      // the editor never swapped its model, so without this the tab would sit blank with no signal.
+      if (token !== openSeq) {
+        return true;
+      }
       log("error", `open failed for ${uri.toString()}: ${String(error)}`);
+      const name = uri.path.split("/").pop() ?? uri.path;
+      onOpenError?.(`Couldn't open ${name}: ${String(error)}`);
+      return false;
     }
   };
 
-  const show = (path: string, placement: { line: number } | { viewState: unknown }): void => {
+  const show = (
+    path: string,
+    placement: { line: number } | { viewState: unknown },
+  ): Promise<boolean> => {
     const resolved =
       "line" in placement
         ? placement
         : { viewState: placement.viewState as monaco.editor.ICodeEditorViewState | null };
-    void showFile(monaco.Uri.file(canonicalFsPath(path)), resolved);
+    return showFile(monaco.Uri.file(canonicalFsPath(path)), resolved);
   };
 
   // Close a tab: flush any pending save, then release the refcounted working-copy reference. The only site
@@ -458,6 +476,13 @@ export async function createEditorHost(
   // Route the editor service's file-opens (go-to-def / peek / references) through the tab store as a preview
   // open, then reveal the target range, so navigating reuses the one preview slot instead of piling up tabs.
   setOpenEditorSink((uri, selection) => {
+    // Only real files are working copies. A non-file model — the transient `weavie-review:` openDiff model —
+    // has no host file provider, so resolving it (ensureRef → createModelReference) rejects with "Unable to
+    // resolve resource". An editor-service open of one (e.g. go-to-def while a review is showing) is a no-op
+    // here: it's already on screen via beginReview, and it must never become a tab or a working copy.
+    if (uri.scheme !== "file") {
+      return;
+    }
     openTab(uri.fsPath, { preview: true });
     void showFile(uri, selection !== undefined ? { selection } : { line: 1 });
   });

@@ -84,4 +84,24 @@ public sealed class McpDiffPresenterTests {
 		// Cancellation removed the pending entry, so a late resolve finds nothing.
 		Assert.False(presenter.Resolve(id, kept: true, finalContents: null));
 	}
+
+	[Fact]
+	public async Task DismissPending_CancelsTheReviewAndClosesItInThePage() {
+		// The user flipped Claude into acceptEdits (Shift+Tab) with a default-mode openDiff still showing, so it
+		// was never resolved in Weavie. DismissPending tears it down: cancel the awaiting task (the MCP server
+		// then sends nothing back) and close the stale review in the page so its transient model can't linger.
+		var (presenter, bridge) = NewActive();
+		var task = presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
+		string id = DiffId(bridge);
+		bridge.Clear();
+
+		presenter.DismissPending();
+
+		await Assert.ThrowsAnyAsync<OperationCanceledException>(async () => await task);
+		var close = bridge.LastOfType("close-diff");
+		Assert.True(close.HasValue, "a dismissed review must be closed in the page");
+		Assert.Equal(id, close!.Value.GetProperty("id").GetString());
+		// The entry is gone, so a late resolve finds nothing.
+		Assert.False(presenter.Resolve(id, kept: true, finalContents: null));
+	}
 }

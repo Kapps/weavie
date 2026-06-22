@@ -10,9 +10,17 @@ namespace Weavie.Core.Changes;
 /// for edits in every permission mode (the hook runs before the permission check), so the change feed is
 /// independent of openDiff and the mode. PreToolUse snapshots the baseline; PostToolUse records the new
 /// content. Read on the host's UI thread but mutated from the hook accept loop — hence the lock.
+/// <para>
+/// Scoped by <c>isInScope</c> to the session's own worktree (+ scratch): an edit outside it — Claude
+/// editing its own memory/config files under <c>~/.claude</c>, say — is dropped, never tracked. The review
+/// feed drives the editor to open each changed file, and the editor's <c>file://</c> provider only serves
+/// the session's roots, so tracking an out-of-scope path would push an open that can't be read and strand a
+/// blank tab. Keeping the tracker's scope == the file provider's scope guarantees every tracked file opens.
+/// </para>
 /// </summary>
 public sealed class SessionChangeTracker {
 	private readonly IFileSystem _fileSystem;
+	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
 	private readonly Dictionary<string, string> _baseline = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _current = new(StringComparer.Ordinal);
@@ -30,9 +38,17 @@ public sealed class SessionChangeTracker {
 	private readonly HashSet<string> _createdSinceBaseline = new(StringComparer.Ordinal);
 
 	/// <summary>Creates a tracker that reads file content through <paramref name="fileSystem"/>.</summary>
-	public SessionChangeTracker(IFileSystem fileSystem) {
+	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
+	/// <param name="isInScope">
+	/// Predicate over an absolute path: only edits it accepts are tracked. The host scopes this to the session's
+	/// worktree (+ scratch) so edits to files the editor can't open — Claude touching its own config under
+	/// <c>~/.claude</c>, say — never reach the review feed. See the type remarks.
+	/// </param>
+	public SessionChangeTracker(IFileSystem fileSystem, Func<string, bool> isInScope) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentNullException.ThrowIfNull(isInScope);
 		_fileSystem = fileSystem;
+		_isInScope = isInScope;
 	}
 
 	/// <summary>Raised whenever the change set updates (a file's current content was recorded).</summary>
@@ -56,19 +72,21 @@ public sealed class SessionChangeTracker {
 	/// PostToolUse records the new content. A non-editing tool (Bash, etc.) records no edit, but its PostToolUse
 	/// still triggers a disk reconciliation (<see cref="ReconcileDeletions"/>) so a file removed mid-turn — e.g.
 	/// a <c>Bash</c> rm of a scratch file — leaves the review set instead of stranding the ← / → walk on a missing
-	/// path. Turn boundaries are ignored, so the review baseline never resets on a new prompt.
+	/// path. An edit to a path outside the session's scope (see the constructor's <c>isInScope</c>) is dropped.
+	/// Turn boundaries are ignored, so the review baseline never resets on a new prompt.
 	/// </summary>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
 
 		// A PostToolUse settles a completed tool: reconcile FIRST so a deletion by any tool (the edit tools never
 		// delete; a Bash rm / mv does) drops the vanished file before we record this tool's own edit (if any).
+		// Reconcile touches only already-tracked files, so an out-of-scope edit can't have seeded one to clean up.
 		if (request.Event == HookEventKind.PostToolUse) {
 			ReconcileDeletions();
 		}
 
 		string? path = ExtractEditPath(request);
-		if (path is null) {
+		if (path is null || !_isInScope(path)) {
 			return;
 		}
 

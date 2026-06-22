@@ -39,6 +39,26 @@ public sealed class ObservedPermissionModeTests {
 	}
 
 	[Fact]
+	public void Observe_RaisesChanged_OnlyWhenModeValueChanges() {
+		var observed = new ObservedPermissionMode();
+		int changes = 0;
+		observed.Changed += () => changes++;
+
+		observed.Observe(Pre("default")); // same as the initial value — no change
+		Assert.Equal(0, changes);
+
+		observed.Observe(Pre("acceptEdits")); // default → acceptEdits
+		Assert.Equal(1, changes);
+
+		observed.Observe(Pre("acceptEdits")); // repeat — no change
+		observed.Observe(Pre(null)); // no mode reported — no change
+		Assert.Equal(1, changes);
+
+		observed.Observe(Pre("default")); // acceptEdits → default
+		Assert.Equal(2, changes);
+	}
+
+	[Fact]
 	public void Parse_ReadsPermissionMode() {
 		var request = HookRequest.Parse(
 			"{\"hook_event_name\":\"PreToolUse\",\"tool_name\":\"Bash\",\"permission_mode\":\"acceptEdits\"}");

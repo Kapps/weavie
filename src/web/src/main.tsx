@@ -13,6 +13,7 @@ import "./chrome/context-menu.css";
 import "./editor/editor.css";
 import "./terminal/terminal.css";
 import "./editor/diff.css";
+import "./editor/comment-prose.css";
 import "./files/files.css";
 import "./chrome/titlebar.css";
 import "./chrome/omnibar.css";

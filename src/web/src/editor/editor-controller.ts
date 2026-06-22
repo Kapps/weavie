@@ -6,6 +6,7 @@
 import { type WebBoundMessage, log, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
+import { type CommentProse, createCommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
 import {
@@ -127,6 +128,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // host + inlineDiff are set once the editor chunk loads and the editor is created (see start).
   let host: EditorHost | undefined;
   let inlineDiff: InlineDiff | undefined;
+  let commentProse: CommentProse | undefined;
   let initTimer: number | undefined;
   // An open-file request that arrived before the editor was ready; replayed when it is.
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
@@ -435,6 +437,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       .then((created) => {
         host = created;
         inlineDiff = createInlineDiff(created.editor);
+        // Render multi-line / doc comments as prose, suspended over a model with a live inline diff so a
+        // collapsed comment never hides a changed line under review.
+        commentProse = createCommentProse(created.editor, {
+          isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
+        });
         if (pendingOpen !== undefined) {
           const { path, line, preview, scratch } = pendingOpen;
           pendingOpen = undefined;
@@ -611,6 +618,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Inline diff of this turn's changes. Equal baseline/current = no markers.
         if (message.baseline === message.current) {
           inlineDiff?.clear(message.path);
+          commentProse?.refresh();
           return true;
         }
         // The toolbar's ← / → file axis: only when more than one file is under review and this file is in the
@@ -645,6 +653,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           onAdvanceFile: () => advanceToNextPendingFile(message.path),
           ...fileNav,
         });
+        // The diff now suspends comment-prose over this model; refresh so any collapsed comment re-expands
+        // rather than hiding a changed line under review.
+        commentProse?.refresh();
         return true;
       }
       case "turn-reset":
@@ -653,6 +664,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         inlineDiff?.clearAll();
         reviewMarks.clear();
         fileHunks.clear();
+        commentProse?.refresh();
         return true;
       case "fs-change": {
         // A revert that deleted a created file (or any host-side deletion) lands here. Close a deleted file's
@@ -743,6 +755,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     tabs,
     dispose: () => {
       window.clearTimeout(initTimer);
+      commentProse?.dispose();
       inlineDiff?.dispose();
       host?.dispose();
     },

@@ -8,6 +8,8 @@
 export interface CommentSyntax {
   line: string[];
   block?: readonly [open: string, close: string];
+  /** Doc comments use XML doc tags (`<summary>`, `<c>`, `<param>`) to lift into prose — C#, VB, F#. */
+  xmlDoc?: boolean;
 }
 
 /** A comment span worth rendering as prose: its 1-based inclusive line range + the marker-stripped text. */
@@ -50,7 +52,7 @@ const SYNTAX: Record<string, CommentSyntax> = {
   xml: { block: ["<!--", "-->"], line: [] },
   // C-family doc comments use a `///` (and Rust `//!`) line prefix; list them first so they're detected as doc.
   rust: { line: ["//!", "///", "//"], block: ["/*", "*/"] },
-  csharp: { line: ["///", "//"], block: ["/*", "*/"] },
+  csharp: { line: ["///", "//"], block: ["/*", "*/"], xmlDoc: true },
   cpp: { line: ["///", "//"], block: ["/*", "*/"] },
   c: { line: ["///", "//"], block: ["/*", "*/"] },
   java: { line: ["///", "//"], block: ["/*", "*/"] },
@@ -208,7 +210,7 @@ function parseInline(text: string): Inline[] {
   const runs: Inline[] = [];
   for (let k = 0; k < parts.length; k++) {
     const part = parts[k]!;
-    const isCode = k % 2 === 1 && k !== parts.length - 1;
+    const isCode = k % 2 === 1 && k < parts.length - 1;
     if (isCode) {
       runs.push({ code: part });
     } else if (k % 2 === 1) {
@@ -243,11 +245,7 @@ export function parseProse(content: string[], xmlDoc = false): ProseBlock[] {
   };
   const flushList = (): void => {
     if (list !== undefined) {
-      blocks.push(
-        list.kind === "ol"
-          ? { kind: "ol", start: list.start, items: list.items }
-          : { kind: "ul", items: list.items },
-      );
+      blocks.push(list.kind === "ol" ? list : { kind: "ul", items: list.items });
       list = undefined;
     }
   };

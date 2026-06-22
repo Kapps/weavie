@@ -106,6 +106,9 @@ export function createCommentProse(
   // The model line the caret was last on, so a cursor move only forces a re-render when it crosses into/out of
   // a different block (cheap on ordinary cursor movement within already-revealed code).
   let lastCursorBlock: number | undefined;
+  // The blocks from the last render, reused by the cursor handler so an ordinary cursor move doesn't re-scan
+  // the whole file (a content change re-scans via the debounced render and refreshes this).
+  let cachedBlocks: CommentBlock[] = [];
   let rescanTimer: ReturnType<typeof setTimeout> | undefined;
 
   const clearRender = (): void => {
@@ -136,25 +139,25 @@ export function createCommentProse(
     clearRender();
     const model = editor.getModel();
     if (!enabled || !isFileModel(model) || deps.isBlocked(model.uri.toString())) {
+      cachedBlocks = [];
       hiddenEditor.setHiddenAreas([], HIDDEN_AREAS_SOURCE);
       return;
     }
 
     const syntax = commentSyntaxFor(model.getLanguageId());
     const blocks = scanCommentBlocks(model.getLinesContent(), syntax);
+    cachedBlocks = blocks;
     const caret = editor.getPosition()?.lineNumber;
+    const caretBlock = blockAt(blocks, caret);
 
     const hidden: monaco.IRange[] = [];
     const pending: { zone: monaco.editor.IViewZone; inner: HTMLElement }[] = [];
     for (const block of blocks) {
       // Leave a block raw while it's being edited: the one the caret sits in, or the one just clicked open.
-      const expanded =
-        block.startLine === pendingExpand ||
-        (caret !== undefined && caret >= block.startLine && caret <= block.endLine);
-      if (expanded) {
+      if (block.startLine === pendingExpand || block === caretBlock) {
         continue;
       }
-      const prose = parseProse(block.content, block.doc && model.getLanguageId() === "csharp");
+      const prose = parseProse(block.content, block.doc && syntax.xmlDoc === true);
       // Nothing but markers (e.g. a divider comment) — leave it as code rather than rendering an empty box.
       if (prose.length === 0) {
         continue;
@@ -198,7 +201,7 @@ export function createCommentProse(
       }
     });
 
-    lastCursorBlock = blockAt(blocks, caret)?.startLine;
+    lastCursorBlock = caretBlock?.startLine;
   };
 
   // Clicking the prose reveals the raw comment for editing: mark it pending-expand, re-render so its lines
@@ -228,17 +231,11 @@ export function createCommentProse(
   };
 
   // A cursor move only matters when it crosses into (or out of) a comment block: re-render so the block the
-  // caret just left re-collapses to prose and the one it entered stays raw.
+  // caret just left re-collapses to prose and the one it entered stays raw. Reuses the last render's blocks
+  // rather than re-scanning the file on every keystroke-driven cursor move (a content edit re-scans via the
+  // debounced render).
   const onCursor = (): void => {
-    const model = editor.getModel();
-    if (!isFileModel(model)) {
-      return;
-    }
-    const blocks = scanCommentBlocks(
-      model.getLinesContent(),
-      commentSyntaxFor(model.getLanguageId()),
-    );
-    const current = blockAt(blocks, editor.getPosition()?.lineNumber)?.startLine;
+    const current = blockAt(cachedBlocks, editor.getPosition()?.lineNumber)?.startLine;
     if (current !== lastCursorBlock) {
       render();
     }

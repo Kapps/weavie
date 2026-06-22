@@ -1,7 +1,7 @@
 # Claude session resume
 
 Status: implemented
-Last updated: 2026-06-20
+Last updated: 2026-06-21
 
 Reopening a Weavie session should continue the Claude conversation it had last time, not cold-start a
 blank one. This resolves the open question carried by
@@ -15,8 +15,17 @@ so the id is known up front and resume is deterministic.
 
 - The **first** launch in a working directory passes `claude --session-id <uuid>` — a fresh UUID Weavie
   mints and owns.
-- **Every later** launch (an in-process restart by the `ProcessSupervisor`, or a brand-new app process)
-  passes `claude --resume <uuid>` for the same id, reattaching to the same transcript.
+- **A later** launch (an in-process restart by the `ProcessSupervisor`, or a brand-new app process) passes
+  `claude --resume <uuid>` for the same id **once the session is resumable**, reattaching to the same
+  transcript; until then it re-creates under the same id with `--session-id`.
+
+A session becomes resumable only when Weavie has **adopted a real user message** for it — the
+`UserPromptSubmit` hook, which fires exactly when claude writes its transcript. Claude *painting its TUI* is
+**not** evidence of a resumable conversation: a session opened but never messaged has no transcript, so
+resuming it would dead-pane with "No conversation found with session ID: …" (the "missing session" bug).
+Keying resumability off the first message, not output volume, is what prevents that. Because the started
+flag is persisted, a session adopted in one run stays resumable in later runs even if a run resumes it and
+unloads without sending a new message.
 
 Because Claude scopes session lookup to the working directory, and Weavie always resumes from the same
 directory it created the session in, this sidesteps the parent spec's "does `--resume` resolve across
@@ -25,8 +34,10 @@ worktrees" question entirely — there is no cross-directory resolve.
 ```mermaid
 flowchart LR
     L["claude launch for cwd"] --> Q{"seen this cwd<br/>before?"}
-    Q -- no --> N["--session-id &lt;new uuid&gt;<br/>(create + persist, started=true)"]
-    Q -- yes --> R["--resume &lt;uuid&gt;<br/>(reattach)"]
+    Q -- no --> N["--session-id &lt;new uuid&gt;<br/>(create)"]
+    Q -- yes --> A{"a user message<br/>adopted?"}
+    A -- yes --> R["--resume &lt;uuid&gt;<br/>(reattach)"]
+    A -- no --> C["--session-id &lt;same uuid&gt;<br/>(re-create)"]
 ```
 
 ## State
@@ -70,17 +81,19 @@ id (the prior behavior); ids resume tracking when it's turned back on.
 
 ## Edges
 
-- **In-process restarts resume too.** The pane is a permanent fixture (`RestartPolicy.Always`), so a
-  Claude that exits (`/exit`, crash) relaunches under `--resume` and continues the same conversation
-  rather than starting blank — the desired continuity, and the reason `started` is persisted at first
-  launch (so the very next launch, in any process, reattaches).
-- **Pruned transcript (known limitation).** Claude removes transcripts after `cleanupPeriodDays`
-  (default 30). Resuming a session whose transcript is gone fails and, under the always-restart policy,
-  trips the crash-loop breaker — a *loud* dead pane, not a silent fallback. Self-heal (detect the
-  not-found exit, re-create fresh under the same id via `MarkResumeFailed` → `--session-id`) is wired in
-  the store but intentionally **not** auto-triggered from the controller in v1, to avoid the dangerous
-  false positive of treating an unrelated quick crash as a missing session (which would collide
-  `--session-id` against an existing transcript). Most reopens — same day/week — resume cleanly.
+- **In-process restarts resume too.** The pane is a permanent fixture (`RestartPolicy.Always`), so once a
+  session has been messaged, a Claude that exits (`/exit`, crash) relaunches under `--resume` and continues
+  the same conversation rather than starting blank — the desired continuity, and why `started` is persisted
+  on the first message (so the very next launch, in any process, reattaches). A restart *before* the first
+  message re-creates under the same id (nothing to resume yet), so it never dead-panes.
+- **Pruned / corrupt transcript (reactive backstop).** Claude removes transcripts after `cleanupPeriodDays`
+  (default 30). A session messaged long ago is `started`, so its relaunch attempts `--resume`; if the
+  transcript is gone or corrupt the launch fails at startup. The self-heal handles it: `ClaudeStartupWatcher`
+  sees the unconfirmed crash and `OnTerminalExited` heals the store — a failed `--resume` re-creates the same
+  id (`MarkResumeFailed` → `--session-id`), a failed `--session-id` forgets it (`Forget`) — converging on a
+  fresh session within a few relaunches, well under the crash-loop breaker. This **is** auto-triggered from
+  the controller (since `fb9962e`); confirmation is gated on a full TUI repaint so a fast-failing launch is
+  never mistaken for one that came up. Most reopens — same day/week — resume cleanly.
 
 ## Verification
 

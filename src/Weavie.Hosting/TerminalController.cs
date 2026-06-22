@@ -35,9 +35,10 @@ public sealed class TerminalController : IDisposable {
 	// The slot id pre-encoded as a JSON string value (see SlotId), written into every term message so the
 	// page routes this pane's output to its own session's xterm — encoded once per bind, not per chunk.
 	private JsonEncodedText _slotEncoded = JsonEncodedText.Encode("");
-	// Per-launch claude startup detection (claude session only): watches early output to confirm the launch
-	// came up (→ MarkStarted) and, on exit, decides how to heal a launch that died at startup (a dead/poison
-	// session id), keeping ClaudeSessionStore honest. Set each managed launch; null for an unmanaged one.
+	// Per-launch claude startup detection (claude session only): watches early output so that, on exit, it can
+	// tell a launch that came up from one that died at startup (a dead/poison session id) and heal
+	// ClaudeSessionStore accordingly. It does NOT mark the session resumable — that happens only when a real user
+	// message is adopted off the hook stream (ObserveHook). Set each managed launch; null for an unmanaged one.
 	private ClaudeStartupWatcher? _startupWatcher;
 	// Shell-only: the on-disk scrollback log this pane's output is tee'd to, for replay on (re)attach and faded
 	// history on resume. Null = not configured (the claude pane, or persistence disabled). Created when
@@ -235,9 +236,10 @@ public sealed class TerminalController : IDisposable {
 				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
 				: null;
 
-			// Resolve this claude launch's managed session id (if any), then watch it: confirm it comes up (so the
-			// next launch can --resume), and on exit heal a launch that died at startup so a dead/poison id can't
-			// crash-loop the pane (see OnTerminalExited). Unmanaged launches (shell, or resume off) skip all this.
+			// Resolve this claude launch's managed session id (if any), then watch it so that, on exit, a launch that
+			// died at startup (a dead/poison session id) self-heals instead of crash-looping the pane (see
+			// OnTerminalExited). Resumability is not decided by this watcher — only by adopting a real user message
+			// (ObserveHook). Unmanaged launches (shell, or resume off) skip all this.
 			var managedLaunch = isClaude ? ResolveClaudeLaunch() : null;
 			_startupWatcher = managedLaunch is { } resolved ? new ClaudeStartupWatcher(resuming: resolved.Resume) : null;
 			var sessionArgs = managedLaunch is { } managed
@@ -392,28 +394,18 @@ public sealed class TerminalController : IDisposable {
 		$"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
 
 	/// <summary>
-	/// Feeds claude's early output to the per-launch <see cref="ClaudeStartupWatcher"/>; the moment it has streamed
-	/// enough to be confirmed up, marks the session id started so the <em>next</em> launch resumes it. Failure is
-	/// not decided here (a startup error is indistinguishable from healthy output by content) but on exit — see
-	/// <see cref="OnTerminalExited"/>.
+	/// Feeds claude's early output to the per-launch <see cref="ClaudeStartupWatcher"/> so it can later tell a
+	/// launch that came up from one that died at startup (consumed by <see cref="OnTerminalExited"/>). It does NOT
+	/// mark the session resumable — that happens only when a real user message is adopted off the hook stream
+	/// (<see cref="ObserveHook"/>), the point at which claude actually has a transcript. Output volume alone
+	/// (painting the TUI) is not a conversation, so it never flips the session to <c>--resume</c>.
 	/// </summary>
 	private void ObserveClaudeStartup(byte[] data) {
-		if (ClaudeSessions is not { } store) {
-			return;
-		}
-
-		bool justConfirmed;
 		lock (_gate) {
 			// Only decode while a managed launch is still unconfirmed; once up, output is irrelevant here.
-			if (_startupWatcher is not { Confirmed: false } watcher) {
-				return;
+			if (_startupWatcher is { Confirmed: false } watcher) {
+				watcher.Observe(Encoding.UTF8.GetString(data));
 			}
-
-			justConfirmed = watcher.Observe(Encoding.UTF8.GetString(data));
-		}
-
-		if (justConfirmed) {
-			store.MarkStarted(Workspace);
 		}
 	}
 

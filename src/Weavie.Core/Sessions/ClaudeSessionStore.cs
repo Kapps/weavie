@@ -48,11 +48,14 @@ public sealed class ClaudeSessionStore {
 	/// <summary>
 	/// Returns how to launch <c>claude</c> in <paramref name="workingDirectory"/>: mints + persists a stable
 	/// session id the first time the directory is seen (with <see cref="ClaudeLaunch.Resume"/> false, so the
-	/// caller uses <c>--session-id</c>). Thereafter it reattaches (<c>Resume</c> true) only once a launch was
-	/// confirmed via <see cref="MarkStarted"/>; until then — an unconfirmed create, or a
-	/// <see cref="MarkResumeFailed">failed</see> resume — it re-creates under the same id. The id is never
-	/// marked started here, so a launch that dies before the session exists is not mistaken for resumable.
-	/// Persists only when it mints.
+	/// caller uses <c>--session-id</c>). Thereafter it reattaches (<c>Resume</c> true) only once the session has
+	/// been <see cref="Adopt">adopted</see> — a real user message observed off the hook stream, which is when
+	/// claude actually writes its transcript; until then — a never-messaged session, or a
+	/// <see cref="MarkResumeFailed">failed</see> resume — it re-creates under the same id. Output volume alone
+	/// (claude painting its TUI) never marks a session resumable, so a launch that comes up but is never messaged
+	/// is not mistaken for one with a transcript to resume. The started flag is durable: once adopted, a session
+	/// keeps resuming across launches even if a later run resumes it without sending a new message. Persists only
+	/// when it mints.
 	/// </summary>
 	public ClaudeLaunch Resolve(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -60,32 +63,16 @@ public sealed class ClaudeSessionStore {
 		lock (_gate) {
 			var entry = Find(key);
 			if (entry is null) {
-				// First sighting: assign a stable id and create with --session-id. Started stays false until
-				// MarkStarted confirms claude came up.
+				// First sighting: assign a stable id and create with --session-id. Started stays false until a
+				// user message is adopted off the hook stream.
 				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString(), Started = false };
 				_items.Add(entry);
 				PersistLocked();
 				return new ClaudeLaunch(entry.Id, Resume: false);
 			}
 
-			// Reattach only if a prior launch was confirmed started; otherwise re-create under the same id.
+			// Reattach only if a prior message was adopted; otherwise re-create under the same id.
 			return new ClaudeLaunch(entry.Id, entry.Started);
-		}
-	}
-
-	/// <summary>
-	/// Confirms that <paramref name="workingDirectory"/>'s claude session is up — its id now exists, so the next
-	/// launch reattaches with <c>--resume</c>. The inverse of <see cref="MarkResumeFailed"/>. Persists only on a
-	/// change; a no-op if the directory was never <see cref="Resolve"/>d or is already marked.
-	/// </summary>
-	public void MarkStarted(string workingDirectory) {
-		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
-		lock (_gate) {
-			if (Find(key) is { Started: false } entry) {
-				entry.Started = true;
-				PersistLocked();
-			}
 		}
 	}
 

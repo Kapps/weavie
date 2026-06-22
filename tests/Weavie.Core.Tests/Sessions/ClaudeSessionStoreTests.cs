@@ -6,11 +6,13 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// Exercises <see cref="ClaudeSessionStore"/> over the in-memory filesystem: first launch assigns an id and
-/// creates the session (<c>--session-id</c>); a directory resumes only once <see cref="ClaudeSessionStore.MarkStarted"/>
-/// confirms it came up; an unconfirmed create is re-created rather than resumed; distinct directories get
-/// distinct ids; confirmed assignments survive reload while unconfirmed ones do not; a failed resume re-creates
-/// the same id fresh; a forgotten (poison) id is dropped so the next launch mints a fresh one, converging
-/// within two relaunches; and a malformed file is backed up + reset.
+/// creates the session (<c>--session-id</c>); a directory resumes only once a user message has been
+/// <see cref="ClaudeSessionStore.Adopt">adopted</see> off the hook stream (output volume alone never marks it
+/// resumable); an un-messaged session is re-created rather than resumed; once adopted, the started flag is
+/// durable so a later run resumes even without a new message; distinct directories get distinct ids; adopted
+/// assignments survive reload while un-messaged ones do not; a failed resume re-creates the same id fresh; a
+/// forgotten (poison) id is dropped so the next launch mints a fresh one, converging within two relaunches; and
+/// a malformed file is backed up + reset.
 /// </summary>
 public sealed class ClaudeSessionStoreTests {
 	private const string StorePath = "/weavie-claude-session-tests/claude-sessions.json";
@@ -29,12 +31,12 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
-	public void Resolve_AfterMarkStarted_ResumesSameId() {
+	public void Resolve_AfterAdopt_ResumesSameId() {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 
 		var first = store.Resolve(Cwd);
-		store.MarkStarted(Cwd);
+		store.Adopt(Cwd, first.SessionId); // a user message confirmed off the hook stream
 		var second = store.Resolve(Cwd);
 
 		Assert.Equal(first.SessionId, second.SessionId);
@@ -43,14 +45,15 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
-	public void Resolve_CreateNeverConfirmed_RecreatesInsteadOfResuming() {
-		// A launch that died before the session existed (e.g. a bad PATH) recorded only an assigned id; it must
-		// be re-created under the same id, not resumed.
+	public void Resolve_NeverMessaged_RecreatesInsteadOfResuming() {
+		// A session that came up but was never messaged (so claude wrote no transcript) recorded only an assigned
+		// id; it must be re-created under the same id, not resumed — the "missing session" bug, where painting the
+		// TUI was mistaken for a resumable conversation.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 
 		var first = store.Resolve(Cwd);   // create launch ...
-		var second = store.Resolve(Cwd);  // ... that never reported MarkStarted
+		var second = store.Resolve(Cwd);  // ... that never adopted a user message
 
 		Assert.Equal(first.SessionId, second.SessionId);
 		Assert.False(second.Resume);
@@ -68,26 +71,50 @@ public sealed class ClaudeSessionStoreTests {
 	}
 
 	[Fact]
-	public void Resolve_ConfirmedThenReloaded_ResumesSameId() {
+	public void Resolve_AdoptedThenReloaded_ResumesSameId() {
 		var fs = new InMemoryFileSystem();
 		var initial = new ClaudeSessionStore(fs, StorePath);
 		string id = initial.Resolve(Cwd).SessionId;
-		initial.MarkStarted(Cwd);
+		initial.Adopt(Cwd, id);
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
 		Assert.Equal(id, reloaded.SessionId);
-		Assert.True(reloaded.Resume); // a fresh process resumes the confirmed conversation
+		Assert.True(reloaded.Resume); // a fresh process resumes the adopted conversation
 	}
 
 	[Fact]
-	public void Resolve_UnconfirmedThenReloaded_DoesNotResume() {
+	public void Resolve_AdoptedThenResumedWithoutNewMessage_StaysResumable() {
+		// A session messaged in a prior run stays resumable on later runs even when it is resumed and then
+		// unloaded WITHOUT sending a new message. The started flag is durable (persisted), not re-derived per
+		// launch from a fresh message — so resuming-without-messaging must not silently drop resumability.
 		var fs = new InMemoryFileSystem();
-		new ClaudeSessionStore(fs, StorePath).Resolve(Cwd); // minted but never MarkStarted
+		string id;
+		// Run 1: open, send one message, quit.
+		{
+			var run1 = new ClaudeSessionStore(fs, StorePath);
+			id = run1.Resolve(Cwd).SessionId;
+			run1.Adopt(Cwd, id);
+		}
+
+		// Run 2: reopen → resumes; no new message is sent before unloading.
+		var run2 = new ClaudeSessionStore(fs, StorePath);
+		Assert.True(run2.Resolve(Cwd).Resume);
+
+		// Run 3: reopen again → still resumes the same conversation.
+		var run3 = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
+		Assert.True(run3.Resume);
+		Assert.Equal(id, run3.SessionId);
+	}
+
+	[Fact]
+	public void Resolve_UnmessagedThenReloaded_DoesNotResume() {
+		var fs = new InMemoryFileSystem();
+		new ClaudeSessionStore(fs, StorePath).Resolve(Cwd); // minted but never adopted a message
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
 
-		Assert.False(reloaded.Resume); // an id that never came up is re-created, not resumed
+		Assert.False(reloaded.Resume); // an id that never held a conversation is re-created, not resumed
 	}
 
 	[Fact]
@@ -95,16 +122,16 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string id = store.Resolve(Cwd).SessionId;
-		store.MarkStarted(Cwd);
-		Assert.True(store.Resolve(Cwd).Resume); // confirmed → resume mode
+		store.Adopt(Cwd, id);
+		Assert.True(store.Resolve(Cwd).Resume); // adopted → resume mode
 
 		store.MarkResumeFailed(Cwd);
 		var afterFailure = store.Resolve(Cwd);
 
 		Assert.Equal(id, afterFailure.SessionId); // identity stays stable
 		Assert.False(afterFailure.Resume);        // but re-created with --session-id
-		store.MarkStarted(Cwd);
-		Assert.True(store.Resolve(Cwd).Resume);    // resumes again once re-confirmed
+		store.Adopt(Cwd, id);
+		Assert.True(store.Resolve(Cwd).Resume);    // resumes again once re-adopted
 	}
 
 	[Fact]
@@ -112,7 +139,7 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string poison = store.Resolve(Cwd).SessionId;
-		store.MarkStarted(Cwd);
+		store.Adopt(Cwd, poison);
 
 		store.Forget(Cwd);
 		var afterForget = store.Resolve(Cwd);
@@ -136,7 +163,7 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var initial = new ClaudeSessionStore(fs, StorePath);
 		string poison = initial.Resolve(Cwd).SessionId;
-		initial.MarkStarted(Cwd);
+		initial.Adopt(Cwd, poison);
 		initial.Forget(Cwd);
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
@@ -146,13 +173,13 @@ public sealed class ClaudeSessionStoreTests {
 
 	[Fact]
 	public void PoisonId_RecoversToAFreshSessionWithinTwoRelaunches() {
-		// A confirmed id whose conversation is gone and whose id even a --session-id re-create can't reclaim. The
-		// recovery (MarkResumeFailed on a failed resume, then Forget on a failed re-create) must converge on a
-		// fresh, resumable session rather than loop.
+		// An adopted id whose transcript is present but unusable (so resume is attempted) yet whose id even a
+		// --session-id re-create can't reclaim. The recovery (MarkResumeFailed on a failed resume, then Forget on
+		// a failed re-create) must converge on a fresh, resumable session rather than loop.
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string poison = store.Resolve(Cwd).SessionId;
-		store.MarkStarted(Cwd);
+		store.Adopt(Cwd, poison);
 
 		// Relaunch 1: --resume <poison> fails (conversation gone) -> RecreateSameId.
 		var resume = store.Resolve(Cwd);
@@ -170,7 +197,7 @@ public sealed class ClaudeSessionStoreTests {
 		var fresh = store.Resolve(Cwd);
 		Assert.False(fresh.Resume);
 		Assert.NotEqual(poison, fresh.SessionId);
-		store.MarkStarted(Cwd);
+		store.Adopt(Cwd, fresh.SessionId);
 
 		Assert.True(store.Resolve(Cwd).Resume); // resumes the recovered session thereafter
 	}
@@ -182,8 +209,8 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string cleared = store.Resolve(Cwd).SessionId;
-		store.MarkStarted(Cwd);
-		Assert.True(store.Resolve(Cwd).Resume); // confirmed → would resume
+		store.Adopt(Cwd, cleared);
+		Assert.True(store.Resolve(Cwd).Resume); // adopted → would resume
 
 		store.Clear(Cwd);
 		var afterClear = store.Resolve(Cwd);
@@ -197,7 +224,7 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var initial = new ClaudeSessionStore(fs, StorePath);
 		string cleared = initial.Resolve(Cwd).SessionId;
-		initial.MarkStarted(Cwd);
+		initial.Adopt(Cwd, cleared);
 		initial.Clear(Cwd);
 
 		var reloaded = new ClaudeSessionStore(fs, StorePath).Resolve(Cwd);
@@ -226,7 +253,7 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string stale = store.Resolve(Cwd).SessionId;
-		store.MarkStarted(Cwd);
+		store.Adopt(Cwd, stale);
 
 		store.Clear(Cwd);
 		store.Adopt(Cwd, "post-clear-id");
@@ -241,8 +268,8 @@ public sealed class ClaudeSessionStoreTests {
 	public void Adopt_RepointsAnExistingId() {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
-		store.Resolve(Cwd);
-		store.MarkStarted(Cwd);
+		string original = store.Resolve(Cwd).SessionId;
+		store.Adopt(Cwd, original);
 
 		store.Adopt(Cwd, "different-id");
 
@@ -256,12 +283,12 @@ public sealed class ClaudeSessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new ClaudeSessionStore(fs, StorePath);
 		string id = store.Resolve(Cwd).SessionId;
-		store.MarkStarted(Cwd);
-		string afterStart = fs.ReadAllText(StorePath);
+		store.Adopt(Cwd, id);
+		string afterAdopt = fs.ReadAllText(StorePath);
 
 		store.Adopt(Cwd, id);
 
-		Assert.Equal(afterStart, fs.ReadAllText(StorePath)); // identical bytes — no rewrite
+		Assert.Equal(afterAdopt, fs.ReadAllText(StorePath)); // identical bytes — no rewrite
 	}
 
 	[Fact]

@@ -95,16 +95,20 @@ jobs:
           dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }}
           ${{ matrix.extra }} -o artifacts/${{ matrix.name }}
 
-      # Guard the macOS bundle layout. `dotnet publish` assembles a fresh .app from the publish item
-      # pipeline and does NOT copy the build .app, so anything not registered as a publish item (the
-      # web UI, the PTY shim, the hook relay) silently goes missing — which ships an app that boots to
-      # a blank white WKWebView (app://app/index.html 404s). Fail the release here instead of shipping it.
-      - name: Verify macOS bundle is complete
+      # Package the macOS app. `dotnet publish` for the macOS SDK emits a .pkg installer
+      # (artifacts/<name>/Weavie.Mac-*.pkg) whose payload is staged from the publish item pipeline and
+      # does NOT include the build's hand-copied web UI / PTY shim / hook relay — that .pkg boots to a
+      # blank white WKWebView (app://app/index.html 404s). The COMPLETE bundle is the one the build
+      # assembles at the project's bin/ output (CopyWebAssets + BuildPtyShim + the hook-relay
+      # co-location all populate it). So verify THAT .app, then ship it zipped (a drag-to-Applications
+      # bundle — friendlier for an unsigned app than an unsigned .pkg) instead of the .pkg.
+      - name: Verify and package macOS app
         if: matrix.name == 'osx-arm64'
         shell: bash
         run: |
-          app="artifacts/${{ matrix.name }}/Weavie.Mac.app"
+          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.rid }}/Weavie.Mac.app"
           required=(
+            "$app/Contents/MacOS/Weavie.Mac"
             "$app/Contents/Resources/wwwroot/index.html"
             "$app/Contents/MonoBundle/libweavie_pty.dylib"
             "$app/Contents/MonoBundle/weavie-hook-relay"
@@ -119,10 +123,15 @@ jobs:
             fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "::error::Published Weavie.Mac.app is incomplete — see MISSING entries above."
+            echo "::error::Built Weavie.Mac.app is incomplete — see MISSING entries above."
             echo "Bundle contents:"; find "$app" -maxdepth 3 -print
             exit 1
           fi
+          # Replace the .pkg-containing publish dir with just the zipped .app.
+          rm -rf "artifacts/${{ matrix.name }}"
+          mkdir -p "artifacts/${{ matrix.name }}"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "artifacts/${{ matrix.name }}/Weavie.Mac.app.zip"
+          echo "Packaged $(du -h "artifacts/${{ matrix.name }}/Weavie.Mac.app.zip" | cut -f1) zip."
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4

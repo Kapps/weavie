@@ -21,7 +21,7 @@ declare global {
 // hover delay.
 const DEFAULT_OPTIONS: EditorOptionsSpec = {
   inlayHints: "on",
-  minimap: true,
+  minimap: false,
   bracketPairColorization: true,
   smoothScrolling: false,
   cursorSmoothCaretAnimation: "off",

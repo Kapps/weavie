@@ -1,11 +1,13 @@
-// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (deep forest-green keywords,
-// deeper green strings, sea-green numbers) on a dimmed paper canvas (#e3e2da). The identifier family is
-// split by hue so roles never blur and pitched by contrast: variables a deep blue and properties a
-// quieter steel-blue cousin — the names scanned most, present without shouting — functions
-// crimson (the lone warm accent), and types cool cyan-teal. Keywords sit a notch below identifiers but
-// hold ~6.5:1 on the paper; comments an upright neutral grey held legible at ~6.5:1 (doc-comment prose reads
-// the same neutral — only the XML/doc <tags> take the keyword green); punctuation quiet but legible. Chrome
-// sits one step darker than the editor
+// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (emerald keywords,
+// leaf-green strings, sea-green numbers) on a dimmed paper canvas (#e3e2da). The identifier family is
+// split by hue and luminance so roles never blur: variables a vivid royal blue (the names scanned most,
+// kept as the dark anchor at ~6.3:1) and properties a clearly lighter steel-blue cousin (~4.6:1) a step up,
+// functions crimson (the lone warm accent), and types cool cyan-teal. Keywords are a saturated emerald
+// (~4.6:1) — pitched lighter than the deep-blue names so the two read as distinct hues rather than two dark
+// blobs, and so the doc-comment <tags> that share the keyword green stand clearly apart from the prose.
+// Comments are a light recessive grey (~3.2:1) that sits behind that green markup; punctuation quiet but
+// legible. On a light canvas every color must stay dark enough to read, so the palette wins separation by
+// spreading luminance and hue rather than by going bright. Chrome sits one step darker than the editor
 // so the canvas reads as the focal well it frames. The same `colors` map drives editor, terminal, and
 // chrome (spec §5), so overrides (spec §6) and installed Open VSX themes address the same keys.
 
@@ -165,7 +167,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "Comment",
       scope: ["comment", "punctuation.definition.comment", "string.comment"],
-      settings: { foreground: "#474e58" },
+      settings: { foreground: "#7d8290" },
     },
     {
       name: "String",
@@ -206,12 +208,12 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "keyword.operator.expression",
         "keyword.operator.logical",
       ],
-      settings: { foreground: "#14563b" },
+      settings: { foreground: "#0d7344" },
     },
     {
       name: "Storage / type keyword / modifier",
       scope: ["storage", "storage.type", "storage.modifier", "keyword.declaration"],
-      settings: { foreground: "#14563b" },
+      settings: { foreground: "#0d7344" },
     },
     {
       name: "Operator / accessor",
@@ -249,7 +251,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "variable.parameter",
         "meta.parameter",
       ],
-      settings: { foreground: "#2a4490" },
+      settings: { foreground: "#2849a5" },
     },
     {
       name: "Property",
@@ -259,7 +261,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
         "support.variable.property",
         "meta.object-literal.key",
       ],
-      settings: { foreground: "#2f5590" },
+      settings: { foreground: "#3a63ac" },
     },
     {
       name: "Constant / enum member",
@@ -269,17 +271,17 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "Language variable (this / self / super)",
       scope: ["variable.language", "variable.language.this"],
-      settings: { foreground: "#14563b" },
+      settings: { foreground: "#0d7344" },
     },
     {
       name: "Tag",
       scope: ["entity.name.tag", "punctuation.definition.tag"],
-      settings: { foreground: "#14563b" },
+      settings: { foreground: "#0d7344" },
     },
     {
       name: "Tag attribute",
       scope: ["entity.other.attribute-name"],
-      settings: { foreground: "#2f5590" },
+      settings: { foreground: "#3a63ac" },
     },
     {
       name: "Decorator / annotation",
@@ -294,7 +296,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     {
       name: "JSON key",
       scope: ["support.type.property-name.json", "meta.structure.dictionary.key.json"],
-      settings: { foreground: "#2f5590" },
+      settings: { foreground: "#3a63ac" },
     },
     {
       name: "Punctuation / braces",
@@ -347,16 +349,16 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     // Functions are crimson — the lone warm accent — so calls and definitions stand out from the data.
     function: "#bb3326",
     method: "#bb3326",
-    macro: "#14563b",
-    keyword: "#14563b",
+    macro: "#0d7344",
+    keyword: "#0d7344",
     string: "#2a7d34",
     operator: "#6b7682",
-    comment: "#474e58",
+    comment: "#7d8290",
     // Variables (incl. parameters) are a deep blue — the data scanned most, present without shouting at
     // ~6.9:1; properties a quieter steel-blue cousin one step up.
-    variable: "#2a4490",
-    parameter: "#2a4490",
-    property: "#2f5590",
-    "property.readonly": "#2f5590",
+    variable: "#2849a5",
+    parameter: "#2849a5",
+    property: "#3a63ac",
+    "property.readonly": "#3a63ac",
   },
 };

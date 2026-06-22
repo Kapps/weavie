@@ -37,6 +37,12 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     // aren't clipped at the editor pane's edge in a split layout. Safe because panes are tiled with absolute
     // left/top (no transform ancestor that would trap the fixed-position node).
     fixedOverflowWidgets: true,
+    // Compact gutter: Monaco reserves 5 line-number chars + a 10px decoration strip by default, which leaves a
+    // wide empty band before the code. 3 chars covers files up to 999 lines (Monaco auto-grows past that), and
+    // 6px trims the strip — while keeping the glyph margin (default on) so the code-action lightbulb and the
+    // change-tracking gutter bars still have a home.
+    lineNumbersMinChars: 3,
+    lineDecorationsWidth: 6,
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
     ...toMonacoOptions(editorOptions),
   });

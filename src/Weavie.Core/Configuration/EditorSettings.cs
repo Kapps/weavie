@@ -97,7 +97,7 @@ public static class EditorSettings {
 		});
 
 		registry.Register(Toggle(Minimap, "Show the minimap (code overview) on the editor's right edge.",
-			["minimap", "code overview", "code map"], true));
+			["minimap", "code overview", "code map"], false));
 		registry.Register(Toggle(BracketPairColorization,
 			"Colorize matching bracket pairs by nesting depth.",
 			["bracket pair colorization", "bracket colors", "rainbow brackets"], true));

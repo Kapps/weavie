@@ -95,6 +95,35 @@ jobs:
           dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }}
           ${{ matrix.extra }} -o artifacts/${{ matrix.name }}
 
+      # Guard the macOS bundle layout. `dotnet publish` assembles a fresh .app from the publish item
+      # pipeline and does NOT copy the build .app, so anything not registered as a publish item (the
+      # web UI, the PTY shim, the hook relay) silently goes missing — which ships an app that boots to
+      # a blank white WKWebView (app://app/index.html 404s). Fail the release here instead of shipping it.
+      - name: Verify macOS bundle is complete
+        if: matrix.name == 'osx-arm64'
+        shell: bash
+        run: |
+          app="artifacts/${{ matrix.name }}/Weavie.Mac.app"
+          required=(
+            "$app/Contents/Resources/wwwroot/index.html"
+            "$app/Contents/MonoBundle/libweavie_pty.dylib"
+            "$app/Contents/MonoBundle/weavie-hook-relay"
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [ -e "$f" ]; then
+              echo "ok: $f"
+            else
+              echo "MISSING: $f"
+              missing=1
+            fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Published Weavie.Mac.app is incomplete — see MISSING entries above."
+            echo "Bundle contents:"; find "$app" -maxdepth 3 -print
+            exit 1
+          fi
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:

@@ -106,14 +106,16 @@
        copy into the build bundle's MonoBundle never reaches the shipped artifact (same trap that left the
        published app's wwwroot — and thus the WKWebView — empty). Register the relay as ResolvedFileToPublish
        under the SDK's $(_RelativeAppBundlePath), into Contents/MonoBundle where the host's AppContext.BaseDirectory
-       (and so IdeIntegration.ResolveRelayBinary) looks for it. Depends on _ComputeVariables so the relative
-       bundle path is set, and on CoLocateHookRelayRelease so the relay binary exists in the build bundle. -->
+       (and so IdeIntegration.ResolveRelayBinary) looks for it. Source it from the relay's OWN publish output
+       (the neutral build artifact CoLocateHookRelayRelease itself copies from), not the build .app, so staging
+       is independent of when the SDK assembles the bundle. Depends on _ComputeVariables so the relative bundle
+       path is set, and on CoLocateHookRelayRelease so the relay binary has been produced. -->
   <Target Name="StageHookRelayForPublishMac"
           Condition="'$(Configuration)' != 'Debug' And '$(_HookRelayDestSuffix)' != ''"
           BeforeTargets="ComputeFilesToPublish"
           DependsOnTargets="_ComputeVariables;CoLocateHookRelayRelease">
     <ItemGroup>
-      <ResolvedFileToPublish Include="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe)">
+      <ResolvedFileToPublish Include="$(_HookRelayDir)bin\$(Configuration)\net10.0\$(_HookRelayRid)\publish\$(_HookRelayExe)">
         <RelativePath>$(_RelativeAppBundlePath)/Contents/MonoBundle/$(_HookRelayExe)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>

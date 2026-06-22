@@ -76,6 +76,42 @@
   </Target>
 
   <!--
+    Stage the bundle's runtime resources for `dotnet publish` (the GitHub Release path).
+
+    CopyWebAssets / BuildPtyShim (AfterTargets=Build) only populate the BUILD .app under $(OutDir);
+    they do NOT survive `dotnet publish`. The macOS SDK does not copy the build .app — publish
+    assembles a FRESH bundle in the publish dir from the publish item pipeline (ComputeFilesToPublish
+    -> CopyFilesToPublishDirectory), so anything not registered as a publish item is silently dropped.
+    That's why the first published .app launched to a blank white WKWebView: app://app/index.html
+    404'd because Contents/Resources/wwwroot was missing from the shipped bundle.
+
+    Fix: register the web assets + PTY shim as ResolvedFileToPublish with a RelativePath under the
+    SDK's $(_RelativeAppBundlePath) (the publish-dir-relative path of the .app — the same anchor the
+    SDK uses to place the native executable and dylibs). Doing it BEFORE ComputeFilesToPublish means
+    the files are part of the bundle the publish step codesigns, not added after the seal. Depends on
+    _ComputeVariables so $(_RelativeAppBundlePath) is set, and on the producer targets so the web dist
+    and the shim exist. The hook relay is staged the same way from HookRelay.targets. Release-only:
+    Debug runs the Vite dev server and never publishes. -->
+  <Target Name="StageBundleResourcesForPublish"
+          Condition="'$(Configuration)' != 'Debug'"
+          BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="_ComputeVariables;BuildWebAssets;CopyWebAssets;BuildPtyShim">
+    <ItemGroup>
+      <_PublishWebDist Include="$(WebRoot)/dist/**/*" />
+      <ResolvedFileToPublish Include="@(_PublishWebDist)">
+        <RelativePath>$(_RelativeAppBundlePath)/Contents/Resources/wwwroot/%(RecursiveDir)%(Filename)%(Extension)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+      <ResolvedFileToPublish Include="$(OutDir)$(AssemblyName).app/Contents/MonoBundle/libweavie_pty.dylib">
+        <RelativePath>$(_RelativeAppBundlePath)/Contents/MonoBundle/libweavie_pty.dylib</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+    <Message Importance="high"
+             Text="weavie: staged @(_PublishWebDist->Count()) web asset(s) + PTY shim into the published .app ($(_RelativeAppBundlePath))." />
+  </Target>
+
+  <!--
     Compile the native PTY shim (libweavie_pty.dylib) into the app bundle next to the other native
     libraries. weavie_pty.c issues the variadic TIOCSWINSZ ioctl that managed code cannot call
     correctly on arm64-apple (see Weavie.Core/Terminal/NativeMethods.cs). Ad-hoc signed so it loads

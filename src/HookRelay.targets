@@ -88,8 +88,7 @@
   </Target>
 
   <!-- Carry the co-located relay into `dotnet publish` of the flat hosts (the AfterTargets=Build copy only
-       populates the build OutDir; publish computes its own file set). The macOS .app host carries it via the
-       bundle the build assembles (like the PTY shim); its universal-publish staging is handled there. -->
+       populates the build OutDir; publish computes its own file set). -->
   <Target Name="StageHookRelayForPublish"
           Condition="'$(Configuration)' != 'Debug' And '$(_HookRelayDestSuffix)' == ''"
           BeforeTargets="ComputeFilesToPublish"
@@ -97,6 +96,25 @@
     <ItemGroup>
       <ResolvedFileToPublish Include="$(OutDir)$(_HookRelayExe)">
         <RelativePath>$(_HookRelayExe)</RelativePath>
+        <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+      </ResolvedFileToPublish>
+    </ItemGroup>
+  </Target>
+
+  <!-- macOS: the relay must also be staged for `dotnet publish`. The macOS SDK assembles a FRESH .app in
+       the publish dir from the publish item pipeline and does NOT copy the build .app, so the AfterTargets=Build
+       copy into the build bundle's MonoBundle never reaches the shipped artifact (same trap that left the
+       published app's wwwroot — and thus the WKWebView — empty). Register the relay as ResolvedFileToPublish
+       under the SDK's $(_RelativeAppBundlePath), into Contents/MonoBundle where the host's AppContext.BaseDirectory
+       (and so IdeIntegration.ResolveRelayBinary) looks for it. Depends on _ComputeVariables so the relative
+       bundle path is set, and on CoLocateHookRelayRelease so the relay binary exists in the build bundle. -->
+  <Target Name="StageHookRelayForPublishMac"
+          Condition="'$(Configuration)' != 'Debug' And '$(_HookRelayDestSuffix)' != ''"
+          BeforeTargets="ComputeFilesToPublish"
+          DependsOnTargets="_ComputeVariables;CoLocateHookRelayRelease">
+    <ItemGroup>
+      <ResolvedFileToPublish Include="$(OutDir)$(_HookRelayDestSuffix)$(_HookRelayExe)">
+        <RelativePath>$(_RelativeAppBundlePath)/Contents/MonoBundle/$(_HookRelayExe)</RelativePath>
         <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
       </ResolvedFileToPublish>
     </ItemGroup>

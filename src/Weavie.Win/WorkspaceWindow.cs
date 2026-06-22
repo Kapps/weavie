@@ -4,7 +4,6 @@ using Weavie.Core.Workspaces;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
-using Weavie.Win.Terminal;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
 using PixelRect = Weavie.Core.Layout.PixelRect;
 using WindowPlacement = Weavie.Core.Layout.WindowPlacement;

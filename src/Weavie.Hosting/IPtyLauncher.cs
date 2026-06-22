@@ -7,8 +7,9 @@ namespace Weavie.Hosting;
 /// The platform-specific half of <see cref="TerminalController"/>: it creates the PTY backend and resolves
 /// how to launch claude / the shell on this OS. Everything else in the controller — supervision, output
 /// muting, term-ready handling, status forwarding — is platform-agnostic, so this is the only seam that
-/// differs between ConPTY (Windows) and POSIX (macOS + Linux). POSIX hosts inject
-/// <see cref="PosixPtyLauncher"/>; Windows supplies its own (ConPTY + cmd/powershell) from Weavie.Win.
+/// differs between ConPTY (Windows) and POSIX (macOS + Linux). Both launchers live in Weavie.Hosting
+/// (<see cref="PosixPtyLauncher"/> and <see cref="WindowsPtyLauncher"/>), so every host — the native Windows
+/// shell and the headless worker alike — selects the right one for the OS it runs on.
 /// </summary>
 public interface IPtyLauncher {
 	/// <summary>Creates a fresh PTY backend for one child process.</summary>

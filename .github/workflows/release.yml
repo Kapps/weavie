@@ -127,6 +127,14 @@ jobs:
             echo "Bundle contents:"; find "$app" -maxdepth 3 -print
             exit 1
           fi
+          # Re-sign the fully-assembled bundle. The macOS SDK ad-hoc signs the .app mid-build, but the
+          # post-build copies (web UI, PTY shim, hook relay) change the sealed contents and invalidate
+          # that signature — and on Apple Silicon an invalid signature reads as "damaged and can't be
+          # opened". Re-sign (ad-hoc, inside-out via --deep) so the seal matches the final contents.
+          # It's still not Developer-ID-signed/notarized, so a downloaded copy is quarantined: first
+          # launch is right-click > Open (or `xattr -dr com.apple.quarantine Weavie.Mac.app`).
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
           # Replace the .pkg-containing publish dir with just the zipped .app.
           rm -rf "artifacts/${{ matrix.name }}"
           mkdir -p "artifacts/${{ matrix.name }}"

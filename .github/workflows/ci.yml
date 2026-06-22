@@ -155,6 +155,18 @@ jobs:
         if: matrix.name == 'linux'
         run: dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
 
+      # Cache the downloaded browser binaries (~120MB) keyed on the lockfile, so the install below is a
+      # no-op download on a hit. We still run the install with --with-deps regardless: it skips the
+      # download when the binary is already present but always (re)installs the OS-level apt
+      # dependencies, which a cache of ~/.cache/ms-playwright does not preserve.
+      - name: Cache Playwright browsers
+        if: matrix.name == 'linux'
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
+          restore-keys: playwright-${{ runner.os }}-
+
       - name: Install Playwright Chromium
         if: matrix.name == 'linux'
         working-directory: src/web

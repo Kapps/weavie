@@ -154,7 +154,7 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task HalfRemovedWorktree_DirectoryRemains_RemoveThrowsOrphan_WithoutLeakingSilently() {
+	public async Task HalfRemovedWorktree_DirectoryRemains_DeletedDirectly() {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("half", "main");
 
@@ -164,11 +164,58 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		Directory.CreateDirectory(record.Path);
 		File.WriteAllText(Path.Combine(record.Path, "leftover.txt"), "locked\n");
 
-		// RemoveAsync must not report success and drop the row while the directory leaks; it surfaces loudly.
-		await Assert.ThrowsAsync<WorktreeOrphanException>(
-			() => manager.RemoveAsync(record.Path, deleteBranch: false, force: false));
-		Assert.True(Directory.Exists(record.Path));
-		Assert.NotNull(manager.Registry.FindByBranch("half"));
+		// git can't finish this, so RemoveAsync deletes the (owned) directory directly rather than leaking it.
+		await manager.RemoveAsync(record.Path, deleteBranch: false, force: false);
+
+		Assert.False(Directory.Exists(record.Path));
+		Assert.Null(manager.Registry.FindByBranch("half"));
+	}
+
+	[Fact]
+	public async Task Remove_ClearsContentsThenGitFinalizes_RecordGone_BranchKept_NoPrune() {
+		var manager = NewManager();
+		var record = await manager.CreateAsync("keepbranch", "main");
+		// Extra working-tree content (incl. a nested dir) that our clear step must remove before git finalizes.
+		File.WriteAllText(Path.Combine(record.Path, "scratch.txt"), "wip\n");
+		Directory.CreateDirectory(Path.Combine(record.Path, "nested"));
+		File.WriteAllText(Path.Combine(record.Path, "nested", "deep.txt"), "deep\n");
+
+		await manager.RemoveAsync(record.Path, deleteBranch: false, force: true);
+
+		Assert.False(Directory.Exists(record.Path));
+		Assert.Null(manager.Registry.FindByBranch("keepbranch"));
+		// git removed its OWN admin record (no repo-wide prune): the worktree no longer appears...
+		Assert.DoesNotContain(await manager.ListAsync(), s => s.Branch == "keepbranch");
+		// ...and because deleteBranch was false, the branch itself survives — its committed work is intact.
+		Assert.True(await _git.BranchExistsAsync(_repo, "keepbranch"));
+	}
+
+	[Fact]
+	public async Task ManualDeletion_DoesNotFollowJunctions_PreservingTheirTargets() {
+		if (!OperatingSystem.IsWindows()) {
+			return; // junctions are a Windows construct; the no-follow guard matters (and is testable) there.
+		}
+
+		var manager = NewManager();
+		var record = await manager.CreateAsync("withlink", "main");
+
+		// A directory OUTSIDE the worktree whose contents MUST survive the worktree's deletion — this stands in
+		// for the primary checkout that a worktree's node_modules is junctioned into during live testing.
+		string target = Path.Combine(_root, "precious");
+		Directory.CreateDirectory(target);
+		File.WriteAllText(Path.Combine(target, "keep.txt"), "do not delete\n");
+
+		// A junction inside the worktree pointing at it. Deleting the worktree clears its contents (this junction
+		// included) before git finalizes — the clear step must unlink the junction in place, never recurse into it.
+		string junction = Path.Combine(record.Path, "linked");
+		RunCmd(record.Path, "mklink", "/J", junction, target);
+		Assert.True(File.Exists(Path.Combine(junction, "keep.txt"))); // the junction resolves to the target
+
+		await manager.RemoveAsync(record.Path, deleteBranch: false, force: true);
+
+		Assert.False(Directory.Exists(record.Path)); // worktree (and the junction entry) gone
+		Assert.True(Directory.Exists(target)); // the junction's TARGET survived — we never recursed through it
+		Assert.True(File.Exists(Path.Combine(target, "keep.txt")));
 	}
 
 	private static void RunGit(string workingDirectory, params string[] args) {
@@ -190,6 +237,30 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		process.WaitForExit();
 		if (process.ExitCode != 0) {
 			throw new InvalidOperationException($"git {string.Join(' ', args)} failed (exit {process.ExitCode}): {error.Trim()}");
+		}
+	}
+
+	// Runs a cmd.exe builtin (e.g. `mklink /J` to create a junction, which needs no elevation). Windows-only.
+	private static void RunCmd(string workingDirectory, params string[] args) {
+		var info = new ProcessStartInfo {
+			FileName = "cmd.exe",
+			WorkingDirectory = workingDirectory,
+			UseShellExecute = false,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			CreateNoWindow = true,
+		};
+		info.ArgumentList.Add("/c");
+		foreach (string arg in args) {
+			info.ArgumentList.Add(arg);
+		}
+
+		using var process = Process.Start(info)!;
+		_ = process.StandardOutput.ReadToEnd();
+		string error = process.StandardError.ReadToEnd();
+		process.WaitForExit();
+		if (process.ExitCode != 0) {
+			throw new InvalidOperationException($"cmd {string.Join(' ', args)} failed (exit {process.ExitCode}): {error.Trim()}");
 		}
 	}
 

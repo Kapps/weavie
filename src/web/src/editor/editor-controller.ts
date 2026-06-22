@@ -463,11 +463,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
 
   // The Keep walk reached the end of a file's pending hunks: open the next file (document order, wrapping)
   // that still has a pending hunk, landing on its first change. Skips fully-kept files; opens an unseen file
-  // (its pending state is unknown until rendered). No-op when nothing pending remains.
+  // (its pending state is unknown until rendered). When nothing pending remains anywhere, the user has kept
+  // every change, so finalize the review (see below).
   const advanceToNextPendingFile = (fromPath: string): void => {
-    if (reviewFiles.length === 0) {
-      return;
-    }
     const idx = reviewFiles.findIndex((f) => samePath(f.path, fromPath));
     const start = idx === -1 ? 0 : idx;
     for (let step = 1; step <= reviewFiles.length; step++) {
@@ -480,6 +478,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return;
       }
     }
+    // Nothing pending anywhere: keeping the last change finalizes the review, exactly like Keep-all. The host
+    // clears the accumulated set and emits turn-reset, which tears the inline diff viewer down. Without this,
+    // the final kept hunk would leave the (now fully de-emphasised) diff + toolbar lingering on screen.
+    postToHost({ type: "accept-turn" });
   };
 
   // Flush the file's pending save (so the host's guard reads current content), then ask the host to revert

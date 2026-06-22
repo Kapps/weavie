@@ -178,18 +178,75 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
-	public async Task Remove_NonTransientGitFailure_DoesNotRetry_AndPropagates() {
+	public async Task Remove_OwnedWorktree_ClearsContentsKeepingGit_ThenLetsGitFinalize() {
 		var (manager, registry, git) = NewManager();
-		string wtPath = Path.Combine(WorktreesDir, "broken");
-		git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
-		registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
-		// A non-lock failure must surface immediately, not be retried as a transient lock.
-		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: some other error"));
-		var logs = new List<string>();
-		manager.Log += logs.Add;
+		string wtPath = Path.Combine(WorktreesDir, "owned-" + Guid.NewGuid().ToString("n"));
+		Directory.CreateDirectory(wtPath);
+		File.WriteAllText(Path.Combine(wtPath, ".git"), "gitdir: ../repo/.git/worktrees/owned\n");
+		File.WriteAllText(Path.Combine(wtPath, "leftover.txt"), "x");
+		Directory.CreateDirectory(Path.Combine(wtPath, "sub"));
+		File.WriteAllText(Path.Combine(wtPath, "sub", "nested.txt"), "y");
+		var clearedAtRemove = new List<string>();
+		try {
+			git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "owned", Head = "o1" });
+			registry.Add(new WorktreeRecord { Branch = "owned", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+			// Capture the on-disk state at the moment git is asked to finalize: the working tree must be cleared
+			// down to just the .git link so git's removal runs against an empty tree (no lock race).
+			git.OnRemoveWorktree = p => clearedAtRemove.AddRange(Directory.EnumerateFileSystemEntries(p).Select(Path.GetFileName)!);
 
-		await Assert.ThrowsAsync<GitException>(() => manager.RemoveAsync(wtPath, deleteBranch: false, force: false));
-		Assert.Empty(logs);
+			await manager.RemoveAsync(wtPath, deleteBranch: false, force: false);
+
+			Assert.Equal([".git"], clearedAtRemove); // only the git link survived our clear; git then removed it
+			Assert.False(Directory.Exists(wtPath)); // git (the fake) finalized the removal
+			Assert.Null(registry.FindByBranch("owned"));
+		} finally {
+			if (Directory.Exists(wtPath)) {
+				Directory.Delete(wtPath, recursive: true);
+			}
+		}
+	}
+
+	[Fact]
+	public async Task Remove_OwnedWorktree_GitStillFailsAfterClearing_DeletesRemainingDirectory() {
+		var (manager, registry, git) = NewManager();
+		string wtPath = Path.Combine(WorktreesDir, "broken-" + Guid.NewGuid().ToString("n"));
+		Directory.CreateDirectory(wtPath);
+		File.WriteAllText(Path.Combine(wtPath, ".git"), "gitdir: nowhere\n");
+		File.WriteAllText(Path.Combine(wtPath, "leftover.txt"), "x");
+		try {
+			git.Worktrees.Add(new GitWorktree { Path = wtPath, Branch = "broken", Head = "b1" });
+			registry.Add(new WorktreeRecord { Branch = "broken", Path = wtPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+			// git can't finalize even against the cleared tree (a pre-broken .git linkage): not a transient lock,
+			// so no retry — we delete the remaining directory ourselves rather than leak it.
+			git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: validation failed, cannot remove working tree: '.git' does not exist"));
+			var logs = new List<string>();
+			manager.Log += logs.Add;
+
+			await manager.RemoveAsync(wtPath, deleteBranch: false, force: true);
+
+			Assert.False(Directory.Exists(wtPath)); // remaining directory deleted directly
+			Assert.Null(registry.FindByBranch("broken"));
+			Assert.DoesNotContain(logs, l => l.Contains("retrying", StringComparison.Ordinal)); // not retried as a transient lock
+			Assert.Contains(logs, l => l.Contains("deleting the remaining directory directly", StringComparison.Ordinal));
+		} finally {
+			if (Directory.Exists(wtPath)) {
+				Directory.Delete(wtPath, recursive: true);
+			}
+		}
+	}
+
+	[Fact]
+	public async Task Remove_GitFailure_OutsideWorktreesDir_Propagates_WithoutDeleting() {
+		var (manager, registry, git) = NewManager();
+		// A worktree git tracks but that lives OUTSIDE the managed worktrees dir (e.g. one a user created by
+		// hand). Weavie must not clear or delete a directory it doesn't own — git's failure surfaces instead.
+		string externalPath = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "external-" + Guid.NewGuid().ToString("n"));
+		git.Worktrees.Add(new GitWorktree { Path = externalPath, Branch = "external", Head = "e1" });
+		registry.Add(new WorktreeRecord { Branch = "external", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+		git.RemoveWorktreeFailures.Enqueue(new GitException("git worktree remove failed (exit 128): fatal: 'external' is not a working tree"));
+
+		await Assert.ThrowsAsync<GitException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
+		Assert.NotNull(registry.FindByBranch("external")); // not dropped — the removal genuinely failed
 	}
 
 	[Fact]
@@ -312,12 +369,23 @@ public sealed class WorktreeManagerTests {
 
 		public Queue<Exception> RemoveWorktreeFailures { get; } = new();
 
+		/// <summary>Observes the on-disk state at the moment `git worktree remove` is invoked (before it acts).</summary>
+		public Action<string>? OnRemoveWorktree { get; set; }
+
 		public Task RemoveWorktreeAsync(string repositoryDirectory, string worktreePath, bool force, CancellationToken ct = default) {
 			if (RemoveWorktreeFailures.Count > 0) {
 				return Task.FromException(RemoveWorktreeFailures.Dequeue());
 			}
 
+			OnRemoveWorktree?.Invoke(worktreePath);
+
+			// Mirror real git: a successful `git worktree remove` drops its own admin record AND deletes the
+			// working-tree directory. (The directory may not exist in pure-logic tests; deletion is best-effort.)
 			Worktrees.RemoveAll(w => PathEquals(w.Path, worktreePath));
+			if (Directory.Exists(worktreePath)) {
+				Directory.Delete(worktreePath, recursive: true);
+			}
+
 			return Task.CompletedTask;
 		}
 

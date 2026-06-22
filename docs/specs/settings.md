@@ -407,7 +407,7 @@ two-segment cap (`SettingsStore.BuildKeySyntax`), which now appends dotted keys 
 
 ## MCP tools (the editing surface)
 
-Three tools — `listSettings`/`getSetting`/`setSetting` — are served by `McpServer`
+Four tools — `listSettings`/`getSetting`/`setSetting`/`clearSetting` — are served by `McpServer`
 (`Weavie.Core/Mcp/McpServer.cs`) and dispatched in `HandleToolCallAsync`.
 
 **They must run on the registry MCP server, not the IDE server.** Claude Code filters the IDE
@@ -416,9 +416,9 @@ the IDE server are invisible to Claude. Instead the host runs a second `McpServe
 (advertising only these tools), registered with the spawned `claude` via a generated `--mcp-config`
 (`~/.weavie/internals/mcp/weavie-<port>.mcp.json`: a `ws://` entry with the shared token as
 `Authorization: Bearer`). Then the tools reach the model as `mcp__weavie__listSettings` etc. See the
-[capability registry concept](../concepts/mcp-registry.md). All three return the standard MCP
+[capability registry concept](../concepts/mcp-registry.md). All four return the standard MCP
 `{"content":[{"type":"text","text":...}]}` envelope; `listSettings`/`getSetting` serialize their JSON
-payload into that `text` field, and `setSetting` returns a human-readable summary (errors set
+payload into that `text` field, and `setSetting`/`clearSetting` return a human-readable summary (errors set
 `isError: true`).
 
 ### `listSettings`
@@ -448,6 +448,16 @@ Input `{ "key": "terminal.shell", "value": "nu" }`. Validates against the regist
 file; returns a confirmation including the apply note and any env-shadow warning. Its description
 instructs the model to **call `listSettings` first** to find the exact key rather than guessing.
 
+### `clearSetting`
+
+Input `{ "key": "terminal.shell" }` — the inverse of `setSetting`. Removes the key's user-file
+override (`SettingsStore.Clear`, removing both the root dotted-key form `setSetting` writes and a
+hand-edited `[table]` form) so the setting falls back to its env var or registered default, raising
+the same `SettingChanged` event a `setSetting` would. Returns a summary noting whether an override was
+actually present, the apply note, and any env-shadow warning (a still-set env var means the *effective*
+value is unchanged). A key with no override is a no-op, not an error. Refuses to write while the file
+is malformed, like `setSetting`.
+
 ### Worked flow: *"set my weavie shell to nushell"*
 
 1. Claude calls `listSettings`, sees `terminal.shell` (aliases include "shell").
@@ -468,7 +478,7 @@ Weavie.Core/
     SettingsStore.cs         // TOML load/save (Tomlyn, atomic), Resolve, Set, watch, change hub
     CoreSettings.cs          // registers workspace / terminal.shell / claude.path
   Mcp/
-    McpServer.cs             // + listSettings/getSetting/setSetting tools
+    McpServer.cs             // + listSettings/getSetting/setSetting/clearSetting tools
 ```
 
 Both hosts construct one `SettingsStore` and hand it to their `TerminalController`s and `McpServer`,
@@ -487,8 +497,8 @@ the `TerminalController`s collapses into the registered settings' `ComputeDefaul
    reporting, change-diff on file edit / no double-fire on self-write).
 2. **Reaction wiring** — `TerminalController.Restart()` + `term-reset` web handling; hosts subscribe
    `terminal.shell` → reopen. Verify a shell change reopens the pane.
-3. **MCP tools** — `listSettings`/`getSetting`/`setSetting` on `McpServer`, wired to the store.
-   Verify end-to-end by asking the embedded Claude to change the shell.
+3. **MCP tools** — `listSettings`/`getSetting`/`setSetting`/`clearSetting` on `McpServer`, wired to the
+   store. Verify end-to-end by asking the embedded Claude to change the shell.
 
 ## Open questions
 

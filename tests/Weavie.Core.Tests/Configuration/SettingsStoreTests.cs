@@ -282,6 +282,113 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Clear_RemovesOverride_FallsBackToDefault_AndRaisesChange() {
+		File.WriteAllText(FilePath, "t.str = \"from-file\"\n");
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		Assert.Equal("from-file", store.Resolve("t.str").Value);
+		var changes = new List<SettingChange>();
+		store.SettingChanged += changes.Add;
+
+		var result = store.Clear("t.str");
+
+		Assert.True(result.Removed);
+		Assert.Null(result.ShadowedByEnv);
+		Assert.Equal("fallback", store.Resolve("t.str").Value);
+		Assert.Equal(SettingSource.Default, store.Resolve("t.str").Source);
+		var change = Assert.Single(changes);
+		Assert.Equal("t.str", change.Key);
+		Assert.Equal("fallback", change.NewValue);
+		Assert.DoesNotContain("t.str", File.ReadAllText(FilePath), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void Clear_NoOverride_IsNoOp_AndRaisesNoChange() {
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		var changes = new List<SettingChange>();
+		store.SettingChanged += changes.Add;
+
+		var result = store.Clear("t.str"); // never set
+
+		Assert.False(result.Removed);
+		Assert.Empty(changes);
+		Assert.Equal("fallback", store.Resolve("t.str").Value);
+	}
+
+	[Fact]
+	public void Clear_RemovesKey_WrittenInHandEditedTableForm() {
+		// A [table] header rather than the root dotted key Set writes — RemoveKeyLocked must handle both.
+		File.WriteAllText(FilePath, "[editor.font]\nsize = 22\n");
+		var registry = new SettingsRegistry();
+		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Description = "size", Default = 0L });
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		Assert.Equal(22L, store.Resolve("editor.font.size").Value);
+
+		var result = store.Clear("editor.font.size");
+
+		Assert.True(result.Removed);
+		Assert.Equal(0L, store.Resolve("editor.font.size").Value);
+		Assert.DoesNotContain("size = 22", File.ReadAllText(FilePath), StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void Clear_RemovesOnlyTargetKey_PreservesSiblingsAndUnknownTables() {
+		const string original = """
+			t.str = "keep-me"
+			t.num = 7
+
+			[plugins.acme-linter]
+			severity = "error"
+			""";
+		File.WriteAllText(FilePath, original);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+
+		store.Clear("t.num");
+
+		string text = File.ReadAllText(FilePath);
+		Assert.Contains("t.str = \"keep-me\"", text, StringComparison.Ordinal);    // sibling key kept
+		Assert.Contains("[plugins.acme-linter]", text, StringComparison.Ordinal);  // unknown subtree kept
+		Assert.Contains("severity = \"error\"", text, StringComparison.Ordinal);
+		Assert.DoesNotContain("t.num", text, StringComparison.Ordinal);            // cleared key gone
+		Assert.Equal("keep-me", store.Resolve("t.str").Value);
+		Assert.Equal(0L, store.Resolve("t.num").Value);                            // default
+	}
+
+	[Fact]
+	public void Clear_EnvShadow_IsReported_AndEffectiveValueUnchanged() {
+		File.WriteAllText(FilePath, "t.str = \"file-value\"\n");
+		using (EnvScope("WEAVIE_T_STR", "env-wins")) {
+			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+			var changes = new List<SettingChange>();
+			store.SettingChanged += changes.Add;
+
+			var result = store.Clear("t.str");
+
+			Assert.True(result.Removed);                                  // file override removed
+			Assert.Equal("WEAVIE_T_STR", result.ShadowedByEnv);           // env still in play
+			Assert.Equal("env-wins", store.Resolve("t.str").Value);       // env still wins -> effective unchanged
+			Assert.Empty(changes);                                        // effective value unchanged -> no event
+			Assert.DoesNotContain("t.str", File.ReadAllText(FilePath), StringComparison.Ordinal); // file cleaned
+		}
+	}
+
+	[Fact]
+	public void Clear_UnknownKey_Throws() {
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		Assert.Throws<UnknownSettingException>(() => store.Clear("does.not.exist"));
+	}
+
+	[Fact]
+	public void Clear_OnMalformedFile_Throws_NonDestructively() {
+		const string broken = "t.str = = oops\n[unterminated\n";
+		File.WriteAllText(FilePath, broken);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+
+		Assert.True(store.IsMalformed);
+		Assert.Throws<SettingsFileMalformedException>(() => store.Clear("t.str"));
+		Assert.Equal(broken, File.ReadAllText(FilePath)); // file left intact
+	}
+
+	[Fact]
 	public void Catalog_Json_IncludesValueSourceDefaultAndAllowedValues() {
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition {

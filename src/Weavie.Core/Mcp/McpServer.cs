@@ -43,8 +43,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 	/// <summary>
 	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter that handles
 	/// inbound tool calls, and the advertised workspace folders. When a <paramref name="settings"/> store is
-	/// supplied, the settings tools (<c>listSettings</c> / <c>getSetting</c> / <c>setSetting</c>) are advertised
-	/// and served. Call <see cref="Start"/> to begin listening.
+	/// supplied, the settings tools (<c>listSettings</c> / <c>getSetting</c> / <c>setSetting</c> /
+	/// <c>clearSetting</c>) are advertised and served. Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
 		string authToken,
@@ -364,6 +364,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "setSetting":
 				await HandleSetSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
 				break;
+			case "clearSetting":
+				await HandleClearSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				break;
 			case "getLayout":
 				await HandleGetLayoutAsync(ws, idRaw, ct).ConfigureAwait(false);
 				break;
@@ -450,6 +453,40 @@ public sealed partial class McpServer : IAsyncDisposable {
 			? string.Empty
 			: $" Note: {result.ShadowedByEnv} is set and overrides the file, so the effective value is unchanged until you unset it.";
 		return $"Set {key} to {value.GetRawText()}.{note}{shadow}";
+	}
+
+	private async Task HandleClearSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+		var settings = Require(_settings, "Settings");
+		string? key = args.GetStringOrNull("key");
+		if (string.IsNullOrEmpty(key)) {
+			await SendToolErrorAsync(ws, idRaw, "clearSetting requires a 'key'.", ct).ConfigureAwait(false);
+			return;
+		}
+
+		try {
+			var result = settings.Clear(key);
+			await SendToolTextAsync(ws, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
+			Emit($"clearSetting {key} (removed={result.Removed})");
+		} catch (Exception ex) when (ex is UnknownSettingException or SettingsFileMalformedException) {
+			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+		}
+	}
+
+	private static string FormatClearSummary(string key, ClearResult result) {
+		string shadow = result.ShadowedByEnv is null
+			? string.Empty
+			: $" Note: {result.ShadowedByEnv} is set and overrides the file, so the effective value is unchanged until you unset it.";
+		if (!result.Removed) {
+			return $"{key} had no user-file override to clear; it was already at its default or env value.{shadow}";
+		}
+
+		string note = result.Apply switch {
+			ApplyMode.ReopensTerminal => " The terminal pane will reopen to apply.",
+			ApplyMode.NextSession => " It applies to the next session that starts.",
+			ApplyMode.RestartRequired => " Restart weavie to apply.",
+			_ => " It is live now.",
+		};
+		return $"Cleared {key}; it now falls back to its default.{note}{shadow}";
 	}
 
 	private async Task HandleGetLayoutAsync(WebSocket ws, string? idRaw, CancellationToken ct) {

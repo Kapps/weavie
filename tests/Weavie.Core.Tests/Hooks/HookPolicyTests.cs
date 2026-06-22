@@ -5,7 +5,8 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// The <c>claude.allowAllTools</c> gate: when on, auto-allows non-edit PermissionRequest events;
-/// edits (governed by Claude's own mode) and observation-only PreToolUse/PostToolUse pass through.
+/// edits (governed by Claude's own mode), interactive prompts (ExitPlanMode/AskUserQuestion), and
+/// observation-only PreToolUse/PostToolUse pass through.
 /// </summary>
 public sealed class HookPolicyTests {
 	private static HookRequest Req(string tool) =>
@@ -28,6 +29,14 @@ public sealed class HookPolicyTests {
 	[InlineData("NotebookEdit")]
 	public void AllowAllOn_EditTool_PassesThrough(string tool) =>
 		// Edits follow Claude's own mode, never auto-allowed here.
+		Assert.Equal(HookDecisionKind.PassThrough, HookPolicy.Decide(Req(tool), allowAllTools: true).Kind);
+
+	[Theory]
+	[InlineData("ExitPlanMode")]
+	[InlineData("AskUserQuestion")]
+	public void AllowAllOn_InteractivePrompt_PassesThrough(string tool) =>
+		// These tools ARE the user prompt — auto-allowing them would silently accept the plan / answer the
+		// question. They pass through so the prompt surfaces, matching Claude's own bypassPermissions.
 		Assert.Equal(HookDecisionKind.PassThrough, HookPolicy.Decide(Req(tool), allowAllTools: true).Kind);
 
 	[Fact]

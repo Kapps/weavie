@@ -60,6 +60,22 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
   revert, or investigate them, and don't retry in a tight loop. Wait, then re-run.
 - Only act on failures in files you actually changed.
 
+## Code standards
+
+- **Minimize lines of code.** Every line is a liability — to read, maintain, and break. Write the
+  least code that does the job, prefer the plainest version of it, and delete more than you add when
+  you can.
+- **No duplication.** Repeated logic is a defect, not a shortcut — the first time you'd copy
+  something, extract the shared part to one place (a helper, a base, a single source of truth).
+- **No silent fallbacks.** Never paper over a hang or failure with a safety-net timeout or a default
+  that hides it. Fail loudly within bounds and keep the failure observable.
+- **No nullable injected dependencies.** Don't accept `IFoo? = null`. Provide a `Noop`/`Headless`
+  implementation and require the real thing.
+- **No optional / default-valued parameters.** Banned repo-wide by the `WV0001` analyzer (only
+  carve-outs: `CancellationToken` and `Caller*`). Use overloads or the test factory.
+- **Enforce, don't suppress.** Strict enforcement is the default; never silence an analyzer or
+  warning to make a problem disappear. Ask before any build-config, enforcement, or philosophy call.
+
 ## File size & single responsibility
 
 Any source file that grows past **300 lines** is a signal to stop and ask whether it's doing too much —
@@ -69,6 +85,17 @@ has clearly outgrown one job (e.g. a window/app class that owns bootstrap **and*
 classes (mirroring `WorkspaceWindow` + `WorkspaceWindow.WebBridge.cs`) or extracted collaborators. Prefer
 cohesive ~200-line files over one sprawling one. Don't split a file that genuinely does one thing just to
 hit a number.
+
+## Comments & prose
+
+- **Minimal comments, each carrying its own weight.** Prefer self-explanatory code over narration;
+  write a comment only when it tells the reader something the code can't. Keep it to 1–2 lines (one
+  ideal, two max) — anything longer needs an extremely good reason, so push the detail into the code
+  or a linked doc. Public APIs are the exception: XML doc comments are required there (CS1591) —
+  put `<summary>`, its text, and `</summary>` each on its own line.
+- **State the final state, not the path to it.** Never narrate the order of operations that produced
+  something ("first X, then Y, now Z"); say only what it *is* now. Applies to comments, commit
+  messages, and docs.
 
 ## Output conventions
 

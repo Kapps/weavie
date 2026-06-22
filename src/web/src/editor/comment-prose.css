@@ -2,12 +2,16 @@
    in place of its raw lines. Sits inside Monaco's view-zone layer, aligned to the code's left edge, styled to
    read as a quieter, friendlier version of the comment it replaces. */
 
-.weavie-comment-prose {
-  /* Monaco renders the view-zones layer beneath the (absolutely-positioned, z-auto) `.view-lines` text layer,
-     which would otherwise swallow clicks over the prose. The zone node is already position:absolute, so a small
-     positive z-index lifts it above the text layer while staying under sticky-scroll (z-index 4). */
+/* The outer zone node Monaco positions + force-sizes. Monaco renders the view-zones layer beneath the
+   (absolutely-positioned, z-auto) `.view-lines` text layer, which would otherwise swallow clicks over the
+   prose. The zone node is already position:absolute, so a small positive z-index lifts it above the text layer
+   while staying under sticky-scroll (z-index 4). The inner content node is what we measure to size the zone. */
+.weavie-comment-prose-zone {
   z-index: 3;
   pointer-events: auto;
+}
+
+.weavie-comment-prose {
   /* Align with the code: Monaco's content starts after the gutter; the zone container already accounts for it,
      so only a small left inset keeps the prose off the very edge. */
   padding: 2px 16px 6px 0;

@@ -42,15 +42,20 @@ export interface CommentProse {
 }
 
 // Build the prose DOM for a comment block, matching the editor's font metrics so it sits naturally in the gap
-// the collapsed lines left behind.
+// the collapsed lines left behind. Returns an outer zone node (which Monaco force-sizes to the zone height)
+// wrapping an inner content node whose natural height is what we measure — so the zone shrinks to the real
+// wrapped height instead of the over-estimated seed.
 function buildProseNode(
   editor: monaco.editor.IStandaloneCodeEditor,
   blocks: ProseBlock[],
-): HTMLElement {
-  const node = document.createElement("div");
-  node.className = "weavie-comment-prose";
+): { outer: HTMLElement; inner: HTMLElement } {
+  const outer = document.createElement("div");
+  outer.className = "weavie-comment-prose-zone";
+  const inner = document.createElement("div");
+  inner.className = "weavie-comment-prose";
+  outer.appendChild(inner);
   const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
-  node.style.setProperty("--prose-font", fontInfo.fontFamily);
+  inner.style.setProperty("--prose-font", fontInfo.fontFamily);
 
   const appendInline = (parent: HTMLElement, runs: Inline[]): void => {
     for (const run of runs) {
@@ -69,7 +74,7 @@ function buildProseNode(
     if (block.kind === "p") {
       const p = document.createElement("p");
       appendInline(p, block.runs);
-      node.appendChild(p);
+      inner.appendChild(p);
     } else {
       const list = document.createElement(block.kind === "ol" ? "ol" : "ul");
       if (block.kind === "ol" && block.start !== 1) {
@@ -80,10 +85,10 @@ function buildProseNode(
         appendInline(li, item);
         list.appendChild(li);
       }
-      node.appendChild(list);
+      inner.appendChild(list);
     }
   }
-  return node;
+  return { outer, inner };
 }
 
 /** Creates a comment-prose controller bound to `editor`. */
@@ -140,7 +145,7 @@ export function createCommentProse(
     const caret = editor.getPosition()?.lineNumber;
 
     const hidden: monaco.IRange[] = [];
-    const pending: { zone: monaco.editor.IViewZone; node: HTMLElement }[] = [];
+    const pending: { zone: monaco.editor.IViewZone; inner: HTMLElement }[] = [];
     for (const block of blocks) {
       // Leave a block raw while it's being edited: the one the caret sits in, or the one just clicked open.
       const expanded =
@@ -154,8 +159,8 @@ export function createCommentProse(
       if (prose.length === 0) {
         continue;
       }
-      const node = buildProseNode(editor, prose);
-      attachClickToEdit(node, block.startLine);
+      const { outer, inner } = buildProseNode(editor, prose);
+      attachClickToEdit(outer, block.startLine);
       hidden.push(new monaco.Range(block.startLine, 1, block.endLine, 1));
       const lineHeight = editor.getOption(monaco.editor.EditorOption.lineHeight);
       // Seed a non-zero height (one line per source line) so the zone reserves space before the ResizeObserver
@@ -163,31 +168,32 @@ export function createCommentProse(
       const zone: monaco.editor.IViewZone = {
         afterLineNumber: block.startLine - 1,
         heightInPx: Math.max(lineHeight, block.content.length * lineHeight),
-        domNode: node,
+        domNode: outer,
         suppressMouseDown: true,
         // The zone anchors at the edge of the collapsed (hidden) comment lines; without this Monaco treats it
         // as inside the hidden area and renders it at zero height (display:none).
         showInHiddenAreas: true,
       };
-      pending.push({ zone, node });
+      pending.push({ zone, inner });
     }
 
     // Collapse the raw comment lines, then drop the prose widgets into the gaps they leave.
     hiddenEditor.setHiddenAreas(hidden, HIDDEN_AREAS_SOURCE);
     editor.changeViewZones((accessor) => {
-      for (const { zone, node } of pending) {
+      for (const { zone, inner } of pending) {
         const id = accessor.addZone(zone);
         zoneIds.push(id);
-        // Re-measure once the prose has laid out (wrapping depends on the editor width): set the zone to the
-        // node's real height and relayout. Guarded so it only fires when the height actually changes.
+        // Size the zone to the prose's real height. Monaco force-sizes the zone's (outer) node to the zone
+        // height, so we measure the INNER content node — whose height is natural — and shrink the zone to it
+        // (wrapping depends on the editor width, so re-measure on resize). Guarded to only fire on a change.
         const observer = new ResizeObserver(() => {
-          const height = node.scrollHeight;
+          const height = inner.offsetHeight;
           if (height > 0 && height !== zone.heightInPx) {
             zone.heightInPx = height;
             editor.changeViewZones((acc) => acc.layoutZone(id));
           }
         });
-        observer.observe(node);
+        observer.observe(inner);
         observers.push(observer);
       }
     });

@@ -35,44 +35,50 @@ export function agentBackendId(name: string): string {
   return `remote:${name}`;
 }
 
-/** Persist + register a new agent, then connect to it. Replaces any agent with the same name. */
+/**
+ * Connect + register a new agent, persisting it only once the connection succeeds. Replaces any agent with
+ * the same name. Throws if the runner is unreachable or rejects us, so the caller (the Add modal) can surface
+ * the failure instead of silently leaving the agent out of the location picker.
+ */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
+  await connectAgent(agent); // throws on failure → shown in the modal; a bad agent is never persisted
   const next = [...agents().filter((a) => a.name !== agent.name), agent];
   setAgents(next);
   localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
-  await connectAgent(agent);
 }
 
 /** Connect to all stored agents on startup (best-effort; a down runner just logs and is skipped). */
 export function connectStoredAgents(): void {
   for (const agent of agents()) {
-    void connectAgent(agent);
+    void connectAgent(agent).catch((err) => {
+      log("error", `remote agent ${agent.name}: ${String(err)}`);
+    });
   }
 }
 
 // Resolve the agent's worker bridge via the runner control plane, then wire it as a backend. The runner's
 // GET /backend ensures the worker is up and returns its page URL with its token; the bridge WebSocket URL is
-// derived from it.
+// derived from it. Throws on any failure so callers can decide whether to surface it (add) or swallow it
+// (best-effort startup reconnect).
 async function connectAgent(agent: RemoteAgent): Promise<void> {
   const base = agent.url.replace(/\/+$/, "");
+  let res: Response;
   try {
-    const res = await fetch(`${base}/backend`, {
+    res = await fetch(`${base}/backend`, {
       headers: { Authorization: `Bearer ${agent.token}` },
     });
-    if (!res.ok) {
-      log("error", `remote agent ${agent.name}: GET /backend → ${res.status}`);
-      return;
-    }
-    const body = (await res.json()) as { url?: string };
-    if (typeof body.url !== "string") {
-      log("error", `remote agent ${agent.name}: /backend returned no url`);
-      return;
-    }
-    connectBackend(agentBackendId(agent.name), agent.name, pageUrlToBridgeWs(body.url));
-    log("info", `remote agent ${agent.name}: connected`);
   } catch (err) {
-    log("error", `remote agent ${agent.name}: unreachable (${String(err)})`);
+    throw new Error(`runner unreachable at ${base} (${String(err)})`);
   }
+  if (!res.ok) {
+    throw new Error(`runner returned ${res.status} for GET /backend`);
+  }
+  const body = (await res.json()) as { url?: string };
+  if (typeof body.url !== "string") {
+    throw new Error("runner /backend returned no worker url");
+  }
+  connectBackend(agentBackendId(agent.name), agent.name, pageUrlToBridgeWs(body.url));
+  log("info", `remote agent ${agent.name}: connected`);
 }
 
 // The runner returns the worker's page URL (http://host:port/?token=T); the bridge lives at /weavie-bridge on

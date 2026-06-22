@@ -274,6 +274,22 @@ left behind, and nothing destroys a worktree without asking.
   destroy uncommitted work silently (CLAUDE.md "no silent fallbacks", [despises-fallbacks]). The one
   thing delete leaves behind is the branch — a cheap ref, not a working copy — reaped by the cleanup
   flow below, not by delete itself.
+  - **Clear-then-let-git-finalize (no global git ops).** Plain `git worktree remove` proved too
+    unreliable on Windows: it's non-atomic, so a lock that outlasts the bounded retry can leave git's
+    record stripped but the directory on disk. For a worktree Weavie owns, `RemoveAsync` therefore
+    **deletes the working-tree contents itself first — every entry except the `.git` link — then runs
+    `git worktree remove`**. Because git's single removal now runs against an emptied tree it can't lose
+    the lock race, and **git removes its own admin record** (so the branch is freed) — *no* repo-wide
+    `git worktree prune`, no global op that could disturb another agent's worktree on this shared branch.
+    If git's record was already gone (an earlier non-atomic failure), the orphaned directory is simply
+    deleted directly — there's nothing for git to finalize. Both paths are **tightly guarded**: they only
+    ever touch a path **strictly inside the managed worktrees dir** (`WorktreeManager` allocates worktrees
+    only there) — anything outside surfaces a `WorktreeOrphanException` instead of being touched — and the
+    delete **never recurses through a junction/symlink**. That last guard matters: a worktree often holds a
+    `node_modules` junction into the primary checkout (live-testing setup), and a naive recursive delete
+    that followed it would wipe the primary's files. Read-only files (git's object store) are cleared
+    before unlinking. (If git still can't finalize even against the cleared tree — a pre-broken `.git`
+    linkage — the remaining directory is deleted directly so it never leaks, logged loudly.)
 - **Surface stale/merged worktrees + branches** for cleanup ("3 inactive worktrees, 2 fully merged —
   clean up?") rather than leaving git debris forever *or* auto-destroying. This is also where the
   branches left behind by *delete* get reaped. Loud, opt-in, observable.

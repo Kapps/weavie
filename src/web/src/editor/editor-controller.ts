@@ -663,7 +663,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (message.baseline === message.current) {
           inlineDiff?.clear(message.path);
           commentProse?.refresh();
-            // A revert emptied this file's diff (file-scope, the last hunk, or all-scope). If it's the file
+          // A revert emptied this file's diff (file-scope, the last hunk, or all-scope). If it's the file
           // under review and other changed files remain, walk on to the next so the toolbar follows the
           // review instead of vanishing — the same advance Keep does. (reviewFiles still includes this file;
           // the host's trimmed turn-changes arrives next.)

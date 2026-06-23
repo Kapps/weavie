@@ -7,14 +7,11 @@ namespace Weavie.Core.Terminal;
 
 /// <summary>
 /// Real Windows PTY via ConPTY: opens a pseudo console, launches the child attached to it with
-/// <c>CreateProcess</c>, reads rendered output on a background thread, and writes keystrokes to the
-/// input pipe. The Windows sibling of <see cref="PosixPtyTerminal"/>; both implement
-/// <see cref="ITerminal"/> for identical host wiring. <c>CreateProcess</c> searches PATH, so the
-/// command need not be absolute.
+/// <c>CreateProcess</c>, reads rendered output on a background thread, and writes keystrokes to the input pipe.
+/// The Windows sibling of <see cref="PosixPtyTerminal"/>. <c>CreateProcess</c> searches PATH.
 /// </summary>
 public sealed class WindowsConPtyTerminal : ITerminal {
-	// How long Dispose waits for the child to exit after the pseudo console is closed, then how long it
-	// waits after force-terminating. Bounded so teardown can't hang; the force step kills rather than abandons.
+	// Dispose's bounded waits: for graceful exit after closing the pseudo console, then after force-terminating.
 	private static readonly TimeSpan GracefulExitTimeout = TimeSpan.FromSeconds(3);
 	private static readonly TimeSpan ForcedExitTimeout = TimeSpan.FromSeconds(2);
 
@@ -69,10 +66,9 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 
 				var pi = SpawnChild(startInfo, _hPC);
 
-				// Drop our copies of the PTY-side pipe ends only AFTER the child is attached: ConHost
-				// starts lazily at CreateProcess, so closing outputWrite earlier yields no output.
-				// Closing our outputWrite copy also lets the read loop see EOF when the child exits
-				// (ConHost holds the surviving write end).
+				// Drop our PTY-side pipe ends only AFTER the child attaches: ConHost starts lazily at
+				// CreateProcess, so closing outputWrite earlier yields no output. Dropping our outputWrite copy
+				// also lets the read loop see EOF on child exit (ConHost holds the surviving write end).
 				CloseHandle(inputRead);
 				inputRead = 0;
 				CloseHandle(outputWrite);
@@ -111,9 +107,8 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "InitializeProcThreadAttributeList failed.");
 			}
 
-			// For PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE the attribute value IS the HPCON handle itself,
-			// passed directly as lpValue (NOT a pointer). Passing &hPC launches the child detached from
-			// the pseudo console, so ConHost tears down and the output pipe breaks.
+			// For PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE the attribute value IS the HPCON handle, passed directly
+			// as lpValue (NOT a pointer); passing &hPC launches the child detached, breaking the output pipe.
 			if (!UpdateProcThreadAttribute(
 					attrList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hPC, IntPtr.Size, 0, 0)) {
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "UpdateProcThreadAttribute failed.");
@@ -122,12 +117,10 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 			var startupInfo = new StartupInfoEx { lpAttributeList = attrList };
 			startupInfo.StartupInfo.cb = sizeof(StartupInfoEx);
 
-			// Opt out of console standard-handle inheritance. When weavie's stdio is redirected (launched
-			// from a terminal, under `dotnet run`, or piped) the console subsystem otherwise duplicates
-			// those non-console handles into the child's std slots (even with bInheritHandles=false), where
-			// they win over the pseudoconsole — so claude reads a non-TTY pipe, falls back to `--print`, and
-			// dumps output onto weavie's stdout. STARTF_USESTDHANDLES with NULL handles forces the child to
-			// attach to the pseudoconsole instead and get a real console. A no-op when weavie is console-less.
+			// STARTF_USESTDHANDLES with NULL std handles forces the child onto the pseudoconsole. Otherwise,
+			// when weavie's stdio is redirected, the console subsystem duplicates those non-console handles into
+			// the child's std slots (even with bInheritHandles=false) where they win over the pseudoconsole, so
+			// claude reads a non-TTY pipe and falls back to `--print`. A no-op when weavie is console-less.
 			startupInfo.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
 			startupInfo.StartupInfo.hStdInput = 0;
 			startupInfo.StartupInfo.hStdOutput = 0;
@@ -162,9 +155,8 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 	}
 
 	/// <summary>
-	/// Builds the double-null-terminated UTF-16 environment block: current env, minus
-	/// <see cref="TerminalStartInfo.RemoveEnvironment"/>, plus <see cref="TerminalStartInfo.Environment"/>.
-	/// Names are sorted case-insensitively as Win32 requires.
+	/// The double-null-terminated UTF-16 environment block for the child, names sorted case-insensitively as
+	/// Win32 requires.
 	/// </summary>
 	private static nint BuildEnvironmentBlock(TerminalStartInfo startInfo) {
 		var merged = startInfo.BuildEnvironment(StringComparer.OrdinalIgnoreCase);
@@ -311,10 +303,9 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 			readThread = _readThread;
 		}
 
-		// Block until the child has exited, so a worktree removal following teardown can't race a process that
-		// still has the worktree as its cwd. The read loop's RaiseExited waits on the process and ends the
-		// thread; if the child ignores the console close, force it to keep teardown bounded. Done off _gate so
-		// the read loop's final OnOutput can run, and skipped if we are the read thread (avoids self-joining).
+		// Block until the child exits so a following worktree removal can't race a process still cwd'd there;
+		// force-terminate if it ignores the console close. Off _gate so the read loop's final OnOutput can run,
+		// and skipped if we are the read thread (avoids self-joining).
 		if (readThread is { IsAlive: true } && Environment.CurrentManagedThreadId != readThread.ManagedThreadId) {
 			if (!readThread.Join(GracefulExitTimeout) && process != 0) {
 				TerminateProcess(process, 1);

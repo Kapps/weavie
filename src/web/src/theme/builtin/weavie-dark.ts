@@ -1,10 +1,7 @@
-// "Weavie Dark" — the built-in default theme. A pure-black canvas (#000000) under a small, green-forward
-// palette: teal-green keywords, green strings, and sea-green numbers carry the Weavie identity, while a
-// single warm amber anchors types so the eye has somewhere to land. The identifier family is split by role,
-// not hue — variables italic, properties a lighter upright shade, functions a quiet neutral — and comments
-// a dark neutral grey so they recede without a colour cast. Few colours, high contrast. A normal VS Code
-// color theme (spec §5): the same `colors` map drives editor, terminal, and chrome, so overrides (spec §6)
-// and installed Open VSX themes address the same keys.
+// "Weavie Dark" — the built-in default theme. Pure-black canvas (#000000) under a small green-forward
+// palette, with a single warm amber anchoring types so the eye has somewhere to land. Identifiers are split
+// by role not hue — variables italic, properties a lighter upright shade, functions a quiet neutral. The
+// same `colors` map drives editor, terminal, and chrome (spec §5).
 
 import type { VsCodeColorTheme } from "../vscode-theme";
 
@@ -48,7 +45,7 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     "editorInfo.foreground": "#54c6a4",
 
     // ── Inlay hints (parameter-name / type chips) ───────────────────────────────────────────────────
-    // Kept quiet and chip-less so they annotate without competing with the code they sit between.
+    // Quiet and chip-less so they annotate without competing with the code they sit between.
     "editorInlayHint.foreground": "#565b62",
     "editorInlayHint.background": "#00000000",
     "editorInlayHint.typeForeground": "#565b62",
@@ -328,8 +325,7 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     { name: "Invalid", scope: ["invalid", "invalid.illegal"], settings: { foreground: "#e07a7a" } },
   ],
   semanticTokenColors: {
-    // Types take the lone warm amber accent — the one colour that grabs the eye on the green-and-neutral
-    // field; namespaces dimmed since they're mostly qualifiers.
+    // Types take the lone warm amber accent — the one colour that grabs the eye; namespaces dimmed (qualifiers).
     class: "#ffb74d",
     interface: "#ffb74d",
     enum: "#ffb74d",

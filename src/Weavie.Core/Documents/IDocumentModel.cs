@@ -1,10 +1,8 @@
 namespace Weavie.Core.Documents;
 
 /// <summary>
-/// The document-model seam. Tiny by design: apply a structured edit, read text/range,
-/// get/set selection, save. The production implementation proxies a Monaco
-/// <c>TextModel</c> over the webview bridge; <see cref="InMemoryDocumentModel"/> is an
-/// in-memory buffer. One model per file.
+/// The document-model seam (one model per file): apply structured edits, read text/range, get/set selection,
+/// save. Production proxies a Monaco <c>TextModel</c>; <see cref="InMemoryDocumentModel"/> is in-memory.
 /// </summary>
 public interface IDocumentModel {
 	/// <summary>Absolute path this model is bound to; <see cref="Save"/> writes here.</summary>

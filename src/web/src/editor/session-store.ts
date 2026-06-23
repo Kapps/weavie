@@ -3,14 +3,11 @@ import { onHostMessage, postToHost } from "../bridge";
 import { samePath } from "./fs-path";
 import type { EditorSession, EditorSessionEntry, EditorViewState } from "./session-types";
 
-// The live editor session — the canonical, ordered set of open tabs (active + per-file view state). Seeded by
-// the host's set-editor-session push at page load, then mutated in place by the helpers below. A top-level
-// module signal that survives HMR (the editor host re-reads it on re-create), so it must be imported at top
-// level (by App.tsx), not only through the dynamic editor chunk, or it would reload with that chunk.
-//
-// Ownership: this store is the source of truth for the tab set. Structural changes flow store → host;
-// incidental Monaco state flows host → store, data-only (captureViewState). The host never re-opens in
-// reaction to a store write, so there is no loop.
+// The live editor session and source of truth for the tab set: ordered open tabs + active + per-file view
+// state. Seeded by the host's set-editor-session, then mutated by the helpers below. Structural changes flow
+// store → host; Monaco view state flows host → store (data-only). The host never re-opens on a store write,
+// so there is no loop. Imported at top level (App.tsx) so this signal survives HMR rather than reloading with
+// the dynamic editor chunk.
 const [session, setSession] = createSignal<EditorSession | null>(null);
 
 // The pinned-first ordering invariant in one place: pinned tabs (in pin order) precede unpinned (in open
@@ -31,14 +28,12 @@ function structureKey(session: EditorSession): string {
 }
 let lastStructure = "";
 
-// The session id the host says these tabs belong to (from the last set-editor-session). Every message we send
-// the host about the editor (editor-session-changed / open-editors-changed / active-editor-changed) carries it,
-// so the host can attribute a debounced send that lands AFTER a session switch to the session it was produced
-// for — and reject it rather than corrupt the now-active session. Null until the first set-editor-session.
+// The session id these tabs belong to (from the last set-editor-session). Every outbound editor message
+// carries it so the host can reject a debounced send that lands after a session switch, rather than corrupt
+// the now-active session. Null until the first set-editor-session.
 let currentOwner: string | null = null;
 
-/// The session id the editor's tabs currently belong to (for stamping outbound editor messages). Read by
-/// editor-host's active-editor emit so its owner matches the rest.
+/// The session id the editor's tabs currently belong to (for stamping outbound editor messages).
 export function editorOwner(): string | null {
   return currentOwner;
 }
@@ -60,9 +55,8 @@ function emitOpenEditors(session: EditorSession): void {
 
 onHostMessage((message) => {
   if (message.type === "set-editor-session") {
-    // Adopt the incoming session's id, and DROP any pending debounced editor-session-changed: it carries
-    // the PREVIOUS session's tabs and, landing after this rebind, would be written into the incoming session's
-    // EditorSession (the cross-worktree tab-contamination bug). The seed below is now the source of truth.
+    // Adopt the incoming id and DROP any pending debounced send: it carries the previous session's tabs and,
+    // landing after this rebind, would contaminate the incoming session (cross-worktree tab bug).
     currentOwner = message.sessionId ?? null;
     if (postTimer !== undefined) {
       clearTimeout(postTimer);
@@ -128,9 +122,8 @@ function sendEditorSession(s: EditorSession, owner: string | null): void {
 
 function commit(next: EditorSession): void {
   setSession(next);
-  // Capture the owner now, not when the timer fires: if a session switch lands a new currentOwner before
-  // this debounce fires, this change still describes the session active when the user made it, so it must
-  // carry that session's id.
+  // Capture the owner now, not when the timer fires: this change describes the session active when the user
+  // made it, even if a session switch lands a new currentOwner before the debounce fires.
   const owner = currentOwner;
   if (postTimer !== undefined) {
     clearTimeout(postTimer);
@@ -163,9 +156,8 @@ export function flushEditorSession(): void {
   }
 }
 
-/// Opens `path`: activates it if already open, otherwise adds a tab and activates it. A `preview` open reuses
-/// the single preview slot; a persistent open of a currently-preview tab promotes it. Returns the file to show
-/// + placement — an explicit `line` (> 1) wins, else the tab's saved view state.
+/// Opens `path` (activating it if already open). A `preview` open reuses the single preview slot; a persistent
+/// open promotes a preview tab. Returns the file to show + placement — `line` (> 1) wins, else saved view state.
 export function openTab(
   path: string,
   opts: { line?: number; preview?: boolean; scratch?: boolean } = {},
@@ -177,9 +169,8 @@ export function openTab(
   const preview = !scratch && opts.preview === true;
   const existing = current.open.find((entry) => samePath(entry.path, path));
   if (existing !== undefined) {
-    // Already open (matched by normalized identity, so a differently-spelled path reuses the tab): activate
-    // it, keeping its original stored path so the editor URI / display stay stable. A persistent (non-preview)
-    // open promotes a currently-preview tab.
+    // Already open (matched by normalized identity): activate it keeping its stored path so the URI stays
+    // stable; a persistent open promotes a preview tab.
     const open =
       existing.preview && !preview
         ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
@@ -272,9 +263,8 @@ export function closeTab(path: string): CloseResult | null {
   return { disposed: target.path, next: entryPlacement(open, nextActive) };
 }
 
-/// Drops a tab opened only to host an openDiff review proposal (see the editor controller), restoring
-/// `fallback` as active when the review tab was active. Store-only: triggers no host re-show and releases no
-/// working copy (the review used a transient model). No-op if `path` isn't open.
+/// Drops a tab that only hosted an openDiff review proposal, restoring `fallback` as active if it was active.
+/// Store-only: no host re-show, no working copy to release (the review used a transient model). No-op if not open.
 export function dropReviewTab(path: string, fallback: string | null): void {
   const current = session();
   if (current === null) {
@@ -294,9 +284,8 @@ export function dropReviewTab(path: string, fallback: string | null): void {
   commit({ active, open });
 }
 
-/// Converts a saved scratch tab into a real file tab in place: swaps `scratchPath` for `savedPath`, drops the
-/// scratch flag, keeps its position and pin, and activates it. If `savedPath` is already open elsewhere, the
-/// scratch entry is dropped and that tab is activated instead. Returns the file to show, or null if not open.
+/// Converts a saved scratch tab into a real file tab in place (keeping position/pin), or — if `savedPath` is
+/// already open — drops the scratch and activates that tab. Returns the file to show, or null if not open.
 export function convertScratch(scratchPath: string, savedPath: string): ActivateResult | null {
   const current = session();
   if (current === null) {

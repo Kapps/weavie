@@ -10,19 +10,19 @@ using Weavie.Core.Workspaces;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// The Windows app layer (one per process): owns the app-global <see cref="SettingsStore"/> shared across
-/// every window and the open workspaces, orchestrated through the Core <see cref="WorkspaceManager"/>. As the
-/// <see cref="ApplicationContext"/>, it keeps the message loop alive across multiple windows.
-///
+/// The Windows app layer (one per process): owns the app-global stores shared across every window and the open
+/// workspaces (via the Core <see cref="WorkspaceManager"/>), and as the <see cref="ApplicationContext"/> keeps the
+/// message loop alive across windows.
+/// <para>
 /// Lifecycle: launch reopens the last workspace (else the <c>workspace</c> setting, else the welcome window);
 /// opening an already-open folder focuses its window; closing the last workspace window via File ▸ Close Window
 /// falls back to the welcome window, while the title-bar X quits; closing the welcome window quits.
+/// </para>
 /// </summary>
 internal sealed class AppController : ApplicationContext {
 	private readonly List<WorkspaceWindow> _windows = [];
 	private readonly WorkspaceManager _manager;
-	// The global hotkey (ctrl+` → focus) isn't tied to any one window, so its handler lives here and focuses
-	// the most-recently-active window.
+	// Global-hotkey commands (ctrl+` → focus) aren't tied to one window, so their handlers live here.
 	private readonly CommandDispatcher _globalCommands;
 	private readonly GlobalHotkeyService _hotkeys;
 	private WorkspaceWindow? _lastActiveWindow;
@@ -33,16 +33,16 @@ internal sealed class AppController : ApplicationContext {
 		// Dark chrome for any WinForms ToolStrip/context menu rendered process-wide.
 		AppMenu.UseDarkChrome();
 
-		// User settings (shell / workspace / claude path / fonts) from ~/.weavie/settings.toml; the store is
-		// the change hub windows react to (e.g. a shell change reopens the shell pane).
+		// User settings from ~/.weavie/settings.toml; the change hub windows react to (e.g. a shell change reopens
+		// the shell pane).
 		Settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		Settings.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
 		};
 
-		// App-global command catalog and user keybindings (~/.weavie/keybindings.json merged over command
-		// defaults), shared across windows; each window injects them into its web app and re-pushes on edit.
+		// App-global command catalog + user keybindings (~/.weavie/keybindings.json merged over defaults); each
+		// window injects them into its web app and re-pushes on edit.
 		CommandRegistry = CoreCommands.CreateRegistry();
 		Keybindings = new KeybindingStore(CommandRegistry, filePath: null, enableWatcher: true);
 		Keybindings.Log += line => {
@@ -50,24 +50,23 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
-		// Dispatcher for commands a global hotkey invokes (the toggle command isn't bound to any one window).
-		// The per-window handler lives on each session dispatcher; here, toggle the most-recently-active window.
+		// Dispatcher for global-hotkey commands; toggle targets the most-recently-active window.
 		_globalCommands = new CommandDispatcher(CommandRegistry);
 		_globalCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
 			ToggleFrontmostWindow();
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
 
-		// Claude session ids per working directory (~/.weavie/claude-sessions.json) — app-global so every
-		// session resumes its own directory's previous Claude conversation.
+		// Claude session ids per working directory (~/.weavie/claude-sessions.json) — app-global so every session
+		// resumes its own directory's previous Claude conversation.
 		ClaudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
 		ClaudeSessions.Log += line => {
 			Console.WriteLine(line);
 			Console.Out.Flush();
 		};
 
-		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global so a change reaches every
-		// window; appearance itself is normal settings (theme.mode/theme.light/theme.dark).
+		// Per-theme color overrides (~/.weavie/theme-overrides.json) — app-global so a change reaches every window;
+		// appearance itself is normal settings (theme.mode/theme.light/theme.dark).
 		ThemeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
 		ThemeOverrides.Log += line => {
 			Console.WriteLine(line);
@@ -104,9 +103,8 @@ internal sealed class AppController : ApplicationContext {
 			ShowWelcome();
 		}
 
-		// Global hotkeys (e.g. ctrl+` → focus Weavie). Created last, after a window exists, so the WinForms
-		// SynchronizationContext WindowsGlobalHotkeys captures is installed. The service reads the global
-		// bindings from Keybindings and re-applies on edit.
+		// Global hotkeys (e.g. ctrl+` → focus). Created last, after a window exists, so the WinForms
+		// SynchronizationContext WindowsGlobalHotkeys captures is installed.
 		var registrar = new WindowsGlobalHotkeys();
 		registrar.Log += line => {
 			Console.WriteLine(line);
@@ -144,9 +142,9 @@ internal sealed class AppController : ApplicationContext {
 	public RailStateStore RailState { get; }
 
 	/// <summary>
-	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if already open, else opens a
-	/// new window and dismisses the welcome window. Records the folder in recents. Returns the window, or
-	/// <c>null</c> if the folder no longer exists (its recents entry is pruned).
+	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if already open, else opens a new
+	/// one (dismissing the welcome window) and records it in recents. Returns the window, or <c>null</c> if the
+	/// folder no longer exists (its recents entry is pruned).
 	/// </summary>
 	public WorkspaceWindow? OpenOrFocus(string root) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
@@ -216,9 +214,9 @@ internal sealed class AppController : ApplicationContext {
 	}
 
 	/// <summary>
-	/// Toggles the most-recently-active workspace window (else the welcome window) behind the global hotkey and
-	/// <c>weavie.window.toggle</c>: focus it when behind, or drop it behind (handing focus back) when in front.
-	/// No-op when nothing is open. Marshals onto the target window's UI thread.
+	/// Toggles the most-recently-active workspace window (else the welcome window) for the global hotkey and
+	/// <c>weavie.window.toggle</c>: focus it when behind, drop it behind when in front. No-op when nothing is open;
+	/// marshals onto the target window's UI thread.
 	/// </summary>
 	private void ToggleFrontmostWindow() {
 		Form? target = _lastActiveWindow is not null && _windows.Contains(_lastActiveWindow)
@@ -254,8 +252,7 @@ internal sealed class AppController : ApplicationContext {
 			return;
 		}
 
-		// Last workspace window closed. Fall back to the welcome window only when the user chose
-		// File ▸ Close Window (an intentional "close this workspace, keep the app"); the title-bar X / Alt+F4
+		// Last window closed: fall back to the welcome window only for File ▸ Close Window; the title-bar X / Alt+F4
 		// quits instead.
 		if (window.ClosedToWelcome) {
 			ShowWelcome();
@@ -288,8 +285,8 @@ internal sealed class AppController : ApplicationContext {
 	}
 
 	/// <summary>
-	/// Picks the workspace to reopen on launch: the most-recently-opened folder if it still exists, else the
-	/// <c>workspace</c> setting (when explicitly set), else <c>null</c> (show the welcome window).
+	/// Picks the workspace to reopen on launch: the last-opened folder if it still exists, else the explicitly-set
+	/// <c>workspace</c> setting, else <c>null</c> (show the welcome window).
 	/// </summary>
 	private string? ResolveInitialWorkspace() {
 		string? last = _manager.Recents.LastOpened;
@@ -297,8 +294,8 @@ internal sealed class AppController : ApplicationContext {
 			return last;
 		}
 
-		// Honor the `workspace` setting only when EXPLICITLY set: its computed default is the home directory,
-		// which shouldn't auto-open as a "project" (the welcome window covers that case).
+		// Honor `workspace` only when EXPLICITLY set: its computed default is the home directory, which shouldn't
+		// auto-open as a project.
 		var configured = Settings.Resolve("workspace");
 		if (configured.Source != SettingSource.Default
 			&& configured.Value is string root

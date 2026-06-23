@@ -7,18 +7,15 @@ using Weavie.Win.Hosting;
 namespace Weavie.Win;
 
 /// <summary>
-/// The app's empty state: an ordinary OS-chrome window whose body is a WebView2 rendering the shared web
-/// app's welcome screen (welcome.html). Deliberately has <em>no</em> session — no terminals, Claude, MCP,
-/// or LSP until a folder is opened. It drives the app back through the same <c>menu-action</c> bridge
-/// messages the File menu uses (open-folder / open-recent). Closing it with nothing else open quits the
-/// app (see <see cref="AppController"/>).
+/// The app's empty state: an OS-chrome window rendering welcome.html in a WebView2, with no session until a
+/// folder is opened. Drives the app via the same <c>menu-action</c> bridge messages the File menu uses;
+/// closing it with nothing else open quits the app (see <see cref="AppController"/>).
 /// </summary>
 internal sealed class WelcomeWindow : Form {
 	// Synthetic host for the virtual-host mapping; mirrors WorkspaceWindow / the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
 
-	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage,
-	// so the web app runs unmodified across platforms.
+	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage.
 	private const string BridgeShim =
 		"""
         (function () {
@@ -34,8 +31,7 @@ internal sealed class WelcomeWindow : Form {
 	private const double WidthFraction = 0.5;
 	private const double HeightFraction = 0.62;
 
-	// Dark background painted on host surfaces before the page loads, so the WebView2 cold-start shows
-	// dark instead of white. Matches welcome.html's pre-JS splash.
+	// Painted on host surfaces before load so the WebView2 cold-start shows dark, matching welcome.html's splash.
 	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	private readonly AppController _app;
@@ -126,12 +122,10 @@ internal sealed class WelcomeWindow : Form {
 		_bridge.Attach(_webView);
 		_bridge.MessageReceived += OnWebMessage;
 
-		// Recents reach the page as window.__WEAVIE_WELCOME__, injected before navigation (no flash, no
-		// round-trip). Re-injected + reloaded if a recent is later pruned (RefreshRecentsAsync).
+		// Recents reach the page as window.__WEAVIE_WELCOME__, injected before navigation (no flash, no round-trip).
 		await InjectRecentsAsync();
 
-		// The welcome screen is the empty state — no session, no dev server — so it always serves the bundled
-		// wwwroot over https://weavie.app/, deliberately never probing for a workspace's Vite dev server.
+		// Always the bundled wwwroot over https://weavie.app/; the empty state never probes for a Vite dev server.
 		core.Navigate($"https://{AppHost}/welcome.html");
 	}
 

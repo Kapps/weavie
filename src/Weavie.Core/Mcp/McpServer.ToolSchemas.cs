@@ -1,8 +1,7 @@
 namespace Weavie.Core.Mcp;
 
 // The tools/list JSON entries advertised to Claude, grouped by capability. The constructor stitches the
-// relevant groups into one {"tools":[...]} payload depending on the server mode (IDE vs registry) and which
-// stores were wired.
+// relevant groups into one {"tools":[...]} payload per server mode (IDE vs registry) and the wired stores.
 public sealed partial class McpServer {
 	// IDE RPC tools. openDiff is the star (blocking review); the rest give Claude IDE context.
 	private const string IdeToolEntries =
@@ -41,11 +40,7 @@ public sealed partial class McpServer {
         """;
 
 	// Theme tools (model-facing), advertised on the registry server only when a ThemeOverridesStore is wired.
-	// The data-shaped operations: read the theme/overrides (listThemes/describeTheme) and edit individual
-	// override colors (set/transform/remove). The VERB actions (install, install-from-file, select, undo,
-	// reset) are COMMANDS run via runCommand. The override tools act on the ACTIVE theme; its overrides persist
-	// in ~/.weavie/theme-overrides.json. applyThemeTransform.amount is schema-less so it may arrive as a number
-	// or a string.
+	// Override tools act on the ACTIVE theme; applyThemeTransform.amount is schema-less (may arrive number or string).
 	private const string ThemeToolEntries =
 		"""
           {"name":"listThemes","description":"List the available color themes (built-in + installed), each with its id, label, type, and whether it is the active theme. Appearance is split into a mode and a theme per polarity: light/dark is controlled by the 'theme.mode' setting (system/light/dark) while 'theme.light' and 'theme.dark' hold the theme for each. To SWITCH theme, run the weavie.theme.select command (runCommand) — a light theme becomes theme.light, a dark theme becomes theme.dark, and the mode flips to match. To change only the mode, run weavie.theme.cycleMode (or set the theme.mode setting). To INSTALL a theme, run weavie.theme.install (Open VSX) or weavie.theme.installFromFile (a local .vsix). Call this FIRST to find a theme id.","inputSchema":{"type":"object","properties":{}}},

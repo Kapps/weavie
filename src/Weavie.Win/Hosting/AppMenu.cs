@@ -1,9 +1,8 @@
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// Builds the Windows menu bar for a workspace window — the native UI for open-folder / recents
-/// (<see cref="AppController"/> + <c>WorkspaceManager</c>). Dark-styled to match the web chrome, since the
-/// default WinForms MenuStrip is light gray.
+/// Builds the workspace window's menu bar — native UI for open-folder / recents, dark-styled to match the
+/// web chrome (the default WinForms MenuStrip is light gray).
 /// </summary>
 internal static class AppMenu {
 	private static readonly Color BarColor = Color.FromArgb(0x25, 0x25, 0x26);
@@ -13,9 +12,8 @@ internal static class AppMenu {
 	private static bool _darkChromeInstalled;
 
 	/// <summary>
-	/// Installs the dark menu renderer process-wide. Setting the global <see cref="ToolStripManager.Renderer"/>
-	/// reliably overrides WinForms' light default — a per-instance renderer is silently ignored unless render
-	/// mode is flipped. Idempotent; UI thread only.
+	/// Installs the dark menu renderer process-wide via the global <see cref="ToolStripManager.Renderer"/> — a
+	/// per-instance renderer is silently ignored unless render mode is flipped. Idempotent; UI thread only.
 	/// </summary>
 	public static void UseDarkChrome() {
 		if (_darkChromeInstalled) {
@@ -47,8 +45,8 @@ internal static class AppMenu {
 		// Seed one item so the submenu arrow shows before it's first opened.
 		openRecent.DropDownItems.Add(new ToolStripMenuItem("(loading…)") { Enabled = false });
 
-		// Closing the LAST window this way (vs. the title-bar X) falls back to the welcome window rather than
-		// quitting — see AppController.OnWorkspaceWindowClosed.
+		// Closing the LAST window this way (vs. the title-bar X) falls back to welcome, not quit —
+		// see AppController.OnWorkspaceWindowClosed.
 		var closeWindow = new ToolStripMenuItem("Close Window", null, (_, _) => owner.CloseToWelcome()) {
 			ShortcutKeys = Keys.Control | Keys.W,
 			ForeColor = FgColor,

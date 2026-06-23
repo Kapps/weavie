@@ -41,18 +41,10 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 	}
 
 	/// <summary>
-	/// Launches claude through a POSIX login shell (for full PATH/env) that execs the <c>claude.path</c>
-	/// setting — <c>-l -i</c> for the full login+interactive environment, <c>-c "exec &lt;claude&gt;"</c> to
-	/// replace the shell.
-	/// <para>
-	/// <c>-i</c> (interactive) is essential, not cosmetic: a <c>.app</c> launched from Finder inherits
-	/// launchd's minimal PATH, and a login-only (<c>-l -c</c>) shell sources <c>~/.zprofile</c> but NOT
-	/// <c>~/.zshrc</c> — which is where users (and the native claude installer's <c>~/.local/bin</c>)
-	/// typically add PATH entries. Without <c>-i</c> the exec'd <c>claude</c> isn't found ("command not
-	/// found"), and even when it is, the tools claude itself spawns (node, git, rg) inherit the stunted
-	/// PATH. This mirrors the plain-terminal pane (<see cref="ResolveShell"/>), which already uses
-	/// <c>-l -i</c> and works for exactly this reason.
-	/// </para>
+	/// Launches claude through a POSIX login shell (<c>-l -i -c "exec &lt;claude.path&gt;"</c>) for full PATH/env.
+	/// <c>-i</c> is essential: a Finder-launched <c>.app</c> inherits launchd's minimal PATH, and a login-only
+	/// shell sources <c>~/.zprofile</c> but not <c>~/.zshrc</c> — where PATH entries (and claude's
+	/// <c>~/.local/bin</c>) usually live — so without it claude (and the node/git/rg it spawns) isn't found.
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveClaude(PtyLaunchRequest request) {
 		string claude = request.Settings.GetString("claude.path") ?? "claude";
@@ -77,9 +69,8 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 	}
 
 	/// <summary>
-	/// Resolves the plain-terminal shell from the <c>terminal.shell</c> setting to a launchable path,
-	/// passing <c>-l -i</c> only to POSIX login shells (zsh/bash/sh) so the prompt + rc files load; other
-	/// shells (nushell, fish, …) open at their prompt with no flags.
+	/// Resolves the plain-terminal shell (<c>terminal.shell</c>) to a launchable path, passing <c>-l -i</c> only to
+	/// POSIX login shells (zsh/bash/sh) so rc files load; others (nushell, fish) open with no flags.
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveShell(SettingsStore settings) {
 		string shell = settings.GetString("terminal.shell") ?? LoginShell();

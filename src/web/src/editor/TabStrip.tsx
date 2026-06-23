@@ -27,7 +27,7 @@ function basename(path: string): string {
 
 /**
  * Editor tab strip: one row per open file. Mouse gestures drive the controller's tab actions directly; the
- * right-click menu dispatches the editor-tab commands via the shared ContextMenu for palette/Claude parity.
+ * right-click menu dispatches editor-tab commands via ContextMenu for palette/Claude parity.
  */
 export function TabStrip(props: {
   tabs: () => EditorSessionEntry[];

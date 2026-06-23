@@ -6,10 +6,9 @@ namespace Weavie.Core.Worktrees;
 
 /// <summary>
 /// The per-workspace record of every git worktree Weavie created, persisted to
-/// <c>~/.weavie/workspaces/&lt;id&gt;/worktrees.json</c>. The backbone of the "no leaked worktrees" guarantee:
-/// every created worktree is written here immediately, so <see cref="WorktreeManager"/> can reconcile this
-/// list against real <c>git worktree list</c> output and surface anything that drifted. Atomic writes; a
-/// malformed file is backed up to <c>worktrees.json.bad</c> and reset rather than throwing.
+/// <c>~/.weavie/workspaces/&lt;id&gt;/worktrees.json</c> — the backbone of the "no leaked worktrees" guarantee
+/// that <see cref="WorktreeManager"/> reconciles against <c>git worktree list</c>. Atomic writes; a malformed
+/// file is backed up to <c>worktrees.json.bad</c> and reset rather than throwing.
 /// </summary>
 public sealed class WorktreeRegistry {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };

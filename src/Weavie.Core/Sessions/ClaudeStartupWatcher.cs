@@ -6,25 +6,23 @@ public enum ClaudeStartupRecovery {
 	None,
 
 	/// <summary>
-	/// A <c>--resume</c> died at startup (its conversation is gone): re-create the same id with
-	/// <c>--session-id</c> (<see cref="ClaudeSessionStore.MarkResumeFailed"/>), keeping the directory's identity.
+	/// A <c>--resume</c> died at startup: re-create the same id, keeping the directory's identity
+	/// (<see cref="ClaudeSessionStore.MarkResumeFailed"/>).
 	/// </summary>
 	RecreateSameId,
 
 	/// <summary>
-	/// A <c>--session-id</c> create died at startup: the id is poison and can't be re-created, so forget it
-	/// (<see cref="ClaudeSessionStore.Forget"/>) and let the next launch mint a fresh one.
+	/// A <c>--session-id</c> create died at startup: the id is poison, so forget it and mint fresh next launch
+	/// (<see cref="ClaudeSessionStore.Forget"/>).
 	/// </summary>
 	ForgetId,
 }
 
 /// <summary>
-/// Watches a single managed <c>claude</c> launch — its early output and its eventual exit — to keep the
+/// Watches a single managed <c>claude</c> launch — its early output and eventual exit — to keep the
 /// <see cref="ClaudeSessionStore"/>'s <c>Started</c> flag honest, so a dead or poison session id self-heals
-/// instead of crash-looping the pane. A launch is <see cref="Confirmed">confirmed</see> up once it streams a
-/// full terminal repaint; if it exits before that, <see cref="OnExit"/> reports how to heal. Confirmation is
-/// gated on volume of output, never its mere presence, so a create that prints one error line and dies is
-/// not mistaken for one that came up. Pure + synchronous (no PTY), so it unit-tests in isolation.
+/// instead of crash-looping the pane. Confirmation is gated on output volume (a full terminal repaint), not
+/// its mere presence, so a create that prints one error line and dies is not mistaken for one that came up.
 /// </summary>
 public sealed class ClaudeStartupWatcher {
 	// A launch that streams at least this much output has painted its TUI and is up. A startup failure is a
@@ -44,7 +42,7 @@ public sealed class ClaudeStartupWatcher {
 
 	/// <summary>
 	/// Feeds a chunk of decoded claude output. Returns <c>true</c> the single time the launch crosses the
-	/// confirmation threshold (so the caller marks the session started); <c>false</c> otherwise.
+	/// confirmation threshold (so the caller marks the session started).
 	/// </summary>
 	public bool Observe(string output) {
 		ArgumentNullException.ThrowIfNull(output);
@@ -62,9 +60,8 @@ public sealed class ClaudeStartupWatcher {
 	}
 
 	/// <summary>
-	/// Decides how to heal the store now that the launch has exited with <paramref name="exitCode"/>. A
-	/// confirmed launch or any clean exit (code 0) needs nothing; an unconfirmed crash is a failed startup,
-	/// healed per whether it was a resume or a create.
+	/// Decides how to heal the store now that the launch exited with <paramref name="exitCode"/>: a confirmed
+	/// launch or clean exit needs nothing; an unconfirmed crash heals per whether it was a resume or a create.
 	/// </summary>
 	public ClaudeStartupRecovery OnExit(int exitCode) {
 		if (Confirmed || exitCode == 0) {

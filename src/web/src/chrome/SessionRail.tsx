@@ -8,12 +8,9 @@ import type { RailSession } from "./session-store";
 // A filled cloud silhouette, reused for the remote marker on a promoted chip and the cloud button glyph.
 const CLOUD_PATH = "M6.5 19A4.5 4.5 0 0 1 6 10.05 6 6 0 0 1 17.7 9 4.5 4.5 0 0 1 17.5 19H6.5z";
 
-// The left session rail: the working set — one chip per local session plus any remote sessions the user has
-// promoted in. A promoted remote chip wears a small cloud marker (agent-hue at rest, status-coloured when its
-// Claude is active), replacing the local status dot. Remote agents themselves live behind the cloud button at
-// the bottom (RemoteAgentsPanel), not inline. Right-clicking a chip opens the shared ContextMenu: local chips
-// load/unload/delete; a promoted remote offers "Remove from rail". The chip hue is set via a ref using the
-// native DOM API (Solid's reactive `style={{}}` binding breaks at runtime here).
+// The left session rail (working set): one chip per local session plus promoted remotes. A promoted remote
+// chip wears a cloud marker in place of the local status dot; remote agents themselves live behind the cloud
+// button (RemoteAgentsPanel). Chip hue is set via a ref because Solid's reactive `style={{}}` breaks here.
 export function SessionRail(props: {
   sessions: RailSession[];
   hasRemotes: boolean;
@@ -27,8 +24,7 @@ export function SessionRail(props: {
     const keys = findCommand(CommandIds.newSessionPrompt)?.keys ?? [];
     return keys.length > 0 ? `New session (${keys.map(formatKey).join(" / ")})` : "New session";
   };
-  // The switch shortcut for the chip at `index` (0-based), read from the resolved keybindings by matching the
-  // binding whose index arg is this rail position. Only the first 9 chips have a number binding; the rest get "".
+  // The switch shortcut for the chip at `index` (0-based); only the first 9 chips have a number binding.
   const switchShortcut = (index: number): string => {
     const match = getKeybindings().find(
       (binding) =>
@@ -47,10 +43,8 @@ export function SessionRail(props: {
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
 
-  // Right-click menu rows are commands. A local chip targets the session by id (load/unload, delete); the local
-  // primary checkout has no worktree to act on, so it opens no menu. A promoted remote chip offers only "Remove
-  // from rail" (a working-set action; per-session load/unload/delete route to the active backend and aren't
-  // meaningful on a background remote chip — manage those from the cloud panel).
+  // Right-click menu rows are commands. Local chips get load/unload + delete (the primary checkout has no
+  // worktree, so it opens no menu); a promoted remote offers only "Remove from rail".
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
   const menuEntries = (session: RailSession): ContextMenuEntry[] => {
     if (!session.isLocal) {
@@ -105,8 +99,8 @@ export function SessionRail(props: {
               onContextMenu={(event) => openMenu(event, session)}
             >
               <span class="session-chip-mono">{session.monogram}</span>
-              {/* Local: a status dot at rest. Remote: the cloud marker takes the dot's place — it says "remote"
-                  and carries the same status colour (agent-hue when idle). A dormant chip gets neither. */}
+              {/* Local: a status dot. Remote: a cloud marker in the dot's place (agent-hue when idle). A
+                  dormant chip gets neither. */}
               <Show when={session.loaded}>
                 <Show
                   when={session.isLocal}
@@ -124,8 +118,8 @@ export function SessionRail(props: {
             </button>
           )}
         </For>
-        {/* The cloud button: opens the remote-agents panel. Only shown once an agent is registered, so a
-            solo-local rail stays bare. A pip flags off-rail remote activity (a remote session mid-turn). */}
+        {/* The cloud button opens the remote-agents panel; shown only once an agent is registered. A pip
+            flags off-rail remote activity. */}
         <Show when={props.hasRemotes}>
           <button
             type="button"

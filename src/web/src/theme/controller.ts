@@ -1,11 +1,7 @@
-// The runtime theme controller: the single source of truth for the active appearance (mode + theme per
-// polarity + override ops), driving all three render surfaces (spec §6) — Monaco, xterm, chrome — off one
-// resolved palette. It holds both the light and dark themes and renders whichever the active polarity
-// selects, so a `system`-mode OS switch (or mode change) re-themes instantly with no host round-trip.
-// Monaco-free (no editor-chunk imports) so it lives on the first-paint path; the editor chunk bridges
-// controller → Monaco via onMonacoThemeChanged. State is seeded synchronously from a host-injected global
-// so the terminal/editor read the right theme at creation, and one permanent bridge listener fans live
-// host pushes out to every surface (plus a matchMedia listener for OS light/dark flips).
+// Single source of truth for the active appearance (mode + theme per polarity + override ops), driving all
+// three render surfaces (spec §6) — Monaco, xterm, chrome — off one resolved palette. Holds both polarities
+// so a `system`-mode OS switch re-themes instantly with no host round-trip. Monaco-free (kept off the
+// editor chunk) so it lives on the first-paint path; the editor chunk bridges in via onMonacoThemeChanged.
 
 import { hostInjected, onHostMessage } from "../bridge";
 import type { ThemeMode, ThemeSlot } from "../bridge";
@@ -90,13 +86,12 @@ function activeSlot(s: ThemeState): Slot {
   return isDark(s.mode) ? s.dark : s.light;
 }
 
-// Seeded synchronously at module load so currentXtermTheme()/currentMonacoTheme() are valid the moment a
+// Seeded synchronously at module load so currentXtermTheme()/currentMonacoTheme() are valid before any
 // terminal or the editor is created (which happens before any host push).
 let version = 1;
 let state: ThemeState = (() => {
-  // Dev fallback is the built-in Weavie Light/Dark pair (ids only; resolveSlot resolves the JSON from
-  // BUILTIN_THEMES). In the shipped app the host always injects __WEAVIE_THEME__, and a missing value
-  // throws (see hostInjected).
+  // Dev fallback is the built-in Weavie Light/Dark pair (ids only). The shipped host always injects
+  // __WEAVIE_THEME__; a missing value throws (see hostInjected).
   const injected = hostInjected<InjectedTheme>("__WEAVIE_THEME__", window.__WEAVIE_THEME__, {
     mode: "system",
     light: { id: WEAVIE_LIGHT_ID },
@@ -109,13 +104,11 @@ const xtermSubscribers = new Set<(theme: XtermTheme) => void>();
 const monacoSubscribers = new Set<(update: MonacoThemeUpdate) => void>();
 
 function monacoUpdate(): MonacoThemeUpdate {
-  // Effective theme = the active slot's base token tables + its resolved (override-applied) workbench colors.
-  // The id is bumped per change because a registered-extension theme can't be mutated in place; a fresh id
-  // forces a clean re-register + setTheme.
+  // Id bumped per change because a registered-extension theme can't be mutated in place; a fresh id forces
+  // a clean re-register + setTheme.
   const slot = activeSlot(state);
   return {
-    // A Monaco settingsId must be a clean token ('#', '/', '.', and spaces break theme lookup) and unique
-    // per change so a re-register actually switches. Derived from the theme id + version counter.
+    // Monaco settingsId must be a clean token ('#', '/', '.', spaces break lookup) and unique per change.
     id: `weavie-theme-${slot.id.replace(/[^a-zA-Z0-9]+/g, "-")}-${version}`,
     theme: { ...slot.base, ...slot.resolved },
   };
@@ -178,17 +171,16 @@ function setActive(injected: InjectedTheme): void {
   reapplyActive();
 }
 
-// One permanent bridge listener fans host appearance pushes (a mode/theme switch or an override edit) out
-// to the three surfaces. Installed themes arrive with their converted JSON; built-ins carry only the id,
-// resolved here against the bundled registry.
+// Fan host appearance pushes (mode/theme switch or override edit) out to the three surfaces. Installed
+// themes arrive with their converted JSON; built-ins carry only the id, resolved against the bundled registry.
 onHostMessage((message) => {
   if (message.type === "theme") {
     setActive({ mode: message.mode, light: message.light, dark: message.dark });
   }
 });
 
-// Live OS light/dark flips: when the mode is `system`, the active polarity tracks the OS, so re-theme all
-// surfaces in place (no host round-trip — both themes are already resolved). A no-op under a forced mode.
+// Live OS light/dark flips re-theme all surfaces in place under `system` mode (both themes are already
+// resolved, so no host round-trip); a no-op under a forced mode.
 window.matchMedia?.("(prefers-color-scheme: dark)").addEventListener?.("change", () => {
   if (state.mode === "system") {
     reapplyActive();

@@ -9,9 +9,8 @@ public enum HookEventKind {
 	PostToolUse,
 
 	/// <summary>
-	/// Fired only when a permission dialog would appear (a tool not already allowed). Weavie's tool-permission
-	/// gate: the relay answers allow/deny here so the prompt never shows. Unlike PreToolUse it does not fire on
-	/// every tool call, so always-allowed tools (Read/Grep) cost nothing.
+	/// Fired only when a permission dialog would appear — Weavie's tool-permission gate, where the relay answers
+	/// allow/deny so the prompt never shows. Unlike PreToolUse it skips always-allowed tools (Read/Grep).
 	/// </summary>
 	PermissionRequest,
 
@@ -22,16 +21,14 @@ public enum HookEventKind {
 	Stop,
 
 	/// <summary>
-	/// Fired when Claude needs attention. A permission prompt drives the session's NeedsInput status; the idle
-	/// "waiting for input" notice (carried in <see cref="HookRequest.Message"/>) is left to settle as-is so it
-	/// neither reopens a finished turn nor clears a pending prompt.
+	/// Fired when Claude needs attention. A permission prompt drives NeedsInput; the idle "waiting for input"
+	/// notice (in <see cref="HookRequest.Message"/>) is left as-is so it neither reopens a turn nor clears a prompt.
 	/// </summary>
 	Notification,
 
 	/// <summary>
-	/// Fired when a conversation (re)starts; <see cref="HookRequest.Source"/> says why (startup/resume/clear/
-	/// compact). Clears the session status from Starting to Idle (claude is up); Weavie additionally watches
-	/// <c>source=clear</c> to drop the resume store's stale id.
+	/// Fired when a conversation (re)starts; <see cref="HookRequest.Source"/> says why. Moves status Starting →
+	/// Idle (claude is up); Weavie additionally watches <c>source=clear</c> to drop the resume store's stale id.
 	/// </summary>
 	SessionStart,
 

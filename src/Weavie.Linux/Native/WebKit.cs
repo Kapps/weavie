@@ -3,9 +3,8 @@ using System.Runtime.InteropServices;
 namespace Weavie.Linux.Native;
 
 /// <summary>
-/// P/Invoke into WebKitGTK 4.1 and its JavaScriptCore-GTK companion — the web view, its user-content manager
-/// (script-message bridge + document-start user scripts), the custom <c>app://</c> URI scheme, and outbound
-/// <c>evaluateJavaScript</c>. 4.1 is the libsoup3 ABI shipped by current distros (<c>libwebkit2gtk-4.1-0</c>).
+/// P/Invoke into WebKitGTK 4.1 and its JavaScriptCore-GTK companion — web view, user-content manager, the
+/// custom <c>app://</c> scheme, and outbound <c>evaluateJavaScript</c>. 4.1 is the libsoup3 ABI on current distros.
 /// </summary>
 internal static partial class WebKit {
 	private const string Lib = "libwebkit2gtk-4.1.so.0";

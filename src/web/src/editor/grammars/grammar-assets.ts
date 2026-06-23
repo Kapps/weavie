@@ -1,8 +1,6 @@
-// Build-time map of every tm-grammars grammar name -> the URL of its bundled JSON asset. Vite's
-// import.meta.glob with `query: "?url"` emits each file as a content-hashed asset and yields its URL; the
-// grammar JSON is not bundled into JS but fetched lazily by the TextMate service on first open of a language.
-// The glob path must be relative (Vite can't glob a bare package specifier): three levels up to src/web/,
-// then into node_modules.
+// Build-time map of every tm-grammars grammar name -> its bundled JSON asset URL (via `?url`, so the grammar
+// is fetched lazily by the TextMate service rather than bundled into JS). The glob path must be relative —
+// Vite can't glob a bare package specifier.
 
 const modules = import.meta.glob("../../../node_modules/tm-grammars/grammars/*.json", {
   query: "?url",

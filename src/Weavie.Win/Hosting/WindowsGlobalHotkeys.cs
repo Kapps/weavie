@@ -4,10 +4,9 @@ using Weavie.Core.Commands;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// The Windows <see cref="IGlobalHotkeyRegistrar"/>: registers system-wide hotkeys with the Win32
-/// <c>RegisterHotKey</c> API and receives <c>WM_HOTKEY</c> on a hidden message-only window. App-global (one
-/// per process), driven by <see cref="GlobalHotkeyService"/>. Since the registrations and the message pump must
-/// share a thread, this is created on the UI thread and marshals <see cref="Apply"/> back onto it.
+/// The Windows <see cref="IGlobalHotkeyRegistrar"/>: registers system-wide hotkeys via <c>RegisterHotKey</c>
+/// and receives <c>WM_HOTKEY</c> on a hidden message-only window. Registrations and the message pump must
+/// share a thread, so this is created on the UI thread and marshals <see cref="Apply"/> back onto it.
 /// </summary>
 internal sealed class WindowsGlobalHotkeys : NativeWindow, IGlobalHotkeyRegistrar {
 	private const int WmHotkey = 0x0312;
@@ -25,8 +24,7 @@ internal sealed class WindowsGlobalHotkeys : NativeWindow, IGlobalHotkeyRegistra
 	private readonly SynchronizationContext _ui;
 	private readonly object _gate = new();
 
-	// _registered is touched only on the UI thread (ApplyOnUiThread + WndProc), so it needs no lock.
-	// _desired/_disposed cross threads (Apply/Dispose can be called from the keybindings watcher).
+	// _registered is UI-thread-only (no lock); _desired/_disposed cross threads (Apply/Dispose from the watcher).
 	private readonly Dictionary<int, GlobalHotkey> _registered = [];
 	private IReadOnlyList<GlobalHotkey> _desired = [];
 	private bool _disposed;
@@ -90,8 +88,7 @@ internal sealed class WindowsGlobalHotkeys : NativeWindow, IGlobalHotkeyRegistra
 		base.WndProc(ref m);
 	}
 
-	// Re-register the full desired set: simplest correct policy (the set is tiny), and it cleanly handles
-	// add/remove/rebind on a keybindings-file edit. Runs on the UI thread.
+	// Re-register the full desired set (tiny): cleanly handles add/remove/rebind. UI thread only.
 	private void ApplyOnUiThread() {
 		IReadOnlyList<GlobalHotkey> desired;
 		lock (_gate) {
@@ -130,8 +127,7 @@ internal sealed class WindowsGlobalHotkeys : NativeWindow, IGlobalHotkeyRegistra
 		_registered.Clear();
 	}
 
-	// Runs inline when already on the UI thread, else marshals. The inline path keeps Apply()'s effect
-	// synchronous when called from the UI thread (e.g. the first registration), which Post would defer.
+	// Inline on the UI thread, else marshals — keeps Apply()'s effect synchronous for UI-thread callers (Post defers).
 	private void RunOnUi(Action action) {
 		if (SynchronizationContext.Current == _ui) {
 			action();
@@ -164,8 +160,7 @@ internal sealed class WindowsGlobalHotkeys : NativeWindow, IGlobalHotkeyRegistra
 		return TryMapKey(hotkey.Key, out vk);
 	}
 
-	// Maps a normalized key token to a Win32 virtual-key code: named keys explicitly, F1–F24 by number,
-	// A–Z/0–9 directly, and any other single character via VkKeyScan (so '`' → VK_OEM_3 on the user's layout).
+	// Maps a normalized key token to a Win32 virtual-key code; any other single char via VkKeyScan (layout-aware).
 	private static bool TryMapKey(string key, out uint vk) {
 		vk = 0;
 		if (string.IsNullOrEmpty(key)) {

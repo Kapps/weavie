@@ -1,7 +1,6 @@
-// Registers broad syntax highlighting for ~200 languages from the catalog. For each, synthesize a VS Code
-// extension manifest (language id + extensions + grammar + shared generic config) and register it via
-// `registerExtension` + `registerFileUrl` pointing at the bundled grammar asset. Contributions are
-// declarative (no extension-host JS); each grammar JSON is fetched lazily from the bundle on first open.
+// Registers broad syntax highlighting for ~200 catalog languages: each becomes a declarative VS Code extension
+// manifest registered via `registerExtension` + `registerFileUrl` pointing at its bundled grammar asset (no
+// extension-host JS; grammar JSON fetched lazily on first open).
 
 import {
   ExtensionHostKind,
@@ -22,8 +21,7 @@ let registered = false;
 
 /**
  * Registers every catalog language's grammar + generic config with Monaco. Idempotent. Must run after
- * `initialize(...)` and before files are opened, since Monaco resolves a model's language from its extension
- * at creation time so the associations must be eager.
+ * `initialize(...)` and before any file opens, since Monaco resolves a model's language from its extension eagerly.
  */
 export function registerBroadGrammars(): void {
   if (registered) {

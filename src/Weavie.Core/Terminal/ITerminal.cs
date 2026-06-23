@@ -26,9 +26,8 @@ public sealed record TerminalStartInfo {
 
 	/// <summary>
 	/// The child's full environment: the current process environment, minus <see cref="RemoveEnvironment"/>,
-	/// plus <see cref="Environment"/> (overriding). <paramref name="comparer"/> sets key case-sensitivity —
-	/// <see cref="StringComparer.OrdinalIgnoreCase"/> on Windows, <see cref="StringComparer.Ordinal"/> on POSIX.
-	/// Each PTY backend then serializes the result into its native block.
+	/// plus <see cref="Environment"/> (overriding). <paramref name="comparer"/> sets key case-sensitivity
+	/// (OrdinalIgnoreCase on Windows, Ordinal on POSIX).
 	/// </summary>
 	public Dictionary<string, string> BuildEnvironment(StringComparer comparer) {
 		ArgumentNullException.ThrowIfNull(comparer);

@@ -9,10 +9,9 @@ using Weavie.Core.Theming;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The app-global Core stores a <see cref="HostCore"/> drives: user settings, the command catalog + resolved
-/// keybindings, and per-theme overrides. Most hosts build the standard set with <see cref="CreateDefault"/>;
-/// a multi-window host (Windows) builds them once and shares one instance across its windows, so they're
-/// passed in rather than owned by the core.
+/// The app-global Core stores a <see cref="HostCore"/> drives: settings, the command catalog + keybindings, and
+/// theme overrides. Most hosts use <see cref="CreateDefault"/>; a multi-window host shares one instance across
+/// windows, so they're passed in rather than owned by the core.
 /// </summary>
 public sealed record HostServices {
 	/// <summary>User settings (<c>~/.weavie/settings.toml</c>) — the change hub the host reacts to.</summary>

@@ -1,18 +1,16 @@
 import { createSignal } from "solid-js";
 import { onSessionMessage, postToBackend } from "../bridge";
 
-// App-global session-rail UI state, persisted HOST-SIDE in ~/.weavie/rail-state.json (not localStorage): the
-// backend a session was last created on (for the New Session prompt's default) and which remote sessions are
-// promoted into the rail's working set. The host pushes `rail-state` on `ready` and after any change (incl.
-// from another window); setters update the local signal optimistically AND tell the local host, which echoes
-// the canonical state back. Registered at module load, before main.tsx sends `ready`.
+// App-global session-rail UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
+// backend a session was last created on, and which remote sessions are promoted into the rail. Setters update
+// the local signal optimistically and tell the host, which echoes the canonical state back. Registered at
+// module load, before main.tsx sends `ready`.
 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [promotedSig, setPromotedSig] = createSignal<Set<string>>(new Set());
 
-// Remote backends a freshly-created session should be auto-promoted on: New Session at a remote location
-// posts `new-session` to that backend but can't know the id until the backend pushes it back, so we promote
-// the active session in its next session-list (one-shot per creation).
+// Remote backends whose next-created session should be auto-promoted: the id isn't known until the backend
+// pushes its session-list, so we promote the active session there (one-shot per creation).
 const pendingPromote = new Set<string>();
 
 // Honored only from the LOCAL backend — a remote runner would push its own rail state, which must not leak in.

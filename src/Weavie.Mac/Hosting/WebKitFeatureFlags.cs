@@ -6,15 +6,11 @@ using WebKit;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// Toggles WebKit feature flags on a <see cref="WKPreferences"/> via private SPI — the same surface Safari's
-/// "Feature Flags" pane exposes. Used to turn off "Prefer Page Rendering Updates near 60fps" so WKWebView
-/// renders at the display's full refresh (120Hz ProMotion) instead of being paced to 60.
-///
-/// The feature list comes from the class property <c>+[WKPreferences _features]</c> (an array of
-/// <c>_WKFeature</c>); the per-instance setter is <c>-[WKPreferences _setEnabled:forFeature:]</c>.
-///
-/// PRIVATE API: fine for this local tool, NOT App Store safe. Guarded by <c>respondsToSelector:</c> and logs
-/// what it did, so a WebKit that drops/renames the SPI no-ops back to 60Hz instead of crashing.
+/// Toggles WebKit feature flags on a <see cref="WKPreferences"/> via private SPI (the surface Safari's "Feature
+/// Flags" pane exposes), to turn off "Prefer 60fps" so WKWebView renders at the display's full refresh (120Hz).
+/// Flags come from <c>+[WKPreferences _features]</c> (array of <c>_WKFeature</c>); the setter is
+/// <c>-[WKPreferences _setEnabled:forFeature:]</c>.
+/// PRIVATE API, NOT App Store safe: guarded by <c>respondsToSelector:</c> so a dropped/renamed SPI no-ops to 60Hz.
 /// </summary>
 internal static partial class WebKitFeatureFlags {
 	private const string Prefer60FpsKey = "PreferPageRenderingUpdatesNear60FPSEnabled";

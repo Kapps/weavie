@@ -6,9 +6,8 @@ import { WeavieIcon } from "./WeavieIcon";
 
 type WindowControlAction = "minimize" | "maximize-toggle" | "close";
 
-// The custom title bar (Windows), drawn in-web over a frameless host window. Left: logo + File/View menus.
-// Center: the "Go to File" omnibar. Right: minimize / maximize-restore / close. The background is draggable
-// via CSS `app-region: drag` (WebView2 maps it to the window caption); interactive regions opt out with
+// The custom Windows title bar, drawn in-web over a frameless host window: logo + menus, omnibar, window
+// controls. The background is draggable via CSS `app-region: drag`; interactive regions opt out with
 // `no-drag`. Static config (recents, label) comes from `window.__WEAVIE_SHELL__`; live state arrives as props.
 export function TitleBar(props: {
   maximized: boolean;

@@ -5,11 +5,10 @@ using System.Text.Json;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Installs VS Code color themes from the <see href="https://open-vsx.org">Open VSX</see> registry into
-/// the Weavie themes root (<see cref="WeaviePaths.Themes"/>). A theme ships as a <c>.vsix</c> (a ZIP of
-/// declarative theme JSON + a <c>package.json</c> manifest). Downloads, unzips, reads the manifest's
-/// <c>contributes.themes[]</c>, and records selectable themes in <c>~/.weavie/themes/index.json</c>. The
-/// raw theme JSON is kept as the lossless source of truth; conversion happens at load on the web side.
+/// Installs VS Code color themes from the <see href="https://open-vsx.org">Open VSX</see> registry into the
+/// Weavie themes root (<see cref="WeaviePaths.Themes"/>). A theme ships as a <c>.vsix</c> (ZIP of theme JSON +
+/// <c>package.json</c>); this unzips it, reads <c>contributes.themes[]</c>, and records selectable themes in
+/// <c>~/.weavie/themes/index.json</c>. Raw theme JSON is the lossless source of truth; the web converts at load.
 /// </summary>
 public sealed class OpenVsxThemeInstaller {
 	/// <summary>Default public Open VSX registry base URL.</summary>
@@ -56,9 +55,9 @@ public sealed class OpenVsxThemeInstaller {
 	}
 
 	/// <summary>
-	/// Installs a VS Code color theme from a local <c>.vsix</c> file, returning the themes it contributes. The
-	/// extension's identity (publisher / name / version) is read from the vsix's manifest, so the resulting
-	/// theme ids and replace-on-reinstall behavior match an Open VSX install of the same extension.
+	/// Installs a VS Code color theme from a local <c>.vsix</c> file, returning the themes it contributes. Identity
+	/// (publisher/name/version) comes from the vsix manifest, so theme ids and replace-on-reinstall match an Open
+	/// VSX install of the same extension.
 	/// </summary>
 	/// <param name="vsixPath">Absolute path to a <c>.vsix</c> file.</param>
 	/// <param name="ct">Cancellation token.</param>
@@ -154,9 +153,8 @@ public sealed class OpenVsxThemeInstaller {
 		return (publisher, name, version);
 	}
 
-	// Shared install tail for Open VSX and local-file installs: extract the .vsix into the themes root under a
-	// per-extension directory (replacing any prior copy), read the manifest's contributed themes, record them
-	// in the index, and return them.
+	// Shared install tail: extract the .vsix into a per-extension dir (replacing any prior copy), index its
+	// contributed themes, and return them.
 	private static async Task<IReadOnlyList<InstalledTheme>> ExtractAndIndexAsync(
 		string ns, string name, string version, byte[] vsix, CancellationToken ct) {
 		string extractDir = Path.Combine(WeaviePaths.Themes, $"{ns}.{name}-{version}");

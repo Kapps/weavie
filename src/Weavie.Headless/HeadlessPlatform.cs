@@ -5,9 +5,8 @@ using Weavie.Hosting;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The headless platform shell: a WebSocket bridge, inline dispatch (no UI thread), the per-OS PTY backend
-/// (ConPTY on Windows, POSIX elsewhere — the worker runs claude/shell on whatever box it's deployed to), and
-/// no native window / hotkey / dialog capabilities. The thinnest <see cref="IHostPlatform"/>.
+/// The thinnest <see cref="IHostPlatform"/>: WebSocket bridge, inline dispatch, per-OS PTY backend, no
+/// native window / hotkey / dialog.
 /// </summary>
 internal sealed class HeadlessPlatform : IHostPlatform {
 	public HeadlessPlatform(IHostBridge bridge) {
@@ -23,8 +22,7 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public IPtyLauncher PtyLauncher { get; }
 
-	// A browser has no native chrome, so render Weavie's custom title bar (icon + File/View menus + Omnibar).
-	// Window controls are cosmetic here (no OS window); the value is the Omnibar.
+	// A browser has no native chrome, so render Weavie's custom title bar.
 	public string ChromePlatform => "web";
 
 	public string? TitleBar => "custom";

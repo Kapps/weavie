@@ -11,9 +11,8 @@ internal static class Program {
 			return PtySmoke.Run();
 		}
 
-		// Reap every child we spawn (Vite, ConPTY shells, language servers, claude) if this host dies by any
-		// means — via a kill-on-close Job Object the children inherit. Installed after the smoke branch so that
-		// short-lived helper invocation doesn't enroll claude's tree.
+		// Reap every spawned child if the host dies by any means; after the smoke branch so the helper invocation
+		// doesn't enroll claude's tree. See ChildProcessJob.
 		ChildProcessJob.Install();
 
 		ApplicationConfiguration.Initialize();

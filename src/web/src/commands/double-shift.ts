@@ -1,8 +1,6 @@
-// Detects the "double-shift" gesture (tap + release Shift twice in quick succession, IntelliJ-style) and
-// fires a callback. It lives outside the keybinding resolver because that resolver never matches a
-// modifiers-only binding, so a bare double-tap can't be expressed as a chord. Any non-Shift key or other
-// modifier held alongside Shift breaks the sequence, so only two clean Shift taps trip it. Capture-phase
-// so a focused xterm/Monaco can't swallow the keys first.
+// Detects the "double-shift" gesture (tap + release Shift twice quickly, IntelliJ-style) and fires a
+// callback. Outside the keybinding resolver, which never matches a modifiers-only chord. Any other key or
+// modifier alongside Shift breaks the sequence. Capture-phase so a focused xterm/Monaco can't swallow it.
 
 const DOUBLE_TAP_WINDOW_MS = 300;
 

@@ -4,17 +4,13 @@ using Foundation;
 
 namespace Weavie.Mac;
 
-// Workspace + chrome wiring: the keybinding-chord lookup feeding the native menu, and File ▸ Open Folder /
-// Open Recent (a workspace switch via app relaunch).
+// Workspace + chrome wiring: the menu's keybinding-chord lookup and File ▸ Open Folder / Open Recent.
 public sealed partial class AppDelegate {
 	/// <summary>The effective chord for a command id (first non-global resolved binding), or null if unbound.</summary>
 	private string? ResolveChord(string commandId) =>
 		_services?.Keybindings.Resolved.FirstOrDefault(binding => binding.Command == commandId && !binding.Global)?.Key;
 
-	/// <summary>
-	/// Shows the native folder picker (File ▸ Open Folder); the chosen folder becomes the workspace via
-	/// <see cref="SwitchWorkspace"/>.
-	/// </summary>
+	/// <summary>Shows the File ▸ Open Folder picker; the chosen folder becomes the workspace via <see cref="SwitchWorkspace"/>.</summary>
 	private void OpenFolderInteractive() {
 		var panel = NSOpenPanel.OpenPanel;
 		panel.Title = "Open Folder";
@@ -28,8 +24,8 @@ public sealed partial class AppDelegate {
 	}
 
 	/// <summary>
-	/// Switches the workspace to <paramref name="path"/>: records it in recents, persists the <c>workspace</c>
-	/// setting, and relaunches the app. A process hosts one workspace, so a switch is a clean relaunch.
+	/// Switches the workspace to <paramref name="path"/>: records it, persists the <c>workspace</c> setting, and
+	/// relaunches. A process hosts one workspace, so a switch is a clean relaunch.
 	/// </summary>
 	private void SwitchWorkspace(string path) {
 		if (string.IsNullOrEmpty(path) || !Directory.Exists(path)) {

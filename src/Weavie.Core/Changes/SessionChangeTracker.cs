@@ -5,17 +5,13 @@ using Weavie.Core.Hooks;
 namespace Weavie.Core.Changes;
 
 /// <summary>
-/// Records every file changed during the session and the diff against each file's session baseline (its
-/// content the first time a tool touched it). Fed by the hook stream via <see cref="Observe"/>, which fires
-/// for edits in every permission mode (the hook runs before the permission check), so the change feed is
-/// independent of openDiff and the mode. PreToolUse snapshots the baseline; PostToolUse records the new
-/// content. Read on the host's UI thread but mutated from the hook accept loop — hence the lock.
+/// Records every file changed during the session and the diff against each file's session baseline. Fed by the
+/// hook stream via <see cref="Observe"/>, which fires in every permission mode (the hook runs before the
+/// permission check). Read on the host UI thread but mutated from the hook accept loop — hence the lock.
 /// <para>
-/// Scoped by <c>isInScope</c> to the session's own worktree (+ scratch): an edit outside it — Claude
-/// editing its own memory/config files under <c>~/.claude</c>, say — is dropped, never tracked. The review
-/// feed drives the editor to open each changed file, and the editor's <c>file://</c> provider only serves
-/// the session's roots, so tracking an out-of-scope path would push an open that can't be read and strand a
-/// blank tab. Keeping the tracker's scope == the file provider's scope guarantees every tracked file opens.
+/// Scoped by <c>isInScope</c> to the session's worktree (+ scratch): an out-of-scope edit is dropped. The
+/// tracker's scope must match the editor's <c>file://</c> provider scope, else an open is pushed for a path
+/// the editor can't read, stranding a blank tab.
 /// </para>
 /// </summary>
 public sealed class SessionChangeTracker {
@@ -24,25 +20,19 @@ public sealed class SessionChangeTracker {
 	private readonly object _gate = new();
 	private readonly Dictionary<string, string> _baseline = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _current = new(StringComparer.Ordinal);
-	// Review baseline: each file's last-reviewed content. Seeded on first touch and advanced only on an explicit
-	// keep-all (AcceptTurn) or a per-hunk revert, not on a turn boundary. The accumulate model
-	// (docs/specs/turn-review.md): the review set is everything Claude changed that you haven't acknowledged,
-	// persisting across turns, so the inline diff renders against this baseline (TurnChanges/GetTurn).
+	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
+	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
 	private readonly Dictionary<string, string> _reviewBaseline = new(StringComparer.Ordinal);
-	// Per-edit pre-state: each file's content captured at the PreToolUse of the most recent edit, overwritten
-	// every edit. Diffed against the post-edit content in EditLocationFor to point at the line this edit changed.
+	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly Dictionary<string, string> _preEdit = new(StringComparer.Ordinal);
-	// Files that did not exist on disk when their review baseline was captured. Reverting the last hunk of such a
-	// file returns it to non-existence, so the revert deletes the file rather than leaving a 0-byte one. Keys off
-	// existence-at-baseline, not emptiness (a genuinely empty file that existed at baseline is kept).
+	// Files absent on disk when their review baseline was captured, so reverting their last hunk deletes rather
+	// than leaves a 0-byte file. Keys off existence-at-baseline, not emptiness.
 	private readonly HashSet<string> _createdSinceBaseline = new(StringComparer.Ordinal);
 
 	/// <summary>Creates a tracker that reads file content through <paramref name="fileSystem"/>.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
 	/// <param name="isInScope">
-	/// Predicate over an absolute path: only edits it accepts are tracked. The host scopes this to the session's
-	/// worktree (+ scratch) so edits to files the editor can't open — Claude touching its own config under
-	/// <c>~/.claude</c>, say — never reach the review feed. See the type remarks.
+	/// Predicate over an absolute path: only edits it accepts are tracked. See the type remarks.
 	/// </param>
 	public SessionChangeTracker(IFileSystem fileSystem, Func<string, bool> isInScope) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
@@ -61,26 +51,20 @@ public sealed class SessionChangeTracker {
 	public event Action<string>? FileChanged;
 
 	/// <summary>
-	/// Raised with the absolute path of a tracked file that has disappeared from disk — deleted by a tool that
-	/// isn't an editor (a <c>Bash</c> rm, a rename, a generated-then-cleaned-up temp) — so the host can close its
-	/// editor tab. Fires from <see cref="Observe"/>'s post-tool reconciliation, alongside a single <see cref="Changed"/>.
+	/// Raised with the absolute path of a tracked file that disappeared from disk (a <c>Bash</c> rm/rename/temp
+	/// cleanup), so the host can close its editor tab. Fires from <see cref="Observe"/>'s post-tool reconciliation.
 	/// </summary>
 	public event Action<string>? FileDeleted;
 
 	/// <summary>
-	/// Folds a hook event into the change set: PreToolUse on a file-editing tool snapshots the baseline,
-	/// PostToolUse records the new content. A non-editing tool (Bash, etc.) records no edit, but its PostToolUse
-	/// still triggers a disk reconciliation (<see cref="ReconcileDeletions"/>) so a file removed mid-turn — e.g.
-	/// a <c>Bash</c> rm of a scratch file — leaves the review set instead of stranding the ← / → walk on a missing
-	/// path. An edit to a path outside the session's scope (see the constructor's <c>isInScope</c>) is dropped.
-	/// Turn boundaries are ignored, so the review baseline never resets on a new prompt.
+	/// Folds a hook event into the change set: PreToolUse snapshots the baseline, PostToolUse records the new
+	/// content and reconciles disk deletions (<see cref="ReconcileDeletions"/>) so a mid-turn rm leaves the review
+	/// set. Out-of-scope edits are dropped; turn boundaries are ignored so the review baseline never resets.
 	/// </summary>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
 
-		// A PostToolUse settles a completed tool: reconcile FIRST so a deletion by any tool (the edit tools never
-		// delete; a Bash rm / mv does) drops the vanished file before we record this tool's own edit (if any).
-		// Reconcile touches only already-tracked files, so an out-of-scope edit can't have seeded one to clean up.
+		// Reconcile deletions before recording this tool's edit, so a Bash rm/mv drops the vanished file first.
 		if (request.Event == HookEventKind.PostToolUse) {
 			ReconcileDeletions();
 		}
@@ -98,9 +82,8 @@ public sealed class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Accepts the whole review set (Keep-all): advances every tracked file's review baseline to its current
-	/// content, clearing the inline review diff. The session diff (vs the session baseline) is kept. Everything
-	/// now sits at its baseline, so nothing counts as "created since baseline".
+	/// Keep-all: advances every review baseline to current content, clearing the inline diff. The session diff
+	/// (vs the session baseline) is kept, and nothing counts as "created since baseline" any more.
 	/// </summary>
 	public void AcceptTurn() {
 		lock (_gate) {
@@ -118,9 +101,8 @@ public sealed class SessionChangeTracker {
 	public void CaptureBaseline(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
-			// Disk content here is the file before this edit. Seed the session and review baselines if missing,
-			// and always record the per-edit pre-state so EditLocationFor can pinpoint this edit's line. If the
-			// file doesn't exist yet, remember that so a later revert deletes rather than truncates it.
+			// Disk content here is the pre-edit file. Seed baselines if missing; track existence so a later revert
+			// deletes rather than truncates a file that didn't yet exist.
 			bool existed = _fileSystem.FileExists(path);
 			string content = ReadOrEmpty(path);
 			_baseline.TryAdd(path, content);
@@ -138,8 +120,7 @@ public sealed class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
 			_baseline.TryAdd(path, string.Empty);
-			// First review-touch with no prior CaptureBaseline means the file appeared this session without a
-			// pre-snapshot, so it didn't exist at baseline.
+			// First review-touch with no prior CaptureBaseline: the file appeared this session, so it didn't exist at baseline.
 			if (_reviewBaseline.TryAdd(path, string.Empty)) {
 				_createdSinceBaseline.Add(path);
 			}
@@ -152,18 +133,14 @@ public sealed class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Reconciles the tracked set against disk: any file that's been recorded but no longer exists was deleted out
-	/// from under us (a <c>Bash</c> rm, a rename, a generated-then-cleaned-up temp). Such a file can't be rendered
-	/// in the inline review — there's nothing on disk to open — so it's dropped from tracking entirely, mirroring
-	/// the revert-deletes-a-created-file path (<see cref="Forget"/>). Raises <see cref="FileDeleted"/> per removed
-	/// path (so the host closes its editor tab + clears the marker) and a single <see cref="Changed"/> so the
-	/// review walk re-pushes without the dead entries. A no-op (no events) when nothing vanished.
+	/// Drops any recorded file that no longer exists on disk (deleted out from under us), since there's nothing to
+	/// render. Raises <see cref="FileDeleted"/> per removed path and a single <see cref="Changed"/>; a no-op when
+	/// nothing vanished.
 	/// </summary>
 	private void ReconcileDeletions() {
 		List<string>? removed = null;
 		lock (_gate) {
-			// Snapshot keys first: Forget mutates _current while we iterate. Only recorded files (in _current) can
-			// appear in the review walk, so reconciling that set is both necessary and sufficient.
+			// Snapshot keys first: Forget mutates _current while we iterate. Only _current files appear in the review walk.
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_fileSystem.FileExists(path)) {
 					Forget(path);
@@ -184,12 +161,10 @@ public sealed class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Reverts a single hunk on disk, sourcing the replacement text from Core's own review baseline (never from
-	/// content supplied over a message — the hook-bridge security rule). <paramref name="guardText"/> is an
-	/// optimistic-concurrency check: if the file's current lines no longer match it (a parallel agent or a later
-	/// edit moved the file), the revert aborts without writing (<see cref="RevertHunkOutcome.GuardMismatch"/>).
-	/// On a match the hunk's current lines are replaced by the baseline lines; a created-since-baseline file whose
-	/// revert empties it is deleted (<see cref="RevertHunkOutcome.Deleted"/>) rather than truncated to 0 bytes.
+	/// Reverts a single hunk on disk, sourcing replacement text from Core's review baseline (never from message
+	/// content — the hook-bridge security rule). <paramref name="guardText"/> is an optimistic-concurrency check:
+	/// a mismatch against the file's current lines aborts the write (<see cref="RevertHunkOutcome.GuardMismatch"/>).
+	/// A created-since-baseline file the revert empties is deleted (<see cref="RevertHunkOutcome.Deleted"/>), not truncated.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
@@ -215,8 +190,7 @@ public sealed class SessionChangeTracker {
 			newLines.InsertRange(currentRange.Start - 1, replacement);
 			string newContent = string.Join("\n", newLines);
 
-			// Reverting the last hunk of a created file returns it to non-existence — delete it and drop it from
-			// tracking entirely.
+			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
 			if (newContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
 				_fileSystem.DeleteFile(path);
 				Forget(path);
@@ -230,9 +204,8 @@ public sealed class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Reverts a whole file to its review baseline (the whole-set / per-file undo). A file created since its
-	/// baseline is deleted rather than truncated to 0 bytes; any other file is rewritten to its baseline content.
-	/// No guard — the whole file is being reset, not a single hunk against concurrent edits.
+	/// Reverts a whole file to its review baseline (per-file undo). A created-since-baseline file is deleted, not
+	/// truncated. No guard — the whole file is reset, not a single hunk against concurrent edits.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public RevertHunkOutcome RevertFile(string path) {
@@ -261,10 +234,9 @@ public sealed class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// A workspace-relative <c>path:line</c> reference to the first line a just-recorded edit changed, as a
-	/// clickable jump target. Call after <see cref="Observe"/> has folded in the PostToolUse event. Returns
-	/// <see langword="null"/> for non-edit / non-PostToolUse events, for notebooks, and when the edit changed no
-	/// line. Paths use <c>/</c> separators so the reference is clickable on every platform.
+	/// A workspace-relative <c>path:line</c> jump target for the first line a just-recorded edit changed, with
+	/// <c>/</c> separators so it's clickable on every platform. <see langword="null"/> for non-edit/non-PostToolUse
+	/// events, notebooks, and no-op edits. Call after <see cref="Observe"/> folds in the PostToolUse event.
 	/// </summary>
 	/// <param name="request">The observed hook event (only PostToolUse edits yield a location).</param>
 	public string? EditLocationFor(HookRequest request) {
@@ -354,13 +326,12 @@ public sealed class SessionChangeTracker {
 
 	private string ReadOrEmpty(string path) => _fileSystem.FileExists(path) ? _fileSystem.ReadAllText(path) : string.Empty;
 
-	// Split text the way a Monaco model does (CRLF/CR normalized to LF, split on LF), so the web's line ranges
-	// and guardText line up with Core's slices. Joining back with "\n" round-trips the content.
+	// Split text the way a Monaco model does (CRLF/CR normalized to LF), so the web's line ranges line up with Core's slices.
 	private static List<string> SplitLines(string text) =>
 		[.. text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal).Split('\n')];
 
-	// Slices a 1-based, end-exclusive line range out of `lines`. Returns false (empty slice) when out of bounds —
-	// the caller treats that as a guard failure so an inconsistent request never writes.
+	// Slices a 1-based, end-exclusive range out of `lines`; false (empty slice) when out of bounds, which the
+	// caller treats as a guard failure so an inconsistent request never writes.
 	private static bool TryGetSlice(List<string> lines, LineRange range, out List<string> slice) {
 		slice = [];
 		if (range.Start < 1 || range.EndExclusive < range.Start || range.EndExclusive - 1 > lines.Count) {
@@ -399,8 +370,8 @@ public sealed class SessionChangeTracker {
 	private static string Resolve(string path, string? cwd) =>
 		Path.IsPathRooted(path) || string.IsNullOrEmpty(cwd) ? path : Path.GetFullPath(path, cwd);
 
-	// Render an absolute path relative to cwd with '/' separators so the terminal's file:line link detection
-	// (forward-slash only) catches it on Windows too. Falls back to the absolute path on a "../" escape or unknown cwd.
+	// Path relative to cwd with '/' separators so the terminal's (forward-slash-only) file:line link detection
+	// catches it on Windows too. Falls back to the absolute path on a "../" escape or unknown cwd.
 	private static string Relativize(string absolutePath, string? cwd) {
 		if (string.IsNullOrEmpty(cwd)) {
 			return absolutePath.Replace('\\', '/');

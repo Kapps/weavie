@@ -1,9 +1,8 @@
 namespace Weavie.Core.Lsp;
 
 /// <summary>
-/// A launch command resolved to a concrete executable: the file to start plus the full argument list.
-/// Batch/cmd shims (npm-installed CLIs on Windows) are wrapped through <c>cmd.exe /c</c> because
-/// <c>CreateProcess</c> can't start them directly; native executables launch as-is.
+/// A launch command resolved to a concrete executable. Windows cmd/bat shims are wrapped through
+/// <c>cmd.exe /c</c> (<c>CreateProcess</c> can't start them directly); native executables launch as-is.
 /// </summary>
 /// <param name="FileName">The executable to launch (the wrapper for cmd/bat shims, else the server).</param>
 /// <param name="Arguments">The full argument list, including any wrapper prefix.</param>
@@ -34,10 +33,8 @@ public static class ServerResolver {
 	}
 
 	/// <summary>
-	/// Locates <paramref name="command"/> on <c>PATH</c>, returning its full path or <see langword="null"/>. An
-	/// explicit path (rooted or containing a separator) is used as-is when it exists. On Windows, probes the
-	/// runnable extensions (<c>.exe</c>, <c>.cmd</c>, <c>.bat</c>) but not <c>.ps1</c>, which
-	/// <c>CreateProcess</c> can't launch.
+	/// Locates <paramref name="command"/> on <c>PATH</c>, returning its full path or <see langword="null"/>. On
+	/// Windows probes <c>.exe</c>/<c>.cmd</c>/<c>.bat</c> but not <c>.ps1</c>, which <c>CreateProcess</c> can't launch.
 	/// </summary>
 	/// <param name="command">A command name (no extension needed) or an explicit path.</param>
 	public static string? FindOnPath(string command) {

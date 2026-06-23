@@ -1,7 +1,6 @@
-// Derives Weavie's chrome semantic CSS vars (--bg/--bar/--border/--fg/--accent/--dim) from the active
-// theme's resolved palette, mapping each to the closest VS Code workbench color id (spec §5) so the
-// title bar, panels, menus, omnibar, and splitters all track the active theme. These higher-level names
-// complement apply.ts, which publishes the raw --weavie-<key> vars.
+// Derives Weavie's chrome semantic CSS vars (--bg/--bar/--border/--fg/--accent/--dim) from the resolved
+// palette, mapping each to the closest VS Code workbench color id (spec §5) so all chrome tracks the active
+// theme. Higher-level names complementing apply.ts, which publishes the raw --weavie-<key> vars.
 
 /** Sets the chrome's --bg/--bar/--border/--fg/--accent/--dim vars on :root from a resolved palette. */
 export function deriveChromeVars(colors: Readonly<Record<string, string>>): void {

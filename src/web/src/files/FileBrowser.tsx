@@ -22,9 +22,8 @@ function leafName(path: string): string {
   return parts.length > 0 ? parts[parts.length - 1]! : path;
 }
 
-// A single tree row + (when open) its children. Folders toggle open/closed and lazily request their
-// listing the first time they open; files open in the editor on click. A folder that is an ancestor of
-// the current file starts open, cascading a request down to that file's directory ("reveal" behavior).
+// A single tree row + (when open) its children. Folders toggle and lazily request their listing on first
+// open; files open in the editor on click. An ancestor of the current file starts open ("reveal" behavior).
 function Node(props: {
   entry: DirEntry;
   listings: DirListings;

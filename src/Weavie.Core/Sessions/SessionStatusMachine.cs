@@ -33,9 +33,8 @@ public sealed class SessionStatusMachine {
 			HookEventKind.PostToolUse => SessionStatus.Working,
 			HookEventKind.Notification => ClassifyNotification(request),
 			HookEventKind.Stop => SessionStatus.Idle,
-			// First hook of a fresh/resumed/cleared conversation: claude is up and waiting for input, so leave
-			// Starting for the calm green Idle. (A mid-turn compact also fires SessionStart; the next tool call
-			// re-arms Working, so the brief Idle is harmless.)
+			// First hook of a fresh/resumed/cleared conversation means claude is up and waiting; a mid-turn
+			// compact also fires this, but the next tool call re-arms Working so the brief Idle is harmless.
 			HookEventKind.SessionStart => SessionStatus.Idle,
 			_ => null,
 		};
@@ -45,11 +44,9 @@ public sealed class SessionStatusMachine {
 	}
 
 	/// <summary>
-	/// Maps a Notification to a status. Claude fires it both for a permission prompt (the user must act →
-	/// NeedsInput) and for the idle "waiting for your input" notice it emits once a turn has settled. The idle
-	/// notice must NOT change status: it arrives right after <see cref="HookEventKind.Stop"/> (so treating it as
-	/// NeedsInput would flip a finished turn back to orange), and it can also fire while a permission prompt is
-	/// still open (so it must not clear a genuine NeedsInput). Returning null leaves the resting state intact.
+	/// Maps a Notification to a status: a permission prompt becomes NeedsInput, but the idle "waiting for your
+	/// input" notice returns null (it fires right after Stop and while a prompt is open, so it must not disturb
+	/// the resting state).
 	/// </summary>
 	private static SessionStatus? ClassifyNotification(HookRequest request) =>
 		request.Message is { } message && message.Contains("waiting for your input", StringComparison.OrdinalIgnoreCase)
@@ -58,8 +55,7 @@ public sealed class SessionStatusMachine {
 
 	/// <summary>
 	/// Feeds a supervisor transition for the session's Claude process — wire to
-	/// <see cref="ProcessSupervisor.StateChanged"/>. A crash-loop or crash awaiting restart becomes Error; a
-	/// post-crash restart becomes Starting until the new process produces hooks.
+	/// <see cref="ProcessSupervisor.StateChanged"/>. A crash becomes Error; a post-crash restart becomes Starting.
 	/// </summary>
 	public void ObserveSupervisor(SupervisorStateChanged change) {
 		SessionStatus? next = change.State switch {

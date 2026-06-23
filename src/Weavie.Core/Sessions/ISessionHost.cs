@@ -30,9 +30,8 @@ public sealed record ForkSessionRequest {
 }
 
 /// <summary>
-/// The host-side operations behind Weavie's session commands. Command declarations and argument parsing
-/// live in Core; the create/fork/close — which spawn or tear down a session's native window backend — are
-/// implemented per host and invoked through this seam.
+/// The host-side operations behind Weavie's session commands — create/fork/close spawn or tear down a
+/// session's native window backend, so they're implemented per host and invoked through this seam.
 /// </summary>
 public interface ISessionHost {
 	/// <summary>Creates a new session on its own worktree + branch, optionally seeding a first prompt.</summary>

@@ -1,10 +1,9 @@
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Themes Weavie ships in the web bundle (no install needed). Their full JSON lives on the web side
-/// (<c>src/web/src/theme/builtin/*</c>); Core only needs their identity to list / validate / select them,
-/// since the host sends just the id and the web resolves the colors. Keep ids in sync with the web
-/// registry's <c>BUILTIN_THEMES</c>.
+/// Themes Weavie ships in the web bundle. Their JSON lives on the web side (<c>src/web/src/theme/builtin/*</c>);
+/// Core only needs their identity to list/validate/select them (the host sends the id, the web resolves colors).
+/// Keep ids in sync with the web registry's <c>BUILTIN_THEMES</c>.
 /// </summary>
 public static class BuiltInThemes {
 	/// <summary>The built-in themes: stable id, display label, base type (<c>dark</c>/<c>light</c>).</summary>

@@ -4,19 +4,12 @@ using Weavie.Core.Json;
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Editor-behavior settings — Monaco <c>IEditorOptions</c> surfaced as first-class, typed Weavie settings
-/// (discoverable via <c>listSettings</c>, drivable via <c>setSetting</c> / natural language), the editor
+/// Editor-behavior settings — Monaco <c>IEditorOptions</c> as first-class, typed Weavie settings; the editor
 /// analogue of <see cref="FontSettings"/>. All are <see cref="ApplyMode.Live"/>: a change re-pushes the
 /// resolved options to the web, which applies them with <c>editor.updateOptions</c>.
 /// <para>
-/// The one exception is <see cref="SuggestExpandDocs"/>: there is no Monaco option that force-expands the
-/// suggest-widget documentation flyout, so the web maps it to a small custom behavior rather than an
-/// <c>updateOptions</c> field. Everything else is a straight passthrough.
-/// </para>
-/// <para>
-/// Adding an option is one <c>Register</c> call here (+ one line in <c>BuildJson</c>) and one mapping line in
-/// the web's <c>editor-options.ts</c> — no per-OS host work, since the host just relays <see cref="BuildJson"/>
-/// like it does for fonts.
+/// <see cref="SuggestExpandDocs"/> and <see cref="CommentProse"/> have no <c>updateOptions</c> field; the web
+/// maps them to small custom behaviors. Everything else is a straight passthrough.
 /// </para>
 /// </summary>
 public static class EditorSettings {
@@ -78,8 +71,7 @@ public static class EditorSettings {
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse,
 	];
 
-	// 300ms before the hover reveals — Monaco's standard default; long enough to avoid flicker on a quick mouse
-	// pass. MaxHoverDelay keeps a fat-fingered value sane; 0 (instant) is the floor.
+	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
 	private const long DefaultHoverDelay = 300;
 	private const long MaxHoverDelay = 5000;
 
@@ -161,9 +153,8 @@ public static class EditorSettings {
 
 	/// <summary>
 	/// Serializes the resolved editor options as JSON. With <paramref name="messageType"/> set, wraps them as
-	/// <c>{"type":…,"options":{…}}</c> for a bridge push; otherwise emits the bare <c>{…}</c> object for the
-	/// injected <c>window.__WEAVIE_EDITOR_OPTIONS__</c> global. Keys are the short camelCase names the web's
-	/// editor-options.ts maps onto Monaco's nested option shape.
+	/// <c>{"type":…,"options":{…}}</c> for a bridge push; otherwise the bare <c>{…}</c> for the injected
+	/// <c>window.__WEAVIE_EDITOR_OPTIONS__</c> global.
 	/// </summary>
 	public static string BuildJson(SettingsStore store, string? messageType) {
 		ArgumentNullException.ThrowIfNull(store);
@@ -180,9 +171,8 @@ public static class EditorSettings {
 		});
 	}
 
-	// Values are read with the fallback-free Require* accessors: the resolved value already carries the
-	// registered default (env → file → default), so a literal default here would be a second source that can
-	// drift. A misregistered setting throws rather than silently serializing a stale literal.
+	// Fallback-free Require* accessors: a literal default here would be a second source that can drift, so a
+	// misregistered setting throws rather than silently serializing a stale literal.
 	private static void WriteOptions(Utf8JsonWriter writer, SettingsStore store) {
 		writer.WriteStartObject();
 		writer.WriteString("inlayHints", store.RequireString(InlayHints));

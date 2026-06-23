@@ -1,9 +1,8 @@
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// Derives a session's visual identity deterministically from its label (branch name), so the same branch
-/// always gets the same chip on the rail. The hue (0–359) is a stable hash the host turns into a
-/// theme-tuned color; the monogram is the branch's initials.
+/// Derives a session's visual identity (hue + monogram) deterministically from its label (branch name), so
+/// the same branch always gets the same chip on the rail.
 /// </summary>
 public static class SessionIdentity {
 	/// <summary>
@@ -21,9 +20,8 @@ public static class SessionIdentity {
 	}
 
 	/// <summary>
-	/// A 1–2 character uppercase monogram for <paramref name="label"/>: the initials of the branch leaf's
-	/// first two words (e.g. <c>feature/auth-refactor</c> → <c>AR</c>), or the leaf's first two characters
-	/// for a single word (e.g. <c>main</c> → <c>MA</c>).
+	/// A 1–2 character uppercase monogram for <paramref name="label"/>: the branch leaf's first two words'
+	/// initials (<c>feature/auth-refactor</c> → <c>AR</c>), else the leaf's first two characters.
 	/// </summary>
 	public static string Monogram(string label) {
 		ArgumentException.ThrowIfNullOrEmpty(label);

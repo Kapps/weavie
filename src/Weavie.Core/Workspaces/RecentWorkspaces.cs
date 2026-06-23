@@ -5,10 +5,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Workspaces;
 
 /// <summary>
-/// The app-global most-recently-opened workspace list, persisted to <c>~/.weavie/recents.json</c>.
-/// Most-recent first; opening a workspace moves it to the front and dedupes (case-insensitively on Windows).
-/// Used to reopen the last workspace on launch and to populate the Open Recent menu. Atomic writes; a
-/// malformed file is backed up to <c>recents.json.bad</c> and reset rather than throwing.
+/// The app-global most-recently-opened workspace list (most-recent first, deduped case-insensitively on
+/// Windows), persisted atomically to <c>~/.weavie/recents.json</c>. A malformed file is backed up to
+/// <c>recents.json.bad</c> and reset rather than throwing.
 /// </summary>
 public sealed class RecentWorkspaces {
 	private const int MaxItems = 20;

@@ -7,8 +7,7 @@ using Weavie.Linux.Native;
 namespace Weavie.Linux.Hosting;
 
 /// <summary>
-/// The GTK + WebKitGTK platform shell: the bridge, the GLib-main-loop UI marshal
-/// (<see cref="GtkMain.Invoke"/>), and POSIX PTYs. The GTK window provides native chrome; unwired optional
+/// The GTK + WebKitGTK platform shell: bridge, GLib-main-loop UI marshal, and POSIX PTYs. Unwired optional
 /// capabilities (title bar, hotkeys, dialogs) are <c>null</c> and <see cref="HostCore"/> degrades them to no-ops.
 /// </summary>
 internal sealed class LinuxPlatform : IHostPlatform {

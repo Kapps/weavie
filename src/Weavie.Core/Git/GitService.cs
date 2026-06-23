@@ -86,12 +86,7 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
 		ArgumentException.ThrowIfNullOrEmpty(newBranch);
 		ArgumentException.ThrowIfNullOrEmpty(baseRef);
-		// git worktree add creates the leaf directory but not missing parents — ensure the root exists.
-		string? parent = Path.GetDirectoryName(worktreePath);
-		if (!string.IsNullOrEmpty(parent)) {
-			Directory.CreateDirectory(parent);
-		}
-
+		EnsureParentDirectory(worktreePath);
 		await RunCheckedAsync(repositoryDirectory, ["worktree", "add", "-b", newBranch, worktreePath, baseRef], ct).ConfigureAwait(false);
 	}
 
@@ -100,12 +95,7 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
 		ArgumentException.ThrowIfNullOrEmpty(branch);
-		// git worktree add creates the leaf directory but not missing parents — ensure the root exists.
-		string? parent = Path.GetDirectoryName(worktreePath);
-		if (!string.IsNullOrEmpty(parent)) {
-			Directory.CreateDirectory(parent);
-		}
-
+		EnsureParentDirectory(worktreePath);
 		// No -b: check out the existing branch, so HEAD attaches to it and commits land there.
 		await RunCheckedAsync(repositoryDirectory, ["worktree", "add", worktreePath, branch], ct).ConfigureAwait(false);
 	}
@@ -115,8 +105,7 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
 		// core.longpaths=true lets git's recursive delete handle paths past Windows' 260-char limit (e.g. a
-		// deep node_modules from pnpm's nested .pnpm store), which otherwise fails with "Filename too long".
-		// No-op elsewhere and on shorter paths.
+		// deep pnpm node_modules) that otherwise fail with "Filename too long"; a no-op elsewhere.
 		string[] args = force
 			? ["-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath]
 			: ["-c", "core.longpaths=true", "worktree", "remove", worktreePath];
@@ -244,6 +233,14 @@ public sealed class GitService : IGitService {
 
 		Flush();
 		return result;
+	}
+
+	// git worktree add creates the leaf directory but not missing parents — ensure the root exists.
+	private static void EnsureParentDirectory(string worktreePath) {
+		string? parent = Path.GetDirectoryName(worktreePath);
+		if (!string.IsNullOrEmpty(parent)) {
+			Directory.CreateDirectory(parent);
+		}
 	}
 
 	private static async Task<GitResult> RunCheckedAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {

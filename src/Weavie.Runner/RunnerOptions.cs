@@ -3,8 +3,7 @@ using System.Security.Cryptography;
 namespace Weavie.Runner;
 
 /// <summary>
-/// Resolved configuration for the runner daemon, read once at startup from CLI args, then environment, then
-/// defaults.
+/// Resolved configuration for the runner daemon (CLI args, then environment, then defaults).
 /// </summary>
 public sealed record RunnerOptions {
 	/// <summary>The repository root whose worktrees back sessions (the box's checkout).</summary>
@@ -27,8 +26,8 @@ public sealed record RunnerOptions {
 
 	/// <summary>
 	/// Builds the options from args + environment, generating a token when none is supplied. Returns
-	/// <c>(null, error)</c> when the Weavie.Headless worker binary can't be located, so a missing worker fails
-	/// loudly at startup instead of crash-looping the supervisor on a dead path.
+	/// <c>(null, error)</c> when the worker binary can't be located, so a missing worker fails loudly at
+	/// startup instead of crash-looping the supervisor on a dead path.
 	/// </summary>
 	public static (RunnerOptions? Options, string? Error) Resolve(string[] args) {
 		string? workspace = Arg(args, "--workspace") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_WORKSPACE");
@@ -70,9 +69,9 @@ public sealed record RunnerOptions {
 	}
 
 	/// <summary>
-	/// Resolves the worker binary, or <c>(null, error)</c> when it can't be found — never an unconfirmed path. An
-	/// explicit <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> must point at a real file; otherwise it probes
-	/// the known build locations and, on failure, errors listing every path it checked.
+	/// Resolves the worker binary, or <c>(null, error)</c> when it can't be found — never an unconfirmed path.
+	/// An explicit <c>--headless</c> / <c>WEAVIE_HEADLESS_PATH</c> must point at a real file; otherwise probes
+	/// the known build locations, erroring with every path checked on failure.
 	/// </summary>
 	private static (string? Path, string? Error) ResolveHeadlessPath(string[] args) {
 		string? explicitPath = Arg(args, "--headless") ?? Environment.GetEnvironmentVariable("WEAVIE_HEADLESS_PATH");
@@ -96,11 +95,9 @@ public sealed record RunnerOptions {
 	}
 
 	/// <summary>
-	/// The build locations to probe for the worker dll, nearest-first: the sibling Weavie.Headless project output
-	/// (dev <c>dotnet run</c>), the <c>worker/</c> subfolder that <c>dotnet publish Weavie.Runner</c> stages next
-	/// to the runner (the deployed layout — see Weavie.Runner.csproj), then a manual same-dir co-locate. Only the
-	/// last <c>Weavie.Runner</c> path segment is rewritten, so a checkout under a <c>Weavie.Runner</c> directory
-	/// can't be corrupted.
+	/// Build locations to probe for the worker dll, nearest-first: dev sibling output, the published
+	/// <c>worker/</c> subfolder, then a same-dir co-locate. Only the last <c>Weavie.Runner</c> path segment is
+	/// rewritten, so a checkout under a <c>Weavie.Runner</c> directory can't be corrupted.
 	/// </summary>
 	private static IReadOnlyList<string> ProbeCandidates() {
 		string baseDir = AppContext.BaseDirectory; // …/src/Weavie.Runner/bin/<cfg>/<tfm>/ (dev) or the deploy dir

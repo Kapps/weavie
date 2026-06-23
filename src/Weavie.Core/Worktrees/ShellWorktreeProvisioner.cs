@@ -5,12 +5,8 @@ using System.Text;
 namespace Weavie.Core.Worktrees;
 
 /// <summary>
-/// Runs the configured <c>worktree.setupCommand</c> / <c>worktree.teardownCommand</c> through the platform
-/// shell (<c>cmd /c</c> on Windows, <c>/bin/sh -c</c> elsewhere) with the worktree as the working directory,
-/// capturing output. Each run is a short-lived one-shot process, exempt from <c>ProcessSupervisor</c>. The
-/// command strings are read live through the injected getters, so editing the setting takes effect on the
-/// next run. Progress and results surface via <see cref="Starting"/> / <see cref="Finished"/>; a failed
-/// command is reported, never swallowed.
+/// Runs the configured <c>worktree.setupCommand</c> / <c>worktree.teardownCommand</c> through the platform shell
+/// in the worktree, capturing output. Command strings are read live through the injected getters, so an edited setting takes effect next run; failures are reported via <see cref="Finished"/>, never swallowed.
 /// </summary>
 public sealed class ShellWorktreeProvisioner : IWorktreeProvisioner {
 	private readonly Func<string?> _setupCommand;
@@ -18,8 +14,7 @@ public sealed class ShellWorktreeProvisioner : IWorktreeProvisioner {
 
 	/// <summary>
 	/// Creates a provisioner reading the setup/teardown command strings from <paramref name="setupCommand"/>
-	/// and <paramref name="teardownCommand"/> (typically <c>() => settings.GetString("worktree.setupCommand")</c>),
-	/// evaluated fresh on each run.
+	/// and <paramref name="teardownCommand"/>, evaluated fresh on each run.
 	/// </summary>
 	public ShellWorktreeProvisioner(Func<string?> setupCommand, Func<string?> teardownCommand) {
 		ArgumentNullException.ThrowIfNull(setupCommand);
@@ -73,8 +68,7 @@ public sealed class ShellWorktreeProvisioner : IWorktreeProvisioner {
 		try {
 			process.Start();
 		} catch (Win32Exception ex) {
-			// The shell itself couldn't start — surface it as a failed run rather than throwing, so a
-			// background setup can't crash session creation and a teardown can't block removal.
+			// Shell couldn't start: surface a failed run, not a throw, so setup can't crash session creation nor teardown block removal.
 			return new WorktreeCommandResult {
 				Ran = true,
 				ExitCode = -1,

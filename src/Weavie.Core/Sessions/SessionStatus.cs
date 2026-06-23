@@ -1,9 +1,8 @@
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The state of a session's embedded Claude, derived from its hook stream + process supervisor and shown
-/// on the session switcher rail. Communicates attention as much as raw status — NeedsInput and Error are
-/// the ones that should draw the eye. See docs/specs/multi-session-and-worktrees.md.
+/// The state of a session's embedded Claude, derived from its hook stream + process supervisor and shown on
+/// the session switcher rail. See docs/specs/multi-session-and-worktrees.md.
 /// </summary>
 public enum SessionStatus {
 	/// <summary>Claude is launching and hasn't produced its first hook event yet.</summary>

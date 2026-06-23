@@ -4,10 +4,9 @@ using System.Text;
 namespace Weavie.Core.Workspaces;
 
 /// <summary>
-/// Stable identity for a workspace, derived from its normalized absolute root path (case-insensitive on
-/// Windows, trailing separators trimmed), so <c>C:\Foo</c>, <c>c:\foo\</c>, and <c>C:/Foo</c> all map to one
-/// id. Keys per-workspace on-disk state and dedupes already-open workspaces. The value is a short hex digest,
-/// safe to use as a folder name.
+/// Stable identity for a workspace: a short hex digest of its normalized absolute root path (case-insensitive
+/// on Windows, trailing separators trimmed), so the same folder reached different ways maps to one id. Keys
+/// per-workspace on-disk state and dedupes already-open workspaces; safe to use as a folder name.
 /// </summary>
 public readonly record struct WorkspaceId(string Value) {
 	/// <summary>Derives the id for <paramref name="rootPath"/> by normalizing the path, then hashing it.</summary>

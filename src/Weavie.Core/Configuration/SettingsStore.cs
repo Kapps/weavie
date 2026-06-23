@@ -40,11 +40,10 @@ public readonly record struct SettingChange(string Key, object? OldValue, object
 /// <summary>
 /// Loads, resolves, and persists user settings as TOML at <c>~/.weavie/settings.toml</c>, and is the change
 /// hub the host reacts to. Resolution precedence is env var → user file → registered default; values are
-/// coerced to their declared <see cref="SettingKind"/> and validated. Writes go through Tomlyn's
-/// comment-preserving <see cref="DocumentSyntax"/> (unknown <c>[plugins.*]</c> subtrees and user comments
-/// survive a round-trip) and are atomic. A debounced, parse-guarded <see cref="FileSystemWatcher"/> turns
-/// hand-edits into the same <see cref="SettingChanged"/> events that <see cref="Set"/> raises, diffing against
-/// the in-memory resolved state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
+/// coerced to their declared <see cref="SettingKind"/> and validated. Atomic writes go through Tomlyn's
+/// comment-preserving <see cref="DocumentSyntax"/> so unknown subtrees and user comments survive a round-trip.
+/// A debounced, parse-guarded <see cref="FileSystemWatcher"/> turns hand-edits into <see cref="SettingChanged"/>
+/// events, diffing against in-memory state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed class SettingsStore : IDisposable {
 	private const string WorkspaceKey = "workspace";
@@ -63,8 +62,7 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <summary>
 	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>), loading
-	/// current values and — unless <paramref name="enableWatcher"/> is false — watching the file for external
-	/// edits. The parent directory is created so the watcher can attach.
+	/// current values and — unless <paramref name="enableWatcher"/> is false — watching the file for edits.
 	/// </summary>
 	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -126,10 +124,8 @@ public sealed class SettingsStore : IDisposable {
 	public long GetInt(string key, long fallback) => Resolve(key).Value is long l ? l : fallback;
 
 	/// <summary>
-	/// Resolves <paramref name="key"/> as a bool, trusting the registered default (env → file → default). Unlike
-	/// <see cref="GetBool"/> it takes no literal fallback: the default lives only in the setting's registration.
-	/// Throws if the resolved value isn't a bool — only possible if the setting was registered with a non-bool
-	/// default, a programming error surfaced loudly.
+	/// Resolves <paramref name="key"/> as a bool, trusting the registered default (no literal fallback). Throws
+	/// if it isn't a bool — only possible if registered with a non-bool default, a programming error.
 	/// </summary>
 	public bool RequireBool(string key) => Resolve(key).Value is bool b ? b : throw WrongKind(key, "bool");
 
@@ -143,9 +139,9 @@ public sealed class SettingsStore : IDisposable {
 		new($"setting '{key}' did not resolve to a {kind}; check the default it was registered with.");
 
 	/// <summary>
-	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> (a JSON value from MCP)
-	/// to the user file, raising <see cref="SettingChanged"/> if the effective value changed. Throws
-	/// <see cref="UnknownSettingException"/>, <see cref="SettingValidationException"/>, or
+	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> (a JSON value from MCP) to the
+	/// user file, raising <see cref="SettingChanged"/> if the effective value changed. Throws
+	/// <see cref="UnknownSettingException"/> / <see cref="SettingValidationException"/> /
 	/// <see cref="SettingsFileMalformedException"/> on rejection.
 	/// </summary>
 	public SetResult Set(string key, JsonElement value) {
@@ -181,10 +177,9 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <summary>
 	/// Removes <paramref name="key"/>'s user-file override (if any), so it falls back to its env var or
-	/// registered default, raising <see cref="SettingChanged"/> if the effective value changed. The inverse of
-	/// <see cref="Set"/>. Returns whether an override was present and how the change applies. Throws
-	/// <see cref="UnknownSettingException"/> for an unknown key, or <see cref="SettingsFileMalformedException"/>
-	/// when the file has parse errors and can't be safely rewritten.
+	/// registered default, raising <see cref="SettingChanged"/> if the effective value changed — the inverse of
+	/// <see cref="Set"/>. Throws <see cref="UnknownSettingException"/> /
+	/// <see cref="SettingsFileMalformedException"/> as <see cref="Set"/> does.
 	/// </summary>
 	public ClearResult Clear(string key) {
 		List<SettingChange> changes;
@@ -472,9 +467,8 @@ public sealed class SettingsStore : IDisposable {
 					return true;
 				}
 
-				// Tolerate a stringified bool ("true"/"false"): LLM tool calls routinely stringify
-				// scalars, and this matches the env-var coercion path (which is always textual). A
-				// non-bool string still falls through and is rejected loudly below.
+				// Tolerate a stringified bool ("true"/"false"): LLM tool calls routinely stringify scalars.
+				// A non-bool string still falls through and is rejected below.
 				if (value.ValueKind == JsonValueKind.String && bool.TryParse(value.GetString(), out bool sb)) {
 					coerced = sb;
 					return true;
@@ -537,8 +531,7 @@ public sealed class SettingsStore : IDisposable {
 			existing.Value = valueSyntax;
 		} else {
 			var keyValue = new KeyValueSyntax(BuildKeySyntax(definition.Key), valueSyntax) {
-				// Self-document a newly written key with its description; never touches an existing line, so a
-				// user's own comment is preserved.
+				// Self-document a newly written key with its description; existing lines are never touched.
 				LeadingTrivia = [
 					new SyntaxTrivia(TokenKind.Comment, "# " + definition.Description),
 					new SyntaxTrivia(TokenKind.NewLine, "\n"),
@@ -560,11 +553,8 @@ public sealed class SettingsStore : IDisposable {
 		return null;
 	}
 
-	// Removes every user-file entry for `key` — both the root-level dotted form Set writes
-	// (`terminal.font.family = …`) and entries nested under a hand-edited [table] / [table.sub] header.
-	// Collects matches before removing (can't mutate the syntax list mid-enumeration); rebuilds the model so
-	// resolution reflects the deletion. Returns whether anything was removed. An emptied table header is left
-	// in place — harmless, and pruning it risks dropping a user's comments.
+	// Removes every user-file entry for `key` — the root-level dotted form and entries nested under a
+	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.
 	private bool RemoveKeyLocked(string key) {
 		bool removed = false;
 

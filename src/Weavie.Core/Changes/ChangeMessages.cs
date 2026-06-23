@@ -3,16 +3,13 @@ using System.Text.Json;
 namespace Weavie.Core.Changes;
 
 /// <summary>
-/// Builds the host→web JSON messages for the inline turn-review feed, so every host emits byte-identical
-/// payloads from one place. Each method returns a complete JSON string ready for the host bridge's
-/// <c>PostToWeb</c>; the shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
+/// Builds the host→web JSON messages for the inline turn-review feed so every host emits byte-identical
+/// payloads; shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
 /// </summary>
 public static class ChangeMessages {
 	/// <summary>
-	/// The per-turn change list: each file changed this turn with its added/removed line counts and the 1-based
-	/// line of its first change, so the review navigator can open the file landed on that first diff. Built from
-	/// the change tracker, which records edits in every permission mode, so this is the review surface in all
-	/// modes (default included). <paramref name="open"/> tells the page to auto-open the first file now.
+	/// The per-turn change list: each changed file with its added/removed counts and the 1-based line of its
+	/// first change, so the navigator can open the file on that diff. <paramref name="open"/> auto-opens the first file.
 	/// </summary>
 	public static string TurnChanges(SessionChangeTracker tracker, bool open) {
 		ArgumentNullException.ThrowIfNull(tracker);
@@ -30,15 +27,13 @@ public static class ChangeMessages {
 	}
 
 	/// <summary>
-	/// An empty turn-change list (never auto-opens). Pushed on a session switch into a session with no
-	/// auto-applied turn changes, so the previous session's ← / → review walk is cleared rather than lingering.
+	/// An empty turn-change list (never auto-opens). Pushed on a session switch to clear the prior session's ← / → walk.
 	/// </summary>
 	public static string EmptyTurnChanges() =>
 		JsonSerializer.Serialize(new { type = "turn-changes", open = false, files = Array.Empty<object>() });
 
 	/// <summary>
-	/// One file's turn diff (this turn's baseline vs. current), for the inline diff in the live editor. An equal
-	/// baseline/current pair means "no markers" (the file was accepted or reverted this turn).
+	/// One file's turn diff (baseline vs. current) for the inline editor diff. An equal pair means "no markers".
 	/// </summary>
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);

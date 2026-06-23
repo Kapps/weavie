@@ -10,19 +10,11 @@ using Weavie.Core.Processes;
 namespace Weavie.Hosting.Web;
 
 /// <summary>
-/// Owns the Vite dev server for hot-module reload during Debug runs, shared by every desktop host. Each instance
-/// binds its own free port (picked once, then held for the instance's lifetime) and spawns Vite there with
-/// <c>--strictPort</c>, so several worktrees / Debug instances run side by side without cross-talk. The caller
-/// points its WebView at <see cref="Origin"/>.
-///
-/// <para>The Vite process is kept alive by a <see cref="ProcessSupervisor"/> (policy <see cref="RestartPolicy.Always"/>):
-/// a mid-session crash is relaunched on the same port, so the WebView's origin stays valid and its HMR client
-/// reconnects. Graceful teardown happens on <see cref="Dispose"/>; the host's kill-on-close Job Object is the
-/// OS backstop that reaps the tree even on a hard kill where no managed code runs.</para>
-///
-/// <para><see cref="StartAsync"/> returns <c>null</c> when the source dir is missing or the server never serves,
-/// recording the reason in <see cref="LastFailure"/> so the caller can show the developer why rather than
-/// silently degrading to a stale bundle.</para>
+/// Owns the Vite HMR dev server for Debug runs (shared by every desktop host). Each instance binds its own held
+/// port and spawns Vite with <c>--strictPort</c>, so worktrees/instances run side by side without cross-talk; the
+/// caller points its WebView at <see cref="Origin"/>. A <see cref="ProcessSupervisor"/>
+/// (<see cref="RestartPolicy.Always"/>) relaunches a crash on the same port so the origin stays valid.
+/// <see cref="StartAsync"/> returns <c>null</c> on failure, recording the reason in <see cref="LastFailure"/>.
 /// </summary>
 public sealed class WebDevServer : IDisposable {
 	private const int RecentCap = 40;
@@ -75,9 +67,8 @@ public sealed class WebDevServer : IDisposable {
 			return null;
 		}
 
-		// Pick a free port once and keep it for the instance's lifetime: every supervised restart reuses it, so a
-		// mid-session Vite crash doesn't invalidate the WebView's origin. A per-instance port lets multiple
-		// worktrees run at the same time without cross-talk.
+		// Pick a free port once and hold it: every restart reuses it (so a crash doesn't invalidate the WebView's
+		// origin), and a per-instance port lets multiple worktrees run at once without cross-talk.
 		if (_port == 0) {
 			_port = PickFreePort();
 			Origin = $"http://localhost:{_port}";
@@ -103,11 +94,9 @@ public sealed class WebDevServer : IDisposable {
 	private void StartProcess(int attempt) {
 		var process = new Process {
 			StartInfo = new ProcessStartInfo {
-				// Spawn Vite directly rather than via a pnpm/npm shim. The shim exits as soon as Vite is up,
-				// severing the parent→child chain Kill(entireProcessTree) walks on teardown — so node(vite)/
-				// esbuild would orphan. Launching Vite's entry with node makes the process the actual Vite
-				// process, so its lone child (esbuild) is reaped reliably. --strictPort fails loud if the port
-				// we picked was grabbed in the (tiny) window since we released it, rather than wandering ports.
+				// Spawn Vite directly, not via a pnpm/npm shim: the shim exits once Vite is up, severing the
+				// parent→child chain Kill(entireProcessTree) walks, so node(vite)/esbuild would orphan. --strictPort
+				// fails loud if the port was grabbed since we released it, rather than wandering.
 				FileName = "node",
 				Arguments = $"node_modules/vite/bin/vite.js --port {_port} --strictPort",
 				WorkingDirectory = _webDevRoot!,

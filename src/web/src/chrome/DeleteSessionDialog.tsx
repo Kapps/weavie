@@ -1,16 +1,14 @@
 import { type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 
-// How dirty the session's worktree is, classified by the host (git status). Drives how hard the dialog makes
-// the user work to confirm: clean = one click; untracked = a two-step confirm; modified = a checkbox
-// acknowledgement.
+// How dirty the session's worktree is (host git status), driving the confirm friction: clean = one click,
+// untracked = two-step confirm, modified = checkbox acknowledgement.
 export type DeleteSessionState = "clean" | "untracked" | "modified";
 
 /**
- * The session-delete confirm. Deleting removes the worktree (the branch is always kept), discarding anything
- * uncommitted, so the dialog escalates with the worktree's state: plain confirm when clean, two-step confirm
- * for untracked files, a checkbox when tracked changes would be lost. Enter confirms when allowed, Esc
- * cancels, via a capture-phase listener so the global keybinding resolver never sees those keys.
+ * The session-delete confirm: deleting removes the worktree (branch always kept), so friction escalates with
+ * its state (see DeleteSessionState). Enter confirms when allowed, Esc cancels, via a capture-phase listener
+ * so the global keybinding resolver never sees those keys.
  */
 export function DeleteSessionDialog(props: {
   label: string;

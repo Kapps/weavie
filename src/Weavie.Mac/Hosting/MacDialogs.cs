@@ -6,9 +6,8 @@ using Weavie.Hosting;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// The macOS native file dialogs <see cref="HostCore"/> needs: the <c>.vsix</c> open picker (install theme
-/// from file) and the Save-As picker (naming an untitled scratch buffer). Both run modally on the main thread
-/// (<see cref="NSOpenPanel"/> / <see cref="NSSavePanel"/>); calls marshal there when invoked off it.
+/// The macOS native file dialogs <see cref="HostCore"/> needs: the <c>.vsix</c> open picker and the Save-As
+/// picker. Both run modally on the main thread; calls marshal there when invoked off it.
 /// </summary>
 internal sealed class MacDialogs : IHostDialogs {
 	/// <inheritdoc/>

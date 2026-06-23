@@ -4,16 +4,14 @@ using Microsoft.AspNetCore.Http;
 namespace Weavie.Runner;
 
 /// <summary>
-/// The runner's auth'd control plane. A single default-deny middleware (registered by <see cref="Map"/> before
-/// any endpoint) requires the runner token (<c>Authorization: Bearer</c> or <c>?token=</c>) on every request,
-/// so new endpoints are gated automatically. CORS preflight (OPTIONS) is handled upstream. Each backend
-/// <c>url</c> is built against the request's own host, so reaching the runner at <c>box:9000</c> yields a
-/// backend URL at <c>box:&lt;port&gt;</c>.
+/// The runner's auth'd control plane. A single default-deny middleware (registered before any endpoint)
+/// requires the runner token on every request, so new endpoints are gated automatically. Each backend
+/// <c>url</c> is built against the request's own host. See docs/specs/remote-sessions.md.
 /// </summary>
 internal static class ControlApi {
 	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options) {
-		// The one auth gate. Registered first, so it covers every endpoint (and any added later). Unauthorized
-		// → 401 with a constant hint body, never derived from the request.
+		// The one auth gate, registered first so it covers every endpoint. Unauthorized → 401 with a
+		// constant hint body, never derived from the request.
 		app.Use(async (context, next) => {
 			if (Authorized(context, options)) {
 				await next().ConfigureAwait(false);

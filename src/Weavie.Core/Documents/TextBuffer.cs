@@ -3,10 +3,8 @@ using System.Text;
 namespace Weavie.Core.Documents;
 
 /// <summary>
-/// A minimal text buffer with Monaco line/column semantics, implementing exactly the
-/// range math the document-model interface needs. Line endings are normalized to "\n"
-/// on input. Deliberately tiny — a substitute for Monaco, not a reimplementation, so
-/// parity risk stays bounded.
+/// A minimal text buffer with Monaco line/column semantics and just the range math the document-model
+/// interface needs. Line endings are normalized to "\n" on input. A substitute for Monaco, not a reimpl.
 /// </summary>
 public sealed class TextBuffer {
 	// 0-based char offset of each line start. Rebuilt on mutation.
@@ -51,8 +49,7 @@ public sealed class TextBuffer {
 	}
 
 	/// <summary>
-	/// Applies several edits as one transaction. Edits must be non-overlapping; they are
-	/// applied bottom-up (last position first) so earlier offsets stay valid mid-batch.
+	/// Applies several non-overlapping edits as one transaction, resolved against the pre-edit text.
 	/// </summary>
 	public void Apply(IReadOnlyList<TextEdit> edits) {
 		ArgumentNullException.ThrowIfNull(edits);

@@ -3,10 +3,8 @@ using Weavie.Hosting;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// The Windows native file dialogs <see cref="HostCore"/> needs: the <c>.vsix</c> open picker (install theme
-/// from file) and the Save-As picker (naming an untitled scratch buffer), shown modally over the owner window.
-/// Marshaled onto the owner's UI thread when invoked off it (the theme picker is reached from the command
-/// dispatcher's thread).
+/// The Windows native file dialogs <see cref="HostCore"/> needs — the <c>.vsix</c> open picker and the Save-As
+/// picker — shown modally over the owner window, marshaled onto its UI thread when invoked off it.
 /// </summary>
 internal sealed class WinDialogs : IHostDialogs {
 	private readonly Form _owner;
@@ -42,8 +40,8 @@ internal sealed class WinDialogs : IHostDialogs {
 				using var dialog = new SaveFileDialog {
 					Title = "Save As",
 					InitialDirectory = initialDirectory,
-					// A rooted FileName forces the dialog open at the session root even when the OS would otherwise
-					// reopen its remembered last-used folder; the leaf is what shows in the name box.
+					// A rooted FileName forces the dialog open at the session root (over the OS's remembered folder);
+					// the leaf shows in the name box.
 					FileName = string.IsNullOrEmpty(initialDirectory) ? suggestedName : Path.Combine(initialDirectory, suggestedName),
 					Filter = "All files (*.*)|*.*",
 					OverwritePrompt = true,

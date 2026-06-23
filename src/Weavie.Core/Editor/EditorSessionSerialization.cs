@@ -4,9 +4,8 @@ using System.Text.Json.Serialization;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. The on-disk
-/// format and the web→host wire format share a shape; the host→web restore push is built by
-/// <see cref="EditorSessionStore.BuildRestoreJson()"/>.
+/// JSON (de)serialization for <see cref="EditorSession"/>: camelCase names, indented on disk. The host→web
+/// restore push is built by <see cref="EditorSessionStore.BuildRestoreJson()"/>.
 /// </summary>
 public static class EditorSessionSerialization {
 	/// <summary>On-disk options: camelCase, indented, nulls omitted.</summary>
@@ -17,8 +16,8 @@ public static class EditorSessionSerialization {
 	};
 
 	/// <summary>
-	/// Bridge-message options: camelCase, single-line (the document is embedded in a one-line message), and
-	/// nulls kept so <c>active</c>/<c>viewState</c> are emitted explicitly rather than dropped to undefined.
+	/// Bridge-message options: camelCase, single-line. Nulls kept so <c>active</c>/<c>viewState</c> are emitted
+	/// explicitly rather than dropped to undefined.
 	/// </summary>
 	public static JsonSerializerOptions MessageOptions { get; } = new() {
 		PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
@@ -28,8 +27,7 @@ public static class EditorSessionSerialization {
 	public static string Serialize(EditorSession session) => JsonSerializer.Serialize(session, Options);
 
 	/// <summary>
-	/// Parses a session. Returns <c>false</c> with an <paramref name="error"/> message on malformed JSON rather
-	/// than throwing. A valid-but-empty object parses to the empty session.
+	/// Parses a session. Returns <c>false</c> with an <paramref name="error"/> on malformed JSON rather than throwing.
 	/// </summary>
 	public static bool TryDeserialize(string json, out EditorSession? session, out string? error) {
 		try {

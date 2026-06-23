@@ -15,13 +15,10 @@ using Weavie.Core.Worktrees;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The shared host core every platform shell drives — the platform-agnostic two thirds of a Weavie window.
-/// Owns one workspace's Core graph (settings/commands/keybindings/theme, the per-workspace layout + editor
-/// session, the session set), routes the page's web messages to the active session, and pushes state back over
-/// the bridge. Everything OS-specific is reached through an injected <see cref="IHostPlatform"/> (bridge, UI
-/// marshal, PTY launcher, and the optional window/hotkeys/dialogs). Split into three partials: this file
-/// (construction, lifecycle, bootstrap), <c>HostCore.WebBridge.cs</c> (message dispatch + Push helpers), and
-/// <c>HostCore.Sessions.cs</c> (the session coordinator, which implements <see cref="ISessionHost"/>).
+/// The shared, platform-agnostic host core every platform shell drives. Owns one workspace's Core graph and
+/// session set, routes the page's web messages to the active session, and pushes state back over the bridge;
+/// everything OS-specific is reached through an injected <see cref="IHostPlatform"/>. Split into three partials:
+/// this file (lifecycle), <c>HostCore.WebBridge.cs</c> (message dispatch), and <c>HostCore.Sessions.cs</c>.
 /// </summary>
 public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly IHostPlatform _platform;
@@ -44,9 +41,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
 
-	// Multi-session state. _session is the active backend (reassigned on switch); _primarySession is the
-	// workspace's own checkout (never unloadable); _sessions owns the rail's slots; _worktrees backs
-	// worktree-per-session creation; _pageOrigin pins later sessions' LSP origin.
+	// Multi-session state: _session is the active backend, _primarySession the never-unloadable own checkout,
+	// _sessions the rail's slots, _worktrees backs worktree-per-session, _pageOrigin pins later sessions' LSP origin.
 	private HostSession? _session;
 	private HostSession? _primarySession;
 	private SessionManager? _sessions;
@@ -71,9 +67,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private Action? _onRailStateChanged;
 
 	/// <summary>
-	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved
-	/// window geometry before creating its window; the heavy graph (sessions, IDE-MCP, LSP) is built by
-	/// <see cref="StartAsync"/>.
+	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved window
+	/// geometry before creating its window; the heavy graph is built by <see cref="StartAsync"/>.
 	/// </summary>
 	public HostCore(IHostPlatform platform, HostServices services, string workspaceRoot) {
 		ArgumentNullException.ThrowIfNull(platform);
@@ -92,17 +87,15 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
-		// Per-workspace layout (pane tree + window geometry) and editor session (open files + view state),
-		// keyed by the folder's path id so each opened folder restores its own state on launch.
+		// Per-workspace layout + editor session, keyed by the folder's path id so each folder restores its own state.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
 		_editorSession.Log += Log;
 	}
 
 	/// <summary>
-	/// Raised when the page sends <c>ready</c> (its bridge listener is live), after the core has pushed its own
-	/// restore state. A shell with a web-rendered title bar subscribes to push the initial native window state
-	/// (maximize glyph + blur dim), which only it knows. Fires on the UI thread.
+	/// Raised when the page sends <c>ready</c>, after the core pushed its restore state. A shell with a
+	/// web-rendered title bar subscribes to push the initial native window state (which only it knows). UI thread.
 	/// </summary>
 	public event Action? Ready;
 
@@ -125,10 +118,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public string WorkspaceLabel => WorkspaceNaming.Label(WorkspaceRoot);
 
 	/// <summary>
-	/// Builds the workspace's live backend: the primary session (terminals + IDE-MCP + LSP), the session set
-	/// (with pre-existing worktrees reconciled into dormant chips), the title-bar controller + global hotkeys
-	/// when the platform supports them, and the settings/theme/keybinding/layout reactions. Call once, after the
-	/// bridge is attached and <paramref name="pageOrigin"/> is resolved, before navigation.
+	/// Builds the workspace's live backend: the primary session, the session set (pre-existing worktrees
+	/// reconciled into dormant chips), the title-bar controller + global hotkeys where supported, and the store
+	/// reactions. Call once, after the bridge is attached and <paramref name="pageOrigin"/> is resolved.
 	/// </summary>
 	public async Task StartAsync(string pageOrigin) {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
@@ -176,10 +168,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	/// <summary>
-	/// The page-bootstrap script the shell injects at document-start, before navigation: the resolved fonts,
-	/// editor options, theme, LSP discovery, command catalog + keybindings, and the shell/title-bar config.
-	/// Identical content on every host (only the injection mechanism differs); the headless shell prepends its
-	/// own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
+	/// The page-bootstrap script the shell injects at document-start: resolved fonts, editor options, theme, LSP
+	/// discovery, command catalog + keybindings, and shell config. Identical on every host (only the injection
+	/// differs); the headless shell prepends its own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
 	/// </summary>
 	public string BuildBootstrap() {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
@@ -197,17 +188,15 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public void PushWindowState(bool maximized, bool focused) => _shell?.PushWindowState(maximized, focused);
 
 	/// <summary>
-	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme
-	/// edits re-push their resolved values; a keybinding edit re-pushes the catalog; a layout change re-pushes
-	/// the document.
+	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme/
+	/// keybinding/layout edits re-push their resolved values.
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
 		_settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
 
-		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them
-		// in place. PostToWeb marshals to the UI thread itself and the stores are thread-safe, so the off-thread
-		// change events call it directly.
+		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them in
+		// place. PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));

@@ -4,12 +4,9 @@ using Weavie.Core.Terminal;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The platform-specific half of <see cref="TerminalController"/>: it creates the PTY backend and resolves
-/// how to launch claude / the shell on this OS. Everything else in the controller — supervision, output
-/// muting, term-ready handling, status forwarding — is platform-agnostic, so this is the only seam that
-/// differs between ConPTY (Windows) and POSIX (macOS + Linux). Both launchers live in Weavie.Hosting
-/// (<see cref="PosixPtyLauncher"/> and <see cref="WindowsPtyLauncher"/>), so every host — the native Windows
-/// shell and the headless worker alike — selects the right one for the OS it runs on.
+/// The platform-specific half of <see cref="TerminalController"/>: creates the PTY backend and resolves how to
+/// launch claude/the shell on this OS — the only seam differing between ConPTY (Windows) and POSIX (macOS +
+/// Linux). Both launchers (<see cref="PosixPtyLauncher"/>, <see cref="WindowsPtyLauncher"/>) live here.
 /// </summary>
 public interface IPtyLauncher {
 	/// <summary>Creates a fresh PTY backend for one child process.</summary>
@@ -47,10 +44,9 @@ public sealed record PtyLaunchRequest {
 	public IReadOnlyList<string> ClaudeSessionArguments { get; init; } = [];
 
 	/// <summary>
-	/// The ordered claude command-line flags (excluding the executable itself): <c>--mcp-config</c>,
-	/// <c>--settings</c>, <c>--append-system-prompt-file</c> for whichever paths are set, then the session
-	/// arguments. Both PTY launchers share this assembly; each renders it for its OS (a flat arg list on
-	/// Windows, folded into the login-shell exec string on POSIX).
+	/// The ordered claude flags (excluding the executable): <c>--mcp-config</c>/<c>--settings</c>/
+	/// <c>--append-system-prompt-file</c> for whichever paths are set, then the session args. Both launchers share
+	/// this; each renders it for its OS (flat arg list on Windows, folded into the exec string on POSIX).
 	/// </summary>
 	public IReadOnlyList<string> BuildClaudeArguments() {
 		var args = new List<string>();

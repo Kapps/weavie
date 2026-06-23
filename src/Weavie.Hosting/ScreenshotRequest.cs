@@ -1,9 +1,8 @@
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The unattended deliverable-screenshot request resolved from the <c>WEAVIE_SHOT_*</c> environment variables.
-/// Off unless <c>WEAVIE_SHOT_DIR</c> is set, so the shipped app never writes screenshots. Shared so every host
-/// gates and defaults identically; each host supplies only its native one-shot timer and pixel capture.
+/// The unattended screenshot request from the <c>WEAVIE_SHOT_*</c> env vars, off unless <c>WEAVIE_SHOT_DIR</c> is
+/// set (so the shipped app never writes screenshots). Shared so every host gates + defaults identically.
 /// </summary>
 public sealed record ScreenshotRequest(string DirectoryPath, double DelaySeconds, string TargetPath) {
 	private const string DefaultName = "step1-latency.png";

@@ -1,9 +1,7 @@
-// Editor-behavior options (Monaco IEditorOptions) — the editor analogue of fonts.ts. The C# host owns the
-// source of truth (the typed `editor.*` settings; see Core's EditorSettings) and delivers resolved values
-// two ways: injected as `window.__WEAVIE_EDITOR_OPTIONS__` before navigation (so the editor mounts with the
-// right options), and re-pushed as a { type: "editorOptions" } message on change. Consumers read
-// currentEditorOptions() at creation and subscribe via onEditorOptionsChanged() for live updates
-// (monaco-setup.ts maps these onto editor.updateOptions + the suggest-docs behavior).
+// Editor-behavior options (Monaco IEditorOptions) — the editor analogue of fonts.ts. The host owns the
+// source of truth (typed `editor.*` settings) and delivers it injected as `window.__WEAVIE_EDITOR_OPTIONS__`
+// before navigation + re-pushed as { type: "editorOptions" } on change. Consumers read currentEditorOptions()
+// at creation and subscribe via onEditorOptionsChanged() for live updates.
 
 import { type EditorOptionsSpec, hostInjected, onHostMessage } from "./bridge";
 
@@ -16,9 +14,8 @@ declare global {
   }
 }
 
-// Plain-browser dev fallback (no host injection); in the shipped app a missing value throws (see
-// hostInjected). Mirrors the host's defaults in Core's EditorSettings, including Monaco's standard 300ms
-// hover delay.
+// Plain-browser dev fallback (a missing value throws in the shipped app; see hostInjected). Mirrors the
+// host's defaults in Core's EditorSettings, including Monaco's standard 300ms hover delay.
 const DEFAULT_OPTIONS: EditorOptionsSpec = {
   inlayHints: "on",
   minimap: false,

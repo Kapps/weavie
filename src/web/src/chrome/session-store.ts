@@ -10,14 +10,12 @@ import {
 import { demoteSession, isPromoted, promoteSession, promotedKeys } from "./rail-state";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
 
-// Re-export the promote/demote/isPromoted API so the rail's consumers (App.tsx) reach it through the session
-// store as before; the state itself now lives host-side in rail-state.ts (persisted, not in localStorage).
+// Re-export the promote/demote/isPromoted API so consumers reach it through the session store; the state
+// itself lives host-side in rail-state.ts (persisted, not in localStorage).
 export { demoteSession, isPromoted, promoteSession };
 
-// The session rail's main stack is the WORKING SET: every local session, plus the remote sessions the user
-// has promoted into it. Remote agents themselves don't crowd the rail — they live behind the cloud panel
-// (RemoteAgentsPanel), where picking a session promotes it here with an agent-coloured remote marker. Each
-// backend pushes its own session-list, kept keyed by backend. Top-level module signals so they survive HMR.
+// The rail's working set is every local session plus promoted remotes. Each backend pushes its own
+// session-list, kept keyed by backend. Top-level module signals so they survive HMR.
 
 /** One rail chip plus which backend (location) it lives on. */
 export interface RailSession extends SessionChip {
@@ -58,12 +56,11 @@ onSessionMessage((message, backendId) => {
   }
 });
 
-// The merged rail: every backend's chips, local first. A chip is shown active only when it belongs to the
-// backend currently driving the page, so a background backend never shows a second highlighted chip.
+// Every backend's chips, local first. A chip is active only when its backend is the one driving the page,
+// so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
   const active = activeBackendId();
-  // Only render chips from still-connected backends, so a disconnected remote's last-pushed sessions
-  // (which linger in byBackend) leave the rail immediately.
+  // Only still-connected backends, so a disconnected remote's lingering chips leave the rail immediately.
   const connected = new Set(connectedBackends().map((b) => b.id));
   const out: RailSession[] = [];
   for (const [backendId, chips] of byBackend()) {
@@ -86,9 +83,6 @@ const merged = createMemo<RailSession[]>(() => {
 
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;
-
-// The promoted set — which remote sessions the user pulled into the rail (working set) — lives host-side in
-// rail-state.ts now; this just reads it. Local sessions are always on the rail and never appear there.
 
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {

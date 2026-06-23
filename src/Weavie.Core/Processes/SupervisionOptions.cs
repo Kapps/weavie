@@ -1,10 +1,8 @@
 namespace Weavie.Core.Processes;
 
 /// <summary>
-/// Tunables for a <see cref="ProcessSupervisor"/>: the restart policy plus the exponential-backoff and
-/// crash-loop-breaker parameters. Defaults suit a long-lived child (claude, a shell, a language server): a
-/// half-second backoff doubling to a 30-second ceiling, reset after a ten-second run, breaker at five restarts
-/// per minute.
+/// Tunables for a <see cref="ProcessSupervisor"/>: restart policy plus exponential-backoff and
+/// crash-loop-breaker parameters. Defaults suit a long-lived child (claude, a shell, a language server).
 /// </summary>
 public sealed record SupervisionOptions {
 	/// <summary>How exits are handled. Required.</summary>
@@ -21,7 +19,7 @@ public sealed record SupervisionOptions {
 
 	/// <summary>
 	/// A run lasting at least this long is healthy: the consecutive-crash count resets, so the next crash
-	/// restarts at <see cref="InitialBackoff"/> rather than the grown delay.
+	/// restarts at <see cref="InitialBackoff"/>.
 	/// </summary>
 	public TimeSpan HealthyAfter { get; init; } = TimeSpan.FromSeconds(10);
 
@@ -30,7 +28,7 @@ public sealed record SupervisionOptions {
 
 	/// <summary>
 	/// The most restarts permitted within <see cref="CrashLoopWindow"/>; the next crash beyond it trips the
-	/// breaker (state <see cref="SupervisorState.Failed"/>) instead of hot-looping a broken binary. Must be &gt;= 0.
+	/// breaker (state <see cref="SupervisorState.Failed"/>). Must be &gt;= 0.
 	/// </summary>
 	public int MaxRestartsInWindow { get; init; } = 5;
 }

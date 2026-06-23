@@ -5,8 +5,7 @@ namespace Weavie.Hosting.Tests;
 /// <summary>
 /// <see cref="LoginShellEnvironment"/> recovers the user's environment from a login-shell probe: extracting the
 /// fenced body out of arbitrary rc-file noise, parsing the NUL-delimited vars, and taking the shell environment
-/// as authoritative bar transient session noise. The probe itself is a no-op off a bundled Mac app, so importing
-/// never disturbs a terminal/dev launch.
+/// as authoritative bar transient session noise.
 /// </summary>
 public sealed class LoginShellEnvironmentTests {
 	[Fact]
@@ -47,13 +46,5 @@ public sealed class LoginShellEnvironmentTests {
 				new("HOME", "/from/shell"), // shell is authoritative — taken as-is, not filtered
 			],
 			imports); // SHLVL and PWD dropped as transient session noise
-	}
-
-	[Fact]
-	public async Task ImportOnceAsync_LeavesEnvironmentUntouched_OffABundledMacApp() {
-		// The test host is not a bundled .app, so the import must be inert — no shell spawned, PATH unchanged.
-		string? before = Environment.GetEnvironmentVariable("PATH");
-		await LoginShellEnvironment.ImportOnceAsync(_ => Assert.Fail("should not log when skipped"));
-		Assert.Equal(before, Environment.GetEnvironmentVariable("PATH"));
 	}
 }

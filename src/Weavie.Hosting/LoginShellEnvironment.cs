@@ -4,9 +4,9 @@ using System.Text;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Imports the user's login-shell environment into this process. A Finder-launched macOS <c>.app</c> inherits
-/// launchd's minimal environment, so children Weavie spawns directly (LSP servers, <c>git</c>) would otherwise
-/// miss <c>PATH</c> entries, <c>DOTNET_ROOT</c>, and the like a terminal launch has.
+/// Imports the user's login-shell environment into this process. A GUI launch (a macOS <c>.app</c> from Finder,
+/// a Linux desktop entry) inherits a minimal environment, so children Weavie spawns directly (LSP servers,
+/// <c>git</c>) would otherwise miss <c>PATH</c> entries, <c>DOTNET_ROOT</c>, and the like a terminal launch has.
 /// </summary>
 public static class LoginShellEnvironment {
 	private const string Begin = "__WEAVIE_ENV_BEGIN__";
@@ -18,8 +18,8 @@ public static class LoginShellEnvironment {
 	private static bool _imported;
 
 	/// <summary>
-	/// Imports the login-shell environment on the first call from a macOS app-bundle launch; inert otherwise and
-	/// on every later call.
+	/// Imports the login-shell environment on the first call (macOS/Linux); a no-op on Windows and on later calls.
+	/// The caller restricts this to the GUI hosts that may have a truncated environment.
 	/// </summary>
 	/// <param name="log">Sink for a one-line note of what was imported, or why the probe was skipped.</param>
 	public static async Task ImportOnceAsync(Action<string> log) {
@@ -29,7 +29,7 @@ public static class LoginShellEnvironment {
 		}
 
 		_imported = true;
-		if (!IsBundledMacApp()) {
+		if (!OperatingSystem.IsMacOS() && !OperatingSystem.IsLinux()) {
 			return;
 		}
 
@@ -45,11 +45,6 @@ public static class LoginShellEnvironment {
 
 		log($"imported login-shell environment ({imports.Count} vars)");
 	}
-
-	// The published Mac binary runs at <Weavie.Mac.app>/Contents/MacOS/Weavie.Mac; a terminal/`dotnet run` does not.
-	private static bool IsBundledMacApp() =>
-		OperatingSystem.IsMacOS()
-		&& Environment.ProcessPath?.Contains(".app/Contents/MacOS/", StringComparison.Ordinal) == true;
 
 	// `-i` is essential: vars usually live in the interactive rc (~/.zshrc), not the login profile (~/.zprofile).
 	private static async Task<string?> ReadLoginShellEnvAsync(Action<string> log) {

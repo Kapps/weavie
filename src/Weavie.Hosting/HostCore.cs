@@ -126,10 +126,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
 		_pageOrigin = pageOrigin;
 
-		// A Finder-launched .app inherits launchd's minimal environment; import the login-shell environment before
-		// anything spawns so directly-launched children (LSP servers, git) resolve executables and SDKs as they
-		// would from a terminal. No-op except on the bundled Mac app.
-		await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
+		// GUI hosts serve over app:// and may launch (Finder, a desktop entry) with a minimal environment; import
+		// the login-shell environment so spawned children (LSP servers, git) resolve as from a terminal.
+		if (pageOrigin.StartsWith("app://", StringComparison.Ordinal)) {
+			await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
+		}
 
 		_bridge.MessageReceived += OnWebMessage;
 

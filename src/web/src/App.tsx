@@ -70,6 +70,7 @@ import { Toasts, createToasts } from "./notify/Toasts";
 import { setNotifySink } from "./notify/notify";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
+import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
@@ -129,6 +130,9 @@ export default function App(): JSX.Element {
   // Each loaded session's terminal panes register their focus fn here on mount, keyed `${slot}:${pane}`;
   // focusPane resolves the active session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
+  // The child-set terminal title (OSC 0/2) per `${slot}:${pane}`, shown in the shell pane header (the claude
+  // pane keeps its fixed "Claude Code" label).
+  const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
 
   // A stable string[] of the active backend's loaded session ids, so <For> never remounts a session's
   // terminals across rail pushes — keeping them alive makes a switch pure show/hide. Excludes dormant and
@@ -375,10 +379,18 @@ export default function App(): JSX.Element {
       );
     }
     const pane = paneOf(kind);
+    // The shell pane shows the child-set title (cwd / running command) when it has one; claude stays fixed.
+    const paneTitle = (): string => {
+      if (kind === "terminal:claude") {
+        return "Claude Code";
+      }
+      const title = paneTitles()[`${activeTermSessionId()}:${pane}`];
+      return title !== undefined && title.length > 0 ? title : "Terminal";
+    };
     return (
       <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
         <div class="pane-head">
-          <span class="pane-label">{kind === "terminal:claude" ? "Claude Code" : "Terminal"}</span>
+          <span class="pane-label">{paneTitle()}</span>
           <Show when={kind === "terminal:claude" && claudeStatus() !== undefined}>
             <span
               class={`session-status status-${claudeStatus()}`}
@@ -404,6 +416,9 @@ export default function App(): JSX.Element {
                     pane={pane}
                     active={isActive()}
                     onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
+                    onTitle={(title) =>
+                      setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
+                    }
                   />
                 </div>
               );
@@ -531,6 +546,8 @@ export default function App(): JSX.Element {
       }),
       registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
+      // Terminal copy/paste (act on the focused xterm, clipboard via the host); gated terminalFocused.
+      installTerminalClipboardCommands(),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so

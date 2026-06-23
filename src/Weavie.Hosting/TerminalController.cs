@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Hooks;
 using Weavie.Core.Processes;
 using Weavie.Core.Sessions;
@@ -41,6 +42,9 @@ public sealed class TerminalController : IDisposable {
 	// history on resume. Unlike _ptyLog it survives process restarts and is closed only on dispose. Null = not
 	// configured (the claude pane, or persistence disabled).
 	private ScrollbackLog? _scrollback;
+	// Shell-only: the directory the shell last reported via OSC 7, so a reopen relaunches there instead of the
+	// workspace root. Null until reported (or for the claude pane, which always runs in the IDE workspace).
+	private string? _reportedCwd;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) <paramref name="bridge"/>, resolving its
@@ -206,11 +210,28 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
+	/// <summary>
+	/// Records the working directory the shell child reported via OSC 7, so a reopen relaunches there. OSC 7 is
+	/// untrusted terminal output, so the path is confined to this session's worktree — it can't point the
+	/// relaunched shell at an arbitrary directory (a binary/DLL-planting or info-disclosure vector). Ignored for
+	/// the claude pane (always the IDE workspace) and for a path outside the workspace or one that no longer exists.
+	/// </summary>
+	public void OnCwdReported(string cwd) {
+		if (_session == "claude" || !BufferStore.IsWithinWorkspace(Workspace, cwd) || !Directory.Exists(cwd)) {
+			return;
+		}
+
+		lock (_gate) {
+			_reportedCwd = cwd;
+		}
+	}
+
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
 	private void StartTerminal(int attempt) {
 		bool isClaude = _session == "claude";
-		string workspace = Workspace;
 		lock (_gate) {
+			// The shell relaunches in its last reported cwd (OSC 7) when it has one; claude always uses the workspace.
+			string workspace = _reportedCwd ?? Workspace;
 			_terminal?.Dispose();
 
 			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would

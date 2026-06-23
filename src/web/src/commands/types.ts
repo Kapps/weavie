@@ -53,6 +53,8 @@ export const CommandIds = {
   focusOmnibarFiles: "weavie.omnibar.focusFiles",
   focusOmnibarCommands: "weavie.omnibar.focusCommands",
   reopenTerminal: "weavie.terminal.reopen",
+  terminalCopy: "weavie.terminal.copy",
+  terminalPaste: "weavie.terminal.paste",
   toggleWindow: "weavie.window.toggle",
   nextChange: "weavie.diff.nextChange",
   prevChange: "weavie.diff.prevChange",

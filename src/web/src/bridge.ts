@@ -120,6 +120,15 @@ export type HostBoundMessage =
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
   // reusable preview tab (single-click / go-to-def); omitted/false opens a persistent tab.
   | { type: "reveal-file"; path: string; line: number; preview?: boolean }
+  // Terminal copy (an explicit copy command, or Claude's OSC 52) -> write to the OS clipboard via the host,
+  // which dodges the WebView clipboard API's focus/permission gate.
+  | { type: "clipboard-write"; text: string }
+  // Terminal paste -> read the OS clipboard; the host replies with clipboard-content tagged by `id`.
+  | { type: "clipboard-read"; id: string }
+  // A terminal hyperlink / Claude's OAuth URL -> open in the OS default browser.
+  | { type: "open-url"; url: string }
+  // The shell child reported its working directory (OSC 7); the host relaunches the shell there on reopen.
+  | { type: "term-cwd"; slot: string; session: TermSession; cwd: string }
   // The review walk asks the host for one file's turn diff (review-baseline vs current), so opening a file in
   // the review re-renders its inline applied diff even if its per-file turn-diff push was missed.
   | { type: "get-turn-diff"; path: string }
@@ -247,6 +256,8 @@ export type WebBoundMessage =
       proposed: string;
     }
   | { type: "close-diff"; id: string }
+  // Reply to clipboard-read (terminal paste), correlated by `id`: the OS clipboard's text ("" when empty).
+  | { type: "clipboard-content"; id: string; text: string }
   // Host delivers a file to load + reveal in Monaco. `preview` ⇒ reusable preview tab, else persistent.
   // `scratch` marks an untitled buffer (New File / restored). `content` is ignored — the working copy reads disk.
   | {

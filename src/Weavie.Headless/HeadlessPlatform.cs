@@ -38,4 +38,16 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 	public void ToggleWindow() {
 		// No OS window in a browser; no-op.
 	}
+
+	// The clipboard + browser belong to the remote browser, not this server process, so these are no-ops here
+	// (a browser-side path is the remote-sessions story, deferred).
+	public void WriteClipboard(string text) {
+		// No host clipboard in a browser-served host.
+	}
+
+	public string ReadClipboard() => string.Empty;
+
+	public void OpenExternalUrl(string url) {
+		// No host browser in a browser-served host.
+	}
 }

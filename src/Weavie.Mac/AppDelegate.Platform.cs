@@ -30,4 +30,25 @@ public sealed partial class AppDelegate : IHostPlatform {
 	IHostDialogs? IHostPlatform.Dialogs => _dialogs;
 
 	void IHostPlatform.ToggleWindow() => ToggleWindow();
+
+	// The general pasteboard's plain-text UTI; read + write must agree on it.
+	private const string PasteboardTextType = "public.utf8-plain-text";
+
+	// Called on the main thread from OnWebMessage, where NSPasteboard / NSWorkspace are valid.
+	void IHostPlatform.WriteClipboard(string text) {
+		var pasteboard = NSPasteboard.GeneralPasteboard;
+		pasteboard.ClearContents();
+		pasteboard.SetStringForType(text ?? string.Empty, PasteboardTextType);
+	}
+
+	string IHostPlatform.ReadClipboard() =>
+		NSPasteboard.GeneralPasteboard.GetStringForType(PasteboardTextType) ?? string.Empty;
+
+	void IHostPlatform.OpenExternalUrl(string url) {
+		if (string.IsNullOrEmpty(url) || NSUrl.FromString(url) is not { } nsUrl) {
+			return;
+		}
+
+		NSWorkspace.SharedWorkspace.OpenUrl(nsUrl);
+	}
 }

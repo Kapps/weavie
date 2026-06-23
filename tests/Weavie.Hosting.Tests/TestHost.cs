@@ -23,15 +23,17 @@ internal sealed class TestHost : IAsyncDisposable {
 	private readonly string _tempRoot;
 	private readonly HostServices _services;
 
-	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, HostCore core) {
+	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core) {
 		_tempRoot = tempRoot;
 		RepoRoot = repoRoot;
 		_services = services;
 		Bridge = bridge;
+		Platform = platform;
 		Core = core;
 	}
 
 	public FakeHostBridge Bridge { get; }
+	public TestPlatform Platform { get; }
 	public HostCore Core { get; }
 
 	/// <summary>The primary checkout (a git repo) this host is rooted at.</summary>
@@ -51,11 +53,12 @@ internal sealed class TestHost : IAsyncDisposable {
 
 		var services = IsolatedServices(tempRoot);
 		var bridge = new FakeHostBridge();
-		var core = new HostCore(new TestPlatform(bridge), services, repo);
+		var platform = new TestPlatform(bridge);
+		var core = new HostCore(platform, services, repo);
 		await core.StartAsync("http://127.0.0.1:65111").ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		bridge.Receive("""{"type":"ready"}""");
-		return new TestHost(tempRoot, repo, services, bridge, core);
+		return new TestHost(tempRoot, repo, services, bridge, platform, core);
 	}
 
 	/// <summary>The primary session's id (its rail slot id), read from the initial set-editor-session sessionId.</summary>
@@ -149,9 +152,24 @@ internal sealed class TestPlatform : IHostPlatform {
 	public IGlobalHotkeyRegistrar? HotkeyRegistrar => null;
 	public IHostDialogs? Dialogs => null;
 
+	/// <summary>The last text the host wrote to the clipboard (a terminal copy / OSC 52).</summary>
+	public string? LastWrittenClipboard { get; private set; }
+
+	/// <summary>The last URL the host was asked to open externally.</summary>
+	public string? LastOpenedUrl { get; private set; }
+
+	/// <summary>The text a clipboard read returns (a terminal paste); set by a test.</summary>
+	public string ClipboardValue { get; set; } = string.Empty;
+
 	public void ToggleWindow() {
 		// no window in tests
 	}
+
+	public void WriteClipboard(string text) => LastWrittenClipboard = text;
+
+	public string ReadClipboard() => ClipboardValue;
+
+	public void OpenExternalUrl(string url) => LastOpenedUrl = url;
 }
 
 /// <summary>A launcher whose terminals never spawn — sessions construct fine, but no real claude/shell runs.</summary>

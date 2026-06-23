@@ -1,21 +1,19 @@
 import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
-import { type FontWeight, type ILink, Terminal } from "@xterm/xterm";
+import { type FontWeight, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
 import { type TermSession, log, onHostMessage, postToHost } from "../bridge";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
 import { base64ToBytes, bytesToBase64 } from "./base64";
+import { attachOsc52, noteTerminalFocus, registerTerminal } from "./host-clipboard";
+import { wireTerminalLinks } from "./terminal-links";
 
-// Matches a path with an extension followed by :line (optionally :col), e.g. src/foo.ts:42.
-const FILE_LINE = /(?:[~.]{0,2}\/)?[\w./-]+\.[A-Za-z0-9]+:\d+(?::\d+)?/g;
-
-function revealFromMatch(matchText: string): void {
-  const [path, lineText] = matchText.split(":");
-  if (path !== undefined && path.length > 0) {
-    postToHost({ type: "reveal-file", path, line: Number(lineText) || 1 });
-  }
+// Windows file URIs (OSC 7) surface as "/C:/..." — strip the leading slash so it's a real path.
+function uriToPath(pathname: string): string {
+  const path = decodeURIComponent(pathname);
+  return /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
 }
 
 // xterm.js pane wired to one C# PTY over the bridge: PTY bytes -> term.write, keystrokes -> term-input,
@@ -31,6 +29,8 @@ export function TerminalView(props: {
   active: boolean;
   // Called once on mount with a focus fn, so the layout can delegate Ctrl+N / focus-pane to the live xterm.
   onFocusReady?: (focus: () => void) => void;
+  // Called when the child sets the terminal title (OSC 0/2), so the pane header can show it.
+  onTitle?: (title: string) => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
 
@@ -122,52 +122,32 @@ export function TerminalView(props: {
       }
     });
 
-    // OSC 8 file:// hyperlinks Claude emits -> reveal in Monaco.
-    term.options.linkHandler = {
-      activate: (_event, uri) => {
-        try {
-          const url = new URL(uri);
-          if (url.protocol === "file:") {
-            const lineMatch = /(\d+)/.exec(url.hash);
-            postToHost({
-              type: "reveal-file",
-              path: decodeURIComponent(url.pathname),
-              line: lineMatch ? Number(lineMatch[1]) : 1,
-            });
-          }
-        } catch {
-          // not a parseable URI; ignore
-        }
-      },
-    };
+    // OSC 8 + auto-detected file:line and http(s) links (file:// → Monaco, URLs → OS browser).
+    wireTerminalLinks(term);
 
-    // Clickable un-hyperlinked file:line references in terminal output.
-    term.registerLinkProvider({
-      provideLinks(lineNumber, callback) {
-        const bufferLine = term.buffer.active.getLine(lineNumber - 1);
-        if (bufferLine === undefined) {
-          callback(undefined);
-          return;
-        }
-        const text = bufferLine.translateToString(true);
-        const links: ILink[] = [];
-        FILE_LINE.lastIndex = 0;
-        let match = FILE_LINE.exec(text);
-        while (match !== null) {
-          const startX = match.index + 1;
-          const matched = match[0];
-          links.push({
-            range: {
-              start: { x: startX, y: lineNumber },
-              end: { x: startX + matched.length, y: lineNumber },
-            },
-            text: matched,
-            activate: () => revealFromMatch(matched),
-          });
-          match = FILE_LINE.exec(text);
-        }
-        callback(links.length > 0 ? links : undefined);
-      },
+    // Clipboard: register this pane for the copy/paste commands, route Claude's OSC 52 to the OS clipboard,
+    // and note focus so the commands act on the terminal the user is in.
+    const offRegister = registerTerminal(termKey, term);
+    const offClipboard = attachOsc52(term);
+    const onContainerFocus = (): void => noteTerminalFocus(termKey);
+    container.addEventListener("focusin", onContainerFocus);
+
+    // OSC 0/2 title → the pane header (web-only; no host round-trip).
+    term.onTitleChange((title) => props.onTitle?.(title));
+
+    // OSC 7 cwd → the host, so a reopened shell relaunches where the user was.
+    const offCwd = term.parser.registerOscHandler(7, (data) => {
+      try {
+        postToHost({
+          type: "term-cwd",
+          slot: props.slot,
+          session: props.pane,
+          cwd: uriToPath(new URL(data).pathname),
+        });
+      } catch {
+        // not a parseable file URI; ignore
+      }
+      return true;
     });
 
     refit();
@@ -268,6 +248,10 @@ export function TerminalView(props: {
       offHost();
       offFonts();
       offTheme();
+      offRegister();
+      offClipboard.dispose();
+      offCwd.dispose();
+      container.removeEventListener("focusin", onContainerFocus);
       resizeObserver.disconnect();
       window.removeEventListener("resize", refit);
       if (import.meta.hot) {

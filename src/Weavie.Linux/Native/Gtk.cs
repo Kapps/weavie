@@ -12,6 +12,9 @@ internal static partial class Gtk {
 	/// <summary><c>GTK_WINDOW_TOPLEVEL</c>, the only window type the host creates.</summary>
 	internal const int WindowToplevel = 0;
 
+	/// <summary><c>GDK_SELECTION_CLIPBOARD</c> as a GdkAtom (predefined atom 69) — the system clipboard selection.</summary>
+	internal static readonly IntPtr SelectionClipboard = new(69);
+
 	[LibraryImport(Lib)]
 	internal static partial void gtk_init(IntPtr argc, IntPtr argv);
 
@@ -51,4 +54,18 @@ internal static partial class Gtk {
 
 	[LibraryImport(Lib)]
 	internal static partial void gtk_main_quit();
+
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_clipboard_get(IntPtr selection);
+
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void gtk_clipboard_set_text(IntPtr clipboard, string text, int len);
+
+	/// <summary>Persists the clipboard contents with the clipboard manager so they survive this process exiting.</summary>
+	[LibraryImport(Lib)]
+	internal static partial void gtk_clipboard_store(IntPtr clipboard);
+
+	/// <summary>Returns a newly-allocated UTF-8 string (free with <see cref="GLib.g_free"/>) or NULL.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_clipboard_wait_for_text(IntPtr clipboard);
 }

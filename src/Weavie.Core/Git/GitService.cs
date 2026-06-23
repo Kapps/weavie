@@ -105,8 +105,7 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(worktreePath);
 		// core.longpaths=true lets git's recursive delete handle paths past Windows' 260-char limit (e.g. a
-		// deep node_modules from pnpm's nested .pnpm store), which otherwise fails with "Filename too long".
-		// No-op elsewhere and on shorter paths.
+		// deep pnpm node_modules) that otherwise fail with "Filename too long"; a no-op elsewhere.
 		string[] args = force
 			? ["-c", "core.longpaths=true", "worktree", "remove", "--force", worktreePath]
 			: ["-c", "core.longpaths=true", "worktree", "remove", worktreePath];

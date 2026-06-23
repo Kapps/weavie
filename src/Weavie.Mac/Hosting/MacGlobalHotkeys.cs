@@ -5,11 +5,10 @@ using Weavie.Core.Commands;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// The macOS <see cref="IGlobalHotkeyRegistrar"/>: registers system-wide hotkeys with Carbon's
-/// <c>RegisterEventHotKey</c> (works without Accessibility/Input-Monitoring permissions and fires even when
-/// Weavie is unfocused) and routes presses through a single application-level Carbon event handler. One per
-/// process. All Carbon calls and the callback run on the main thread; <see cref="Apply"/> marshals onto it
-/// via the main dispatch queue.
+/// The macOS <see cref="IGlobalHotkeyRegistrar"/>: registers system-wide hotkeys via Carbon's
+/// <c>RegisterEventHotKey</c> (no Accessibility/Input-Monitoring permission needed; fires while unfocused),
+/// routing presses through one app-level Carbon handler. One per process; all Carbon calls + the callback run
+/// on the main thread (<see cref="Apply"/> marshals there via the main dispatch queue).
 /// </summary>
 internal sealed class MacGlobalHotkeys : IGlobalHotkeyRegistrar {
 	private const string CarbonFramework = "/System/Library/Frameworks/Carbon.framework/Carbon";

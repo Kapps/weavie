@@ -19,27 +19,22 @@ function revealFromMatch(matchText: string): void {
 }
 
 // xterm.js pane wired to one C# PTY over the bridge: PTY bytes -> term.write, keystrokes -> term-input,
-// layout -> term-resize. On mount it reports { term-ready } so the host launches (or repaints) this
-// session's child sized to match. Every message is tagged with `slot` (the workspace session) AND
-// `session` (the pane within it) so the host routes to the right PTY and output reaches the right xterm.
-// Each loaded session keeps its own pane mounted; only the active one is shown, so switching sessions is
-// pure show/hide (see the `active` effect below).
+// layout -> term-resize. On mount it reports { term-ready } so the host launches this session's child sized
+// to match. Every message is tagged with `slot` (workspace session) AND `session` (pane) so the host routes
+// to the right PTY. Each loaded session keeps its pane mounted; only the active one shows (pure show/hide).
 export function TerminalView(props: {
   // The workspace session (rail id) and pane this xterm is bound to.
   slot: string;
   pane: TermSession;
   // Whether this is the visible session for its pane. Drives WebGL mount/dispose — one GPU context per
-  // visible pane, since one per session would blow the browser's WebGL-context cap. A hidden pane keeps
-  // its Terminal + buffer alive, so switching back is instant.
+  // visible pane (one per session would blow the WebGL-context cap); a hidden pane keeps its buffer alive.
   active: boolean;
-  // Called once on mount with a function that focuses this terminal's textarea, so the layout can
-  // delegate Ctrl+N / focus-pane to the active session's live xterm.
+  // Called once on mount with a focus fn, so the layout can delegate Ctrl+N / focus-pane to the live xterm.
   onFocusReady?: (focus: () => void) => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
 
-  // Typography is a host-resolved user setting injected before navigation, so the terminal mounts at the
-  // right font; live-updated in onMount.
+  // Host-resolved font setting injected before navigation so the terminal mounts at the right font; live-updated in onMount.
   const initialFont = currentFonts().terminal;
   const term = new Terminal({
     fontFamily: initialFont.family,
@@ -67,10 +62,8 @@ export function TerminalView(props: {
     // Set on unmount so the async fonts.ready callback below never touches a disposed terminal.
     let disposed = false;
 
-    // Re-fit to the container and force a repaint, for any event that can leave the WebGL canvas
-    // stale/blank or the PTY sized to the wrong grid (layout/window resize, lost GL context, becoming
-    // visible, HMR). fit() updates cols/rows (notifying the PTY); refresh() guarantees a paint even at an
-    // unchanged size. Both throw when the pane has zero size (a hidden session) — caught and ignored.
+    // Re-fit to the container (updating cols/rows, notifying the PTY) and force a repaint, for any event
+    // that can leave the canvas stale or the PTY mis-sized. Both throw on a zero-size (hidden) pane — ignored.
     const refit = (): void => {
       try {
         fit.fit();
@@ -80,8 +73,7 @@ export function TerminalView(props: {
       }
     };
 
-    // Apply live font changes, then refit since cell metrics (and thus cols/rows the PTY must learn)
-    // change with the font.
+    // Apply live font changes, then refit since cell metrics (and thus the PTY's cols/rows) change with the font.
     const offFonts = onFontsChanged((config) => {
       term.options.fontFamily = config.terminal.family;
       term.options.fontSize = config.terminal.size;
@@ -94,10 +86,8 @@ export function TerminalView(props: {
       term.options.theme = theme;
     });
 
-    // WebGL renderer with self-healing. On macOS/WKWebView the GPU context can be lost (driver churn, or
-    // WebKit's recompositing pass after an HMR DOM swap), often WITHOUT firing `webglcontextlost`, so a
-    // same-size refresh() can't recover it — only an actual size change reallocates the backing store.
-    // When the loss IS reported we drop the addon and fall back to the always-painting DOM renderer; the
+    // WebGL renderer with self-healing. On macOS/WKWebView the GPU context can be lost, sometimes WITHOUT
+    // firing `webglcontextlost`. A reported loss drops the addon and falls back to the DOM renderer; the
     // silent case is handled by rebuilding on HMR (see below).
     let webgl: WebglAddon | null = null;
     const mountWebgl = (): void => {
@@ -118,9 +108,8 @@ export function TerminalView(props: {
       }
     };
 
-    // Keep a WebGL context only for the visible pane, since one per hidden session would exceed the
-    // browser's context cap. On show: (re)mount WebGL and refit to the laid-out container next frame. On
-    // hide: drop the GPU context but keep the Terminal + scrollback alive, so switching back is instant.
+    // Keep a WebGL context only for the visible pane (one per hidden session would exceed the context cap).
+    // On hide, drop the GPU context but keep the Terminal + scrollback alive so switching back is instant.
     createEffect(() => {
       if (props.active) {
         if (webgl === null) {
@@ -183,10 +172,8 @@ export function TerminalView(props: {
 
     refit();
 
-    // The default terminal font (JetBrains Mono) is a bundled webfont that can finish loading AFTER
-    // term.open() has measured glyph-cell metrics against the fallback font — leaving text misaligned
-    // until something refits. Once fonts are ready, re-assert fontFamily (forcing xterm to re-measure)
-    // and refit so the PTY's cols/rows match the real metrics. No-op when the font was already loaded.
+    // The bundled default font can finish loading AFTER term.open() measured cell metrics against the
+    // fallback, misaligning text. Once fonts are ready, re-assert fontFamily (forcing a re-measure) and refit.
     void document.fonts.ready.then(() => {
       if (disposed) {
         return;
@@ -218,24 +205,20 @@ export function TerminalView(props: {
       rows: term.rows,
     });
 
-    // Register this pane's focus fn so the layout can land keyboard focus here (Ctrl+N / focus-pane); it
-    // resolves which loaded session's pane to focus by the active session.
+    // Register this pane's focus fn so the layout can land keyboard focus here (Ctrl+N / focus-pane).
     props.onFocusReady?.(() => term.focus());
 
     const resizeObserver = new ResizeObserver(() => refit());
     resizeObserver.observe(container);
 
-    // Backup for OS-window resizes: WebView2 doesn't reliably deliver those to the container's
-    // ResizeObserver, so without this the PTY keeps its old cols/rows until the next manual pane
-    // resize — i.e. the claude TUI never learns the window changed size.
+    // Backup for OS-window resizes: WebView2 doesn't reliably deliver those to the ResizeObserver, so without
+    // this the PTY keeps its old cols/rows (the claude TUI never learns the window changed size).
     window.addEventListener("resize", refit);
 
-    // After an HMR update there's no size change to trigger a refit, and WebKit's recompositing pass can
-    // silently blank the WebGL canvas (see mountWebgl). So on the WebGL renderer, rebuild the addon so
-    // WebKit allocates and composites a fresh canvas + GL context cleanly; on the DOM renderer a plain
-    // refit repaints. Do it on the NEXT frame, after WebKit's own post-update layout — rebuilding
-    // synchronously races that pass and the replacement canvas can blank too. Dev-only: `import.meta.hot`
-    // is undefined in the production build, so this is tree-shaken out.
+    // An HMR update has no size change to trigger a refit, and WebKit's recompositing pass can silently
+    // blank the WebGL canvas (see mountWebgl), so rebuild the addon (or just refit on the DOM renderer). On
+    // the NEXT frame — rebuilding synchronously races WebKit's post-update layout and the new canvas blanks
+    // too. Dev-only: `import.meta.hot` is undefined in production, so this is tree-shaken out.
     const onHmrUpdate = (): void => {
       requestAnimationFrame(() => {
         if (webgl !== null) {
@@ -251,8 +234,7 @@ export function TerminalView(props: {
     }
 
     const offHost = onHostMessage((message) => {
-      // The bridge channel is shared across panes AND sessions; ignore traffic that isn't this exact
-      // (slot, pane) pair so each session's output only reaches its own xterm.
+      // The bridge channel is shared across panes AND sessions; ignore traffic not for this (slot, pane) pair.
       if (message.type === "term-output") {
         if (message.slot === props.slot && message.session === props.pane) {
           term.write(base64ToBytes(message.dataB64));
@@ -263,9 +245,8 @@ export function TerminalView(props: {
         }
       } else if (message.type === "term-reset") {
         if (message.slot === props.slot && message.session === props.pane) {
-          // A respawn is a deliberate child relaunch (shell setting changed): the fresh child
-          // re-establishes every mode, so a full reset is right. A non-respawn reset clears content +
-          // scrollback WITHOUT touching terminal modes (mouse tracking).
+          // A respawn relaunches the child (which re-establishes every mode), so a full reset is right; a
+          // non-respawn reset clears content + scrollback WITHOUT touching terminal modes (mouse tracking).
           if (message.respawn) {
             term.reset();
           } else {

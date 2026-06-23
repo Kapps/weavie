@@ -2,10 +2,9 @@ import { For, type JSX, Show, createEffect, createSignal, onCleanup, onMount } f
 import { Portal } from "solid-js/web";
 import { connectedBackends, requestBranches } from "../bridge";
 
-// Prompt for a new worktree session: pick the location (default/local, or a registered remote agent), then
-// name the branch. The branch field is a typeahead over the backend's existing branches — type a new name to
-// create one (Enter = off HEAD, Shift+Enter = off main), or pick an existing branch to check it out. Esc
-// cancels. A remote location runs the worktree on that box and points its session there.
+// Prompt for a new worktree session: pick the location (local or a remote agent), then name the branch via a
+// typeahead over the backend's branches — type a new name to create (Enter = off HEAD, Shift+Enter = off
+// main), or pick an existing branch to check it out. Esc cancels.
 export function NewSessionPrompt(props: {
   // The location to preselect (last-used, or a freshly-added agent); the caller passes a connected backend id.
   initialBackendId: string;
@@ -20,8 +19,8 @@ export function NewSessionPrompt(props: {
   const [branches, setBranches] = createSignal<string[]>([]);
   const [highlight, setHighlight] = createSignal(-1);
 
-  // Load the chosen backend's checkout-able branches, reloading when the location changes. Ignore a stale
-  // reply if the user switched location while it was in flight.
+  // Load the chosen backend's branches, reloading on location change; ignore a stale reply from a location
+  // the user has since switched away from.
   createEffect(() => {
     const id = backendId();
     setBranches([]);
@@ -37,8 +36,7 @@ export function NewSessionPrompt(props: {
     connectedBackends().find((b) => b.id === backendId() && !b.isLocal)?.name ?? "";
 
   const trimmed = (): string => branch().trim();
-  // Existing branches containing the typed text (case-insensitive), minus an exact full match. Capped so a
-  // huge repo can't flood the dropdown.
+  // Existing branches containing the typed text (case-insensitive), minus an exact full match; capped.
   const suggestions = (): string[] => {
     const q = trimmed().toLowerCase();
     if (q.length === 0) {
@@ -103,10 +101,8 @@ export function NewSessionPrompt(props: {
             A session runs on its own git worktree + branch. Pick where it runs, then name a new
             branch or pick an existing one to check out.
           </div>
-          {/* Location: the local/default host or a registered remote agent, which runs the worktree on that
-              box and points Claude/terminal/editor at its filesystem. A <div> (not <label>) so the Disconnect
-              button doesn't act as a label proxy that refocuses the select. Disconnect is the inverse of "Add
-              remote agent…" and lives here with it; it's shown only when a remote is picked. */}
+          {/* Location: the local host or a remote agent. A <div> (not <label>) so the Disconnect button
+              doesn't act as a label proxy refocusing the select; Disconnect shows only when a remote is picked. */}
           <div class="session-prompt-location">
             <span class="session-prompt-location-label">Location</span>
             <select

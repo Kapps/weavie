@@ -11,10 +11,9 @@ namespace Weavie.Core.Mcp;
 /// One-call setup of the Claude-facing MCP surfaces, sharing one per-session token:
 /// <list type="bullet">
 /// <item>the <b>IDE server</b> (discovered via <c>~/.claude/ide/&lt;port&gt;.lock</c>) carries the harness RPC
-/// tools — openDiff/openFile/... Claude Code filters these before they reach the model.</item>
-/// <item>the <b>registry server</b> (advertised to the spawned <c>claude</c> via a generated
-/// <c>--mcp-config</c>) carries the capability tools that DO reach the model as <c>mcp__weavie__*</c>, so the
-/// user can drive Weavie by talking to Claude. Created only when a settings store is supplied.</item>
+/// tools (openDiff/openFile/...) that Claude Code filters before they reach the model.</item>
+/// <item>the <b>registry server</b> (advertised via a generated <c>--mcp-config</c>) carries the capability
+/// tools that DO reach the model as <c>mcp__weavie__*</c>. Created only when a settings store is supplied.</item>
 /// </list>
 /// Disposal removes the lock file and stops both servers. See <c>docs/concepts/mcp-registry.md</c>.
 /// </summary>
@@ -22,9 +21,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	private const string McpServerName = "weavie";
 
 	/// <summary>
-	/// Mints an auth token, starts the IDE server (writing the lock file) and — when
-	/// <paramref name="settings"/> is supplied — the capability registry server, both on ephemeral loopback
-	/// ports with the same token.
+	/// Mints an auth token and starts the IDE server (writing the lock file) plus, when
+	/// <paramref name="settings"/> is supplied, the registry server — both on loopback ports with the same token.
 	/// </summary>
 	public IdeIntegration(
 		IDiffPresenter presenter,
@@ -40,24 +38,22 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 
 		AuthToken = IdeLockFile.NewAuthToken();
-		// The IDE server (not the registry) carries the active-editor context: getCurrentSelection/
-		// getOpenEditors + the pushed selection_changed notification all live on the IDE connection.
+		// The IDE server (not the registry) carries the active-editor context (getCurrentSelection/
+		// getOpenEditors + the pushed selection_changed notification).
 		Server = new McpServer(
 			AuthToken, presenter, workspaceFolders, ideName, settings: null, registryMode: false, layout: null,
 			editor: editor, commands: null, keybindings: null, themeOverrides: null);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
-		// The hook bridge: a current-user-only pipe (no token) the spawned claude's PreToolUse/PostToolUse hooks
-		// dial via the relay, scoped to this instance by the IDE port. Carries the change-recording stream +
-		// Weavie's tool-permission gate (claude.allowAllTools → auto-allow non-edit tools), read live from the
-		// settings store; edits stay with Claude's own mode, which Weavie only observes.
+		// The hook bridge: a current-user-only pipe (no token), scoped to this instance by the IDE port, carrying
+		// the change-recording stream + the tool-permission gate (claude.allowAllTools auto-allows non-edit tools).
 		HookBridge = new HookBridgeServer(
 			HookProtocol.PipeName(Port),
 			request => {
 				var decision = HookPolicy.Decide(request, settings?.GetBool("claude.allowAllTools", fallback: false) ?? false);
-				// On a landed edit, attach a clickable file:line jump target as the hook's systemMessage so
-				// Claude prints it in the TUI (the terminal turns path:line tokens into Monaco reveals).
+				// On a landed edit, attach a clickable file:line jump target as systemMessage (the TUI turns
+				// path:line tokens into Monaco reveals).
 				string? location = editLocator?.Invoke(request);
 				return location is null ? decision : decision with { SystemMessage = location };
 			});
@@ -96,15 +92,14 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	public IReadOnlyDictionary<string, string> EnvironmentVariables => new Dictionary<string, string>(StringComparer.Ordinal) {
 		["CLAUDE_CODE_SSE_PORT"] = Port.ToString(System.Globalization.CultureInfo.InvariantCulture),
 		["ENABLE_IDE_INTEGRATION"] = "true",
-		// Names the hook pipe for the relay (claude's hook child inherits this). Non-secret: the pipe's auth is
-		// its current-user-only ACL, not this value.
+		// Names the hook pipe for the relay (inherited by claude's hook child). Non-secret: auth is the pipe's
+		// current-user-only ACL, not this value.
 		[HookProtocol.PipeEnvVar] = HookProtocol.PipeName(Port),
 	};
 
 	/// <summary>
-	/// Writes a Claude Code MCP config file pointing at the registry server (ws + Bearer token) for the spawned
-	/// <c>claude</c>'s <c>--mcp-config</c>, and returns its path. Returns <c>null</c> when there is no registry
-	/// server.
+	/// Writes the <c>--mcp-config</c> file pointing at the registry server (ws + Bearer token) and returns its
+	/// path; <c>null</c> when there is no registry server.
 	/// </summary>
 	public string? WriteMcpConfigFile() {
 		if (RegistryServer is null) {
@@ -123,10 +118,9 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	}
 
 	/// <summary>
-	/// Writes a Claude Code settings file (a <c>hooks</c> block only) for the spawned claude's
-	/// <c>--settings</c>, routing the permission gate (PermissionRequest) + the change-tracking hooks to the
-	/// standalone relay binary co-located with the app, and returns its path. Throws when the relay is missing:
-	/// there is no fallback, so a build that failed to co-locate it surfaces loudly.
+	/// Writes the spawned claude's <c>--settings</c> file (a <c>hooks</c> block routing the permission gate +
+	/// change-tracking hooks to the co-located relay) and returns its path. Throws if the relay is missing —
+	/// no fallback, so a build that failed to co-locate it surfaces loudly.
 	/// </summary>
 	public string WriteSettingsFile() {
 		string relay = ResolveRelayBinary()
@@ -145,9 +139,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	private static string RelayBinaryName => OperatingSystem.IsWindows() ? "weavie-hook-relay.exe" : "weavie-hook-relay";
 
 	/// <summary>
-	/// The standalone hook-relay executable co-located with the app by the build, or <see langword="null"/>
-	/// when absent. Resolved against <see cref="AppContext.BaseDirectory"/> so it stays correct wherever the
-	/// app is installed. No host-as-relay fallback; the caller fails loudly on null.
+	/// The hook-relay executable co-located with the app (resolved against <see cref="AppContext.BaseDirectory"/>),
+	/// or <see langword="null"/> when absent. No fallback; the caller fails loudly on null.
 	/// </summary>
 	private static string? ResolveRelayBinary() {
 		string candidate = Path.Combine(AppContext.BaseDirectory, RelayBinaryName);
@@ -155,9 +148,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	}
 
 	/// <summary>
-	/// Writes the embedded-claude system-prompt appendix (<see cref="EmbeddedClaudeGuidance"/>) for the spawned
-	/// claude's <c>--append-system-prompt-file</c>, and returns its path. Returns <c>null</c> when there is no
-	/// registry server — the appendix points claude at the <c>mcp__weavie__*</c> tools, which only exist then.
+	/// Writes the <c>--append-system-prompt-file</c> appendix (<see cref="EmbeddedClaudeGuidance"/>) and returns
+	/// its path; <c>null</c> without a registry server, since the appendix points at <c>mcp__weavie__*</c> tools.
 	/// </summary>
 	public string? WriteSystemPromptFile() {
 		if (RegistryServer is null) {

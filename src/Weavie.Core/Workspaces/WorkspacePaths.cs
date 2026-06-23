@@ -1,9 +1,8 @@
 namespace Weavie.Core.Workspaces;
 
 /// <summary>
-/// Shared workspace path conventions, chiefly the canonical list of "noise" directory segments Weavie skips
-/// when walking a workspace tree — dependency caches and build output that would drown a recursive listing or
-/// file watcher. Centralized so the file index and LSP watcher agree on one list.
+/// Shared workspace path conventions, chiefly the canonical list of "noise" directory segments (dependency
+/// caches, build output) Weavie skips when walking a tree — one list the file index and LSP watcher agree on.
 /// </summary>
 public static class WorkspacePaths {
 	/// <summary>Directory names skipped anywhere in a workspace tree (case-insensitive).</summary>
@@ -27,12 +26,9 @@ public static class WorkspacePaths {
 	}
 
 	/// <summary>
-	/// Lowercases a leading Windows drive letter (<c>C:\…</c> → <c>c:\…</c>), leaving every other path untouched.
-	/// The editor's host-backed <c>file://</c> provider matches URIs case-sensitively, and the web canonicalizes
-	/// native paths this same way (mirrors <c>editor/fs-path.ts</c> <c>canonicalFsPath</c>; Monaco's
-	/// <c>model.uri.fsPath</c> also lowercases the drive). Every native path the host hands the editor must carry
-	/// the same spelling, or one on-disk file reaches the editor as two distinct URIs — a duplicate working copy
-	/// that breaks active-file/tab tracking. Only the drive letter is folded, so the result stays openable.
+	/// Lowercases a leading Windows drive letter (<c>C:\…</c> → <c>c:\…</c>), else untouched. Must match the
+	/// web's <c>editor/fs-path.ts</c> <c>canonicalFsPath</c> and Monaco's <c>model.uri.fsPath</c>, or one
+	/// on-disk file reaches the editor as two case-distinct URIs — a duplicate copy that breaks tab tracking.
 	/// </summary>
 	public static string CanonicalFsPath(string path) {
 		ArgumentNullException.ThrowIfNull(path);

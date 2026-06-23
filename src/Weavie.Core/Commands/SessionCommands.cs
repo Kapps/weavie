@@ -6,9 +6,8 @@ namespace Weavie.Core.Commands;
 
 /// <summary>
 /// Declares the multi-session commands and wires the Core-handled ones (new / fork / unload / delete) to a
-/// host's <see cref="ISessionHost"/>. The switch commands (next / prev / switch) run in the web (the rail).
-/// Declarations live in Core so every trigger sees them; the host registers the handlers once it has a session
-/// host. See <c>docs/specs/multi-session-and-worktrees.md</c>.
+/// host's <see cref="ISessionHost"/>; the switch commands (next / prev / switch) run in the web (the rail).
+/// Declarations live in Core so every trigger sees them. See <c>docs/specs/multi-session-and-worktrees.md</c>.
 /// </summary>
 public static class SessionCommands {
 	/// <summary>Creates a new session on its own worktree + branch (args <c>branch</c>/<c>base</c>/<c>prompt</c>); the programmatic entry. The interactive UI uses <see cref="NewSessionPrompt"/>.</summary>
@@ -101,13 +100,10 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Switch to the next session on the rail (wraps around).",
 			Aliases = ["next session", "switch to next session"],
-			// ctrl+Tab is the editor's next-tab chord when the editor is focused (gated editorFocused); here it
-			// cycles sessions the rest of the time. The guard is !editorFocused (not terminalFocused) so it also
-			// fires from the rail and — crucially — on load, when nothing has taken focus yet: a terminal pane
-			// doesn't auto-focus, so terminalFocused may never have been set. !editorFocused is the exact
-			// complement of the editor's editorFocused tab binding, so the two never both match. Literal ctrl
-			// (not $mod) so it stays Ctrl+Tab on macOS — Cmd+Tab is the OS app switcher. The per-binding guard
-			// keeps the command in the palette regardless of focus (a command-level When would hide it there).
+			// ctrl+Tab cycles sessions whenever the editor isn't focused — the exact complement of the editor's
+			// editorFocused next-tab binding, so the two never both match. !editorFocused (not terminalFocused)
+			// also fires on load, before a non-auto-focusing terminal has ever set terminalFocused. Literal ctrl
+			// (not $mod): Cmd+Tab is the OS app switcher. A per-binding guard keeps the command in the palette.
 			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+Tab", When = "!editorFocused" }],
 		});
 
@@ -131,10 +127,8 @@ public static class SessionCommands {
 			Aliases = ["switch session", "go to session", "change session", "pick session"],
 		});
 
-		// ctrl+Shift+1..9 → switch to the Nth session on the rail — the session analogue of ctrl+1..9 (pane
-		// focus). Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+Shift+3/4/5 are screenshot shortcuts.
-		// Keybinding-only + hidden from the palette (the human-facing picker is Switch Session…). Each default
-		// binding carries its own 1-based index argument; the web rail switches to that session if one exists.
+		// ctrl+Shift+1..9 → switch to the Nth session. Literal ctrl (not $mod) to stay Ctrl on macOS, where
+		// Cmd+Shift+3/4/5 are screenshot shortcuts. Keybinding-only; each binding carries its own index argument.
 		var indexBindings = new List<CommandKeybinding>(9);
 		for (int i = 1; i <= 9; i++) {
 			string n = i.ToString(CultureInfo.InvariantCulture);
@@ -238,7 +232,7 @@ public static class SessionCommands {
 
 	/// <summary>
 	/// Registers the Core-handled session commands onto <paramref name="dispatcher"/>, routing each to
-	/// <paramref name="host"/> with leniently-parsed arguments. Returns a disposable that unregisters them all.
+	/// <paramref name="host"/>. Returns a disposable that unregisters them all.
 	/// </summary>
 	public static IDisposable RegisterHandlers(CommandDispatcher dispatcher, ISessionHost host) {
 		ArgumentNullException.ThrowIfNull(dispatcher);

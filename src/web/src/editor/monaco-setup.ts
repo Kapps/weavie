@@ -14,15 +14,13 @@ import {
 import { currentFonts, onFontsChanged } from "../fonts";
 import { registerActiveEditor } from "./vscode-services";
 
-// Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must
-// run before any editor is created. TypeScript/JS intelligence comes from a real LSP server over the bridge
-// (see lsp/lsp-client.ts), not Monaco's bundled ts.worker.
+// Workers + the VSCode service substrate are wired in `vscode-services.ts` (initEditorServices), which must run
+// before any editor is created. TS/JS intelligence comes from a real LSP server (lsp/lsp-client.ts), not ts.worker.
 
 export function createEditor(container: HTMLElement): monaco.editor.IStandaloneCodeEditor {
-  // The editor starts with no document — an empty pane until the host opens a file. File models are created
-  // on open with a real `file://` URI under the workspace: tsserver-family servers (tsgo) publish
-  // diagnostics for file:// docs, not in-memory ones, so a file:// URI makes it a project file and squiggles
-  // flow. Typography + editor behavior are user settings resolved by the host and live-updated below.
+  // Starts with no document (empty pane until the host opens a file). File models open with a real `file://`
+  // URI so tsserver-family servers treat them as project files and publish diagnostics. Typography + behavior
+  // are user settings, live-updated below.
   const font = currentFonts().editor;
   const editorOptions = currentEditorOptions();
   const editor = monaco.editor.create(container, {
@@ -33,14 +31,11 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     fontFamily: font.family,
     fontWeight: font.weight,
     automaticLayout: true,
-    // Render overflow widgets (suggest list, parameter hints, hover) in a viewport-fixed DOM node so they
-    // aren't clipped at the editor pane's edge in a split layout. Safe because panes are tiled with absolute
-    // left/top (no transform ancestor that would trap the fixed-position node).
+    // Render overflow widgets (suggest, hover) in a viewport-fixed node so they aren't clipped at a split
+    // pane's edge. Safe because panes tile with absolute left/top, no transform ancestor to trap the node.
     fixedOverflowWidgets: true,
-    // Compact gutter: Monaco reserves 5 line-number chars + a 10px decoration strip by default, which leaves a
-    // wide empty band before the code. 3 chars covers files up to 999 lines (Monaco auto-grows past that), and
-    // 6px trims the strip — while keeping the glyph margin (default on) so the code-action lightbulb and the
-    // change-tracking gutter bars still have a home.
+    // Compact gutter: 3 line-number chars (auto-grows past 999 lines) + a 6px decoration strip trims Monaco's
+    // wide default band, while keeping the glyph margin for the lightbulb and change-tracking bars.
     lineNumbersMinChars: 3,
     lineDecorationsWidth: 6,
     // Editor behavior (minimap, inlay hints, word wrap, hover delay, …) — each a typed Weavie setting.
@@ -92,9 +87,8 @@ function toMonacoOptions(o: EditorOptionsSpec): monaco.editor.IEditorOptions {
   };
 }
 
-// Auto-expand the suggest-widget documentation flyout. Monaco has no editor option for this, so seed the
-// storage key the widget reads when constructed (first completion). Changing the setting mid-session may need
-// the widget to re-open to take effect. Best-effort: a failure logs rather than breaking editor creation.
+// Auto-expand the suggest-widget docs flyout. No editor option exists, so seed the storage key the widget reads
+// on construction; a mid-session change may need the widget to re-open. Best-effort: a failure logs, not throws.
 function applySuggestExpandDocs(enabled: boolean): void {
   try {
     StandaloneServices.get(IStorageService).store(

@@ -5,9 +5,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Loads a file from disk and pushes its contents to the Monaco editor to reveal at a line. Shared by
-/// clickable terminal file:line links and the MCP <c>openFile</c> tool; relative paths resolve against
-/// the workspace.
+/// Loads a file from disk and pushes its contents to Monaco to reveal at a line. Shared by clickable terminal
+/// file:line links and the MCP <c>openFile</c> tool; relative paths resolve against the workspace.
 /// </summary>
 public sealed class FileOpener {
 	private readonly SessionEditorChannel _channel;
@@ -26,10 +25,9 @@ public sealed class FileOpener {
 	public string Workspace { get; set; }
 
 	/// <summary>
-	/// Reads the file and pushes an <c>open-file</c> message so Monaco loads it and reveals the given
-	/// 1-based line; logs and returns if it doesn't exist. <paramref name="preview"/> opens a reusable
-	/// preview tab; <paramref name="scratch"/> marks an untitled buffer so the editor shows it as
-	/// "Untitled-N".
+	/// Reads the file and pushes an <c>open-file</c> so Monaco loads it and reveals the 1-based line (logs and
+	/// returns if missing). <paramref name="preview"/> opens a reusable preview tab; <paramref name="scratch"/>
+	/// marks an untitled buffer shown as "Untitled-N".
 	/// </summary>
 	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));

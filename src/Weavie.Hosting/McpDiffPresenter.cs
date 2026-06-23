@@ -17,10 +17,8 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly IFileSystem _fileSystem;
 	private readonly FileOpener _fileOpener;
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
-	// Process-wide so diff ids are unique across ALL sessions, not just within one presenter. The page replies
-	// with diff-resolved carrying only the id; the host routes it back to the OWNING session by that id, so two
-	// sessions must never both mint "diff-1" (a switch between render and resolve would otherwise resolve the
-	// wrong session's diff with the wrong contents).
+	// Process-wide so diff ids are unique across ALL sessions: the host routes diff-resolved back to the owning
+	// session by id alone, so two sessions minting "diff-1" would let a mid-resolve switch resolve the wrong diff.
 	private static int _counter;
 
 	/// <summary>Renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground) and delegates file opens to <paramref name="fileOpener"/>.</summary>
@@ -77,12 +75,9 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	}
 
 	/// <summary>
-	/// Abandons every still-pending openDiff because Claude flipped into an auto-apply edit mode
-	/// (acceptEdits/bypassPermissions) — typically the user hitting Shift+Tab to clear a default-mode review in
-	/// the TUI instead of resolving it in Weavie. A blocking review is no longer the surface, and a left-over
-	/// one would strand its transient review model over the editor and block the post-turn review from opening
-	/// files. Cancels each awaiting task (the MCP server then sends no response — Claude already moved on) and
-	/// closes the stale review in the page. Wired to <c>ObservedPermissionMode.Changed</c> in HostSession.
+	/// Abandons every still-pending openDiff when Claude flips into an auto-apply mode (e.g. Shift+Tab in the TUI):
+	/// a leftover blocking review would strand its model over the editor and block the post-turn review. Cancels
+	/// each awaiting task (the MCP server then sends no response) and closes the stale review in the page.
 	/// </summary>
 	public void DismissPending() {
 		foreach (string id in _pending.Keys) {
@@ -100,9 +95,8 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 	}
 
 	/// <summary>
-	/// Called when the web view replies with the user's Keep/Reject decision. Returns <c>true</c> when this
-	/// presenter owned <paramref name="id"/> (so the caller can route a <c>diff-resolved</c> across sessions
-	/// and loudly flag an id no session owns — a switch-race or double-resolve).
+	/// Settles the user's Keep/Reject decision from the web view. Returns <c>true</c> when this presenter owned
+	/// <paramref name="id"/>, so the caller can route <c>diff-resolved</c> across sessions and flag an unowned id.
 	/// </summary>
 	public bool Resolve(string id, bool kept, string? finalContents) {
 		if (!_pending.TryRemove(id, out var tcs)) {

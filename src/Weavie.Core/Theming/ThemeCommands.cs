@@ -11,13 +11,10 @@ namespace Weavie.Core.Theming;
 public delegate Task<string?> VsixFilePicker(CancellationToken ct);
 
 /// <summary>
-/// Wires the Core handlers for the theme verb commands in <see cref="CoreCommands"/>: install /
-/// install-from-file / select / cycle-mode / undo-override / reset. These are commands (reachable from the
-/// palette, a keybinding, and Claude's <c>runCommand</c>), while the override editors and read-only queries
-/// stay MCP tools. Appearance is the <c>theme.mode</c> / <c>theme.light</c> / <c>theme.dark</c> settings on
-/// <see cref="SettingsStore"/>; per-color tweaks live in <see cref="ThemeOverridesStore"/>; install
-/// reads/writes the themes root via <see cref="OpenVsxThemeInstaller"/>. Both hosts call
-/// <see cref="RegisterHandlers"/> after building the session dispatcher.
+/// Wires the Core handlers for the theme verb commands in <see cref="CoreCommands"/> (install /
+/// install-from-file / select / cycle-mode / undo-override / reset) — palette/keybinding/<c>runCommand</c>
+/// reachable, while override editors and queries stay MCP tools. Appearance lives in the <c>theme.*</c> settings;
+/// per-color tweaks in <see cref="ThemeOverridesStore"/>; install via <see cref="OpenVsxThemeInstaller"/>.
 /// </summary>
 public static class ThemeCommands {
 	/// <summary>

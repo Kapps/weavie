@@ -7,8 +7,7 @@ string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
 string workspaceOverride = ResolveWorkspace(args);
 
-// Auth keys off the listening mode, not token presence: only Remote binds the network, and it mandates a
-// token, so an exposed untokenized host can't be expressed. Unsafe combinations fail closed (exit 1).
+// Unsafe combinations fail closed (exit 1); see ListenMode for the auth invariant.
 var (listen, listenError) = ListenMode.Resolve(args);
 if (listen is null) {
 	Console.Error.WriteLine($"[weavie-headless] {listenError}");
@@ -36,10 +35,8 @@ app.UseWebSockets();
 
 var assets = Directory.Exists(wwwroot) ? new PhysicalFileProvider(wwwroot) : null;
 
-// Single default-deny auth gate, active only in remote mode (the only mode that binds the network). Every
-// request needs the token except public static assets (JS/CSS holding no secrets) — so the document, the
-// bridge, and any later endpoint are gated automatically. "Public" means a real wwwroot file other than
-// index.html. Local mode binds loopback only, so the OS is the boundary and no gate is needed.
+// Default-deny auth gate, active only in remote mode: every request needs the token except public static
+// assets (real wwwroot files other than index.html, which hold no secrets).
 if (listen is ListenMode.Remote remote) {
 	string authToken = remote.Token;
 	app.Use(async (context, next) => {
@@ -56,8 +53,8 @@ if (listen is ListenMode.Remote remote) {
 	});
 }
 
-// Serve index.html ourselves to inject the bootstrap globals (bridge URL + fonts + commands) before the
-// module graph runs. Must precede the static middleware, which would otherwise serve it verbatim.
+// Serve index.html ourselves to inject the bootstrap globals before the module graph runs; must precede
+// the static middleware, which would otherwise serve it verbatim.
 app.Use(async (context, next) => {
 	string path = context.Request.Path.Value ?? "/";
 	if (path is "/" or "/index.html") {
@@ -151,7 +148,6 @@ static async Task ServeIndexAsync(HttpContext context, string wwwroot, HostCore 
 
 	// The page picks the WebSocket transport from __WEAVIE_BRIDGE_WS__; the rest is the shared host bootstrap.
 	string bootstrap = $"<script>window.__WEAVIE_BRIDGE_WS__ = \"auto\";{core.BuildBootstrap()}</script>";
-	// Inject right after <head> so the globals exist before the module graph runs.
 	html = html.Contains("<head>", StringComparison.Ordinal)
 		? html.Replace("<head>", "<head>" + bootstrap, StringComparison.Ordinal)
 		: bootstrap + html;

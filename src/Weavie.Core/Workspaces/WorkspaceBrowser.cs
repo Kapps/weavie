@@ -6,10 +6,8 @@ namespace Weavie.Core.Workspaces;
 public readonly record struct BrowserEntry(string Name, string Path, bool IsDirectory);
 
 /// <summary>
-/// Lists directories for the contextual file browser, scoped to one workspace/session root. Resolves a
-/// requested path, clamps it inside the root so the browser can't walk out of the workspace (e.g. via
-/// <c>..</c>), and returns entries sorted directories-first then by name. Pure logic over
-/// <see cref="IFileSystem"/> so every host shares it.
+/// Lists directories for the contextual file browser, clamped inside one workspace root so the browser
+/// can't walk out (e.g. via <c>..</c>). Entries are sorted directories-first then by name.
 /// </summary>
 public sealed class WorkspaceBrowser {
 	private readonly IFileSystem _fileSystem;
@@ -27,8 +25,7 @@ public sealed class WorkspaceBrowser {
 
 	/// <summary>
 	/// Lists the immediate entries of <paramref name="requestedPath"/> (defaulting to the root, and clamped
-	/// inside it). Directories first, then files, each ordered case-insensitively. Empty if the resolved
-	/// directory doesn't exist.
+	/// inside it), directories first then files, each case-insensitive. Empty if the directory doesn't exist.
 	/// </summary>
 	public IReadOnlyList<BrowserEntry> List(string? requestedPath) {
 		string target = string.IsNullOrEmpty(requestedPath)

@@ -1,9 +1,8 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Registers Weavie's built-in settings and owns the per-platform resolution logic for workspace / shell /
-/// claude discovery, so every host shares one path through the registry's
-/// <see cref="SettingDefinition.ComputeDefault"/> and <see cref="SettingDefinition.Validate"/>.
+/// Registers Weavie's built-in settings and owns the per-platform default resolution for workspace / shell /
+/// claude discovery, so every host shares one path through the registry.
 /// </summary>
 public static class CoreSettings {
 	/// <summary>Builds a registry pre-loaded with the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics).</summary>
@@ -143,8 +142,7 @@ public static class CoreSettings {
 
 	/// <summary>
 	/// The system-suggested shell: Windows prefers PowerShell 7 (<c>pwsh</c>) then Windows PowerShell; Unix
-	/// uses <c>$SHELL</c> then <c>/bin/zsh</c>. The lowest-precedence layer, overridden by an env var or the
-	/// user file.
+	/// uses <c>$SHELL</c> then <c>/bin/zsh</c>. The lowest-precedence layer.
 	/// </summary>
 	private static object? DefaultShell() {
 		if (OperatingSystem.IsWindows()) {
@@ -156,8 +154,8 @@ public static class CoreSettings {
 	}
 
 	/// <summary>
-	/// The auto-detected claude binary: a <c>claude</c> on PATH, else the native-installer location, else bare
-	/// <c>claude</c> (let the launcher search PATH). The host applies its own launch shim on top.
+	/// The auto-detected claude binary: <c>claude</c> on PATH, else the native-installer location, else bare
+	/// <c>claude</c> (let the launcher search PATH).
 	/// </summary>
 	private static object? DefaultClaudePath() {
 		string? onPath = ExecutableFinder.FindOnPath("claude");

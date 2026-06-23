@@ -7,20 +7,16 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Builds the theme payload the host injects (<c>window.__WEAVIE_THEME__</c>) and pushes
-/// (<c>{ "type": "theme" }</c>) to the web. Shape is <c>{ mode, light: Slot, dark: Slot }</c> where each
-/// <c>Slot</c> is <c>{ id, ops, theme? }</c> — the selected theme id, its ordered override stack, and the
-/// merged VS Code theme JSON (present only for installed themes; built-ins ship in the web bundle, so only
-/// their id is sent). Carrying both polarities lets the web resolve <c>system</c> against the live OS
-/// setting and switch light↔dark instantly without a flash. Written with <see cref="Utf8JsonWriter"/> for
-/// trim/AOT safety (no reflection-based serialization).
+/// Builds the theme payload the host injects (<c>window.__WEAVIE_THEME__</c>) and pushes to the web. Shape is
+/// <c>{ mode, light: Slot, dark: Slot }</c>, each <c>Slot</c> = <c>{ id, ops, theme? }</c> (merged theme JSON only
+/// for installed themes; built-ins ship by id). Both polarities are sent so the web resolves <c>system</c> and
+/// switches light↔dark with no flash. Hand-written via <see cref="Utf8JsonWriter"/> for trim/AOT safety.
 /// </summary>
 public static class ThemeJson {
 	/// <summary>
-	/// Builds the theme payload as a JSON string. With <paramref name="messageType"/> null it's the bare
-	/// object for injection; non-null adds a <c>"type"</c> field for a bridge push. A failure to load a
-	/// selected installed theme is logged via <paramref name="log"/> and that slot's <c>theme</c> field is
-	/// omitted, so the web falls back to the built-in default rather than a blank UI.
+	/// Builds the theme payload as a JSON string. Null <paramref name="messageType"/> yields the bare object for
+	/// injection; non-null adds a <c>"type"</c> field for a bridge push. A theme that fails to load is logged and
+	/// its slot's <c>theme</c> field omitted, so the web falls back to the built-in default rather than a blank UI.
 	/// </summary>
 	public static string Build(
 		SettingsStore settings,

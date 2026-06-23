@@ -1,10 +1,6 @@
-// Typed JS <-> C# bridge over the WKWebView script-message channel.
-//
-//   JS  -> C#:  window.webkit.messageHandlers.weavie.postMessage(jsonString)
-//   C#  -> JS:  window.__weavieReceive(jsonString)   (called from EvaluateJavaScript)
-//
-// Messages are JSON. In a plain browser (dev) the host handler is absent and
-// outbound messages are no-ops by design, never a thrown error.
+// Typed JS <-> C# bridge over the WKWebView script-message channel (JS→C# via postMessage, C#→JS via
+// window.__weavieReceive). JSON messages; in a plain browser (dev) the host handler is absent and outbound
+// is a no-op by design, never a thrown error.
 
 import { createSignal } from "solid-js";
 import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
@@ -26,22 +22,18 @@ export interface ThemeSlot {
   theme?: VsCodeColorTheme;
 }
 
-// Which PTY pane within a workspace session: "claude" (the interactive Claude Code TUI) or "shell" (a
-// plain login shell). Terminal messages also carry a `slot` (the workspace session / rail id) so the
-// host routes to the right PTY and the page to the right xterm.
+// Which PTY pane within a session: "claude" (the Claude Code TUI) or "shell" (a login shell). Terminal
+// messages also carry a `slot` (the session / rail id) to route to the right PTY and xterm.
 export type TermSession = "claude" | "shell";
 
 // The live state of a session's embedded Claude, derived host-side from its hook stream + process
-// supervisor: working (turn in progress), needsInput (permission/idle prompt), idle (turn ended),
-// error (crashed), starting (launching).
+// supervisor.
 export type SessionStatusName = "starting" | "working" | "needsInput" | "idle" | "error";
 
-// One session's chip on the rail, pushed by the host in a session-list message. `hue` (0-359) and
-// `monogram` are derived deterministically from the branch so a session looks the same across restarts.
-// `loaded` is false for a dormant worktree (no live backend) — the rail renders it faded and clicking it
-// asks the host to load it; `status` is only meaningful when loaded. `primary` marks the workspace's own
-// checkout, which has no separate worktree and can't be unloaded or deleted (the rail hides those
-// actions for it). The host orders loaded chips first, dormant ones last.
+// One session's rail chip (host-pushed in session-list). `hue`/`monogram` are derived deterministically
+// from the branch so a session looks the same across restarts. `loaded` is false for a dormant worktree
+// (rendered faded; clicking loads it); `status` is only meaningful when loaded. `primary` marks the
+// workspace's own checkout, which can't be unloaded or deleted. Loaded chips are ordered first.
 export interface SessionChip {
   id: string;
   label: string;
@@ -73,11 +65,10 @@ export interface FontSpec {
   weight: string;
 }
 
-// Resolved editor-behavior options (Monaco IEditorOptions surfaced as Weavie settings — see Core's
-// EditorSettings). Injected as window.__WEAVIE_EDITOR_OPTIONS__ before navigation and re-pushed as a
-// { type: "editorOptions" } message on change. Keys are short camelCase names the editor maps onto
-// Monaco's nested option shape (editor-options.ts); `suggestExpandDocs` is the one non-option, mapped
-// to a custom behavior since Monaco has no setting for it.
+// Resolved editor-behavior options (Monaco IEditorOptions surfaced as Weavie settings). Injected as
+// window.__WEAVIE_EDITOR_OPTIONS__ before navigation, re-pushed as { type: "editorOptions" } on change.
+// Keys are short camelCase names mapped onto Monaco's nested shape (editor-options.ts); `suggestExpandDocs`
+// is the one non-option, a custom behavior Monaco has no setting for.
 export interface EditorOptionsSpec {
   inlayHints: "on" | "off" | "offUnlessPressed" | "onUnlessPressed";
   minimap: boolean;
@@ -99,11 +90,8 @@ export interface EditorOptionsSpec {
 }
 
 /**
- * Which comments the editor renders as prose:
- * - `none` — render nothing.
- * - `documentation` — only documentation comments (`///`, `//!`, `/** … *​/`), including single-line ones.
- * - `multiline` — documentation comments plus any comment spanning ≥2 lines.
- * - `all` — every full-line comment, including lone single-line ones.
+ * Which comments the editor renders as prose: `none`; `documentation` (only doc comments `///`/`//!`/`/** *​/`);
+ * `multiline` (doc comments plus any spanning ≥2 lines); `all` (every full-line comment).
  */
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";
 
@@ -116,15 +104,13 @@ export type HostBoundMessage =
   | { type: "term-ready"; slot: string; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
-  // Session rail → host: switch to a session (binds the page to it). Load / unload / delete are commands
-  // (weavie.session.*) dispatched via invoke-command. The delete confirm flow is the exception:
-  // delete-session-request asks the host to classify the worktree and reply with a session-delete-prompt;
-  // delete-session is the confirmed delete, its `force` set for a dirty worktree.
+  // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
+  // commands via invoke-command; the delete confirm flow is the exception (delete-session-request →
+  // session-delete-prompt → delete-session, `force` for a dirty worktree).
   | { type: "switch-session"; id: string }
-  // Create a new session. `existing` true ⇒ check out the EXISTING branch named by `branch` (base ignored);
-  // otherwise create a new branch off `base` ("head" = active session's HEAD, "main"). list-branches asks the
-  // chosen backend for local branches available to check out (every local branch minus those already in a
-  // worktree), answered by a branches-result tagged with the request `id` (New Session branch typeahead).
+  // Create a new session. `existing` ⇒ check out the EXISTING `branch` (base ignored); else create a new
+  // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
+  // checkout-able branches, answered by a branches-result tagged with the request `id`.
   | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
   | { type: "list-branches"; id: string }
   | { type: "delete-session-request"; id: string }
@@ -151,10 +137,9 @@ export type HostBoundMessage =
   // Inline review: revert ALL of one file's changes back to its turn baseline on disk (the file-scoped
   // analogue of undo-turn). The host restores the file wholesale and live-refreshes the editor.
   | { type: "revert-file"; path: string }
-  // Inline review (auto-keep modes): revert ONE hunk on disk. The host splices the baseline lines (sourced from
-  // its own baseline, never from this message) back over the current lines. Ranges are 1-based, end-exclusive
-  // (matching VSCode line ranges); `guardText` is the exact current text of [currentStart, currentEndExclusive)
-  // as the web sees it — an optimistic-concurrency check. A mismatch aborts the revert and re-emits the diff.
+  // Inline review (auto-keep modes): revert ONE hunk on disk; the host splices its own baseline lines back
+  // over the current ones. Ranges are 1-based, end-exclusive. `guardText` is the web's current text of
+  // [currentStart, currentEndExclusive) — an optimistic-concurrency check; a mismatch aborts and re-emits.
   | {
       type: "reject-hunk";
       path: string;
@@ -168,18 +153,15 @@ export type HostBoundMessage =
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
   | { type: "layout-changed"; document: LayoutDocument }
-  // The editor session changed (file opened, cursor moved, scrolled); debounced; host persists it. Carries
-  // the open-list + active + per-file view state, NEVER file contents (the host reads those from disk).
-  // `sessionId` stamps which session owned this tab set (from the last set-editor-session); the host drops a
-  // change whose id isn't the active session so a stale debounced write can't leak one worktree's tabs into
-  // another. Null until a set-editor-session has arrived.
+  // The editor session changed (debounced; host persists it). Carries open-list + active + per-file view
+  // state, NEVER file contents. `sessionId` stamps the owning session; the host drops a change whose id
+  // isn't the active session, so a stale debounced write can't leak one worktree's tabs into another.
   | { type: "editor-session-changed"; sessionId: string | null; session: EditorSession }
   // New File (Ctrl+N): ask the host to create a fresh scratch buffer (an "Untitled-N" temp file in the
   // workspace scratch dir) and push it back as an open-file with `scratch: true`.
   | { type: "new-scratch" }
-  // Save a scratch buffer under a real name: the host opens a native Save dialog (default filename
-  // `suggestedName`, default dir = workspace root), writes `content` to the chosen path, deletes the temp
-  // file, and replies with `scratch-saved`. `path` is the scratch temp path being saved.
+  // Save a scratch buffer under a real name: the host opens a Save dialog (default `suggestedName`), writes
+  // `content` to the chosen path, deletes the temp file, and replies with `scratch-saved`. `path` is the temp path.
   | { type: "save-scratch-as"; path: string; content: string; suggestedName: string }
   // Discard a scratch buffer the user closed: delete its temp file. (The web has already dropped the tab.)
   | { type: "discard-scratch"; path: string }
@@ -199,9 +181,8 @@ export type HostBoundMessage =
         isEmpty: boolean;
       };
     }
-  // The set of open editor tabs changed (opened / closed / activated / pinned / promoted) -> host updates the
-  // editor store so Claude's getOpenEditors reports the real tab set. `path` is the web's own tab key (a
-  // native path); the host derives the uri/label and echoes the path back verbatim on close-tab. No content.
+  // The open editor tab set changed -> host updates the editor store so Claude's getOpenEditors is accurate.
+  // `path` is the web's tab key (a native path); the host derives uri/label and echoes it on close-tab. No content.
   | {
       type: "open-editors-changed";
       // The session id these tabs belong to (from the last set-editor-session); host rejects a stale send.
@@ -221,14 +202,12 @@ export type HostBoundMessage =
     }
   // The omnibar asks the host to (re)send the workspace's flat file list for "Go to File".
   | { type: "request-file-index" }
-  // Remote-agent registry (the host owns persistence; the web owns the connections). add-remote-agent persists
-  // a validated agent; remove-remote-agent forgets one. Both target the local backend (postToBackend "local"),
-  // since the registry is a local-machine concept — never the active remote runner. See remote-agents.ts.
+  // Remote-agent registry (host persists, web connects). add/remove persist/forget an agent. Both target the
+  // local backend, since the registry is a local-machine concept. See remote-agents.ts.
   | { type: "add-remote-agent"; name: string; url: string; token: string }
   | { type: "remove-remote-agent"; name: string }
-  // Session rail UI state (host-persisted in ~/.weavie/rail-state.json, not localStorage). Both target the
-  // local backend. set-last-location remembers where the last session was created; set-promoted carries the
-  // full promoted-remote-session set. See rail-state.ts.
+  // Session rail UI state (host-persisted in ~/.weavie/rail-state.json; both target the local backend).
+  // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
   // A keybinding/palette invoked a Core command — ask the host to run it (fire-and-forget for the web).
@@ -239,10 +218,8 @@ export type HostBoundMessage =
 export type WebBoundMessage =
   | { type: "term-output"; slot: string; session: TermSession; dataB64: string }
   | { type: "term-exit"; slot: string; session: TermSession; code: number }
-  // Host asks this pane to reset + re-emit term-ready. The sole caller is a deliberate child relaunch
-  // (the shell setting changed): `respawn` is true so the pane does a full reset, since the fresh child
-  // re-establishes every mode. Session switches don't reset — each session keeps its own live xterm and
-  // switching is pure show/hide (see TerminalView).
+  // Host asks this pane to reset + re-emit term-ready. The sole caller is a deliberate child relaunch (shell
+  // setting changed), so `respawn` is true for a full reset. Session switches don't reset (pure show/hide).
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
@@ -251,9 +228,8 @@ export type WebBoundMessage =
   // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
   // session switch so a new / selected session lands focus in Claude.
   | { type: "focus-pane"; kind: string }
-  // Reply to delete-session-request: the host classified the worktree so the page can raise the right confirm.
-  // state "clean" → plain confirm; "untracked" → two-step (untracked files would be deleted); "modified" →
-  // checkbox gate (tracked changes would be lost). On accept the page sends delete-session (force when dirty).
+  // Reply to delete-session-request: the worktree's `state` drives the confirm — "clean" plain, "untracked"
+  // two-step, "modified" checkbox gate. On accept the page sends delete-session (force when dirty).
   | {
       type: "session-delete-prompt";
       id: string;
@@ -270,9 +246,8 @@ export type WebBoundMessage =
       proposed: string;
     }
   | { type: "close-diff"; id: string }
-  // Host delivers a file to load + reveal in the Monaco editor. `preview` opens it as a reusable preview
-  // tab; omitted/false opens a persistent tab. `scratch` marks an untitled buffer (New File / restored
-  // scratch). `content` is ignored — the working copy reads disk.
+  // Host delivers a file to load + reveal in Monaco. `preview` ⇒ reusable preview tab, else persistent.
+  // `scratch` marks an untitled buffer (New File / restored). `content` is ignored — the working copy reads disk.
   | {
       type: "open-file";
       path: string;
@@ -281,31 +256,27 @@ export type WebBoundMessage =
       preview?: boolean;
       scratch?: boolean;
     }
-  // Host's reply to save-scratch-as. `savedPath` is the chosen target ("" if the user cancelled the dialog).
-  // `reopen` is true when the target is inside the workspace (so the editor reopens it as a normal working
-  // copy); false when saved elsewhere (the host warned via a toast and the editor just drops the scratch tab).
+  // Reply to save-scratch-as. `savedPath` is the chosen target ("" if cancelled). `reopen` is true when it's
+  // inside the workspace (editor reopens it as a working copy); false otherwise (editor drops the scratch tab).
   | { type: "scratch-saved"; scratchPath: string; savedPath: string; reopen: boolean }
   // Host (driven by Claude's close_tab MCP tool) asks the web to close the tab for this file path.
   | { type: "close-tab"; path: string }
   // Host pushes the persisted/reconciled layout (on startup, and after any layout-changed or MCP edit).
   | { type: "set-layout"; document: LayoutDocument }
-  // Host pushes the persisted editor session to restore on launch/Ctrl+R, and on every session switch. Carries
-  // NO file content — the web reopens each file as a working copy resolved from disk through the host file://
-  // provider. `sessionId` is the session id these tabs belong to; the web echoes it on editor-session-changed /
-  // active-editor-changed / open-editors-changed so a post-switch send is attributed to the right session.
+  // Host pushes the persisted editor session to restore (launch/Ctrl+R + every switch). NO file content —
+  // the web reopens each file as a working copy from disk. `sessionId` is the owning session, which the web
+  // echoes on the *-changed messages so a post-switch send is attributed correctly.
   | { type: "set-editor-session"; sessionId: string | null; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
-  // Host pushes the appearance mode + the theme for each polarity (a mode/theme switch or an override edit).
-  // Both polarities are shipped so the web can resolve `system` against the live OS setting and switch
-  // light↔dark instantly + flash-free. Re-themes editor, terminal, chrome live.
+  // Host pushes the appearance mode + both polarities' themes, so the web resolves `system` against the live
+  // OS setting and switches light↔dark instantly. Re-themes editor, terminal, chrome live.
   | { type: "theme"; mode: ThemeMode; light: ThemeSlot; dark: ThemeSlot }
-  // Host-backed file:// provider replies, correlated to a request `id`. fs-stat-result: existence + stat;
-  // fs-read-result: content + etag, or code:"FileNotFound" (provider falls through) or a loud error;
-  // fs-write-result: post-write etag, or an error. Optional fields are absent (not null) when not applicable.
+  // file:// provider replies, correlated by `id`: fs-stat-result (existence + stat); fs-read-result (content
+  // + etag, or code:"FileNotFound" / error); fs-write-result (post-write etag, or error). Absent ⇒ N/A.
   | {
       type: "fs-stat-result";
       id: string;
@@ -338,10 +309,9 @@ export type WebBoundMessage =
   // The host-backed file:// provider learned files changed on disk (a Claude edit, or the workspace watcher
   // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
-  // The per-TURN change list (files changed this turn + each file's first-change line). Drives the inline
-  // review walk's ← / → file axis (there is no panel). `open` is the host's race-free decision that the page
-  // should auto-open the first file for review (turn end, or a switch into a session with pending review).
-  // Pushed in auto-keep modes only (acceptEdits/bypass); empty (and open=false) after a turn boundary / switch.
+  // The per-TURN change list (files + each file's first-change line), driving the inline review walk's
+  // ← / → axis. `open` is the host's race-free decision to auto-open the first file. Pushed in auto-keep
+  // modes only; empty (open=false) after a turn boundary / switch.
   | {
       type: "turn-changes";
       open: boolean;
@@ -373,9 +343,8 @@ export type WebBoundMessage =
   | { type: "branches-result"; id: string; branches: string[] }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
-  // Host pushes the persisted remote-agent registry (on `ready` and on any add/remove, from this or another
-  // window). The web reconciles its connections to match. Routed cross-backend (isSessionMessage) and honored
-  // only from the local backend, so a remote runner's own registry push is ignored. See remote-agents.ts.
+  // Host pushes the persisted remote-agent registry (on `ready` + any add/remove); the web reconciles its
+  // connections. Honored only from the local backend, so a remote runner's push is ignored. See remote-agents.ts.
   | { type: "remote-agents"; agents: { name: string; url: string; token: string }[] }
   // Host pushes the persisted session-rail UI state (on `ready` and on any change, from this or another
   // window). Honored only from the local backend. See rail-state.ts.
@@ -398,10 +367,9 @@ const sessionListeners = new Set<SessionMessageHandler>();
 const [activeBackend, setActiveBackend] = createSignal("local");
 const LOCAL_BACKEND_ID = "local";
 
-// These route cross-backend (tagged with their origin) rather than being dropped by the active-backend gate:
-// session-list / session-status feed the rail, branches-result answers the New Session typeahead (which can
-// target a non-active backend), and remote-agents / rail-state (honored only from the local backend) must
-// arrive even when a remote is active. Everything else belongs to whichever backend the page is bound to.
+// These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
+// feed the rail, the New Session typeahead, and local-only registry/rail state. Everything else is gated to
+// the bound backend.
 function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
@@ -412,9 +380,8 @@ function isSessionMessage(type: string): boolean {
   );
 }
 
-// Parse one inbound host->web JSON line and route it. Session messages fan out to the rail listeners tagged
-// with `backendId`; all other messages reach the page listeners only from the active backend. Shared by
-// every transport so dispatch — and the loud-on-bad-JSON contract — is identical for all.
+// Parse one inbound JSON line and route it: session messages fan out to the rail listeners tagged with
+// `backendId`; all else reaches page listeners only from the active backend. Shared by every transport.
 function deliverFromHost(raw: string, backendId: string): void {
   let parsed: WebBoundMessage;
   try {
@@ -437,17 +404,15 @@ function deliverFromHost(raw: string, backendId: string): void {
   }
 }
 
-// One way to push bytes to a backend. The bridge speaks the same HostBound/WebBound JSON over every
-// transport; only the pipe differs. `dispose` tears the pipe down for good (a remote backend the user
-// disconnected) so it stops reconnecting.
+// One way to push bytes to a backend (the bridge speaks the same JSON over every transport; only the pipe
+// differs). `dispose` tears the pipe down for good so it stops reconnecting.
 interface BridgeTransport {
   send(json: string): void;
   dispose(): void;
 }
 
-// The native desktop shells (Win/Mac/Linux) inject `window.webkit.messageHandlers.weavie` and call
-// `window.__weavieReceive` — the in-process script-message channel. Best-effort: a throwing channel
-// must never break the app (it also carries diagnostic logs).
+// The native desktop shells' in-process script-message channel (inject `window.webkit.messageHandlers.weavie`
+// + call `window.__weavieReceive`). Best-effort: a throwing channel must never break the app.
 const nativeTransport: BridgeTransport = {
   send(json: string): void {
     const handler = window.webkit?.messageHandlers?.weavie;
@@ -465,9 +430,8 @@ const nativeTransport: BridgeTransport = {
 };
 
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
-// messages sent before the socket opens (notably the initial "ready") are buffered and flushed on open; a
-// dropped socket reconnects with capped backoff. Inbound frames go through the shared `deliverFromHost`, so
-// the page can't tell a WebSocket host from a native one.
+// before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
+// Inbound frames go through the shared `deliverFromHost`, indistinguishable from a native host.
 class WebSocketTransport implements BridgeTransport {
   private socket: WebSocket | null = null;
   private readonly outbox: string[] = [];
@@ -552,9 +516,8 @@ class WebSocketTransport implements BridgeTransport {
   }
 }
 
-// Resolve the remote bridge URL, if any: a `?weavie-bridge=` query override (for manual testing) wins,
-// else the host-injected `window.__WEAVIE_BRIDGE_WS__`. The literal "auto" derives a same-origin
-// `ws(s)://<host>/weavie-bridge` — the common case when the serve host also serves the page.
+// Resolve the remote bridge URL: a `?weavie-bridge=` query override wins, else `window.__WEAVIE_BRIDGE_WS__`.
+// "auto" derives a same-origin `ws(s)://<host>/weavie-bridge` (the serve host also serves the page).
 function resolveBridgeWsUrl(): string | null {
   const override = new URLSearchParams(window.location.search).get("weavie-bridge");
   const configured = override ?? window.__WEAVIE_BRIDGE_WS__ ?? "";
@@ -592,9 +555,8 @@ function publishBackends(): void {
   setBackendList([...backends.values()].map((b) => b.info));
 }
 
-// The default/local backend: a native shell's in-process channel wins (lower-latency, already trusted);
-// otherwise the same-origin headless WebSocket. With neither — a plain browser on the dev server — there
-// is no local backend and outbound is a silent no-op.
+// The default/local backend: a native shell's in-process channel wins, else the same-origin headless
+// WebSocket. With neither (plain browser on the dev server), there's no local backend and outbound is a no-op.
 (() => {
   // Native delivers via window.__weavieReceive; tag it as the local backend.
   window.__weavieReceive = (raw: string): void => deliverFromHost(raw, LOCAL_BACKEND_ID);
@@ -614,9 +576,8 @@ function publishBackends(): void {
   }
 })();
 
-// Connect an additional (remote) backend — a runner's worker bridge — and ask it to push its session-list so
-// its sessions appear on the rail. Its page-painting traffic stays suppressed until it is made active (see
-// deliverFromHost). Idempotent per id.
+// Connect an additional (remote) backend so its sessions appear on the rail. Its page-painting traffic stays
+// suppressed until made active (see deliverFromHost). Idempotent per id.
 export function connectBackend(id: string, name: string, wsUrl: string): void {
   if (backends.has(id)) {
     return;
@@ -627,9 +588,8 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
   publishBackends();
 }
 
-// Drop a remote backend: close its bridge (no reconnect) and remove it from the set, so its chips leave the
-// rail (session-store filters to connected backends). The local backend is never removed. If the page was
-// bound to it, fall back to local. Idempotent — a never-connected agent id is a no-op.
+// Drop a remote backend: close its bridge (no reconnect) and remove it, so its chips leave the rail. The
+// local backend is never removed; if the page was bound to this one, fall back to local. Idempotent.
 export function disconnectBackend(id: string): void {
   if (id === LOCAL_BACKEND_ID) {
     return;
@@ -691,9 +651,8 @@ export function onSessionMessage(handler: SessionMessageHandler): () => void {
   };
 }
 
-// New Session branch typeahead: ask a chosen backend (local or a remote agent) for its checkout-able local
-// branches. branches-result routes cross-backend (isSessionMessage), so correlate replies by a unique id and
-// resolve empty if the host never answers — the typeahead offers nothing rather than hanging.
+// New Session branch typeahead: ask a chosen backend for its checkout-able branches. branches-result routes
+// cross-backend, so correlate replies by id and resolve empty on timeout rather than hanging.
 const BRANCHES_TIMEOUT_MS = 10_000;
 let branchSeq = 0;
 const pendingBranchRequests = new Map<string, (branches: string[]) => void>();
@@ -720,10 +679,9 @@ export function requestBranches(backendId: string): Promise<string[]> {
   });
 }
 
-// Reads a config value the C# host injects as a window.__WEAVIE_*__ global before navigation. In the
-// shipped app the host always injects these, so an absent value means the host failed to wire it — throw
-// loudly rather than silently mount with dev defaults that can drift from Core's. In plain-browser dev
-// (no host) the dev fallback is used. `name` is the global's name, for the error message.
+// Reads a host-injected window.__WEAVIE_*__ config global. In the shipped app these are always injected, so
+// an absent value means the host failed to wire it — throw loudly rather than mount with drifting defaults.
+// Plain-browser dev uses the fallback. `name` is the global's name, for the error message.
 export function hostInjected<T>(name: string, value: T | undefined, devFallback: T): T {
   if (value !== undefined) {
     return value;

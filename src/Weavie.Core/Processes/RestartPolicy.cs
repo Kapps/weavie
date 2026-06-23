@@ -9,8 +9,8 @@ public enum RestartPolicy {
 	OnFailure,
 
 	/// <summary>
-	/// Relaunch after every exit, clean or crash — for a permanent UI fixture (a terminal pane) where a
-	/// stopped, empty panel is never the desired end state.
+	/// Relaunch after every exit, clean or crash — for a permanent UI fixture (a terminal pane) where a stopped,
+	/// empty panel is never the desired end state.
 	/// </summary>
 	Always,
 }

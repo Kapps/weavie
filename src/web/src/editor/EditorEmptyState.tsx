@@ -71,8 +71,7 @@ export function EditorEmptyState(): JSX.Element {
                     type="button"
                     class="editor-empty-action"
                     // Don't steal focus on press: these actions hand focus to the omnibar, and a button
-                    // holding focus would trip its focus-out close. preventDefault on mousedown blocks the
-                    // focus without cancelling the click, so keyboard activation still fires it.
+                    // holding focus would trip its focus-out close. preventDefault keeps the click firing.
                     onMouseDown={(event) => event.preventDefault()}
                     onClick={() => dispatchCommand(action.id)}
                   >

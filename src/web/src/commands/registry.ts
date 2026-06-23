@@ -1,7 +1,6 @@
-// The web command registry: holds the host-injected catalog + resolved keybindings, lets web features
-// register handlers for their ids, and dispatches. Triggers: keybindings, the omnibar palette, and the
-// host's run-command (a web command Claude invoked over MCP). Core commands are forwarded to the host as
-// invoke-command. See docs/specs/commands.md.
+// The web command registry: holds the host-injected catalog + keybindings, registers web handlers, and
+// dispatches (from keybindings, the palette, or the host's run-command). Core commands forward to the host
+// as invoke-command. See docs/specs/commands.md.
 
 import { hostInjected, log, onHostMessage, postToHost } from "../bridge";
 import type { CommandInfo, ResolvedKeybinding } from "./types";

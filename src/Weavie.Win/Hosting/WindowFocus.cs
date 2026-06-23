@@ -4,9 +4,8 @@ namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// Foreground/visibility helpers behind <c>weavie.window.toggle</c> (the global <c>ctrl+`</c> hotkey).
-/// WinForms' <c>Activate()</c> alone doesn't reliably steal foreground across processes; pairing it with
-/// <c>SetForegroundWindow</c> does, since the triggering <c>WM_HOTKEY</c>/command grants our process the right
-/// to set the foreground window. All methods must be called on the UI thread.
+/// <c>Activate()</c> alone can't steal foreground across processes; pairing it with <c>SetForegroundWindow</c>
+/// does, since the triggering <c>WM_HOTKEY</c> grants the right to set it. UI thread only.
 /// </summary>
 internal static class WindowFocus {
 	private const uint GwHwndNext = 2;     // GW_HWNDNEXT — next window down the Z-order
@@ -42,8 +41,7 @@ internal static class WindowFocus {
 
 	/// <summary>
 	/// Toggles <paramref name="window"/>: bring it to the foreground when behind, or — when already foreground —
-	/// drop it behind by handing focus back to the previously focused window (no minimize). Behind the global
-	/// focus hotkey.
+	/// drop it behind by handing focus back to the previously focused window (no minimize).
 	/// </summary>
 	public static void Toggle(Form window) {
 		ArgumentNullException.ThrowIfNull(window);
@@ -54,10 +52,8 @@ internal static class WindowFocus {
 		}
 	}
 
-	// Relinquish foreground without minimizing: activate the next activatable top-level window beneath ours in
-	// the Z-order (the one focused before we raised ours), so it regains focus and our window drops behind it,
-	// still visible. Allowed because Toggle only calls this when our window owns the foreground. If nothing
-	// activatable sits behind us (essentially only the bare desktop), sink to the bottom of the Z-order.
+	// Relinquish foreground without minimizing: activate the next activatable top-level window beneath ours in the
+	// Z-order so it regains focus and we drop behind it, still visible. If none, sink to the bottom of the Z-order.
 	private static void DropBehind(Form window) {
 		IntPtr next = GetWindow(window.Handle, GwHwndNext);
 		while (next != IntPtr.Zero) {
@@ -72,8 +68,8 @@ internal static class WindowFocus {
 		SetWindowPos(window.Handle, HwndBottom, 0, 0, 0, 0, SwpNoMove | SwpNoSize | SwpNoActivate);
 	}
 
-	// A reasonable "could be the previously-focused app window" filter: visible, not minimized, top-level
-	// (no owner), and not a tool window (tooltips, palettes). Mirrors the common Alt+Tab eligibility heuristic.
+	// "Could be the previously-focused app window" filter (Alt+Tab eligibility): visible, not minimized,
+	// top-level (no owner), not a tool window.
 	private static bool IsActivatable(IntPtr hwnd) {
 		if (!IsWindowVisible(hwnd) || IsIconic(hwnd) || GetWindow(hwnd, GwOwner) != IntPtr.Zero) {
 			return false;

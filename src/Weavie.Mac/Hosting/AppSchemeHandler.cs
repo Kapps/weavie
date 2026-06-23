@@ -5,10 +5,10 @@ using WebKit;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// Serves the built web app to the WKWebView over a custom <c>app://</c> scheme, straight from the bundle's
-/// <c>Resources/wwwroot</c> — no network, no localhost port, secure same-origin context (so workers and the
-/// Event Timing API behave). Path resolution + MIME come from the shared <see cref="WwwrootFileResolver"/>;
-/// this owns only the native scheme-task binding and the 404 fail.
+/// Serves the built web app to the WKWebView over a custom <c>app://</c> scheme from the bundle's
+/// <c>Resources/wwwroot</c> — no network, secure same-origin context (so workers + the Event Timing API behave).
+/// Path resolution + MIME come from the shared <see cref="WwwrootFileResolver"/>; this owns the scheme-task
+/// binding and the 404 fail.
 /// </summary>
 public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
 	private readonly WwwrootFileResolver _resolver;

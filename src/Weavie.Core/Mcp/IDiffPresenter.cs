@@ -3,14 +3,13 @@ using Weavie.Core.Diffs;
 namespace Weavie.Core.Mcp;
 
 /// <summary>
-/// Surfaces an inbound <c>openDiff</c> to the user and resolves it. In production this renders an
-/// editable Monaco diff in the webview and awaits the user's Keep/Reject; in tests it is scripted.
-/// <c>openDiff</c> is blocking — the MCP response is withheld until this completes.
+/// Surfaces an inbound <c>openDiff</c> to the user and resolves it. Blocking — the MCP response is withheld
+/// until the user's Keep/Reject (in tests, scripted).
 /// </summary>
 public interface IDiffPresenter {
 	/// <summary>
 	/// Presents the proposed diff and resolves to the outcome. On <see cref="DiffResult.Kept"/>,
-	/// <see cref="DiffOutcome.FinalContents"/> is the (possibly user-edited) content to persist.
+	/// <see cref="DiffOutcome.FinalContents"/> holds the (possibly user-edited) content to persist.
 	/// </summary>
 	Task<DiffOutcome> PresentDiffAsync(DiffProposal proposal, CancellationToken cancellationToken);
 

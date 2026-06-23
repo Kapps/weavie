@@ -3,10 +3,9 @@ using System.Text.Json;
 namespace Weavie.Core.Json;
 
 /// <summary>
-/// Lenient readers for the optional properties of a parsed message/argument object. Every host web-message
-/// and every MCP tool-call argument arrives as a <see cref="JsonElement"/> whose fields may be absent or the
-/// wrong kind; these return a fallback instead of throwing so callers stay one-liners. Required fields should
-/// still use <see cref="JsonElement.GetProperty(string)"/> directly.
+/// Lenient readers for optional properties of a parsed message/argument <see cref="JsonElement"/>: return a
+/// fallback instead of throwing when a field is absent or the wrong kind. Required fields should still use
+/// <see cref="JsonElement.GetProperty(string)"/> directly.
 /// </summary>
 public static class JsonElementExtensions {
 	/// <summary>The string value of <paramref name="name"/>, or empty if absent/not a string.</summary>

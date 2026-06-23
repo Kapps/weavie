@@ -3,9 +3,8 @@ using System.Text.Json;
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// A parsed Claude Code hook event — the JSON Claude pipes to a <c>command</c> hook's stdin, relayed over the
-/// hook pipe. Carries enough to record a change (tool plus raw input) and route a decision. Malformed payloads
-/// parse to <see langword="null"/>. Non-tool events (turn boundaries) carry an empty tool name.
+/// A parsed Claude Code hook event (the JSON Claude pipes to a <c>command</c> hook's stdin), carrying enough
+/// to record a change and route a decision. Non-tool events (turn boundaries) carry an empty tool name.
 /// </summary>
 public sealed record HookRequest {
 	/// <summary>The hook event (pre/post tool use, or a turn boundary).</summary>
@@ -21,9 +20,8 @@ public sealed record HookRequest {
 	public string? SessionId { get; init; }
 
 	/// <summary>
-	/// For a <see cref="HookEventKind.Notification"/> event, the human-readable notice text (e.g.
-	/// <c>"Claude needs your permission to use Bash"</c> vs the idle <c>"Claude is waiting for your input"</c>);
-	/// lets the status machine tell a permission prompt apart from the post-turn idle notice. Absent on other events.
+	/// For a <see cref="HookEventKind.Notification"/> event, the notice text — lets the status machine tell a
+	/// permission prompt apart from the post-turn idle "waiting for your input" notice. Absent on other events.
 	/// </summary>
 	public string? Message { get; init; }
 
@@ -37,9 +35,8 @@ public sealed record HookRequest {
 	public string? Cwd { get; init; }
 
 	/// <summary>
-	/// Claude's own permission mode at the time of the event (<c>default</c>/<c>acceptEdits</c>/<c>plan</c>/
-	/// <c>bypassPermissions</c>), when the payload carries it. Claude owns this (the user cycles it with
-	/// Shift+Tab); Weavie observes it to know whether edits are auto-applying.
+	/// Claude's own permission mode at the event (<c>default</c>/<c>acceptEdits</c>/<c>plan</c>/
+	/// <c>bypassPermissions</c>), when present — Weavie observes it to know whether edits are auto-applying.
 	/// </summary>
 	public string? PermissionMode { get; init; }
 

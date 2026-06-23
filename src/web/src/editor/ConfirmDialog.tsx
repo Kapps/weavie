@@ -2,8 +2,8 @@ import { type JSX, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 
 /**
- * Portaled modal confirm dialog. Enter confirms, Escape cancels via a capture-phase listener so the global
- * keybinding resolver and editor never see those keys while it's up.
+ * Portaled modal confirm dialog. A capture-phase listener handles Enter/Escape so the global keybinding
+ * resolver and editor never see those keys while it's up.
  */
 export function ConfirmDialog(props: {
   title: string;

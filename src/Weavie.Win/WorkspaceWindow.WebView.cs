@@ -5,9 +5,9 @@ using Weavie.Hosting.Web;
 
 namespace Weavie.Win;
 
-// The WebView2 bring-up: environment + virtual-host mapping, the bridge shim + attach, then the shared web
-// launcher (Weavie.Hosting.Web), which owns the dev-server / bootstrap / navigation flow. This host supplies
-// only the native WebView2 ops via IWebSurface, the Debug dev-loss reconnect recovery, and the unattended screenshot.
+// The WebView2 bring-up: environment + virtual-host mapping, bridge shim + attach, then the shared web launcher
+// (Weavie.Hosting.Web) that owns the dev-server / bootstrap / navigation flow. This host supplies only the native
+// WebView2 ops via IWebSurface, the Debug dev-loss recovery, and the unattended screenshot.
 internal sealed partial class WorkspaceWindow : IWebSurface {
 	private async void OnLoad(object? sender, EventArgs e) {
 		try {
@@ -20,12 +20,12 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 
 	private async Task InitializeAsync() {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
-		// SetVirtualHostNameToFolderMapping throws if the folder is absent. Ensure it exists so a build without
-		// web assets still opens (navigation 404s) instead of crashing.
+		// SetVirtualHostNameToFolderMapping throws if the folder is absent; ensure it exists so a build without web
+		// assets still opens (navigation 404s) instead of crashing.
 		Directory.CreateDirectory(wwwroot);
 
-		// WebView2 needs a writable user-data folder (the exe may live under Program Files); keep it under the
-		// Weavie root (~/.weavie/internals/webview2).
+		// WebView2 needs a writable user-data folder (the exe may live under Program Files), kept under the Weavie
+		// root (~/.weavie/internals/webview2).
 		string userDataFolder = WeaviePaths.Internal("webview2");
 		Directory.CreateDirectory(userDataFolder);
 
@@ -33,27 +33,27 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		await _webView.EnsureCoreWebView2Async(environment);
 		var core = _webView.CoreWebView2;
 
-		// Serve the built web app from wwwroot over https://weavie.app/ (no network, no localhost port), the
-		// WebView2 counterpart of the macOS app:// scheme handler.
+		// Serve the built web app from wwwroot over https://weavie.app/ (no network, no localhost port), the WebView2
+		// counterpart of the macOS app:// scheme handler.
 		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
 		core.Settings.AreDevToolsEnabled = true;          // local debugging
 		core.Settings.IsStatusBarEnabled = false;
 		// Let the web title bar declare its draggable caption via CSS `app-region: drag`; WebView2 then handles
-		// window dragging, double-click-maximize, and the right-click system menu for the frameless window.
+		// dragging, double-click-maximize, and the right-click system menu for the frameless window.
 		core.Settings.IsNonClientRegionSupportEnabled = true;
 
-		// Wire the web↔host message bridge before bring-up; the shared launcher then starts the backend,
-		// injects the bootstrap, and navigates — see Weavie.Hosting.Web.WebAppLauncher.
+		// Wire the web↔host bridge before bring-up; the shared launcher then starts the backend, injects the
+		// bootstrap, and navigates (Weavie.Hosting.Web.WebAppLauncher).
 		_bridge.Attach(_webView);
 
 		string indexQuery = _app.Settings.GetBool("diagnostics.startupTiming", false) ? "?startuptiming=1" : string.Empty;
 		var launcher = new WebAppLauncher(this, _core, indexQuery);
 
 #if DEBUG
-		// In Debug the host owns a Vite dev server for hot-module reload. If it can't come up we do NOT silently
-		// serve the (possibly stale) bundled wwwroot — DevWebBringUp renders a loud error page instead, and the
-		// host wires its Retry / Load-stale-bundle links (weavie-dev://) back to it.
+		// In Debug the host owns a Vite dev server for hot-module reload. If it can't come up, DevWebBringUp renders
+		// a loud error page rather than silently serving the (possibly stale) bundle; its Retry / Load-stale-bundle
+		// links (weavie-dev://) route back here.
 		_devBringUp = new DevWebBringUp(
 			launcher, this,
 			DevWebRoot.Resolve(System.Reflection.Assembly.GetExecutingAssembly()),
@@ -78,8 +78,8 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		ScheduleSnapshotIfRequested();
 	}
 
-	// IWebSurface — the native WebView2 operations the shared web bring-up drives. Each marshals onto the UI
-	// thread (WebView2 calls are UI-thread-affine), so the shared flow in Weavie.Hosting.Web stays thread-agnostic.
+	// IWebSurface — the native WebView2 ops the shared bring-up drives. Each marshals onto the UI thread (WebView2
+	// calls are UI-thread-affine), so the shared flow in Weavie.Hosting.Web stays thread-agnostic.
 	void IWebSurface.Navigate(string url) =>
 		_dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url));
 
@@ -153,9 +153,8 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		await _devBringUp.LoadBundleAsync();
 	}
 
-	// Recover when a navigation to the Vite dev origin fails because the server is unreachable (e.g. a hard
-	// reload after the dev server died). Revive it (same origin, backend still valid) and reload; if it can't
-	// come back, load the always-mapped bundle and log loudly. Only wired in Debug.
+	// Recover when navigation to the Vite dev origin fails because the server is unreachable (e.g. a hard reload
+	// after it died): revive it and reload, else fall back to the always-mapped bundle. Only wired in Debug.
 	private async void OnNavigationCompleted(object? sender, CoreWebView2NavigationCompletedEventArgs e) {
 		if (e.IsSuccess) {
 			_devRecoveryAttempts = 0; // a good load ends the burst; the next failure starts fresh

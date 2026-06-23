@@ -2,7 +2,7 @@ namespace Weavie.Core.Processes;
 
 /// <summary>
 /// The clock a <see cref="ProcessSupervisor"/> reads time and schedules backoff delays through, so tests can
-/// drive backoff and the crash-loop window deterministically without real waiting.
+/// drive timing deterministically without real waiting.
 /// </summary>
 public interface ISupervisorClock {
 	/// <summary>The current UTC time.</summary>

@@ -1,7 +1,6 @@
 // Applies a color palette to Weavie's chrome via CSS custom properties (spec §6: one of the three
-// live-reapply surfaces, alongside Monaco and xterm). Each VS Code color id becomes a
-// `--weavie-<dotted-key-as-dashes>` variable on :root (e.g. `var(--weavie-statusBar-background)`).
-// Idempotent — safe to call on every override change.
+// live-reapply surfaces). Each VS Code color id becomes a `--weavie-<dotted-key-as-dashes>` var on :root
+// (e.g. `var(--weavie-statusBar-background)`). Idempotent.
 
 /** Sets a `--weavie-*` CSS variable on :root for each color id in `colors`. */
 export function applyColorsToCssVars(colors: Readonly<Record<string, string>>): void {

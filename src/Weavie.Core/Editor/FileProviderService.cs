@@ -3,11 +3,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// Serves the editor's host-backed <c>file://</c> provider: answers correlated
-/// <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c> requests against the session filesystem, scoped to the
-/// workspace. Each method returns ready-to-send reply JSON (built by <see cref="FileProviderProtocol"/>).
-/// Access outside the workspace is refused: a read becomes a clean FileNotFound (the provider falls through),
-/// a write becomes an error the page surfaces.
+/// Serves the editor's host-backed <c>file://</c> provider: answers <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>
+/// against the session filesystem, scoped to the workspace, returning reply JSON from <see cref="FileProviderProtocol"/>.
+/// Out-of-workspace access is refused: a read becomes a clean FileNotFound, a write an error the page surfaces.
 /// </summary>
 public sealed class FileProviderService {
 	private readonly IFileSystem _fileSystem;
@@ -17,10 +15,7 @@ public sealed class FileProviderService {
 	/// <summary>Constrains all access to <paramref name="workspaceRoot"/> and <paramref name="scratchRoot"/>.</summary>
 	/// <param name="fileSystem">The session filesystem the editor reads/writes through.</param>
 	/// <param name="workspaceRoot">The session root; access outside it (and the scratch root) is refused.</param>
-	/// <param name="scratchRoot">
-	/// The workspace's scratch directory (see <see cref="ScratchStore"/>) — a second allowed root, so untitled
-	/// buffers living outside the workspace are still readable/writable.
-	/// </param>
+	/// <param name="scratchRoot">The scratch directory (see <see cref="ScratchStore"/>) — a second allowed root for untitled buffers.</param>
 	public FileProviderService(IFileSystem fileSystem, string workspaceRoot, string scratchRoot) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);

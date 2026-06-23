@@ -8,11 +8,9 @@ import {
   postToBackend,
 } from "../bridge";
 
-// A registered remote agent: a name plus how to reach its runner's control plane (the long-lived daemon on the
-// remote box). The runner mints the actual worker {url, token}, resolved on connect. Persisted HOST-SIDE in
-// ~/.weavie/remote-agents.json — the host owns persistence, the web owns the connections. (It used to live in
-// localStorage, which the Debug dev server's per-launch origin silently orphaned on every restart.) See
-// docs/specs/remote-sessions.md.
+// A registered remote agent: a name plus how to reach its runner's control plane. The runner mints the actual
+// worker {url, token}, resolved on connect. Persisted host-side in ~/.weavie/remote-agents.json (the host owns
+// persistence, the web owns the connections). See docs/specs/remote-sessions.md.
 export interface RemoteAgent {
   name: string;
   url: string; // the runner control-plane base URL (e.g. http://<tailscale-host>:8800)
@@ -39,10 +37,8 @@ export function agentHue(name: string): number {
 }
 
 /**
- * Connect + register a new agent. Validates by connecting first (throws on failure — surfaced in the Add modal,
- * so a bad agent is never persisted), then asks the local host to persist it. The host echoes the updated
- * registry back as a `remote-agents` push, which reconciles the reactive list. Replaces any agent of the same
- * name.
+ * Connect + register a new agent. Validates by connecting first (throws on failure, so a bad agent is never
+ * persisted), then asks the host to persist it; the host echoes the registry back. Replaces a same-named agent.
  */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
   await connectAgent(agent);
@@ -55,27 +51,24 @@ export async function addAgent(agent: RemoteAgent): Promise<void> {
 }
 
 /**
- * Disconnect + forget a registered agent: close its bridge (so its chips leave the rail) and ask the local host
- * to drop it from the registry. The host echoes the updated list, reconciling the reactive set. Safe for an
- * agent that never connected (a down runner at startup) — disconnectBackend is a no-op then.
+ * Disconnect + forget a registered agent: close its bridge and ask the host to drop it from the registry.
+ * Safe for an agent that never connected — disconnectBackend is a no-op then.
  */
 export function removeAgent(name: string): void {
   disconnectBackend(agentBackendId(name));
   postToBackend("local", { type: "remove-remote-agent", name });
 }
 
-// The host pushes the persisted registry on `ready` and after any add/remove (from this or another window). We
-// honor it only from the LOCAL backend — a remote runner pushes its OWN registry, which must not leak in — and
-// reconcile our connections to match. Registered at module load, before main.tsx sends `ready`.
+// Honored only from the LOCAL backend — a remote runner pushes its own registry, which must not leak in. The
+// host pushes on `ready` and after any add/remove. Registered at module load, before main.tsx sends `ready`.
 onSessionMessage((message, backendId) => {
   if (message.type === "remote-agents" && backendId === "local") {
     reconcile(message.agents);
   }
 });
 
-// Bring the live connections in line with the persisted registry: set the reactive list, connect any agent not
-// yet connected (best-effort; a down runner just logs), and drop any remote backend whose agent is gone (e.g.
-// removed in another window).
+// Bring live connections in line with the persisted registry: connect any agent not yet connected
+// (best-effort; a down runner just logs), and drop any remote backend whose agent is gone.
 function reconcile(list: RemoteAgent[]): void {
   setAgents(list);
   const connected = new Set(connectedBackends().map((b) => b.id));
@@ -94,10 +87,9 @@ function reconcile(list: RemoteAgent[]): void {
   }
 }
 
-// Resolve the agent's worker bridge via the runner control plane, then wire it as a backend. The runner's
-// GET /backend ensures the worker is up and returns its page URL with its token; the bridge WebSocket URL is
-// derived from it. Throws on any failure so callers can decide whether to surface it (add) or swallow it
-// (best-effort reconcile/reconnect).
+// Resolve the agent's worker bridge via the runner control plane (GET /backend ensures the worker is up and
+// returns its page URL + token), then wire it as a backend. Throws on any failure so callers can decide
+// whether to surface it (add) or swallow it (reconcile/reconnect).
 async function connectAgent(agent: RemoteAgent): Promise<void> {
   const base = agent.url.replace(/\/+$/, "");
   let res: Response;

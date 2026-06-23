@@ -1,9 +1,8 @@
 namespace Weavie.Core.Changes;
 
 /// <summary>
-/// Line-level added/removed counts between two texts, via the length of their longest common subsequence of
-/// lines. Line endings are normalized first, so CRLF/LF differences don't register as changes. Used for the
-/// session changes summary; the full visual diff is rendered by the editor's diff view.
+/// Line-level added/removed counts between two texts, via the LCS of their lines. Line endings are normalized
+/// first so CRLF/LF differences don't register as changes.
 /// </summary>
 public static class LineDiff {
 	// Past this (rows × cols) the O(n·m) LCS gets too expensive; fall back to a coarse line-count delta.
@@ -29,11 +28,8 @@ public static class LineDiff {
 	}
 
 	/// <summary>
-	/// The 1-based number of the first line that differs turning <paramref name="before"/> into
-	/// <paramref name="after"/> — a "jump to the edit" target. Line endings are normalized first. Returns
-	/// <see langword="null"/> when the two texts are line-for-line identical. For a pure trailing
-	/// insertion/deletion the result is the first added line (or, for a deletion, the last surviving line),
-	/// always clamped into <paramref name="after"/>'s range.
+	/// The 1-based number of the first differing line — a "jump to the edit" target, clamped into
+	/// <paramref name="after"/>'s range. <see langword="null"/> when the texts are line-for-line identical.
 	/// </summary>
 	/// <param name="before">The baseline text (before the edit).</param>
 	/// <param name="after">The current text (after the edit).</param>

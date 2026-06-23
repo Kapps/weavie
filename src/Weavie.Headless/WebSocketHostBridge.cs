@@ -6,12 +6,10 @@ using Weavie.Hosting;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The <see cref="IHostBridge"/> for the headless host: the native shells' JS&lt;-&gt;C# bridge carried over a
-/// WebSocket so an ordinary browser is the client. Outbound <see cref="PostToWeb"/> sends funnel through a
-/// single channel + pump task (WebSocket sends may not overlap); inbound frames are reassembled and raised as
-/// <see cref="MessageReceived"/>. The bridge outlives any one connection, so a refresh just calls
-/// <see cref="ServeAsync"/> again with a fresh socket and the page re-sends <c>ready</c>. Pushes made with no
-/// page connected are dropped (the page re-requests state on <c>ready</c>), never buffered.
+/// The <see cref="IHostBridge"/> for the headless host: the JS&lt;-&gt;C# bridge carried over a WebSocket so an
+/// ordinary browser is the client. Outbound sends funnel through one channel + pump task (WebSocket sends may
+/// not overlap). The bridge outlives any one connection; pushes with no page connected are dropped, never
+/// buffered (the page re-requests state on <c>ready</c>).
 /// </summary>
 internal sealed class WebSocketHostBridge : IHostBridge {
 	private readonly Channel<string> _outbound =

@@ -3,10 +3,8 @@ using System.Net;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The host's listening decision, resolved once from CLI/env. Remote listening is opt-in (<c>--remote</c>) and
-/// the <see cref="Remote"/> case carries a non-null token, so auth keys off the mode, not token presence. Only
-/// <see cref="Remote"/> can bind a network interface and it mandates the token, so an exposed-but-unauthenticated
-/// host is unrepresentable. <see cref="Local"/> binds loopback and needs no auth.
+/// The host's listening decision, resolved once from CLI/env. Only <see cref="Remote"/> binds the network and
+/// it mandates a token, so an exposed-but-unauthenticated host is unrepresentable; auth keys off the mode.
 /// </summary>
 internal abstract record ListenMode {
 	private ListenMode() {
@@ -22,9 +20,8 @@ internal abstract record ListenMode {
 	public string BindAddress => this is Remote remote ? remote.Bind : "127.0.0.1";
 
 	/// <summary>
-	/// Resolves the mode, or <c>(null, error)</c> for an unsafe combination so the caller fails closed. Never
-	/// yields remote without a token, and refuses a network bind unless <c>--remote</c> was given, so "exposed"
-	/// always implies "authenticated."
+	/// Resolves the mode, or <c>(null, error)</c> for an unsafe combination so the caller fails closed —
+	/// "exposed" always implies "authenticated."
 	/// </summary>
 	public static (ListenMode? Mode, string? Error) Resolve(string[] args) {
 		bool remote = HasFlag(args, "--remote")
@@ -39,8 +36,7 @@ internal abstract record ListenMode {
 				: (new Remote(string.IsNullOrEmpty(bind) ? "0.0.0.0" : bind, token), null);
 		}
 
-		// Local mode: refuse anything that would expose the host or imply auth, so a network bind is only
-		// reachable via --remote (which mandates a token).
+		// Local mode refuses anything that would expose the host or imply auth.
 		if (bind is not null && !IsLoopback(bind)) {
 			return (null, $"--bind '{bind}' exposes a network interface and requires --remote (which mandates a token). Refusing.");
 		}

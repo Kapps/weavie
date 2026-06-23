@@ -7,10 +7,9 @@ namespace Weavie.Core.Lsp;
 
 /// <summary>
 /// One live bridge session: a browser-side <see cref="WebSocket"/> (the <c>monaco-languageclient</c>) piped to
-/// a spawned language server's stdio. A dumb proxy — each WebSocket text frame is one JSON-RPC message,
-/// re-framed with <c>Content-Length</c> headers onto the server's stdin, and each <c>Content-Length</c> frame
-/// from stdout is sent back as one WebSocket frame. Server stderr is forwarded to the log. Tearing down either
-/// side tears down the other.
+/// a spawned language server's stdio. A dumb proxy re-framing each WebSocket text frame as a
+/// <c>Content-Length</c>-headed message on stdin and each stdout frame back as a WebSocket frame; stderr goes
+/// to the log. Tearing down either side tears down the other.
 /// </summary>
 internal sealed class LspConnection {
 	private readonly WebSocket _socket;
@@ -31,8 +30,7 @@ internal sealed class LspConnection {
 		using var linked = CancellationTokenSource.CreateLinkedTokenSource(ct);
 		var token = linked.Token;
 
-		// Each pump returns normally on every expected failure, so once one finishes we cancel and the rest
-		// unwind cleanly.
+		// Each pump returns normally on expected failure; once one finishes we cancel and the rest unwind.
 		var pumps = new[] {
 			PumpClientToServerAsync(token),
 			PumpServerToClientAsync(token),
@@ -83,8 +81,8 @@ internal sealed class LspConnection {
 
 	/// <summary>
 	/// Injects a host-originated JSON-RPC notification into the server's stdin (e.g.
-	/// <c>workspace/didChangeWatchedFiles</c>). Shares the stdin write lock with the client pump so frames
-	/// never interleave. Best-effort: no-ops if the server is gone.
+	/// <c>workspace/didChangeWatchedFiles</c>), sharing the client pump's stdin lock so frames never interleave.
+	/// Best-effort: no-ops if the server is gone.
 	/// </summary>
 	/// <param name="method">The notification method name.</param>
 	/// <param name="paramsJson">The pre-serialized JSON for the notification's <c>params</c>.</param>

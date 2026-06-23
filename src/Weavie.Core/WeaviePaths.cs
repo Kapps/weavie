@@ -30,23 +30,20 @@ public static class WeaviePaths {
 	public static string RecentsFile { get; } = Path.Combine(Root, "recents.json");
 
 	/// <summary>
-	/// The Claude session id assigned to each working directory: <c>~/.weavie/claude-sessions.json</c>. Lets a
-	/// reopened session resume its previous Claude conversation. App-global (keyed by directory) so any host
-	/// shares one map. See <see cref="Sessions.ClaudeSessionStore"/>.
+	/// The Claude session id per working directory: <c>~/.weavie/claude-sessions.json</c>, so a reopened session
+	/// resumes its prior conversation. App-global. See <see cref="Sessions.ClaudeSessionStore"/>.
 	/// </summary>
 	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
 
 	/// <summary>
-	/// The registered remote agents (name + runner URL + token): <c>~/.weavie/remote-agents.json</c>. Its own
-	/// file, never settings.toml — it holds bearer tokens, so it stays off the Claude-facing settings surface.
-	/// App-global so every window shares one registry. See <see cref="Remote.RemoteAgentStore"/>.
+	/// The registered remote agents: <c>~/.weavie/remote-agents.json</c>. Its own file, never settings.toml — it
+	/// holds bearer tokens, so it stays off the Claude-facing settings surface. See <see cref="Remote.RemoteAgentStore"/>.
 	/// </summary>
 	public static string RemoteAgentsFile { get; } = Path.Combine(Root, "remote-agents.json");
 
 	/// <summary>
-	/// The session rail's app-global UI state — the last backend a session was created on and the promoted
-	/// remote sessions: <c>~/.weavie/rail-state.json</c>. Its own file, never settings.toml — it's runtime UI
-	/// state, not user-facing config. See <see cref="Sessions.RailStateStore"/>.
+	/// The session rail's app-global UI state (last backend + promoted remote sessions):
+	/// <c>~/.weavie/rail-state.json</c>. Runtime UI state, never settings.toml. See <see cref="Sessions.RailStateStore"/>.
 	/// </summary>
 	public static string RailStateFile { get; } = Path.Combine(Root, "rail-state.json");
 
@@ -76,21 +73,21 @@ public static class WeaviePaths {
 
 	/// <summary>
 	/// A workspace's scratch (untitled-buffer) directory: <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>. New
-	/// files (<c>Ctrl+N</c>) are backed by a temp file here — outside the workspace, so they never reach the
-	/// file tree, the index, git, or Claude — until saved under a real name. See <see cref="Editor.ScratchStore"/>.
+	/// files live here outside the workspace, so they never reach the file tree, index, git, or Claude until
+	/// saved under a real name. See <see cref="Editor.ScratchStore"/>.
 	/// </summary>
 	public static string WorkspaceScratchDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "scratch");
 
 	/// <summary>
 	/// A workspace's per-session git worktrees: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees</c>. Outside the
-	/// repo so worktree directories never appear in the user's project tree, and so cleanup is scoped per workspace.
+	/// repo so they never appear in the project tree and cleanup stays scoped per workspace.
 	/// </summary>
 	public static string WorkspaceWorktreesDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees");
 
 	/// <summary>
 	/// The registry of worktrees Weavie created for a workspace: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees.json</c>.
-	/// The backbone of the "no leaked worktrees" guarantee — reconciled against <c>git worktree list</c> on
-	/// every load. See <see cref="Worktrees.WorktreeRegistry"/>.
+	/// Backbone of the "no leaked worktrees" guarantee, reconciled against <c>git worktree list</c> on every
+	/// load. See <see cref="Worktrees.WorktreeRegistry"/>.
 	/// </summary>
 	public static string WorkspaceWorktreesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees.json");
 
@@ -103,17 +100,15 @@ public static class WeaviePaths {
 
 	/// <summary>
 	/// A workspace's per-session terminal scrollback logs: <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs</c>.
-	/// One capped append log per (worktree, pane) lets a re-attaching client replay a coherent shell screen —
-	/// and a resumed session show the prior process's output faded — instead of a blank pane.
-	/// See <see cref="Terminal.ScrollbackLog"/>.
+	/// One capped append log per (worktree, pane) lets a re-attaching client replay a coherent shell screen
+	/// instead of a blank pane. See <see cref="Terminal.ScrollbackLog"/>.
 	/// </summary>
 	public static string WorkspaceTerminalLogsDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "terminal-logs");
 
 	/// <summary>
 	/// The scrollback log for one session's terminal pane:
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs/&lt;worktreeDigest&gt;-&lt;pane&gt;.log</c>. Keyed by a
-	/// stable digest of the worktree path (not the session's ephemeral id) so the same worktree resumes to
-	/// the same log across reloads.
+	/// stable worktree-path digest (not the session's ephemeral id) so a worktree resumes the same log.
 	/// </summary>
 	/// <param name="id">The workspace whose terminal-logs directory holds the file.</param>
 	/// <param name="worktreeDigest">A stable digest of the session's worktree path (e.g. <see cref="WorkspaceId.ForPath"/>).</param>

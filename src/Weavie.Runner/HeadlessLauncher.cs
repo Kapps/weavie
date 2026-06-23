@@ -6,8 +6,7 @@ namespace Weavie.Runner;
 /// <summary>
 /// Turns a <see cref="WorkspaceBackend"/> into a supervised <c>Weavie.Headless</c> worker process rooted at the
 /// workspace root (worktree mode): a plain OS process whose shared HostCore creates per-session worktrees on
-/// demand. A container mode would be a sibling launcher of the same shape, transparent to the rest of the
-/// runner. See docs/specs/remote-sessions.md.
+/// demand. See docs/specs/remote-sessions.md.
 /// </summary>
 public sealed class HeadlessLauncher {
 	private readonly RunnerOptions _options;
@@ -21,9 +20,8 @@ public sealed class HeadlessLauncher {
 	}
 
 	/// <summary>
-	/// Builds (does not start) a supervisor that keeps a headless worker for <paramref name="backend"/> alive.
-	/// <see cref="RestartPolicy.OnFailure"/>: a crashed worker relaunches with backoff, a clean exit does not.
-	/// Call <see cref="ProcessSupervisor.Start"/> on the result.
+	/// Builds (does not start) a supervisor that keeps a headless worker for <paramref name="backend"/> alive
+	/// under <see cref="RestartPolicy.OnFailure"/>: a crash relaunches with backoff, a clean exit does not.
 	/// </summary>
 	public ProcessSupervisor BuildSupervisor(WorkspaceBackend backend) {
 		ArgumentNullException.ThrowIfNull(backend);

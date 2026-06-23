@@ -1,9 +1,8 @@
 import type { JSX } from "solid-js";
 import { Omnibar } from "./Omnibar";
 
-// The macOS title-bar strip: the "Go to File" omnibar (center) plus the Files view toggle (left). Renders
-// below the native title bar, so it carries only the in-content chrome — no draggable region (the native bar
-// owns window dragging) and no window controls. Gated by the caller on titleBar === "mac".
+// The macOS title-bar strip: omnibar (center) plus Files toggle (left). Renders below the native title bar,
+// so it carries no draggable region or window controls. Gated by the caller on titleBar === "mac".
 export function MacTitleBar(props: {
   files: string[];
   root: string | null;

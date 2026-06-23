@@ -4,10 +4,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Diffs;
 
 /// <summary>
-/// An open <c>openDiff</c> interaction: the original file on the left, an editable proposed document on
-/// the right that the user may further edit before resolving. <see cref="Keep"/> saves and reports
-/// FILE_SAVED; <see cref="Reject"/> discards. Resolves exactly once — the blocking semantics
-/// <c>openDiff</c> expects.
+/// An open <c>openDiff</c> interaction: original on the left, an editable proposed document on the right.
+/// <see cref="Keep"/> saves (FILE_SAVED); <see cref="Reject"/> discards. Resolves exactly once.
 /// </summary>
 public sealed class DiffSession {
 	private DiffSession(DiffProposal proposal, string originalContents, IDocumentModel proposed) {

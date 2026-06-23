@@ -1,12 +1,6 @@
-// Initializes the VSCode services that back Monaco (the services/editor slice of monaco-vscode-api). No
-// container is passed to `initialize`, so no workbench/sidebar/panel is rendered. Runs once before the first
-// editor is created.
-//
-// Service overrides enabled:
-//  - theme + textmate + languages: coloring + semantic-highlighting substrate.
-//  - model + editor: the editor service abstraction (active-editor state + "open this model"). Renders no
-//    layout — it delegates how to show a file to the `openEditor` callback below, so weavie keeps full
-//    control of its editors and file-opening.
+// VSCode services backing Monaco (services/editor slice of monaco-vscode-api). No container is passed to
+// `initialize`, so no workbench/layout renders — the editor-service override delegates file-opening to the
+// `openEditor` callback below, keeping weavie in full control of its editors.
 
 import {
   IInstantiationService,
@@ -23,23 +17,17 @@ import getTextmateServiceOverride from "@codingame/monaco-vscode-textmate-servic
 import getThemeServiceOverride from "@codingame/monaco-vscode-theme-service-override";
 import type * as monaco from "monaco-editor";
 
-// Default VSCode extensions — declarative contributions, no extension-host JS. Each registers a language
-// (file-extension associations) + TextMate grammar, giving an opened file its language id, which drives both
-// syntax highlighting and LSP client selection. These curated packs are the LSP-backed languages and ship
-// full language-configuration (comments/brackets/folding); every other language's highlighting comes from the
-// broad loader below. Keep in sync with LanguageServerCatalog (Core).
-//  - theme-defaults: the built-in Dark+/Light+/Modern color themes (so setTheme has something to load)
-//  - typescript-basics / csharp / go: the TS/TSX, C#, and Go grammars + language configuration
+// Curated LSP-backed languages: each registers a language + TextMate grammar + full language-configuration;
+// theme-defaults ships the built-in color themes. Every other language's highlighting comes from the broad
+// loader below. Keep in sync with LanguageServerCatalog (Core).
 import "@codingame/monaco-vscode-theme-defaults-default-extension";
 import "@codingame/monaco-vscode-typescript-basics-default-extension";
 import "@codingame/monaco-vscode-csharp-default-extension";
 import "@codingame/monaco-vscode-go-default-extension";
 
-// Semantic-highlighting consumer. monaco-languageclient registers a DocumentSemanticTokensProvider, but the
-// editor-side feature that pulls tokens from it and repaints identifiers with the theme's
-// `semanticTokenColors` is normally built by a workbench contribution on `onWillCreateCodeEditor` — an event
-// that never fires for a standalone `monaco.editor.create` editor. So construct it ourselves after
-// initialize() (see doInit); without it the provider is registered but never consumed.
+// Semantic-highlighting consumer. The feature that paints LSP tokens is normally built by a workbench
+// contribution on `onWillCreateCodeEditor`, which never fires for a standalone editor — so we construct it
+// ourselves in doInit(), else the provider is registered but never consumed.
 import { DocumentSemanticTokensFeature } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/semanticTokens/browser/documentSemanticTokens";
 import { currentMonacoTheme, onMonacoThemeChanged } from "../theme";
 import { applyMonacoTheme } from "../theme/monaco-theme";
@@ -47,20 +35,16 @@ import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 import { installHostFileProvider } from "./host-file-provider";
 
 import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
-// Workers. monaco-vscode-api uses a generic editor worker for most services and a dedicated worker for
-// TextMate background tokenization (label "TextMateWorker"). The `monaco-editor` specifier is aliased to
-// @codingame/monaco-vscode-editor-api (see package.json), so this is the vscode editor worker.
+// Generic editor worker for most services; the dedicated TextMate worker (label "TextMateWorker") handles
+// background tokenization. `monaco-editor` is aliased to the vscode editor-api (see package.json).
 import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
 declare global {
   interface Window {
     /**
-     * VSCode-service-layer state that must outlive a Vite hot reload. `initialize()` flips process-global
-     * singletons in monaco-vscode-api that a hot reload never resets, so a module-local guard would reset
-     * while the library's "already initialized" flag would not, and re-init would throw. Keeping the guard on
-     * `window` matches its lifetime to what it guards. `activeEditor` lives here too: the editor-service
-     * `openEditor` closure is captured once at first `initialize()` and never re-registered, so it must read
-     * the current editor from shared state to survive a hot reload swapping the editor.
+     * VSCode-service state kept on `window` so it outlives a Vite hot reload, matching the lifetime of the
+     * process-global singletons `initialize()` flips (a module-local guard would reset and re-init would
+     * throw). `activeEditor` lives here too so the once-captured `openEditor` closure reads the current editor.
      */
     __WEAVIE_EDITOR_SERVICES__?: {
       initPromise?: Promise<void>;
@@ -70,9 +54,8 @@ declare global {
   }
 }
 
-// How weavie opens a file the editor service asked for (go-to-def / peek / references). The editor host
-// registers this so those targets flow through the tab store as a preview open (and reveal the range)
-// instead of a bare setModel, keeping navigation from piling up persistent tabs.
+// Routes editor-service file-opens (go-to-def / peek / references) through the tab store as a preview open,
+// so navigation doesn't pile up persistent tabs. Registered by the editor host.
 export type OpenEditorSink = (uri: monaco.Uri, selection: monaco.IRange | undefined) => void;
 
 /** Registers the sink the editor service routes file-opens through (called once the editor host is up). */
@@ -134,10 +117,8 @@ async function doInit(): Promise<void> {
     },
   };
 
-  // No container argument → services/editor mode (no workbench, no layout control). The file service
-  // override is listed explicitly for a deterministic dependency; it backs `file://` with an empty in-memory
-  // layer that installHostFileProvider() fronts with the real host-backed provider. No autosave to disable:
-  // the EditorAutoSave workbench contribution is never constructed in services/editor mode, so weavie's
+  // No container → services/editor mode (no workbench). The file-service override backs `file://` with an
+  // empty in-memory layer that installHostFileProvider() fronts. No autosave exists in this mode, so weavie's
   // debounced save() is the sole writer.
   await initialize({
     ...getThemeServiceOverride(),
@@ -148,26 +129,23 @@ async function doInit(): Promise<void> {
     ...getFileServiceOverride(),
   });
 
-  // Back the `file://` scheme with the host-backed provider in front of the empty in-memory layer. Must run
-  // after initialize() and before any model resolves. Idempotent across hot reloads.
+  // Front `file://` with the host-backed provider, after initialize() and before any model resolves.
+  // Idempotent across hot reloads.
   installHostFileProvider();
 
-  // Construct the document semantic-tokens feature (see its import note above): it pulls LSP semantic tokens
-  // and repaints them through the active theme. Nothing else instantiates it in our services-only setup. Its
-  // disposables hook the long-lived model/provider services, so it stays alive without us holding it.
+  // Construct the semantic-tokens feature (see its import note); its disposables hook long-lived services, so
+  // it stays alive without us holding it.
   StandaloneServices.get(IInstantiationService).createInstance(DocumentSemanticTokensFeature);
 
-  // Apply Weavie's active theme before any editor exists, so the first paint is the real theme (not a flash
-  // of the default light theme). monaco.editor.defineTheme is a no-op under the theme service override, so
-  // the theme is registered as an extension (see monaco-theme.ts); await it, then subscribe for live changes.
+  // Apply the active theme before any editor exists, so the first paint isn't a flash of the default light
+  // theme. The theme is registered as an extension (see monaco-theme.ts); await it, then track live changes.
   const initialTheme = currentMonacoTheme();
   await applyMonacoTheme(initialTheme.id, initialTheme.theme);
   onMonacoThemeChanged((update) => {
     void applyMonacoTheme(update.id, update.theme);
   });
 
-  // Broad highlighting: register every other language from the tm-grammars catalog. Must run after
-  // initialize() and before any model is created, since Monaco resolves a model's language from its
-  // extension at creation time.
+  // Broad highlighting for every other language. Must run before any model is created, since Monaco resolves
+  // a model's language from its extension at creation time.
   registerBroadGrammars();
 }

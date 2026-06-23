@@ -1,6 +1,5 @@
 // Pure geometry for the layout renderer: turn a layout tree into pane rectangles + splitter handles, and
-// adjust a split's weights when a handle is dragged. Percentages (0-100) throughout so the renderer can
-// position everything absolutely.
+// adjust a split's weights on a handle drag. Percentages (0-100) throughout, for absolute positioning.
 
 import type { LayoutNode, SplitDir } from "./types";
 

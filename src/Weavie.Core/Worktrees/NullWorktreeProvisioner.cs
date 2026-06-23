@@ -1,12 +1,8 @@
 namespace Weavie.Core.Worktrees;
 
-/// <summary>
-/// An <see cref="IWorktreeProvisioner"/> that runs nothing — the required dependency for worktree
-/// managers that have no lifecycle commands to run (tests, headless hosts, not-a-git-repo workspaces),
-/// so callers never have to pass <c>null</c>.
-/// </summary>
+/// <summary>An <see cref="IWorktreeProvisioner"/> that runs nothing, so callers with no lifecycle commands never pass <c>null</c>.</summary>
 public sealed class NullWorktreeProvisioner : IWorktreeProvisioner {
-	/// <summary>The shared instance (the provisioner is stateless).</summary>
+	/// <summary>The shared stateless instance.</summary>
 	public static NullWorktreeProvisioner Instance { get; } = new();
 
 	private NullWorktreeProvisioner() {

@@ -1,14 +1,12 @@
 namespace Weavie.Core.Workspaces;
 
-/// <summary>The outcome of an open request: the workspace's identity + normalized root, and whether a
-/// window for it was already open (so the host focuses the existing one instead of opening another).</summary>
+/// <summary>The outcome of an open request: identity + normalized root, and whether a window was already
+/// open (so the host focuses the existing one instead of opening another).</summary>
 public readonly record struct WorkspaceOpen(WorkspaceId Id, string Root, bool AlreadyOpen);
 
 /// <summary>
-/// App-level workspace orchestration shared by every host: tracks which workspaces are open, decides whether
-/// an open request should focus an existing window or open a new one (dedupe by <see cref="WorkspaceId"/>),
-/// and keeps the <see cref="RecentWorkspaces"/> list current. The hosts own the native windows, menu, and
-/// folder picker; this owns the portable logic.
+/// App-level workspace orchestration shared by every host: tracks open workspaces, dedupes an open request
+/// against an existing window (by <see cref="WorkspaceId"/>), and keeps <see cref="RecentWorkspaces"/> current.
 /// </summary>
 public sealed class WorkspaceManager {
 	private readonly HashSet<WorkspaceId> _open = [];
@@ -34,9 +32,8 @@ public sealed class WorkspaceManager {
 	}
 
 	/// <summary>
-	/// Records a request to open <paramref name="root"/>: normalizes it, bumps it to the front of recents,
-	/// and marks it open. <see cref="WorkspaceOpen.AlreadyOpen"/> is <c>true</c> when a window for it is
-	/// already open — the host should focus that window rather than create a new one.
+	/// Records a request to open <paramref name="root"/>: normalizes it, bumps recents, marks it open.
+	/// <see cref="WorkspaceOpen.AlreadyOpen"/> is <c>true</c> when a window exists — the host should focus it.
 	/// </summary>
 	public WorkspaceOpen Open(string root) {
 		ArgumentException.ThrowIfNullOrEmpty(root);

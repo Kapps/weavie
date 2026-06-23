@@ -1,8 +1,7 @@
 // Theme overrides (spec §6): a sparse, ordered list of declarative ops layered on the active theme's three
-// color tables. The two op kinds compose and apply in order, so "darken all, then set bg pure black"
-// leaves the background pure black. Ordered + declarative gives trivial undo (pop), inspect (list), and
-// survival across theme switches (transforms re-derive; sets re-apply by key). Owns the schema + resolver
-// + color-math; the op list persists in ~/.weavie/theme-overrides.json.
+// color tables. Ops compose and apply in order ("darken all, then set bg pure black" leaves bg black);
+// ordered + declarative gives trivial undo (pop) and survival across theme switches. Owns the schema +
+// resolver; the op list persists in ~/.weavie/theme-overrides.json.
 
 import { type ColorTransform, makeTransform, transformHex } from "./colors";
 import type { SemanticTokenColor, TokenColorRule, VsCodeColorTheme } from "./vscode-theme";
@@ -11,10 +10,8 @@ import type { SemanticTokenColor, TokenColorRule, VsCodeColorTheme } from "./vsc
 export type OverrideTable = "colors" | "tokenColors" | "semanticTokenColors";
 
 /**
- * Directly style one entry. Targets the workbench `colors` table by default (e.g. `editor.background`);
- * with `table` set, a syntax table — a TextMate scope in `tokenColors` or a semantic selector in
- * `semanticTokenColors`. Sets a foreground `value`, a `fontStyle` (syntax tables only), or both; at least
- * one is present. Last write wins.
+ * Directly style one entry in the `colors` table (default) or a syntax table via `table`. Sets a foreground
+ * `value`, a `fontStyle` (syntax tables only), or both; at least one is present. Last write wins.
  */
 export interface SetOp {
   kind: "set";
@@ -53,10 +50,9 @@ export interface ResolvedTheme {
 }
 
 /**
- * Resolves the effective theme: the base theme's three color tables with override ops applied in order.
- * Pure and re-runnable on every change. `set` writes one key in its target table (a `tokenColors` set
- * appends a scope rule that wins by being last); `transform` rewrites every hex across all three tables
- * perceptually (OKLCH), leaving non-hex values and alpha untouched.
+ * Resolves the effective theme: the base's three color tables with override ops applied in order. Pure and
+ * re-runnable. `set` writes one key (a `tokenColors` set appends a last-wins scope rule); `transform`
+ * rewrites every hex perceptually (OKLCH), leaving non-hex values and alpha untouched.
  */
 export function resolveTheme(base: VsCodeColorTheme, ops: readonly OverrideOp[]): ResolvedTheme {
   const colors: Record<string, string> = { ...base.colors };

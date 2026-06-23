@@ -1,23 +1,17 @@
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// A capped, on-disk record of one terminal pane's output, so a client that (re)attaches can replay a coherent
-/// screen instead of a blank pane, and a resumed session can show the previous process's output faded above the
-/// live stream. The shell's analogue to claude's <c>--resume</c>; only the shell pane is logged (claude is a
-/// full-screen TUI that repaints itself).
-///
-/// <para>The log is a single raw-PTY-output byte stream plus an in-memory boundary: the byte offset of the most
-/// recent process (re)start. Bytes before it are previous-process history (rendered faded on replay); bytes
-/// after it are the live process (rendered raw). The boundary is in memory, not a stream sentinel, so it can
-/// never clash with real output or be split by a trim.</para>
-///
-/// <para>File access is serialized by an internal lock, and every operation degrades to a no-op on I/O error
-/// (best-effort: losing scrollback must never break a session). The cap is enforced by trimming the front at a
-/// newline boundary — ANSI escapes never contain <c>\n</c>, so a newline-aligned cut never splits one.</para>
+/// A capped, on-disk record of one shell pane's raw PTY output, so a (re)attaching client can replay a coherent
+/// screen with the previous process's output faded above the live stream — the shell's analogue to claude's
+/// <c>--resume</c>.
+/// <para>An in-memory boundary (the byte offset of the most recent process restart) splits faded history from
+/// live output; keeping it in memory rather than as a stream sentinel means it can never clash with real output
+/// or be split by a trim. Access is lock-serialized and best-effort: every operation degrades to a no-op on I/O
+/// error so losing scrollback never breaks a session. Trimming cuts at a newline boundary, which never splits an
+/// ANSI escape (escapes contain no <c>\n</c>).</para>
 /// </summary>
 public sealed class ScrollbackLog : IDisposable {
 	// Dim-grey SGR wrapping the faded (previous-process) region, plus a separator marking the restart point.
-	// Inner SGR is stripped from the faded text (see SanitizeForFaded) so nothing re-colors it.
 	private static readonly byte[] FadedPrefix = "[90m"u8.ToArray();
 	private static readonly byte[] FadedSuffix = "[0m"u8.ToArray();
 	private static readonly byte[] Separator = "\r\n[90m── session resumed ──[0m\r\n"u8.ToArray();
@@ -29,10 +23,9 @@ public sealed class ScrollbackLog : IDisposable {
 	private bool _disposed;
 
 	/// <summary>
-	/// Opens (or creates) the log at <paramref name="path"/>, capped at <paramref name="capBytes"/>. The
-	/// boundary starts at the existing file length, so any content already on disk is treated as faded history
-	/// until the next <see cref="MarkBoundary"/>. An I/O failure here disables the log (all operations become
-	/// no-ops) rather than throwing — a session must come up even if its scrollback can't be persisted.
+	/// Opens (or creates) the log at <paramref name="path"/>, capped at <paramref name="capBytes"/>; any existing
+	/// content is treated as faded history until the next <see cref="MarkBoundary"/>. An I/O failure here disables
+	/// the log (all operations become no-ops) rather than throwing, so a session always comes up.
 	/// </summary>
 	public ScrollbackLog(string path, int capBytes) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
@@ -83,9 +76,8 @@ public sealed class ScrollbackLog : IDisposable {
 	}
 
 	/// <summary>
-	/// Composes the replay blob for an attaching client: the faded region (sanitized to plain text and
-	/// wrapped in dim grey, with a separator) followed by the live region written raw. Returns an empty
-	/// array when there's nothing to replay (or the log is disabled).
+	/// The replay blob for an attaching client: the faded region (sanitized, dim-grey-wrapped, with a separator)
+	/// followed by the live region raw. Empty when there's nothing to replay or the log is disabled.
 	/// </summary>
 	public byte[] BuildReplay() {
 		lock (_gate) {
@@ -135,10 +127,9 @@ public sealed class ScrollbackLog : IDisposable {
 	}
 
 	/// <summary>
-	/// Strips ANSI escape sequences (CSI, OSC, and other ESC-prefixed forms) and stray control bytes from
-	/// <paramref name="data"/>, keeping printable bytes plus <c>\r</c>/<c>\n</c>/<c>\t</c>. Replayed faded
-	/// history is shown as plain dim text, so old cursor moves / screen clears can't corrupt the current
-	/// screen and old color codes can't override the dim. UTF-8 multibyte sequences are preserved.
+	/// Strips ANSI escapes (CSI, OSC, other ESC forms) and stray control bytes from <paramref name="data"/>,
+	/// keeping printable bytes, <c>\r\n\t</c>, and UTF-8 multibyte. Faded history thus replays as plain dim text
+	/// that can't corrupt the live screen or override the dim color.
 	/// </summary>
 	public static byte[] SanitizeForFaded(ReadOnlySpan<byte> data) {
 		var output = new List<byte>(data.Length);

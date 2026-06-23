@@ -1,21 +1,14 @@
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// Routes an absolute file path to the session that owns it. The page addresses
-/// <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c> by absolute path, and that path uniquely identifies
-/// which session's worktree the file lives in — so the host must route by path, NOT by "whichever
-/// session is active right now". Routing by the active session breaks the instant a switch lands
-/// mid-request (a read for the outgoing session's file is refused by the incoming session's provider,
-/// surfacing as a spurious "Unable to read file"), and silently loses the outgoing session's working-copy
-/// flush (an <c>fs-write</c> that arrives after the swap is refused → lost edits). Pure + Core-tested;
-/// the hosting layer maps the returned index back to its <c>HostSession</c>.
+/// Routes an absolute <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c> path to the session whose worktree owns it.
+/// Route by path, NOT by the active session: a switch landing mid-request would otherwise refuse the outgoing
+/// session's read (spurious "Unable to read file") and drop its post-swap working-copy flush (lost edits).
 /// </summary>
 public static class WorkspacePathRouter {
 	/// <summary>
-	/// The index into <paramref name="roots"/> of the session whose workspace root best (longest matching
-	/// prefix) contains <paramref name="path"/>, or <c>-1</c> when no root contains it. Longest-prefix wins
-	/// so a nested root (were one ever to exist) takes precedence over an ancestor; today's worktrees never
-	/// nest, but ties are resolved deterministically rather than by list order.
+	/// The index into <paramref name="roots"/> whose root longest-prefix-contains <paramref name="path"/>, or
+	/// <c>-1</c> when none does. Longest-prefix wins so a nested root takes precedence, resolving ties deterministically.
 	/// </summary>
 	public static int OwningRootIndex(IReadOnlyList<string> roots, string path) {
 		ArgumentNullException.ThrowIfNull(roots);

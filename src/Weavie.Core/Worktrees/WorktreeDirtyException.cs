@@ -1,9 +1,8 @@
 namespace Weavie.Core.Worktrees;
 
 /// <summary>
-/// Thrown by <see cref="WorktreeManager.RemoveAsync"/> when a worktree has uncommitted changes and
-/// removal was not forced — so the host can warn the user before discarding work rather than silently
-/// destroying it.
+/// Thrown by <see cref="WorktreeManager.RemoveAsync"/> when a worktree has uncommitted changes and removal
+/// was not forced, so the host can warn before discarding work.
 /// </summary>
 public sealed class WorktreeDirtyException : Exception {
 	/// <summary>Creates the exception for the dirty worktree at <paramref name="path"/>.</summary>

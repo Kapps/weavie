@@ -1,14 +1,10 @@
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// The cross-platform half of global hotkeys: it owns <em>which</em> hotkeys exist and what they do, while a
-/// per-OS <see cref="IGlobalHotkeyRegistrar"/> owns the native registration. It reads the
-/// <see cref="ResolvedKeybinding.Global"/> bindings from the <see cref="KeybindingStore"/>, parses each chord,
-/// and hands the set to the registrar — re-applying when the user edits <c>~/.weavie/keybindings.json</c>. On
-/// a press it invokes the bound command through the <see cref="CommandDispatcher"/>, like any other trigger.
-///
-/// Lives at app scope (one per process): a global hotkey isn't tied to any one window. Disposing it detaches
-/// the store subscription and disposes the registrar. See <c>docs/specs/commands.md</c>.
+/// The cross-platform half of global hotkeys: it owns <em>which</em> hotkeys exist, while a per-OS
+/// <see cref="IGlobalHotkeyRegistrar"/> owns native registration. Reads the <see cref="ResolvedKeybinding.Global"/>
+/// bindings, hands the parsed set to the registrar (re-applying on file edits), and on a press invokes the
+/// command via the <see cref="CommandDispatcher"/>. App-scoped (one per process). See <c>docs/specs/commands.md</c>.
 /// </summary>
 public sealed class GlobalHotkeyService : IDisposable {
 	private readonly KeybindingStore _keybindings;

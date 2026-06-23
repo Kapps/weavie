@@ -1,6 +1,5 @@
-// Editor-session shape mirrored from Weavie.Core.Editor as it crosses the bridge (camelCase JSON). Carries
-// no file contents — disk is the source of truth; on restore each file is reopened as a working copy
-// resolved from disk through the host file provider.
+// Editor-session shape mirrored from Weavie.Core.Editor across the bridge (camelCase JSON). Carries no file
+// contents — disk is the source of truth; on restore each file is reopened as a working copy from disk.
 
 // Opaque Monaco view state (scroll + cursor + folding) from editor.saveViewState(); stored and restored
 // verbatim, never interpreted here.

@@ -66,7 +66,6 @@ public static class IdeLockFile {
 				File.Delete(path);
 			}
 		} catch (IOException) {
-			// Best-effort cleanup.
 		}
 	}
 

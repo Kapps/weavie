@@ -44,7 +44,6 @@ public sealed class WorkspaceManager {
 		var id = WorkspaceId.ForPath(full);
 		bool alreadyOpen;
 		lock (_gate) {
-			// HashSet.Add returns false when the id was already present.
 			alreadyOpen = !_open.Add(id);
 		}
 

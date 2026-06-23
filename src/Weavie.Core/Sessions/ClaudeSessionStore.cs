@@ -71,7 +71,6 @@ public sealed class ClaudeSessionStore {
 				return new ClaudeLaunch(entry.Id, Resume: false);
 			}
 
-			// Reattach only if a prior message was adopted; otherwise re-create under the same id.
 			return new ClaudeLaunch(entry.Id, entry.Started);
 		}
 	}

@@ -45,7 +45,7 @@ export function agentHue(name: string): number {
  * name.
  */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
-  await connectAgent(agent); // throws on failure → shown in the modal; a bad agent is never persisted
+  await connectAgent(agent);
   postToBackend("local", {
     type: "add-remote-agent",
     name: agent.name,

@@ -237,6 +237,16 @@ export async function createEditorHost(
       .getModelMarkers({ resource: uri })
       .some((marker) => marker.severity === monaco.MarkerSeverity.Error);
 
+  // Drop a key's pending debounced save and release any error-hold, leaving nothing to fire later.
+  const cancelPendingSave = (key: string): void => {
+    const timer = saveTimers.get(key);
+    if (timer !== undefined) {
+      clearTimeout(timer);
+      saveTimers.delete(key);
+    }
+    holdingSince.delete(key);
+  };
+
   const flushSave = (key: string): void => {
     const timer = saveTimers.get(key);
     if (timer !== undefined) {
@@ -404,12 +414,7 @@ export async function createEditorHost(
     if (discard) {
       // A discarded/converted scratch buffer: drop any pending save instead of flushing — its temp file is
       // being deleted host-side, so a flush would be wasted or re-create the file.
-      const timer = saveTimers.get(key);
-      if (timer !== undefined) {
-        clearTimeout(timer);
-        saveTimers.delete(key);
-      }
-      holdingSince.delete(key);
+      cancelPendingSave(key);
     } else {
       flushSave(key);
     }
@@ -432,12 +437,7 @@ export async function createEditorHost(
   // written yet. No-op when not dirty.
   const flush = async (path: string): Promise<void> => {
     const key = monaco.Uri.file(canonicalFsPath(path)).toString();
-    const timer = saveTimers.get(key);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      saveTimers.delete(key);
-    }
-    holdingSince.delete(key);
+    cancelPendingSave(key);
     const uri = monaco.Uri.parse(key);
     if (!textFileService.isDirty(uri)) {
       return;
@@ -448,13 +448,7 @@ export async function createEditorHost(
   // Cancel a file's pending debounced save. Called before opening the native scratch save dialog so an
   // in-flight autosave can't re-create the temp file after the host has saved + deleted it.
   const cancelSave = (path: string): void => {
-    const key = monaco.Uri.file(canonicalFsPath(path)).toString();
-    const timer = saveTimers.get(key);
-    if (timer !== undefined) {
-      clearTimeout(timer);
-      saveTimers.delete(key);
-    }
-    holdingSince.delete(key);
+    cancelPendingSave(monaco.Uri.file(canonicalFsPath(path)).toString());
   };
 
   const clear = (): void => {

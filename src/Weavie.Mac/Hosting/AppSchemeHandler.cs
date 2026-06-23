@@ -38,7 +38,6 @@ public sealed class AppSchemeHandler : NSObject, IWKUrlSchemeHandler {
 	/// <summary>No-op: reads complete synchronously in <see cref="StartUrlSchemeTask"/>, so there is nothing to cancel.</summary>
 	[Export("webView:stopURLSchemeTask:")]
 	public void StopUrlSchemeTask(WKWebView webView, IWKUrlSchemeTask urlSchemeTask) {
-		// Synchronous file reads complete within StartUrlSchemeTask; nothing to cancel.
 	}
 
 	private static void FailNotFound(IWKUrlSchemeTask task, NSUrl? url) {

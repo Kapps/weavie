@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Diffs;
 using Weavie.Core.Hooks;
 using Xunit;
 
@@ -141,6 +142,62 @@ public sealed class HostCoreSessionRoutingTests {
 		var files = turn!.Value.GetProperty("files");
 		Assert.Equal(1, files.GetArrayLength());
 		Assert.Equal(file, files[0].GetProperty("path").GetString());
+	}
+
+	[Fact]
+	public async Task SwitchBackToBackgroundSessionWithHeldDiff_DoesNotWipeItWithTheReviewReset() {
+		await using var host = await TestHost.StartAsync();
+		var primary = host.Core.ActiveSessionForTest();
+		Assert.NotNull(primary);
+		string primaryId = host.PrimaryId;
+		string file = Path.Combine(host.RepoRoot, "readme.txt"); // exists in the repo
+
+		// Switch focus to a feature session, parking the primary as a BACKGROUND session.
+		var created = await host.CreateSessionAsync("feature");
+		Assert.True(created.Ok, created.Error);
+
+		// The (now background) primary's Claude opens a blocking openDiff (default mode): the muted editor channel
+		// HOLDS it, posting nothing into the foreground feature session.
+		host.Bridge.Clear();
+		_ = primary!.DiffPresenter.PresentDiffAsync(new DiffProposal(file, file, "hello\nworld\n", "readme.txt"), CancellationToken.None);
+		Assert.Empty(host.Bridge.PostedOfType("show-diff")); // held while background
+
+		// Switch back to the primary: the held diff replays on switch-in, and the switch's review-marker reset
+		// (turn-reset → clearAll) must run BEFORE that replay, or it would wipe the just-rendered diff.
+		host.Bridge.Clear();
+		host.Send(Msg(new { type = "switch-session", id = primaryId }));
+
+		var posted = host.Bridge.Posted;
+		int showIndex = IndexOfType(posted, "show-diff");
+		int lastResetIndex = LastIndexOfType(posted, "turn-reset");
+		Assert.True(showIndex >= 0, "the held openDiff should re-render on switch-in");
+		Assert.True(lastResetIndex < showIndex,
+			"the switch's turn-reset must precede the held diff's replay, else clearAll wipes the diff");
+	}
+
+	private static int IndexOfType(IReadOnlyList<string> posted, string type) {
+		for (int i = 0; i < posted.Count; i++) {
+			if (TypeOf(posted[i]) == type) {
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	private static int LastIndexOfType(IReadOnlyList<string> posted, string type) {
+		for (int i = posted.Count - 1; i >= 0; i--) {
+			if (TypeOf(posted[i]) == type) {
+				return i;
+			}
+		}
+
+		return -1;
+	}
+
+	private static string TypeOf(string json) {
+		using var doc = JsonDocument.Parse(json);
+		return doc.RootElement.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
 	}
 
 	[Fact]

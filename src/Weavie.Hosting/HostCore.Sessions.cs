@@ -18,7 +18,7 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Wires a session's command handlers + change/status/diff push subscriptions, gated on
 	/// <see cref="IsActiveSession"/>. State that ACCUMULATES while muted (the review feed) must also be
-	/// re-applied on switch-in (<c>PushReviewStateOnSwitch</c> in <see cref="SwitchToSlot"/>).
+	/// re-applied on switch-in (<c>PushIncomingReviewState</c> in <see cref="SwitchToSlot"/>).
 	/// </summary>
 	private void WireSession(HostSession session) {
 		// Web commands drive the page's SINGLE editor surface, so only the active session may run them — else a
@@ -405,6 +405,10 @@ public sealed partial class HostCore {
 		_sessions?.SetActive(slot);
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 
+		// Tear down the outgoing session's inline review markers BEFORE the rebind + the incoming channel's
+		// held-openDiff replay — the reset's clearAll wipes the whole inline-diff registry, so running it after the
+		// replay would erase a just-rendered background openDiff (it shares that registry).
+		ResetReviewMarkers();
 		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
 		// session's working copies and reopens this one's.
 		PushSessionEditorToWeb(session);
@@ -419,7 +423,7 @@ public sealed partial class HostCore {
 		// Catch the page up on the incoming session's inline turn-review: its muted-while-background diffs (and
 		// the ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
 		// session's walk would linger. Pushed after the status so the web's auto-arm sees the idle state.
-		PushReviewStateOnSwitch();
+		PushIncomingReviewState();
 		// The rail push carries the new active flag, flipping the page to this session's (already-live) terminal
 		// panes. Pushed before focus so the target pane is shown first.
 		PushSessionList();

@@ -218,7 +218,6 @@ export default function App(): JSX.Element {
   // The location to preselect in the New Session prompt: the last-used backend if it's still connected,
   // otherwise local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
   const defaultLocation = (): string => {
-    
     const last = lastLocation();
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };

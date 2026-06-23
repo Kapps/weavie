@@ -51,7 +51,7 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 		// Flags (--mcp-config/--settings/--append-system-prompt-file) and the session-resume args are assembled
 		// once on the request, then folded into the exec string here with each value single-quoted.
 		string args = FormatExecArgs(request.BuildClaudeArguments());
-		return (LoginShellPath.LoginShell(), ["-l", "-i", "-c", $"exec '{claude}'{args}"]);
+		return (LoginShellEnvironment.LoginShell(), ["-l", "-i", "-c", $"exec '{claude}'{args}"]);
 	}
 
 	/// <summary>Folds a resolved arg list into the login-shell exec string: flags as-is, values single-quoted.</summary>
@@ -73,7 +73,7 @@ public sealed class PosixPtyLauncher : IPtyLauncher {
 	/// POSIX login shells (zsh/bash/sh) so rc files load; others (nushell, fish) open with no flags.
 	/// </summary>
 	private static (string Command, IReadOnlyList<string> Arguments) ResolveShell(SettingsStore settings) {
-		string shell = settings.GetString("terminal.shell") ?? LoginShellPath.LoginShell();
+		string shell = settings.GetString("terminal.shell") ?? LoginShellEnvironment.LoginShell();
 		string command = ExecutableFinder.FindOnPath(shell) ?? shell;
 		string name = Path.GetFileNameWithoutExtension(command);
 		IReadOnlyList<string> arguments = name is "zsh" or "bash" or "sh" ? ["-l", "-i"] : [];

@@ -126,10 +126,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
 		_pageOrigin = pageOrigin;
 
-		// A Finder-launched .app inherits launchd's minimal PATH; import the login-shell PATH before anything
-		// spawns so directly-launched children (LSP servers, git) resolve as they would from a terminal. No-op
-		// except on the bundled Mac app.
-		await LoginShellPath.ImportOnceAsync(line => Log($"[path] {line}")).ConfigureAwait(false);
+		// A Finder-launched .app inherits launchd's minimal environment; import the login-shell environment before
+		// anything spawns so directly-launched children (LSP servers, git) resolve executables and SDKs as they
+		// would from a terminal. No-op except on the bundled Mac app.
+		await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
 
 		_bridge.MessageReceived += OnWebMessage;
 

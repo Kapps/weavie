@@ -66,6 +66,7 @@ import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store"
 import type { LayoutNode } from "./layout/types";
 import { rebindLanguageServices } from "./lsp/lsp-client";
 import { Toasts, createToasts } from "./notify/Toasts";
+import { setNotifySink } from "./notify/notify";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
 import { applyChromeTheme } from "./theme";
@@ -154,6 +155,8 @@ export default function App(): JSX.Element {
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
   const { toasts, addToast, dismissToast } = createToasts();
+  // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
+  setNotifySink(addToast);
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
   // close routes through this guard (confirmDiscard below).
   const [confirmReq, setConfirmReq] = createSignal<{

@@ -10,6 +10,7 @@ import { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction } from "vscode-languageclient";
 import { WebSocketMessageReader, WebSocketMessageWriter, toSocket } from "vscode-ws-jsonrpc";
 import { log } from "../bridge";
+import { notify } from "../notify/notify";
 
 /** One language server the host offers: bridge selector id, the languages it serves, and its defaults. */
 export interface WeavieLspServer {
@@ -118,6 +119,10 @@ function hasOpenDocumentFor(server: WeavieLspServer): boolean {
   return monaco.editor.getModels().some((m) => server.languageIds.includes(m.getLanguageId()));
 }
 
+function describeError(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0): void {
   const url = `${config.url}/${server.id}?token=${encodeURIComponent(config.token)}`;
   const webSocket = new WebSocket(url);
@@ -125,18 +130,25 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
   let openedAt = 0;
   // Set on intentional teardown (session switch): the supervised reconnect stands down and a late onopen closes.
   let torn = false;
+  // Set once this attempt's outcome is decided, so a failed start, a closed reader, and a ws error together
+  // schedule at most one reconnect.
+  let handled = false;
   let client: MonacoLanguageClient | undefined;
+  let startPromise: Promise<void> | undefined;
 
-  const teardown = (): void => {
-    torn = true;
-    client?.dispose();
-    try {
-      webSocket.close();
-    } catch {
-      // already closing/closed — nothing to do
+  const disposeClient = (): void => {
+    const c = client;
+    client = undefined;
+    if (c === undefined) {
+      return;
     }
+    // dispose() rejects while the client is still 'starting'; wait for start to settle, then dispose, and
+    // swallow either rejection — we're tearing down regardless. (This is the source of the stray
+    // "Client is not running ... state is: starting" unhandled rejections.)
+    void Promise.allSettled([startPromise])
+      .then(() => c.dispose())
+      .catch(() => {});
   };
-  clients.set(server.id, teardown);
 
   const superviseReconnect = (reason: string): void => {
     // Stand down if this client was torn down, or a switch happened (a newer generation owns the bridge now).
@@ -156,7 +168,16 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
         "error",
         `lsp: ${server.id} gave up after ${MAX_RECONNECT_ATTEMPTS} reconnects (${reason})`,
       );
+      notify(
+        "error",
+        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
+      );
       return;
+    }
+    // First failure of a streak (the initial drop, or one after a healthy session): a self-dismissing warn so
+    // the user sees the hiccup immediately rather than only after the whole backoff budget runs out.
+    if (nextAttempt === 1) {
+      notify("warn", `${server.id} language intelligence interrupted (${reason}); reconnecting…`);
     }
     const delayMs = Math.min(1000 * 2 ** (nextAttempt - 1), 15_000);
     log(
@@ -171,6 +192,33 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
       }
     }, delayMs);
   };
+
+  // One funnel for every failure path — a failed initialize, a dropped connection, a pre-open ws error — so
+  // recovery (and the warn/give-up toasts) runs exactly once per attempt.
+  const fail = (reason: string): void => {
+    if (handled) {
+      return;
+    }
+    handled = true;
+    disposeClient();
+    try {
+      webSocket.close();
+    } catch {
+      // already closing/closed
+    }
+    superviseReconnect(reason);
+  };
+
+  const teardown = (): void => {
+    torn = true;
+    disposeClient();
+    try {
+      webSocket.close();
+    } catch {
+      // already closing/closed — nothing to do
+    }
+  };
+  clients.set(server.id, teardown);
 
   webSocket.onopen = (): void => {
     if (torn || gen !== generation) {
@@ -213,17 +261,19 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
       messageTransports: { reader, writer },
     });
 
-    client.start();
-    log("info", `lsp: ${server.id} client started`);
-    reader.onClose(() => {
-      client?.dispose();
-      superviseReconnect("connection closed");
-    });
+    // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
+    // through the same reconnect/give-up path as a dropped connection instead of leaking an unhandled rejection.
+    startPromise = client.start();
+    startPromise.then(
+      () => log("info", `lsp: ${server.id} client started`),
+      (err: unknown) => fail(`initialize failed: ${describeError(err)}`),
+    );
+    reader.onClose(() => fail("connection closed"));
   };
 
   webSocket.onerror = (): void => {
     if (openedAt === 0) {
-      superviseReconnect("websocket error (is the server installed on PATH?)");
+      fail("websocket error (is the server installed on PATH?)");
     }
   };
 }

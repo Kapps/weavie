@@ -39,7 +39,9 @@ window.addEventListener("error", (e) => {
   });
 });
 window.addEventListener("unhandledrejection", (e) => {
-  postToHost({ type: "log", level: "error", message: `unhandledrejection: ${String(e.reason)}` });
+  const r = e.reason;
+  const message = r instanceof Error ? (r.stack ?? r.message) : String(r);
+  postToHost({ type: "log", level: "error", message: `unhandledrejection: ${message}` });
 });
 
 postToHost({ type: "ready" });

@@ -28,12 +28,13 @@ internal sealed class AppSchemeHandler {
 		WebKit.webkit_web_context_register_uri_scheme(
 			context, "app", Marshal.GetFunctionPointerForDelegate(_onRequest), IntPtr.Zero, IntPtr.Zero);
 
-	// Serves the requested app:// URL via the resolver (which returns a text/plain "Not Found" body on a 404).
+	// WebKitGTK serves in-scheme fetches as same-origin and finish() answers 200, so the resolver's status + CORS
+	// header (an Apple-WebKit workaround) are no-ops here; only the content type is marshaled.
 	private void OnRequest(IntPtr request, IntPtr userData) {
 		IntPtr pathPtr = WebKit.webkit_uri_scheme_request_get_path(request);
 		string requestedPath = Marshal.PtrToStringUTF8(pathPtr) ?? "/"; // owned by the request; do not free.
 		var response = _resolver.Resolve(requestedPath);
-		Serve(request, response.Bytes, response.Mime);
+		Serve(request, response.Bytes, response.ContentType);
 	}
 
 	// Hands WebKit a memory input stream over a native copy of the bytes (freed by the GDestroyNotify

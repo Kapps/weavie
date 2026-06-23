@@ -22,22 +22,15 @@ import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, getCommands, onCommandsChanged } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
+import { activePath, openTabs } from "../editor/session-store";
+import { type FileRow, type ScoredFile, createFileFinder, rankFiles } from "./file-search";
 import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
 
 // Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
 const VIEW_CAP = 300;
 
-interface Row {
-  abs: string;
-  rel: string;
-  leaf: string;
-  dir: string;
-  // Offset of `leaf` within `rel`, mapping fuzzy-match positions (indices into `rel`) onto leaf/dir spans.
-  leafStart: number;
-}
-
-function splitPath(abs: string, root: string): Row {
+function splitPath(abs: string, root: string): FileRow {
   let rel = abs;
   if (root.length > 0 && abs.toLowerCase().startsWith(root.toLowerCase())) {
     rel = abs.slice(root.length).replace(/^[\\/]+/, "");
@@ -68,7 +61,7 @@ interface TreeRow {
 }
 
 // Build a sorted tree (dirs first, then files, alpha) from the rows' relative paths, in one O(n) pass.
-function buildTree(rows: Row[]): TreeNode[] {
+function buildTree(rows: FileRow[]): TreeNode[] {
   const root: TreeNode = { name: "", key: "", isDir: true, children: [] };
   const dirs = new Map<string, TreeNode>([["", root]]);
   for (const row of rows) {
@@ -146,38 +139,35 @@ export function Omnibar(props: {
   const [commandList, setCommandList] = createSignal<CommandInfo[]>(getCommands());
   onCleanup(onCommandsChanged(() => setCommandList(getCommands())));
 
-  const rows = createMemo<Row[]>(() => {
+  const rows = createMemo<FileRow[]>(() => {
     const root = props.root ?? "";
     return props.files.map((abs) => splitPath(abs, root));
   });
+
+  // Most-recent-first paths for the recency tiebreak: the active tab, then the rest of the open tabs.
+  const recent = (): string[] => {
+    const active = activePath();
+    const paths = openTabs().map((tab) => tab.path);
+    return active === null ? paths : [active, ...paths.filter((p) => !samePath(p, active))];
+  };
 
   const commandMode = (): boolean => query().startsWith(">");
   // Empty file query → the tree; with text → the flat ranked list.
   const treeMode = (): boolean => !commandMode() && query().trim().length === 0;
   const searchMode = (): boolean => !commandMode() && query().trim().length > 0;
 
-  // One fzf finder over the file index, rebuilt only when the index changes. Scoring rewards word/segment
-  // and camelCase boundaries, so "FSR" ranks FileStreamReader.
-  const fileFinder = createMemo(
-    () => new Fzf(rows(), { selector: (r) => r.rel, tiebreakers: [byLengthAsc] }),
-  );
-
-  interface Scored {
-    row: Row;
-    positions?: Set<number>;
-  }
+  // One fuzzy finder over the file index, rebuilt only when the index changes.
+  const fileFinder = createMemo(() => createFileFinder(rows()));
 
   // The fuzzy-ranked file matches (search mode only; uncapped, best-first), carrying match positions.
-  const filtered = createMemo<Scored[]>(() => {
+  const filtered = createMemo<ScoredFile[]>(() => {
     if (!searchMode()) {
       return [];
     }
-    return fileFinder()
-      .find(query().trim())
-      .map((r) => ({ row: r.item, positions: r.positions }));
+    return rankFiles(fileFinder(), query().trim(), recent());
   });
 
-  const view = createMemo<Scored[]>(() => filtered().slice(0, VIEW_CAP));
+  const view = createMemo<ScoredFile[]>(() => filtered().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
   const treeNodes = createMemo<TreeNode[]>(() => buildTree(rows()));

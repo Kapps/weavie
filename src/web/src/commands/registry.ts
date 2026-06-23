@@ -2,7 +2,7 @@
 // dispatches (from keybindings, the palette, or the host's run-command). Core commands forward to the host
 // as invoke-command. See docs/specs/commands.md.
 
-import { hostInjected, log, onHostMessage, postToHost } from "../bridge";
+import { hostInjected, log, onHostMessage, postToBackend, postToHost } from "../bridge";
 import type { CommandInfo, ResolvedKeybinding } from "./types";
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
@@ -43,6 +43,17 @@ export function findCommand(id: string): CommandInfo | undefined {
   return commands.find((c) => c.id === id);
 }
 
+// Send a Core command to the host. A `backendId` arg (a rail / cloud-panel op on a specific session) targets
+// that backend so the command runs on the session's owning host; otherwise it goes to the active backend.
+function routeCoreCommand(id: string, args: unknown): void {
+  const backendId = (args as { backendId?: unknown } | undefined)?.backendId;
+  if (typeof backendId === "string" && backendId.length > 0) {
+    postToBackend(backendId, { type: "invoke-command", id, args });
+  } else {
+    postToHost({ type: "invoke-command", id, args });
+  }
+}
+
 /** Subscribe to catalog/keybinding changes; returns an unsubscribe function. */
 export function onCommandsChanged(handler: () => void): () => void {
   changeSubscribers.add(handler);
@@ -60,7 +71,7 @@ export function runForKeybinding(id: string, args: unknown): boolean {
     return false;
   }
   if (command.runsIn === "core") {
-    postToHost({ type: "invoke-command", id, args });
+    routeCoreCommand(id, args);
     return true;
   }
   const handler = handlers.get(id);
@@ -85,7 +96,7 @@ export function dispatchCommand(id: string, args?: unknown): void {
     return;
   }
   if (command.runsIn === "core") {
-    postToHost({ type: "invoke-command", id, args });
+    routeCoreCommand(id, args);
     return;
   }
   const handler = handlers.get(id);

@@ -16,6 +16,7 @@ import {
   activeBackendId,
   connectedBackends,
   onHostMessage,
+  onSessionMessage,
   postToBackend,
   postToHost,
   setActiveBackendId,
@@ -278,18 +279,23 @@ export default function App(): JSX.Element {
   };
 
   // A pending session delete, opened once the host classifies the worktree (session-delete-prompt reply)
-  // and DeleteSessionDialog raises the matching confirm (clean / untracked / modified).
+  // and DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the
+  // owning host, so a remote session deleted from the cloud panel routes its request + confirm back to it.
   const [deleteReq, setDeleteReq] = createSignal<{
     id: string;
     label: string;
     state: DeleteSessionState;
+    backendId: string;
   } | null>(null);
-  // Interactive delete (rail menu / palette): no `id` arg targets the active session. Asks the host to
-  // classify the worktree; the session-delete-prompt reply opens the dialog.
+  // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Asks the
+  // OWNING backend to classify the worktree; its session-delete-prompt reply opens the dialog.
   const promptDeleteSession = (args: unknown): void => {
-    const id = (args as { id?: string } | undefined)?.id ?? sessions().find((s) => s.active)?.id;
+    const a = args as { id?: string; backendId?: string } | undefined;
+    const active = sessions().find((s) => s.active);
+    const id = a?.id ?? active?.id;
+    const backendId = a?.backendId ?? active?.backendId ?? "local";
     if (id !== undefined) {
-      postToHost({ type: "delete-session-request", id });
+      postToBackend(backendId, { type: "delete-session-request", id });
     }
   };
   const confirmDeleteSession = (): void => {
@@ -299,7 +305,11 @@ export default function App(): JSX.Element {
     }
     setDeleteReq(null);
     // A dirty worktree (untracked or modified) needs force, or git refuses the removal.
-    postToHost({ type: "delete-session", id: req.id, force: req.state !== "clean" });
+    postToBackend(req.backendId, {
+      type: "delete-session",
+      id: req.id,
+      force: req.state !== "clean",
+    });
   };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
@@ -479,12 +489,17 @@ export default function App(): JSX.Element {
         }
         setIndexRoot(message.root);
         setFileIndex(message.files);
-      } else if (message.type === "session-delete-prompt") {
-        // The host classified the worktree; open the delete dialog with the matching confirm.
-        setDeleteReq({ id: message.id, label: message.label, state: message.state });
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.
+    });
+
+    // The delete-confirm reply routes cross-backend (so a remote session deleted from the cloud panel
+    // answers even while its backend is in the background); open the dialog tagged with its owning backend.
+    const offDeletePrompt = onSessionMessage((message, backendId) => {
+      if (message.type === "session-delete-prompt") {
+        setDeleteReq({ id: message.id, label: message.label, state: message.state, backendId });
+      }
     });
 
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Core
@@ -625,6 +640,7 @@ export default function App(): JSX.Element {
       }
       document.removeEventListener("focusin", onFocusIn);
       offHost();
+      offDeletePrompt();
       editor.dispose();
     });
   });

@@ -2,7 +2,8 @@ import { For, type JSX, Show, createSignal } from "solid-js";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./ContextMenu";
+import { ContextMenu, type ContextMenuState } from "./ContextMenu";
+import { sessionMenuEntries } from "./session-menu";
 import type { RailSession } from "./session-store";
 
 // A filled cloud silhouette, reused for the remote marker on a promoted chip and the cloud button glyph.
@@ -43,28 +44,9 @@ export function SessionRail(props: {
     return shortcut !== "" ? `${base} (${shortcut})` : base;
   };
 
-  // Right-click menu rows are commands. Local chips get load/unload + delete (the primary checkout has no
-  // worktree, so it opens no menu); a promoted remote offers only "Remove from rail".
+  // Right-click menu rows are commands (see session-menu.ts). Load/unload + delete for any session, plus
+  // "Remove from rail" for a remote; the primary checkout has no worktree, so it opens no menu.
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
-  const menuEntries = (session: RailSession): ContextMenuEntry[] => {
-    if (!session.isLocal) {
-      return [
-        {
-          commandId: CommandIds.removeFromRail,
-          args: { backendId: session.backendId, id: session.id },
-          label: "Remove from rail",
-        },
-      ];
-    }
-    const args = { id: session.id };
-    return [
-      session.loaded
-        ? { commandId: CommandIds.unloadSession, args, label: "Unload session" }
-        : { commandId: CommandIds.loadSession, args, label: "Load session" },
-      { kind: "separator" },
-      { commandId: CommandIds.deleteSessionPrompt, args, label: "Delete…", danger: true },
-    ];
-  };
   const openMenu = (event: MouseEvent, session: RailSession): void => {
     event.preventDefault();
     if (session.isLocal && session.primary) {
@@ -74,7 +56,7 @@ export function SessionRail(props: {
       x: event.clientX,
       y: event.clientY,
       header: session.isLocal ? session.label : `${session.label} @ ${session.locationName}`,
-      entries: menuEntries(session),
+      entries: sessionMenuEntries(session, true),
     });
   };
 

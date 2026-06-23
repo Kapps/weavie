@@ -44,6 +44,12 @@ public static class SessionCommands {
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the active session).</summary>
 	public const string DeleteSessionPrompt = "weavie.session.deletePrompt";
 
+	/// <summary>Disconnects + forgets a registered remote agent by <c>agent</c> (its name); web-handled, no Core handler.</summary>
+	public const string DisconnectRemote = "weavie.session.disconnectRemote";
+
+	/// <summary>Removes a promoted remote session from the rail's working set (args <c>backendId</c>/<c>id</c>); web-handled, no Core handler.</summary>
+	public const string RemoveFromRail = "weavie.session.removeFromRail";
+
 	/// <summary>Registers the session command definitions into <paramref name="registry"/>.</summary>
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -200,6 +206,33 @@ public static class SessionCommands {
 				+ "interactive counterpart of weavie.session.delete.",
 			Aliases = ["delete session", "remove session", "delete worktree"],
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the active session\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DisconnectRemote,
+			Title = "Disconnect Remote Agent",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Disconnect a registered remote agent by 'agent' (its name): close its bridge, drop its "
+				+ "sessions from the rail, and forget it from this client's saved agents. Local sessions are unaffected. "
+				+ "Web-handled (the agent registry is client-side), targeted from the rail's right-click menu.",
+			Aliases = ["disconnect remote agent", "remove remote agent", "forget remote agent", "disconnect agent", "remove agent"],
+			// Target-specific (which agent) with no meaningful no-arg palette row, like the id-targeted session ops.
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"agent\":{\"type\":\"string\",\"description\":\"Name of the registered remote agent to disconnect\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RemoveFromRail,
+			Title = "Remove from Rail",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Remove a promoted remote session (by 'backendId' + 'id') from the rail's working set. The "
+				+ "session keeps running on its remote box and stays available in the cloud panel; this only drops it "
+				+ "from your rail. Web-handled (the working set is client-side).",
+			Aliases = ["remove from rail", "drop from rail", "demote session", "remove remote session from rail"],
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"backendId\":{\"type\":\"string\"},\"id\":{\"type\":\"string\"}}",
 		});
 	}
 

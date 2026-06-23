@@ -14,6 +14,7 @@ import {
   type SessionStatusName,
   type TermSession,
   activeBackendId,
+  connectedBackends,
   onHostMessage,
   postToBackend,
   postToHost,
@@ -23,14 +24,31 @@ import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSes
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
+import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
-import { connectStoredAgents } from "./chrome/remote-agents";
+import {
+  agentBackendId,
+  connectStoredAgents,
+  loadLastLocation,
+  removeAgent,
+  saveLastLocation,
+} from "./chrome/remote-agents";
 // Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
 // rail + active-session status survive HMR, like layout/store and editor/session-store.
-import { type RailSession, claudeStatus, sessions } from "./chrome/session-store";
+import {
+  type RailSession,
+  claudeStatus,
+  demoteSession,
+  isPromoted,
+  promoteSession,
+  railSessions,
+  remoteActivity,
+  remoteAgentRows,
+  sessions,
+} from "./chrome/session-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
@@ -117,6 +135,11 @@ export default function App(): JSX.Element {
   // and the rail session list live in chrome/session-store as HMR-surviving top-level signals.)
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
+  // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
+  const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<{
+    left: number;
+    bottom: number;
+  } | null>(null);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
@@ -182,12 +205,19 @@ export default function App(): JSX.Element {
     postToBackend(session.backendId, { type: "switch-session", id: session.id });
   };
 
+  // The location to preselect in the New Session prompt: the last-used backend if it's still connected,
+  // otherwise local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
+  const defaultLocation = (): string => {
+    const last = loadLastLocation();
+    return connectedBackends().some((b) => b.id === last) ? last : "local";
+  };
+
   // Step the active session to the next/prev LOADED chip on the rail (delta ±1, wraps around). Dormant chips
   // are deliberately skipped — a parked session shouldn't sit in the cycle; reach it by clicking or Switch
   // Session… instead. Returns whether it stepped, so with <2 loaded sessions (nothing to switch to) the
   // keystroke falls through, matching tab next/prev.
   const stepSession = (delta: number): boolean => {
-    const list = sessions().filter((s) => s.loaded);
+    const list = railSessions().filter((s) => s.loaded);
     const current = list.findIndex((s) => s.active);
     if (list.length < 2 || current < 0) {
       return false;
@@ -473,7 +503,7 @@ export default function App(): JSX.Element {
         if (!Number.isFinite(index)) {
           return false;
         }
-        const target = sessions()[index - 1];
+        const target = railSessions()[index - 1];
         if (target === undefined) {
           return false;
         }
@@ -485,6 +515,25 @@ export default function App(): JSX.Element {
       // Interactive delete (rail menu / palette): opens the confirm dialog after the host classifies the
       // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
       registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
+      // Disconnect a remote agent (rail right-click on a remote chip): close its bridge + forget it. The
+      // agent registry is client-side, so this is web-handled. Declines a missing/blank name.
+      registerCommand(CommandIds.disconnectRemoteAgent, (args) => {
+        const name = (args as { agent?: unknown } | undefined)?.agent;
+        if (typeof name !== "string" || name.length === 0) {
+          return false;
+        }
+        removeAgent(name);
+        return true;
+      }),
+      // Remove a promoted remote session from the rail's working set (rail right-click on a remote chip).
+      registerCommand(CommandIds.removeFromRail, (args) => {
+        const a = args as { backendId?: unknown; id?: unknown } | undefined;
+        if (typeof a?.backendId !== "string" || typeof a?.id !== "string") {
+          return false;
+        }
+        demoteSession(a.backendId, a.id);
+        return true;
+      }),
     ];
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
@@ -553,16 +602,27 @@ export default function App(): JSX.Element {
       </Show>
       <div class="app-body">
         <SessionRail
-          sessions={sessions()}
+          sessions={railSessions()}
+          hasRemotes={remoteAgentRows().length > 0}
+          remoteActive={remoteActivity()}
           onSwitch={switchToSession}
           onNew={() => setNewSessionOpen(true)}
+          onToggleRemotes={(rect) =>
+            setRemotePanelAnchor((open) =>
+              open !== null
+                ? null
+                : { left: rect.right + 6, bottom: window.innerHeight - rect.bottom },
+            )
+          }
         />
         <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
       </div>
       <Show when={newSessionOpen()}>
         <NewSessionPrompt
+          initialBackendId={defaultLocation()}
           onCreate={(branch, base, location) => {
             setNewSessionOpen(false);
+            saveLastLocation(location);
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
             // term-ready) wires the panes to it; then create the session there.
             setActiveBackendId(location);
@@ -570,6 +630,7 @@ export default function App(): JSX.Element {
           }}
           onCheckout={(branch, location) => {
             setNewSessionOpen(false);
+            saveLastLocation(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
             setActiveBackendId(location);
             postToBackend(location, { type: "new-session", branch, existing: true });
@@ -579,16 +640,45 @@ export default function App(): JSX.Element {
             setNewSessionOpen(false);
             setRegisterAgentOpen(true);
           }}
+          onDisconnect={(backendId) => {
+            const name = connectedBackends().find((b) => b.id === backendId)?.name;
+            if (name !== undefined) {
+              removeAgent(name);
+            }
+          }}
         />
       </Show>
       <Show when={registerAgentOpen()}>
         <RegisterAgentModal
           onClose={() => setRegisterAgentOpen(false)}
-          onAdded={() => {
+          onAdded={(name) => {
             setRegisterAgentOpen(false);
+            // Preselect the just-added agent as the next prompt's location (it connected before onAdded fired).
+            saveLastLocation(agentBackendId(name));
             setNewSessionOpen(true);
           }}
         />
+      </Show>
+      <Show when={remotePanelAnchor()}>
+        {(anchor) => (
+          <RemoteAgentsPanel
+            agents={remoteAgentRows()}
+            anchor={anchor()}
+            isPromoted={isPromoted}
+            onPick={(session) => {
+              // Pull the picked remote session into the rail and switch to it.
+              promoteSession(session.backendId, session.id);
+              switchToSession(session);
+              setRemotePanelAnchor(null);
+            }}
+            onDisconnect={(name) => removeAgent(name)}
+            onAddRemote={() => {
+              setRemotePanelAnchor(null);
+              setRegisterAgentOpen(true);
+            }}
+            onClose={() => setRemotePanelAnchor(null)}
+          />
+        )}
       </Show>
       <Show when={indexRoot() !== null && !HAS_TITLEBAR}>
         <button type="button" class="browser-toggle" onClick={toggleBrowser}>

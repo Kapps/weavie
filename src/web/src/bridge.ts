@@ -411,9 +411,11 @@ function deliverFromHost(raw: string, backendId: string): void {
 }
 
 // One way to push bytes to a backend. The bridge speaks the same HostBound/WebBound JSON over every
-// transport; only the pipe differs.
+// transport; only the pipe differs. `dispose` tears the pipe down for good (a remote backend the user
+// disconnected) so it stops reconnecting.
 interface BridgeTransport {
   send(json: string): void;
+  dispose(): void;
 }
 
 // The native desktop shells (Win/Mac/Linux) inject `window.webkit.messageHandlers.weavie` and call
@@ -431,6 +433,8 @@ const nativeTransport: BridgeTransport = {
       // Best-effort; never let instrumentation break the app.
     }
   },
+  // The in-process local backend is never disconnected, so tearing it down is a no-op.
+  dispose(): void {},
 };
 
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
@@ -441,6 +445,9 @@ class WebSocketTransport implements BridgeTransport {
   private socket: WebSocket | null = null;
   private readonly outbox: string[] = [];
   private reconnectDelayMs = 500;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // Set once the backend is deliberately disconnected; stops the close→reconnect loop for good.
+  private disposed = false;
 
   constructor(
     private readonly backendId: string,
@@ -460,7 +467,21 @@ class WebSocketTransport implements BridgeTransport {
     this.outbox.push(json);
   }
 
+  /** Disconnect for good: stop reconnecting and close the socket (the user removed this remote backend). */
+  dispose(): void {
+    this.disposed = true;
+    if (this.reconnectTimer !== null) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    this.socket?.close();
+    this.socket = null;
+  }
+
   private connect(): void {
+    if (this.disposed) {
+      return;
+    }
     let socket: WebSocket;
     try {
       socket = new WebSocket(this.url);
@@ -486,7 +507,9 @@ class WebSocketTransport implements BridgeTransport {
     };
     socket.onclose = (): void => {
       this.socket = null;
-      this.scheduleReconnect();
+      if (!this.disposed) {
+        this.scheduleReconnect();
+      }
     };
     socket.onerror = (): void => {
       // onerror is always followed by onclose, which drives the reconnect. Close defensively so a
@@ -498,7 +521,7 @@ class WebSocketTransport implements BridgeTransport {
   private scheduleReconnect(): void {
     const delay = this.reconnectDelayMs;
     this.reconnectDelayMs = Math.min(this.reconnectDelayMs * 2, 10_000);
-    setTimeout(() => this.connect(), delay);
+    this.reconnectTimer = setTimeout(() => this.connect(), delay);
   }
 }
 
@@ -575,6 +598,25 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
   const transport = new WebSocketTransport(id, wsUrl, JSON.stringify({ type: "ready" }));
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
+}
+
+// Drop a remote backend: close its bridge (no reconnect) and remove it from the set, so its chips leave the
+// rail (session-store filters to connected backends). The local backend is never removed. If the page was
+// bound to it, fall back to local. Idempotent — a never-connected agent id is a no-op.
+export function disconnectBackend(id: string): void {
+  if (id === LOCAL_BACKEND_ID) {
+    return;
+  }
+  const backend = backends.get(id);
+  if (backend === undefined) {
+    return;
+  }
+  backend.transport.dispose();
+  backends.delete(id);
+  publishBackends();
+  if (activeBackend() === id) {
+    setActiveBackend(LOCAL_BACKEND_ID);
+  }
 }
 
 /** The connected backends (local + remotes), for the location picker and rail labels. */

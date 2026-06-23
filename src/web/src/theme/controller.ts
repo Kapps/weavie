@@ -153,8 +153,10 @@ export function applyChromeTheme(): void {
   applyColorsToCssVars(slot.resolved.colors);
   deriveChromeVars(slot.resolved.colors);
   // Keep the UA color-scheme in step so native form controls, scrollbars, and the pre-theme flash match
-  // the active polarity.
-  document.documentElement.style.colorScheme = slot.base.type === "light" ? "light" : "dark";
+  // the active polarity; mirror it onto data-theme-type so polarity-specific CSS can target it.
+  const polarity = slot.base.type === "light" ? "light" : "dark";
+  document.documentElement.style.colorScheme = polarity;
+  document.documentElement.dataset.themeType = polarity;
 }
 
 /** Re-themes all three surfaces (chrome + xterm + Monaco) from the current active slot. */

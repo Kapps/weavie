@@ -1,4 +1,5 @@
-/* Left session rail (SessionRail.tsx): one chip per session, status dots, and the remote-location badge. */
+/* Left session rail (SessionRail.tsx): one chip per working-set session, status dots, the remote cloud
+   marker, the cloud button, and the remote-agents panel (RemoteAgentsPanel.tsx). */
 
 /* Left session rail: one chip per session, always present (the "+" is how sessions are discovered).
    A strip in the body row's flow — it takes its own width so the panes start to its right rather than
@@ -123,24 +124,211 @@
   }
 }
 
-/* A remote session's chip carries a small location badge (the agent name) so local vs remote reads at a glance. */
-.session-chip.remote {
-  position: relative;
+/* A promoted remote chip's marker: a small cloud (it says "remote") sitting where the local status dot would,
+   on a dark backing so it reads on any chip colour. It carries the SAME status colours as the dot, but is the
+   agent's identity hue at rest (idle) — so a calm remote shows which box it's on, an active one shows status. */
+.session-chip-cloud {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 13px;
+  height: 13px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  background: var(--bar);
+  color: hsl(var(--agent-hue, 210) 60% 58%);
+}
+.session-chip-cloud svg {
+  width: 11px;
+  height: 11px;
+  display: block;
+}
+.session-chip.status-needsInput .session-chip-cloud {
+  color: var(--warn);
+}
+.session-chip.status-error .session-chip-cloud {
+  color: var(--bad);
+}
+.session-chip.status-working .session-chip-cloud {
+  color: var(--busy);
+  animation: weavie-status-pulse 1.2s ease-in-out infinite;
+}
+.session-chip.status-starting .session-chip-cloud {
+  color: var(--busy);
+  opacity: 0.6;
 }
 
-.session-chip-loc {
+/* The cloud button at the rail bottom opens the remote-agents panel; only present once an agent is registered.
+   A pip flags off-rail remote activity (a remote session mid-turn or awaiting input). */
+.session-rail-cloud {
+  flex: 0 0 auto;
+  position: relative;
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+}
+.session-rail-cloud svg {
+  width: 16px;
+  height: 16px;
+}
+.session-rail-cloud:hover {
+  color: var(--fg);
+  border-color: var(--dim);
+}
+.session-rail-cloud.active::after {
+  content: "";
   position: absolute;
-  bottom: -0.35em;
-  left: 50%;
-  transform: translateX(-50%);
-  max-width: 4.5em;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--busy);
+  border: 1.5px solid var(--bar);
+}
+
+/* The remote-agents panel (RemoteAgentsPanel.tsx): a popover anchored above the cloud button. Lists each agent
+   (connected first, offline faded) and its sessions; clicking a session promotes it into the rail. */
+.remote-panel {
+  position: fixed;
+  z-index: 50;
+  width: 212px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 16px 44px rgba(0, 0, 0, 0.5);
+}
+.remote-panel-head {
+  padding: 2px 4px 8px;
+  color: var(--dim);
+  font: 600 11px var(--ui-font);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.remote-agent {
+  margin-bottom: 7px;
+  padding: 7px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.remote-agent.offline {
+  opacity: 0.5;
+}
+.remote-agent-head {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+.remote-agent-ava {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 5px;
+  background: hsl(var(--chip-hue, 210) 45% 38%);
+  color: #fff;
+  font: 600 8px var(--ui-font);
+}
+.remote-agent-name {
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  padding: 0 0.3em;
-  background: var(--accent);
-  color: var(--bg);
-  border-radius: 6px;
-  font-size: 0.55em;
-  line-height: 1.4;
+  color: var(--fg);
+  font: 600 12px var(--ui-font);
+}
+.remote-agent-state {
+  color: var(--dim);
+  font-size: 10px;
+}
+.remote-agent-x {
+  flex: 0 0 auto;
+  padding: 0 2px;
+  border: 0;
+  background: transparent;
+  color: var(--bad);
+  font-size: 12px;
+  opacity: 0.6;
+  cursor: pointer;
+}
+.remote-agent-x:hover {
+  opacity: 1;
+}
+.remote-agent-sessions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+.remote-session {
+  position: relative;
+  width: 30px;
+  height: 30px;
+  border: 0;
+  border-radius: 8px;
+  background: hsl(var(--chip-hue, 200) 45% 38%);
+  color: #fff;
+  font: 600 11px var(--ui-font);
+  opacity: 0.85;
+  cursor: pointer;
+}
+.remote-session:hover {
+  opacity: 1;
+}
+.remote-session.in-rail {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.remote-session.unloaded {
+  opacity: 0.4;
+}
+.remote-session-mono {
+  pointer-events: none;
+}
+.remote-session-dot {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 8px;
+  height: 8px;
+  border: 1.5px solid var(--bar);
+  border-radius: 50%;
+  background: transparent;
+}
+.remote-session.status-needsInput .remote-session-dot {
+  background: var(--warn);
+}
+.remote-session.status-error .remote-session-dot {
+  background: var(--bad);
+}
+.remote-session.status-working .remote-session-dot {
+  background: var(--busy);
+}
+.remote-panel-add {
+  width: 100%;
+  padding: 5px 4px 2px;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: 600 11.5px var(--ui-font);
+  text-align: left;
+  cursor: pointer;
+}
+.remote-panel-add:hover {
+  text-decoration: underline;
 }

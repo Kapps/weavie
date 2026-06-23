@@ -7,12 +7,15 @@ import { connectedBackends, requestBranches } from "../bridge";
 // create one (Enter = off HEAD, Shift+Enter = off main), or pick an existing branch to check it out. Esc
 // cancels. A remote location runs the worktree on that box and points its session there.
 export function NewSessionPrompt(props: {
+  // The location to preselect (last-used, or a freshly-added agent); the caller passes a connected backend id.
+  initialBackendId: string;
   onCreate: (branch: string, base: "head" | "main", backendId: string) => void;
   onCheckout: (branch: string, backendId: string) => void;
   onCancel: () => void;
   onAddRemote: () => void;
+  onDisconnect: (backendId: string) => void;
 }): JSX.Element {
-  const [backendId, setBackendId] = createSignal("local");
+  const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [branch, setBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
   const [highlight, setHighlight] = createSignal(-1);
@@ -28,6 +31,10 @@ export function NewSessionPrompt(props: {
       }
     });
   });
+
+  // The display name of the currently-picked location ("" for local), for the Disconnect affordance.
+  const selectedRemoteName = (): string =>
+    connectedBackends().find((b) => b.id === backendId() && !b.isLocal)?.name ?? "";
 
   const trimmed = (): string => branch().trim();
   // Existing branches containing the typed text (case-insensitive), minus an exact full match. Capped so a
@@ -97,8 +104,10 @@ export function NewSessionPrompt(props: {
             branch or pick an existing one to check out.
           </div>
           {/* Location: the local/default host or a registered remote agent, which runs the worktree on that
-              box and points Claude/terminal/editor at its filesystem. */}
-          <label class="session-prompt-location">
+              box and points Claude/terminal/editor at its filesystem. A <div> (not <label>) so the Disconnect
+              button doesn't act as a label proxy that refocuses the select. Disconnect is the inverse of "Add
+              remote agent…" and lives here with it; it's shown only when a remote is picked. */}
+          <div class="session-prompt-location">
             <span class="session-prompt-location-label">Location</span>
             <select
               class="session-prompt-select"
@@ -120,7 +129,20 @@ export function NewSessionPrompt(props: {
               </For>
               <option value="__add__">Add remote agent…</option>
             </select>
-          </label>
+            <Show when={selectedRemoteName() !== ""}>
+              <button
+                type="button"
+                class="session-prompt-location-remove"
+                title={`Disconnect ${selectedRemoteName()} — close its bridge and forget this remote agent`}
+                onClick={() => {
+                  props.onDisconnect(backendId());
+                  setBackendId("local");
+                }}
+              >
+                Disconnect
+              </button>
+            </Show>
+          </div>
           <div class="session-prompt-field">
             <input
               class="session-prompt-input"

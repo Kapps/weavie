@@ -90,6 +90,16 @@
   background: rgba(46, 160, 67, 0.16);
 }
 
+/* The same green reads heavier over the light theme's bright canvas, crowding the text — fade both washes
+   further there so the syntax colours stay legible. */
+:root[data-theme-type="light"] .weavie-inline-added {
+  background: rgba(46, 160, 67, 0.06);
+}
+
+:root[data-theme-type="light"] .weavie-inline-added-text {
+  background: rgba(46, 160, 67, 0.1);
+}
+
 /* The user's OWN typing over a changed file — a washed-out green, much fainter than Claude's solid added
    lines, so a person's edits read as theirs (not something to "review/accept" like Claude's changes). */
 .weavie-inline-user {

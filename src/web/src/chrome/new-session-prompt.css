@@ -120,6 +120,31 @@
   border-color: var(--accent);
 }
 
+/* Disconnect the picked remote agent — shown only when a remote location is selected. The inverse of the
+   select's "Add remote agent…"; a quiet danger-tinted button so it reads as destructive but not alarming. */
+.session-prompt-location-remove {
+  flex: 0 0 auto;
+  padding: 0.5em 0.7em;
+  background: transparent;
+  color: var(--danger, #f85149);
+  border: 1px solid color-mix(in srgb, var(--danger, #f85149) 45%, var(--border));
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 0.82em;
+  cursor: pointer;
+  transition: background-color 120ms ease, border-color 120ms ease;
+}
+
+.session-prompt-location-remove:hover {
+  background: color-mix(in srgb, var(--danger, #f85149) 14%, transparent);
+  border-color: var(--danger, #f85149);
+}
+
+.session-prompt-location-remove:focus-visible {
+  outline: 2px solid var(--danger, #f85149);
+  outline-offset: 2px;
+}
+
 .session-prompt-error {
   margin-top: 0.8em;
   color: var(--danger, #f85149);

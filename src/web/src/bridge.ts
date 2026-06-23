@@ -148,6 +148,9 @@ export type HostBoundMessage =
   // Inline diff (acceptEdits mode): undo the whole turn's changes — the host reverts each touched file to its
   // turn baseline on disk and live-refreshes the editor.
   | { type: "undo-turn" }
+  // Inline review: revert ALL of one file's changes back to its turn baseline on disk (the file-scoped
+  // analogue of undo-turn). The host restores the file wholesale and live-refreshes the editor.
+  | { type: "revert-file"; path: string }
   // Inline review (auto-keep modes): revert ONE hunk on disk. The host splices the baseline lines (sourced from
   // its own baseline, never from this message) back over the current lines. Ranges are 1-based, end-exclusive
   // (matching VSCode line ranges); `guardText` is the exact current text of [currentStart, currentEndExclusive)

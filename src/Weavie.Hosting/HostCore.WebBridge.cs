@@ -147,6 +147,9 @@ public sealed partial class HostCore {
 			case "reject-hunk":
 				RejectHunk(root);
 				break;
+			case "revert-file":
+				RevertFile(root);
+				break;
 			case "invoke-command":
 				// A keybinding/palette in the web invoked a Core command — run it on the active session
 				// (fire-and-forget; the web doesn't await a result for its own triggers).
@@ -507,6 +510,35 @@ public sealed partial class HostCore {
 
 			PushAfterRevert(path, outcome);
 			PushTurnChangesToWeb(); // the file may have left the review set
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Reverts every change in ONE file back to its review baseline on disk — the file-scoped analogue of
+	/// <see cref="UndoTurn"/>, sharing <see cref="SessionChangeTracker.RevertFile"/> (so the delete-vs-truncate
+	/// rule is identical). Workspace-guards the path, then refreshes the editor and re-emits the review set so the
+	/// now-clean file leaves the ← / → walk.
+	/// </summary>
+	private void RevertFile(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.GetStringOrEmpty("path");
+		if (string.IsNullOrEmpty(path)) {
+			return;
+		}
+
+		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
+			return;
+		}
+
+		try {
+			PushAfterRevert(path, session.Changes.RevertFile(path));
+			PushTurnChangesToWeb(); // the file has left the review set
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}

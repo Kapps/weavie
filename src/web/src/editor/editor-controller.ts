@@ -45,6 +45,8 @@ export interface EditorControllerDeps {
    * proceed, false to abort. The single guard every close path runs through.
    */
   confirmDiscard: (names: string[]) => Promise<boolean>;
+  /** Confirm a destructive review action (Revert file / Revert all). Resolves true to proceed. */
+  confirm: (options: { title: string; body: string; confirmLabel: string }) => Promise<boolean>;
 }
 
 /**
@@ -69,7 +71,13 @@ export interface InlineDiffActions {
   prevFile(): boolean;
   accept(): boolean;
   reject(): boolean;
+  /** Revert the whole turn (revert all); confirms first. */
   undo(): boolean;
+  /** Keep / revert every change in the active file (applied review); revertFile confirms first. */
+  keepFile(): boolean;
+  revertFile(): boolean;
+  /** Keep the whole accumulated review set (applied review). */
+  keepAll(): boolean;
 }
 
 /**
@@ -513,17 +521,53 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     postToHost({ type: "accept-turn" });
   };
 
-  // Flush the file's pending save (so the host's guard reads current content), then ask the host to revert
-  // just this hunk on disk. The host re-emits the file's diff (or an fs-change removal for a created file
-  // emptied by the revert), which re-renders without the reverted hunk.
-  const revertHunk = (path: string, hunk: HunkRevert): void => {
-    const send = (): void => postToHost({ type: "reject-hunk", path, ...hunk });
+  // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
+  // per-hunk and whole-file reverts go through this so the host never races a debounced write.
+  const afterFlush = (path: string, send: () => void): void => {
     const flushed = host?.flush(path);
     if (flushed === undefined) {
       send();
     } else {
       void flushed.then(send, send);
     }
+  };
+
+  // Ask the host to revert just this hunk on disk. The host re-emits the file's diff (or an fs-change removal
+  // for a created file emptied by the revert), which re-renders without the reverted hunk.
+  const revertHunk = (path: string, hunk: HunkRevert): void => {
+    afterFlush(path, () => postToHost({ type: "reject-hunk", path, ...hunk }));
+  };
+
+  // Revert every change in one file to its turn baseline on disk, after a confirm (the host restores the file
+  // wholesale and re-emits its now-empty diff + the trimmed review set).
+  const revertFile = (path: string): void => {
+    void deps
+      .confirm({
+        title: "Revert file?",
+        body: `Discard all changes to "${basename(path)}" and restore it to before this turn? This can't be undone.`,
+        confirmLabel: "Revert file",
+      })
+      .then((ok) => {
+        if (ok) {
+          afterFlush(path, () => postToHost({ type: "revert-file", path }));
+        }
+      });
+  };
+
+  // Revert the whole turn (revert all), after a confirm — the host reverts every touched file to its baseline.
+  const revertAll = (): void => {
+    const count = reviewFiles.length;
+    void deps
+      .confirm({
+        title: "Revert all changes?",
+        body: `Discard every change from this turn${count > 1 ? ` across ${count} files` : ""}? This can't be undone.`,
+        confirmLabel: "Revert all",
+      })
+      .then((ok) => {
+        if (ok) {
+          postToHost({ type: "undo-turn" });
+        }
+      });
   };
 
   const handleMessage = (message: WebBoundMessage): boolean => {
@@ -619,6 +663,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (message.baseline === message.current) {
           inlineDiff?.clear(message.path);
           commentProse?.refresh();
+            // A revert emptied this file's diff (file-scope, the last hunk, or all-scope). If it's the file
+          // under review and other changed files remain, walk on to the next so the toolbar follows the
+          // review instead of vanishing — the same advance Keep does. (reviewFiles still includes this file;
+          // the host's trimmed turn-changes arrives next.)
+          const active = activePath();
+          if (active !== null && samePath(active, message.path) && reviewFiles.length > 1) {
+            advanceToNextPendingFile(message.path);
+          }
           return true;
         }
         // The toolbar's ← / → file axis: only when more than one file is under review and this file is in the
@@ -633,7 +685,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
                 onNextFile: (): void => {
                   stepReviewFile(1);
                 },
-                fileLabel: message.name,
                 fileIndex: idx + 1,
                 fileCount: reviewFiles.length,
               }
@@ -645,12 +696,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           onKeepHunk: (signature) => markHunkReviewed(message.path, signature),
           isReviewed: (signature) => isHunkReviewed(message.path, signature),
           onRevertHunk: (hunk) => revertHunk(message.path, hunk),
+          onRevertFile: () => revertFile(message.path),
           onKeepAll: () => postToHost({ type: "accept-turn" }),
-          onUndo: () => postToHost({ type: "undo-turn" }),
+          onUndo: revertAll,
           onHunks: (signatures) => {
             fileHunks.set(message.path, signatures);
           },
           onAdvanceFile: () => advanceToNextPendingFile(message.path),
+          // Always present so the stacked toolbar label shows the filename even for a single-file review.
+          fileLabel: message.name,
           ...fileNav,
         });
         // The diff now suspends comment-prose over this model; refresh so any collapsed comment re-expands
@@ -751,6 +805,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       accept: () => inlineDiff?.accept() ?? false,
       reject: () => inlineDiff?.reject() ?? false,
       undo: () => inlineDiff?.undo() ?? false,
+      keepFile: () => inlineDiff?.keepFile() ?? false,
+      revertFile: () => inlineDiff?.revertFile() ?? false,
+      keepAll: () => inlineDiff?.keepAll() ?? false,
     },
     tabs,
     dispose: () => {

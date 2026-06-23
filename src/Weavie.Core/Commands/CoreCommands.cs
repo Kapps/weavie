@@ -50,6 +50,15 @@ public static class CoreCommands {
 	/// <summary>Walks to the previous changed file in the review set; bound to <c>$mod+Left</c>.</summary>
 	public const string ReviewPrevFile = "weavie.review.prevFile";
 
+	/// <summary>Keeps every hunk in the active review file (mark reviewed + advance); bound to <c>$mod+Shift+Enter</c>.</summary>
+	public const string KeepFile = "weavie.review.keepFile";
+
+	/// <summary>Reverts every change in the active review file on disk (confirms first); bound to <c>$mod+Shift+Backspace</c>.</summary>
+	public const string RevertFile = "weavie.review.revertFile";
+
+	/// <summary>Keeps the whole accumulated review set (the cosmetic counterpart to Undo All Changes); palette/Claude only.</summary>
+	public const string KeepAll = "weavie.review.keepAll";
+
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
 
@@ -277,6 +286,38 @@ public static class CoreCommands {
 			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["previous file in review", "previous changed file", "prev review file"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Left" }],
+		});
+
+		// File-scoped review actions (the toolbar's scope picker exposes these alongside the per-hunk Keep/Revert
+		// and whole-set Keep-all / Undo All). Web-handled; like the other review commands they DECLINE when no
+		// review diff is active, so their chords fall through harmlessly outside a review.
+		registry.Register(new CommandDefinition {
+			Id = KeepFile,
+			Title = "Keep File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Keep every change in the active file under review (mark them reviewed) and advance to the next file.",
+			Aliases = ["keep file", "keep this file", "accept file", "keep whole file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RevertFile,
+			Title = "Revert File (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Revert every change in the active file under review back to its turn baseline on disk (confirms first).",
+			Aliases = ["revert file", "revert this file", "discard file", "undo file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = KeepAll,
+			Title = "Keep All Changes (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Keep the whole accumulated review set in one action (the cosmetic counterpart to Undo All Changes).",
+			Aliases = ["keep all", "keep all changes", "accept all", "accept turn", "keep everything"],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab carry the keyboard bindings and are gated to editor focus

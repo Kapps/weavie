@@ -127,6 +127,7 @@
   transform: translateX(-50%);
   z-index: 60;
   display: flex;
+  align-items: center;
   gap: 6px;
   padding: 4px;
   background: var(--bar);
@@ -153,8 +154,7 @@
   border-color: var(--accent);
 }
 
-/* Post-turn review (applied mode): the FILE axis — ← / → step the review set, with a `name (i/N)` position
-   label between them. A subtle right divider sets the file group apart from the hunk arrows / actions. */
+/* Post-turn review (applied mode): the FILE axis — ← / → step the review set. */
 .weavie-inline-toolbar .weavie-inline-file {
   padding: 3px 8px;
   background: transparent;
@@ -165,15 +165,56 @@
   border-color: var(--accent);
 }
 
-.weavie-inline-toolbar .weavie-inline-file-label {
+/* Stacked label: filename over a `file i/N · change j/M` subtitle (the subtitle + dots are live-updated on
+   cursor move). The bar is single-row but taller, so align-items:center keeps the buttons centered on it. */
+.weavie-inline-toolbar .weavie-inline-stack {
   display: inline-flex;
+  flex-direction: column;
   align-items: center;
-  padding: 0 6px 0 4px;
-  margin-right: 2px;
-  border-right: 1px solid var(--border);
-  color: var(--dim);
+  line-height: 1.18;
+  padding: 0 6px;
+}
+
+.weavie-inline-toolbar .weavie-inline-stack-name {
+  color: var(--fg);
   font-size: 12px;
+}
+
+.weavie-inline-toolbar .weavie-inline-stack-sub {
+  color: var(--dim);
+  font-size: 11px;
   white-space: nowrap;
+}
+
+/* Change-position dots: one per hunk (done = passed, on = current, empty = pending); hidden above the cap. */
+.weavie-inline-toolbar .weavie-inline-dots {
+  display: inline-flex;
+  gap: 3px;
+  align-items: center;
+  padding: 0 4px;
+}
+
+.weavie-inline-toolbar .weavie-inline-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--border);
+}
+
+.weavie-inline-toolbar .weavie-inline-dots i.done {
+  background: var(--dim);
+}
+
+.weavie-inline-toolbar .weavie-inline-dots i.on {
+  background: var(--accent);
+}
+
+/* A thin separator between the navigator and the scope picker / actions. */
+.weavie-inline-toolbar .weavie-inline-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px 2px;
+  background: var(--border);
 }
 
 .weavie-inline-toolbar .weavie-inline-accept {
@@ -188,21 +229,68 @@
   color: #ffe8e8;
 }
 
-.weavie-inline-toolbar .weavie-inline-undo {
-  background: var(--bar);
-  color: var(--fg);
+/* Scope picker: a `Scope: <X> ▾` toggle over an "Apply to…" dropdown that sets what Keep/Revert act on. The
+   accent border marks it as the stateful control among the actions. */
+.weavie-inline-toolbar .weavie-inline-scope {
+  position: relative;
+  display: inline-flex;
 }
 
-/* Keep-all (the debt-clearing action): a quiet outline button so it reads as secondary to the per-hunk
-   Keep/Revert, while still being one click to clear the whole accumulated review set. */
-.weavie-inline-toolbar .weavie-inline-keepall {
+.weavie-inline-toolbar .weavie-inline-scope-btn {
   background: transparent;
-  color: var(--dim);
-}
-
-.weavie-inline-toolbar .weavie-inline-keepall:hover {
   border-color: var(--accent);
   color: var(--fg);
+}
+
+.weavie-inline-scope-menu {
+  position: absolute;
+  bottom: calc(100% + 8px);
+  left: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 184px;
+  padding: 5px;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.65);
+}
+
+.weavie-inline-scope-head {
+  padding: 3px 8px 4px;
+  color: var(--dim);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.weavie-inline-scope-menu .weavie-inline-scope-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 10px;
+  border-color: transparent;
+  background: transparent;
+  color: var(--fg);
+  text-align: left;
+}
+
+.weavie-inline-scope-menu .weavie-inline-scope-item:hover {
+  border-color: var(--accent);
+}
+
+.weavie-inline-scope-menu .weavie-inline-scope-item.active {
+  color: var(--accent);
+}
+
+.weavie-inline-scope-count {
+  color: var(--dim);
+  font-size: 11px;
 }
 
 /* A hunk the user has KEPT (marked reviewed) stays visible but de-emphasised, so review progress reads at a

@@ -1,6 +1,5 @@
-// A tiny shared controller so commands can focus the omnibar without prop-threading through TitleBar. The
-// focus-omnibar commands (Go to File / Show All Commands) bump a signal the Omnibar watches to open + focus
-// itself in the requested mode. Module-level singleton: there is one omnibar.
+// Lets commands focus the single omnibar without prop-threading through TitleBar: a signal the Omnibar
+// watches to open + focus itself in the requested mode.
 
 import { createSignal } from "solid-js";
 

@@ -3,11 +3,10 @@ using System.Text.Json.Serialization;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// One declarative theme override op, layered in order over the active theme's color palette. Two kinds
-/// compose freely: a per-key <see cref="ThemeOverrideSet"/> and a whole-palette
-/// <see cref="ThemeOverrideTransform"/>. Serialized with a <c>kind</c> discriminator matching the web
-/// resolver's <c>OverrideOp</c> shape (<c>src/web/src/theme/overrides.ts</c>), so the same JSON both
-/// persists to <c>~/.weavie/theme-overrides.json</c> and ships to the web unchanged.
+/// One declarative theme override op, layered in order over the active palette: a per-key
+/// <see cref="ThemeOverrideSet"/> or whole-palette <see cref="ThemeOverrideTransform"/>. The <c>kind</c>
+/// discriminator matches the web resolver's <c>OverrideOp</c> (<c>src/web/src/theme/overrides.ts</c>), so the
+/// same JSON both persists to <c>~/.weavie/theme-overrides.json</c> and ships to the web unchanged.
 /// </summary>
 [JsonPolymorphic(TypeDiscriminatorPropertyName = "kind")]
 [JsonDerivedType(typeof(ThemeOverrideSet), "set")]
@@ -15,10 +14,9 @@ namespace Weavie.Core.Theming;
 public abstract record ThemeOverrideOp;
 
 /// <summary>
-/// Directly styles one entry. Targets the workbench <c>colors</c> table by default (e.g.
-/// <c>editor.background</c> → <c>#000000</c>), or a syntax table when <see cref="Table"/> is set. Sets a
-/// color (<see cref="Value"/>), a font style (<see cref="FontStyle"/>, syntax tables only), or both; at
-/// least one is present.
+/// Directly styles one entry in the <c>colors</c> table by default, or a syntax table when <see cref="Table"/> is
+/// set. Sets a <see cref="Value"/> color, a <see cref="FontStyle"/> (syntax tables only), or both; at least one
+/// is present.
 /// </summary>
 public sealed record ThemeOverrideSet : ThemeOverrideOp {
 	/// <summary>Target table: <c>colors</c> (default, omitted), <c>tokenColors</c>, or <c>semanticTokenColors</c>.</summary>

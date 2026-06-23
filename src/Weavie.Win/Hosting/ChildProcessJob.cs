@@ -4,13 +4,9 @@ namespace Weavie.Win.Hosting;
 
 /// <summary>
 /// Ties every child process this host spawns (Vite, ConPTY shells, language servers, the embedded <c>claude</c>)
-/// to the host's lifetime via a Windows Job Object with <c>KILL_ON_JOB_CLOSE</c>. Children inherit the job, so
-/// when the host dies by <em>any</em> means — clean exit, debugger Stop, crash — the OS closes the job handle and
-/// terminates everything still inside it.
-///
-/// <para>The OS backstop behind <c>ProcessSupervisor</c>'s graceful teardown: managed cleanup runs only on an
-/// orderly shutdown, so it can't reap children on a hard kill. Best effort — if the job can't be created it logs
-/// loudly and the host still runs, just without the hard-kill safety net.</para>
+/// to the host's lifetime via a Windows Job Object with <c>KILL_ON_JOB_CLOSE</c>: children inherit the job, so
+/// the OS reaps them when the host dies by any means. The OS backstop behind <c>ProcessSupervisor</c>'s graceful
+/// teardown, which can't run on a hard kill. Best effort — if the job can't be created it logs loudly and runs on.
 /// </summary>
 internal static partial class ChildProcessJob {
 	// SetInformationJobObject class for JOBOBJECT_EXTENDED_LIMIT_INFORMATION.
@@ -19,9 +15,8 @@ internal static partial class ChildProcessJob {
 	// JOBOBJECT_BASIC_LIMIT_INFORMATION.LimitFlags: kill every process in the job when its last handle closes.
 	private const uint JobObjectLimitKillOnJobClose = 0x2000;
 
-	// Held for the host's entire lifetime: closing it ourselves would trip KILL_ON_JOB_CLOSE immediately (we're
-	// a member of the job) and take the host down. The OS closes it on process exit, which is exactly when the
-	// surviving children should be reaped.
+	// Held for the host's entire lifetime: closing it ourselves trips KILL_ON_JOB_CLOSE (we're a member) and kills
+	// the host. The OS closes it on process exit — exactly when surviving children should be reaped.
 	private static nint _job;
 
 	/// <summary>Creates the kill-on-close job and assigns the current process to it. Idempotent; call once at
@@ -55,8 +50,8 @@ internal static partial class ChildProcessJob {
 			Marshal.FreeHGlobal(buffer);
 		}
 
-		// Nested jobs are allowed on Windows 8+, so this succeeds even when a debugger has already placed us in
-		// its own job — we nest under it, and our kill-on-close still governs our children.
+		// Nested jobs (Windows 8+) let this succeed even under a debugger's job: we nest, and our kill-on-close
+		// still governs our children.
 		if (!AssignProcessToJobObject(job, GetCurrentProcess())) {
 			Warn("AssignProcessToJobObject", Marshal.GetLastWin32Error());
 			CloseHandle(job);

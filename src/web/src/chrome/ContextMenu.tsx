@@ -3,8 +3,8 @@ import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 
-// One row: a command to dispatch (with optional args), an optional label override (defaults to the command's
-// catalog title), and a danger flag for destructive actions.
+// One row: a command to dispatch, an optional label override (defaults to the command's catalog title), and
+// a danger flag for destructive actions.
 export interface ContextMenuItem {
   kind?: "item";
   commandId: string;
@@ -28,10 +28,9 @@ export interface ContextMenuState {
 }
 
 /**
- * The one command-driven right-click menu for the whole app. Every row dispatches a command (for palette /
- * Claude parity and to advertise its shortcut) rather than each surface hand-rolling a menu. Portaled to
- * <body>, positioned at the cursor, dismissed on outside-click / Escape / blur. Callers build the entries and
- * own the open signal. See docs/specs/commands.md.
+ * The one command-driven right-click menu for the whole app: every row dispatches a command (for palette /
+ * Claude parity and shortcut advertising). Portaled to <body>, positioned at the cursor, dismissed on
+ * outside-click / Escape / blur. Callers build the entries and own the open signal. See docs/specs/commands.md.
  */
 export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void }): JSX.Element {
   const onPointerDown = (event: PointerEvent): void => {
@@ -72,8 +71,7 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
       <div
         class="context-menu"
         ref={(el) => {
-          // Position at the cursor imperatively — the menu mounts fresh on each open, so the ref fires with
-          // the current coords.
+          // Position at the cursor imperatively — the menu mounts fresh on each open.
           el.style.left = `${props.menu.x}px`;
           el.style.top = `${props.menu.y}px`;
         }}

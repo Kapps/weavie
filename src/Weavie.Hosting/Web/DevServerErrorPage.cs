@@ -7,10 +7,9 @@ using System.Text;
 namespace Weavie.Hosting.Web;
 
 /// <summary>
-/// Builds the loud "Vite dev server failed to start" page a host renders into its WebView instead of silently
-/// serving a possibly-stale bundle (a fallback this project forbids). It shows the real failure reason and the
-/// tail of Vite's output, and offers two explicit choices via the <c>weavie-dev://</c> links the host
-/// intercepts (<see cref="DevWebBringUp.RetryUrl"/> / <see cref="DevWebBringUp.BundleUrl"/>).
+/// Builds the loud "Vite dev server failed to start" page a host renders instead of silently serving a stale
+/// bundle. Shows the failure reason + the tail of Vite's output, with retry/accept choices via the
+/// <c>weavie-dev://</c> links the host intercepts (<see cref="DevWebBringUp.RetryUrl"/>/<see cref="DevWebBringUp.BundleUrl"/>).
 /// </summary>
 internal static class DevServerErrorPage {
 	public static string Render(DevServerFailureInfo failure) {

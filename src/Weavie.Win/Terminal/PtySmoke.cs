@@ -4,16 +4,14 @@ using Weavie.Core.Terminal;
 namespace Weavie.Win.Terminal;
 
 /// <summary>
-/// Headless self-check for the ConPTY path (<c>Weavie.Win.exe --pty-smoke</c>): spawns a throwaway
-/// pseudo console, echoes a marker, and confirms it round-trips. Exercises the whole Windows terminal
-/// stack without the WebView2 UI. Diagnostic only.
+/// Headless ConPTY self-check (<c>Weavie.Win.exe --pty-smoke</c>): spawns a throwaway pseudo console, echoes a
+/// marker, and confirms it round-trips — exercising the Windows terminal stack without the UI. Diagnostic only.
 /// </summary>
 internal static class PtySmoke {
 	private const string Marker = "weavie-pty-ok";
 
 	public static int Run() {
-		// Optionally log to a file (WEAVIE_SMOKE_LOG) to keep the smoke's own diagnostics out of the
-		// captured stream when stdout is redirected.
+		// Optionally log to WEAVIE_SMOKE_LOG, keeping the smoke's diagnostics out of a redirected stdout stream.
 		string? logPath = Environment.GetEnvironmentVariable("WEAVIE_SMOKE_LOG");
 		void Log(string line) {
 			if (string.IsNullOrEmpty(logPath)) {

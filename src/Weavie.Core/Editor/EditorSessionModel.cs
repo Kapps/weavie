@@ -4,10 +4,8 @@ using System.Text.Json.Serialization;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// One open editor entry: a file <see cref="Path"/> plus its opaque Monaco <see cref="ViewState"/>
-/// (scroll + cursor + folding, the JSON from <c>editor.saveViewState()</c>). The view state is forwarded
-/// verbatim — Weavie never interprets it, only hands it back to <c>editor.restoreViewState</c>. File contents
-/// are absent: disk is the source of truth and the web reopens each file as a working copy from disk.
+/// One open editor entry: a file <see cref="Path"/> plus its opaque Monaco <see cref="ViewState"/>, forwarded
+/// verbatim. No file contents — disk is the source of truth and the web reopens each file as a working copy.
 /// </summary>
 public sealed record EditorSessionEntry {
 	/// <summary>The native absolute path of the open file.</summary>
@@ -25,8 +23,7 @@ public sealed record EditorSessionEntry {
 	public bool Pinned { get; init; }
 
 	/// <summary>
-	/// A scratch (untitled) buffer backed by a temp file in the workspace scratch dir (see
-	/// <see cref="ScratchStore"/>): shown as "Untitled-N", saving prompts for a real name, closing discards it.
+	/// A scratch (untitled) buffer backed by a temp file in the scratch dir (see <see cref="ScratchStore"/>).
 	/// Round-trips so a restored scratch tab keeps its identity. Omitted from disk when false.
 	/// </summary>
 	[JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingDefault)]
@@ -34,11 +31,9 @@ public sealed record EditorSessionEntry {
 }
 
 /// <summary>
-/// The persisted editor session for one workspace (<c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>):
-/// the list of <see cref="Open"/> files and which one is <see cref="Active"/>. Distinct from
-/// <see cref="ActiveEditor"/>, which tracks the <em>live</em> editor for the MCP server; this persists the
-/// session across launches. Unknown top-level fields round-trip via <see cref="Extra"/>. See
-/// <c>docs/specs/editor-session.md</c>.
+/// The editor session persisted per workspace (<c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>):
+/// <see cref="Open"/> files and which is <see cref="Active"/>. Distinct from <see cref="ActiveEditor"/> (the
+/// <em>live</em> editor for the MCP server). See <c>docs/specs/editor-session.md</c>.
 /// </summary>
 public sealed record EditorSession {
 	/// <summary>The path of the file currently shown in the editor, or <c>null</c> when none is open.</summary>

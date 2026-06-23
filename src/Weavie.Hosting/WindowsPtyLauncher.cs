@@ -4,10 +4,9 @@ using Weavie.Core.Terminal;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The Windows PTY launcher: a <see cref="WindowsConPtyTerminal"/> (ConPTY) backend, claude resolved from the
-/// <c>claude.path</c> setting, and the shell from <c>terminal.shell</c>. ConPTY ignores <c>TERM</c>, so no
-/// colour env is injected. The POSIX sibling is <see cref="PosixPtyLauncher"/>; both live here so every host —
-/// the native Windows shell and the headless worker running on Windows — picks the right one per OS.
+/// The Windows PTY launcher: a <see cref="WindowsConPtyTerminal"/> (ConPTY) backend, with claude/shell resolved
+/// from <c>claude.path</c>/<c>terminal.shell</c>. ConPTY ignores <c>TERM</c>, so no colour env is injected. The
+/// POSIX sibling is <see cref="PosixPtyLauncher"/>.
 /// </summary>
 public sealed class WindowsPtyLauncher : IPtyLauncher {
 	/// <inheritdoc/>

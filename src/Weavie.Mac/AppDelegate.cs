@@ -12,10 +12,8 @@ using WebKit;
 namespace Weavie.Mac;
 
 /// <summary>
-/// The macOS application delegate: a thin shell over <see cref="HostCore"/>. Owns only the native pieces —
-/// the WKWebView host window + <c>app://</c> scheme, the NSMenu, Carbon global hotkeys, native file dialogs,
-/// the main-thread marshal, and window geometry/screenshots — exposed to the shared core through
-/// <see cref="IHostPlatform"/> (in AppDelegate.Platform.cs). Everything else lives in the shared core.
+/// The macOS application delegate: a thin shell over <see cref="HostCore"/>, owning the native pieces (window,
+/// <c>app://</c> scheme, menu, hotkeys, dialogs, main-thread marshal) exposed via <see cref="IHostPlatform"/>.
 /// </summary>
 [Register("AppDelegate")]
 public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
@@ -36,8 +34,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 #endif
 
 	/// <summary>
-	/// Creates the host window and WKWebView, registers the <c>app://</c> scheme handler and <c>weavie</c>
-	/// script-message bridge, builds the shared core, native menu, and global hotkeys, then loads the web app.
+	/// Creates the host window and WKWebView, wires the <c>app://</c> scheme and <c>weavie</c> bridge, builds the
+	/// shared core, native menu, and global hotkeys, then loads the web app.
 	/// </summary>
 	public override void DidFinishLaunching(NSNotification notification) {
 		string resourcePath = NSBundle.MainBundle.ResourcePath
@@ -52,17 +50,15 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 		// Render at the display's full refresh (120Hz) instead of WKWebView's default 60fps pacing.
 		WebKitFeatureFlags.DisablePrefer60Fps(config.Preferences);
 
-		// App-global Core stores + the single workspace this process serves.
 		_services = HostServices.CreateDefault();
 		string workspace = _services.Settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_workspace = workspace;
-		// Record this workspace; the list surfaces in File ▸ Open Recent + the omnibar shell config.
+		// Surfaces in File ▸ Open Recent + the omnibar shell config.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 		_recents.Add(workspace);
 
-		// Native capabilities handed to the core through IHostPlatform: the UI-thread marshal, global hotkeys,
-		// and file dialogs. Created before the core (its constructor reads the dispatcher).
+		// IHostPlatform native capabilities; created before the core, whose constructor reads the dispatcher.
 		_dispatcher = new DelegateUiDispatcher(action => {
 			if (NSThread.IsMain) {
 				action();
@@ -76,7 +72,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 
 		_core = new HostCore(this, _services, workspace);
 
-		// Startup geometry via the shared placement policy (saved-if-valid-and-on-screen, else centered).
+		// Startup geometry via the shared placement policy: saved-if-valid-and-on-screen, else centered.
 		var screens = NSScreen.Screens
 			.Select(s => new PixelRect((int)s.VisibleFrame.X, (int)s.VisibleFrame.Y, (int)s.VisibleFrame.Width, (int)s.VisibleFrame.Height))
 			.ToList();
@@ -113,8 +109,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 		nint screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
 		Console.WriteLine($"[weavie] NSScreen.maximumFramesPerSecond = {screenHz}");
 
-		// Native menu bar: File/View menus plus the standard App/Edit/Window menus. File/View items dispatch the
-		// same Weavie command ids the keyboard + omnibar use; their shortcuts are read from the keybinding store.
+		// File/View items dispatch the same Weavie command ids the keyboard + omnibar use; shortcuts read from
+		// the keybinding store.
 		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build(
 			runCommand: id => _core?.InvokeCommand(id),
 			resolveChord: ResolveChord,
@@ -122,23 +118,21 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 			openRecent: SwitchWorkspace,
 			recents: _recents.Items);
 
-		// Resolve the page origin (Debug: Vite dev server; Release: bundled app:// wwwroot), build the backend,
-		// inject bootstrap globals, and navigate. Fire-and-forget so the readiness poll doesn't block launch.
+		// Fire-and-forget so the readiness poll doesn't block launch.
 		_ = LoadWebAppAsync();
 
 		NSApplication.SharedApplication.Activate();
 
-		// Unattended screenshot: fire from the native run loop (a JS timer throttles when occluded).
-		// Gated on WEAVIE_SHOT_DIR so the shipped app never writes screenshots.
+		// Unattended screenshot, gated on WEAVIE_SHOT_DIR so the shipped app never writes one.
 		if (ScreenshotRequest.FromEnvironment() is { } shot) {
 			NSTimer.CreateScheduledTimer(shot.DelaySeconds, repeats: false, _ => CaptureSnapshot(shot));
 		}
 	}
 
 	/// <summary>
-	/// Brings the app up via the shared <see cref="WebAppLauncher"/> — backend, bootstrap injection, navigation.
-	/// In Debug, <c>DevWebBringUp</c> tries the Vite dev server and renders a loud error page on failure (never a
-	/// silent stale-bundle swap); Release loads the bundled <c>app://</c> assets.
+	/// Brings the app up via the shared <see cref="WebAppLauncher"/>. In Debug, <c>DevWebBringUp</c> tries the Vite
+	/// dev server and renders a loud error page on failure (never a silent stale-bundle swap); Release loads the
+	/// bundled <c>app://</c> assets.
 	/// </summary>
 	private async Task LoadWebAppAsync() {
 		if (_core is null) {
@@ -161,8 +155,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 #endif
 	}
 
-	// IWebSurface — the native WKWebView operations the shared web bring-up drives. Each marshals onto the main
-	// thread (WebKit is main-thread-affine), so the shared flow stays thread-agnostic.
+	// IWebSurface — WKWebView is main-thread-affine, so each op marshals onto the main thread.
 	void IWebSurface.Navigate(string url) =>
 		_dispatcher!.Post(() => _webView?.LoadRequest(new NSUrlRequest(new NSUrl(url))));
 
@@ -222,8 +215,8 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 	}
 
 	/// <summary>
-	/// Toggles Weavie — behind the global hotkey and <c>weavie.window.toggle</c>. When active, hide it (focus
-	/// returns to the previous app); otherwise activate + raise it. Must run on the main thread.
+	/// Toggles Weavie (global hotkey / <c>weavie.window.toggle</c>): hide if active, else activate + raise.
+	/// Must run on the main thread.
 	/// </summary>
 	private void ToggleWindow() {
 		var app = NSApplication.SharedApplication;

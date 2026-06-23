@@ -1,9 +1,8 @@
 namespace Weavie.Core.Worktrees;
 
 /// <summary>
-/// The outcome of a <see cref="WorktreeManager.ReconcileAsync"/> pass: how many orphaned registry rows
-/// were pruned, how many worktrees git reports that Weavie did not create, and the resulting statuses.
-/// Reconcile only fixes bookkeeping — it never removes a worktree that still exists.
+/// The outcome of a <see cref="WorktreeManager.ReconcileAsync"/> pass: orphaned rows pruned, untracked
+/// worktrees git reports, and the resulting statuses. Reconcile fixes bookkeeping only, never removing a live worktree.
 /// </summary>
 public sealed record WorktreeReconcileReport {
 	/// <summary>Registry rows dropped because their worktree no longer exists in git.</summary>

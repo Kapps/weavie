@@ -4,11 +4,9 @@
 namespace Weavie.Hosting.Web;
 
 /// <summary>
-/// The shared Debug bring-up: try the Vite dev server and, on success, launch the app against it; on failure
-/// render the loud error page (never a silent stale-bundle swap) and let the developer retry or explicitly
-/// accept the bundle. One implementation for every desktop host — the host supplies only the native WebView ops
-/// (<see cref="IWebSurface"/>) and wires the error page's <c>weavie-dev://</c> links back to
-/// <see cref="RunAsync"/> / <see cref="LoadBundleAsync"/>.
+/// The shared Debug bring-up: try the Vite dev server and launch the app against it, else render the loud error
+/// page (never a silent stale-bundle swap) for the developer to retry or accept the bundle. One implementation
+/// for every host; the host supplies only the native WebView ops (<see cref="IWebSurface"/>).
 /// </summary>
 public sealed class DevWebBringUp : IDisposable {
 	/// <summary>Link the error page's Retry button navigates to; the host intercepts (and cancels) it.</summary>
@@ -39,8 +37,8 @@ public sealed class DevWebBringUp : IDisposable {
 	}
 
 	/// <summary>
-	/// Tries to (re)start the dev server. On success, brings the app up against it and returns the dev origin;
-	/// on failure, renders the loud error page and returns <c>null</c>. Used for the initial attempt and Retry.
+	/// (Re)starts the dev server: on success brings the app up and returns the dev origin, on failure renders the
+	/// loud error page and returns <c>null</c>. The initial attempt and Retry.
 	/// </summary>
 	public async Task<string?> RunAsync() {
 		string? origin = await _devServer.StartAsync().ConfigureAwait(false);

@@ -5,11 +5,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Per-theme color overrides, persisted to <c>~/.weavie/theme-overrides.json</c> as its own document,
-/// separate from <c>settings.toml</c>. Keyed by theme id, so overrides stay with their theme across
-/// switches; each theme's ops are an ordered list applied at resolve time, so undo is "pop the last op".
-/// Persistence mirrors <see cref="Weavie.Core.Workspaces.RecentWorkspaces"/>: atomic writes, and a
-/// malformed file is backed up to <c>theme-overrides.json.bad</c> and reset rather than thrown.
+/// Per-theme color overrides, persisted to <c>~/.weavie/theme-overrides.json</c> keyed by theme id, so overrides
+/// stay with their theme across switches; each theme's ops are an ordered list applied at resolve time (undo =
+/// pop the last). Writes are atomic; a malformed file is backed up to <c>theme-overrides.json.bad</c> and reset.
 /// </summary>
 public sealed class ThemeOverridesStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() {

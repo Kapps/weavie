@@ -32,11 +32,10 @@ public sealed class LayoutValidationException : Exception {
 }
 
 /// <summary>
-/// Loads, reconciles, persists, and broadcasts the window-layout document at <c>~/.weavie/layout.json</c>.
-/// The single entry point all three writers go through: the user (web) and Claude (MCP) via
-/// <see cref="SetPanes"/> / <see cref="DismissPane"/>, and the host via <see cref="SetWindow"/>. Pane edits
-/// run through <see cref="LayoutReconciler"/>; window-geometry edits are host-only and don't notify the web.
-/// Writes are atomic; a malformed file is backed up to <c>layout.json.bad</c> and reset to the default. See
+/// Loads, reconciles, persists, and broadcasts the window-layout document at <c>~/.weavie/layout.json</c> —
+/// the single entry point for all writers: user/Claude pane edits (<see cref="SetPanes"/>,
+/// <see cref="DismissPane"/>, reconciled and web-notified) and host-only window geometry (<see cref="SetWindow"/>,
+/// not notified). Writes are atomic; a malformed file is backed up to <c>layout.json.bad</c> and reset. See
 /// <c>docs/specs/layout.md</c>.
 /// </summary>
 public sealed class LayoutStore {

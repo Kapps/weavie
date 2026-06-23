@@ -1,16 +1,14 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Resolves an executable by name against <c>PATH</c>, cross-platform. On Windows it honors <c>PATHEXT</c> (so
-/// <c>"pwsh"</c> resolves to <c>pwsh.exe</c>, <c>"claude"</c> to <c>claude.cmd</c>, etc.); on Unix it matches
-/// the name verbatim. Backs both the registered settings' defaults/validators and the controllers' launch
-/// resolution.
+/// Resolves an executable by name against <c>PATH</c>, cross-platform. Windows honors <c>PATHEXT</c> (so
+/// <c>"pwsh"</c> resolves to <c>pwsh.exe</c>); Unix matches the name verbatim.
 /// </summary>
 public static class ExecutableFinder {
 	/// <summary>
-	/// Returns the full path to <paramref name="name"/> if it is an existing file or is found on
-	/// <c>PATH</c>, else <c>null</c>. An absolute or directory-qualified name is checked directly
-	/// (with Windows extension probing); a bare name is searched across every <c>PATH</c> entry.
+	/// Returns the full path to <paramref name="name"/> if it exists or is found on <c>PATH</c>, else
+	/// <c>null</c>. A qualified name is checked directly (with Windows extension probing); a bare name searches
+	/// every <c>PATH</c> entry.
 	/// </summary>
 	public static string? FindOnPath(string name) {
 		ArgumentException.ThrowIfNullOrEmpty(name);

@@ -2,8 +2,7 @@ namespace Weavie.Core.Worktrees;
 
 /// <summary>
 /// The reconciled state of one worktree: what git reports cross-checked against the
-/// <see cref="WorktreeRegistry"/>. Surfacing every worktree — managed, primary, orphaned, or
-/// externally-created — is what keeps worktrees from leaking unnoticed.
+/// <see cref="WorktreeRegistry"/>, so no worktree leaks unnoticed.
 /// </summary>
 public sealed record WorktreeStatus {
 	/// <summary>Absolute path to the worktree's working directory.</summary>

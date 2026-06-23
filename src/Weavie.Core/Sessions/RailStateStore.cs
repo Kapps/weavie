@@ -5,13 +5,10 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The session rail's app-global UI state, persisted to <c>~/.weavie/rail-state.json</c>: the backend id the
-/// last session was created on (<see cref="LastLocation"/>, defaults to <c>local</c>) and the keys of the
-/// remote sessions promoted into the rail's working set (<see cref="Promoted"/>, each <c>"backendId id"</c>).
-/// Its own file, never settings.toml — it's runtime UI state the host owns on the web's behalf, not
-/// user-facing config (so it stays off the Claude-facing settings surface). Replaces the web's former
-/// <c>localStorage</c> copies, which the Debug dev server's per-launch origin silently orphaned on restart.
-/// Atomic writes; a malformed file is backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
+/// The session rail's app-global UI state (<see cref="LastLocation"/> and <see cref="Promoted"/>), persisted
+/// atomically to <c>~/.weavie/rail-state.json</c>. Its own file, never settings.toml — it's runtime UI state
+/// the host owns on the web's behalf, so it stays off the Claude-facing settings surface. A malformed file is
+/// backed up to <c>rail-state.json.bad</c> and reset rather than throwing.
 /// </summary>
 public sealed class RailStateStore {
 	private const string DefaultLocation = "local";

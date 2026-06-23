@@ -9,10 +9,7 @@ public enum WorktreeCommandPhase {
 	Teardown,
 }
 
-/// <summary>
-/// The outcome of running a worktree lifecycle command. <see cref="Ran"/> is false when no command was
-/// configured (the empty default), in which case the phase is a no-op and counts as succeeded.
-/// </summary>
+/// <summary>The outcome of running a worktree lifecycle command; <see cref="Ran"/> is false (a succeeded no-op) when none was configured.</summary>
 public sealed record WorktreeCommandResult {
 	/// <summary>Whether a command was configured and actually executed.</summary>
 	public required bool Ran { get; init; }
@@ -39,10 +36,8 @@ public readonly record struct WorktreeCommandEvent(
 	WorktreeCommandPhase Phase, string Command, string WorktreePath, WorktreeCommandResult? Result);
 
 /// <summary>
-/// Runs the user-configured setup/teardown shell commands around a worktree's lifecycle: setup after a
-/// worktree is created (in the background so the new session isn't blocked) and teardown before one is
-/// discarded (from <see cref="WorktreeManager.RemoveAsync"/>). Implementations are one-shot process helpers,
-/// exempt from <c>ProcessSupervisor</c>, and surface output rather than swallowing it.
+/// Runs the user-configured setup (after create) and teardown (before remove) shell commands around a
+/// worktree's lifecycle. Implementations are one-shot helpers exempt from <c>ProcessSupervisor</c> and surface output rather than swallowing it.
 /// </summary>
 public interface IWorktreeProvisioner {
 	/// <summary>Runs the configured setup command in <paramref name="worktreePath"/>; a no-op when none is set.</summary>

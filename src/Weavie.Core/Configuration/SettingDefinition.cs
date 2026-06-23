@@ -1,10 +1,9 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// The declared type of a setting — the authority for how a raw value (an env-var string or an MCP JSON value)
-/// is parsed, coerced, and normalized. A kind exists only where it carries distinct parse/normalize behavior;
-/// a mere constraint (an allowed set, a range, must-exist-on-disk) is a validator, not a kind. See
-/// <c>docs/specs/settings.md</c> § "Kinds vs constraints".
+/// The declared type of a setting — the authority for how a raw value is parsed, coerced, and normalized. A
+/// kind exists only where it carries distinct parse/normalize behavior; a mere constraint (allowed set, range,
+/// must-exist-on-disk) is a validator. See <c>docs/specs/settings.md</c> § "Kinds vs constraints".
 /// </summary>
 public enum SettingKind {
 	/// <summary>A verbatim text value.</summary>
@@ -21,9 +20,8 @@ public enum SettingKind {
 }
 
 /// <summary>
-/// How a changed value takes effect. Reported to Claude by <c>setSetting</c> and the contract the host's
-/// change-reaction wiring honors. Only <see cref="ReopensTerminal"/> has an active reaction wired; the others
-/// are read fresh when the relevant session next starts.
+/// How a changed value takes effect. Only <see cref="ReopensTerminal"/> has an active reaction wired; the
+/// others are read fresh when the relevant session next starts.
 /// </summary>
 public enum ApplyMode {
 	/// <summary>Observers reflect it immediately; nothing restarts.</summary>
@@ -52,8 +50,8 @@ public enum SettingSource {
 }
 
 /// <summary>
-/// The outcome of an open-ended <see cref="SettingDefinition.Validate"/> check: either valid, or
-/// invalid with a human-readable reason that surfaces to the user via <c>setSetting</c>.
+/// The outcome of an open-ended <see cref="SettingDefinition.Validate"/> check: valid, or invalid with a
+/// human-readable reason that surfaces to the user.
 /// </summary>
 public readonly record struct ValidationResult {
 	private ValidationResult(bool isValid, string? message) {
@@ -76,9 +74,8 @@ public readonly record struct ValidationResult {
 
 /// <summary>
 /// A declared setting: the single source of truth for what exists, its kind, default, documentation,
-/// validation, derived env var, and how a change applies. One declaration drives defaults, the file comment,
-/// env-var overrides, the MCP tool surface, and the natural-language mapping Claude uses. See
-/// <c>docs/specs/settings.md</c>.
+/// validation, derived env var, and how a change applies — driving defaults, the file comment, env-var
+/// overrides, the MCP tool surface, and Claude's NL mapping. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed record SettingDefinition {
 	/// <summary>The dotted key, e.g. <c>terminal.shell</c>. Unique within the registry.</summary>
@@ -94,9 +91,8 @@ public sealed record SettingDefinition {
 	public IReadOnlyList<string> Aliases { get; init; } = [];
 
 	/// <summary>
-	/// A closed set of permitted values for a <see cref="SettingKind.String"/> setting — structured,
-	/// so it is enumerable (JSON Schema <c>enum</c>, auto-validated, introspectable). Use this instead
-	/// of <see cref="Validate"/> whenever the options can be listed.
+	/// A closed set of permitted values for a <see cref="SettingKind.String"/> setting — enumerable and
+	/// auto-validated. Use this instead of <see cref="Validate"/> whenever the options can be listed.
 	/// </summary>
 	public IReadOnlyList<string>? AllowedValues { get; init; }
 
@@ -107,9 +103,8 @@ public sealed record SettingDefinition {
 	public Func<object?>? ComputeDefault { get; init; }
 
 	/// <summary>
-	/// An open-ended validation predicate for checks that cannot be enumerated (e.g. "resolvable on
-	/// PATH"). Receives the coerced value; returns <see cref="ValidationResult"/>. Closed sets belong
-	/// in <see cref="AllowedValues"/> instead.
+	/// An open-ended validation predicate for checks that cannot be enumerated (e.g. "resolvable on PATH").
+	/// Closed sets belong in <see cref="AllowedValues"/> instead.
 	/// </summary>
 	public Func<object?, ValidationResult>? Validate { get; init; }
 
@@ -118,7 +113,7 @@ public sealed record SettingDefinition {
 
 	/// <summary>
 	/// The derived override env var: <c>WEAVIE_</c> + the key uppercased with <c>.</c> → <c>_</c>
-	/// (e.g. <c>terminal.shell</c> → <c>WEAVIE_TERMINAL_SHELL</c>). No per-setting registration needed.
+	/// (e.g. <c>terminal.shell</c> → <c>WEAVIE_TERMINAL_SHELL</c>).
 	/// </summary>
 	public string EnvVar => "WEAVIE_" + Key.ToUpperInvariant().Replace('.', '_');
 }

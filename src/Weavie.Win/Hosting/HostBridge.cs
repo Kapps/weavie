@@ -5,11 +5,9 @@ using Weavie.Hosting;
 namespace Weavie.Win.Hosting;
 
 /// <summary>
-/// The JS &lt;-&gt; C# message bridge over WebView2.
-///   inbound:  JS calls <c>window.chrome.webview.postMessage(json)</c> -&gt; <see cref="MessageReceived"/>.
-///   outbound: <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the UI thread.
-/// Bodies are raw JSON strings; typed dispatch lives on each side. Implements the shared
-/// <see cref="IHostBridge"/> so <c>HostCore</c> and the shared hosting leaf utilities drive it.
+/// The JS &lt;-&gt; C# message bridge over WebView2 (shared <see cref="IHostBridge"/>). Inbound: JS
+/// <c>postMessage(json)</c> -&gt; <see cref="MessageReceived"/>. Outbound: <see cref="PostToWeb"/> evaluates
+/// <c>window.__weavieReceive(json)</c> on the UI thread. Bodies are raw JSON strings.
 /// </summary>
 public sealed class HostBridge : IHostBridge {
 	private WebView2? _webView;
@@ -32,7 +30,7 @@ public sealed class HostBridge : IHostBridge {
 		try {
 			body = e.TryGetWebMessageAsString();
 		} catch (ArgumentException) {
-			// Non-string payload (the shared frontend only ever posts JSON strings, but be defensive).
+			// Non-string payload — defensive; the frontend only ever posts JSON strings.
 			body = e.WebMessageAsJson;
 		}
 

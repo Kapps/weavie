@@ -5,21 +5,18 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// How the next <c>claude</c> launch in a given working directory should be wired: the stable session id
-/// Weavie assigned that directory, and whether to <c>--resume</c> it or create it fresh with
-/// <c>--session-id</c>. <see cref="SessionId"/> is never empty.
+/// How the next <c>claude</c> launch in a working directory should be wired: its stable session id (never
+/// empty) and whether to <c>--resume</c> or create it fresh with <c>--session-id</c>.
 /// </summary>
 /// <param name="SessionId">The UUID Weavie owns for this working directory's Claude conversation.</param>
 /// <param name="Resume">True to reattach (<c>--resume</c>); false to create it (<c>--session-id</c>).</param>
 public readonly record struct ClaudeLaunch(string SessionId, bool Resume);
 
 /// <summary>
-/// Remembers the Claude Code session id Weavie assigned to each working directory, persisted to
-/// <c>~/.weavie/claude-sessions.json</c>, so reopening a Weavie session resumes its previous Claude
-/// conversation instead of cold-starting. Weavie assigns the id (a fresh UUID passed as <c>--session-id</c>
-/// on the first launch) rather than scraping Claude's storage, so resume is deterministic. Keyed by launch
-/// directory (per-session), so parallel sessions each track their own Claude. Atomic writes; a malformed
-/// file is backed up to <c>claude-sessions.json.bad</c> and reset rather than throwing.
+/// Remembers the Claude Code session id Weavie assigned each working directory (keyed by launch directory),
+/// persisted atomically to <c>~/.weavie/claude-sessions.json</c>, so reopening resumes the previous
+/// conversation. Weavie assigns the id as <c>--session-id</c> rather than scraping Claude's storage, so
+/// resume is deterministic. A malformed file is backed up to <c>claude-sessions.json.bad</c> and reset.
 /// </summary>
 public sealed class ClaudeSessionStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -47,15 +44,10 @@ public sealed class ClaudeSessionStore {
 
 	/// <summary>
 	/// Returns how to launch <c>claude</c> in <paramref name="workingDirectory"/>: mints + persists a stable
-	/// session id the first time the directory is seen (with <see cref="ClaudeLaunch.Resume"/> false, so the
-	/// caller uses <c>--session-id</c>). Thereafter it reattaches (<c>Resume</c> true) only once the session has
-	/// been <see cref="Adopt">adopted</see> — a real user message observed off the hook stream, which is when
-	/// claude actually writes its transcript; until then — a never-messaged session, or a
-	/// <see cref="MarkResumeFailed">failed</see> resume — it re-creates under the same id. Output volume alone
-	/// (claude painting its TUI) never marks a session resumable, so a launch that comes up but is never messaged
-	/// is not mistaken for one with a transcript to resume. The started flag is durable: once adopted, a session
-	/// keeps resuming across launches even if a later run resumes it without sending a new message. Persists only
-	/// when it mints.
+	/// session id the first time (Resume false ⇒ <c>--session-id</c>), then reattaches only once the session is
+	/// <see cref="Adopt">adopted</see> (a real user message — when claude actually writes its transcript), else
+	/// re-creates under the same id. Output volume alone never marks a session resumable, so a launch that comes
+	/// up but is never messaged isn't mistaken for one with a transcript. Persists only when it mints.
 	/// </summary>
 	public ClaudeLaunch Resolve(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -63,23 +55,20 @@ public sealed class ClaudeSessionStore {
 		lock (_gate) {
 			var entry = Find(key);
 			if (entry is null) {
-				// First sighting: assign a stable id and create with --session-id. Started stays false until a
-				// user message is adopted off the hook stream.
+				// Started stays false until a user message is adopted off the hook stream.
 				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString(), Started = false };
 				_items.Add(entry);
 				PersistLocked();
 				return new ClaudeLaunch(entry.Id, Resume: false);
 			}
 
-			// Reattach only if a prior message was adopted; otherwise re-create under the same id.
 			return new ClaudeLaunch(entry.Id, entry.Started);
 		}
 	}
 
 	/// <summary>
-	/// Records that a <c>--resume</c> of <paramref name="workingDirectory"/>'s session could not find it (e.g.
-	/// Claude pruned the transcript). Forgets that the id started, so the next <see cref="Resolve"/> re-creates
-	/// it fresh under the same id — keeping identity stable — rather than crash-looping on a doomed resume.
+	/// Records that a <c>--resume</c> of <paramref name="workingDirectory"/> could not find the session, so the
+	/// next <see cref="Resolve"/> re-creates it fresh under the same id rather than crash-looping on a doomed resume.
 	/// </summary>
 	public void MarkResumeFailed(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -93,11 +82,9 @@ public sealed class ClaudeSessionStore {
 	}
 
 	/// <summary>
-	/// Abandons <paramref name="workingDirectory"/>'s assigned session id entirely, so the next
-	/// <see cref="Resolve"/> mints a brand-new one and cold-starts. Used when even re-creating the id with
-	/// <c>--session-id</c> fails — the id is poison (claude blocks reusing it, yet its conversation is gone) — so
-	/// unlike <see cref="MarkResumeFailed"/> there is nothing to preserve. No-op if the directory was never
-	/// <see cref="Resolve"/>d. Persists only on a change.
+	/// Abandons <paramref name="workingDirectory"/>'s assigned id entirely (next <see cref="Resolve"/>
+	/// cold-starts a new one). Used when even re-creating the id fails — it's poison (claude blocks reuse, yet
+	/// its conversation is gone) — so unlike <see cref="MarkResumeFailed"/> there's nothing to preserve.
 	/// </summary>
 	public void Forget(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -110,11 +97,9 @@ public sealed class ClaudeSessionStore {
 	}
 
 	/// <summary>
-	/// Drops <paramref name="workingDirectory"/>'s tracked id because the user ran <c>/clear</c>: claude has left
-	/// that conversation, so resuming the old id would reattach to the stale transcript the clear meant to
-	/// escape. A relaunch right after a clear cold-starts fresh; the next real user message re-establishes
-	/// tracking via <see cref="Adopt"/>. No-op if the directory was never <see cref="Resolve"/>d. Persists only
-	/// on a change.
+	/// Drops <paramref name="workingDirectory"/>'s tracked id on a user <c>/clear</c>, so a relaunch cold-starts
+	/// instead of reattaching to the stale transcript the clear meant to escape; the next real user message
+	/// re-establishes tracking via <see cref="Adopt"/>.
 	/// </summary>
 	public void Clear(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -127,11 +112,10 @@ public sealed class ClaudeSessionStore {
 	}
 
 	/// <summary>
-	/// Records the session id claude reports it is actually in for <paramref name="workingDirectory"/> (observed
-	/// off the hook stream on a real user message), marking it started so the next launch <c>--resume</c>s that
-	/// conversation. Realigns the store after claude rotated its id out from under Weavie (chiefly a <c>/clear</c>,
-	/// but any drift). Creates the entry if cleared/forgotten; otherwise repoints the existing id. A no-op when
-	/// the id already matches and is started, so the normal flow never thrashes the file. Persists only on a change.
+	/// Records the session id claude reports it's actually in for <paramref name="workingDirectory"/> (observed
+	/// off the hook stream on a real user message) and marks it started, realigning the store after claude
+	/// rotated its id out from under Weavie (chiefly a <c>/clear</c>). No-op when the id already matches and is
+	/// started, so the normal flow never thrashes the file.
 	/// </summary>
 	public void Adopt(string workingDirectory, string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);

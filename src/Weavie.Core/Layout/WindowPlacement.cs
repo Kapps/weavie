@@ -21,11 +21,10 @@ public readonly record struct StartupPlacement(int X, int Y, int Width, int Heig
 /// </summary>
 public static class WindowPlacement {
 	/// <summary>
-	/// Use the saved bounds when present, validly sized, and still on-screen (intersecting at least one of
-	/// <paramref name="screens"/>); otherwise fall back to a centered
-	/// <paramref name="defaultWidth"/>×<paramref name="defaultHeight"/> window. The guard stops a window saved
-	/// on a disconnected monitor from restoring off-screen. An empty <paramref name="screens"/> list skips the
-	/// guard (the host couldn't enumerate monitors) and trusts the saved bounds.
+	/// Uses the saved bounds when present, validly sized, and still on-screen (intersecting one of
+	/// <paramref name="screens"/>) — guarding a window saved on a now-disconnected monitor; otherwise falls
+	/// back to a centered <paramref name="defaultWidth"/>×<paramref name="defaultHeight"/> window. An empty
+	/// <paramref name="screens"/> list skips the guard and trusts the saved bounds.
 	/// </summary>
 	public static StartupPlacement Resolve(WindowState? saved, IReadOnlyList<PixelRect> screens, int defaultWidth, int defaultHeight) {
 		ArgumentNullException.ThrowIfNull(screens);

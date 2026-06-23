@@ -2,11 +2,9 @@ import { For, type JSX, Show, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { RailSession, RemoteAgentRow } from "./session-store";
 
-// The cloud panel: the management + picking surface for remote agents, opened from the rail's cloud button.
-// It lists each registered agent (connected first, offline faded) and its sessions; clicking a session
-// promotes it into the rail's working set and switches to it. Disconnecting an agent and adding a new one
-// both live here, so remote agents never crowd the rail itself. Anchored above the cloud button (which sits
-// near the rail bottom), dismissed on outside-click / Escape — mirroring ContextMenu.
+// The cloud panel: manage + pick remote agents, opened from the rail's cloud button. Lists each agent
+// (connected first, offline faded) and its sessions; clicking a session promotes it into the rail and
+// switches to it. Anchored above the cloud button, dismissed on outside-click / Escape.
 export function RemoteAgentsPanel(props: {
   agents: RemoteAgentRow[];
   anchor: { left: number; bottom: number };

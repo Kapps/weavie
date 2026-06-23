@@ -3,15 +3,13 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Editor;
 
 /// <summary>
-/// Autosave writes of the editor's working buffers to disk, so the embedded <c>claude</c> (which reads disk
-/// directly) sees the user's current state. The target is constrained to the session workspace; a write
-/// failure propagates so the host can log it (the caller's filtered catch keeps it from crashing the message loop).
+/// Autosaves editor working buffers to disk so the embedded <c>claude</c> sees current state. Constrained to
+/// the session workspace; a write failure propagates so the host can log it.
 /// </summary>
 public static class BufferStore {
 	/// <summary>
 	/// Writes <paramref name="content"/> to <paramref name="path"/> when it resolves inside
-	/// <paramref name="workspaceRoot"/>. Returns <see langword="false"/> without writing for an out-of-root or
-	/// malformed path. A filesystem write error propagates to the caller.
+	/// <paramref name="workspaceRoot"/>; returns <see langword="false"/> without writing otherwise. A write error propagates.
 	/// </summary>
 	public static bool Save(IFileSystem fileSystem, string workspaceRoot, string path, string content) {
 		ArgumentNullException.ThrowIfNull(fileSystem);

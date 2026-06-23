@@ -4,12 +4,10 @@ using Weavie.Core.Json;
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// The typography settings — font family, size, and weight — for the two text surfaces (the Monaco editor and
-/// the xterm terminal). A single global <c>font.*</c> default is inherited by both, and each surface may
-/// override any axis via <c>editor.font.*</c> / <c>terminal.font.*</c>. An override left at its "inherit"
-/// sentinel (empty family/weight, <c>0</c> size) falls through to the global. All are
-/// <see cref="ApplyMode.Live"/>: a change re-pushes the resolved fonts to the web app, which applies them to
-/// the editor (<c>updateOptions</c>) and terminal (<c>options</c> + refit) in place.
+/// Typography settings — family, size, weight — for the Monaco editor and xterm terminal. A global
+/// <c>font.*</c> default is inherited by both; each surface may override any axis via <c>editor.font.*</c> /
+/// <c>terminal.font.*</c>, with an "inherit" sentinel (empty family/weight, <c>0</c> size) falling through.
+/// All are <see cref="ApplyMode.Live"/>: a change re-pushes the resolved fonts to the web.
 /// </summary>
 public static class FontSettings {
 	/// <summary>Global font family (a CSS font-family stack) inherited by both surfaces.</summary>
@@ -49,18 +47,15 @@ public static class FontSettings {
 		TerminalFamily, TerminalSize, TerminalWeight,
 	];
 
-	// Cross-platform monospace stack: ui-monospace picks the platform UI mono, then named favorites, then the
-	// per-OS fallbacks, ending in generic monospace so it never silently fails.
+	// Cross-platform monospace stack, ending in generic monospace so it never silently fails.
 	private const string DefaultFamily =
 		"""ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace""";
 
-	// Terminal default leads with JetBrains Mono, which we bundle (see web/src/fonts.css) so it renders even
-	// where it isn't installed; the rest is the cross-platform fallback chain ending in generic monospace.
+	// Leads with the bundled JetBrains Mono (see web/src/fonts.css) so it renders even where it isn't installed.
 	private const string DefaultTerminalFamily =
 		"\"JetBrains Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
 
-	// Editor default leads with Go Mono, which we bundle (see web/src/fonts.css) so it renders even where it
-	// isn't installed; the rest is the cross-platform fallback chain ending in generic monospace.
+	// Leads with the bundled Go Mono (see web/src/fonts.css) so it renders even where it isn't installed.
 	private const string DefaultEditorFamily =
 		"\"Go Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
 
@@ -69,8 +64,7 @@ public static class FontSettings {
 	private const long MinSize = 6;
 	private const long MaxSize = 72;
 
-	// CSS-recognized weights: the keywords plus the numeric scale. Mapped 1:1 onto Monaco's fontWeight string
-	// and xterm's FontWeight, so a value valid here is valid in both renderers.
+	// CSS-recognized weights (keywords + numeric scale), mapped 1:1 onto Monaco's and xterm's weight strings.
 	private static readonly string[] Weights =
 		["normal", "bold", "100", "200", "300", "400", "500", "600", "700", "800", "900"];
 
@@ -125,10 +119,9 @@ public static class FontSettings {
 		Resolve(store, TerminalFamily, TerminalSize, TerminalWeight);
 
 	/// <summary>
-	/// Serializes the resolved editor + terminal fonts as JSON: <c>{"editor":{family,size,weight},
-	/// "terminal":{…}}</c>. With <paramref name="messageType"/> set, a <c>"type"</c> field is written first (for
-	/// a bridge push); when null, the bare object is produced (for the injected
-	/// <c>window.__WEAVIE_FONTS__</c> global).
+	/// Serializes the resolved editor + terminal fonts as JSON. With <paramref name="messageType"/> set, a
+	/// <c>"type"</c> field is written first (for a bridge push); when null, the bare object is produced (for the
+	/// injected <c>window.__WEAVIE_FONTS__</c> global).
 	/// </summary>
 	public static string BuildJson(SettingsStore store, string? messageType) {
 		ArgumentNullException.ThrowIfNull(store);

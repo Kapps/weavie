@@ -11,15 +11,14 @@ namespace Weavie.Core.Editor;
 public readonly record struct FileProviderChange(string Path, string Kind);
 
 /// <summary>
-/// Builds the host→web JSON for the editor's host-backed <c>file://</c> provider — the channel through which
-/// Monaco's working copies read and write real disk. Built with <see cref="Utf8JsonWriter"/> rather than
-/// <c>JsonSerializer</c> so the builders stay trim-safe on macOS (the reflection serializer is IL2026-unsafe
-/// there). Shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
+/// Builds the host→web JSON for the editor's host-backed <c>file://</c> provider. Uses <see cref="Utf8JsonWriter"/>
+/// rather than <c>JsonSerializer</c> to stay trim-safe on macOS (reflection serializer is IL2026-unsafe there).
+/// Shapes mirror the web's <c>WebBoundMessage</c> union in <c>src/web/src/bridge.ts</c>.
 /// </summary>
 public static class FileProviderProtocol {
 	/// <summary>
-	/// Reply to <c>fs-stat</c>: existence + kind + mtime/ctime (ms since epoch) + size. A non-existent path is
-	/// a normal answer (<c>exists:false</c>), not an error — the provider turns that into a FileNotFound throw.
+	/// Reply to <c>fs-stat</c>: existence + kind + mtime/ctime (ms since epoch) + size. A missing path is a normal
+	/// <c>exists:false</c> answer, not an error — the provider turns that into a FileNotFound throw.
 	/// </summary>
 	public static string StatResult(string id, FileStat stat) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
@@ -51,7 +50,7 @@ public static class FileProviderProtocol {
 
 	/// <summary>
 	/// Reply to <c>fs-read</c> for a missing (or out-of-workspace) path: <c>code:"FileNotFound"</c>, which the
-	/// provider raises as a coded FileNotFound error so the overlay falls through to its empty in-memory layer.
+	/// provider raises so the overlay falls through to its empty in-memory layer.
 	/// </summary>
 	public static string ReadNotFound(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
@@ -64,9 +63,8 @@ public static class FileProviderProtocol {
 	}
 
 	/// <summary>
-	/// Reply to <c>fs-read</c> for a genuine read failure (an existing file we couldn't read). No
-	/// <c>FileNotFound</c> code, so the provider raises an Unknown error that propagates loudly rather than
-	/// silently falling through — a real failure must stay observable.
+	/// Reply to <c>fs-read</c> for a genuine read failure. No <c>FileNotFound</c> code, so the provider raises an
+	/// Unknown error that propagates loudly rather than silently falling through — a real failure stays observable.
 	/// </summary>
 	public static string ReadError(string id, string error) {
 		ArgumentException.ThrowIfNullOrEmpty(id);
@@ -128,9 +126,8 @@ public static class FileProviderProtocol {
 		Changes([new FileProviderChange(path, kind)]);
 
 	/// <summary>
-	/// Builds an <c>fs-change</c> push from a workspace-watcher batch: each <c>file://</c> URI mapped back to a
-	/// native path and each <see cref="FileChangeKind"/> to its web kind, forwarding non-Claude on-disk edits to
-	/// the provider. Returns <see langword="null"/> when nothing maps (so the host skips an empty post).
+	/// Builds an <c>fs-change</c> push from a workspace-watcher batch (URIs → native paths, kinds → web kinds),
+	/// forwarding non-Claude on-disk edits to the provider. Returns <see langword="null"/> when nothing maps.
 	/// </summary>
 	/// <param name="changes">The watcher's debounced change batch.</param>
 	public static string? WatchedChanges(IReadOnlyList<WatchedFileChange> changes) {

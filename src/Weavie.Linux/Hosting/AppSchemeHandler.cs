@@ -5,9 +5,9 @@ using Weavie.Linux.Native;
 namespace Weavie.Linux.Hosting;
 
 /// <summary>
-/// Serves the web app to the WebKit view over a custom <c>app://</c> scheme from on-disk <c>wwwroot</c> — no
-/// network, secure same-origin context so workers and the Event Timing API behave. Path/MIME resolution comes
-/// from <see cref="WwwrootFileResolver"/>; this owns only the native WebKitGTK request/response binding.
+/// Serves the web app over a custom <c>app://</c> scheme from on-disk <c>wwwroot</c> — a network-free secure
+/// same-origin context. Path/MIME resolution lives in <see cref="WwwrootFileResolver"/>; this owns only the
+/// native WebKitGTK request/response binding.
 /// </summary>
 internal sealed class AppSchemeHandler {
 	private readonly WwwrootFileResolver _resolver;

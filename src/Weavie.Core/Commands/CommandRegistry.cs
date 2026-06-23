@@ -3,10 +3,9 @@ using System.Diagnostics.CodeAnalysis;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// The catalog of declared commands: register a <see cref="CommandDefinition"/> once and everything
-/// downstream (the MCP tool surface, keybinding defaults, the palette, NL mapping) is generated from it. Core
-/// registers its commands at startup via <see cref="CoreCommands"/>. Registration order is preserved for a
-/// stable catalog.
+/// The catalog of declared commands: register a <see cref="CommandDefinition"/> once and everything downstream
+/// (MCP surface, keybinding defaults, palette, NL mapping) is generated from it. Registration order is
+/// preserved for a stable catalog. Core registers its commands at startup via <see cref="CoreCommands"/>.
 /// </summary>
 public sealed class CommandRegistry {
 	private readonly Dictionary<string, CommandDefinition> _byId = new(StringComparer.Ordinal);

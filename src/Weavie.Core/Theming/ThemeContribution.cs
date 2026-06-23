@@ -1,10 +1,9 @@
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// One color theme an installed VS Code extension contributes (from its <c>package.json</c>
-/// <c>contributes.themes[]</c>). The install unit is the extension, the selection unit the individual theme
-/// (one extension can ship several). The raw theme JSON at <see cref="Path"/> is the lossless source of
-/// truth, converted to Monaco/xterm/CSS at load.
+/// One color theme a VS Code extension contributes (from its <c>package.json</c> <c>contributes.themes[]</c>).
+/// Install unit is the extension, selection unit the individual theme (one extension can ship several). Raw
+/// JSON at <see cref="Path"/> is the lossless source of truth, converted to Monaco/xterm/CSS at load.
 /// </summary>
 /// <param name="Label">Display name (e.g. <c>"Dracula"</c>).</param>
 /// <param name="UiTheme">Base kind: <c>vs</c> (light), <c>vs-dark</c> (dark), or <c>hc-*</c> (high contrast).</param>

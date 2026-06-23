@@ -4,17 +4,14 @@ using Weavie.Core.Commands;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// Builds the macOS application menu bar: File/View menus plus the standard App / Edit / Window menus every
-/// Mac app provides (⌘Q, ⌘C/⌘V, ⌘M, …). File/View items dispatch the same Weavie command ids the keybindings
-/// and omnibar palette use, so menu, keyboard, and Claude drive one set of actions; their shortcuts are read
-/// from the keybinding store (never hardcoded) so a rebind keeps the menu in sync. The App/Edit/Window items
-/// use the platform's own conventions (not Weavie commands).
+/// Builds the macOS menu bar: File/View menus plus the standard App/Edit/Window menus. File/View items dispatch
+/// the same Weavie command ids the keybindings and palette use, with shortcuts read from the keybinding store
+/// (never hardcoded) so a rebind keeps the menu in sync. App/Edit/Window use the platform's own conventions.
 /// </summary>
 internal static class MacAppMenu {
 	/// <summary>
-	/// Builds the whole menu bar.
-	/// <paramref name="resolveChord"/> returns the effective chord for a command id so the menu can show + bind
-	/// its shortcut; <paramref name="recents"/> seeds File ▸ Open Recent.
+	/// Builds the whole menu bar. <paramref name="resolveChord"/> returns a command id's effective chord (so the
+	/// menu shows + binds its shortcut); <paramref name="recents"/> seeds File ▸ Open Recent.
 	/// </summary>
 	public static NSMenu Build(
 		Action<string> runCommand,
@@ -139,9 +136,8 @@ internal static class MacAppMenu {
 	}
 
 	/// <summary>
-	/// Maps a tinykeys-style chord (e.g. <c>$mod+shift+p</c>) to an NSMenuItem key equivalent + modifier mask.
-	/// Only single-character keys map cleanly; named keys (Enter, Tab, …) or multi-key sequences return false so
-	/// the item shows no shortcut (it still works via the web resolver).
+	/// Maps a tinykeys-style chord (e.g. <c>$mod+shift+p</c>) to an NSMenuItem key equivalent + mask. Only
+	/// single-character keys map; named keys or multi-key sequences return false (item shows no shortcut).
 	/// </summary>
 	private static bool TryNativeShortcut(string chord, out string keyEquivalent, out NSEventModifierMask mask) {
 		keyEquivalent = string.Empty;

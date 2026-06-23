@@ -1,8 +1,7 @@
 // The shape of a VS Code color theme: the JSON a theme extension contributes (e.g. from Open VSX) and the
-// form Weavie's built-ins are authored in. A theme carries two color tables that layer at render time —
-// `tokenColors` (TextMate, syntactic) and `semanticTokenColors` (LSP, painted on top) — plus the
-// workbench `colors` map driving editor chrome, terminal, and Weavie's UI (spec §3, §5). The single shape
-// the resolver, the Monaco re-theme, and the installed-theme converter all speak.
+// form Weavie's built-ins are authored in. Two syntax tables layer at render time — `tokenColors` (TextMate)
+// under `semanticTokenColors` (LSP) — plus the workbench `colors` map driving chrome, terminal, and UI
+// (spec §3, §5). The single shape the resolver, Monaco re-theme, and installed-theme converter all speak.
 
 /** One TextMate token-color rule (syntactic coloring). */
 export interface TokenColorRule {

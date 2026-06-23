@@ -1,20 +1,10 @@
 namespace Weavie.Core.Processes;
 
 /// <summary>
-/// Supervises a single long-lived child: launches it, watches for exit, and relaunches it per a
-/// <see cref="RestartPolicy"/> with exponential backoff and a crash-loop breaker. Owns the policy and timing,
-/// not the process handle — the caller supplies a <c>start</c> delegate that launches a fresh instance (wiring
-/// its exit back through <see cref="NotifyExited"/>) and a <c>stop</c> delegate that kills the current one.
-/// Staying agnostic to how a thing is spawned lets a PTY terminal, a
-/// <see cref="System.Diagnostics.Process"/>, or anything else be supervised the same way.
-///
-/// <para>Behaviour: under <see cref="RestartPolicy.OnFailure"/> a clean exit is left stopped and a crash is
-/// relaunched after a per-crash-growing backoff; under <see cref="RestartPolicy.Always"/> every exit is
-/// relaunched. A run lasting at least <see cref="SupervisionOptions.HealthyAfter"/> resets the backoff. More
-/// than <see cref="SupervisionOptions.MaxRestartsInWindow"/> restarts within
-/// <see cref="SupervisionOptions.CrashLoopWindow"/> trips the breaker (<see cref="SupervisorState.Failed"/>)
-/// rather than hot-looping a broken binary.</para>
-///
+/// Supervises a single long-lived child: launches it via a caller-supplied <c>start</c> delegate, watches for
+/// exit, and relaunches it per a <see cref="RestartPolicy"/> with exponential backoff and a crash-loop breaker.
+/// Process-agnostic — a PTY terminal, a <see cref="System.Diagnostics.Process"/>, or anything else is supervised
+/// the same way.
 /// <para>Thread-safe. <see cref="NotifyExited"/> may be called from any thread, exactly once per launched
 /// instance; an exit arriving while not <see cref="SupervisorState.Running"/> is ignored.
 /// <see cref="StateChanged"/> handlers run off the internal lock and must not block.</para>
@@ -39,13 +29,11 @@ public sealed class ProcessSupervisor : IDisposable {
 	/// <summary>Creates a supervisor. Nothing launches until <see cref="Start"/> is called.</summary>
 	/// <param name="name">A short name for logging and status (e.g. <c>"terminal:claude"</c>).</param>
 	/// <param name="start">
-	/// Launches a fresh instance and wires its exit to <see cref="NotifyExited"/>. The argument is the launch
-	/// attempt (0 = first, &gt;=1 = a restart). An exception thrown here is treated as a crash and feeds the
-	/// backoff/breaker.
+	/// Launches a fresh instance and wires its exit to <see cref="NotifyExited"/>; the argument is the launch
+	/// attempt (0 = first). An exception thrown here is treated as a crash and feeds the backoff/breaker.
 	/// </param>
 	/// <param name="stop">
-	/// Kills/disposes the current instance. Called on <see cref="Stop"/> and <see cref="Dispose"/>; must be a
-	/// safe no-op when nothing is running.
+	/// Kills/disposes the current instance; must be a safe no-op when nothing is running.
 	/// </param>
 	/// <param name="options">Restart policy and backoff/crash-loop tunables.</param>
 	/// <param name="log">Optional sink for structured lifecycle logging.</param>

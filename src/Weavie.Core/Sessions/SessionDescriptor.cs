@@ -1,9 +1,8 @@
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The persisted description of one session in a workspace: identity, rail label, working directory, and
-/// whether it is the primary session. Runtime status is derived live by <see cref="SessionStatusMachine"/>
-/// and is not persisted.
+/// The persisted description of one session in a workspace. Runtime status is not persisted — it is derived
+/// live by <see cref="SessionStatusMachine"/>.
 /// </summary>
 public sealed record SessionDescriptor {
 	/// <summary>This session's stable identity.</summary>

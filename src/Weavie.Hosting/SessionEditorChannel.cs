@@ -1,27 +1,18 @@
 namespace Weavie.Hosting;
 
 /// <summary>
-/// The per-session gate for editor-mutating page messages — openDiff's <c>show-diff</c>, openFile's
-/// <c>open-file</c>, and close_tab's <c>close-tab</c>. The page has exactly ONE editor surface, bound to the
-/// active session; a background session must never write into it. Each session's openDiff/openFile/close_tab
-/// routes through its own channel, which posts to the page only while the session is active and otherwise HOLDS
-/// the work — replaying it on switch-in. So a background Claude's blocking openDiff surfaces on switch-in rather
-/// than rendering over the foreground session or hanging unseen. Mirrors <see cref="TerminalController"/>'s
-/// <c>OutputActive</c> buffer-or-post muting for the terminals.
-///
-/// Created muted: a session drives the editor only once HostCore makes it active (see
-/// <see cref="HostSession.SetEditorOutputActive"/>), so a never-activated background slot can't contaminate the
-/// page even if a creation path forgets to mute it.
+/// The per-session gate for editor-mutating page messages (show-diff/open-file/close-tab). The page has one
+/// editor surface, bound to the active session, so each session's channel posts only while active and otherwise
+/// HOLDS the work — replaying it on switch-in (a background openDiff surfaces then, not over the foreground).
+/// Created muted, so a never-activated background slot can't contaminate the page.
 /// </summary>
 public sealed class SessionEditorChannel {
 	private readonly IHostBridge _bridge;
 	private readonly object _gate = new();
-	// open-file / close-tab posted while muted, replayed in order on activation. Fire-and-forget — only order
-	// matters.
+	// open-file / close-tab posted while muted, replayed in order on activation.
 	private readonly List<string> _pendingReveals = [];
-	// The session's single unresolved openDiff (it blocks, so at most one is live at a time): the show-diff
-	// payload is HELD so a switch away can tear it out of the page and a switch back can re-render it, until the
-	// user resolves it. Null when no diff is pending.
+	// The session's single unresolved openDiff (it blocks, so at most one): the show-diff payload is held so a
+	// switch away tears it out and a switch back re-renders it. Null when no diff is pending.
 	private string? _liveDiffId;
 	private string? _liveDiffShow;
 	private bool _active;
@@ -49,8 +40,7 @@ public sealed class SessionEditorChannel {
 
 	/// <summary>
 	/// Tracks (and, when active, renders) the session's single blocking openDiff. The payload is held so a
-	/// deactivate can tear it down and a re-activate can re-render it; <see cref="EndDiff"/> stops tracking it
-	/// once the diff resolves or is cancelled.
+	/// deactivate can tear it down and a re-activate re-render it; <see cref="EndDiff"/> stops tracking it.
 	/// </summary>
 	public void ShowDiff(string id, string showMessage) {
 		lock (_gate) {
@@ -65,10 +55,9 @@ public sealed class SessionEditorChannel {
 	}
 
 	/// <summary>
-	/// Stops tracking the openDiff <paramref name="id"/> (it resolved or was cancelled). When
-	/// <paramref name="closeInUi"/> and the session is active, also tears the rendered diff out of the page — used
-	/// on cancellation; a user's Keep/Reject already closed it in the page itself, so that path passes
-	/// <c>false</c>.
+	/// Stops tracking the openDiff <paramref name="id"/> (resolved or cancelled). With <paramref name="closeInUi"/>
+	/// and the session active, also tears the rendered diff out of the page (cancellation only — a user's
+	/// Keep/Reject already closed it, so that path passes <c>false</c>).
 	/// </summary>
 	public void EndDiff(string id, bool closeInUi) {
 		string? close = null;
@@ -90,9 +79,8 @@ public sealed class SessionEditorChannel {
 	}
 
 	/// <summary>
-	/// Makes this the editor-driving session: flushes any buffered reveals (in order), then re-renders a held
-	/// blocking diff. Idempotent — a no-op if already active. Called by HostCore when the session is switched in,
-	/// after the editor has been rebound to this session's tabs, so the replayed messages land on the right slot.
+	/// Makes this the editor-driving session: flushes buffered reveals (in order), then re-renders a held blocking
+	/// diff. Idempotent. Called after the editor is rebound to this session's tabs, so replays land on the right slot.
 	/// </summary>
 	public void Activate() {
 		List<string> reveals;
@@ -118,9 +106,8 @@ public sealed class SessionEditorChannel {
 	}
 
 	/// <summary>
-	/// Mutes this session (it's no longer the editor-driving one): a held blocking diff is torn out of the page
-	/// so it can't linger over the incoming session — it re-renders on the next <see cref="Activate"/>.
-	/// Idempotent — a no-op if already muted.
+	/// Mutes this session: a held blocking diff is torn out of the page so it can't linger over the incoming
+	/// session (it re-renders on the next <see cref="Activate"/>). Idempotent.
 	/// </summary>
 	public void Deactivate() {
 		string? close = null;

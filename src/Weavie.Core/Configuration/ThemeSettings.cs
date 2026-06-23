@@ -1,17 +1,13 @@
 namespace Weavie.Core.Configuration;
 
 /// <summary>
-/// Registers theme-related settings. Appearance is split into a <b>mode</b> and a theme <b>per polarity</b>:
-/// <c>theme.mode</c> is <c>system</c> (follow the OS, default), <c>light</c>, or <c>dark</c>;
-/// <c>theme.light</c> / <c>theme.dark</c> name the theme used for each polarity. All three are normal persisted
-/// settings, editable over MCP like any other. The per-color OVERRIDES are deliberately NOT settings: they
-/// live in <c>~/.weavie/theme-overrides.json</c> (see <see cref="Weavie.Core.Theming.ThemeOverridesStore"/>),
-/// keyed per concrete theme id.
+/// Registers theme settings: <c>theme.mode</c> (<c>system</c>/<c>light</c>/<c>dark</c>) and the per-polarity
+/// <c>theme.light</c> / <c>theme.dark</c> theme ids. Per-color OVERRIDES are deliberately not settings — they
+/// live in <c>~/.weavie/theme-overrides.json</c> (see <see cref="Weavie.Core.Theming.ThemeOverridesStore"/>).
 /// <para>
-/// The WEB layer is authoritative for <em>rendering</em>: it resolves <c>system</c> against the live
-/// <c>prefers-color-scheme</c> and renders the matching theme (the host pushes both the light and dark themes
-/// as a pair so the switch is flash-free). Core can't see the OS setting, so for per-theme override targeting
-/// it resolves <c>system</c> to the dark slot — Weavie's default polarity (see <see cref="ResolveActiveThemeId"/>).
+/// The web layer is authoritative for rendering: it resolves <c>system</c> against the live
+/// <c>prefers-color-scheme</c>. Core can't see the OS setting, so for override targeting it resolves
+/// <c>system</c> to the dark slot — Weavie's default polarity (see <see cref="ResolveActiveThemeId"/>).
 /// </para>
 /// </summary>
 public static class ThemeSettings {
@@ -99,9 +95,8 @@ public static class ThemeSettings {
 	}
 
 	/// <summary>
-	/// The concrete theme id Core treats as "active" for per-theme overrides (describe / set / undo / reset).
-	/// Core can't see <c>prefers-color-scheme</c>, so it resolves <c>system</c> to the dark slot (Weavie's
-	/// default polarity). After a theme is selected the mode is concrete (light/dark), so this is exact.
+	/// The concrete theme id Core treats as "active" for per-theme overrides. Core can't see
+	/// <c>prefers-color-scheme</c>, so it resolves <c>system</c> to the dark slot (Weavie's default polarity).
 	/// </summary>
 	public static string ResolveActiveThemeId(SettingsStore settings) {
 		ArgumentNullException.ThrowIfNull(settings);

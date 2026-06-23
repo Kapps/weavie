@@ -25,10 +25,9 @@ public sealed record LanguageServerDescriptor {
 	public IReadOnlyList<string> RootMarkers { get; init; } = [];
 
 	/// <summary>
-	/// Default server-specific settings, as a JSON object string, sent both as LSP
-	/// <c>initializationOptions</c> and as the answer to the server's <c>workspace/configuration</c> requests.
-	/// Some servers gate features on these (e.g. gopls needs <c>{ "semanticTokens": true }</c>).
-	/// <see langword="null"/> means no defaults.
+	/// Default server-specific settings (JSON object string) sent as both LSP <c>initializationOptions</c> and the
+	/// answer to <c>workspace/configuration</c>. Some servers gate features on these (gopls needs
+	/// <c>{ "semanticTokens": true }</c>). <see langword="null"/> means no defaults.
 	/// </summary>
 	public string? DefaultSettingsJson { get; init; }
 }

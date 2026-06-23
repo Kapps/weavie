@@ -4,14 +4,12 @@ using System.Text.Json;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// Serializes the command catalog and the resolved keybindings to JSON — the one source used by the MCP
-/// <c>listCommands</c> tool, the web injection (<c>__WEAVIE_COMMANDS__</c> / <c>__WEAVIE_KEYBINDINGS__</c>),
-/// and the live <c>commands</c> push.
+/// Serializes the command catalog and resolved keybindings to JSON — the one source for the MCP
+/// <c>listCommands</c> tool, the web injection, and the live <c>commands</c> push.
 /// </summary>
 public static class CommandCatalog {
 	/// <summary>
-	/// Builds the commands array: each command's id/title/category/description/aliases/runsIn/showInPalette,
-	/// its <c>when</c> and args schema when present, and the keys it is currently bound to (from
+	/// Builds the commands array: each command's metadata plus the keys it is currently bound to (from
 	/// <paramref name="bindings"/>).
 	/// </summary>
 	public static string BuildCommandsArrayJson(

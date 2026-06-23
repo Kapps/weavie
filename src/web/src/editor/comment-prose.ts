@@ -1,15 +1,14 @@
-// Renders multi-line / doc comments as styled prose inside the live editor: each qualifying comment block's
-// raw lines are collapsed (Monaco hidden areas) and replaced in place by a view-zone widget showing the
-// comment line-for-line — markers stripped, italic, with inline `code` chips (see comment-markup.ts for the
-// parse) — preserving the author's line breaks exactly. Clicking a rendered block, or arrowing into it,
-// reveals its raw text for editing; it re-renders once the caret leaves.
+// Renders multi-line / doc comments as styled prose in the live editor: each qualifying block's raw lines are
+// collapsed (Monaco hidden areas) and replaced in place by a view-zone widget rendering the comment
+// line-for-line (markers stripped, italic, inline `code` chips — see comment-markup.ts). Clicking or arrowing
+// into a block reveals its raw text for editing; it re-renders once the caret leaves.
 //
-// Each rendered line is sized to exactly one editor line, so the zone occupies the SAME footprint as the raw
-// comment it replaces. Collapse/expand is a zero-height swap with no measurement — the layout never shifts.
+// Each rendered line is sized to exactly one editor line, so the zone matches the raw comment's footprint —
+// collapse/expand is a zero-height swap, no measurement, the layout never shifts.
 //
-// The model is never mutated — only decorations/zones/hidden-areas, all owned here and torn down on dispose —
-// so saving, diffing, and LSP all still see the real comment text. Suspended for a model that has an active
-// inline diff (`isBlocked`) so collapsing never hides a changed line under review.
+// The model is never mutated (only decorations/zones/hidden-areas, all torn down on dispose), so save/diff/LSP
+// see the real text. Suspended for a model with an active inline diff (`isBlocked`) so collapsing never hides
+// a changed line under review.
 
 import type { CommentProseMode } from "../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options";
@@ -45,9 +44,8 @@ export interface CommentProse {
   dispose(): void;
 }
 
-// The pixel indent of a model line's leading whitespace (tabs expanded to the model's tab width) so a rendered
-// comment sits at the same indentation as the raw comment — and the code — it documents, instead of hugging
-// the gutter regardless of nesting.
+// The pixel indent of a line's leading whitespace (tabs expanded to tab width), so a rendered comment sits at
+// the same indentation as the code it documents rather than hugging the gutter.
 function indentPixelsFor(
   editor: monaco.editor.IStandaloneCodeEditor,
   model: monaco.editor.ITextModel,
@@ -74,9 +72,8 @@ function hasVisibleContent(lines: Inline[][]): boolean {
   );
 }
 
-// Whether a block is rendered under the active mode. `documentation`: doc comments only (incl. single-line
-// ones). `multiline`: doc comments plus any comment spanning ≥2 lines. `all`: every full-line comment. (`none`
-// short-circuits the whole render before this is reached.)
+// Whether a block renders under the active mode: `documentation` = doc comments only; `multiline` = docs plus
+// any ≥2-line comment; `all` = every full-line comment. (`none` short-circuits before this is reached.)
 function blockInMode(block: CommentBlock, mode: CommentProseMode): boolean {
   switch (mode) {
     case "all":
@@ -88,11 +85,9 @@ function blockInMode(block: CommentBlock, mode: CommentProseMode): boolean {
   }
 }
 
-// Build the prose DOM for a comment block: one `white-space: pre` node whose line-height is pinned to the
-// editor's, with the source lines separated by real newlines and inline `code` spans lifted to chips. Pre +
-// the matched line-height makes each source line exactly one editor line tall (and never wraps), so the node's
-// height is deterministically `lines.length × lineHeight` — the raw comment's footprint — with no measurement.
-// Indented to `indentPx` to track the comment's nesting.
+// Build the prose DOM for a block: one `white-space: pre` node with line-height pinned to the editor's, source
+// lines separated by real newlines, inline `code` lifted to chips, indented to `indentPx`. Pre + matched
+// line-height makes the node's height deterministically `lines.length × lineHeight` (the raw footprint), no measurement.
 function buildProseNode(
   editor: monaco.editor.IStandaloneCodeEditor,
   lines: Inline[][],
@@ -133,21 +128,16 @@ export function createCommentProse(
   const hiddenEditor = editor as unknown as HiddenAreasEditor;
   let mode = currentEditorOptions().commentProse;
   let zoneIds: string[] = [];
-  // The 1-based start line of the block the user expanded (clicked into) this tick — a transient hint so the
-  // first render after a click keeps that block raw before the caret has moved into it.
+  // Start line of the block expanded this tick — a transient hint so the first render after a click keeps it raw.
   let pendingExpand: number | undefined;
-  // The model line the caret was last on, so a cursor move only forces a re-render when it crosses into/out of
-  // a different block (cheap on ordinary cursor movement within already-revealed code).
+  // The block the caret was last in, so a cursor move only re-renders when it crosses into/out of a block.
   let lastCursorBlock: number | undefined;
-  // The exact model line the caret was last on, so the cursor handler can spot a single arrow step that a
-  // collapsed block swallowed whole (line-before -> line-after in one move) and pull the caret in, instead of
-  // letting one keypress skip the entire comment.
+  // The exact line the caret was last on, so the cursor handler can spot a single arrow step that a collapsed
+  // block swallowed whole and pull the caret in, rather than letting one keypress skip the comment.
   let lastCursorLine: number | undefined;
-  // True while we reposition the caret programmatically (opening a block): the re-entrant cursor event our own
-  // setPosition fires is ignored rather than re-triggering the open.
+  // True while we reposition the caret programmatically, so the re-entrant cursor event is ignored.
   let adjusting = false;
-  // The blocks from the last render, reused by the cursor handler so an ordinary cursor move doesn't re-scan
-  // the whole file (a content change re-scans via the debounced render and refreshes this).
+  // Blocks from the last render, reused by the cursor handler so an ordinary move doesn't re-scan the file.
   let cachedBlocks: CommentBlock[] = [];
   let rescanTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -162,9 +152,8 @@ export function createCommentProse(
     }
   };
 
-  // The block (if any) whose line range contains `line`. A revealed (expanded) block is exactly the one
-  // holding the caret — hidden areas stop the caret drifting into a collapsed block, so it only contains the
-  // caret once opened (by a click on its prose, or by arrowing into it — see onCursor).
+  // The block (if any) whose range contains `line`. Hidden areas keep the caret out of a collapsed block, so a
+  // block holds the caret only once opened (clicked or arrowed into — see onCursor).
   const blockAt = (blocks: CommentBlock[], line: number | undefined): CommentBlock | undefined =>
     line === undefined ? undefined : blocks.find((b) => line >= b.startLine && line <= b.endLine);
 
@@ -172,11 +161,9 @@ export function createCommentProse(
     model !== null && model.uri.scheme === "file";
 
   const render = (): void => {
-    // Pin the scroll across the whole rebuild. clearRender tears down every zone before the new ones go in, so
-    // each collapsed comment briefly drops to zero height and Monaco re-anchors the viewport mid-teardown —
-    // with several collapsed comments above you, that lands the scroll somewhere else (a big jump when a render
-    // fires from clicking/arrowing out of a block). The rebuilt content is the same height (zones match the raw
-    // lines), so restoring the pre-render scroll just undoes the transient.
+    // Pin the scroll across the rebuild: clearRender drops every zone to zero height first, so Monaco
+    // re-anchors the viewport mid-teardown. The rebuilt content is the same height, so restoring scrollTop
+    // undoes the transient.
     const scrollTop = editor.getScrollTop();
     clearRender();
     const model = editor.getModel();
@@ -212,9 +199,8 @@ export function createCommentProse(
       const node = buildProseNode(editor, lines, indentPixelsFor(editor, model, block.startLine));
       attachClickToEdit(node, block.startLine);
       hidden.push(new monaco.Range(block.startLine, 1, block.endLine, 1));
-      // The zone is exactly the raw comment's footprint: one source line per line, each sized to the editor's
-      // line height (see buildProseNode). Collapsing to prose never reflows the code below, and expanding back
-      // to raw is a zero-height swap — no measurement, no grow, the layout never shifts.
+      // The zone is exactly the raw comment's footprint (one editor-line-tall source line each, see
+      // buildProseNode), so collapse/expand never reflows the code below.
       zones.push({
         afterLineNumber: block.startLine - 1,
         heightInPx: block.content.length * lineHeight,
@@ -239,11 +225,9 @@ export function createCommentProse(
     lastCursorBlock = caretBlock?.startLine;
   };
 
-  // Reveal a collapsed block's raw text for editing and land the caret on `caretLine` (its first line when
-  // opened from the top — a click or an arrow-down into it — its last line when arrowed up into from below).
-  // Re-renders so the block un-hides and its prose widget drops away; because the zone kept the raw comment's
-  // footprint, nothing below moves, and we pin the scroll to absorb any incidental shift. `adjusting` swallows
-  // the re-entrant cursor event the setPosition fires so it doesn't re-trigger this.
+  // Reveal a collapsed block's raw text and land the caret on `caretLine` (first line when opened from the top,
+  // last when arrowed up into from below). Re-renders to un-hide it; scroll is pinned to absorb any shift and
+  // `adjusting` swallows the re-entrant cursor event the setPosition fires.
   const openBlockInline = (startLine: number, caretLine: number): void => {
     const scrollTop = editor.getScrollTop();
     adjusting = true;
@@ -278,9 +262,8 @@ export function createCommentProse(
     }, RESCAN_DEBOUNCE_MS);
   };
 
-  // The collapsed block the caret just stepped ACROSS in a single move: its line-before and line-after are
-  // exactly the move's endpoints, i.e. one arrow press the hidden area swallowed whole. Returns it so the
-  // caret can be pulled inside rather than skipping the entire comment.
+  // The collapsed block the caret stepped ACROSS in one move (the move's endpoints bracket it), so the caret
+  // can be pulled inside rather than skipping the whole comment.
   const crossedBlock = (from: number, to: number): CommentBlock | undefined => {
     if (to > from + 1) {
       return cachedBlocks.find((b) => b.startLine === from + 1 && b.endLine === to - 1);
@@ -291,10 +274,9 @@ export function createCommentProse(
     return undefined;
   };
 
-  // A cursor move matters two ways: (1) a single arrow step a collapsed block swallowed whole — open it and
-  // land the caret on its near edge, so editing one comment costs one keypress, not a multi-line skip; (2)
-  // crossing into/out of a block's range — re-render so the block just left re-collapses to prose and the one
-  // entered stays raw. Reuses the last render's blocks rather than re-scanning on every keystroke-driven move.
+  // A cursor move matters two ways: (1) a single arrow step a collapsed block swallowed whole — open it on its
+  // near edge so editing costs one keypress; (2) crossing into/out of a block — re-render so the one left
+  // re-collapses and the one entered stays raw. Reuses the last render's blocks rather than re-scanning.
   const onCursor = (): void => {
     if (adjusting) {
       return;

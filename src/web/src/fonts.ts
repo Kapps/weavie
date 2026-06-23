@@ -1,8 +1,6 @@
-// Typography for the two text surfaces (the Monaco editor and the xterm terminal). The C# host owns the
-// source of truth (global `font.*` settings with per-surface overrides) and delivers resolved values two
-// ways: injected as `window.__WEAVIE_FONTS__` before navigation (so surfaces mount at the right font with
-// no flash), and re-pushed as a { type: "fonts" } message on change. Consumers read currentFonts() at
-// creation and subscribe via onFontsChanged() for live updates.
+// Typography for the editor + terminal surfaces. The host owns the source of truth (`font.*` settings) and
+// delivers it injected as `window.__WEAVIE_FONTS__` before navigation + re-pushed as { type: "fonts" } on
+// change. Consumers read currentFonts() at creation and subscribe via onFontsChanged() for live updates.
 
 import { type FontSpec, hostInjected, onHostMessage } from "./bridge";
 

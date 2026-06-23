@@ -19,9 +19,8 @@ builder.Logging.ClearProviders();
 builder.WebHost.UseUrls($"http://{options.Bind}:{options.Port}");
 var app = builder.Build();
 
-// A cross-origin web app fetches the control plane to resolve the worker URL. The control plane is
-// token-gated, so a permissive CORS origin is acceptable; answer the preflight and echo the headers.
-// (TLS + tighter origins are hardening — see docs/specs/remote-sessions.md.)
+// The token-gated control plane makes a permissive CORS origin acceptable; answer the preflight and echo
+// the headers. (TLS + tighter origins are hardening — see docs/specs/remote-sessions.md.)
 app.Use(async (context, next) => {
 	context.Response.Headers.AccessControlAllowOrigin = "*";
 	context.Response.Headers.AccessControlAllowHeaders = "Authorization, Content-Type";

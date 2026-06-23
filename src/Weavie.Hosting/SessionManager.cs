@@ -3,11 +3,9 @@ using Weavie.Core.Worktrees;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Owns the rail's <see cref="SessionSlot"/>s for one workspace — the primary checkout plus every surfaced
-/// worktree, each either loaded (a live <see cref="HostSession"/>) or unloaded (dormant) — and which one is
-/// <see cref="ActiveSlot"/> (what the page is bound to), plus the workspace's <see cref="WorktreeManager"/>.
-/// A pure holder: the <c>HostCore</c> owns slot construction, per-session wiring, load/unload, and
-/// switch orchestration.
+/// Owns the rail's <see cref="SessionSlot"/>s for one workspace (the primary plus every surfaced worktree, each
+/// loaded or dormant), which one is <see cref="ActiveSlot"/>, and the <see cref="WorktreeManager"/>. A pure
+/// holder — <c>HostCore</c> owns construction, wiring, load/unload, and switch orchestration.
 /// </summary>
 public sealed class SessionManager : IAsyncDisposable {
 	private readonly List<SessionSlot> _slots = [];

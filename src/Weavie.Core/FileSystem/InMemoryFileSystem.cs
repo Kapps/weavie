@@ -4,13 +4,13 @@ using System.Text;
 namespace Weavie.Core.FileSystem;
 
 /// <summary>
-/// In-memory filesystem test fake. Paths are normalized to their full form so "./a.txt"
-/// and an absolute path to the same file collide as expected. Tests assert on saved content.
+/// In-memory filesystem test fake. Paths are normalized to full form so relative and absolute spellings of
+/// the same file collide as expected.
 /// </summary>
 public sealed class InMemoryFileSystem : IFileSystem {
 	private readonly ConcurrentDictionary<string, string> _files = new(StringComparer.Ordinal);
-	// Logical mtimes: a monotonic write counter, not wall-clock. Each write bumps the path's stamp so
-	// TryGetStat's mtime changes on every content change — the etag contract the file:// provider needs.
+	// Logical mtimes: a monotonic write counter (not wall-clock), bumped per write so TryGetStat's mtime
+	// changes on every content change — the etag contract the file:// provider needs.
 	private readonly ConcurrentDictionary<string, long> _mtimes = new(StringComparer.Ordinal);
 	private long _clock;
 

@@ -14,10 +14,9 @@ using Weavie.Core.Theming;
 namespace Weavie.Core.Mcp;
 
 /// <summary>
-/// The Claude Code "IDE" endpoint: a localhost WebSocket server speaking MCP/JSON-RPC 2.0. Claude connects as
-/// the client and calls tools into us (openDiff/openFile/...). Binds 127.0.0.1 only and enforces the
-/// per-session auth token on the WebSocket upgrade (mitigating CVE-2025-52882). The protocol is
-/// reverse-engineered from coder/claudecode.nvim and verified against the installed CLI.
+/// The Claude Code "IDE" endpoint: a localhost WebSocket server speaking MCP/JSON-RPC 2.0, into which Claude
+/// calls tools (openDiff/openFile/...). Binds 127.0.0.1 only and enforces the per-session auth token on the
+/// WebSocket upgrade (mitigating CVE-2025-52882).
 /// </summary>
 public sealed partial class McpServer : IAsyncDisposable {
 	private readonly string _authToken;
@@ -35,16 +34,14 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private TcpListener? _listener;
 	private CancellationTokenSource? _cts;
 
-	// The currently connected, authenticated client socket, captured so a host-driven active-editor change can
-	// push an unsolicited selection_changed notification. volatile: written by the accept task, read from the
-	// thread that raises ActiveEditorStore.Changed.
+	// The connected, authenticated client socket, so a host-driven active-editor change can push an unsolicited
+	// selection_changed. volatile: written by the accept task, read from the thread raising ActiveEditorStore.Changed.
 	private volatile WebSocket? _activeWebSocket;
 
 	/// <summary>
-	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter that handles
-	/// inbound tool calls, and the advertised workspace folders. When a <paramref name="settings"/> store is
-	/// supplied, the settings tools (<c>listSettings</c> / <c>getSetting</c> / <c>setSetting</c> /
-	/// <c>clearSetting</c>) are advertised and served. Call <see cref="Start"/> to begin listening.
+	/// Creates the server with the auth token enforced on the WebSocket upgrade, the presenter handling inbound
+	/// tool calls, and the advertised workspace folders. A <paramref name="settings"/> store adds the settings
+	/// tools. Call <see cref="Start"/> to begin listening.
 	/// </summary>
 	public McpServer(
 		string authToken,
@@ -78,10 +75,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		// file/selection changes, so the embedded claude knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
 
-		// Registry mode advertises ONLY the capability tools (settings + layout + commands): the model-facing
-		// MCP server registered via .mcp.json, kept separate from the IDE server whose openDiff-style tools
-		// Claude Code filters out before they reach the model. The default (IDE) mode advertises the IDE RPC
-		// tools, plus the settings tools when a store is present.
+		// Registry mode advertises ONLY the capability tools (the model-facing .mcp.json server), kept separate
+		// from the IDE server whose openDiff-style tools Claude Code filters before they reach the model. IDE
+		// mode advertises the IDE RPC tools, plus the settings tools when a store is present.
 		string entries;
 		if (registryMode) {
 			var parts = new List<string> { SettingsToolEntries };
@@ -164,9 +160,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 					return;
 				}
 
-				// CVE-2025-52882: never upgrade without the correct per-session token. Accept it via the IDE
-				// header (lock-file discovery) or a standard `Authorization: Bearer` (how Claude Code presents
-				// headers for a `.mcp.json` ws server — the capability-registry connection).
+				// CVE-2025-52882: never upgrade without the per-session token. Accept it via the IDE header
+				// (lock-file discovery) or `Authorization: Bearer` (the .mcp.json ws / capability-registry path).
 				headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
 				string? bearer = null;
 				if (headers.TryGetValue("authorization", out string? authHeader)
@@ -588,10 +583,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		if (outcome.Result == DiffResult.Kept) {
-			// Conformant openDiff accept: return FILE_SAVED + the (possibly user-edited) final contents and DO
-			// NOT write the file — Claude performs the disk write from these returned contents. A server-side
-			// write double-writes and desyncs Claude's own permission prompt. Matches coder/claudecode.nvim;
-			// see docs/specs/permission-modes-and-change-tracking.md.
+			// Return FILE_SAVED + the (possibly user-edited) final contents but do NOT write the file: Claude does the
+			// disk write; a server-side write double-writes and desyncs Claude's permission prompt.
+			// See docs/specs/permission-modes-and-change-tracking.md.
 			await SendToolTextsAsync(ws, idRaw, ["FILE_SAVED", outcome.FinalContents ?? newContents], ct).ConfigureAwait(false);
 			Emit($"openDiff KEEP -> {newPath} (Claude writes)");
 		} else {
@@ -642,10 +636,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	// Active-editor context. The page reports the user's active file + selection via the bridge; we answer
-	// getCurrentSelection/getOpenEditors from it and push a selection_changed notification so the embedded
-	// claude tracks "what the user is looking at" without asking. Matches the VS Code / claudecode.nvim IDE
-	// protocol (text/filePath/fileUrl + 0-based selection range).
+	// Active-editor context (the page reports the user's active file + selection via the bridge): answers
+	// getCurrentSelection/getOpenEditors and pushes selection_changed. VS Code / claudecode.nvim IDE protocol.
 	private void OnActiveEditorChanged(ActiveEditor active) {
 		var ws = _activeWebSocket;
 		if (ws is null || ws.State != WebSocketState.Open) {
@@ -688,9 +680,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		WriteSelection(writer, active.Selection);
 	});
 
-	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty,isPinned,isPreview}] }
-	// — the open-tab set the page reported, or an empty list until it reports one. languageId is filled for the
-	// active tab from the active-editor report; isDirty is false (Weavie auto-saves on a debounce).
+	// getOpenEditors text item: stringified { tabs:[{uri,isActive,label,languageId,isDirty,isPinned,isPreview}] }.
+	// languageId is filled only for the active tab; isDirty is always false (Weavie auto-saves on a debounce).
 	private static string BuildOpenEditorsResult(IReadOnlyList<OpenEditorTab>? tabs, ActiveEditor? active) =>
 		JsonWrite.Object(writer => {
 			writer.WriteStartArray("tabs");

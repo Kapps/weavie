@@ -3,9 +3,8 @@ import App from "./App";
 import { postToHost } from "./bridge";
 import { mark } from "./startup-timing";
 import "./fonts.css";
-// Chrome stylesheets, split out of the former monolithic styles.css and co-located with the
-// components they style. Import order preserves the cascade: base first, then per-feature sheets.
-// confirm-dialog.css must precede new-session-prompt.css (the prompt scopes overrides onto it).
+// Chrome stylesheets, co-located with the components they style. Order is the cascade: base first, then
+// per-feature; confirm-dialog.css must precede new-session-prompt.css (the prompt scopes overrides onto it).
 import "./styles.css";
 import "./layout/layout.css";
 import "./chrome/session-rail.css";
@@ -29,8 +28,8 @@ if (root === null) {
   throw new Error("missing #root");
 }
 
-// Forward uncaught errors + promise rejections to the host log — an embedded WebView has no easy
-// devtools, so this is the only place a mount failure or stray rejection becomes visible.
+// Forward uncaught errors + promise rejections to the host log — an embedded WebView has no easy devtools,
+// so this is the only place a mount failure or stray rejection becomes visible.
 window.addEventListener("error", (e) => {
   postToHost({
     type: "log",
@@ -44,8 +43,7 @@ window.addEventListener("unhandledrejection", (e) => {
 
 postToHost({ type: "ready" });
 
-// Render the shell immediately. The Monaco editor and its VSCode service layer load as a separate chunk
-// from inside App (see editor-host), so first paint doesn't wait on the multi-megabyte editor code to
-// download and initialize. The splash stays up (see splash.ts) until App dismisses it once the editor is
-// ready, giving the user a single dark → app reveal.
+// Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,
+// so first paint doesn't wait on the multi-megabyte editor code. The splash stays up until App dismisses it
+// once the editor is ready.
 render(() => <App />, root);

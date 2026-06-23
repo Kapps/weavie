@@ -5,10 +5,8 @@ namespace Weavie.Core.Editor;
 
 /// <summary>
 /// Loads, persists, and serves the per-workspace editor session at
-/// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The host owns one per workspace window; the
-/// web is the only writer (opening files / moving the cursor → debounced <c>editor-session-changed</c> →
-/// <see cref="Update"/>), and on launch the host pushes <see cref="BuildRestoreJson()"/> so the editor
-/// reopens its files at their saved positions. Writes are atomic; a malformed file is backed up to
+/// <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>. The web is the only writer (via <see cref="Update"/>);
+/// on launch the host pushes <see cref="BuildRestoreJson()"/>. Writes are atomic; a malformed file is backed up to
 /// <c>editor-session.json.bad</c> and reset. See <c>docs/specs/editor-session.md</c>.
 /// </summary>
 public sealed class EditorSessionStore {
@@ -28,9 +26,8 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Raised (off the UI thread) when the session changes via <see cref="Update"/>. The web is the sole
-	/// writer, so hosts don't re-push on this (that would echo); it exists for a future MCP "open file"
-	/// capability that would change the session host-side.
+	/// Raised (off the UI thread) when the session changes via <see cref="Update"/>. Hosts don't re-push on this
+	/// (the web is the sole writer, so it would echo); it exists for a future host-side MCP "open file" capability.
 	/// </summary>
 	public event Action<EditorSession>? Changed;
 
@@ -57,9 +54,8 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message for the current session (open file paths + opaque
-	/// view state). No file content rides along — the web reopens each file as a working copy from disk. Files
-	/// that no longer exist are skipped and logged; if the active file was skipped, <c>active</c> is nulled.
+	/// Builds the host→web <c>set-editor-session</c> message for the current session. Missing files are skipped
+	/// and logged; if the active file was skipped, <c>active</c> is nulled.
 	/// </summary>
 	public string BuildRestoreJson() {
 		EditorSession session;
@@ -71,20 +67,16 @@ public sealed class EditorSessionStore {
 	}
 
 	/// <summary>
-	/// Builds the host→web <c>set-editor-session</c> message for an arbitrary <paramref name="session"/>: open
-	/// file paths + opaque view state, no file content. Files that no longer exist are skipped and logged via
-	/// <paramref name="log"/>; if the active file was skipped, <c>active</c> is nulled. Static so a per-session
-	/// switch can build the message for an in-memory <see cref="EditorSession"/> without its own store.
+	/// Builds the host→web <c>set-editor-session</c> message for an arbitrary <paramref name="session"/>. Missing
+	/// files are skipped and logged via <paramref name="log"/>; if the active file was skipped, <c>active</c> is nulled.
 	/// <para>
-	/// <paramref name="workspaceRoot"/> (when non-null) scopes the restore to this session's tree: an open
-	/// entry that is neither a scratch buffer nor inside the root is dropped, because it belongs to a different
-	/// session's worktree — restoring it here would fail as out-of-root and surface a blank editor. This also
-	/// self-heals an <c>editor-session.json</c> polluted with a foreign worktree path.
+	/// <paramref name="workspaceRoot"/> (when non-null) scopes the restore to this session's tree: a non-scratch
+	/// entry outside the root is dropped (it belongs to a foreign worktree and would fail as out-of-root), which
+	/// also self-heals a polluted <c>editor-session.json</c>.
 	/// </para>
 	/// <para>
-	/// <paramref name="sessionId"/> stamps the message with the owning session so the page can echo it on the
-	/// next <c>editor-session-changed</c> and the host can reject a stale cross-session write (see
-	/// <c>HandleEditorSessionChanged</c>).
+	/// <paramref name="sessionId"/> stamps the owning session so the page can echo it on the next
+	/// <c>editor-session-changed</c> and the host can reject a stale cross-session write (see <c>HandleEditorSessionChanged</c>).
 	/// </para>
 	/// </summary>
 	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, string? workspaceRoot, string? sessionId, Action<string>? log) {
@@ -99,9 +91,8 @@ public sealed class EditorSessionStore {
 				continue;
 			}
 
-			// A scratch buffer lives outside the workspace root (its temp dir); every other tab must be inside
-			// it. A tab outside the root belongs to another session's worktree and would be refused as
-			// out-of-root, showing a blank editor.
+			// Non-scratch tabs must be inside the root; one outside belongs to another session's worktree and
+			// would be refused as out-of-root.
 			if (workspaceRoot is not null && !entry.Scratch && !BufferStore.IsWithinWorkspace(workspaceRoot, entry.Path)) {
 				log?.Invoke($"[editor-session] open file is outside this session's workspace; skipping {entry.Path}");
 				continue;

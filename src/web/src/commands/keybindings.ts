@@ -1,7 +1,6 @@
-// Resolves keydowns against the resolved keybindings. One capture-phase window listener so a chord wins
-// over a focused xterm/Monaco, but it only preventDefaults when a binding matches AND its handler consumes
-// the event, so an unmatched/declined keystroke still passes through. Single-chord matching only; multi-
-// stroke sequences (ctrl+k ctrl+s) are not handled. See docs/specs/commands.md.
+// Resolves keydowns against the resolved keybindings via one capture-phase listener (so a chord wins over a
+// focused xterm/Monaco), preventDefaulting only when a binding matches AND its handler consumes the event.
+// Single-chord matching only; multi-stroke sequences are not handled. See docs/specs/commands.md.
 
 import { evaluateWhen } from "./context";
 import { getKeybindings, onCommandsChanged, runForKeybinding } from "./registry";
@@ -18,9 +17,9 @@ interface Chord {
   key: string;
 }
 
-// Maps each US/ANSI shifted punctuation glyph back to its base key. KeyboardEvent.key reports the shifted
-// glyph (Ctrl+Shift+] yields "}", not "]"), but specs use the base char and match Shift separately, so
-// without this fold a Shift+symbol binding could never match. Letters fold via toLowerCase instead.
+// Maps each shifted punctuation glyph back to its base key. KeyboardEvent.key reports the shifted glyph
+// ("}", not "]"), but specs use the base char and match Shift separately, so without this a Shift+symbol
+// binding could never match. Letters fold via toLowerCase instead.
 const SHIFTED_TO_BASE: Record<string, string> = {
   "~": "`",
   "!": "1",

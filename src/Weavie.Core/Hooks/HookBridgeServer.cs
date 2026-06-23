@@ -6,8 +6,8 @@ namespace Weavie.Core.Hooks;
 /// <summary>
 /// In-process listener the hook relay dials. Accepts one length-prefixed hook request per connection, raises
 /// <see cref="Observed"/> (the change-recording stream), and replies with the decision (empty = pass-through).
-/// Current-user-only — see <see cref="HookProtocol"/>. Lives for the app's lifetime; relays are transient (one
-/// per tool call) and fail open, so a hiccup here never blocks Claude.
+/// Current-user-only — see <see cref="HookProtocol"/>. Lives for the app's lifetime; relays fail open, so a
+/// hiccup here never blocks Claude.
 /// </summary>
 public sealed class HookBridgeServer : IAsyncDisposable {
 	private const int MaxInstances = 4;

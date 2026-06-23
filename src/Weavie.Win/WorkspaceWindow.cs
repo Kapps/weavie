@@ -11,19 +11,18 @@ using WindowPlacement = Weavie.Core.Layout.WindowPlacement;
 namespace Weavie.Win;
 
 /// <summary>
-/// One workspace's host window: a thin WinForms shell over <see cref="HostCore"/>. It owns only the native
-/// pieces — the frameless WebView2 host, the custom chrome, window geometry, the Debug Vite dev server, and
-/// screenshots — and exposes them through <see cref="IHostPlatform"/> (in WorkspaceWindow.Platform.cs). It also
-/// implements <see cref="IShellWindow"/> so the web title bar's window controls drive it. Everything else lives
-/// in the shared core. Created/tracked by <see cref="AppController"/>, which owns the app-global stores it shares.
+/// One workspace's host window: a thin WinForms shell over <see cref="HostCore"/>. Owns only the native pieces
+/// (the frameless WebView2 host, custom chrome, geometry, the Debug Vite dev server, screenshots), exposed through
+/// <see cref="IHostPlatform"/>, and implements <see cref="IShellWindow"/> so the web title bar drives it. Everything
+/// else lives in the shared core. Created/tracked by <see cref="AppController"/>, which owns the shared stores.
 /// </summary>
 internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatform {
-	// Synthetic host for the virtual-host mapping; https keeps the page in a secure same-origin context
-	// (workers + Event Timing API behave), mirroring the macOS app:// scheme.
+	// Synthetic virtual-host name; https keeps the page in a secure same-origin context (workers + Event Timing
+	// API behave), mirroring the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
 
-	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage,
-	// so the web app runs unmodified across platforms.
+	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage, so the web app
+	// runs unmodified across platforms.
 	private const string BridgeShim =
 		"""
         (function () {
@@ -58,8 +57,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	private int _devRecoveryAttempts;
 #endif
 
-	// Dark background painted on every host surface before the page loads, so the WebView2 cold-start
-	// shows dark instead of the default white.
+	// Painted on every host surface before the page loads, so the WebView2 cold-start shows dark, not white.
 	private static readonly Color StartupBackground = Color.FromArgb(0x00, 0x00, 0x00);
 
 	public WorkspaceWindow(AppController app, string workspaceRoot) {
@@ -73,8 +71,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		Icon = AppIcon.Shared;
 		BackColor = StartupBackground;
 
-		// Native pieces handed to the core through IHostPlatform: the UI-thread marshal and the dialogs.
-		// Built before the core, whose constructor reads the dispatcher off this platform.
+		// Native pieces handed to the core via IHostPlatform; built before the core, whose constructor reads the
+		// dispatcher off this platform.
 		_dispatcher = new DelegateUiDispatcher(action => {
 			if (InvokeRequired) {
 				BeginInvoke(action);
@@ -100,8 +98,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		ApplySavedWindowState();
 		_lastMaximized = WindowState == FormWindowState.Maximized;
 
-		// DefaultBackgroundColor must be set before the CoreWebView2 initializes so the render surface is dark
-		// from the first frame; BackColor covers the control itself before that surface exists.
+		// DefaultBackgroundColor must be set before CoreWebView2 initializes so the render surface is dark from the
+		// first frame; BackColor covers the control before that surface exists.
 		_webView = new WebView2 {
 			Dock = DockStyle.Fill,
 			BackColor = StartupBackground,
@@ -122,15 +120,14 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	public WorkspaceId Id { get; }
 
 	/// <summary>
-	/// True when this window was closed via File ▸ Close Window (<see cref="CloseToWelcome"/>) rather than the
-	/// title-bar X. Lets the app fall back to the welcome window when the last window closes via Close Window,
-	/// or quit when it closes via X.
+	/// True when closed via File ▸ Close Window (<see cref="CloseToWelcome"/>) rather than the title-bar X. Lets the
+	/// app show the welcome window when the last window closes this way, or quit when it closes via X.
 	/// </summary>
 	public bool ClosedToWelcome { get; private set; }
 
 	/// <summary>
-	/// Closes this window with the intent that, if it's the last open, the app shows the welcome window
-	/// instead of quitting (the File ▸ Close Window path).
+	/// Closes this window so that, if it's the last open, the app shows the welcome window instead of quitting
+	/// (the File ▸ Close Window path).
 	/// </summary>
 	public void CloseToWelcome() {
 		ClosedToWelcome = true;
@@ -146,9 +143,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	}
 
 	/// <summary>
-	/// Routes frameless-window messages to <see cref="CustomChrome"/>: <c>WM_NCCALCSIZE</c> strips the caption
-	/// (the WebView fills the client area), <c>WM_NCHITTEST</c> re-supplies the edge resize zones. The styles
-	/// stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero Snap + maximize still work.
+	/// Routes frameless-window messages to <see cref="CustomChrome"/>: <c>WM_NCCALCSIZE</c> strips the caption,
+	/// <c>WM_NCHITTEST</c> re-supplies the edge resize zones. Styles stay <c>WS_THICKFRAME | WS_CAPTION</c>, so Aero
+	/// Snap + maximize still work.
 	/// </summary>
 	protected override void WndProc(ref Message m) {
 		// Drop bare Alt/F10 menu-bar activation: there's no native menu bar to focus (it's in the web title bar).
@@ -156,8 +153,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			return;
 		}
 
-		// IsMaximized (live WS_MAXIMIZE), not WindowState: WinForms updates WindowState on WM_SIZE, which fires
-		// after WM_NCCALCSIZE, so during a maximize WindowState would still read Normal.
+		// IsMaximized (live WS_MAXIMIZE), not WindowState, which WinForms updates only on WM_SIZE (after NCCALCSIZE).
 		bool maximized = CustomChrome.IsMaximized(Handle);
 		if (CustomChrome.HandleNcCalcSize(ref m, maximized) || CustomChrome.HandleNcHitTest(Handle, ref m, maximized)) {
 			return;
@@ -251,9 +247,8 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	}
 
 	/// <summary>
-	/// Runs as the window closes, before the handle is destroyed and while the message pump is still alive.
-	/// Persists geometry, then tears the WebView2 down deterministically — relying on automatic control disposal
-	/// races WebView2's native teardown and can leave the process alive.
+	/// Persists geometry as the window closes, then tears the WebView2 down deterministically — automatic control
+	/// disposal races WebView2's native teardown and can leave the process alive.
 	/// </summary>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
 		SaveWindowState();

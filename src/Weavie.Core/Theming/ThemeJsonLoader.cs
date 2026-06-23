@@ -4,11 +4,9 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Theming;
 
 /// <summary>
-/// Loads a VS Code color theme's JSON from disk into one self-contained object, resolving the theme's
-/// <c>include</c> chain (a theme may extend another by relative path). The web serves a theme as one JSON
-/// file (a <c>data:</c> URL), so includes are merged away here: the included theme is the base, the
-/// including theme's <c>colors</c>/<c>semanticTokenColors</c> override per key, and its <c>tokenColors</c>
-/// are appended (base rules first, overriding rules last).
+/// Loads a VS Code color theme's JSON from disk into one self-contained object, merging away its
+/// <c>include</c> chain (a theme may extend another by relative path) since the web serves a theme as a single
+/// file. Merge semantics live in <see cref="MergeOnto"/>.
 /// </summary>
 public sealed class ThemeJsonLoader {
 	private const int MaxIncludeDepth = 16;
@@ -53,9 +51,8 @@ public sealed class ThemeJsonLoader {
 		return node;
 	}
 
-	// Applies `overlay` onto `baseObj` with VS Code's include semantics: `colors` + `semanticTokenColors`
-	// are shallow object merges (overlay wins per key); `tokenColors` are appended (base first, overlay
-	// last); every other key is replaced by the overlay's value.
+	// VS Code include semantics: `colors`/`semanticTokenColors` shallow-merge (overlay wins per key),
+	// `tokenColors` append (base first, overlay last), every other key is replaced by the overlay's value.
 	private static void MergeOnto(JsonObject baseObj, JsonObject overlay) {
 		foreach (var (key, value) in overlay) {
 			switch (key) {

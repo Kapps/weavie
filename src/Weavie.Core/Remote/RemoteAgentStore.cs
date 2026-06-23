@@ -5,10 +5,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Remote;
 
 /// <summary>
-/// A registered remote agent: a friendly <paramref name="Name"/> plus how to reach its runner's control
-/// plane (the long-lived daemon on the remote box) — the base <paramref name="Url"/> and bearer
-/// <paramref name="Token"/>. The web resolves the actual worker bridge from these on connect. See
-/// <c>docs/specs/remote-sessions.md</c>.
+/// A registered remote agent: a friendly <paramref name="Name"/> plus how to reach its runner control plane
+/// (<paramref name="Url"/> + bearer <paramref name="Token"/>). See <c>docs/specs/remote-sessions.md</c>.
 /// </summary>
 /// <param name="Name">The agent's display name (also its rail/location key); unique within the registry.</param>
 /// <param name="Url">The runner control-plane base URL (e.g. <c>http://host:8800</c>).</param>
@@ -16,12 +14,10 @@ namespace Weavie.Core.Remote;
 public readonly record struct RemoteAgent(string Name, string Url, string Token);
 
 /// <summary>
-/// The app-global registry of remote agents the user has connected to, persisted to
+/// The app-global registry of connected remote agents, persisted atomically to
 /// <c>~/.weavie/remote-agents.json</c>. Its own file, never settings.toml — it holds runner bearer tokens, so
-/// it must stay off the Claude-facing settings surface. Replaces the web's former <c>localStorage</c> copy,
-/// which the Debug dev server's per-launch origin silently orphaned on every restart. <see cref="Add"/>
-/// replaces any agent of the same name (matched case-insensitively). Atomic writes; a malformed file is backed
-/// up to <c>remote-agents.json.bad</c> and reset rather than throwing.
+/// it must stay off the Claude-facing settings surface. <see cref="Add"/> replaces any same-named agent
+/// (case-insensitive); a malformed file is backed up to <c>remote-agents.json.bad</c> and reset, not thrown.
 /// </summary>
 public sealed class RemoteAgentStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };

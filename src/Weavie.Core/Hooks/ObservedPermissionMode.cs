@@ -1,10 +1,9 @@
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// The latest permission mode Claude reported through its hook input (<c>permission_mode</c>). Claude owns its
-/// edit mode (the user cycles it with Shift+Tab; Weavie cannot set it), so Weavie only observes it here, folding
-/// the stream in via <see cref="Observe"/>. Used to tell whether edits are auto-applying. A single reference
-/// field written from the hook accept loop and read on the host UI thread, so it is <c>volatile</c>. See
+/// The latest permission mode Claude reported through its hook input (<c>permission_mode</c>) — Weavie only
+/// observes it (Claude owns its edit mode via Shift+Tab), to tell whether edits are auto-applying. <c>volatile</c>
+/// because it's written on the hook accept loop and read on the host UI thread. See
 /// <c>docs/specs/permission-modes-and-change-tracking.md</c>.
 /// </summary>
 public sealed class ObservedPermissionMode {
@@ -14,15 +13,14 @@ public sealed class ObservedPermissionMode {
 	public string Current => _current;
 
 	/// <summary>
-	/// Raised when the observed mode actually changes value (not on every event). Lets the host react to a
-	/// Shift+Tab — e.g. tear down a stale blocking openDiff when Claude flips into an auto-apply mode. Fires on
-	/// the hook accept loop.
+	/// Raised on the hook accept loop when the observed mode actually changes value (not every event), so the
+	/// host can react to a Shift+Tab — e.g. tear down a stale blocking openDiff when Claude flips to auto-apply.
 	/// </summary>
 	public event Action? Changed;
 
 	/// <summary>
-	/// True when Claude is auto-applying edits without a per-edit review (<c>acceptEdits</c> or
-	/// <c>bypassPermissions</c>), the condition under which the post-turn review navigator is the review surface.
+	/// True when Claude auto-applies edits without a per-edit review (<c>acceptEdits</c>/<c>bypassPermissions</c>) —
+	/// the condition under which the post-turn review navigator is the review surface.
 	/// </summary>
 	public bool AutoAppliesEdits => _current is "acceptEdits" or "bypassPermissions";
 

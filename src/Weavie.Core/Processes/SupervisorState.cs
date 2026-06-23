@@ -3,8 +3,8 @@ namespace Weavie.Core.Processes;
 /// <summary>The lifecycle state of a <see cref="ProcessSupervisor"/>.</summary>
 public enum SupervisorState {
 	/// <summary>
-	/// Not running and not scheduled to start: never started, intentionally stopped, or exited under a
-	/// policy that declined to relaunch.
+	/// Not running and not scheduled to start: never started, intentionally stopped, or exited under a policy
+	/// that declined to relaunch.
 	/// </summary>
 	Idle,
 
@@ -15,8 +15,8 @@ public enum SupervisorState {
 	BackingOff,
 
 	/// <summary>
-	/// The process restarted too many times within the crash-loop window; the supervisor has given up and
-	/// will not relaunch it until told to <see cref="ProcessSupervisor.Start"/> again.
+	/// The process restarted too many times within the crash-loop window; the supervisor has given up and will
+	/// not relaunch it until told to <see cref="ProcessSupervisor.Start"/> again.
 	/// </summary>
 	Failed,
 }

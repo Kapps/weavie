@@ -28,8 +28,8 @@ public sealed record HookDecision {
 	public string? Reason { get; init; }
 
 	/// <summary>
-	/// Optional line Claude surfaces in the TUI (the top-level <c>systemMessage</c> field, valid on any event);
-	/// Weavie sets it on PostToolUse edits to a clickable <c>file:line</c> jump. Independent of <see cref="Kind"/>.
+	/// Optional line Claude surfaces in the TUI (top-level <c>systemMessage</c>, valid on any event), independent
+	/// of <see cref="Kind"/>; Weavie sets it on PostToolUse edits to a clickable <c>file:line</c> jump.
 	/// </summary>
 	public string? SystemMessage { get; init; }
 
@@ -45,9 +45,9 @@ public sealed record HookDecision {
 	public static HookDecision Deny(string reason) => new() { Kind = HookDecisionKind.Deny, Reason = reason };
 
 	/// <summary>
-	/// Renders the JSON Claude reads from the hook's stdout: a <c>hookSpecificOutput</c> permission block for an
-	/// allow/deny, and/or a top-level <c>systemMessage</c>. Returns <see langword="null"/> when there is nothing
-	/// to say (pass-through with no message), so the relay writes nothing and Claude takes its normal flow.
+	/// Renders the JSON Claude reads from the hook's stdout (a <c>hookSpecificOutput</c> permission block and/or
+	/// a top-level <c>systemMessage</c>), or <see langword="null"/> when there's nothing to say so the relay
+	/// writes nothing and Claude takes its normal flow.
 	/// </summary>
 	/// <param name="evt">The event being decided.</param>
 	public string? ToHookOutputJson(HookEventKind evt) {

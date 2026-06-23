@@ -6,9 +6,8 @@ namespace Weavie.Core.Mcp;
 
 /// <summary>
 /// Writes/removes the Claude Code IDE lock file at <c>~/.claude/ide/&lt;port&gt;.lock</c> (or under
-/// <c>$CLAUDE_CONFIG_DIR/ide</c>). Claude reads this to discover the IDE's auth token for the port
-/// named by <c>CLAUDE_CODE_SSE_PORT</c>. Schema (reverse-engineered from coder/claudecode.nvim):
-/// <c>{ pid, workspaceFolders, ideName, transport: "ws", authToken }</c>.
+/// <c>$CLAUDE_CONFIG_DIR/ide</c>), where Claude discovers the IDE's auth token for the port in
+/// <c>CLAUDE_CODE_SSE_PORT</c>. Schema: <c>{ pid, workspaceFolders, ideName, transport: "ws", authToken }</c>.
 /// </summary>
 public static class IdeLockFile {
 	/// <summary>Directory holding the lock files: <c>$CLAUDE_CONFIG_DIR/ide</c>, else <c>~/.claude/ide</c>.</summary>
@@ -66,7 +65,6 @@ public static class IdeLockFile {
 				File.Delete(path);
 			}
 		} catch (IOException) {
-			// Best-effort cleanup.
 		}
 	}
 

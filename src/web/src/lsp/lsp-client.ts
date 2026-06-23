@@ -1,13 +1,9 @@
-// The WebView half of the language-server bridge (spec §10): monaco-languageclient connected to the
-// host's loopback WS↔stdio proxy. The host injects `window.__WEAVIE_LSP__` (url, token, workspace, server
-// catalog) before navigation; we open `ws://127.0.0.1:PORT/<serverId>?token=…` and the host spawns + pipes
-// the matching server. A client starts lazily — only when a document of its language is first opened — so
-// csharp-ls/gopls aren't spawned until a .cs/.go file appears. LSP I/O is fully async, off the keystroke
-// hot path (§15).
+// The WebView half of the language-server bridge (spec §10): monaco-languageclient connected to the host's
+// loopback WS↔stdio proxy via injected `window.__WEAVIE_LSP__`. A client starts lazily — only when a
+// document of its language first opens — so csharp-ls/gopls aren't spawned until a .cs/.go file appears.
 //
-// Each session has its OWN bridge (port, token, workspace root, rooted at its worktree). On a session
-// switch the host pushes the incoming config and we `rebindLanguageServices` — tearing every client down
-// and reconnecting against the new bridge — so language intelligence follows the focused session's worktree.
+// Each session has its OWN bridge (port, token, worktree root). A session switch pushes the incoming config
+// and `rebindLanguageServices` tears every client down and reconnects, so intelligence follows the worktree.
 
 import * as monaco from "monaco-editor";
 import { MonacoLanguageClient } from "monaco-languageclient";
@@ -41,13 +37,12 @@ declare global {
 const started = new Set<string>();
 // Server id → teardown (dispose the client + close its socket). A session switch tears every client down.
 const clients = new Map<string, () => void>();
-// The active session's bridge config, read by maybeStart + the onDidCreateModel hook (not a captured
-// value) so lazy starts after a switch use the new bridge. Undefined until the host injects/pushes one.
+// The active session's bridge config, read live (not captured) so lazy starts after a switch use the new
+// bridge. Undefined until the host injects/pushes one.
 let activeConfig: WeavieLspConfig | undefined;
 let serverByLanguage = new Map<string, WeavieLspServer>();
 let modelHooksInstalled = false;
-// Bumped on every rebind. A connect() captures the generation it began in; a supervised reconnect checks
-// it and stands down rather than reconnecting to a previous session's bridge.
+// Bumped on every rebind; a connect() captures its generation and stands down if a switch superseded it.
 let generation = 0;
 
 function indexServers(config: WeavieLspConfig): void {
@@ -78,9 +73,8 @@ function startForOpenModels(): void {
 }
 
 /**
- * Wires lazy, per-language LSP for the session loaded at launch: each advertised server connects the first
- * time a matching document opens. No-op without injected bridge config (plain-browser dev) — the editor
- * still works, just without language intelligence.
+ * Wires lazy, per-language LSP for the session loaded at launch. No-op without injected bridge config
+ * (plain-browser dev) — the editor still works, just without language intelligence.
  */
 export function startLanguageServices(): void {
   const config = window.__WEAVIE_LSP__;
@@ -100,9 +94,8 @@ export function startLanguageServices(): void {
 }
 
 /**
- * Rebind language services to a different session's bridge on a session switch. Existing clients are pinned
- * to the previous bridge, so tear them all down and reconnect against the incoming session's bridge —
- * spawning ITS servers rooted at ITS worktree, lazily for the currently-open documents.
+ * Rebind language services to a different session's bridge on a session switch: tear every (previous-bridge)
+ * client down and reconnect against the incoming session's bridge, lazily for the open documents.
  */
 export function rebindLanguageServices(config: WeavieLspConfig): void {
   generation += 1;
@@ -116,9 +109,8 @@ export function rebindLanguageServices(config: WeavieLspConfig): void {
   startForOpenModels();
 }
 
-// Supervision: if a server crashes (or the WS drops) while documents are open, reconnect (spawning a
-// fresh host subprocess) with capped exponential backoff, so a broken server doesn't storm. A connection
-// that stayed up a while is considered healthy and resets the backoff.
+// If a server crashes (or the WS drops) while documents are open, reconnect with capped exponential backoff
+// so a broken server doesn't storm; a connection that stayed up past HEALTHY_UPTIME_MS resets the backoff.
 const MAX_RECONNECT_ATTEMPTS = 5;
 const HEALTHY_UPTIME_MS = 10_000;
 
@@ -131,8 +123,7 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
   const webSocket = new WebSocket(url);
   const gen = generation;
   let openedAt = 0;
-  // Set when this client is intentionally torn down (session switch): the supervised reconnect stands
-  // down, and a late onopen closes instead of starting.
+  // Set on intentional teardown (session switch): the supervised reconnect stands down and a late onopen closes.
   let torn = false;
   let client: MonacoLanguageClient | undefined;
 
@@ -205,9 +196,8 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
           name: "weavie",
           index: 0,
         },
-        // Feed the server its defaults both ways: as initializationOptions and as the answer to its
-        // workspace/configuration requests (some servers gate features on config, e.g. gopls semantic
-        // tokens). We don't run the VSCode configuration service (guardrail §18), so we answer directly.
+        // Feed the server its defaults both ways — initializationOptions and workspace/configuration answers
+        // (some servers gate features on config, e.g. gopls semantic tokens). No VSCode config service (§18).
         initializationOptions: settings,
         middleware: {
           workspace: {

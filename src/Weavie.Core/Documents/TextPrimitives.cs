@@ -19,9 +19,8 @@ public readonly record struct TextRange(Position Start, Position End) {
 }
 
 /// <summary>
-/// A structured edit: replace everything in <see cref="Range"/> with <see cref="Text"/>.
-/// Insertion is an empty range; deletion is empty text. The only mutation primitive
-/// the document model exposes.
+/// A structured edit: replace everything in <see cref="Range"/> with <see cref="Text"/> (insertion is an
+/// empty range, deletion is empty text). The only mutation primitive the document model exposes.
 /// </summary>
 public readonly record struct TextEdit(TextRange Range, string Text) {
 	/// <summary>Builds an insertion edit: inserts <paramref name="text"/> at <paramref name="at"/> without removing anything.</summary>

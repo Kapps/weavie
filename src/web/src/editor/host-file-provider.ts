@@ -1,8 +1,7 @@
-// The host-backed `file://` provider: the bridge through which Monaco's VSCode working copies read and write
-// real disk. monaco-vscode-api backs `file://` with an empty in-memory overlay layer, so a provider
-// registered in front of it (priority 1) proxies stat/read/write to the C# host over a correlated bridge and
-// turns host `fs-change` pushes into the file service's change event so VSCode reloads affected working
-// copies. Purely the file-service substrate, no workbench/UI. See docs/specs/file-management-and-sessions.md.
+// The host-backed `file://` provider through which VSCode working copies read/write real disk. Registered in
+// front of monaco-vscode-api's empty in-memory overlay (priority 1), it proxies stat/read/write to the C# host
+// over a correlated bridge and turns host `fs-change` pushes into the file service's change event so VSCode
+// reloads affected copies. File-service substrate only, no UI. See docs/specs/file-management-and-sessions.md.
 
 import { Emitter } from "@codingame/monaco-vscode-api/vscode/vs/base/common/event";
 import type { IDisposable } from "@codingame/monaco-vscode-api/vscode/vs/base/common/lifecycle";
@@ -76,9 +75,8 @@ function mapChangeType(kind: "updated" | "added" | "deleted"): FileChangeType {
 }
 
 /**
- * A `file://` provider backed by the C# host. Read/write capable (NOT readonly) and path-case-sensitive, so
- * its working copies are editable. Directory ops throw coded errors — the editor only ever resolves file
- * working copies, and the file service tolerates these (it stats parents before writing, never lists dirs).
+ * A `file://` provider backed by the C# host: read/write capable and path-case-sensitive, so its working
+ * copies are editable. Directory ops throw coded errors — the editor only resolves file copies, never dirs.
  */
 class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability {
   readonly capabilities =
@@ -191,8 +189,8 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
 let installed = false;
 
 /**
- * Registers the host-backed `file://` provider in front of the empty in-memory layer and wires the correlated
- * bridge client. Must run after `initialize()` (the file service must exist). Idempotent.
+ * Registers the provider in front of the empty in-memory layer and wires the bridge client. Must run after
+ * `initialize()` (the file service must exist). Idempotent.
  */
 export function installHostFileProvider(): void {
   if (installed) {

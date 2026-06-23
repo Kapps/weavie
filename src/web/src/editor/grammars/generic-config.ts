@@ -1,6 +1,6 @@
 // Shared minimal language-configuration (brackets + auto-close + surrounding pairs) for broad-highlighted
-// languages, since tm-grammars ships grammars only. `'` is not auto-closed (breaks Rust lifetimes / OCaml /
-// Lisp) and no `comments` are declared (comment syntax varies too much to guess). Emitted as a bundled asset.
+// languages. `'` is not auto-closed (breaks Rust lifetimes / OCaml / Lisp) and no `comments` are declared
+// (varies too much to guess). Emitted as a bundled asset.
 
 /** The manifest-relative virtual path each broad extension references for its language configuration. */
 export const GENERIC_CONFIGURATION_PATH = "./language-configuration.json";

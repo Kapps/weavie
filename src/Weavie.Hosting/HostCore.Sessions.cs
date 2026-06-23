@@ -11,23 +11,18 @@ using Weavie.Core.Worktrees;
 
 namespace Weavie.Hosting;
 
-// The session coordinator: HostCore's ISessionHost implementation plus the worktree/slot orchestration behind
-// the rail. The rail surfaces one SessionSlot per worktree (plus the primary checkout); a slot is either
-// LOADED (a live HostSession) or UNLOADED (dormant). The active session's backend drives the page (pushes
-// gated on IsActiveSession); switching swaps terminals + repaints, rebinds the editor to the slot's worktree
-// tabs, and re-pushes status + the rail. See docs/specs/multi-session-and-worktrees.md.
+// HostCore's ISessionHost impl + worktree/slot orchestration behind the rail: one SessionSlot per worktree
+// (plus primary), each LOADED (live HostSession) or UNLOADED. The active session drives the page (pushes gated
+// on IsActiveSession). See docs/specs/multi-session-and-worktrees.md.
 public sealed partial class HostCore {
 	/// <summary>
-	/// Wires a session's command handlers + its change/status/diff push subscriptions, gated on
-	/// <see cref="IsActiveSession"/> so only the active session updates the page. The gate is only half the
-	/// contract: state that ACCUMULATES while muted (the review feed) MUST also be re-applied when the session
-	/// is switched in — see <c>PushReviewStateOnSwitch</c> in <see cref="SwitchToSlot"/> — or a background
-	/// session's work never reaches the page once it's focused.
+	/// Wires a session's command handlers + change/status/diff push subscriptions, gated on
+	/// <see cref="IsActiveSession"/>. State that ACCUMULATES while muted (the review feed) must also be
+	/// re-applied on switch-in (<c>PushReviewStateOnSwitch</c> in <see cref="SwitchToSlot"/>).
 	/// </summary>
 	private void WireSession(HostSession session) {
-		// Web commands post a run-command to the page's SINGLE editor surface, so only the active session may
-		// drive it. A background session's Claude invoking a web (UI) command would otherwise execute it in the
-		// FOREGROUND session. Reject it loudly (no silent misroute); the user switches to the session and retries.
+		// Web commands drive the page's SINGLE editor surface, so only the active session may run them — else a
+		// background Claude's web command would execute in the foreground session. Reject loudly (no misroute).
 		session.Commands.WebInvoker = (id, args, ct) => IsActiveSession(session)
 			? InvokeWebCommandAsync(id, args, ct)
 			: Task.FromResult(CommandResult.Failure(
@@ -65,16 +60,14 @@ public sealed partial class HostCore {
 				switch (status) {
 					case SessionStatus.Idle:
 					case SessionStatus.NeedsInput:
-						// Edits settled (turn ended) or Claude is waiting on input. Re-push the review set so its
-						// host-decided auto-open flag (re)shows it. NeedsInput must arm+show like Idle, or a post-turn
-						// notification wipes the diff on switch.
+						// Turn ended or Claude awaits input: re-push the review set so its auto-open flag reshows it.
+						// NeedsInput must arm+show like Idle, or a post-turn notification wipes the diff on switch.
 						PushTurnChangesToWeb();
 						break;
 					case SessionStatus.Working:
 					case SessionStatus.Starting:
 						// New turn starting — re-arm so its first file opens when THIS turn ends. NeedsInput must NOT
-						// reset the arm, or the post-turn notification re-fires the auto-open and fights the user's
-						// review navigation.
+						// reset the arm, or the post-turn notification re-fires the auto-open and fights review nav.
 						_armedReviewKey = null;
 						break;
 					default:
@@ -114,13 +107,10 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// The session that owns <paramref name="path"/> for an <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>: the
-	/// loaded session whose worktree contains it (longest-prefix), else the active session for a workspace
-	/// scratch (untitled-buffer) path, else <c>null</c> — the caller refuses loudly. Routing by path (not by
-	/// the active session) is what keeps a switch from refusing the outgoing session's working-copy flush (lost
-	/// edits) or turning a stale tab's read into a spurious "file not found". A path owned by a NON-active
-	/// session is still served (data safety), but logged — it means a stale editor tab or a switch-race upstream
-	/// we want to chase, not silently treat as normal.
+	/// The session owning <paramref name="path"/> for an <c>fs-stat</c>/<c>fs-read</c>/<c>fs-write</c>: the loaded
+	/// session whose worktree contains it (longest-prefix), else the active session for a workspace scratch path,
+	/// else <c>null</c>. Routing by path (not the active session) keeps a switch from losing the outgoing
+	/// session's working-copy flush. A non-active owner is still served (data safety) but logged.
 	/// </summary>
 	private HostSession? ResolveFsSession(string path) {
 		if (string.IsNullOrEmpty(path)) {
@@ -142,8 +132,8 @@ public sealed partial class HostCore {
 			return owner;
 		}
 
-		// Not inside any worktree: a workspace scratch (untitled) buffer lives outside every worktree but is
-		// shared across the window's sessions, so serve it from the active session (whose editor shows it).
+		// A workspace scratch (untitled) buffer lives outside every worktree but is shared across the window's
+		// sessions, so serve it from the active session (whose editor shows it).
 		if (BufferStore.IsWithinWorkspace(WeaviePaths.WorkspaceScratchDir(Id), path)) {
 			return _session;
 		}
@@ -153,9 +143,8 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Routes a <c>diff-resolved</c> to the session whose <see cref="McpDiffPresenter"/> owns
-	/// <paramref name="id"/> (diff ids are process-unique, so at most one does). Returns whether any session
-	/// owned it — a <c>false</c> means a switch-race or double-resolve the caller logs loudly.
+	/// Routes a <c>diff-resolved</c> by owning session (diff ids are process-unique): a switch mid-resolve must
+	/// not hit another session's diff. Returns whether any session owned it (<c>false</c> = switch-race the caller logs).
 	/// </summary>
 	private bool ResolveDiff(string id, bool kept, string? finalContents) {
 		foreach (var session in LoadedSessions()) {
@@ -175,8 +164,8 @@ public sealed partial class HostCore {
 				return null;
 			}
 		} catch (GitException) {
-			// git not installed / not on PATH: worktree-backed sessions aren't available, but the workspace
-			// still opens normally. Never let a missing git break window init.
+			// git missing: worktree-backed sessions are unavailable, but the workspace still opens. Never let a
+			// missing git break window init.
 			return null;
 		}
 
@@ -262,9 +251,8 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// On open, reconcile the worktree registry against real git so a crash or an external removal can't leave
-	/// a worktree unsurfaced, then add an UNLOADED (dormant) slot for every existing non-primary worktree so it
-	/// appears on the rail (faded) instead of leaking invisibly. Orphans (managed but gone) are skipped.
+	/// Reconciles the worktree registry against real git, then adds an UNLOADED slot for every existing
+	/// non-primary worktree so it appears on the rail (faded) instead of leaking invisibly. Orphans are skipped.
 	/// </summary>
 	private async Task ReconcileWorktreesOnOpenAsync() {
 		if (_worktrees is null || _sessions is null) {
@@ -305,10 +293,8 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// Loaded sessions first (in creation order), dormant ones sorted to the bottom — a parked session
-		// shouldn't sit between two live ones. OrderByDescending is stable, so order within each group is
-		// preserved; the primary is always loaded, so it stays at the top. The web renders this order as-is
-		// and skips dormant chips when cycling.
+		// Loaded sessions first (creation order), dormant ones to the bottom — a parked session shouldn't sit
+		// between two live ones. OrderByDescending is stable, so the always-loaded primary stays at the top.
 		var sessions = _sessions.Slots
 			.OrderByDescending(slot => slot.Loaded)
 			.Select(slot => new {
@@ -358,9 +344,8 @@ public sealed partial class HostCore {
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
-		// Persist the shell pane's scrollback so a reattaching/resumed client replays a coherent screen instead
-		// of a blank pane. Keyed by the worktree path (stable across reloads, unlike the session's ephemeral id);
-		// shell only — claude resumes its own conversation. Honors terminal.persistScrollbackKb (0 disables).
+		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
+		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =
 			WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
 		WireSession(session);
@@ -368,13 +353,9 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Brings up the backend for an unloaded (dormant) slot: builds + wires its HostSession. A no-op for the
-	/// backend itself when already loaded, but it always (re-)binds the terminals to the slot id — the
-	/// new-session path (<see cref="BuildAndSwitchSlotAsync"/>) hands us a slot whose HostSession was built
-	/// before it reached here, so its panes would otherwise stay unbound. That binding is what tags this
-	/// session's <c>term-output</c> with its rail id; without it the page can't match the output to the
-	/// session's xterm and the Claude + shell panes stay blank. Re-binding is idempotent (the same id), so
-	/// asserting it on a plain switch is harmless.
+	/// Brings up an unloaded slot's backend (builds + wires its HostSession), then always (re-)binds its
+	/// terminals to the slot id — tagging this session's <c>term-output</c> with its rail id, without which the
+	/// page can't match output to the xterm and the panes stay blank. Idempotent, so safe on a plain switch.
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
@@ -385,10 +366,9 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Loads a dormant slot's backend IN THE BACKGROUND — creates its <see cref="HostSession"/> and starts its
-	/// terminals so its Claude runs and reports status — WITHOUT binding the page to it. Its output streams to
-	/// its own (hidden) pane, kept live so a later switch is instant. The rail's "Load session". No-op if
-	/// already loaded.
+	/// Loads a dormant slot's backend in the background (the rail's "Load session"): creates its
+	/// <see cref="HostSession"/> and starts its terminals so its Claude runs and reports status, WITHOUT binding
+	/// the page to it — kept live so a later switch is instant. No-op if already loaded.
 	/// </summary>
 	private void LoadSlotInBackground(SessionSlot slot) {
 		if (slot.Loaded) {
@@ -397,8 +377,8 @@ public sealed partial class HostCore {
 
 		LoadSlot(slot);
 		var session = slot.Session!;
-		// Start the backends now so Claude runs in the background even before its pane mounts (it would
-		// otherwise spawn on the pane's term-ready); the resize nudge on first mount repaints the live TUI.
+		// Start the backends now so Claude runs even before its pane mounts (else it spawns on term-ready); the
+		// resize nudge on first mount repaints the live TUI.
 		session.Claude.EnsureStarted();
 		session.Shell.EnsureStarted();
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
@@ -406,10 +386,9 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Binds the page to <paramref name="slot"/>, loading its backend first if it was dormant. Terminals need no
-	/// work: every loaded session keeps its own live xterm pair on the page, so switching is a pure show/hide
-	/// there (driven by the rail's active flag). Rebinds the single editor to the slot's worktree tabs, re-roots
-	/// the omnibar/file browser, then re-pushes status + the rail + focus.
+	/// Binds the page to <paramref name="slot"/>, loading its backend first if dormant. Terminals are a pure
+	/// show/hide (each loaded session keeps its own live xterm pair). Rebinds the single editor to the slot's
+	/// worktree tabs, re-roots the omnibar/file browser, then re-pushes status + the rail + focus.
 	/// </summary>
 	private void SwitchToSlot(SessionSlot slot) {
 		LoadSlot(slot);
@@ -417,9 +396,8 @@ public sealed partial class HostCore {
 
 		var previous = _session;
 		if (previous is not null && !ReferenceEquals(previous, session)) {
-			// Mute the outgoing session's editor output BEFORE the rebind below: tears any live blocking diff of
-			// the previous session out of the page (it re-renders when that session is switched back in) so it
-			// can't linger over the incoming session.
+			// Mute the outgoing session's editor output BEFORE the rebind: tears its live blocking diff out of the
+			// page (re-renders on switch-back) so it can't linger over the incoming session.
 			previous.SetEditorOutputActive(false);
 		}
 
@@ -428,26 +406,22 @@ public sealed partial class HostCore {
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 
 		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
-		// session's working copies and reopens this one's. fs-read/write + active-editor already route to the
-		// active session, so edits land in the right worktree the moment _session is swapped above.
+		// session's working copies and reopens this one's.
 		PushSessionEditorToWeb(session);
-		// Unmute the incoming session's editor output AFTER the rebind, so any work it held while muted — a
-		// background openDiff, files Claude opened — replays onto the now-rebound editor instead of being wiped
-		// by the rebind's release/restore.
+		// Unmute the incoming session's editor output AFTER the rebind, so work it held while muted (a background
+		// openDiff, files Claude opened) replays onto the rebound editor instead of being wiped by the rebind.
 		session.SetEditorOutputActive(true);
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb();
-		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree), so
-		// language intelligence follows the focused session.
+		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree).
 		PushLspConfigToWeb(session);
 		PostSessionStatus(session.Status.Status);
-		// Catch the page up on the incoming session's inline turn-review: a background Claude records edits in
-		// its own tracker while muted, but the live turn pushes are gated on the active session, so without this
-		// the switched-in session's diffs (and the ← / → walk) wouldn't appear — and the previous session's walk
-		// would linger. Pushed after the status so the web's auto-arm sees the incoming session's idle state.
+		// Catch the page up on the incoming session's inline turn-review: its muted-while-background diffs (and
+		// the ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
+		// session's walk would linger. Pushed after the status so the web's auto-arm sees the idle state.
 		PushReviewStateOnSwitch();
-		// The rail push carries the new active flag, which flips the page to this session's terminal panes (they
-		// were already mounted + live). Pushed before focus so the target pane is shown first.
+		// The rail push carries the new active flag, flipping the page to this session's (already-live) terminal
+		// panes. Pushed before focus so the target pane is shown first.
 		PushSessionList();
 		// Land keyboard focus in the new session's Claude pane.
 		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
@@ -455,8 +429,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Pushes a session's open editor tabs (a <c>set-editor-session</c>) so the page rebinds the editor to that
-	/// session's worktree files. Built from the session's in-memory <see cref="HostSession.EditorSession"/>
-	/// against its own filesystem (so missing files are dropped).
+	/// session's worktree files, built from its in-memory <see cref="HostSession.EditorSession"/> (missing files dropped).
 	/// </summary>
 	private void PushSessionEditorToWeb(HostSession session) =>
 		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
@@ -555,9 +528,8 @@ public sealed partial class HostCore {
 		_ui.Post(async () => {
 			try {
 				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
-				// exactly as it was rather than unloading it as a side effect. (RemoveAsync re-checks under
-				// force:false.) Skip when the worktree is already gone or half-removed (no .git) — there's nothing
-				// left to lose, and git can no longer answer git status there.
+				// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
+				// (no .git) — nothing left to lose, and git can't answer git status there.
 				if (!force && IsLiveWorktree(worktreePath)
 					&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
 					result.SetResult(CommandResult.Failure(
@@ -565,23 +537,17 @@ public sealed partial class HostCore {
 					return;
 				}
 
-				// Tear the live backend down first so no process keeps a handle on the worktree dir, then remove
-				// the worktree — keeping the branch — and drop the chip. Past the dirty guard the deletion is NOT
-				// tied to the request's cancellation token: when the session being deleted is the one whose
-				// IDE-MCP server is handling this very call ("Claude deletes its own session"), UnloadSlotAsync
-				// disposes that server, which cancels `ct`. Removing the worktree under the cancelled token would
-				// throw OperationCanceledException from git's WaitForExitAsync mid-delete — crashing the app and
-				// leaving the worktree half-removed. Once committed to deleting, run it to completion.
+				// Tear the live backend down first so no process holds the worktree dir, then remove the worktree
+				// (keeping the branch). Past the dirty guard the deletion runs under CancellationToken.None, NOT
+				// `ct`: when Claude deletes its own session, UnloadSlotAsync disposes the IDE-MCP server handling
+				// this call, cancelling `ct` — which would crash git mid-delete and orphan the worktree.
 				if (target.Loaded) {
 					await UnloadSlotAsync(target).ConfigureAwait(false);
 				}
 
-				// Settle before removal: the unload above awaited this session's PTY children and LSP server tree
-				// to exit, but Windows can lag on releasing their handles, and external scanners (Defender, the
-				// search indexer) may briefly hold a lock. A short, deliberate pause lets git's single one-shot
-				// remove succeed instead of partial-failing and orphaning the directory (git deletes its own
-				// record mid-failure, which no retry can recover). CancellationToken.None: the unload disposed
-				// this session's IDE-MCP server, which may already have cancelled ct.
+				// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
+				// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
+				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
 				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
 				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
 				_sessions?.Remove(target);
@@ -595,9 +561,8 @@ public sealed partial class HostCore {
 			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
 				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
 			} catch (Exception ex) {
-				// This lambda is posted as async-void onto the UI thread, so an exception escaping it crashes the
-				// app instead of failing the command. Funnel anything unexpected back to the awaiting caller,
-				// matching the other session commands (Load/Unload/Create).
+				// Posted as async-void onto the UI thread: an escaping exception crashes the app instead of
+				// failing the command, so funnel anything unexpected back to the awaiting caller.
 				result.SetException(ex);
 			}
 		});
@@ -625,10 +590,9 @@ public sealed partial class HostCore {
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
 
 	/// <summary>
-	/// True when <paramref name="worktreePath"/> is still an inspectable git worktree — the directory exists and
-	/// carries its <c>.git</c> linkage (a file, for a linked worktree). A failed delete can leave the folder
-	/// behind with no <c>.git</c>; such a leftover has nothing left to lose, so the delete path treats it as
-	/// removable and skips the change inspection git can no longer answer.
+	/// True when <paramref name="worktreePath"/> is still an inspectable git worktree (directory exists + carries
+	/// its <c>.git</c> linkage). A failed delete can leave a folder with no <c>.git</c>; the delete path treats
+	/// such a leftover as removable and skips the change inspection git can no longer answer.
 	/// </summary>
 	private static bool IsLiveWorktree(string worktreePath) =>
 		Directory.Exists(worktreePath) && Path.Exists(Path.Combine(worktreePath, ".git"));
@@ -663,8 +627,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Creates a session by checking out an existing branch into a new worktree. If Weavie already has a session
-	/// for that branch — or the branch is the primary checkout's own (git won't let it be checked out twice) —
-	/// switches to that session instead of creating a duplicate.
+	/// for that branch — or it's the primary checkout's own branch — switches to that instead of duplicating.
 	/// </summary>
 	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, CancellationToken ct) {
 		if (_worktrees is not { } worktrees) {
@@ -711,8 +674,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
-	/// switches to it on the UI thread (optionally seeding a first prompt). Shared by the new-branch and
-	/// existing-branch paths.
+	/// switches to it on the UI thread (optionally seeding a first prompt).
 	/// </summary>
 	private Task<CommandResult> BuildAndSwitchSlotAsync(string branch, WorktreeRecord record, string? prompt, string successMessage) {
 		var result = new TaskCompletionSource<CommandResult>();
@@ -767,7 +729,7 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Derives a unique branch name for an auto-named session: a slug from the first prompt (or "session"),
-	/// suffixed -2/-3/… until it collides with neither an existing slot label nor a worktree branch.
+	/// suffixed -2/-3/… until it collides with no existing slot label or worktree branch.
 	/// </summary>
 	private async Task<string> DeriveUniqueBranchNameAsync(string? prompt, CancellationToken ct) {
 		var taken = new HashSet<string>(StringComparer.Ordinal);
@@ -808,8 +770,7 @@ public sealed partial class HostCore {
 		return candidate;
 	}
 
-	// Seed the new session's claude with a first prompt by typing it into the PTY once the TUI is up.
-	// Best-effort (a short delay for the TUI to start); not load-bearing. See the spec's fork section.
+	// Seed claude's first prompt by typing it into the PTY once the TUI is up. Best-effort; not load-bearing.
 	private static void SeedFirstPrompt(HostSession session, string prompt) {
 		_ = Task.Run(async () => {
 			await Task.Delay(2500).ConfigureAwait(false);

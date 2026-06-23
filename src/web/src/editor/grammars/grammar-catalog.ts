@@ -1,15 +1,12 @@
-// Joins each tm-grammars grammar (grammar file + scope) with file-extension associations from
-// linguist-languages, keyed on TextMate scope: tm-grammars ships grammars but no extensions, linguist ships
-// extensions + the `tmScope` matching a grammar's `scopeName`. Yields the languages registered with Monaco
-// (id + extensions + scope). Curated @codingame packs (TS/TSX, C#, Go) are excluded to avoid
-// double-registration since they ship full language-configuration and drive LSP selection.
+// Joins each tm-grammars grammar with linguist-languages file extensions (keyed on TextMate scope) into the
+// languages registered with Monaco. Curated @codingame packs (TS/TSX, C#, Go) are excluded to avoid
+// double-registration, since they ship full language-configuration and drive LSP selection.
 
 import type { Language } from "linguist-languages";
 import { grammars } from "tm-grammars";
 
-// Import linguist's per-language data files via glob rather than its barrel `index.js`: the barrel uses
-// es2022 string-named exports that the dev server's esbuild (es2020 target) refuses to transform. Each
-// `data/*.js` file is a clean `export default {...}`.
+// Import linguist's per-language data files via glob, not its barrel `index.js`: the barrel's es2022
+// string-named exports break the dev server's es2020 esbuild target. Each `data/*.js` is a clean default export.
 const linguistData = import.meta.glob<Language>(
   "../../../node_modules/linguist-languages/data/*.js",
   {
@@ -51,9 +48,8 @@ interface ScopeExtensions {
 }
 
 /**
- * Builds the broad-highlighting catalog: for every tm-grammars grammar with a linguist extension match (and
- * not curated), the language id + scope + its file extensions. Extensions are de-duplicated first-wins
- * (curated pre-seeded), so no two languages claim the same one.
+ * Builds the broad-highlighting catalog: every non-curated tm-grammars grammar with a linguist extension
+ * match. Extensions are de-duplicated first-wins (curated pre-seeded), so no two languages claim the same one.
  */
 export function buildBroadCatalog(): BroadGrammar[] {
   // linguist: TextMate scope -> the union of file extensions of every language that maps to it.

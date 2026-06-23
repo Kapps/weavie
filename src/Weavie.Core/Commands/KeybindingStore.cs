@@ -4,13 +4,11 @@ namespace Weavie.Core.Commands;
 
 /// <summary>
 /// Loads the user keybindings from <c>~/.weavie/keybindings.json</c>, merges them over the command defaults,
-/// and is the change hub the host re-pushes from. The file is a JSON array of
-/// <c>{ "key", "command", "args"?, "when"? }</c> records; a <c>"command": "-&lt;id&gt;"</c> entry unbinds a
-/// default (VS Code's syntax). The merged list is shipped to the web and feeds <c>listCommands</c>.
-///
-/// Read-only from Core's side: the only writer is the user editing the file, watched via a debounced,
-/// parse-guarded <see cref="FileSystemWatcher"/> so a half-typed save never thrashes reactions and a
-/// malformed file keeps the last-good resolved list (logged loudly). See <c>docs/specs/commands.md</c>.
+/// and is the change hub the host re-pushes from. The file is a JSON array of <c>{ "key", "command", "args"?,
+/// "when"? }</c> records; a <c>"command": "-&lt;id&gt;"</c> entry unbinds a default (VS Code syntax).
+/// Read-only from Core's side, watched via a debounced, parse-guarded <see cref="FileSystemWatcher"/> so a
+/// half-typed save never thrashes reactions and a malformed file keeps the last-good list (logged loudly).
+/// See <c>docs/specs/commands.md</c>.
 /// </summary>
 public sealed class KeybindingStore : IDisposable {
 	private readonly CommandRegistry _registry;
@@ -24,8 +22,7 @@ public sealed class KeybindingStore : IDisposable {
 
 	/// <summary>
 	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/keybindings.json</c>), loading +
-	/// merging now and — unless <paramref name="enableWatcher"/> is false — watching the file for external
-	/// edits. The parent directory is created so the watcher can attach.
+	/// merging now and — unless <paramref name="enableWatcher"/> is false — watching the file for external edits.
 	/// </summary>
 	public KeybindingStore(CommandRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
@@ -137,7 +134,6 @@ public sealed class KeybindingStore : IDisposable {
 	}
 
 	private List<ResolvedKeybinding> MergeLocked(IReadOnlyList<UserBinding> userEntries) {
-		// Seed with the command defaults.
 		var result = new List<ResolvedKeybinding>();
 		foreach (var definition in _registry.Definitions) {
 			foreach (var binding in definition.DefaultKeybindings) {

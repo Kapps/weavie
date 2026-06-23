@@ -5,14 +5,12 @@ using Weavie.Mac.Hosting;
 
 namespace Weavie.Mac;
 
-// The macOS IHostPlatform: the native surface HostCore reaches through. The app delegate owns the window,
-// recents, hotkey registrar, and dialogs, so it implements the seam directly (explicit interface members
-// keep them off its public API).
+// The macOS IHostPlatform seam. The app delegate already owns the native pieces, so it implements it directly;
+// explicit interface members keep them off its public API.
 public sealed partial class AppDelegate : IHostPlatform {
 	IHostBridge IHostPlatform.Bridge => _bridge;
 
-	// Async (BeginInvokeOnMainThread), never synchronous: a sync hop from the PTY read thread can deadlock
-	// against a main-thread PTY write (see HostBridge). Inlines when already on the main thread.
+	// Async, never synchronous: a sync hop from the PTY read thread can deadlock a main-thread PTY write (see HostBridge).
 	IUiDispatcher IHostPlatform.Dispatcher => _dispatcher!;
 
 	IPtyLauncher IHostPlatform.PtyLauncher => _ptyLauncher;

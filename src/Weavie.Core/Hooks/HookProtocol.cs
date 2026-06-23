@@ -4,10 +4,9 @@ using System.Globalization;
 namespace Weavie.Core.Hooks;
 
 /// <summary>
-/// Wire protocol between the hook relay (Claude's <c>command</c> hook) and the in-process
-/// <c>HookBridgeServer</c>: a current-user-only named pipe carrying one length-prefixed request and one
-/// length-prefixed response. No bearer token — the OS pipe ACL (current user only) is the auth, so a web page
-/// or another OS user cannot reach it.
+/// Wire protocol between the hook relay and the in-process <c>HookBridgeServer</c>: a named pipe carrying one
+/// length-prefixed request and response. No bearer token — the OS pipe ACL (current user only) is the auth, so
+/// a web page or another OS user cannot reach it.
 /// </summary>
 public static class HookProtocol {
 	/// <summary>Env var (injected into the spawned claude, inherited by its hook child) naming the pipe to dial.</summary>

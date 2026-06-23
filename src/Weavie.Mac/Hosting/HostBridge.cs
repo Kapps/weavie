@@ -5,10 +5,9 @@ using WebKit;
 namespace Weavie.Mac.Hosting;
 
 /// <summary>
-/// The JS &lt;-&gt; C# message bridge.
-///   inbound:  JS calls <c>window.webkit.messageHandlers.weavie.postMessage(json)</c> -&gt; <see cref="MessageReceived"/>.
-///   outbound: <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the main thread.
-/// Bodies are raw JSON strings; typed dispatch lives on each side.
+/// The JS &lt;-&gt; C# message bridge: inbound <c>messageHandlers.weavie.postMessage</c> raises
+/// <see cref="MessageReceived"/>; outbound <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive</c> on the
+/// main thread. Bodies are raw JSON; typed dispatch lives on each side.
 /// </summary>
 public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge {
 	private WKWebView? _webView;
@@ -35,12 +34,9 @@ public sealed class HostBridge : NSObject, IWKScriptMessageHandler, IHostBridge 
 		if (NSThread.IsMain) {
 			webView.EvaluateJavaScript(script, (_, error) => LogIfError(error));
 		} else {
-			// Must be async (BeginInvokeOnMainThread), NOT synchronous InvokeOnMainThread. PTY output arrives
-			// on the read thread; the matching input write runs on the main thread. A synchronous hop blocks
-			// the read thread until the main thread is free — but if the main thread is parked in a blocking
-			// write() to a full PTY input buffer, that write can only drain once the child consumes stdin,
-			// which it can't until its stdout is drained by this very read thread: a hard deadlock (the
-			// "blank + frozen terminal"). Posting async keeps the read thread draining output unconditionally.
+			// Must be async, NOT synchronous: a sync hop blocks the PTY read thread on the main thread, which may
+			// be parked in a blocking write() to a full PTY input buffer that only drains once the child reads
+			// stdin — which needs its stdout drained by this very read thread. Hard deadlock (frozen terminal).
 			NSApplication.SharedApplication.BeginInvokeOnMainThread(() =>
 				webView.EvaluateJavaScript(script, (_, error) => LogIfError(error)));
 		}

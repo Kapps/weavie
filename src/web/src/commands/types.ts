@@ -1,7 +1,6 @@
-// The web view of the command system, mirroring Weavie.Core.Commands' CommandCatalog JSON. The host injects
-// the catalog + resolved keybindings as window globals before navigation and re-pushes a { type: "commands" }
-// message when the user edits ~/.weavie/keybindings.json. Commands are declared in Core; the web binds
-// handlers to the ids and resolves keydowns. See docs/specs/commands.md.
+// The web view of the command system, mirroring Core's CommandCatalog JSON. The host injects the catalog +
+// resolved keybindings before navigation and re-pushes { type: "commands" } on a keybindings.json edit.
+// Commands are declared in Core; the web binds handlers and resolves keydowns. See docs/specs/commands.md.
 
 export type CommandLocation = "web" | "core";
 
@@ -28,8 +27,8 @@ export interface ResolvedKeybinding {
   args?: unknown;
   when?: string;
   /**
-   * When true this is an OS-level global hotkey: the host registers it with the OS (so it fires even when
-   * Weavie is unfocused) and the web keydown resolver skips it — see keybindings.ts.
+   * An OS-level global hotkey: the host registers it (so it fires even when unfocused) and the web keydown
+   * resolver skips it. See keybindings.ts.
    */
   global?: boolean;
 }

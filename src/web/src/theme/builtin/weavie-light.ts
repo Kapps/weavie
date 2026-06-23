@@ -1,15 +1,8 @@
-// "Weavie Light" — the Soft Paper companion to Weavie Dark. A green-forward base (emerald keywords,
-// leaf-green strings, sea-green numbers) on a dimmed paper canvas (#e3e2da). The identifier family is
-// split by hue and luminance so roles never blur: variables a vivid royal blue (the names scanned most,
-// kept as the dark anchor at ~6.3:1) and properties a clearly lighter steel-blue cousin (~4.6:1) a step up,
-// functions crimson (the lone warm accent), and types cool cyan-teal. Keywords are a saturated emerald
-// (~4.6:1) — pitched lighter than the deep-blue names so the two read as distinct hues rather than two dark
-// blobs, and so the doc-comment <tags> that share the keyword green stand clearly apart from the prose.
-// Comments are a light recessive grey (~3.2:1) that sits behind that green markup; punctuation quiet but
-// legible. On a light canvas every color must stay dark enough to read, so the palette wins separation by
-// spreading luminance and hue rather than by going bright. Chrome sits one step darker than the editor
-// so the canvas reads as the focal well it frames. The same `colors` map drives editor, terminal, and
-// chrome (spec §5), so overrides (spec §6) and installed Open VSX themes address the same keys.
+// "Weavie Light" — Soft Paper companion to Weavie Dark on a dimmed canvas (#e3e2da). Identifier roles are
+// split by hue and luminance so they never blur: variables deep royal blue (~6.3:1, the names scanned most),
+// properties a lighter steel-blue cousin, functions crimson, types cyan-teal, keywords emerald pitched
+// lighter than the blues so the two read as distinct hues. On a light canvas separation comes from spreading
+// luminance/hue, not brightness. The same `colors` map drives editor, terminal, and chrome (spec §5).
 
 import type { VsCodeColorTheme } from "../vscode-theme";
 
@@ -53,7 +46,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     "editorInfo.foreground": "#1f9d78",
 
     // ── Inlay hints (parameter-name / type chips) ───────────────────────────────────────────────────
-    // Kept quiet and chip-less so they annotate without competing with the code they sit between.
+    // Quiet and chip-less so they annotate without competing with the code they sit between.
     "editorInlayHint.foreground": "#9aa4b0",
     "editorInlayHint.background": "#00000000",
     "editorInlayHint.typeForeground": "#9aa4b0",
@@ -333,8 +326,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     { name: "Invalid", scope: ["invalid", "invalid.illegal"], settings: { foreground: "#c8413b" } },
   ],
   semanticTokenColors: {
-    // Types take a cool cyan-teal, distinct from the green keywords and blue identifiers; namespaces a
-    // dimmer teal since they're mostly qualifiers.
+    // Types cyan-teal, distinct from green keywords and blue identifiers; namespaces dimmer (qualifiers).
     class: "#0a7286",
     interface: "#0a7286",
     enum: "#0a7286",
@@ -354,8 +346,7 @@ export const WEAVIE_LIGHT: VsCodeColorTheme = {
     string: "#2a7d34",
     operator: "#6b7682",
     comment: "#7d8290",
-    // Variables (incl. parameters) are a deep blue — the data scanned most, present without shouting at
-    // ~6.9:1; properties a quieter steel-blue cousin one step up.
+    // Variables (incl. parameters) deep blue at ~6.9:1 — scanned most; properties a quieter steel-blue.
     variable: "#2849a5",
     parameter: "#2849a5",
     property: "#3a63ac",

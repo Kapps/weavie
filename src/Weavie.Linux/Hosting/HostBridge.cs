@@ -5,10 +5,8 @@ using Weavie.Linux.Native;
 namespace Weavie.Linux.Hosting;
 
 /// <summary>
-/// The JS &lt;-&gt; C# message bridge. Inbound: JS calls
-/// <c>window.webkit.messageHandlers.weavie.postMessage(json)</c> -&gt; <see cref="MessageReceived"/>. Outbound:
-/// <see cref="PostToWeb"/> evaluates <c>window.__weavieReceive(json)</c> on the GTK main thread. Bodies are raw
-/// JSON; the contract matches the macOS WKWebView host.
+/// The JS &lt;-&gt; C# message bridge. Inbound via the <c>weavie</c> script-message handler to
+/// <see cref="MessageReceived"/>; outbound via <see cref="PostToWeb"/>. Raw-JSON bodies, matching the macOS host.
 /// </summary>
 internal sealed class HostBridge : IHostBridge {
 	// Kept alive: native holds a bare function pointer to this.
@@ -53,8 +51,7 @@ internal sealed class HostBridge : IHostBridge {
 			webView, script, -1, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero, IntPtr.Zero));
 	}
 
-	// WebKit script-message callback (main thread): extract the JS value as a string, free WebKit's copy,
-	// and forward the raw JSON body.
+	// Main thread: extract the JS value as a string, free WebKit's copy, and forward the raw JSON body.
 	private void OnScriptMessage(IntPtr manager, IntPtr jsResult, IntPtr userData) {
 		IntPtr value = WebKit.webkit_javascript_result_get_js_value(jsResult);
 		IntPtr stringPtr = WebKit.jsc_value_to_string(value);

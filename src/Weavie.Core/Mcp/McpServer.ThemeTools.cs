@@ -7,10 +7,9 @@ using Weavie.Core.Theming;
 
 namespace Weavie.Core.Mcp;
 
-// The model-facing theming tools (registry server): the data-shaped operations — list/describe the active
-// theme and edit its individual color overrides (set/transform/remove), which persist per theme in
-// ~/.weavie/theme-overrides.json. The verb actions (install / install-from-file / select / undo / reset) are
-// COMMANDS instead (see ThemeCommands), reached via runCommand.
+// The model-facing theming tools (registry server): list/describe the active theme and edit its color
+// overrides, which persist per theme in ~/.weavie/theme-overrides.json. Verb actions (install/select/undo/
+// reset) are COMMANDS (see ThemeCommands), reached via runCommand.
 public sealed partial class McpServer {
 	private async Task HandleListThemesAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
 		string active = ActiveThemeId();
@@ -76,9 +75,8 @@ public sealed partial class McpServer {
 			return;
 		}
 
-		// An op sets a foreground color ('value'), a font style ('fontStyle'), or both — at least one. An empty
-		// 'value' reads as absent; an empty 'fontStyle' is meaningful (clears inherited styles), so its presence
-		// test is null-vs-not, not IsNullOrEmpty.
+		// At least one of 'value'/'fontStyle' required. Empty 'value' reads as absent; empty 'fontStyle' is
+		// meaningful (clears inherited styles), so it's tested null-vs-not, not IsNullOrEmpty.
 		string? value = args.GetStringOrNull("value");
 		bool hasValue = !string.IsNullOrEmpty(value);
 		string? fontStyle = args.GetStringOrNull("fontStyle");

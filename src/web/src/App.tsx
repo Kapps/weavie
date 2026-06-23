@@ -31,8 +31,8 @@ import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
-// Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
-// rail + active-session status survive HMR, like layout/store and editor/session-store.
+// Top-level import keeps the session store out of any hot-swapping component so the rail + active-session
+// status survive HMR.
 import {
   type RailSession,
   claudeStatus,
@@ -53,10 +53,9 @@ import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
 import { createEditorController } from "./editor/editor-controller";
-// Registers the editor session store's set-editor-session listener at top-level module load — before
-// main.tsx posts "ready" and the host replies with its one-shot restore push. The store otherwise lives
-// only in the dynamically-imported editor chunk (editor-host), which loads later, so the push would arrive
-// with no listener — launch/Ctrl+R restore would silently no-op. Importing here also keeps it alive across HMR.
+// Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
+// store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
+// keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
@@ -71,14 +70,12 @@ import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 
-// The PRIMARY session's workspace root (host-injected before navigation). Seeds the active-root signal
-// (indexRoot) and serves as the "is there a host workspace at all" check; the live root follows the active
-// session via the host's file-index pushes. Null in plain-browser dev (no host).
+// The PRIMARY session's workspace root (host-injected before navigation); seeds indexRoot and the "is there
+// a host workspace at all" check. The live root then follows the active session. Null in plain-browser dev.
 const WORKSPACE_ROOT = window.__WEAVIE_LSP__?.workspace ?? null;
 
-// Host-injected shell config. Windows injects titleBar "custom" (the frameless web title bar with its own
-// window controls); macOS injects titleBar "mac" (the omnibar strip below the native title bar + system
-// menu). Absent in plain-browser dev, where neither bar renders and the floating Files button is the toggle.
+// Host-injected shell config. titleBar "custom" = Windows frameless web title bar; "mac" = omnibar strip
+// below the native title bar. Absent in plain-browser dev, where the floating Files button is the toggle.
 const SHELL = window.__WEAVIE_SHELL__;
 const CUSTOM_TITLEBAR = SHELL?.titleBar === "custom";
 const MAC_TITLEBAR = SHELL?.titleBar === "mac";
@@ -102,32 +99,31 @@ const paneOf = (kind: string): TermSession => (kind === "terminal:claude" ? "cla
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
-  // The live pane layout tree: seeded with the default, replaced when the host pushes the persisted
-  // layout, and updated optimistically while the user drags a splitter.
+  // The live pane layout tree: default-seeded, replaced by the host's persisted push, updated optimistically
+  // during a splitter drag.
   const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_LAYOUT_ROOT);
   // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
   const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
   // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
-  // Each loaded session's terminal panes register their focus fn here on mount, keyed by `${slot}:${pane}`
-  // (the editor focuses via the controller directly). focusPane resolves the active session's entry.
+  // Each loaded session's terminal panes register their focus fn here on mount, keyed `${slot}:${pane}`;
+  // focusPane resolves the active session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
 
-  // The active backend's loaded sessions each keep their own live xterm pair mounted; only the active one is
-  // shown. A stable string[] of session ids so <For> never remounts a session's terminals across rail pushes
-  // — that keeps them alive, making a switch pure show/hide. Dormant and other-backend sessions are excluded.
+  // A stable string[] of the active backend's loaded session ids, so <For> never remounts a session's
+  // terminals across rail pushes — keeping them alive makes a switch pure show/hide. Excludes dormant and
+  // other-backend sessions.
   const termSessionIds = createMemo(() =>
     sessions()
       .filter((s) => s.loaded && s.backendId === activeBackendId())
       .map((s) => s.id),
   );
-  // The session whose panes are shown — the active one on the active backend (or null before the first
-  // rail push). Flipping this is what switches which session's terminals are visible.
+  // The session whose panes are shown (null before the first rail push); flipping it switches which
+  // session's terminals are visible.
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
 
-  // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it. (Claude status
-  // and the rail session list live in chrome/session-store as HMR-surviving top-level signals.)
+  // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
@@ -141,8 +137,8 @@ export default function App(): JSX.Element {
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
   const { toasts, addToast, dismissToast } = createToasts();
-  // A pending "discard unsaved scratch?" confirm: the names to discard + the promise resolver the dialog
-  // settles. The editor controller routes every tab close through this guard (confirmDiscard below).
+  // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
+  // close routes through this guard (confirmDiscard below).
   const [confirmReq, setConfirmReq] = createSignal<{
     title: string;
     body: string;
@@ -170,10 +166,9 @@ export default function App(): JSX.Element {
       req.resolve(ok);
     }
   };
-  // Window chrome (maximize glyph + blur dim) pushed by the host, plus the flat workspace file index the
-  // omnibar's "Go to File" and the file browser tree share. indexRoot is the ACTIVE session's worktree root
-  // — it follows session switches (the host re-pushes file-index on each), seeded from WORKSPACE_ROOT until
-  // the first push.
+  // Host-pushed window chrome (maximize glyph + blur dim) and the flat workspace file index shared by the
+  // omnibar's "Go to File" and the file browser. indexRoot is the ACTIVE session's worktree root — it
+  // follows session switches (host re-pushes file-index on each), seeded from WORKSPACE_ROOT until the first.
   const [maximized, setMaximized] = createSignal(false);
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
@@ -193,8 +188,8 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    // Every loaded session has its own xterm pair; only the active session's is visible/focusable. Resolve
-    // it by the active session id, so focus lands correctly regardless of effect-flush timing on a switch.
+    // Resolve the focusable xterm by the active session id, so focus lands correctly regardless of
+    // effect-flush timing on a switch.
     const pane = paneOf(kind);
     const sid = activeTermSessionId();
     if (sid !== null) {
@@ -202,30 +197,26 @@ export default function App(): JSX.Element {
     }
   };
 
-  // Switch to a session by id. Flushes the outgoing session's pending (debounced) editor session before
-  // the switch so its tab set isn't lost; the host processes both messages in order on the still-active
-  // session. Used by the rail (click) and the next/prev keyboard commands alike.
+  // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
+  // isn't lost; the host processes both messages in order on the still-active session.
   const switchToSession = (session: RailSession): void => {
     flushEditorSession();
-    // Crossing to another backend (local ↔ remote) rebinds the page to it; its switch-session reply
-    // (term-reset → the panes re-emit term-ready, plus set-editor-session) re-attaches the terminals + editor.
+    // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
     if (session.backendId !== activeBackendId()) {
       setActiveBackendId(session.backendId);
     }
     postToBackend(session.backendId, { type: "switch-session", id: session.id });
   };
 
-  // The location to preselect in the New Session prompt: the last-used backend if it's still connected,
-  // otherwise local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
+  // The location to preselect in the New Session prompt: the last-used backend if still connected, else
+  // local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
   const defaultLocation = (): string => {
     const last = lastLocation();
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };
 
-  // Step the active session to the next/prev LOADED chip on the rail (delta ±1, wraps around). Dormant chips
-  // are deliberately skipped — a parked session shouldn't sit in the cycle; reach it by clicking or Switch
-  // Session… instead. Returns whether it stepped, so with <2 loaded sessions (nothing to switch to) the
-  // keystroke falls through, matching tab next/prev.
+  // Step the active session to the next/prev LOADED rail chip (delta ±1, wraps); dormant chips are skipped.
+  // Returns whether it stepped, so with <2 loaded sessions the keystroke falls through (matching tab next/prev).
   const stepSession = (delta: number): boolean => {
     const list = railSessions().filter((s) => s.loaded);
     const current = list.findIndex((s) => s.active);
@@ -240,16 +231,15 @@ export default function App(): JSX.Element {
     return true;
   };
 
-  // A pending session delete, opened only once the host classifies the worktree. The deletePrompt command sends
-  // a delete-session-request; the host replies with session-delete-prompt carrying the worktree's state, which
-  // opens DeleteSessionDialog with the matching confirm (clean / untracked / modified).
+  // A pending session delete, opened once the host classifies the worktree (session-delete-prompt reply)
+  // and DeleteSessionDialog raises the matching confirm (clean / untracked / modified).
   const [deleteReq, setDeleteReq] = createSignal<{
     id: string;
     label: string;
     state: DeleteSessionState;
   } | null>(null);
-  // The interactive delete (rail menu / palette): with no `id` arg it targets the active session. Asks the host
-  // to classify the worktree; the session-delete-prompt reply opens the dialog.
+  // Interactive delete (rail menu / palette): no `id` arg targets the active session. Asks the host to
+  // classify the worktree; the session-delete-prompt reply opens the dialog.
   const promptDeleteSession = (args: unknown): void => {
     const id = (args as { id?: string } | undefined)?.id ?? sessions().find((s) => s.active)?.id;
     if (id !== undefined) {
@@ -266,8 +256,8 @@ export default function App(): JSX.Element {
     postToHost({ type: "delete-session", id: req.id, force: req.state !== "clean" });
   };
 
-  // Persist the layout after a user gesture (debounced). Skipped until the host has pushed the initial
-  // layout, so we never overwrite the saved state with the default before it has loaded.
+  // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
+  // never overwrite the saved state with the default before it loads.
   let persistTimer = 0;
   const persistRoot = (root: LayoutNode): void => {
     const base = layoutDocument();
@@ -286,8 +276,8 @@ export default function App(): JSX.Element {
     persistRoot(root);
   };
 
-  // Apply the layout the host pushes (startup restore + any later host/MCP change). The resize handler
-  // is gesture-driven, so applying a pushed layout never echoes back into a save.
+  // Apply the host-pushed layout (startup restore + any later host/MCP change). The resize handler is
+  // gesture-driven, so a pushed layout never echoes back into a save.
   createEffect(() => {
     const doc = layoutDocument();
     if (doc !== null) {
@@ -296,8 +286,8 @@ export default function App(): JSX.Element {
   });
 
   // Renders the surface for a pane kind. Called once per kind by LayoutView (the slot list is stable), so
-  // the editor surface and each terminal kind's container are created once and only repositioned. Within a
-  // terminal kind, one xterm per loaded session is mounted (only the active shown) — see the For below.
+  // each surface is created once and only repositioned. Within a terminal kind, one xterm per loaded session
+  // is mounted (only the active shown) — see the For below.
   const renderPane = (kind: string): JSX.Element => {
     if (kind === "editor") {
       return (
@@ -339,8 +329,8 @@ export default function App(): JSX.Element {
           </span>
         </div>
         <div class="pane-body">
-          {/* One live xterm per loaded session; only the active one is shown. Keyed by session id so a
-              session keeps its xterm across rail pushes — switching is pure show/hide, no reset/replay. */}
+          {/* One live xterm per loaded session, only the active shown. Keyed by session id so a session keeps
+              its xterm across rail pushes — switching is pure show/hide, no reset/replay. */}
           <For each={termSessionIds()}>
             {(sid) => {
               const isActive = (): boolean => sid === activeTermSessionId();
@@ -366,9 +356,8 @@ export default function App(): JSX.Element {
     setBrowserOpen((open) => !open);
   };
 
-  // Whenever the browser is open and the active session's root listing hasn't loaded, request it; the current
-  // file's ancestor folders then cascade open from there. Keyed on indexRoot() (the ACTIVE session's worktree,
-  // re-pushed by the host on a switch), not the page-load primary root — so the browser follows the session.
+  // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
+  // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
   createEffect(() => {
     const root = indexRoot();
     if (browserOpen() && root !== null && dirListings()[root] === undefined) {
@@ -388,9 +377,8 @@ export default function App(): JSX.Element {
     // Registered remote agents are connected by remote-agents.ts when the host pushes the persisted registry on
     // `ready` (best-effort; a down runner just logs and is skipped) — no startup call needed here.
 
-    // The terminal panes are already in the tree and mount now — spawning claude — without waiting on
-    // Monaco. The editor (a separate chunk, off the first-paint path) is brought up here; the pane shows a
-    // placeholder until it resolves, with the splash held over everything until it settles.
+    // Terminal panes mount independently (spawning claude). The editor is a separate off-first-paint chunk
+    // brought up here; its pane shows a placeholder until it resolves, splash held until it settles.
     editor.start(editorContainer);
 
     const offHost = onHostMessage((message) => {
@@ -400,14 +388,12 @@ export default function App(): JSX.Element {
       if (message.type === "notify") {
         addToast(message.level, message.message);
       } else if (message.type === "focus-pane") {
-        // The host switched the active session and asks us to land keyboard focus in a pane — Claude by
-        // default, so a switch drops the user straight into the agent. The terminal xterms are persistent
-        // across switches, so focusing the slot is valid even mid-respawn.
+        // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
+        // xterms persist across switches, so focusing the slot is valid even mid-respawn.
         focusPane(message.kind);
       } else if (message.type === "turn-changes") {
-        // The review set (auto-keep modes). Feed the editor controller's ← / → file walk; if the host says
-        // this is the moment to surface review (`open`), open the first file. No panel renders it; review is
-        // the inline toolbar in the editor.
+        // The review set (auto-keep modes): feed the editor's ← / → file walk; on `open`, surface review by
+        // opening the first file. Review is the inline editor toolbar, not a panel.
         editor.setReviewFiles(message.files);
         if (message.open) {
           editor.openFirstReviewFile();
@@ -422,9 +408,8 @@ export default function App(): JSX.Element {
         setMaximized(message.maximized);
         setWindowFocused(message.focused);
       } else if (message.type === "file-index") {
-        // A switch re-pushes the index rooted at the new session's worktree. When the root changes, drop the
-        // previous session's cached directory listings so the file browser re-lists the new worktree's tree
-        // instead of showing the old one (listings are keyed by absolute path, so they'd otherwise linger).
+        // A switch re-pushes the index rooted at the new worktree. On a root change, drop the cached listings
+        // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree.
         if (message.root !== indexRoot()) {
           setDirListings({});
         }
@@ -438,9 +423,8 @@ export default function App(): JSX.Element {
       // survive HMR); they're intentionally not handled here.
     });
 
-    // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Ctrl+1–9
-    // (focus pane by index), the omnibar focus shortcuts, the view toggles, and the inline-diff actions all
-    // resolve through it; Core commands route to the host. See docs/specs/commands.md.
+    // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Core
+    // commands route to the host. See docs/specs/commands.md.
     // A tab command's optional `path` arg (sent by the tab context menu); absent ⇒ act on the active tab.
     const tabPath = (args: unknown): string | undefined => {
       const path = (args as { path?: unknown } | undefined)?.path;
@@ -464,9 +448,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
-      // The floating diff toolbar buttons route through these same actions, so keybindings / the palette /
-      // Claude's runCommand drive the active diff identically. Each returns whether it acted, so an
-      // unmatched keybinding (no active diff) falls through to the editor.
+      // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so
+      // an unmatched keybinding (no active diff) falls through to the editor.
       registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),
       registerCommand(CommandIds.prevChange, () => editor.inline.prevChange()),
       registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
@@ -475,16 +458,14 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
       registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
       registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
-      // Post-turn review (acceptEdits/bypass): there's no panel — these drive the inline toolbar's file axis.
-      // reviewOpen jumps to the first changed file; next/prev step the review set. next/prev DECLINE (return
-      // false → fall through to the editor) when no multi-file review is active, so $mod+Left/Right keep their
-      // editor word-nav meaning outside a review.
+      // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
+      // through to the editor) when no multi-file review is active, so $mod+Left/Right keep word-nav outside one.
       registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
       registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
       registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),
-      // Editor tabs. The targeted commands take an optional `path` (the tab context menu passes the
-      // right-clicked tab; keyboard / palette omit it to act on the active tab). next/prev return whether they
-      // stepped, so Ctrl+Tab falls through to the editor when there are <2 tabs.
+      // Editor tabs. Targeted commands take an optional `path` (the context menu's right-clicked tab; keyboard
+      // / palette omit it for the active tab). next/prev return whether they stepped, so Ctrl+Tab falls
+      // through to the editor with <2 tabs.
       registerCommand(CommandIds.closeTab, (args) => editor.tabs.close(tabPath(args))),
       registerCommand(CommandIds.nextTab, () => editor.tabs.next()),
       registerCommand(CommandIds.prevTab, () => editor.tabs.prev()),
@@ -500,16 +481,13 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.saveFile, () => editor.save()),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
-      // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab whenever the editor isn't focused — gated
-      // !editorFocused so the editor's own Ctrl+Tab still cycles tabs, but it works from the terminal, the
-      // rail, and on load before any pane takes focus): cycle the rail, wrapping around. stepSession returns
-      // false with <2 sessions so the chord falls through.
+      // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
+      // still cycles tabs): cycle the rail, wrapping. stepSession returns false with <2 sessions so the chord
+      // falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
-      // Ctrl+Shift+1–9 → switch to the Nth session on the rail (the session analogue of Ctrl+1–9 for
-      // panes). Returns false when there's no session at that number, so an unbound chord falls through to
-      // the focused xterm/Monaco; consumes the key (returns true) when one exists, even if it's already
-      // active (then it's a no-op — the host already focuses Claude on a real switch).
+      // Ctrl+Shift+1–9 → switch to the Nth rail session. Returns false when there's none at that number (the
+      // chord falls through); consumes the key when one exists, even if already active (then a no-op).
       registerCommand(CommandIds.selectSessionByIndex, (args) => {
         const index = Number((args as { index?: unknown } | undefined)?.index);
         if (!Number.isFinite(index)) {
@@ -527,8 +505,8 @@ export default function App(): JSX.Element {
       // Interactive delete (rail menu / palette): opens the confirm dialog after the host classifies the
       // worktree. The raw delete (weavie.session.delete) is the programmatic/MCP path.
       registerCommand(CommandIds.deleteSessionPrompt, promptDeleteSession),
-      // Disconnect a remote agent (rail right-click on a remote chip): close its bridge + forget it. The
-      // agent registry is client-side, so this is web-handled. Declines a missing/blank name.
+      // Disconnect a remote agent (rail right-click): close its bridge + forget it (the registry is
+      // client-side). Declines a missing/blank name.
       registerCommand(CommandIds.disconnectRemoteAgent, (args) => {
         const name = (args as { agent?: unknown } | undefined)?.agent;
         if (typeof name !== "string" || name.length === 0) {

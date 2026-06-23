@@ -3,9 +3,9 @@ using System.Globalization;
 namespace Weavie.Core.Commands;
 
 /// <summary>
-/// Registers Weavie's built-in commands, spanning both worlds and all three triggers (keybinding, palette,
-/// MCP). Core registers these at startup; the web binds handlers to the <see cref="CommandLocation.Web"/> ids
-/// and the host binds the <see cref="CommandLocation.Core"/> ones. See <c>docs/specs/commands.md</c>.
+/// Registers Weavie's built-in commands across both worlds and all three triggers (keybinding, palette, MCP).
+/// The web binds handlers to the <see cref="CommandLocation.Web"/> ids, the host the <see cref="CommandLocation.Core"/>
+/// ones. See <c>docs/specs/commands.md</c>.
 /// </summary>
 public static class CoreCommands {
 	/// <summary>The pane-focus command id; bound to <c>ctrl+1..9</c> and dispatched with <c>{ "index": N }</c>.</summary>
@@ -118,10 +118,8 @@ public static class CoreCommands {
 	public static void Register(CommandRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
-		// ctrl+1..9 → focus the Nth pane in layout order. Literal ctrl (not $mod) so it stays Ctrl on macOS too
-		// — Cmd+1..9 would collide with macOS app/window shortcuts; index-jump nav is Ctrl on every platform.
-		// Keybinding-only: "focus pane index 3" is not a meaningful palette row without context. Each default
-		// binding carries its own index argument.
+		// ctrl+1..9 → focus the Nth pane. Literal ctrl (not $mod) to stay Ctrl on macOS, where Cmd+1..9 collides
+		// with app/window shortcuts. Keybinding-only; each default binding carries its own index argument.
 		var focusBindings = new List<CommandKeybinding>(9);
 		for (int i = 1; i <= 9; i++) {
 			string n = i.ToString(CultureInfo.InvariantCulture);
@@ -179,12 +177,9 @@ public static class CoreCommands {
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
 		});
 
-		// Toggle Weavie's window in/out of the foreground, bound to the GLOBAL hotkey ctrl+` so it fires even
-		// when another app is focused (an in-app keydown can't reach an unfocused window). Pressing it focuses
-		// Weavie when it's behind, and when it's already in front hands focus back to the previously focused
-		// window, dropping Weavie behind (Windows; macOS hides the app). ctrl+` is used literally (not $mod) so
-		// it's the same on Win + macOS, where Cmd+` is the system "cycle windows" shortcut. Not in the palette
-		// (toggling the window you're typing in is meaningless there) but reachable by Claude over runCommand.
+		// Toggle Weavie in/out of the foreground via the GLOBAL hotkey ctrl+` so it fires even when another app
+		// is focused (an in-app keydown can't reach an unfocused window). Literal ctrl (not $mod): Cmd+` is the
+		// macOS "cycle windows" shortcut. Not in the palette but reachable by Claude over runCommand.
 		registry.Register(new CommandDefinition {
 			Id = ToggleWindow,
 			Title = "Toggle Weavie Window",
@@ -197,11 +192,9 @@ public static class CoreCommands {
 			ShowInPalette = false,
 		});
 
-		// Inline-diff navigation + actions (the floating diff toolbar). All web-handled; the toolbar buttons
-		// and these keybindings/palette entries route to the same handlers. The web handlers DECLINE (let the
-		// key fall through to the editor) when no diff is active, so these safely reuse familiar editor chords:
-		// $mod+Down/Up navigate hunks, $mod+Enter accepts, $mod+Backspace rejects (Cursor-style). Undo is left
-		// unbound (a whole-turn revert is destructive).
+		// Inline-diff navigation + actions (the floating diff toolbar), all web-handled. The handlers DECLINE
+		// (let the key fall through to the editor) when no diff is active, so these safely reuse familiar editor
+		// chords. Undo is left unbound (a whole-turn revert is destructive).
 		registry.Register(new CommandDefinition {
 			Id = NextChange,
 			Title = "Next Change",
@@ -253,11 +246,9 @@ public static class CoreCommands {
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn", "undo all"],
 		});
 
-		// Post-turn review (acceptEdits/bypass mode): no panel — review happens inline in the editor via the
-		// hovering diff toolbar, a 2D navigator (Up/Down = hunks, Left/Right = files). Web-handled; the handlers
-		// DECLINE (fall through to the editor) when no review diff is active, so $mod+Left/Right keep their
-		// editor meaning (word nav) outside a review. ReviewOpen jumps in at the first changed file;
-		// nextFile/prevFile step the file axis.
+		// Post-turn review (acceptEdits/bypass): inline in the editor via the diff toolbar, a 2D navigator
+		// (Up/Down = hunks, Left/Right = files). Web-handled; the handlers DECLINE when no review diff is active,
+		// so $mod+Left/Right keep their editor word-nav meaning outside a review.
 		registry.Register(new CommandDefinition {
 			Id = ReviewOpen,
 			Title = "Review Changes",
@@ -288,9 +279,8 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Left" }],
 		});
 
-		// File-scoped review actions (the toolbar's scope picker exposes these alongside the per-hunk Keep/Revert
-		// and whole-set Keep-all / Undo All). Web-handled; like the other review commands they DECLINE when no
-		// review diff is active, so their chords fall through harmlessly outside a review.
+		// File-scoped review actions (the toolbar's scope picker). Web-handled; like the other review commands
+		// they DECLINE when no review diff is active, so their chords fall through harmlessly outside a review.
 		registry.Register(new CommandDefinition {
 			Id = KeepFile,
 			Title = "Keep File (Review)",
@@ -320,13 +310,11 @@ public static class CoreCommands {
 			Aliases = ["keep all", "keep all changes", "accept all", "accept turn", "keep everything"],
 		});
 
-		// Editor tabs. closeTab / nextTab / prevTab carry the keyboard bindings and are gated to editor focus
-		// (a tab key shouldn't act while a terminal holds focus). next/prev DECLINE when there are <2 tabs, so
-		// Ctrl+Tab still falls through to the editor. nextTab/prevTab use literal ctrl (not $mod) so they're
-		// Ctrl+Tab on macOS too — Cmd+Tab is the macOS app switcher — and share the chord with session
-		// next/prev, which fire under !editorFocused (the complement of this editorFocused guard). The bulk closes + pin are palette- and context-menu-driven;
-		// they take an optional `path` so the context menu can target the right-clicked tab while the palette
-		// acts on the active one.
+		// Editor tabs. closeTab / nextTab / prevTab are gated to editor focus (a tab key shouldn't act while a
+		// terminal holds focus). next/prev use literal ctrl (not $mod) — Cmd+Tab is the macOS app switcher — and
+		// share the chord with session next/prev under !editorFocused (the exact complement of this guard). The
+		// bulk closes + pin take an optional `path` so the context menu targets the right-clicked tab while the
+		// palette acts on the active one.
 		string tabPathArgs = "{\"path\":{\"type\":\"string\",\"description\":\"Absolute path of the target tab; omit to act on the active tab\"}}";
 
 		registry.Register(new CommandDefinition {
@@ -413,11 +401,9 @@ public static class CoreCommands {
 			ArgsSchemaJson = tabPathArgs,
 		});
 
-		// New File / Save. New File opens a scratch (untitled) buffer; gated to "!terminalFocused" (not
-		// "editorFocused") so $mod+n works anywhere except a terminal (where Ctrl+N is readline's next-history),
-		// including when no tab is open yet. Save is gated to editorFocused: a scratch buffer prompts for a name
-		// (a native save dialog); a real file is already autosaved so $mod+s just consumes the key (leaving the
-		// terminal Ctrl+S = XOFF when it has focus).
+		// New File is gated "!terminalFocused" (not "editorFocused") so $mod+n works anywhere except a terminal
+		// (where Ctrl+N is readline next-history), including before any tab is open. Save is gated editorFocused
+		// so the terminal keeps Ctrl+S = XOFF when it has focus.
 		registry.Register(new CommandDefinition {
 			Id = NewFile,
 			Title = "New File",
@@ -442,11 +428,9 @@ public static class CoreCommands {
 			When = "editorFocused",
 		});
 
-		// Theme verb actions (handlers wired in Core by ThemeCommands over the app-global theme stores), exposed
-		// as commands so they're reachable from the palette, a keybinding, and Claude's runCommand alike; the
-		// data-shaped override editors + queries stay MCP tools. install/select carry args and have no
-		// meaningful no-arg palette row, so they're keybinding/runCommand-only; install-from-file IS
-		// palette-visible (no args → it opens a native .vsix picker).
+		// Theme verb actions (handlers wired in Core by ThemeCommands); the data-shaped override editors +
+		// queries stay MCP tools. install/select carry args with no meaningful no-arg palette row, so they're
+		// keybinding/runCommand-only; install-from-file is palette-visible (no args → native .vsix picker).
 		registry.Register(new CommandDefinition {
 			Id = InstallTheme,
 			Title = "Install Theme from Open VSX",
@@ -514,9 +498,8 @@ public static class CoreCommands {
 			Aliases = ["reset theme", "clear theme overrides", "restore theme defaults", "remove all overrides"],
 		});
 
-		// Multi-session + worktree commands. The Core-handled new/fork/close are wired per host via
-		// SessionCommands.RegisterHandlers over the host's ISessionHost; next/prev/switch are web-handled by the
-		// session rail.
+		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via
+		// SessionCommands.RegisterHandlers; next/prev/switch are web-handled by the session rail.
 		SessionCommands.Register(registry);
 	}
 }

@@ -30,9 +30,8 @@ public readonly record struct ParsedChord(HotkeyModifiers Modifiers, string Key)
 }
 
 /// <summary>
-/// Parses a tinykeys-style chord string (<c>ctrl+`</c>, <c>$mod+Shift+p</c>) into modifiers + a key token,
-/// mirroring the web resolver's <c>parseChord</c> (<c>src/web/src/commands/keybindings.ts</c>) so Core and
-/// web agree on what a chord means. Single-chord only (no <c>ctrl+k ctrl+s</c> sequences).
+/// Parses a tinykeys-style chord (<c>ctrl+`</c>, <c>$mod+Shift+p</c>) into modifiers + a key token, mirroring
+/// the web resolver's <c>parseChord</c> so Core and web agree. Single-chord only (no sequences).
 /// </summary>
 public static class ChordParser {
 	/// <summary>Parses <paramref name="chord"/>; an empty/whitespace token list yields no key (an invalid hotkey).</summary>

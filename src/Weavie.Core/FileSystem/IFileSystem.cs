@@ -16,9 +16,8 @@ public readonly record struct DirectoryEntry(string Name, bool IsDirectory);
 public readonly record struct FileStat(bool Exists, bool IsDirectory, long MtimeMs, long CtimeMs, long Size);
 
 /// <summary>
-/// The filesystem seam. Injected so tests can run entirely in memory. One real implementation
-/// (<see cref="LocalFileSystem"/>) and one in-memory test fake (<see cref="InMemoryFileSystem"/>).
-/// No fallbacks.
+/// The filesystem seam, injected so tests run in memory. One real impl (<see cref="LocalFileSystem"/>) and
+/// one in-memory test fake (<see cref="InMemoryFileSystem"/>).
 /// </summary>
 public interface IFileSystem {
 	/// <summary>Returns whether a file exists at <paramref name="path"/>.</summary>
@@ -46,9 +45,8 @@ public interface IFileSystem {
 	void WriteAllText(string path, string contents);
 
 	/// <summary>
-	/// Writes UTF-8 text atomically (a crash leaves either the old or new file, never a torn one), creating
-	/// parent directories as needed. For app-managed config documents, not user source files — atomic-rename
-	/// has observable costs there (file-watcher churn, broken hardlinks, lost ACLs).
+	/// Writes UTF-8 text atomically (a crash leaves the old or new file, never a torn one), creating parent
+	/// dirs. For app-managed config, not user source files — atomic-rename churns watchers and breaks ACLs there.
 	/// </summary>
 	void WriteAllTextAtomic(string path, string contents);
 

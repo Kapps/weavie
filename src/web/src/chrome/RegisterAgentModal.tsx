@@ -3,9 +3,8 @@ import { Portal } from "solid-js/web";
 import { log } from "../bridge";
 import { type RemoteAgent, addAgent } from "./remote-agents";
 
-// Register a remote agent: a friendly name + the runner's control-plane URL and token (printed in the
-// runner's console at startup, reachable over Tailscale). On save we persist it and connect, so it appears as
-// a New Session location. Esc cancels; Enter saves.
+// Register a remote agent (name + runner control-plane URL/token). On save we persist and connect, so it
+// appears as a New Session location. Esc cancels; Enter saves.
 export function RegisterAgentModal(props: {
   onClose: () => void;
   onAdded: (name: string) => void;

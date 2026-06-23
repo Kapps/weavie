@@ -21,10 +21,9 @@ public enum FileChangeKind {
 public readonly record struct WatchedFileChange(string Uri, FileChangeKind Kind);
 
 /// <summary>
-/// Watches a workspace tree and reports relevant file changes in debounced batches, so the host can forward
-/// <c>workspace/didChangeWatchedFiles</c> to language servers (spec §9): Claude edits files on disk, and
-/// servers must hear about it or their diagnostics/types go stale. Changes are filtered to served languages (by
-/// extension) and skip noise directories (<c>node_modules</c>, <c>.git</c>, build output).
+/// Watches a workspace tree and reports relevant file changes in debounced batches so the host can forward
+/// <c>workspace/didChangeWatchedFiles</c> to language servers (spec §9) — otherwise their diagnostics/types go
+/// stale after Claude edits on disk. Filtered to served extensions; skips noise dirs (<c>node_modules</c>, etc.).
 /// </summary>
 public sealed class WorkspaceWatcher : IDisposable {
 	private readonly string _root;

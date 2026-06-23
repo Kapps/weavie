@@ -3,10 +3,9 @@ using System.Runtime.InteropServices;
 namespace Weavie.Core.Terminal;
 
 /// <summary>
-/// kernel32 P/Invoke for a Windows pseudo console (ConPTY): anonymous pipes feed
-/// <c>CreatePseudoConsole</c>, and the child attaches via a <c>PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE</c>
-/// attribute on the resulting <c>HPCON</c>. The Windows analogue of the macOS posix_openpt/posix_spawn
-/// path. Requires Windows 10 1809+.
+/// kernel32 P/Invoke for a Windows pseudo console (ConPTY): anonymous pipes feed <c>CreatePseudoConsole</c>, and
+/// the child attaches via a <c>PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE</c> attribute on the resulting <c>HPCON</c>.
+/// Requires Windows 10 1809+.
 /// </summary>
 internal static partial class ConPtyNativeMethods {
 	// ProcThreadAttribute for attaching a pseudo console to a child process.
@@ -16,8 +15,8 @@ internal static partial class ConPtyNativeMethods {
 	internal const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
 	internal const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
 
-	// StartupInfo.dwFlags: honor the explicit hStdInput/hStdOutput/hStdError (set NULL so the ConPTY
-	// child does not inherit the parent's redirected std handles — see SpawnChild).
+	// StartupInfo.dwFlags: honor the explicit (NULL) std handles so the child doesn't inherit the parent's
+	// redirected ones — see SpawnChild.
 	internal const int STARTF_USESTDHANDLES = 0x00000100;
 
 	[StructLayout(LayoutKind.Sequential)]

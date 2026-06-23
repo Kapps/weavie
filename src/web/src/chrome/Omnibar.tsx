@@ -27,9 +27,6 @@ import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
 import { recentFiles } from "./recent-files-store";
 
-// Max recent files shown as the Recent section above the empty-query tree.
-const RECENT_CAP = 5;
-
 // Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
 const VIEW_CAP = 300;
 
@@ -188,34 +185,6 @@ export function Omnibar(props: {
     return out.slice(0, VIEW_CAP);
   });
 
-  // The recent files that exist in the current index, as rows, capped — the omnibar's Recent section (empty-query
-  // tree mode only). Filtering by index membership means a worktree session whose paths differ just shows fewer.
-  const recentRows = createMemo<FileRow[]>(() => {
-    if (!treeMode()) {
-      return [];
-    }
-    const byAbs = new Map(rows().map((r) => [canonicalFsPath(r.abs), r]));
-    const out: FileRow[] = [];
-    for (const abs of recentFiles()) {
-      const row = byAbs.get(canonicalFsPath(abs));
-      if (row !== undefined) {
-        out.push(row);
-        if (out.length >= RECENT_CAP) {
-          break;
-        }
-      }
-    }
-    return out;
-  });
-
-  // The empty-query view as one selectable list: the Recent section, then the tree. Selection indexes into this
-  // combined array, so the recent rows occupy [0, recentRows().length) and the tree rows follow.
-  type TreeItem = { kind: "recent"; file: FileRow } | { kind: "tree"; tree: TreeRow };
-  const treeItems = createMemo<TreeItem[]>(() => [
-    ...recentRows().map((file): TreeItem => ({ kind: "recent", file })),
-    ...visibleRows().map((tree): TreeItem => ({ kind: "tree", tree })),
-  ]);
-
   interface ScoredCommand {
     cmd: CommandInfo;
     positions?: Set<number>;
@@ -244,26 +213,20 @@ export function Omnibar(props: {
   });
 
   const activeLen = (): number =>
-    commandMode() ? commandView().length : treeMode() ? treeItems().length : view().length;
+    commandMode() ? commandView().length : treeMode() ? visibleRows().length : view().length;
   const hiddenCount = (): number =>
     searchMode() ? Math.max(0, filtered().length - view().length) : 0;
 
-  // Index by the selectable rows, not raw children: tree mode interleaves non-selectable section headers, so
-  // `children[i]` would drift from the selection index.
   const scrollToSelected = (block: ScrollLogicalPosition): void => {
-    listRef
-      ?.querySelectorAll<HTMLElement>(".tb-omnibar-row")
-      [selected()]?.scrollIntoView({ block });
+    (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
   };
 
   // True while an open tree-mode session still needs to center on the current file — the first reveal usually
   // runs against an empty `rows()`, so the later file-index arrival finishes it.
   const [pendingReveal, setPendingReveal] = createSignal(false);
 
-  // Expand the current file's folder chain and select it. The current file is normally the most-recent entry, so
-  // we prefer selecting its row in the Recent section (keeping that section in view at the top) and fall back to
-  // its tree row otherwise. Returns false when the current file isn't in the index yet (host reply in flight); the
-  // caller re-attempts once `rows()` arrives.
+  // Expand the current file's folder chain and center the selection on it. Returns false when the current
+  // file isn't in the index yet (host reply in flight); the caller re-attempts once `rows()` arrives.
   const focusCurrentInTree = (): boolean => {
     const cf = props.currentFile;
     let revealed = true;
@@ -276,17 +239,11 @@ export function Omnibar(props: {
       }
     }
     queueMicrotask(() => {
-      const recentIdx = cf !== null ? recentRows().findIndex((r) => samePath(r.abs, cf)) : -1;
-      if (recentIdx >= 0) {
-        setSelected(recentIdx);
-      } else {
-        const treeIdx =
-          cf !== null
-            ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
-            : -1;
-        // Tree rows follow the Recent section in the combined selection space.
-        setSelected(treeIdx >= 0 ? treeIdx + recentRows().length : 0);
-      }
+      const idx =
+        cf !== null
+          ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
+          : -1;
+      setSelected(idx >= 0 ? idx : 0);
       scrollToSelected("center");
     });
     return revealed;
@@ -401,26 +358,14 @@ export function Omnibar(props: {
       return next;
     });
     // The visible list grew/shrank — keep the selection in range.
-    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, activeLen() - 1))));
+    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, visibleRows().length - 1))));
   };
 
-  // Left/Right move a full level at a time, over the tree rows that follow the Recent section (offset `rc`).
-  // Right: expand a collapsed dir, else skip to the next row at the same-or-shallower depth (from a recent row,
-  // step into the tree). Left: collapse an expanded dir, else jump up to the parent row.
+  // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at the
+  // same-or-shallower depth. Left: collapse an expanded dir, else jump up to the parent row.
   const treeMoveLevel = (dir: 1 | -1): void => {
-    const rc = recentRows().length;
     const rowsV = visibleRows();
-    const i = selected() - rc;
-    const select = (local: number): void => {
-      setSelected(local + rc);
-      scrollToSelected("nearest");
-    };
-    if (i < 0) {
-      if (dir === 1 && rowsV.length > 0) {
-        select(0);
-      }
-      return;
-    }
+    const i = selected();
     const cur = rowsV[i];
     if (cur === undefined) {
       return;
@@ -432,11 +377,12 @@ export function Omnibar(props: {
       }
       for (let j = i + 1; j < rowsV.length; j++) {
         if ((rowsV[j]?.depth ?? 0) <= cur.depth) {
-          select(j);
+          setSelected(j);
+          scrollToSelected("nearest");
           return;
         }
       }
-      select(rowsV.length - 1);
+      setSelected(rowsV.length - 1);
     } else {
       if (cur.node.isDir && expanded().has(cur.node.key)) {
         toggleDir(cur.node.key);
@@ -444,28 +390,28 @@ export function Omnibar(props: {
       }
       for (let j = i - 1; j >= 0; j--) {
         if ((rowsV[j]?.depth ?? 0) < cur.depth) {
-          select(j);
+          setSelected(j);
+          scrollToSelected("nearest");
           return;
         }
       }
-      select(0);
+      setSelected(0);
     }
+    scrollToSelected("nearest");
   };
 
   const activate = (): void => {
     if (commandMode()) {
       runCommand(commandView()[selected()]?.cmd);
     } else if (treeMode()) {
-      const item = treeItems()[selected()];
-      if (item === undefined) {
+      const r = visibleRows()[selected()];
+      if (r === undefined) {
         return;
       }
-      if (item.kind === "recent") {
-        openFile(item.file.abs);
-      } else if (item.tree.node.isDir) {
-        toggleDir(item.tree.node.key);
+      if (r.node.isDir) {
+        toggleDir(r.node.key);
       } else {
-        openFile(item.tree.node.abs);
+        openFile(r.node.abs);
       }
     } else {
       openFile(view()[selected()]?.row.abs);
@@ -621,39 +567,10 @@ export function Omnibar(props: {
               }
             >
               <Show
-                when={treeItems().length > 0}
+                when={visibleRows().length > 0}
                 fallback={<div class="tb-omnibar-empty">No files</div>}
               >
                 <ul class="tb-omnibar-list" ref={listRef}>
-                  <Show when={recentRows().length > 0}>
-                    <li class="tb-omnibar-section">Recent</li>
-                    <For each={recentRows()}>
-                      {(row, i) => (
-                        <li>
-                          <button
-                            type="button"
-                            class="tb-omnibar-row"
-                            classList={{
-                              selected: i() === selected(),
-                              current:
-                                props.currentFile !== null && samePath(row.abs, props.currentFile),
-                            }}
-                            onMouseDown={(e) => {
-                              e.preventDefault();
-                              setSelected(i());
-                              openFile(row.abs);
-                            }}
-                          >
-                            <span class="tb-row-leaf">{row.leaf}</span>
-                            <Show when={row.dir.length > 0}>
-                              <span class="tb-row-dir">{row.dir}</span>
-                            </Show>
-                          </button>
-                        </li>
-                      )}
-                    </For>
-                    <li class="tb-omnibar-section">Files</li>
-                  </Show>
                   <For each={visibleRows()}>
                     {(r, i) => (
                       <li>
@@ -662,7 +579,7 @@ export function Omnibar(props: {
                           class="tb-omnibar-row tb-tree-row"
                           classList={{
                             dir: r.node.isDir,
-                            selected: recentRows().length + i() === selected(),
+                            selected: i() === selected(),
                             current:
                               props.currentFile !== null &&
                               r.node.abs !== undefined &&
@@ -671,7 +588,7 @@ export function Omnibar(props: {
                           style={`padding-left: ${10 + r.depth * 14}px`}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            setSelected(recentRows().length + i());
+                            setSelected(i());
                             if (r.node.isDir) {
                               toggleDir(r.node.key);
                             } else {

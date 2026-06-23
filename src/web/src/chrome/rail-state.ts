@@ -10,11 +10,22 @@ import { onSessionMessage, postToBackend } from "../bridge";
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
 const [promotedSig, setPromotedSig] = createSignal<Set<string>>(new Set());
 
+// Remote backends a freshly-created session should be auto-promoted on: New Session at a remote location
+// posts `new-session` to that backend but can't know the id until the backend pushes it back, so we promote
+// the active session in its next session-list (one-shot per creation).
+const pendingPromote = new Set<string>();
+
 // Honored only from the LOCAL backend — a remote runner would push its own rail state, which must not leak in.
 onSessionMessage((message, backendId) => {
   if (message.type === "rail-state" && backendId === "local") {
     setLastLocationSig(message.lastLocation);
     setPromotedSig(new Set(message.promoted));
+  } else if (message.type === "session-list" && pendingPromote.has(backendId)) {
+    const created = message.sessions.find((s) => s.active);
+    if (created !== undefined) {
+      pendingPromote.delete(backendId);
+      promoteSession(backendId, created.id);
+    }
   }
 });
 
@@ -45,6 +56,13 @@ export function promoteSession(backendId: string, id: string): void {
   }
   setPromotedSig((prev) => new Set(prev).add(key));
   pushPromoted();
+}
+
+/** Promote whatever session a remote backend makes active next — its new-session reply lands the id. */
+export function promoteNextSessionOn(backendId: string): void {
+  if (backendId !== "local") {
+    pendingPromote.add(backendId);
+  }
 }
 
 /** Drop a promoted remote session from the rail (it stays available in the cloud panel). */

@@ -29,7 +29,7 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
-import { lastLocation, setLastLocation } from "./chrome/rail-state";
+import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 // Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
 // rail + active-session status survive HMR, like layout/store and editor/session-store.
@@ -635,6 +635,8 @@ export default function App(): JSX.Element {
           onCreate={(branch, base, location) => {
             setNewSessionOpen(false);
             setLastLocation(location);
+            // A remote session lands nested under its agent; promote it onto the rail like a local one.
+            promoteNextSessionOn(location);
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
             // term-ready) wires the panes to it; then create the session there.
             setActiveBackendId(location);
@@ -643,6 +645,7 @@ export default function App(): JSX.Element {
           onCheckout={(branch, location) => {
             setNewSessionOpen(false);
             setLastLocation(location);
+            promoteNextSessionOn(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
             setActiveBackendId(location);
             postToBackend(location, { type: "new-session", branch, existing: true });

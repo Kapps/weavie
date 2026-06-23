@@ -41,6 +41,9 @@ public sealed class TerminalController : IDisposable {
 	// history on resume. Unlike _ptyLog it survives process restarts and is closed only on dispose. Null = not
 	// configured (the claude pane, or persistence disabled).
 	private ScrollbackLog? _scrollback;
+	// Shell-only: the directory the shell last reported via OSC 7, so a reopen relaunches there instead of the
+	// workspace root. Null until reported (or for the claude pane, which always runs in the IDE workspace).
+	private string? _reportedCwd;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) <paramref name="bridge"/>, resolving its
@@ -206,11 +209,26 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
+	/// <summary>
+	/// Records the working directory the shell child reported via OSC 7, so a reopen relaunches there. Ignored
+	/// for the claude pane (always the IDE workspace) and for a path that no longer exists.
+	/// </summary>
+	public void OnCwdReported(string cwd) {
+		if (_session == "claude" || string.IsNullOrEmpty(cwd) || !Directory.Exists(cwd)) {
+			return;
+		}
+
+		lock (_gate) {
+			_reportedCwd = cwd;
+		}
+	}
+
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
 	private void StartTerminal(int attempt) {
 		bool isClaude = _session == "claude";
-		string workspace = Workspace;
 		lock (_gate) {
+			// The shell relaunches in its last reported cwd (OSC 7) when it has one; claude always uses the workspace.
+			string workspace = _reportedCwd ?? Workspace;
 			_terminal?.Dispose();
 
 			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would

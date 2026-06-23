@@ -39,4 +39,22 @@ public interface IHostPlatform {
 
 	/// <summary>Toggles the app window's visibility/focus — the <c>weavie.window.toggle</c> action (no-op when unsupported).</summary>
 	void ToggleWindow();
+
+	/// <summary>
+	/// Writes text to the OS clipboard — the terminal's copy path (an explicit copy command or Claude's OSC 52).
+	/// Routed through the host, not the WebView's focus-gated clipboard API. No-op where unsupported (headless).
+	/// </summary>
+	void WriteClipboard(string text);
+
+	/// <summary>
+	/// Reads text from the OS clipboard — the terminal's paste path. Empty string when the clipboard holds no
+	/// text or the host has no OS clipboard (headless).
+	/// </summary>
+	string ReadClipboard();
+
+	/// <summary>
+	/// Opens a URL in the OS default browser — terminal hyperlinks and Claude's OAuth/login flow. No-op where
+	/// unsupported (headless).
+	/// </summary>
+	void OpenExternalUrl(string url);
 }

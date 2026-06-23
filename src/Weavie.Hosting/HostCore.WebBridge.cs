@@ -89,6 +89,24 @@ public sealed partial class HostCore {
 				_session?.FileOpener.Open(
 					revealPath, root.GetIntOr("line", 1), preview: root.GetBoolOrFalse("preview"), scratch: false);
 				break;
+			case "clipboard-write":
+				// Terminal copy / OSC 52 -> write to the OS clipboard (host-owned, dodging the WebView's focus gate).
+				_platform.WriteClipboard(root.GetStringOrEmpty("text"));
+				break;
+			case "clipboard-read":
+				// Terminal paste -> read the OS clipboard and reply, correlated by id (the fs-read pattern). Runs on
+				// the UI thread (OnWebMessage's thread), where the native clipboard APIs are valid.
+				_bridge.PostToWeb(
+					$"{{\"type\":\"clipboard-content\",\"id\":{JsonString(root.GetStringOrEmpty("id"))},\"text\":{JsonString(_platform.ReadClipboard())}}}");
+				break;
+			case "open-url":
+				// A terminal hyperlink / Claude's auth URL -> open in the OS default browser.
+				_platform.OpenExternalUrl(root.GetStringOrEmpty("url"));
+				break;
+			case "term-cwd":
+				// The shell child reported its cwd (OSC 7); remember it so a reopen relaunches there.
+				TerminalFor(root)?.OnCwdReported(root.GetStringOrEmpty("cwd"));
+				break;
 			case "list-dir":
 				_session?.ListDirectory(root.GetStringOrEmpty("path"));
 				break;

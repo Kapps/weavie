@@ -26,6 +26,12 @@ public static class CoreCommands {
 	/// <summary>Reopens (restarts) the shell terminal pane.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
 
+	/// <summary>Copies the focused terminal's selection to the OS clipboard; bound to <c>Ctrl+Shift+C</c> / <c>⌘C</c>.</summary>
+	public const string TerminalCopy = "weavie.terminal.copy";
+
+	/// <summary>Pastes the OS clipboard into the focused terminal; bound to <c>Ctrl+Shift+V</c> / <c>⌘V</c>.</summary>
+	public const string TerminalPaste = "weavie.terminal.paste";
+
 	/// <summary>Toggles Weavie's window (focus it / minimize it); bound by default to the global hotkey <c>ctrl+`</c>.</summary>
 	public const string ToggleWindow = "weavie.window.toggle";
 
@@ -194,6 +200,39 @@ public static class CoreCommands {
 			Category = "Terminal",
 			Description = "Restart the shell terminal pane (kills its scrollback and any running command).",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
+		});
+
+		// Terminal copy/paste are web-handled (they act on the live xterm selection) but write/read the OS
+		// clipboard through the host. Gated terminalFocused so the chords are the editor's elsewhere; the copy
+		// handler additionally declines (key falls through) when there's no selection. Each carries BOTH the
+		// Win/Linux chord (Ctrl+Shift+C/V — Ctrl+C is SIGINT) and the macOS one (⌘C/V); the off-platform chord
+		// (Win+key / Ctrl+Shift+key on mac) is harmless since it's rarely pressed and still terminal-gated.
+		registry.Register(new CommandDefinition {
+			Id = TerminalCopy,
+			Title = "Copy",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Copy the focused terminal's selection to the clipboard. Does nothing when nothing is selected.",
+			Aliases = ["copy", "copy selection", "terminal copy", "copy from terminal"],
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "ctrl+shift+c" },
+				new CommandKeybinding { Key = "cmd+c" },
+			],
+			When = "terminalFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = TerminalPaste,
+			Title = "Paste",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Paste the clipboard's text into the focused terminal.",
+			Aliases = ["paste", "paste clipboard", "terminal paste", "paste into terminal"],
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "ctrl+shift+v" },
+				new CommandKeybinding { Key = "cmd+v" },
+			],
+			When = "terminalFocused",
 		});
 
 		// Toggle Weavie in/out of the foreground via the GLOBAL hotkey ctrl+` so it fires even when another app

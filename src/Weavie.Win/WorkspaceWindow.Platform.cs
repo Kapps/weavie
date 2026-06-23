@@ -1,3 +1,6 @@
+using System.ComponentModel;
+using System.Diagnostics;
+using System.Runtime.InteropServices;
 using Weavie.Core.Commands;
 using Weavie.Core.Shell;
 using Weavie.Hosting;
@@ -29,4 +32,39 @@ internal sealed partial class WorkspaceWindow {
 	IHostDialogs? IHostPlatform.Dialogs => _dialogs;
 
 	void IHostPlatform.ToggleWindow() => WindowFocus.Toggle(this);
+
+	// Called on the UI (STA) thread from OnWebMessage, where WinForms Clipboard is valid. SetText rejects an
+	// empty string, so an empty copy clears the clipboard instead.
+	void IHostPlatform.WriteClipboard(string text) {
+		try {
+			if (string.IsNullOrEmpty(text)) {
+				Clipboard.Clear();
+			} else {
+				Clipboard.SetText(text);
+			}
+		} catch (ExternalException ex) {
+			Console.Error.WriteLine($"[weavie] clipboard write failed: {ex.Message}");
+		}
+	}
+
+	string IHostPlatform.ReadClipboard() {
+		try {
+			return Clipboard.ContainsText() ? Clipboard.GetText() : string.Empty;
+		} catch (ExternalException ex) {
+			Console.Error.WriteLine($"[weavie] clipboard read failed: {ex.Message}");
+			return string.Empty;
+		}
+	}
+
+	void IHostPlatform.OpenExternalUrl(string url) {
+		if (string.IsNullOrEmpty(url)) {
+			return;
+		}
+
+		try {
+			Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+		} catch (Exception ex) when (ex is Win32Exception or InvalidOperationException or ObjectDisposedException) {
+			Console.Error.WriteLine($"[weavie] open-url failed: {ex.Message}");
+		}
+	}
 }

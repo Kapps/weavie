@@ -9,6 +9,9 @@ tools): **commands** — named actions Weavie can perform — declared once in C
 every trigger that should be able to run them. A command is the unit; a keybinding, the omnibar
 command palette, and the embedded Claude (over MCP) are just *triggers* that invoke it by id.
 
+> Making a command invocation return a result to *every* caller (not just Claude), with a structured
+> payload, is its own follow-on design: [Command responses](command-responses.md).
+
 This is the VS Code command model, adapted to Weavie's two-world (Core C# + web Solid) +
 Claude-over-MCP shape. We reuse the *concepts*, not VS Code's command/keybinding/quick-input
 **services** — see [Why not VS Code's services](#why-not-vs-codes-services).

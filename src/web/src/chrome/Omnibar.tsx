@@ -260,8 +260,10 @@ export function Omnibar(props: {
   // runs against an empty `rows()`, so the later file-index arrival finishes it.
   const [pendingReveal, setPendingReveal] = createSignal(false);
 
-  // Expand the current file's folder chain and center the selection on it. Returns false when the current
-  // file isn't in the index yet (host reply in flight); the caller re-attempts once `rows()` arrives.
+  // Expand the current file's folder chain and select it. The current file is normally the most-recent entry, so
+  // we prefer selecting its row in the Recent section (keeping that section in view at the top) and fall back to
+  // its tree row otherwise. Returns false when the current file isn't in the index yet (host reply in flight); the
+  // caller re-attempts once `rows()` arrives.
   const focusCurrentInTree = (): boolean => {
     const cf = props.currentFile;
     let revealed = true;
@@ -274,12 +276,17 @@ export function Omnibar(props: {
       }
     }
     queueMicrotask(() => {
-      const idx =
-        cf !== null
-          ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
-          : -1;
-      // Tree rows follow the Recent section in the combined selection space.
-      setSelected(idx >= 0 ? idx + recentRows().length : 0);
+      const recentIdx = cf !== null ? recentRows().findIndex((r) => samePath(r.abs, cf)) : -1;
+      if (recentIdx >= 0) {
+        setSelected(recentIdx);
+      } else {
+        const treeIdx =
+          cf !== null
+            ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
+            : -1;
+        // Tree rows follow the Recent section in the combined selection space.
+        setSelected(treeIdx >= 0 ? treeIdx + recentRows().length : 0);
+      }
       scrollToSelected("center");
     });
     return revealed;

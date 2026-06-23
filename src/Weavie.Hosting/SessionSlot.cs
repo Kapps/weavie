@@ -1,10 +1,9 @@
 namespace Weavie.Hosting;
 
 /// <summary>
-/// One entry on the session rail: a worktree (or the primary checkout) that may or may not have a live
-/// backend. A loaded slot has a running <see cref="HostSession"/> (Claude/shell/LSP/MCP); an unloaded (dormant)
-/// slot is just the worktree on disk, shown faded — clicking it loads on demand. The <see cref="Id"/> is stable
-/// and independent of any <see cref="HostSession"/> so a chip keeps its place across load/unload.
+/// One entry on the session rail: a worktree (or the primary checkout), loaded (a running
+/// <see cref="HostSession"/>) or dormant (just the worktree on disk, shown faded, loaded on click). The
+/// <see cref="Id"/> is stable and independent of any <see cref="HostSession"/> so a chip keeps its place.
 /// </summary>
 public sealed class SessionSlot {
 	/// <summary>Stable rail id: the primary session's id for the primary; the branch name for a worktree.</summary>

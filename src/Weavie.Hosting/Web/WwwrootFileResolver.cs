@@ -6,9 +6,8 @@ public readonly record struct AssetResponse(bool Found, byte[] Bytes, string Mim
 
 /// <summary>
 /// Resolves a webview request path against an on-disk <c>wwwroot</c>: maps <c>/</c> to <c>index.html</c>, blocks
-/// path-traversal escapes, reads the file bytes, and guesses the MIME type. Shared by the Mac (WKWebView) and
-/// Linux (WebKitGTK) <c>app://</c> scheme handlers; each host supplies only its native request/response binding
-/// and decides how to emit a 404 (a body, or a native fail).
+/// path-traversal, reads the bytes, and guesses the MIME type. Shared by the Mac/Linux <c>app://</c> scheme
+/// handlers; each host supplies only its native request/response binding.
 /// </summary>
 public sealed class WwwrootFileResolver {
 	private static readonly byte[] NotFoundBody = "Not Found"u8.ToArray();
@@ -23,9 +22,8 @@ public sealed class WwwrootFileResolver {
 	public string Root { get; }
 
 	/// <summary>
-	/// Resolves <paramref name="requestPath"/> (e.g. <c>/index.html</c>, <c>/assets/app.js</c>, or <c>/</c>) to a
-	/// file under the web root. Returns the bytes + MIME on success; on a path that escapes the root or a missing
-	/// file, returns <see cref="AssetResponse.Found"/> = false with a text/plain "Not Found" body.
+	/// Resolves <paramref name="requestPath"/> to a file under the web root, returning bytes + MIME on success. A
+	/// path escaping the root or a missing file returns <see cref="AssetResponse.Found"/> = false with a "Not Found" body.
 	/// </summary>
 	public AssetResponse Resolve(string requestPath) {
 		string path = string.IsNullOrEmpty(requestPath) || requestPath == "/" ? "/index.html" : requestPath;

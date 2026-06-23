@@ -4,12 +4,10 @@ using Weavie.Core.Shell;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Everything native a <see cref="HostCore"/> needs from its platform shell — the whole OS surface gathered
-/// behind one seam so the core stays platform-agnostic. The required members (bridge, dispatcher, PTY
-/// launcher, chrome identity) every host supplies; the optional ones (<see cref="Window"/>,
-/// <see cref="HotkeyRegistrar"/>, <see cref="Dialogs"/>) are <c>null</c> on hosts that lack that capability
-/// (e.g. headless has none of them), and the core degrades the matching feature to a no-op rather than
-/// branching on the platform. The thin shell implements this; the core does the rest.
+/// Everything native a <see cref="HostCore"/> needs from its platform shell, behind one seam so the core stays
+/// platform-agnostic. Required members (bridge, dispatcher, PTY launcher, chrome identity) every host supplies;
+/// optional ones (<see cref="Window"/>, <see cref="HotkeyRegistrar"/>, <see cref="Dialogs"/>) are <c>null</c>
+/// where unsupported (e.g. headless), and the core degrades the matching feature to a no-op.
 /// </summary>
 public interface IHostPlatform {
 	/// <summary>The web message bridge (post to / receive from the page).</summary>

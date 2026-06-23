@@ -118,10 +118,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public string WorkspaceLabel => WorkspaceNaming.Label(WorkspaceRoot);
 
 	/// <summary>
-	/// Builds the workspace's live backend: the primary session (terminals + IDE-MCP + LSP), the session set
-	/// (with pre-existing worktrees reconciled into dormant chips), the title-bar controller + global hotkeys
-	/// when the platform supports them, and the settings/theme/keybinding/layout reactions. Call once, after the
-	/// bridge is attached and <paramref name="pageOrigin"/> is resolved, before navigation.
+	/// Builds the workspace's live backend: the primary session, the session set (pre-existing worktrees
+	/// reconciled into dormant chips), the title-bar controller + global hotkeys where supported, and the store
+	/// reactions. Call once, after the bridge is attached and <paramref name="pageOrigin"/> is resolved.
 	/// </summary>
 	public async Task StartAsync(string pageOrigin) {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
@@ -169,10 +168,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	/// <summary>
-	/// The page-bootstrap script the shell injects at document-start, before navigation: the resolved fonts,
-	/// editor options, theme, LSP discovery, command catalog + keybindings, and the shell/title-bar config.
-	/// Identical content on every host (only the injection mechanism differs); the headless shell prepends its
-	/// own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
+	/// The page-bootstrap script the shell injects at document-start: resolved fonts, editor options, theme, LSP
+	/// discovery, command catalog + keybindings, and shell config. Identical on every host (only the injection
+	/// differs); the headless shell prepends its own <c>__WEAVIE_BRIDGE_WS__</c>. Call after <see cref="StartAsync"/>.
 	/// </summary>
 	public string BuildBootstrap() {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
@@ -190,17 +188,15 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public void PushWindowState(bool maximized, bool focused) => _shell?.PushWindowState(maximized, focused);
 
 	/// <summary>
-	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme
-	/// edits re-push their resolved values; a keybinding edit re-pushes the catalog; a layout change re-pushes
-	/// the document.
+	/// Wires the live reactions to store changes: a changed shell reopens the terminal; font/editor/theme/
+	/// keybinding/layout edits re-push their resolved values.
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
 		_settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
 
-		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them
-		// in place. PostToWeb marshals to the UI thread itself and the stores are thread-safe, so the off-thread
-		// change events call it directly.
+		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them in
+		// place. PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));

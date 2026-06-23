@@ -1,11 +1,9 @@
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Marshals an action onto the host's UI thread. The one seam that genuinely differs between hosts and has no
-/// shared abstraction otherwise: WinForms <c>Control.BeginInvoke</c>, Cocoa
-/// <c>BeginInvokeOnMainThread</c>, GTK's <c>GtkMain.Invoke</c>. The headless host has no UI thread and its
-/// bridge is already thread-safe, so it dispatches inline. Always fire-and-forget (asynchronous): a
-/// <em>synchronous</em> hop would deadlock the PTY-teardown path the bridges document.
+/// Marshals an action onto the host's UI thread (WinForms <c>BeginInvoke</c>, Cocoa
+/// <c>BeginInvokeOnMainThread</c>, GTK <c>GtkMain.Invoke</c>; headless dispatches inline). Always fire-and-forget:
+/// a synchronous hop would deadlock the PTY-teardown path the bridges document.
 /// </summary>
 public interface IUiDispatcher {
 	/// <summary>Queues <paramref name="action"/> to run on the UI thread (or inline when there is none).</summary>

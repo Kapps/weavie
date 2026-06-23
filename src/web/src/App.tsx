@@ -149,11 +149,25 @@ export default function App(): JSX.Element {
   // A pending "discard unsaved scratch?" confirm: the names to discard + the promise resolver the dialog
   // settles. The editor controller routes every tab close through this guard (confirmDiscard below).
   const [confirmReq, setConfirmReq] = createSignal<{
-    names: string[];
+    title: string;
+    body: string;
+    confirmLabel: string;
     resolve: (ok: boolean) => void;
   } | null>(null);
+  const confirm = (options: {
+    title: string;
+    body: string;
+    confirmLabel: string;
+  }): Promise<boolean> => new Promise<boolean>((resolve) => setConfirmReq({ ...options, resolve }));
   const confirmDiscard = (names: string[]): Promise<boolean> =>
-    new Promise<boolean>((resolve) => setConfirmReq({ names, resolve }));
+    confirm({
+      title: names.length > 1 ? "Discard unsaved files?" : "Discard unsaved file?",
+      body:
+        names.length > 1
+          ? `${names.length} unsaved scratch files will be discarded: ${names.join(", ")}.`
+          : `"${names[0]}" has unsaved changes and isn't saved to a file yet. Discard it?`,
+      confirmLabel: "Discard",
+    });
   const settleConfirm = (ok: boolean): void => {
     const req = confirmReq();
     if (req !== null) {
@@ -176,6 +190,7 @@ export default function App(): JSX.Element {
     onOpenError: (message) => addToast("error", message),
     onCurrentFileChanged: setCurrentFile,
     confirmDiscard,
+    confirm,
   });
 
   const focusPane = (kind: string): void => {
@@ -463,6 +478,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.acceptChange, () => editor.inline.accept()),
       registerCommand(CommandIds.rejectChange, () => editor.inline.reject()),
       registerCommand(CommandIds.undoChange, () => editor.inline.undo()),
+      registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
+      registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
+      registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
       // Post-turn review (acceptEdits/bypass): there's no panel — these drive the inline toolbar's file axis.
       // reviewOpen jumps to the first changed file; next/prev step the review set. next/prev DECLINE (return
       // false → fall through to the editor) when no multi-file review is active, so $mod+Left/Right keep their
@@ -701,13 +719,9 @@ export default function App(): JSX.Element {
       <Show when={confirmReq()}>
         {(req) => (
           <ConfirmDialog
-            title={req().names.length > 1 ? "Discard unsaved files?" : "Discard unsaved file?"}
-            body={
-              req().names.length > 1
-                ? `${req().names.length} unsaved scratch files will be discarded: ${req().names.join(", ")}.`
-                : `"${req().names[0]}" has unsaved changes and isn't saved to a file yet. Discard it?`
-            }
-            confirmLabel="Discard"
+            title={req().title}
+            body={req().body}
+            confirmLabel={req().confirmLabel}
             cancelLabel="Cancel"
             onConfirm={() => settleConfirm(true)}
             onCancel={() => settleConfirm(false)}

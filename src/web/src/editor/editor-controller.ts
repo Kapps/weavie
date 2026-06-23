@@ -3,6 +3,7 @@
 // session-change browsing. App wires this to host messages and commands; the editor host + inline-diff layer
 // it drives live in editor-host.ts / inline-diff.ts.
 
+import { createSignal } from "solid-js";
 import { type WebBoundMessage, log, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
@@ -127,6 +128,10 @@ export interface EditorController {
   setReviewFiles(files: ReviewFile[]): void;
   /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
   openFirstReviewFile(): boolean;
+  /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
+  activeContent(): string;
+  /** Whether an inline openDiff review is showing (reactive), so Preview suspends rather than hiding it. */
+  reviewActive(): boolean;
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   dispose(): void;
@@ -138,6 +143,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
   let initTimer: number | undefined;
+  // Disposables for the content/model listeners that feed activeContent (the live Preview text).
+  let contentSubs: { dispose(): void }[] = [];
+  // The active file's working-copy text, kept live off the editor model so Preview renders edits/reloads.
+  const [activeContent, setActiveContent] = createSignal("");
+  // Whether an inline openDiff review currently occupies the editor, so the Preview overlay suspends over it.
+  const [reviewActive, setReviewActive] = createSignal(false);
   // An open-file request that arrived before the editor was ready; replayed when it is.
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // The post-turn review set (host `turn-changes`): files Claude changed since the last review, in document
@@ -407,6 +418,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     activeReview = undefined;
+    setReviewActive(false);
     // endReview returns the proposal's final content (which Claude writes to disk on keep) and restores the
     // editor off the transient review model. The review never dirtied the working copy.
     const finalContents = host?.endReview(review.path, keep, review.original) ?? "";
@@ -445,6 +457,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       .then((created) => {
         host = created;
         inlineDiff = createInlineDiff(created.editor);
+        // Track the active model's text so the Preview overlay renders live (edits, Claude writes, reloads).
+        const syncContent = (): void => {
+          setActiveContent(created.editor.getModel()?.getValue() ?? "");
+        };
+        contentSubs = [
+          created.editor.onDidChangeModelContent(() => syncContent()),
+          created.editor.onDidChangeModel(() => syncContent()),
+        ];
+        syncContent();
         // Render multi-line / doc comments as prose, suspended over a model with a live inline diff so a
         // collapsed comment never hides a changed line under review.
         commentProse = createCommentProse(created.editor, {
@@ -591,6 +612,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           addedTab: !wasOpen,
           priorActive,
         };
+        setReviewActive(true);
         // Make the reviewed file the active tab so the tab strip + title name what's under review. activeReview
         // is set first, so applyActive's guard keeps the transient review model showing.
         applyActive(openTab(message.path));
@@ -611,6 +633,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (activeReview?.id === message.id) {
           const review = activeReview;
           activeReview = undefined;
+          setReviewActive(false);
           host?.endReview(review.path, false, review.original);
           if (review.reviewUri !== undefined) {
             inlineDiff?.clearByUri(review.reviewUri);
@@ -797,6 +820,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       openReviewFile(first);
       return true;
     },
+    activeContent,
+    reviewActive,
     inline: {
       nextChange: () => inlineDiff?.nextChange() ?? false,
       prevChange: () => inlineDiff?.prevChange() ?? false,
@@ -812,6 +837,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     tabs,
     dispose: () => {
       window.clearTimeout(initTimer);
+      for (const sub of contentSubs) {
+        sub.dispose();
+      }
       commentProse?.dispose();
       inlineDiff?.dispose();
       host?.dispose();

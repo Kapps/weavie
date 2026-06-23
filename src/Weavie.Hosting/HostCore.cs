@@ -125,6 +125,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public async Task StartAsync(string pageOrigin) {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
 		_pageOrigin = pageOrigin;
+
+		// A Finder-launched .app inherits launchd's minimal PATH; import the login-shell PATH before anything
+		// spawns so directly-launched children (LSP servers, git) resolve as they would from a terminal. No-op
+		// except on the bundled Mac app.
+		await LoginShellPath.ImportOnceAsync(line => Log($"[path] {line}")).ConfigureAwait(false);
+
 		_bridge.MessageReceived += OnWebMessage;
 
 		// The primary session: the workspace's own checkout. Built once pageOrigin is known so its LSP

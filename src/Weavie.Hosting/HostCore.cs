@@ -131,10 +131,6 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// except on the bundled Mac app.
 		await LoginShellPath.ImportOnceAsync(line => Log($"[path] {line}")).ConfigureAwait(false);
 
-		// With PATH settled, derive DOTNET_ROOT from it so .NET-based servers (csharp-ls) resolve the SDK through
-		// hostfxr — which reads DOTNET_ROOT, not PATH — instead of failing with "No .NET SDKs were found".
-		DotnetEnvironment.EnsureRootResolved(line => Log($"[dotnet] {line}"));
-
 		_bridge.MessageReceived += OnWebMessage;
 
 		// The primary session: the workspace's own checkout. Built once pageOrigin is known so its LSP

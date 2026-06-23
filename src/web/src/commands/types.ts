@@ -36,6 +36,7 @@ export interface ResolvedKeybinding {
 /** Built-in command ids (kept in sync with CoreCommands.cs) so call sites avoid magic strings. */
 export const CommandIds = {
   focusPaneByIndex: "weavie.pane.focusByIndex",
+  toggleFullscreenPane: "weavie.pane.toggleFullscreen",
   toggleFileBrowser: "weavie.view.toggleFileBrowser",
   focusOmnibarFiles: "weavie.omnibar.focusFiles",
   focusOmnibarCommands: "weavie.omnibar.focusCommands",

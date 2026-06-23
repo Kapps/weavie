@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.Hooks;
 using Weavie.Core.Processes;
 using Weavie.Core.Sessions;
@@ -210,11 +211,13 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// Records the working directory the shell child reported via OSC 7, so a reopen relaunches there. Ignored
-	/// for the claude pane (always the IDE workspace) and for a path that no longer exists.
+	/// Records the working directory the shell child reported via OSC 7, so a reopen relaunches there. OSC 7 is
+	/// untrusted terminal output, so the path is confined to this session's worktree — it can't point the
+	/// relaunched shell at an arbitrary directory (a binary/DLL-planting or info-disclosure vector). Ignored for
+	/// the claude pane (always the IDE workspace) and for a path outside the workspace or one that no longer exists.
 	/// </summary>
 	public void OnCwdReported(string cwd) {
-		if (_session == "claude" || string.IsNullOrEmpty(cwd) || !Directory.Exists(cwd)) {
+		if (_session == "claude" || !BufferStore.IsWithinWorkspace(Workspace, cwd) || !Directory.Exists(cwd)) {
 			return;
 		}
 

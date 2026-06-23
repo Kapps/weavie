@@ -60,7 +60,10 @@ flowchart LR
 - **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `term-cwd`; the shell pane's
   `TerminalController` remembers it and relaunches there (Reopen Terminal lands where you were). The
   claude pane ignores it (it always runs in the IDE workspace). Best-effort — only shells configured
-  to emit OSC 7 report it.
+  to emit OSC 7 report it. **Security:** OSC 7 is untrusted terminal output, so the reported path is
+  confined to the session's worktree (`BufferStore.IsWithinWorkspace`) before it can become the
+  relaunched shell's working directory — it can't point the shell at an arbitrary directory; an
+  out-of-workspace (or gone) path is ignored and reopen falls back to the workspace root.
 
 ## Per-host clipboard / open-url
 

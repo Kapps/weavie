@@ -221,6 +221,16 @@ export type HostBoundMessage =
     }
   // The omnibar asks the host to (re)send the workspace's flat file list for "Go to File".
   | { type: "request-file-index" }
+  // Remote-agent registry (the host owns persistence; the web owns the connections). add-remote-agent persists
+  // a validated agent; remove-remote-agent forgets one. Both target the local backend (postToBackend "local"),
+  // since the registry is a local-machine concept — never the active remote runner. See remote-agents.ts.
+  | { type: "add-remote-agent"; name: string; url: string; token: string }
+  | { type: "remove-remote-agent"; name: string }
+  // Session rail UI state (host-persisted in ~/.weavie/rail-state.json, not localStorage). Both target the
+  // local backend. set-last-location remembers where the last session was created; set-promoted carries the
+  // full promoted-remote-session set. See rail-state.ts.
+  | { type: "set-last-location"; location: string }
+  | { type: "set-promoted"; promoted: string[] }
   // A keybinding/palette invoked a Core command — ask the host to run it (fire-and-forget for the web).
   | { type: "invoke-command"; id: string; args?: unknown }
   // Reply to a host run-command: whether the web handler ran (Claude's runCommand of a web command).
@@ -363,6 +373,13 @@ export type WebBoundMessage =
   | { type: "branches-result"; id: string; branches: string[] }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
+  // Host pushes the persisted remote-agent registry (on `ready` and on any add/remove, from this or another
+  // window). The web reconciles its connections to match. Routed cross-backend (isSessionMessage) and honored
+  // only from the local backend, so a remote runner's own registry push is ignored. See remote-agents.ts.
+  | { type: "remote-agents"; agents: { name: string; url: string; token: string }[] }
+  // Host pushes the persisted session-rail UI state (on `ready` and on any change, from this or another
+  // window). Honored only from the local backend. See rail-state.ts.
+  | { type: "rail-state"; lastLocation: string; promoted: string[] }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
   | { type: "run-command"; id: string; args?: unknown; token: string };
 
@@ -382,10 +399,17 @@ const [activeBackend, setActiveBackend] = createSignal("local");
 const LOCAL_BACKEND_ID = "local";
 
 // These route cross-backend (tagged with their origin) rather than being dropped by the active-backend gate:
-// session-list / session-status feed the rail, and branches-result answers the New Session typeahead, which
-// can target a non-active backend. Everything else belongs to whichever backend the page is bound to.
+// session-list / session-status feed the rail, branches-result answers the New Session typeahead (which can
+// target a non-active backend), and remote-agents / rail-state (honored only from the local backend) must
+// arrive even when a remote is active. Everything else belongs to whichever backend the page is bound to.
 function isSessionMessage(type: string): boolean {
-  return type === "session-list" || type === "session-status" || type === "branches-result";
+  return (
+    type === "session-list" ||
+    type === "session-status" ||
+    type === "branches-result" ||
+    type === "remote-agents" ||
+    type === "rail-state"
+  );
 }
 
 // Parse one inbound host->web JSON line and route it. Session messages fan out to the rail listeners tagged

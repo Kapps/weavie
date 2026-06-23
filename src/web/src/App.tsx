@@ -29,13 +29,8 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { TitleBar } from "./chrome/TitleBar";
 import { focusOmnibar } from "./chrome/omnibar-controller";
-import {
-  agentBackendId,
-  connectStoredAgents,
-  loadLastLocation,
-  removeAgent,
-  saveLastLocation,
-} from "./chrome/remote-agents";
+import { lastLocation, setLastLocation } from "./chrome/rail-state";
+import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 // Named imports keep the session store loaded at top level (out of any hot-swapping component) so the
 // rail + active-session status survive HMR, like layout/store and editor/session-store.
 import {
@@ -223,7 +218,8 @@ export default function App(): JSX.Element {
   // The location to preselect in the New Session prompt: the last-used backend if it's still connected,
   // otherwise local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
   const defaultLocation = (): string => {
-    const last = loadLastLocation();
+    
+    const last = lastLocation();
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };
 
@@ -390,9 +386,8 @@ export default function App(): JSX.Element {
     applyChromeTheme();
     mark("shell-mounted");
 
-    // Connect to any registered remote agents so their sessions join the rail and become a New Session
-    // location (best-effort; a down runner just logs and is skipped).
-    connectStoredAgents();
+    // Registered remote agents are connected by remote-agents.ts when the host pushes the persisted registry on
+    // `ready` (best-effort; a down runner just logs and is skipped) — no startup call needed here.
 
     // The terminal panes are already in the tree and mount now — spawning claude — without waiting on
     // Monaco. The editor (a separate chunk, off the first-paint path) is brought up here; the pane shows a
@@ -640,7 +635,7 @@ export default function App(): JSX.Element {
           initialBackendId={defaultLocation()}
           onCreate={(branch, base, location) => {
             setNewSessionOpen(false);
-            saveLastLocation(location);
+            setLastLocation(location);
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
             // term-ready) wires the panes to it; then create the session there.
             setActiveBackendId(location);
@@ -648,7 +643,7 @@ export default function App(): JSX.Element {
           }}
           onCheckout={(branch, location) => {
             setNewSessionOpen(false);
-            saveLastLocation(location);
+            setLastLocation(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
             setActiveBackendId(location);
             postToBackend(location, { type: "new-session", branch, existing: true });
@@ -672,7 +667,7 @@ export default function App(): JSX.Element {
           onAdded={(name) => {
             setRegisterAgentOpen(false);
             // Preselect the just-added agent as the next prompt's location (it connected before onAdded fired).
-            saveLastLocation(agentBackendId(name));
+            setLastLocation(agentBackendId(name));
             setNewSessionOpen(true);
           }}
         />

@@ -2,6 +2,7 @@ using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -73,6 +74,22 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
+		// Registered remote agents (~/.weavie/remote-agents.json) — app-global so a connect/disconnect in one
+		// window reaches every other window's rail.
+		RemoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
+		RemoteAgents.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
+		// Session rail UI state (~/.weavie/rail-state.json) — last-used backend + promoted remote sessions;
+		// app-global so it's shared across windows.
+		RailState = new RailStateStore(new LocalFileSystem(), path: null);
+		RailState.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe.
 		var recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
@@ -119,6 +136,12 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global Claude-session-id map (claude-sessions.json), shared so every session resumes its own.</summary>
 	public ClaudeSessionStore ClaudeSessions { get; }
+
+	/// <summary>App-global remote-agent registry (remote-agents.json), shared so a connect/disconnect reaches every window.</summary>
+	public RemoteAgentStore RemoteAgents { get; }
+
+	/// <summary>App-global session-rail UI state (rail-state.json), shared across windows.</summary>
+	public RailStateStore RailState { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if already open, else opens a

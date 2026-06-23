@@ -3,6 +3,7 @@ using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
@@ -79,12 +80,16 @@ internal sealed class TestHost : IAsyncDisposable {
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(tempRoot, "theme-overrides.json"));
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), Path.Combine(tempRoot, "claude-sessions.json"));
+		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
+		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			ClaudeSessions = claudeSessions,
+			RemoteAgents = remoteAgents,
+			RailState = railState,
 		};
 	}
 

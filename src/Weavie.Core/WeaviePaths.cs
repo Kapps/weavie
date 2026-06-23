@@ -36,6 +36,20 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
 
+	/// <summary>
+	/// The registered remote agents (name + runner URL + token): <c>~/.weavie/remote-agents.json</c>. Its own
+	/// file, never settings.toml — it holds bearer tokens, so it stays off the Claude-facing settings surface.
+	/// App-global so every window shares one registry. See <see cref="Remote.RemoteAgentStore"/>.
+	/// </summary>
+	public static string RemoteAgentsFile { get; } = Path.Combine(Root, "remote-agents.json");
+
+	/// <summary>
+	/// The session rail's app-global UI state — the last backend a session was created on and the promoted
+	/// remote sessions: <c>~/.weavie/rail-state.json</c>. Its own file, never settings.toml — it's runtime UI
+	/// state, not user-facing config. See <see cref="Sessions.RailStateStore"/>.
+	/// </summary>
+	public static string RailStateFile { get; } = Path.Combine(Root, "rail-state.json");
+
 	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 

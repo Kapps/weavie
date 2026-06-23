@@ -1,31 +1,25 @@
 import { createSignal } from "solid-js";
-import { connectBackend, disconnectBackend, log } from "../bridge";
+import {
+  connectBackend,
+  connectedBackends,
+  disconnectBackend,
+  log,
+  onSessionMessage,
+  postToBackend,
+} from "../bridge";
 
-// A registered remote agent: a name plus how to reach its runner's control plane (the long-lived daemon on
-// the remote box). The runner mints the actual worker {url, token}, resolved on connect. Stored client-side
-// in localStorage. See docs/specs/remote-sessions.md.
+// A registered remote agent: a name plus how to reach its runner's control plane (the long-lived daemon on the
+// remote box). The runner mints the actual worker {url, token}, resolved on connect. Persisted HOST-SIDE in
+// ~/.weavie/remote-agents.json — the host owns persistence, the web owns the connections. (It used to live in
+// localStorage, which the Debug dev server's per-launch origin silently orphaned on every restart.) See
+// docs/specs/remote-sessions.md.
 export interface RemoteAgent {
   name: string;
   url: string; // the runner control-plane base URL (e.g. http://<tailscale-host>:8800)
   token: string; // the runner token
 }
 
-const STORAGE_KEY = "weavie.remoteAgents";
-
-function load(): RemoteAgent[] {
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw === null) {
-      return [];
-    }
-    const parsed = JSON.parse(raw) as RemoteAgent[];
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
-}
-
-const [agents, setAgents] = createSignal<RemoteAgent[]>(load());
+const [agents, setAgents] = createSignal<RemoteAgent[]>([]);
 
 /** The registered remote agents (reactive), for the location picker. */
 export const remoteAgents = agents;
@@ -45,60 +39,65 @@ export function agentHue(name: string): number {
 }
 
 /**
- * Connect + register a new agent, persisting it only once the connection succeeds. Replaces any agent with
- * the same name. Throws if the runner is unreachable or rejects us, so the caller (the Add modal) can surface
- * the failure instead of silently leaving the agent out of the location picker.
+ * Connect + register a new agent. Validates by connecting first (throws on failure — surfaced in the Add modal,
+ * so a bad agent is never persisted), then asks the local host to persist it. The host echoes the updated
+ * registry back as a `remote-agents` push, which reconciles the reactive list. Replaces any agent of the same
+ * name.
  */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
   await connectAgent(agent); // throws on failure → shown in the modal; a bad agent is never persisted
-  const next = [...agents().filter((a) => a.name !== agent.name), agent];
-  setAgents(next);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  postToBackend("local", {
+    type: "add-remote-agent",
+    name: agent.name,
+    url: agent.url,
+    token: agent.token,
+  });
 }
 
 /**
- * Disconnect + forget a registered agent: close its bridge (so its chips leave the rail), drop it from the
- * reactive list, and remove it from localStorage. Safe for an agent that never connected (a down runner at
- * startup) — disconnectBackend is a no-op then, and we still forget it.
+ * Disconnect + forget a registered agent: close its bridge (so its chips leave the rail) and ask the local host
+ * to drop it from the registry. The host echoes the updated list, reconciling the reactive set. Safe for an
+ * agent that never connected (a down runner at startup) — disconnectBackend is a no-op then.
  */
 export function removeAgent(name: string): void {
   disconnectBackend(agentBackendId(name));
-  const next = agents().filter((a) => a.name !== name);
-  setAgents(next);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(next));
+  postToBackend("local", { type: "remove-remote-agent", name });
 }
 
-/** Connect to all stored agents on startup (best-effort; a down runner just logs and is skipped). */
-export function connectStoredAgents(): void {
-  for (const agent of agents()) {
-    void connectAgent(agent).catch((err) => {
-      log("error", `remote agent ${agent.name}: ${String(err)}`);
-    });
+// The host pushes the persisted registry on `ready` and after any add/remove (from this or another window). We
+// honor it only from the LOCAL backend — a remote runner pushes its OWN registry, which must not leak in — and
+// reconcile our connections to match. Registered at module load, before main.tsx sends `ready`.
+onSessionMessage((message, backendId) => {
+  if (message.type === "remote-agents" && backendId === "local") {
+    reconcile(message.agents);
   }
-}
+});
 
-// The New Session location picker remembers the last backend a session was created on (local or an agent id),
-// so Ctrl+Shift+N defaults to where you last worked instead of resetting to local each time.
-const LAST_LOCATION_KEY = "weavie.lastLocation";
-
-/** The backend id the last session was created on (defaults to "local"). The caller validates it still exists. */
-export function loadLastLocation(): string {
-  try {
-    return localStorage.getItem(LAST_LOCATION_KEY) ?? "local";
-  } catch {
-    return "local";
+// Bring the live connections in line with the persisted registry: set the reactive list, connect any agent not
+// yet connected (best-effort; a down runner just logs), and drop any remote backend whose agent is gone (e.g.
+// removed in another window).
+function reconcile(list: RemoteAgent[]): void {
+  setAgents(list);
+  const connected = new Set(connectedBackends().map((b) => b.id));
+  const wanted = new Set(list.map((a) => agentBackendId(a.name)));
+  for (const agent of list) {
+    if (!connected.has(agentBackendId(agent.name))) {
+      void connectAgent(agent).catch((err) => {
+        log("error", `remote agent ${agent.name}: ${String(err)}`);
+      });
+    }
   }
-}
-
-/** Remember the backend id a session was just created on (or an agent just added), for the next prompt. */
-export function saveLastLocation(backendId: string): void {
-  localStorage.setItem(LAST_LOCATION_KEY, backendId);
+  for (const backend of connectedBackends()) {
+    if (!backend.isLocal && !wanted.has(backend.id)) {
+      disconnectBackend(backend.id);
+    }
+  }
 }
 
 // Resolve the agent's worker bridge via the runner control plane, then wire it as a backend. The runner's
 // GET /backend ensures the worker is up and returns its page URL with its token; the bridge WebSocket URL is
 // derived from it. Throws on any failure so callers can decide whether to surface it (add) or swallow it
-// (best-effort startup reconnect).
+// (best-effort reconcile/reconnect).
 async function connectAgent(agent: RemoteAgent): Promise<void> {
   const base = agent.url.replace(/\/+$/, "");
   let res: Response;

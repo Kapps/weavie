@@ -5,6 +5,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
+using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
@@ -32,6 +33,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
 	private readonly ClaudeSessionStore _claudeSessions;
+	// App-global remote-agent registry; pushed to the page on `ready` and re-pushed on change (the web owns the
+	// connections, this owns persistence — see remote-agents.ts).
+	private readonly RemoteAgentStore _remoteAgents;
+	// App-global session-rail UI state (last-used backend + promoted remote sessions); same push pattern.
+	private readonly RailStateStore _railState;
 	private readonly LayoutStore _layout;
 	private readonly EditorSessionStore _editorSession;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
@@ -61,6 +67,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private Action? _onKeybindingsChanged;
 	private Action<SettingChange>? _onSettingChanged;
 	private Action<string>? _onThemeOverridesChanged;
+	private Action? _onRemoteAgentsChanged;
+	private Action? _onRailStateChanged;
 
 	/// <summary>
 	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved
@@ -79,6 +87,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
 		_claudeSessions = services.ClaudeSessions;
+		_remoteAgents = services.RemoteAgents;
+		_railState = services.RailState;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
@@ -226,6 +236,15 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
 		_keybindings.KeybindingsChanged += _onKeybindingsChanged;
 
+		// Remote agents: a connect/disconnect (in this window or another sharing the app-global store) re-pushes
+		// the registry so every page's rail + New Session location list stays in sync. PostToWeb marshals itself.
+		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
+		_remoteAgents.Changed += _onRemoteAgentsChanged;
+
+		// Session rail UI state (last-used backend + promoted remotes): same re-push-on-change as remote agents.
+		_onRailStateChanged = PushRailStateToWeb;
+		_railState.Changed += _onRailStateChanged;
+
 		// Layout: when the store changes (a reconciled web edit, or an MCP setLayout), push the canonical
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
@@ -254,6 +273,16 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onThemeOverridesChanged is not null) {
 			_themeOverrides.Changed -= _onThemeOverridesChanged;
 			_onThemeOverridesChanged = null;
+		}
+
+		if (_onRemoteAgentsChanged is not null) {
+			_remoteAgents.Changed -= _onRemoteAgentsChanged;
+			_onRemoteAgentsChanged = null;
+		}
+
+		if (_onRailStateChanged is not null) {
+			_railState.Changed -= _onRailStateChanged;
+			_onRailStateChanged = null;
 		}
 
 		_hotkeys?.Dispose(); // unregisters the OS global hotkeys

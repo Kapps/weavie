@@ -2,6 +2,7 @@ using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 
@@ -33,6 +34,18 @@ public sealed record HostServices {
 	public required ClaudeSessionStore ClaudeSessions { get; init; }
 
 	/// <summary>
+	/// The registered remote agents (<c>~/.weavie/remote-agents.json</c>) — app-global so every window shares
+	/// one registry and re-pushes it to its page on change.
+	/// </summary>
+	public required RemoteAgentStore RemoteAgents { get; init; }
+
+	/// <summary>
+	/// The session rail's UI state (<c>~/.weavie/rail-state.json</c>) — last-used backend + promoted remote
+	/// sessions; app-global so every window shares it and re-pushes it to its page on change.
+	/// </summary>
+	public required RailStateStore RailState { get; init; }
+
+	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
 	/// </summary>
@@ -46,12 +59,18 @@ public sealed record HostServices {
 		themeOverrides.Log += Log;
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
 		claudeSessions.Log += Log;
+		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
+		remoteAgents.Log += Log;
+		var railState = new RailStateStore(new LocalFileSystem(), path: null);
+		railState.Log += Log;
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			ClaudeSessions = claudeSessions,
+			RemoteAgents = remoteAgents,
+			RailState = railState,
 		};
 	}
 

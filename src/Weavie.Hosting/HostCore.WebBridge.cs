@@ -6,6 +6,7 @@ using Weavie.Core.Git;
 using Weavie.Core.Json;
 using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
+using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Theming;
@@ -183,6 +184,8 @@ public sealed partial class HostCore {
 				PushLayoutToWeb();
 				PushEditorSessionToWeb();
 				PushSessionList();
+				PushRemoteAgentsToWeb();
+				PushRailStateToWeb();
 				Ready?.Invoke();
 				Log($"[weavie] {json}");
 				break;
@@ -203,6 +206,29 @@ public sealed partial class HostCore {
 			case "discard-scratch":
 				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
 				_session?.Scratch.Delete(root.GetStringOrEmpty("path"));
+				break;
+			case "add-remote-agent": {
+				// The web validated the runner (it owns the connection); persist the agent here so it survives
+				// restart. The store's Changed re-pushes the registry to every window's page.
+				var agent = new RemoteAgent(
+					root.GetStringOrEmpty("name"), root.GetStringOrEmpty("url"), root.GetStringOrEmpty("token"));
+				if (!string.IsNullOrEmpty(agent.Name)) {
+					_remoteAgents.Add(agent);
+				}
+
+				break;
+			}
+
+			case "remove-remote-agent":
+				_remoteAgents.Remove(root.GetStringOrEmpty("name"));
+				break;
+			case "set-last-location":
+				// The page remembers where the last session was created (a backend id); persist it for next launch.
+				_railState.SetLastLocation(root.GetStringOrEmpty("location"));
+				break;
+			case "set-promoted":
+				// The page's promoted-remote-session set changed; persist the full set it sent.
+				_railState.SetPromoted(StringArray(root, "promoted"));
 				break;
 			default:
 				Log($"[weavie] {json}");
@@ -228,6 +254,29 @@ public sealed partial class HostCore {
 			Log($"[weavie] layout-changed rejected: {ex.Message}");
 		}
 	}
+
+	/// <summary>
+	/// Pushes the persisted remote-agent registry so the page connects to each agent and offers it as a New
+	/// Session location. The host owns persistence; the web owns the connections (see remote-agents.ts), so this
+	/// carries the runner URL + token the web needs to resolve each worker bridge.
+	/// </summary>
+	private void PushRemoteAgentsToWeb() =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "remote-agents",
+			agents = _remoteAgents.Agents.Select(a => new { name = a.Name, url = a.Url, token = a.Token }),
+		}));
+
+	/// <summary>
+	/// Pushes the session rail's persisted UI state (last-used backend + promoted remote sessions) so the page
+	/// restores its working set and the New Session prompt's default location. Honored by the page only from the
+	/// local backend (see remote-agents.ts / session-store.ts).
+	/// </summary>
+	private void PushRailStateToWeb() =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "rail-state",
+			lastLocation = _railState.LastLocation,
+			promoted = _railState.Promoted,
+		}));
 
 	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
 	private void PushLayoutToWeb() {
@@ -556,6 +605,20 @@ public sealed partial class HostCore {
 			PushRefreshToWeb(path);  // fs-change → the editor reloads the rewritten file
 			PushTurnDiffToWeb(path); // the inline diff drops the reverted hunk(s)
 		}
+	}
+
+	/// <summary>Reads a string-array property from a web message (empty when absent or not an array); skips non-string elements.</summary>
+	private static List<string> StringArray(JsonElement root, string name) {
+		var values = new List<string>();
+		if (root.TryGetProperty(name, out var array) && array.ValueKind == JsonValueKind.Array) {
+			foreach (var element in array.EnumerateArray()) {
+				if (element.ValueKind == JsonValueKind.String && element.GetString() is { } value) {
+					values.Add(value);
+				}
+			}
+		}
+
+		return values;
 	}
 
 	/// <summary>Reads a required integer property from a web message (0 when absent/non-numeric).</summary>

@@ -397,18 +397,24 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Re-projects the active session's inline turn-review onto the page after a switch: clears the outgoing
-	/// session's inline markers, then pushes the incoming session's review set. The live turn pushes are gated on
-	/// <c>IsActiveSession</c>, so a session that edited while muted has a tracker the page never heard about (an
-	/// empty set also clears the stale ← / → walk). The arm key resets first so it re-opens its review on switch-in.
+	/// Clears the page's inline turn-review markers (and the stale per-file diffs) — the outgoing half of a switch.
+	/// Must run BEFORE the incoming session's editor channel re-renders its held openDiff, or the reset's
+	/// <c>clearAll</c> would wipe that diff (it lives in the same inline-diff registry).
 	/// </summary>
-	private void PushReviewStateOnSwitch() {
+	private void ResetReviewMarkers() => _bridge.PostToWeb(ChangeMessages.TurnReset());
+
+	/// <summary>
+	/// Pushes the incoming session's inline turn-review set onto the page after a switch — the inbound half (markers
+	/// already cleared by <see cref="ResetReviewMarkers"/>). The live turn pushes are gated on <c>IsActiveSession</c>,
+	/// so a session that edited while muted has a tracker the page never heard about (an empty set also clears the
+	/// stale ← / → walk). The arm key resets first so it re-opens its review on switch-in.
+	/// </summary>
+	private void PushIncomingReviewState() {
 		if (_session is not { } session) {
 			return;
 		}
 
 		_armedReviewKey = null;
-		_bridge.PostToWeb(ChangeMessages.TurnReset());
 		_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session)));
 	}
 

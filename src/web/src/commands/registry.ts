@@ -2,8 +2,15 @@
 // dispatches (from keybindings, the palette, or the host's run-command). Core commands forward to the host
 // as invoke-command. See docs/specs/commands.md.
 
-import { hostInjected, log, onHostMessage, postToBackend, postToHost } from "../bridge";
-import type { CommandInfo, ResolvedKeybinding } from "./types";
+import {
+  activeBackendId,
+  hostInjected,
+  invokeCommandOnBackend,
+  log,
+  onHostMessage,
+  postToHost,
+} from "../bridge";
+import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./types";
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -43,15 +50,13 @@ export function findCommand(id: string): CommandInfo | undefined {
   return commands.find((c) => c.id === id);
 }
 
-// Send a Core command to the host. A `backendId` arg (a rail / cloud-panel op on a specific session) targets
-// that backend so the command runs on the session's owning host; otherwise it goes to the active backend.
-function routeCoreCommand(id: string, args: unknown): void {
+// Run a Core command and return its result. A `backendId` arg (a rail / cloud-panel op on a specific session)
+// targets that backend so the command runs on the session's owning host; otherwise the active backend.
+function routeCoreCommand(id: string, args: unknown): Promise<CommandResult> {
   const backendId = (args as { backendId?: unknown } | undefined)?.backendId;
-  if (typeof backendId === "string" && backendId.length > 0) {
-    postToBackend(backendId, { type: "invoke-command", id, args });
-  } else {
-    postToHost({ type: "invoke-command", id, args });
-  }
+  const target =
+    typeof backendId === "string" && backendId.length > 0 ? backendId : activeBackendId();
+  return invokeCommandOnBackend(target, id, args);
 }
 
 /** Subscribe to catalog/keybinding changes; returns an unsubscribe function. */
@@ -71,7 +76,8 @@ export function runForKeybinding(id: string, args: unknown): boolean {
     return false;
   }
   if (command.runsIn === "core") {
-    routeCoreCommand(id, args);
+    // Keystrokes don't await the outcome; fire it and consume the key.
+    void routeCoreCommand(id, args);
     return true;
   }
   const handler = handlers.get(id);
@@ -88,28 +94,35 @@ export function runForKeybinding(id: string, args: unknown): boolean {
   }
 }
 
-/** Runs a command from the palette / programmatically (return value ignored; errors are logged). */
-export function dispatchCommand(id: string, args?: unknown): void {
+/**
+ * Runs a command from the palette / a menu / programmatically and resolves to its result, so callers that care
+ * (e.g. a toast) can react. A Core command round-trips to its backend; a web command runs locally and its
+ * return maps onto the result (an explicit `false` ⇒ declined). Never rejects — failures resolve as `ok: false`.
+ */
+export function dispatchCommand(id: string, args?: unknown): Promise<CommandResult> {
   const command = findCommand(id);
   if (command === undefined) {
     log("warn", `unknown command '${id}'`);
-    return;
+    return Promise.resolve({ ok: false, error: `Unknown command '${id}'.` });
   }
   if (command.runsIn === "core") {
-    routeCoreCommand(id, args);
-    return;
+    return routeCoreCommand(id, args);
   }
   const handler = handlers.get(id);
   if (handler === undefined) {
     log("warn", `no web handler registered for command '${id}'`);
-    return;
+    return Promise.resolve({ ok: false, error: `No web handler for '${id}'.` });
   }
   try {
-    void Promise.resolve(handler(args)).catch((error: unknown) =>
-      log("error", `command '${id}' failed: ${String(error)}`),
-    );
+    return Promise.resolve(handler(args))
+      .then((value) => ({ ok: value !== false }))
+      .catch((error: unknown) => {
+        log("error", `command '${id}' failed: ${String(error)}`);
+        return { ok: false, error: String(error) };
+      });
   } catch (error) {
     log("error", `command '${id}' threw: ${String(error)}`);
+    return Promise.resolve({ ok: false, error: String(error) });
   }
 }
 

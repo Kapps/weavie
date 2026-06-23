@@ -12,16 +12,30 @@ public enum CommandLocation {
 	Core,
 }
 
-/// <summary>The outcome of running a command, reported to Claude by <c>runCommand</c>.</summary>
+/// <summary>
+/// The outcome of running a command, returned to every caller (Claude over <c>runCommand</c>, and the web over
+/// the <c>command-result</c> reply). <see cref="DataJson"/> carries an optional command-specific payload as raw
+/// JSON, so a command can return a value (a query result, structured error detail), not just a message.
+/// See <c>docs/specs/command-responses.md</c>.
+/// </summary>
 public readonly record struct CommandResult(bool Ok, string? Message, string? Error) {
+	/// <summary>Optional command-specific result payload, raw JSON (an object); null when the command returns no data.</summary>
+	public string? DataJson { get; init; }
+
 	/// <summary>A successful run with no message.</summary>
 	public static CommandResult Success() => new(true, null, null);
 
 	/// <summary>A successful run carrying the human-readable confirmation <paramref name="message"/>.</summary>
 	public static CommandResult Success(string? message) => new(true, message, null);
 
+	/// <summary>A successful run carrying a confirmation <paramref name="message"/> and a raw-JSON <paramref name="dataJson"/> payload.</summary>
+	public static CommandResult Success(string? message, string? dataJson) => new(true, message, null) { DataJson = dataJson };
+
 	/// <summary>A failed run carrying the reason <paramref name="error"/>.</summary>
 	public static CommandResult Failure(string error) => new(false, null, error);
+
+	/// <summary>A failed run carrying the reason <paramref name="error"/> and a raw-JSON <paramref name="dataJson"/> payload (structured error detail).</summary>
+	public static CommandResult Failure(string error, string? dataJson) => new(false, null, error) { DataJson = dataJson };
 }
 
 /// <summary>

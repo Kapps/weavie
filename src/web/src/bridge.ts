@@ -3,7 +3,7 @@
 // is a no-op by design, never a thrown error.
 
 import { createSignal } from "solid-js";
-import type { CommandInfo, ResolvedKeybinding } from "./commands/types";
+import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
 import type { WeavieLspConfig } from "./lsp/lsp-client";
@@ -210,8 +210,9 @@ export type HostBoundMessage =
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
-  // A keybinding/palette invoked a Core command — ask the host to run it (fire-and-forget for the web).
-  | { type: "invoke-command"; id: string; args?: unknown }
+  // A keybinding/palette/menu invoked a Core command. A `token` requests a command-result reply
+  // (request/response); without one the host runs it fire-and-forget.
+  | { type: "invoke-command"; id: string; args?: unknown; token?: string }
   // Reply to a host run-command: whether the web handler ran (Claude's runCommand of a web command).
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
@@ -350,7 +351,17 @@ export type WebBoundMessage =
   // window). Honored only from the local backend. See rail-state.ts.
   | { type: "rail-state"; lastLocation: string; promoted: string[] }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
-  | { type: "run-command"; id: string; args?: unknown; token: string };
+  | { type: "run-command"; id: string; args?: unknown; token: string }
+  // Reply to a tokened invoke-command: the command's outcome, routed back to the issuing client by `token`
+  // (never gated by the active backend). `data` is the command's optional payload. See command-responses.md.
+  | {
+      type: "command-result";
+      token: string;
+      ok: boolean;
+      message?: string;
+      error?: string;
+      data?: unknown;
+    };
 
 type WebMessageHandler = (msg: WebBoundMessage) => void;
 type SessionMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
@@ -380,14 +391,59 @@ function isSessionMessage(type: string): boolean {
   );
 }
 
-// Parse one inbound JSON line and route it: session messages fan out to the rail listeners tagged with
-// `backendId`; all else reaches page listeners only from the active backend. Shared by every transport.
+// A command awaiting its result, keyed by token, tagged with the backend it was sent to (so a disconnect can
+// fail its in-flight commands rather than hang them). See invokeCommandOnBackend / command-result.
+const pendingCommands = new Map<
+  string,
+  { resolve: (result: CommandResult) => void; backendId: string }
+>();
+let commandSeq = 0;
+
+/**
+ * Run a Core command on a specific backend and await its result (request/response). The host replies with a
+ * `command-result` tagged by token; correlation makes it unicast even over a shared transport. Always resolves
+ * (failures come back as `{ ok: false, error }`) — including when the backend disconnects mid-flight.
+ */
+export function invokeCommandOnBackend(
+  backendId: string,
+  id: string,
+  args: unknown,
+): Promise<CommandResult> {
+  const token = `c${++commandSeq}`;
+  return new Promise<CommandResult>((resolve) => {
+    pendingCommands.set(token, { resolve, backendId });
+    postToBackend(backendId, { type: "invoke-command", id, args, token });
+  });
+}
+
+// Fail every command still awaiting a backend whose link dropped, so a lost reply surfaces as an error instead
+// of hanging forever (no silent fallback). The transport reconnects for future commands.
+function failPendingForBackend(backendId: string, reason: string): void {
+  for (const [token, pending] of pendingCommands) {
+    if (pending.backendId === backendId) {
+      pendingCommands.delete(token);
+      pending.resolve({ ok: false, error: reason });
+    }
+  }
+}
+
+// Parse one inbound JSON line and route it: a command-result resolves its awaiting caller by token (never
+// gated); session messages fan out to the rail listeners tagged with `backendId`; all else reaches page
+// listeners only from the active backend. Shared by every transport.
 function deliverFromHost(raw: string, backendId: string): void {
   let parsed: WebBoundMessage;
   try {
     parsed = JSON.parse(raw) as WebBoundMessage;
   } catch {
     log("error", `bridge: bad JSON from ${backendId}: ${raw.slice(0, 200)}`);
+    return;
+  }
+  if (parsed.type === "command-result") {
+    const pending = pendingCommands.get(parsed.token);
+    if (pending !== undefined) {
+      pendingCommands.delete(parsed.token);
+      pending.resolve(parsed);
+    }
     return;
   }
   if (isSessionMessage(parsed.type)) {
@@ -498,6 +554,11 @@ class WebSocketTransport implements BridgeTransport {
     };
     socket.onclose = (): void => {
       this.socket = null;
+      // The link dropped: fail any commands awaiting this backend's reply rather than leave them hanging.
+      failPendingForBackend(
+        this.backendId,
+        "The backend disconnected before the command completed.",
+      );
       if (!this.disposed) {
         this.scheduleReconnect();
       }
@@ -600,6 +661,7 @@ export function disconnectBackend(id: string): void {
   }
   backend.transport.dispose();
   backends.delete(id);
+  failPendingForBackend(id, "The backend was disconnected.");
   publishBackends();
   if (activeBackend() === id) {
     setActiveBackend(LOCAL_BACKEND_ID);

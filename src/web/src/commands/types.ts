@@ -20,6 +20,18 @@ export interface CommandInfo {
   keys: string[];
 }
 
+/**
+ * The outcome of running a command, returned to the caller via the host's `command-result` reply (or
+ * synthesized locally for a web-run command). `data` is an optional command-specific payload. Mirrors Core's
+ * `CommandResult`. See docs/specs/command-responses.md.
+ */
+export interface CommandResult {
+  ok: boolean;
+  message?: string;
+  error?: string;
+  data?: unknown;
+}
+
 /** One effective key binding after merging defaults with the user file. */
 export interface ResolvedKeybinding {
   key: string;

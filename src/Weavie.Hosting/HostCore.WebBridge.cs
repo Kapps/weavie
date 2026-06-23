@@ -143,10 +143,12 @@ public sealed partial class HostCore {
 				RevertFile(root);
 				break;
 			case "invoke-command":
-				// A web keybinding/palette invoked a Core command — run it on the active session (fire-and-forget).
+				// A web keybinding/palette/menu invoked a Core command — run it on the active session. A `token`
+				// asks for a command-result reply (request/response); without one it stays fire-and-forget.
 				InvokeCommandFromWeb(
 					root.GetStringOrEmpty("id"),
-					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null);
+					root.TryGetProperty("args", out var caEl) && caEl.ValueKind == JsonValueKind.Object ? caEl.GetRawText() : null,
+					root.GetStringOrNull("token"));
 				break;
 			case "command-ack":
 				// The web finished a run-command (a web command Claude invoked over MCP) — settle the await.
@@ -592,10 +594,10 @@ public sealed partial class HostCore {
 	/// Runs a Core command on the active session from a native trigger (e.g. the macOS menu bar), the same path
 	/// the web's <c>invoke-command</c> takes. Fire-and-forget.
 	/// </summary>
-	public void InvokeCommand(string id) => InvokeCommandFromWeb(id, null);
+	public void InvokeCommand(string id) => InvokeCommandFromWeb(id, null, null);
 
 	/// <summary>Runs a Core command with JSON arguments on the active session (native-trigger overload).</summary>
-	public void InvokeCommand(string id, string? argsJson) => InvokeCommandFromWeb(id, argsJson);
+	public void InvokeCommand(string id, string? argsJson) => InvokeCommandFromWeb(id, argsJson, null);
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>
@@ -687,29 +689,55 @@ public sealed partial class HostCore {
 		}
 	}
 
-	/// <summary>Runs a Core command the web asked for on the active session. Fire-and-forget; failures are logged.</summary>
-	private void InvokeCommandFromWeb(string id, string? argsJson) {
+	/// <summary>
+	/// Runs a Core command the web asked for on the active session. A non-null <paramref name="token"/> requests a
+	/// <c>command-result</c> reply (request/response); without one it's fire-and-forget and failures are logged.
+	/// </summary>
+	private void InvokeCommandFromWeb(string id, string? argsJson, string? token) {
 		if (_session is null || string.IsNullOrEmpty(id)) {
-			return;
-		}
-
-		_ = RunCommandSafeAsync(id, argsJson);
-	}
-
-	private async Task RunCommandSafeAsync(string id, string? argsJson) {
-		if (_session is null) {
-			return;
-		}
-
-		try {
-			var result = await _session.Commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
-			if (!result.Ok) {
-				Log($"[weavie] invoke-command {id} failed: {result.Error}");
+			if (!string.IsNullOrEmpty(token)) {
+				PostCommandResult(token, CommandResult.Failure("No active session."));
 			}
+
+			return;
+		}
+
+		_ = RunCommandSafeAsync(id, argsJson, token);
+	}
+
+	private async Task RunCommandSafeAsync(string id, string? argsJson, string? token) {
+		if (_session is null) {
+			if (!string.IsNullOrEmpty(token)) {
+				PostCommandResult(token, CommandResult.Failure("No active session."));
+			}
+
+			return;
+		}
+
+		CommandResult result;
+		try {
+			result = await _session.Commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is UnknownCommandException or InvalidOperationException) {
-			Log($"[weavie] invoke-command {id} error: {ex.Message}");
+			result = CommandResult.Failure(ex.Message);
+		}
+
+		if (!result.Ok) {
+			Log($"[weavie] invoke-command {id} failed: {result.Error}");
+		}
+
+		if (!string.IsNullOrEmpty(token)) {
+			PostCommandResult(token, result);
 		}
 	}
+
+	/// <summary>Replies to a tokened <c>invoke-command</c> with its outcome; <c>data</c> embeds the result's raw-JSON payload verbatim (null when absent).</summary>
+	private void PostCommandResult(string token, CommandResult result) =>
+		_bridge.PostToWeb(
+			$"{{\"type\":\"command-result\",\"token\":{JsonString(token)},\"ok\":{(result.Ok ? "true" : "false")},"
+			+ $"\"message\":{JsonOrNull(result.Message)},\"error\":{JsonOrNull(result.Error)},\"data\":{result.DataJson ?? "null"}}}");
+
+	/// <summary>A JSON string literal for <paramref name="value"/>, or the literal <c>null</c> when it's null.</summary>
+	private static string JsonOrNull(string? value) => value is null ? "null" : JsonString(value);
 
 	/// <summary>
 	/// The dispatcher's web invoker — how Claude's <c>runCommand</c> of a web command reaches the UI: posts a

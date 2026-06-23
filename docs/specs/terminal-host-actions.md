@@ -50,7 +50,11 @@ flowchart LR
   OSC 52 *read* requests (`52;c;?`) are denied — no clipboard exfiltration back to the child.
 - **Open URL.** The OSC 8 `linkHandler` posts `open-url` for `http(s)` (it already revealed `file:`),
   and a bare-`http(s)` link provider makes printed URLs clickable. Fixes the OAuth/login flow, where
-  Claude prints/links an auth URL.
+  Claude prints/links an auth URL. **Security:** terminal content is untrusted (a printed/OSC 8 link
+  the user clicks), so the host re-validates the scheme and passes only absolute `http`/`https` to the
+  OS opener — never `file://`, a UNC path, or a custom scheme (a `ShellExecute`/handler RCE vector).
+  The web filters too, but the host dispatch is the authoritative gate; it never trusts the renderer
+  alone.
 - **Title (OSC 0/2).** Web-only: `term.onTitleChange` updates the pane header; no host round-trip
   (the title is already in the web).
 - **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `term-cwd`; the shell pane's

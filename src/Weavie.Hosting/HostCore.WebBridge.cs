@@ -100,8 +100,17 @@ public sealed partial class HostCore {
 					$"{{\"type\":\"clipboard-content\",\"id\":{JsonString(root.GetStringOrEmpty("id"))},\"text\":{JsonString(_platform.ReadClipboard())}}}");
 				break;
 			case "open-url":
-				// A terminal hyperlink / Claude's auth URL -> open in the OS default browser.
-				_platform.OpenExternalUrl(root.GetStringOrEmpty("url"));
+				// A terminal hyperlink / Claude's auth URL -> open in the OS default browser. Allowlist http(s) at
+				// this trust boundary: terminal content is untrusted, so the OS opener must never be reachable with a
+				// file://, UNC path, or custom scheme (a ShellExecute / handler RCE vector). The web filters too, but
+				// this is the authoritative gate — never trust the renderer alone.
+				string openUrl = root.GetStringOrEmpty("url");
+				if (IsHttpUrl(openUrl)) {
+					_platform.OpenExternalUrl(openUrl);
+				} else {
+					Log($"[weavie] open-url refused (not http/https): {openUrl}");
+				}
+
 				break;
 			case "term-cwd":
 				// The shell child reported its cwd (OSC 7); remember it so a reopen relaunches there.
@@ -605,6 +614,15 @@ public sealed partial class HostCore {
 	/// <summary>Reads a required integer property from a web message (0 when absent/non-numeric).</summary>
 	private static int JsonInt(JsonElement root, string name) =>
 		root.TryGetProperty(name, out var el) && el.ValueKind == JsonValueKind.Number ? el.GetInt32() : 0;
+
+	/// <summary>
+	/// True only for an absolute http/https URL — the open-url gate. Terminal content is untrusted, so the OS
+	/// opener accepts nothing else: never a <c>file://</c>, a UNC path, or a custom scheme that could launch a
+	/// handler.
+	/// </summary>
+	private static bool IsHttpUrl(string url) =>
+		Uri.TryCreate(url, UriKind.Absolute, out var uri)
+		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps);
 
 	/// <summary>
 	/// Runs a Core command on the active session from a native trigger (e.g. the macOS menu bar), the same path

@@ -33,12 +33,29 @@ public sealed class HostCoreTerminalActionsTests {
 		Assert.Equal("paste me", reply.Value.GetProperty("text").GetString());
 	}
 
-	[Fact]
-	public async Task OpenUrl_OpensTheUrlViaThePlatform() {
+	[Theory]
+	[InlineData("https://example.com/auth?code=abc")]
+	[InlineData("http://localhost:8080/callback")]
+	public async Task OpenUrl_OpensHttpUrlsViaThePlatform(string url) {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "open-url", url = "https://example.com/auth?code=abc" }));
+		host.Send(Msg(new { type = "open-url", url }));
 
-		Assert.Equal("https://example.com/auth?code=abc", host.Platform.LastOpenedUrl);
+		Assert.Equal(url, host.Platform.LastOpenedUrl);
+	}
+
+	[Theory]
+	[InlineData("file:///C:/Windows/System32/calc.exe")]
+	[InlineData("file://attacker/share/evil.exe")]
+	[InlineData("ms-msdt:/id PCWDiagnostic")]
+	[InlineData("javascript:alert(1)")]
+	[InlineData("C:\\Windows\\System32\\calc.exe")]
+	[InlineData("not a url")]
+	public async Task OpenUrl_RefusesNonHttpSchemes(string url) {
+		await using var host = await TestHost.StartAsync();
+
+		host.Send(Msg(new { type = "open-url", url }));
+
+		Assert.Null(host.Platform.LastOpenedUrl); // the OS opener was never reached
 	}
 }

@@ -225,3 +225,31 @@
   opacity: 1;
   background: rgba(255, 255, 255, 0.1);
 }
+
+/* Source/Preview toggle, pinned to the right of the (scrollable) tab strip. `sticky` + `margin-left:auto`
+   keeps it at the right edge whether or not the tabs overflow; the opaque --bar background occludes tabs
+   that scroll under it. `margin-right` reserves the corner for the floating pane-number badge so the two
+   don't overlap. Shown only for previewable files (see TabStrip). */
+.editor-preview-toggle {
+  flex: 0 0 auto;
+  position: sticky;
+  right: 0;
+  margin-left: auto;
+  margin-right: 54px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.6em;
+  border: none;
+  border-left: 1px solid var(--border);
+  background: var(--bar);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.editor-preview-toggle:hover {
+  color: var(--fg);
+}
+
+.editor-preview-toggle[aria-pressed="true"] {
+  color: var(--accent);
+}

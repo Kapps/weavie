@@ -53,10 +53,12 @@ import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
 import { createEditorController } from "./editor/editor-controller";
+import { canPreview } from "./editor/preview/preview-registry";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
@@ -69,6 +71,7 @@ import { TerminalView } from "./terminal/TerminalView";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
+const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
 
 // The PRIMARY session's workspace root (host-injected before navigation); seeds indexRoot and the "is there
 // a host workspace at all" check. The live root then follows the active session. Null in plain-browser dev.
@@ -214,6 +217,29 @@ export default function App(): JSX.Element {
     }
   };
 
+  // Flip the active file between Source and Preview, only when its type can preview. Returns whether it acted,
+  // so the command DECLINES (key falls through to the editor) on a non-previewable file.
+  const toggleActivePreview = (): boolean => {
+    const path = activePath();
+    if (path === null || !canPreview(path)) {
+      return false;
+    }
+    // Returning to Source hands focus back to Monaco; the Preview overlay focuses itself on mount.
+    if (toggleViewMode(path) === "source") {
+      editor.focusEditor();
+    }
+    return true;
+  };
+
+  // The active file's path when it's previewable, in Preview mode, and not under inline review (which owns the
+  // editor) — drives the Preview overlay; null otherwise.
+  const previewActivePath = createMemo<string | null>(() => {
+    const path = activePath();
+    return path !== null && canPreview(path) && isPreviewMode(path) && !editor.reviewActive()
+      ? path
+      : null;
+  });
+
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
   // isn't lost; the host processes both messages in order on the still-active session.
   const switchToSession = (session: RailSession): void => {
@@ -319,6 +345,12 @@ export default function App(): JSX.Element {
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
               <EditorEmptyState />
+            </Show>
+            {/* Preview mode: render the active file (Markdown) over the still-mounted Monaco host. */}
+            <Show when={previewActivePath() !== null}>
+              <Suspense>
+                <PreviewPane content={() => editor.activeContent()} />
+              </Suspense>
             </Show>
           </div>
           {/* Pane-switch badge: top-right of the PANE (over the tab strip), not over the editor content. */}
@@ -471,6 +503,11 @@ export default function App(): JSX.Element {
         if (kind === undefined) {
           return false;
         }
+        // Re-pressing the editor's focus number while it's already focused toggles Source/Preview (on a
+        // non-previewable file toggleActivePreview declines, so this just re-focuses the editor).
+        if (kind === "editor" && focusedKind() === "editor" && toggleActivePreview()) {
+          return true;
+        }
         focusPane(kind);
         return true;
       }),
@@ -509,6 +546,7 @@ export default function App(): JSX.Element {
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
+      registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab

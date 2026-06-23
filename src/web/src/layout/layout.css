@@ -175,6 +175,9 @@
   margin-left: 0;
   background: var(--bar);
   opacity: 0.7;
+  /* A decorative shortcut hint floating over the tab strip's corner — never swallow clicks meant for the
+     tabs or the Source/Preview toggle beneath it. */
+  pointer-events: none;
 }
 
 /* Focused pane: accent the border and its label / badge. */

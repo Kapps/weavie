@@ -1,0 +1,114 @@
+/* Rendered-Markdown Preview overlay: covers the Monaco host (kept mounted underneath) at the same layer as
+   the empty state, styled with the theme vars so it tracks the active color theme. */
+.editor-preview {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  padding: 1.5em 2em;
+  background: var(--bg);
+  color: var(--fg);
+}
+
+/* Focus is structural (so the pane counts as editor-focused + scrolls by keyboard), not a visible ring. */
+.editor-preview:focus-visible {
+  outline: none;
+}
+
+.editor-preview-body {
+  max-width: 48em;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+.editor-preview-body > :first-child {
+  margin-top: 0;
+}
+
+.editor-preview-body h1,
+.editor-preview-body h2,
+.editor-preview-body h3,
+.editor-preview-body h4,
+.editor-preview-body h5,
+.editor-preview-body h6 {
+  color: var(--fg);
+  line-height: 1.25;
+  margin: 1.4em 0 0.6em;
+}
+
+.editor-preview-body h1 {
+  font-size: 1.8em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.3em;
+}
+
+.editor-preview-body h2 {
+  font-size: 1.4em;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 0.25em;
+}
+
+.editor-preview-body a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.editor-preview-body a:hover {
+  text-decoration: underline;
+}
+
+.editor-preview-body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.9em;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+}
+
+.editor-preview-body pre {
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.9em 1.1em;
+  overflow-x: auto;
+}
+
+.editor-preview-body pre code {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 0.875em;
+}
+
+.editor-preview-body blockquote {
+  margin: 1em 0;
+  padding: 0.2em 1em;
+  border-left: 3px solid var(--border);
+  color: var(--dim);
+}
+
+.editor-preview-body table {
+  border-collapse: collapse;
+  margin: 1em 0;
+}
+
+.editor-preview-body th,
+.editor-preview-body td {
+  border: 1px solid var(--border);
+  padding: 0.4em 0.8em;
+}
+
+.editor-preview-body th {
+  background: var(--bar);
+}
+
+.editor-preview-body hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 1.5em 0;
+}
+
+.editor-preview-body img {
+  max-width: 100%;
+}

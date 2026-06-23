@@ -92,6 +92,9 @@ public static class CoreCommands {
 	/// <summary>Saves the active editor; a scratch buffer prompts for a name. Bound to <c>$mod+s</c>.</summary>
 	public const string SaveFile = "weavie.editor.save";
 
+	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
+	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
+
 	/// <summary>Installs a color theme from the Open VSX registry (args <c>namespace</c>/<c>name</c>/<c>version</c>).</summary>
 	public const string InstallTheme = "weavie.theme.install";
 
@@ -441,6 +444,22 @@ public static class CoreCommands {
 				+ "prompts for a name and location.",
 			Aliases = ["save", "save file", "save as", "save editor"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+s" }],
+			When = "editorFocused",
+		});
+
+		// Toggle the active file between Source (Monaco) and a rendered Preview (Markdown today). Gated to
+		// editorFocused; the handler additionally DECLINES (key falls through to Monaco) for a file type with no
+		// preview, so the chord is harmless on, say, a .cs file. The focus-editor re-press (ctrl+<editor#> while
+		// the editor is already focused) routes through the same handler.
+		registry.Register(new CommandDefinition {
+			Id = ToggleEditorPreview,
+			Title = "Toggle Preview",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Switch the active file between Source (the Monaco editor) and a rendered Preview "
+				+ "(Markdown today). Does nothing for file types without a preview.",
+			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "show preview", "source view"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+v" }],
 			When = "editorFocused",
 		});
 

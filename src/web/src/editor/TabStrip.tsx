@@ -1,11 +1,15 @@
-import { Pin, X } from "lucide-solid";
+import { Code, Eye, Pin, X } from "lucide-solid";
 import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
+import { formatKey } from "../commands/keybindings";
+import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { dirtyPaths } from "./dirty-store";
 import type { TabActions } from "./editor-controller";
 import { canonicalFsPath } from "./fs-path";
+import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
+import { isPreviewMode } from "./view-mode-store";
 
 // The structural fields the strip renders. Excludes view state so cursor/scroll updates don't re-render it.
 interface TabView {
@@ -56,6 +60,21 @@ export function TabStrip(props: {
     { equals: sameTabs },
   );
   const active = createMemo(() => props.activePath());
+  // The active file's path when it's previewable (drives the Source/Preview toggle's visibility), else null.
+  const activePreviewable = createMemo(() => {
+    const path = props.activePath();
+    return path !== null && canPreview(path) ? path : null;
+  });
+  const previewing = createMemo(() => {
+    const path = activePreviewable();
+    return path !== null && isPreviewMode(path);
+  });
+  // Tooltip: the verb + the live shortcut from the command catalog (never hardcoded).
+  const toggleTitle = (): string => {
+    const keys = findCommand(CommandIds.toggleEditorPreview)?.keys ?? [];
+    const suffix = keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
+    return (previewing() ? "Show source" : "Show preview") + suffix;
+  };
 
   // Right-click menu targets the clicked tab via each command's `path` arg; keyboard/palette omit it to act
   // on the active tab.
@@ -130,6 +149,20 @@ export function TabStrip(props: {
               </div>
             )}
           </For>
+          {/* Source/Preview toggle: shown only for previewable files; pinned right, sticky over scroll.
+              Routes through the command so button / keybinding / palette / Claude share one handler. */}
+          <Show when={activePreviewable()}>
+            <button
+              type="button"
+              class="editor-preview-toggle"
+              title={toggleTitle()}
+              aria-pressed={previewing()}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => dispatchCommand(CommandIds.toggleEditorPreview)}
+            >
+              {previewing() ? <Code size={14} /> : <Eye size={14} />}
+            </button>
+          </Show>
         </div>
       </Show>
       <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>

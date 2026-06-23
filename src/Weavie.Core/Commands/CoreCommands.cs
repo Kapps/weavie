@@ -11,6 +11,9 @@ public static class CoreCommands {
 	/// <summary>The pane-focus command id; bound to <c>ctrl+1..9</c> and dispatched with <c>{ "index": N }</c>.</summary>
 	public const string FocusPaneByIndex = "weavie.pane.focusByIndex";
 
+	/// <summary>Toggles fullscreen for the active pane: it fills the pane area while the session rail stays.</summary>
+	public const string ToggleFullscreenPane = "weavie.pane.toggleFullscreen";
+
 	/// <summary>Shows/hides the workspace file browser.</summary>
 	public const string ToggleFileBrowser = "weavie.view.toggleFileBrowser";
 
@@ -136,6 +139,19 @@ public static class CoreCommands {
 			DefaultKeybindings = focusBindings,
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"index\":{\"type\":\"integer\",\"minimum\":1,\"description\":\"1-based pane number in layout order\"}}",
+		});
+
+		// Fullscreen the active pane: it fills the whole pane area (the session rail stays). Switching panes keeps
+		// fullscreen; toggling again restores the saved layout. Web-handled (pure layout-view state). No default
+		// keybinding yet — reachable from the palette and Claude until one is chosen.
+		registry.Register(new CommandDefinition {
+			Id = ToggleFullscreenPane,
+			Title = "Toggle Fullscreen Pane",
+			RunsIn = CommandLocation.Web,
+			Category = "View",
+			Description = "Expand the active pane to fill the window, hiding the other panes (the session rail stays). "
+				+ "Switching panes keeps fullscreen; run again to restore the previous layout.",
+			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode"],
 		});
 
 		registry.Register(new CommandDefinition {

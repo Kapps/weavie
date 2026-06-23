@@ -104,9 +104,23 @@ export default function App(): JSX.Element {
   const [layoutRoot, setLayoutRoot] = createSignal<LayoutNode>(DEFAULT_LAYOUT_ROOT);
   // The pane that currently has keyboard focus (tracked from focusin), for the active highlight.
   const [focusedKind, setFocusedKind] = createSignal<string | null>(null);
-  // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number.
+  // Whether the active pane is fullscreened (fills the whole pane area; the session rail stays). Pure
+  // layout-view state — the saved layout is never touched, so toggling off restores it exactly.
+  const [fullscreen, setFullscreen] = createSignal(false);
+  // The last pane the user actually worked in (claude/shell/editor). Unlike focusedKind it survives focus
+  // moving to the omnibar / a dialog, so it's the stable fullscreen target and the pane Ctrl+N switches show.
+  const [activePane, setActivePane] = createSignal<string | null>(null);
+  // Pane kinds in DFS order; index + 1 is the pane's Ctrl+N number. Always the REAL layout, so the numbers
+  // stay stable in fullscreen.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
+  // What LayoutView renders: in fullscreen, just the active pane (filling the pane area); the others collapse
+  // to display:none but stay mounted, preserving their terminal/editor state. Switching panes re-points this,
+  // keeping each pane fullscreen. Off ⇒ the real layout, never mutated by fullscreen.
+  const displayRoot = createMemo<LayoutNode>(() => {
+    const kind = activePane();
+    return fullscreen() && kind !== null ? { type: "pane", id: "fullscreen", kind } : layoutRoot();
+  });
   // Each loaded session's terminal panes register their focus fn here on mount, keyed `${slot}:${pane}`;
   // focusPane resolves the active session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
@@ -184,6 +198,9 @@ export default function App(): JSX.Element {
   });
 
   const focusPane = (kind: string): void => {
+    // Mark it active first: in fullscreen this synchronously makes its slot the visible one (the others are
+    // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
+    setActivePane(kind);
     if (kind === "editor") {
       editor.focusEditor();
       return;
@@ -356,6 +373,18 @@ export default function App(): JSX.Element {
     setBrowserOpen((open) => !open);
   };
 
+  // Fullscreen the active pane (Toggle Fullscreen Pane command). Entering with nothing focused yet lands on
+  // the first pane so there's always something to fill the view; the session rail stays (it's outside LayoutView).
+  const toggleFullscreen = (): void => {
+    if (!fullscreen() && activePane() === null) {
+      const first = paneNumbers()[0];
+      if (first !== undefined) {
+        focusPane(first);
+      }
+    }
+    setFullscreen((on) => !on);
+  };
+
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
   createEffect(() => {
@@ -445,6 +474,7 @@ export default function App(): JSX.Element {
         focusPane(kind);
         return true;
       }),
+      registerCommand(CommandIds.toggleFullscreenPane, () => toggleFullscreen()),
       registerCommand(CommandIds.toggleFileBrowser, () => toggleBrowser()),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
@@ -535,6 +565,10 @@ export default function App(): JSX.Element {
       const slot = (event.target as HTMLElement | null)?.closest("[data-kind]");
       const kind = slot?.getAttribute("data-kind") ?? null;
       setFocusedKind(kind);
+      // Remember the last real pane (survives focus moving to the omnibar / a dialog) as the fullscreen target.
+      if (kind !== null) {
+        setActivePane(kind);
+      }
       setContext("focusedPane", kind);
       setContext("editorFocused", kind === "editor");
       setContext("terminalFocused", kind?.startsWith("terminal:") ?? false);
@@ -605,7 +639,7 @@ export default function App(): JSX.Element {
             )
           }
         />
-        <LayoutView root={layoutRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+        <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
       </div>
       <Show when={newSessionOpen()}>
         <NewSessionPrompt

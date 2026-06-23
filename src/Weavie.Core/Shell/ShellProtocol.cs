@@ -104,6 +104,12 @@ public static class ShellProtocol {
 		return JsonSerializer.Serialize(new { type = "file-index", root, files });
 	}
 
+	/// <summary>Builds the <c>recent-files</c> push (frecency-ranked absolute paths) for the omnibar's Recent section.</summary>
+	public static string BuildRecentFiles(IReadOnlyList<string> files) {
+		ArgumentNullException.ThrowIfNull(files);
+		return JsonSerializer.Serialize(new { type = "recent-files", files });
+	}
+
 	/// <summary>Parses a <c>window-control</c> message's <c>action</c>. False for an unknown/missing action.</summary>
 	public static bool TryParseWindowControl(JsonElement message, out WindowControl control) {
 		control = default;

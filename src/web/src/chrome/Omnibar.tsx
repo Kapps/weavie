@@ -22,10 +22,13 @@ import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, getCommands, onCommandsChanged } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
-import { activePath, openTabs } from "../editor/session-store";
 import { type FileRow, type ScoredFile, createFileFinder, rankFiles } from "./file-search";
 import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
+import { recentFiles } from "./recent-files-store";
+
+// Max recent files shown as the Recent section above the empty-query tree.
+const RECENT_CAP = 5;
 
 // Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
 const VIEW_CAP = 300;
@@ -144,13 +147,6 @@ export function Omnibar(props: {
     return props.files.map((abs) => splitPath(abs, root));
   });
 
-  // Most-recent-first paths for the recency tiebreak: the active tab, then the rest of the open tabs.
-  const recent = (): string[] => {
-    const active = activePath();
-    const paths = openTabs().map((tab) => tab.path);
-    return active === null ? paths : [active, ...paths.filter((p) => !samePath(p, active))];
-  };
-
   const commandMode = (): boolean => query().startsWith(">");
   // Empty file query → the tree; with text → the flat ranked list.
   const treeMode = (): boolean => !commandMode() && query().trim().length === 0;
@@ -164,7 +160,7 @@ export function Omnibar(props: {
     if (!searchMode()) {
       return [];
     }
-    return rankFiles(fileFinder(), query().trim(), recent());
+    return rankFiles(fileFinder(), query().trim(), recentFiles());
   });
 
   const view = createMemo<ScoredFile[]>(() => filtered().slice(0, VIEW_CAP));
@@ -191,6 +187,34 @@ export function Omnibar(props: {
     walk(treeNodes(), 0);
     return out.slice(0, VIEW_CAP);
   });
+
+  // The recent files that exist in the current index, as rows, capped — the omnibar's Recent section (empty-query
+  // tree mode only). Filtering by index membership means a worktree session whose paths differ just shows fewer.
+  const recentRows = createMemo<FileRow[]>(() => {
+    if (!treeMode()) {
+      return [];
+    }
+    const byAbs = new Map(rows().map((r) => [canonicalFsPath(r.abs), r]));
+    const out: FileRow[] = [];
+    for (const abs of recentFiles()) {
+      const row = byAbs.get(canonicalFsPath(abs));
+      if (row !== undefined) {
+        out.push(row);
+        if (out.length >= RECENT_CAP) {
+          break;
+        }
+      }
+    }
+    return out;
+  });
+
+  // The empty-query view as one selectable list: the Recent section, then the tree. Selection indexes into this
+  // combined array, so the recent rows occupy [0, recentRows().length) and the tree rows follow.
+  type TreeItem = { kind: "recent"; file: FileRow } | { kind: "tree"; tree: TreeRow };
+  const treeItems = createMemo<TreeItem[]>(() => [
+    ...recentRows().map((file): TreeItem => ({ kind: "recent", file })),
+    ...visibleRows().map((tree): TreeItem => ({ kind: "tree", tree })),
+  ]);
 
   interface ScoredCommand {
     cmd: CommandInfo;
@@ -220,12 +244,16 @@ export function Omnibar(props: {
   });
 
   const activeLen = (): number =>
-    commandMode() ? commandView().length : treeMode() ? visibleRows().length : view().length;
+    commandMode() ? commandView().length : treeMode() ? treeItems().length : view().length;
   const hiddenCount = (): number =>
     searchMode() ? Math.max(0, filtered().length - view().length) : 0;
 
+  // Index by the selectable rows, not raw children: tree mode interleaves non-selectable section headers, so
+  // `children[i]` would drift from the selection index.
   const scrollToSelected = (block: ScrollLogicalPosition): void => {
-    (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
+    listRef
+      ?.querySelectorAll<HTMLElement>(".tb-omnibar-row")
+      [selected()]?.scrollIntoView({ block });
   };
 
   // True while an open tree-mode session still needs to center on the current file — the first reveal usually
@@ -250,7 +278,8 @@ export function Omnibar(props: {
         cf !== null
           ? visibleRows().findIndex((r) => r.node.abs !== undefined && samePath(r.node.abs, cf))
           : -1;
-      setSelected(idx >= 0 ? idx : 0);
+      // Tree rows follow the Recent section in the combined selection space.
+      setSelected(idx >= 0 ? idx + recentRows().length : 0);
       scrollToSelected("center");
     });
     return revealed;
@@ -365,14 +394,26 @@ export function Omnibar(props: {
       return next;
     });
     // The visible list grew/shrank — keep the selection in range.
-    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, visibleRows().length - 1))));
+    queueMicrotask(() => setSelected((i) => Math.min(i, Math.max(0, activeLen() - 1))));
   };
 
-  // Left/Right move a full level at a time. Right: expand a collapsed dir, else skip to the next row at the
-  // same-or-shallower depth. Left: collapse an expanded dir, else jump up to the parent row.
+  // Left/Right move a full level at a time, over the tree rows that follow the Recent section (offset `rc`).
+  // Right: expand a collapsed dir, else skip to the next row at the same-or-shallower depth (from a recent row,
+  // step into the tree). Left: collapse an expanded dir, else jump up to the parent row.
   const treeMoveLevel = (dir: 1 | -1): void => {
+    const rc = recentRows().length;
     const rowsV = visibleRows();
-    const i = selected();
+    const i = selected() - rc;
+    const select = (local: number): void => {
+      setSelected(local + rc);
+      scrollToSelected("nearest");
+    };
+    if (i < 0) {
+      if (dir === 1 && rowsV.length > 0) {
+        select(0);
+      }
+      return;
+    }
     const cur = rowsV[i];
     if (cur === undefined) {
       return;
@@ -384,12 +425,11 @@ export function Omnibar(props: {
       }
       for (let j = i + 1; j < rowsV.length; j++) {
         if ((rowsV[j]?.depth ?? 0) <= cur.depth) {
-          setSelected(j);
-          scrollToSelected("nearest");
+          select(j);
           return;
         }
       }
-      setSelected(rowsV.length - 1);
+      select(rowsV.length - 1);
     } else {
       if (cur.node.isDir && expanded().has(cur.node.key)) {
         toggleDir(cur.node.key);
@@ -397,28 +437,28 @@ export function Omnibar(props: {
       }
       for (let j = i - 1; j >= 0; j--) {
         if ((rowsV[j]?.depth ?? 0) < cur.depth) {
-          setSelected(j);
-          scrollToSelected("nearest");
+          select(j);
           return;
         }
       }
-      setSelected(0);
+      select(0);
     }
-    scrollToSelected("nearest");
   };
 
   const activate = (): void => {
     if (commandMode()) {
       runCommand(commandView()[selected()]?.cmd);
     } else if (treeMode()) {
-      const r = visibleRows()[selected()];
-      if (r === undefined) {
+      const item = treeItems()[selected()];
+      if (item === undefined) {
         return;
       }
-      if (r.node.isDir) {
-        toggleDir(r.node.key);
+      if (item.kind === "recent") {
+        openFile(item.file.abs);
+      } else if (item.tree.node.isDir) {
+        toggleDir(item.tree.node.key);
       } else {
-        openFile(r.node.abs);
+        openFile(item.tree.node.abs);
       }
     } else {
       openFile(view()[selected()]?.row.abs);
@@ -574,10 +614,39 @@ export function Omnibar(props: {
               }
             >
               <Show
-                when={visibleRows().length > 0}
+                when={treeItems().length > 0}
                 fallback={<div class="tb-omnibar-empty">No files</div>}
               >
                 <ul class="tb-omnibar-list" ref={listRef}>
+                  <Show when={recentRows().length > 0}>
+                    <li class="tb-omnibar-section">Recent</li>
+                    <For each={recentRows()}>
+                      {(row, i) => (
+                        <li>
+                          <button
+                            type="button"
+                            class="tb-omnibar-row"
+                            classList={{
+                              selected: i() === selected(),
+                              current:
+                                props.currentFile !== null && samePath(row.abs, props.currentFile),
+                            }}
+                            onMouseDown={(e) => {
+                              e.preventDefault();
+                              setSelected(i());
+                              openFile(row.abs);
+                            }}
+                          >
+                            <span class="tb-row-leaf">{row.leaf}</span>
+                            <Show when={row.dir.length > 0}>
+                              <span class="tb-row-dir">{row.dir}</span>
+                            </Show>
+                          </button>
+                        </li>
+                      )}
+                    </For>
+                    <li class="tb-omnibar-section">Files</li>
+                  </Show>
                   <For each={visibleRows()}>
                     {(r, i) => (
                       <li>
@@ -586,7 +655,7 @@ export function Omnibar(props: {
                           class="tb-omnibar-row tb-tree-row"
                           classList={{
                             dir: r.node.isDir,
-                            selected: i() === selected(),
+                            selected: recentRows().length + i() === selected(),
                             current:
                               props.currentFile !== null &&
                               r.node.abs !== undefined &&
@@ -595,7 +664,7 @@ export function Omnibar(props: {
                           style={`padding-left: ${10 + r.depth * 14}px`}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            setSelected(i());
+                            setSelected(recentRows().length + i());
                             if (r.node.isDir) {
                               toggleDir(r.node.key);
                             } else {

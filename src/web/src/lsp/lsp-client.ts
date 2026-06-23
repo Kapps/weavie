@@ -174,6 +174,11 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
       );
       return;
     }
+    // First failure of a streak (the initial drop, or one after a healthy session): a self-dismissing warn so
+    // the user sees the hiccup immediately rather than only after the whole backoff budget runs out.
+    if (nextAttempt === 1) {
+      notify("warn", `${server.id} language intelligence interrupted (${reason}); reconnecting…`);
+    }
     const delayMs = Math.min(1000 * 2 ** (nextAttempt - 1), 15_000);
     log(
       "warn",
@@ -189,7 +194,7 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
   };
 
   // One funnel for every failure path — a failed initialize, a dropped connection, a pre-open ws error — so
-  // recovery (and the eventual give-up toast) runs exactly once per attempt.
+  // recovery (and the warn/give-up toasts) runs exactly once per attempt.
   const fail = (reason: string): void => {
     if (handled) {
       return;

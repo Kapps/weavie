@@ -36,7 +36,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   indentGuides: true,
   hoverDelay: 300,
   suggestExpandDocs: true,
-  commentProse: true,
+  commentProse: "documentation",
 };
 
 let current: EditorOptionsSpec = hostInjected(

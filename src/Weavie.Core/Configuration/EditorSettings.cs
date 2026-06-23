@@ -68,7 +68,7 @@ public static class EditorSettings {
 	/// <summary>Auto-expand the documentation flyout beside the autocomplete list (custom behavior).</summary>
 	public const string SuggestExpandDocs = "editor.suggest.expandDocs";
 
-	/// <summary>Render multi-line and doc comments as styled prose (custom behavior, not a Monaco option).</summary>
+	/// <summary>Which comments render as styled prose — none/documentation/multiline/all (custom behavior).</summary>
 	public const string CommentProse = "editor.commentProse";
 
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
@@ -149,13 +149,14 @@ public static class EditorSettings {
 				"show completion documentation"],
 			true));
 
-		registry.Register(Toggle(CommentProse,
-			"Render multi-line and documentation comments as styled prose — wrapped text, numbered and "
-				+ "bulleted lists, and inline `code` chips — collapsing the raw comment in place. Click a "
-				+ "rendered comment to edit its source.",
+		registry.Register(Choice(CommentProse,
+			"Render comments as styled prose — markers stripped, italic, with inline `code` chips — line-for-line, "
+				+ "preserving your line breaks. Click a rendered comment (or arrow into it) to edit its source. "
+				+ "'none' renders nothing; 'documentation' only doc comments (///, /** */), including single-line; "
+				+ "'multiline' also any comment spanning 2+ lines; 'all' also lone single-line comments.",
 			["comment prose", "render comments", "pretty comments", "comment rendering", "prose comments",
 				"format comments"],
-			true));
+			["none", "documentation", "multiline", "all"], "documentation"));
 	}
 
 	/// <summary>
@@ -200,7 +201,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("indentGuides", store.RequireBool(IndentGuides));
 		writer.WriteNumber("hoverDelay", store.RequireInt(HoverDelay));
 		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
-		writer.WriteBoolean("commentProse", store.RequireBool(CommentProse));
+		writer.WriteString("commentProse", store.RequireString(CommentProse));
 		writer.WriteEndObject();
 	}
 

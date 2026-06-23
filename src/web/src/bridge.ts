@@ -95,8 +95,17 @@ export interface EditorOptionsSpec {
   indentGuides: boolean;
   hoverDelay: number;
   suggestExpandDocs: boolean;
-  commentProse: boolean;
+  commentProse: CommentProseMode;
 }
+
+/**
+ * Which comments the editor renders as prose:
+ * - `none` — render nothing.
+ * - `documentation` — only documentation comments (`///`, `//!`, `/** … *​/`), including single-line ones.
+ * - `multiline` — documentation comments plus any comment spanning ≥2 lines.
+ * - `all` — every full-line comment, including lone single-line ones.
+ */
+export type CommentProseMode = "none" | "documentation" | "multiline" | "all";
 
 export type HostBoundMessage =
   | { type: "ready" }

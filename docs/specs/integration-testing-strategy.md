@@ -1,6 +1,6 @@
 # Integration testing strategy
 
-Status: proposed
+Status: implemented
 Last updated: 2026-06-24
 
 ## The problem
@@ -124,3 +124,23 @@ flowchart TB
 4. Remote-only transport/provisioning tests.
 5. Native bridge-contract conformance test.
 6. Gated nightly live-smoke.
+
+## Implementation
+
+All six steps landed (run `cd src/web && pnpm run e2e`):
+
+- **Fake claude** — `tools/Weavie.FakeClaude` stubs the CLI at `claude.path`; quiet by default, or
+  script-driven (print/sleep/edit/hook/registry-MCP/IDE-MCP) reusing Weavie.Core's wire helpers.
+- **Harness** — `src/web/e2e/harness/`: `prepareFake` (isolated HOME + throwaway git workspace + stub),
+  `launchHeadless`, `launchRemote` (boots `Weavie.Runner`), and a transport-parameterized Playwright
+  fixture. Projects: `chromium` (bridge + native contract), `headless`, `remote`, `live`.
+- **Journeys** — `src/web/e2e/functional/`: omnibar+highlight, edit→save→persist (`@cross`), markdown
+  preview, fullscreen toggle, session lifecycle (`@cross`), MCP setting→UI, openDiff review (`@cross`).
+  `@cross` also runs on `remote`; `@remote` tests cover worker provisioning, token auth, reconnect.
+- **Native** — `e2e/native-bridge.spec.ts` proves the in-process WebView channel contract.
+- **Live smoke** — `e2e/live-smoke.spec.ts` + `.github/workflows/nightly-smoke.yml`, gated off the PR path.
+- **CI** — `.github/workflows/ci.yml` builds the fake claude + runner so the journeys run on every PR.
+
+Open follow-ups (marked `test.fixme`): session **delete** (the delete-confirm affordance), **require-
+approval** via the PermissionRequest hook, and **cross-session diff navigation**. LSP find-all-references
+is in the matrix but not yet written (needs a language server in CI).

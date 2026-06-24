@@ -28,6 +28,13 @@ public sealed class LoginShellEnvironmentTests {
 	}
 
 	[Fact]
+	public void ParseEnv_DropsEntriesWithAnEmptyName() {
+		// A leading '=' (eq == 0) is a nameless var, not "= splits at position 0": it must be dropped, not kept as ("","x").
+		var pairs = LoginShellEnvironment.ParseEnv("=orphan\0PATH=/usr/bin\0");
+		Assert.Equal([new("PATH", "/usr/bin")], pairs);
+	}
+
+	[Fact]
 	public void ResolveImports_TakesEveryShellVar_ExceptSessionNoise() {
 		var shell = new KeyValuePair<string, string>[] {
 			new("PATH", "/opt/homebrew/bin:/usr/bin"),
@@ -35,6 +42,8 @@ public sealed class LoginShellEnvironmentTests {
 			new("HOME", "/from/shell"),
 			new("SHLVL", "1"),
 			new("PWD", "/somewhere"),
+			new("OLDPWD", "/before"),
+			new("_", "/usr/bin/env"),
 		};
 
 		var imports = LoginShellEnvironment.ResolveImports(shell);
@@ -45,6 +54,6 @@ public sealed class LoginShellEnvironmentTests {
 				new("DOTNET_ROOT", "/opt/dotnet"),
 				new("HOME", "/from/shell"), // shell is authoritative — taken as-is, not filtered
 			],
-			imports); // SHLVL and PWD dropped as transient session noise
+			imports); // SHLVL, PWD, OLDPWD and _ all dropped as transient session noise
 	}
 }

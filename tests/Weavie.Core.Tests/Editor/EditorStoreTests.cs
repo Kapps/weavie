@@ -43,6 +43,39 @@ public sealed class EditorStoreTests {
 	}
 
 	[Fact]
+	public void TryParse_NoIsEmptyFlag_InfersFromRange() {
+		var caret = Parse(
+			"{\"uri\":\"file:///C:/a.cs\",\"selection\":{\"start\":{\"line\":2,\"character\":1},\"end\":{\"line\":2,\"character\":1}}}");
+		var range = Parse(
+			"{\"uri\":\"file:///C:/a.cs\",\"selection\":{\"start\":{\"line\":2,\"character\":1},\"end\":{\"line\":2,\"character\":5}}}");
+
+		Assert.True(ActiveEditor.TryParse(caret, out var caretEditor));
+		Assert.True(caretEditor!.Selection.IsEmpty);
+
+		Assert.True(ActiveEditor.TryParse(range, out var rangeEditor));
+		Assert.False(rangeEditor!.Selection.IsEmpty);
+	}
+
+	[Fact]
+	public void ParseList_ReadsFlags_AndSkipsEntriesWithoutPath() {
+		var message = Parse(
+			"""
+			{"editors":[
+			 {"path":"/work/a.cs","isActive":true,"isPinned":true,"isPreview":false},
+			 {"path":"","isActive":true},
+			 {"isActive":true}]}
+			""");
+
+		var tabs = OpenEditorTab.ParseList(message);
+
+		var only = Assert.Single(tabs);
+		Assert.Equal("/work/a.cs", only.FilePath);
+		Assert.True(only.IsActive);
+		Assert.True(only.IsPinned);
+		Assert.False(only.IsPreview);
+	}
+
+	[Fact]
 	public void TryParse_NonFileUri_ReturnsFalse() {
 		var message = Parse("{\"uri\":\"inmemory://model/1\",\"languageId\":\"typescript\",\"text\":\"\"}");
 		Assert.False(ActiveEditor.TryParse(message, out var editor));

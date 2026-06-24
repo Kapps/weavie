@@ -57,6 +57,15 @@ public sealed class OpenVsxThemeInstallerTests {
 	}
 
 	[Fact]
+	public void ParseThemeContributions_FallsBackToId_WhenLabelMissing() {
+		// No label, but an id: the id is the label rather than the filename.
+		var contributions = OpenVsxThemeInstaller.ParseThemeContributions(
+			"""{ "contributes": { "themes": [ { "id": "dracula", "path": "./themes/x.json" } ] } }""",
+			Path.GetTempPath());
+		Assert.Equal("dracula", Assert.Single(contributions).Label);
+	}
+
+	[Fact]
 	public void ParseThemeContributions_EmptyWhenNoThemes() {
 		Assert.Empty(OpenVsxThemeInstaller.ParseThemeContributions("""{ "contributes": {} }""", Path.GetTempPath()));
 		Assert.Empty(OpenVsxThemeInstaller.ParseThemeContributions("{}", Path.GetTempPath()));

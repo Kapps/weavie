@@ -68,6 +68,20 @@ public sealed class McpDiffPresenterTests {
 	}
 
 	[Fact]
+	public void Resolve_DoesNotCloseInThePage() {
+		// The page already closed its own review when the user resolved it; a redundant close-diff would tear out a
+		// review the page may have already replaced. Resolve must stop tracking WITHOUT posting a close-diff.
+		var (presenter, bridge) = NewActive();
+		_ = presenter.PresentDiffAsync(Proposal(), CancellationToken.None);
+		string id = DiffId(bridge);
+		bridge.Clear();
+
+		Assert.True(presenter.Resolve(id, kept: true, finalContents: "final"));
+
+		Assert.Null(bridge.LastOfType("close-diff"));
+	}
+
+	[Fact]
 	public void Resolve_UnknownId_ReturnsFalse() {
 		var (presenter, _) = NewActive();
 		Assert.False(presenter.Resolve("diff-does-not-exist", kept: true, finalContents: null));

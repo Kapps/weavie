@@ -111,6 +111,22 @@ public sealed class ThemeCommandsTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Undo_InLightMode_TargetsLightTheme() {
+		// In light mode the active theme is the light slot, so the override verbs must act on it, not the dark one.
+		await Run(CoreCommands.SelectTheme, "{\"id\":\"weavie-light\"}");
+		Assert.Equal("light", _settings.GetString("theme.mode"));
+		_overrides.Append("weavie-light", new ThemeOverrideSet { Key = "editor.background", Value = "#ffffff" });
+		_overrides.Append("weavie-dark", new ThemeOverrideSet { Key = "editor.background", Value = "#000000" });
+
+		var undone = await Run(CoreCommands.UndoThemeOverride);
+
+		Assert.True(undone.Ok);
+		Assert.Contains("'weavie-light'", undone.Message, StringComparison.Ordinal);
+		Assert.Empty(_overrides.Get("weavie-light"));
+		Assert.Single(_overrides.Get("weavie-dark")); // the dark slot is untouched in light mode
+	}
+
+	[Fact]
 	public async Task InstallFromFile_NoPathNoPicker_Fails() {
 		// Null picker + no 'path' must fail loudly, not hang.
 		var result = await Run(CoreCommands.InstallThemeFromFile);

@@ -89,6 +89,20 @@ public sealed class ScrollbackLogTests : IDisposable {
 	}
 
 	[Fact]
+	public void SanitizeForFaded_StripsOscTerminatedByStringTerminator() {
+		// OSC ended by ST (ESC \) instead of BEL must be consumed whole, leaving only the surrounding text.
+		byte[] input = [(byte)'a', 0x1b, (byte)']', (byte)'0', (byte)';', (byte)'t', 0x1b, (byte)'\\', (byte)'b'];
+		Assert.Equal("ab", Text(ScrollbackLog.SanitizeForFaded(input)));
+	}
+
+	[Fact]
+	public void SanitizeForFaded_DropsStrayControlBytes() {
+		// Bare control bytes (BEL, backspace, NUL, US) outside any escape must not survive into faded history.
+		byte[] input = [(byte)'a', 0x07, 0x08, 0x00, 0x1f, (byte)'b'];
+		Assert.Equal("ab", Text(ScrollbackLog.SanitizeForFaded(input)));
+	}
+
+	[Fact]
 	public void Append_PastTwiceCap_TrimsFrontAtNewline_StaysBounded() {
 		const int cap = 200;
 		using var log = new ScrollbackLog(_path, cap);

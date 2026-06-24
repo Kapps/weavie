@@ -36,4 +36,12 @@ public sealed class HookProtocolTests {
 
 		Assert.Null(await HookProtocol.ReadFramedAsync(stream, CancellationToken.None));
 	}
+
+	[Fact]
+	public async Task ReadFramed_NegativeLength_ReturnsNull() {
+		// A garbled header declaring a negative length is rejected, not used to size an allocation.
+		using var stream = new MemoryStream([0xFF, 0xFF, 0xFF, 0xFF]);
+
+		Assert.Null(await HookProtocol.ReadFramedAsync(stream, CancellationToken.None));
+	}
 }

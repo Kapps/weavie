@@ -135,6 +135,29 @@ public sealed class SessionStatusMachineTests {
 	}
 
 	[Fact]
+	public void SupervisorInitialRunning_RestartCountZero_DoesNotGoStarting() {
+		// The first Running (RestartCount 0) is the initial launch, not a crash-restart; only the hook stream
+		// owns leaving Starting, so a count-0 Running must not flip a settled status back to Starting.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.Stop));
+
+		machine.ObserveSupervisor(new SupervisorStateChanged(SupervisorState.Running, null, 0));
+
+		Assert.Equal(SessionStatus.Idle, machine.Status);
+	}
+
+	[Fact]
+	public void SupervisorBackoff_WithoutExitCode_DoesNotGoError() {
+		// A backoff carrying no exit code isn't a crash report; only a backoff with an exit code becomes Error.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.Stop));
+
+		machine.ObserveSupervisor(new SupervisorStateChanged(SupervisorState.BackingOff, null, 1));
+
+		Assert.Equal(SessionStatus.Idle, machine.Status);
+	}
+
+	[Fact]
 	public void Changed_NotRaised_WhenStatusUnchanged() {
 		var machine = new SessionStatusMachine();
 		int count = 0;

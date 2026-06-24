@@ -90,12 +90,25 @@ public sealed class RemoteAgentStoreTests {
 	}
 
 	[Fact]
+	public void Remove_Unknown_DoesNotFireChanged() {
+		var store = new RemoteAgentStore(new InMemoryFileSystem(), StorePath);
+		store.Add(Agent("devbox"));
+		int changes = 0;
+		store.Changed += () => changes++;
+
+		store.Remove("absent");
+
+		Assert.Equal(0, changes);
+	}
+
+	[Fact]
 	public void Load_SkipsEntriesMissingUrlOrToken() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(StorePath,
 			"{\"version\":1,\"agents\":["
 			+ "{\"name\":\"ok\",\"url\":\"http://ok:8800\",\"token\":\"t\"},"
 			+ "{\"name\":\"notoken\",\"url\":\"http://x:8800\",\"token\":\"\"},"
+			+ "{\"name\":\"nourl\",\"url\":\"\",\"token\":\"t\"},"
 			+ "{\"name\":\"\",\"url\":\"http://y:8800\",\"token\":\"t\"}]}");
 
 		var only = Assert.Single(new RemoteAgentStore(fs, StorePath).Agents);

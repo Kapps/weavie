@@ -78,6 +78,22 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
+	public void SetPromoted_SameCountDifferentMembers_PersistsAndNotifies() {
+		// Equal count is not equal membership: swapping one key for another (same size) is a real change that
+		// must persist and notify, not be mistaken for a no-op.
+		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
+		store.SetPromoted(["a", "b"]);
+		int changes = 0;
+		store.Changed += () => changes++;
+
+		store.SetPromoted(["a", "c"]); // same count, different member
+
+		Assert.Equal(1, changes);
+		Assert.Contains("c", store.Promoted);
+		Assert.DoesNotContain("b", store.Promoted);
+	}
+
+	[Fact]
 	public void Changed_FiresOnRealChange() {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 		int changes = 0;

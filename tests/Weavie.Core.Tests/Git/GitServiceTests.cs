@@ -43,6 +43,20 @@ public sealed class GitServiceTests {
 	}
 
 	[Fact]
+	public void ParsePorcelain_NewWorktreeKey_FlushesPreviousBlockWithoutBlankSeparator() {
+		// A "worktree" line starts a fresh block even when no blank line separated it from the prior one.
+		string sample = "worktree /repo/a\nbranch refs/heads/a\nworktree /repo/b\nbranch refs/heads/b\n";
+
+		var list = GitService.ParsePorcelainList(sample);
+
+		Assert.Equal(2, list.Count);
+		Assert.Equal("/repo/a", list[0].Path);
+		Assert.Equal("a", list[0].Branch);
+		Assert.Equal("/repo/b", list[1].Path);
+		Assert.Equal("b", list[1].Branch);
+	}
+
+	[Fact]
 	public void ParsePorcelain_ToleratesCrLfAndTrailingBlankLines() {
 		string sample = "worktree /repo/main\r\nHEAD aaaa\r\nbranch refs/heads/main\r\n\r\n\r\n";
 

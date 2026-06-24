@@ -67,6 +67,19 @@ public sealed class TextBufferTests {
 	}
 
 	[Fact]
+	public void Apply_AdjacentBatch_NotOverlapping_BothApply() {
+		// One edit ending exactly where the next begins is touching, not overlapping — both must apply.
+		var buffer = new TextBuffer("0123456789");
+		var edits = new[]
+		{
+			TextEdit.Replace(new TextRange(new Position(1, 1), new Position(1, 3)), "A"), // "01" -> "A"
+			TextEdit.Replace(new TextRange(new Position(1, 3), new Position(1, 5)), "B"), // "23" -> "B"
+		};
+		buffer.Apply(edits);
+		Assert.Equal("AB456789", buffer.Text);
+	}
+
+	[Fact]
 	public void Apply_OverlappingBatch_Throws() {
 		var buffer = new TextBuffer("0123456789");
 		var edits = new[]

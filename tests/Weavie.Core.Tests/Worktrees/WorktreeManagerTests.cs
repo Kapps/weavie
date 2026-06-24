@@ -37,6 +37,30 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task Create_SlugCollision_AllocatesSuffixedPath() {
+		var (manager, _, _) = NewManager();
+
+		// Two distinct branches that slugify to the same leaf must land in distinct directories: the second
+		// gets a "-2" suffix rather than colliding on the first's path.
+		var first = await manager.CreateAsync("feature/a", "main");
+		var second = await manager.CreateAsync("feature-a", "main");
+
+		Assert.Equal(Path.Combine(WorktreesDir, "feature-a"), first.Path);
+		Assert.Equal(Path.Combine(WorktreesDir, "feature-a-2"), second.Path);
+	}
+
+	[Fact]
+	public async Task Create_BranchSlugifyingToEmpty_FallsBackToSessionSlug() {
+		var (manager, _, _) = NewManager();
+
+		// A branch whose every character is stripped by slugification leaves no leaf; the path falls back to
+		// the "session" slug rather than landing directly on the worktrees dir.
+		var record = await manager.CreateAsync("///", "main");
+
+		Assert.Equal(Path.Combine(WorktreesDir, "session"), record.Path);
+	}
+
+	[Fact]
 	public async Task Create_ExistingBranch_Throws() {
 		var (manager, _, git) = NewManager();
 		git.Branches.Add("feature");
@@ -247,6 +271,27 @@ public sealed class WorktreeManagerTests {
 
 		await Assert.ThrowsAsync<GitException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
 		Assert.NotNull(registry.FindByBranch("external")); // not dropped — the removal genuinely failed
+	}
+
+	[Fact]
+	public async Task Remove_GitUntracksButDirectoryRemains_OutsideWorktreesDir_ThrowsOrphan_WithoutDeleting() {
+		var (manager, registry, git) = NewManager();
+		// git no longer tracks the path, yet a directory remains at it — and it lives OUTSIDE the managed
+		// worktrees dir. Weavie must surface it rather than delete a directory it doesn't own.
+		string externalPath = Path.Combine(Path.GetTempPath(), "weavie-wt-mgr-tests", "orphan-" + Guid.NewGuid().ToString("n"));
+		Directory.CreateDirectory(externalPath);
+		try {
+			registry.Add(new WorktreeRecord { Branch = "orphan", Path = externalPath, BaseRef = "main", CreatedAtUtc = DateTimeOffset.UnixEpoch });
+
+			await Assert.ThrowsAsync<WorktreeOrphanException>(() => manager.RemoveAsync(externalPath, deleteBranch: false, force: true));
+
+			Assert.True(Directory.Exists(externalPath)); // never deleted — it's outside the managed dir
+			Assert.NotNull(registry.FindByBranch("orphan")); // registry row not dropped on the surfaced failure
+		} finally {
+			if (Directory.Exists(externalPath)) {
+				Directory.Delete(externalPath, recursive: true);
+			}
+		}
 	}
 
 	[Fact]

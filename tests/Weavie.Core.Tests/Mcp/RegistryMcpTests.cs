@@ -111,6 +111,48 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ApplyThemeTransform_AmountOfOne_IsAccepted() {
+		using var store = NewStore();
+		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, themeOverrides: overrides);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "tools/call",
+			"{\"name\":\"applyThemeTransform\",\"arguments\":{\"op\":\"darken\",\"amount\":1}}"));
+		using var ok = await ReceiveAsync(ws);
+		var okResult = ok.RootElement.GetProperty("result");
+		Assert.False(okResult.TryGetProperty("isError", out var e1) && e1.GetBoolean());
+
+		await SendAsync(ws, Request(2, "tools/call",
+			"{\"name\":\"applyThemeTransform\",\"arguments\":{\"op\":\"darken\",\"amount\":2}}"));
+		using var bad = await ReceiveAsync(ws);
+		var badResult = bad.RootElement.GetProperty("result");
+		Assert.True(badResult.GetProperty("isError").GetBoolean());
+	}
+
+	[Fact]
+	public async Task SetThemeOverride_AcceptsKnownFontStyle_RejectsUnknown() {
+		using var store = NewStore();
+		var overrides = new ThemeOverridesStore(new InMemoryFileSystem(), Path.Combine(_dir, "theme-overrides.json"));
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, themeOverrides: overrides);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "tools/call",
+			"{\"name\":\"setThemeOverride\",\"arguments\":{\"key\":\"comment\",\"table\":\"tokenColors\",\"fontStyle\":\"italic\"}}"));
+		using var ok = await ReceiveAsync(ws);
+		Assert.False(ok.RootElement.GetProperty("result").TryGetProperty("isError", out var e1) && e1.GetBoolean());
+
+		await SendAsync(ws, Request(2, "tools/call",
+			"{\"name\":\"setThemeOverride\",\"arguments\":{\"key\":\"comment\",\"table\":\"tokenColors\",\"fontStyle\":\"wiggly\"}}"));
+		using var bad = await ReceiveAsync(ws);
+		Assert.True(bad.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
+	}
+
+	[Fact]
 	public void RegistryMode_RequiresStore() {
 		Assert.Throws<ArgumentNullException>(() => TestMcp.Server(
 			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings: null, registryMode: true));

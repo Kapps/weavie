@@ -15,6 +15,11 @@
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
+  <!-- White-box unit tests reach this runner's internal types (ControlApi, PickerPage, …). -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="Weavie.Runner.Tests" />
+  </ItemGroup>
+
   <!--
     One-command deploy: `dotnet publish Weavie.Runner` yields a runnable runner with its worker beside it,
     so there's nothing else to publish. The runner spawns Weavie.Headless but deliberately does NOT

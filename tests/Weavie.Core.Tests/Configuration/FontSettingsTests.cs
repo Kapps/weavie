@@ -81,6 +81,16 @@ public sealed class FontSettingsTests : IDisposable {
 	}
 
 	[Fact]
+	public void ConcreteWeightOverride_WinsOverGlobal_ForItsSurfaceOnly() {
+		using var store = NewStore();
+		store.Set(FontSettings.GlobalWeight, Json("\"300\""));
+		store.Set(FontSettings.EditorWeight, Json("\"bold\"")); // a concrete override, not the inherit sentinel
+
+		Assert.Equal("bold", FontSettings.ResolveEditor(store).Weight);   // editor override wins
+		Assert.Equal("300", FontSettings.ResolveTerminal(store).Weight);  // terminal still inherits the global
+	}
+
+	[Fact]
 	public void GlobalChange_PropagatesToBoth_WhenNotOverridden() {
 		using var store = NewStore();
 		store.Set(FontSettings.GlobalSize, Json("20"));

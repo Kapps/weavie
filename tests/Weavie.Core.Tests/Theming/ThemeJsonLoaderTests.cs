@@ -43,6 +43,31 @@ public sealed class ThemeJsonLoaderTests {
 	}
 
 	[Fact]
+	public void LoadMerged_ShallowMergesSemanticTokenColors_PerKey() {
+		string dir = Path.Combine(Path.GetTempPath(), $"weavie-theme-{Guid.NewGuid():N}");
+		string basePath = Path.Combine(dir, "base.json");
+		string childPath = Path.Combine(dir, "child.json");
+		var fs = new InMemoryFileSystem(new Dictionary<string, string> {
+			[basePath] = """
+			{ "name": "Base",
+			  "semanticTokenColors": { "variable": "#aaaaaa", "function": "#bbbbbb" } }
+			""",
+			[childPath] = """
+			{ "include": "./base.json", "name": "Child",
+			  "semanticTokenColors": { "function": "#cccccc", "keyword": "#dddddd" } }
+			""",
+		});
+
+		var merged = new ThemeJsonLoader(fs).LoadMerged(childPath);
+
+		// Like `colors`, semanticTokenColors shallow-merges (overlay wins per key) rather than replacing wholesale.
+		var semantic = merged["semanticTokenColors"]!.AsObject();
+		Assert.Equal("#aaaaaa", (string?)semantic["variable"]); // inherited from base
+		Assert.Equal("#cccccc", (string?)semantic["function"]); // child overrides
+		Assert.Equal("#dddddd", (string?)semantic["keyword"]);  // child adds
+	}
+
+	[Fact]
 	public void LoadMerged_NoInclude_ReturnsAsIs() {
 		string path = Path.Combine(Path.GetTempPath(), $"weavie-theme-{Guid.NewGuid():N}.json");
 		var fs = new InMemoryFileSystem(new Dictionary<string, string> {

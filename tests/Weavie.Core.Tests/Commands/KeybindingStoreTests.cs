@@ -187,5 +187,10 @@ public sealed class KeybindingStoreTests : IDisposable {
 		var keys = focus.GetProperty("keys").EnumerateArray().Select(k => k.GetString()).ToList();
 		Assert.Equal(["$mod+1", "$mod+2"], keys);
 		Assert.Equal("web", focus.GetProperty("runsIn").GetString());
+
+		// A Core command reports runsIn "core" (not the web default) so listCommands routes it correctly.
+		var reopen = commands.Single(c => c.GetProperty("id").GetString() == "weavie.terminal.reopen");
+		Assert.Equal("core", reopen.GetProperty("runsIn").GetString());
+		Assert.Empty(reopen.GetProperty("keys").EnumerateArray()); // no default bindings
 	}
 }

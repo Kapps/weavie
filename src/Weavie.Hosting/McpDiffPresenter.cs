@@ -2,7 +2,7 @@ using System.Collections.Concurrent;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Diffs;
-using Weavie.Core.FileSystem;
+using Weavie.Core.Editor;
 using Weavie.Core.Mcp;
 
 namespace Weavie.Hosting;
@@ -14,20 +14,20 @@ namespace Weavie.Hosting;
 /// </summary>
 public sealed class McpDiffPresenter : IDiffPresenter {
 	private readonly SessionEditorChannel _channel;
-	private readonly IFileSystem _fileSystem;
+	private readonly FileProviderService _files;
 	private readonly FileOpener _fileOpener;
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<DiffOutcome>> _pending = new(StringComparer.Ordinal);
 	// Process-wide so diff ids are unique across ALL sessions: the host routes diff-resolved back to the owning
 	// session by id alone, so two sessions minting "diff-1" would let a mid-resolve switch resolve the wrong diff.
 	private static int _counter;
 
-	/// <summary>Renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground) and delegates file opens to <paramref name="fileOpener"/>.</summary>
-	public McpDiffPresenter(SessionEditorChannel channel, IFileSystem fileSystem, FileOpener fileOpener) {
+	/// <summary>Renders diffs through the session's editor <paramref name="channel"/> (so a muted session's diff is held, not posted into the foreground), reads the diff baseline through the validated <paramref name="files"/> reader, and delegates file opens to <paramref name="fileOpener"/>.</summary>
+	public McpDiffPresenter(SessionEditorChannel channel, FileProviderService files, FileOpener fileOpener) {
 		ArgumentNullException.ThrowIfNull(channel);
-		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentNullException.ThrowIfNull(files);
 		ArgumentNullException.ThrowIfNull(fileOpener);
 		_channel = channel;
-		_fileSystem = fileSystem;
+		_files = files;
 		_fileOpener = fileOpener;
 	}
 
@@ -44,7 +44,7 @@ public sealed class McpDiffPresenter : IDiffPresenter {
 		// Tear the diff out of the page (if it's the active session's, so it's actually rendered there).
 		cancellationToken.Register(() => Abandon(id));
 
-		string original = _fileSystem.FileExists(proposal.OldFilePath) ? _fileSystem.ReadAllText(proposal.OldFilePath) : string.Empty;
+		string original = _files.ReadIfAllowed(proposal.OldFilePath) ?? string.Empty;
 		// Held by the channel: rendered now if this session is active, else surfaced when it's switched in.
 		_channel.ShowDiff(id, BuildShowDiff(id, proposal, original));
 		return tcs.Task;

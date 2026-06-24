@@ -50,6 +50,24 @@ public sealed class FileProviderService {
 		}
 	}
 
+	/// <summary>
+	/// Reads a file's text when it's inside an allowed root (the workspace or scratch), else <c>null</c> for an
+	/// out-of-workspace, missing, or unreadable path. The single validated read every host-side file *open*
+	/// shares — the editor provider above, plus <c>FileOpener</c> (reveal-file / MCP <c>openFile</c>) and the
+	/// openDiff baseline — so the same confinement is enforced in one place and can't be bypassed by a caller.
+	/// </summary>
+	public string? ReadIfAllowed(string path) {
+		if (!IsAllowed(path) || !_fileSystem.FileExists(path)) {
+			return null;
+		}
+
+		try {
+			return _fileSystem.ReadAllText(path);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			return null;
+		}
+	}
+
 	/// <summary>Answers <c>fs-write</c>: persists the buffer to disk and returns the post-write etag, or an error.</summary>
 	public string Write(string id, string path, string content) {
 		ArgumentNullException.ThrowIfNull(content);

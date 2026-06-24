@@ -1,23 +1,25 @@
 using System.Text;
 using System.Text.Json;
-using Weavie.Core.FileSystem;
+using Weavie.Core.Editor;
 
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Loads a file from disk and pushes its contents to Monaco to reveal at a line. Shared by clickable terminal
-/// file:line links and the MCP <c>openFile</c> tool; relative paths resolve against the workspace.
+/// Loads a file and pushes its contents to Monaco to reveal at a line. Shared by clickable terminal file:line
+/// links and the MCP <c>openFile</c> tool; relative paths resolve against the workspace. The read goes through
+/// the session's <see cref="FileProviderService"/>, the one validated reader, so an open is confined to the
+/// worktree (+ scratch) — a terminal link or MCP call can't reveal an arbitrary path.
 /// </summary>
 public sealed class FileOpener {
 	private readonly SessionEditorChannel _channel;
-	private readonly IFileSystem _fileSystem;
+	private readonly FileProviderService _files;
 
-	/// <summary>Pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground); relative paths resolve against <paramref name="workspace"/>.</summary>
-	public FileOpener(SessionEditorChannel channel, IFileSystem fileSystem, string workspace) {
+	/// <summary>Pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground), reading through <paramref name="files"/> (the validated, workspace-confined reader); relative paths resolve against <paramref name="workspace"/>.</summary>
+	public FileOpener(SessionEditorChannel channel, FileProviderService files, string workspace) {
 		ArgumentNullException.ThrowIfNull(channel);
-		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentNullException.ThrowIfNull(files);
 		_channel = channel;
-		_fileSystem = fileSystem;
+		_files = files;
 		Workspace = workspace;
 	}
 
@@ -31,12 +33,13 @@ public sealed class FileOpener {
 	/// </summary>
 	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
-		if (!_fileSystem.FileExists(resolved)) {
-			Console.Error.WriteLine($"[weavie] reveal-file: not found: {resolved}");
+		// Validated read: null for an out-of-workspace, missing, or unreadable path, so a reveal-file / openFile
+		// can't be coaxed into reading an arbitrary file off a terminal link or MCP call.
+		if (_files.ReadIfAllowed(resolved) is not { } content) {
+			Console.Error.WriteLine($"[weavie] reveal-file: refused or not found: {resolved}");
 			return;
 		}
 
-		string content = _fileSystem.ReadAllText(resolved);
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
 			writer.WriteStartObject();

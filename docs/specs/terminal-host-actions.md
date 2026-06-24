@@ -54,7 +54,10 @@ flowchart LR
   the user clicks), so the host re-validates the scheme and passes only absolute `http`/`https` to the
   OS opener — never `file://`, a UNC path, or a custom scheme (a `ShellExecute`/handler RCE vector).
   The web filters too, but the host dispatch is the authoritative gate; it never trusts the renderer
-  alone.
+  alone. A `file:`/`file:line` link still reveals in Monaco, but that read (like every host-side file
+  open — reveal-file, MCP `openFile`, the openDiff baseline) goes through the one validated reader
+  (`FileProviderService.ReadIfAllowed`), so it's confined to the worktree (+ scratch) and can't read
+  an arbitrary path off a terminal link.
 - **Title (OSC 0/2).** Web-only: `term.onTitleChange` updates the pane header; no host round-trip
   (the title is already in the web).
 - **cwd (OSC 7).** `term.parser.registerOscHandler(7, …)` posts `term-cwd`; the shell pane's

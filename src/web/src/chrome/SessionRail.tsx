@@ -69,7 +69,7 @@ export function SessionRail(props: {
               type="button"
               class={`session-chip status-${session.status}${session.active ? " active" : ""}${
                 session.loaded ? "" : " unloaded"
-              }${session.isLocal ? "" : " remote"}`}
+              }${session.isLocal ? "" : " remote"}${session.pending ? " pending" : ""}`}
               title={chipTitle(session, index())}
               ref={(el) => {
                 el.style.setProperty("--chip-hue", String(session.hue));
@@ -81,21 +81,21 @@ export function SessionRail(props: {
               onContextMenu={(event) => openMenu(event, session)}
             >
               <span class="session-chip-mono">{session.monogram}</span>
-              {/* Local: a status dot. Remote: a cloud marker in the dot's place (agent-hue when idle). A
-                  dormant chip gets neither. */}
-              <Show when={session.loaded}>
-                <Show
-                  when={session.isLocal}
-                  fallback={
-                    <span class="session-chip-cloud">
-                      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-                        <path d={CLOUD_PATH} />
-                      </svg>
-                    </span>
-                  }
-                >
-                  <span class="session-chip-dot" />
-                </Show>
+              {/* A host op in flight (delete / load / unload): a spinner overlays the chip, replacing the
+                  status marker, until it settles. Otherwise — local: a status dot; remote: a cloud marker in
+                  the dot's place (agent-hue when idle); a dormant chip gets neither. */}
+              <Show when={session.pending}>
+                <span class="session-chip-spinner" aria-hidden="true" />
+              </Show>
+              <Show when={!session.pending && session.loaded && session.isLocal}>
+                <span class="session-chip-dot" />
+              </Show>
+              <Show when={!session.pending && session.loaded && !session.isLocal}>
+                <span class="session-chip-cloud">
+                  <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                    <path d={CLOUD_PATH} />
+                  </svg>
+                </span>
               </Show>
             </button>
           )}

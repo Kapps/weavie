@@ -25,6 +25,8 @@ export interface RailSession extends SessionChip {
   isLocal: boolean;
   /** The agent's identity hue (remote sessions only), colouring the remote marker at rest. */
   agentHue?: number;
+  /** A host op (delete / load / unload) is in flight against this session — its chip shows a spinner. */
+  pending: boolean;
 }
 
 /** A remote agent and its sessions, for the cloud panel. Offline = registered but not currently connected. */
@@ -38,6 +40,34 @@ export interface RemoteAgentRow {
 
 const [byBackend, setByBackend] = createSignal<Map<string, SessionChip[]>>(new Map());
 const [status, setStatus] = createSignal<SessionStatusName | undefined>(undefined);
+
+// Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so
+// overlapping ops don't clear the spinner early. The chip shows a spinner while its count is positive.
+const [pendingSessions, setPendingSessions] = createSignal<Map<string, number>>(new Map());
+const pendingKey = (backendId: string, id: string): string => `${backendId}:${id}`;
+const adjustPending = (key: string, delta: number): void => {
+  setPendingSessions((prev) => {
+    const next = new Map(prev);
+    const count = (next.get(key) ?? 0) + delta;
+    if (count > 0) {
+      next.set(key, count);
+    } else {
+      next.delete(key);
+    }
+    return next;
+  });
+};
+
+/** Flag a session as pending (spinner on its chip) for the duration of a host command, cleared when it settles. */
+export function trackSessionCommand<T>(
+  backendId: string,
+  id: string,
+  run: () => Promise<T>,
+): Promise<T> {
+  const key = pendingKey(backendId, id);
+  adjustPending(key, 1);
+  return run().finally(() => adjustPending(key, -1));
+}
 
 onSessionMessage((message, backendId) => {
   if (message.type === "session-list") {
@@ -60,6 +90,7 @@ onSessionMessage((message, backendId) => {
 // so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
   const active = activeBackendId();
+  const pending = pendingSessions();
   // Only still-connected backends, so a disconnected remote's lingering chips leave the rail immediately.
   const connected = new Set(connectedBackends().map((b) => b.id));
   const out: RailSession[] = [];
@@ -75,6 +106,7 @@ const merged = createMemo<RailSession[]>(() => {
         isLocal,
         locationName: backendName(backendId),
         active: chip.active && backendId === active,
+        pending: pending.has(pendingKey(backendId, chip.id)),
       });
     }
   }

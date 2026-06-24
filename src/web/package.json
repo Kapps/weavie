@@ -11,6 +11,7 @@
     "lint": "biome check .",
     "lint:fix": "biome check --write .",
     "verify": "tsc --noEmit && biome check .",
+    "test": "vitest run",
     "e2e": "vite build && playwright test",
     "e2e:install": "playwright install chromium",
     "capture": "pnpm install && pnpm run build && node e2e/capture.mjs"
@@ -52,6 +53,7 @@
     "typescript": "5.7.2",
     "vite": "6.4.3",
     "vite-plugin-solid": "2.11.0",
+    "vitest": "^4.1.9",
     "ws": "^8.18.0"
   }
 }

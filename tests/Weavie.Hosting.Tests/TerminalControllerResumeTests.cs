@@ -64,6 +64,25 @@ public sealed class TerminalControllerResumeTests {
 		Assert.True(h.Resumable); // still resumable next time — the started flag is durable
 	}
 
+	[Fact]
+	public void ClearHook_AbandonsTheTrackedSession() {
+		using var h = new Harness();
+		string id = h.SessionId;
+		h.Store.Adopt(h.Workspace, id); // a prior message made it resumable
+		Assert.True(h.Resumable);
+
+		// A /clear surfaces as a SessionStart hook sourced "clear": it abandons the tracked id so the next launch
+		// cold-starts (only a SessionStart from /clear does this — a different source must not).
+		h.Controller.ObserveHook(new HookRequest {
+			Event = HookEventKind.SessionStart,
+			Source = "clear",
+			ToolName = string.Empty,
+			ToolInputJson = "{}",
+		});
+
+		Assert.False(h.Resumable);
+	}
+
 	/// <summary>A self-contained controller + scriptable PTY + isolated stores, torn down on dispose.</summary>
 	private sealed class Harness : IDisposable {
 		private readonly SettingsStore _settings;

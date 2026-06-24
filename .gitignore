@@ -73,6 +73,9 @@ playwright-report/
 # Per-change capture tour override — keep these local, never commit (capture.mjs is the frozen reference).
 tour.local.mjs
 
+# Claude Code agent worktrees (transient, per-agent isolated checkouts)
+.claude/worktrees/
+
 # OS
 .DS_Store
 

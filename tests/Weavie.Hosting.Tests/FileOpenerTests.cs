@@ -52,6 +52,43 @@ public sealed class FileOpenerTests {
 	}
 
 	[Fact]
+	public void NonPositiveLine_IsClampedToOne() {
+		var (opener, channel, bridge, fs) = New();
+		string path = Path.Combine(Workspace, "a.cs");
+		fs.WriteAllText(path, "hello");
+		channel.Activate();
+
+		opener.Open(path, line: 0, preview: false, scratch: false); // a 0/negative line must reveal line 1, not 0
+
+		Assert.Equal(1, bridge.LastOfType("open-file")!.Value.GetProperty("line").GetInt32());
+	}
+
+	[Fact]
+	public void RelativePath_ResolvesAgainstTheWorkspace() {
+		var (opener, channel, bridge, fs) = New();
+		fs.WriteAllText(Path.Combine(Workspace, "a.cs"), "hello");
+		channel.Activate();
+
+		opener.Open("a.cs", line: 1, preview: false, scratch: false); // relative → resolved under the workspace
+
+		Assert.Equal(Path.Combine(Workspace, "a.cs"), bridge.LastOfType("open-file")!.Value.GetProperty("path").GetString());
+	}
+
+	[Fact]
+	public void PreviewAndScratch_FlagsArePropagated() {
+		var (opener, channel, bridge, fs) = New();
+		string path = Path.Combine(Workspace, "a.cs");
+		fs.WriteAllText(path, "hello");
+		channel.Activate();
+
+		opener.Open(path, line: 1, preview: true, scratch: true);
+
+		var msg = bridge.LastOfType("open-file")!.Value;
+		Assert.True(msg.GetProperty("preview").GetBoolean());
+		Assert.True(msg.GetProperty("scratch").GetBoolean());
+	}
+
+	[Fact]
 	public void MissingFile_IsSkipped() {
 		var (opener, channel, bridge, _) = New();
 		channel.Activate();

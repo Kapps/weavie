@@ -1,7 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
-using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Theming;
 
@@ -143,7 +143,7 @@ public sealed class OpenVsxThemeInstaller {
 			string uiTheme = (theme.TryGetProperty("uiTheme", out var u) ? u.GetString() : null) ?? "vs-dark";
 			string fullPath = Path.GetFullPath(Path.Combine(extensionDir, rawPath));
 			// A malicious manifest path (e.g. ../../../etc/passwd) must not escape the unpacked extension dir.
-			if (!BufferStore.IsWithinWorkspace(extensionDir, fullPath)) {
+			if (!PathBoundary.Contains(extensionDir, fullPath)) {
 				continue;
 			}
 

@@ -21,22 +21,6 @@ public static class BufferStore {
 		return true;
 	}
 
-	/// <summary>True when <paramref name="path"/> resolves to a location inside <paramref name="workspaceRoot"/>.</summary>
-	public static bool IsWithinWorkspace(string workspaceRoot, string path) {
-		if (string.IsNullOrEmpty(workspaceRoot) || string.IsNullOrEmpty(path)) {
-			return false;
-		}
-
-		string root, full;
-		try {
-			root = Path.GetFullPath(workspaceRoot);
-			full = Path.GetFullPath(path);
-		} catch (Exception ex) when (ex is ArgumentException or NotSupportedException or PathTooLongException) {
-			return false;
-		}
-
-		string rootWithSeparator = root.EndsWith(Path.DirectorySeparatorChar) ? root : root + Path.DirectorySeparatorChar;
-		return string.Equals(full, root, StringComparison.OrdinalIgnoreCase)
-			|| full.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase);
-	}
+	/// <summary>True when <paramref name="path"/> resolves to a location inside <paramref name="workspaceRoot"/>. The workspace-scoped name for <see cref="PathBoundary.Contains(string, string)"/>.</summary>
+	public static bool IsWithinWorkspace(string workspaceRoot, string path) => PathBoundary.Contains(workspaceRoot, path);
 }

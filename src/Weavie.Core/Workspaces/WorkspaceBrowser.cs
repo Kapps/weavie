@@ -45,13 +45,8 @@ public sealed class WorkspaceBrowser {
 			.Select(entry => new BrowserEntry(entry.Name, Path.Combine(target, entry.Name), entry.IsDirectory))];
 	}
 
-	private bool IsWithinRoot(string path) {
-		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-		if (string.Equals(path, Root, comparison)) {
-			return true;
-		}
-
-		string rootWithSeparator = Root.EndsWith(Path.DirectorySeparatorChar) ? Root : Root + Path.DirectorySeparatorChar;
-		return path.StartsWith(rootWithSeparator, comparison);
-	}
+	// Case-sensitive off Windows: the browser is the only confinement guard run against a case-sensitive
+	// filesystem's real paths (the editor's IsWithinWorkspace deliberately folds case everywhere).
+	private bool IsWithinRoot(string path) =>
+		PathBoundary.Contains(Root, path, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 }

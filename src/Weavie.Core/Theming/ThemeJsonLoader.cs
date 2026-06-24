@@ -1,5 +1,4 @@
 using System.Text.Json.Nodes;
-using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Theming;
@@ -47,7 +46,7 @@ public sealed class ThemeJsonLoader {
 			&& includeValue.TryGetValue(out string? relative)
 			&& !string.IsNullOrEmpty(relative)) {
 			string includedPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path) ?? ".", relative));
-			if (!BufferStore.IsWithinWorkspace(root, includedPath)) {
+			if (!PathBoundary.Contains(root, includedPath)) {
 				throw new InvalidOperationException($"theme include '{relative}' escapes the theme directory");
 			}
 

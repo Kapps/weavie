@@ -1,4 +1,5 @@
 using System.Text.Json.Nodes;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Theming;
@@ -21,10 +22,14 @@ public sealed class ThemeJsonLoader {
 	/// <summary>Loads <paramref name="themePath"/>, merging its <c>include</c> chain into one self-contained theme object.</summary>
 	public JsonObject LoadMerged(string themePath) {
 		ArgumentException.ThrowIfNullOrEmpty(themePath);
-		return LoadMergedInner(Path.GetFullPath(themePath), new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
+		string full = Path.GetFullPath(themePath);
+		// Confine the include chain to the theme's own directory tree, so an installed (untrusted) theme's
+		// `include` can't escape to read an arbitrary file (e.g. ../../../etc/passwd).
+		string root = Path.GetDirectoryName(full) ?? full;
+		return LoadMergedInner(full, root, new HashSet<string>(StringComparer.OrdinalIgnoreCase), 0);
 	}
 
-	private JsonObject LoadMergedInner(string path, HashSet<string> visited, int depth) {
+	private JsonObject LoadMergedInner(string path, string root, HashSet<string> visited, int depth) {
 		if (depth > MaxIncludeDepth) {
 			throw new InvalidOperationException($"theme include chain exceeds {MaxIncludeDepth} levels at {path}");
 		}
@@ -42,7 +47,11 @@ public sealed class ThemeJsonLoader {
 			&& includeValue.TryGetValue(out string? relative)
 			&& !string.IsNullOrEmpty(relative)) {
 			string includedPath = Path.GetFullPath(Path.Combine(Path.GetDirectoryName(path) ?? ".", relative));
-			var baseTheme = LoadMergedInner(includedPath, visited, depth + 1);
+			if (!BufferStore.IsWithinWorkspace(root, includedPath)) {
+				throw new InvalidOperationException($"theme include '{relative}' escapes the theme directory");
+			}
+
+			var baseTheme = LoadMergedInner(includedPath, root, visited, depth + 1);
 			node.Remove("include");
 			MergeOnto(baseTheme, node);
 			return baseTheme;

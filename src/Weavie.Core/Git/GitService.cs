@@ -50,6 +50,39 @@ public sealed class GitService : IGitService {
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 	}
 
+	/// <summary>
+	/// Whether <paramref name="name"/> is a syntactically valid git branch name — a subset of
+	/// <c>git check-ref-format</c>'s rules. Applied at the trust boundary before a (web-supplied) name reaches
+	/// <c>git</c>, so it can't be parsed as an option (a leading <c>-</c>) or a malformed ref. The
+	/// <c>ArgumentList</c> launch already rules out shell injection; this closes option/ref smuggling.
+	/// </summary>
+	public static bool IsValidBranchName(string name) {
+		if (string.IsNullOrEmpty(name) || name.Length > 255) {
+			return false;
+		}
+
+		if (name[0] is '-' or '.' or '/' || name[^1] is '/' or '.') {
+			return false;
+		}
+
+		if (name == "@"
+			|| name.EndsWith(".lock", StringComparison.Ordinal)
+			|| name.Contains("..", StringComparison.Ordinal)
+			|| name.Contains("//", StringComparison.Ordinal)
+			|| name.Contains("@{", StringComparison.Ordinal)) {
+			return false;
+		}
+
+		foreach (char c in name) {
+			// Control chars + space, DEL, and git's ref-illegal set ~ ^ : ? * [ \.
+			if (c <= ' ' || c == '\x7f' || "~^:?*[\\".Contains(c, StringComparison.Ordinal)) {
+				return false;
+			}
+		}
+
+		return true;
+	}
+
 	/// <inheritdoc/>
 	public async Task<string?> ResolveDefaultBranchAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);

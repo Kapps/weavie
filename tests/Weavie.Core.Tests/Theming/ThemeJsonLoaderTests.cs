@@ -67,4 +67,16 @@ public sealed class ThemeJsonLoaderTests {
 
 		Assert.Throws<InvalidOperationException>(() => new ThemeJsonLoader(fs).LoadMerged(a));
 	}
+
+	[Fact]
+	public void LoadMerged_IncludeEscapingTheThemeDir_Throws() {
+		string dir = Path.Combine(Path.GetTempPath(), $"weavie-theme-{Guid.NewGuid():N}");
+		string theme = Path.Combine(dir, "theme.json");
+		var fs = new InMemoryFileSystem(new Dictionary<string, string> {
+			[theme] = """{ "include": "../../../../etc/passwd", "colors": {} }""",
+		});
+
+		// A malicious include must not escape the theme's own directory to read an arbitrary file.
+		Assert.Throws<InvalidOperationException>(() => new ThemeJsonLoader(fs).LoadMerged(theme));
+	}
 }

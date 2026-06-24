@@ -85,4 +85,17 @@ public sealed class OpenVsxThemeInstallerTests {
 		Assert.Throws<InvalidOperationException>(() =>
 			OpenVsxThemeInstaller.ParseExtensionIdentity("""{ "publisher": "p", "name": "theme-x" }"""));
 	}
+
+	[Fact]
+	public void ParseThemeContributions_DropsAPathEscapingTheExtensionDir() {
+		string extensionDir = Path.Combine(Path.GetTempPath(), "weavie-ext");
+		const string packageJson = """
+		{ "contributes": { "themes": [
+		  { "label": "Evil", "uiTheme": "vs-dark", "path": "../../../../etc/passwd" }
+		] } }
+		""";
+
+		// A malicious manifest path that escapes the unpacked extension dir is dropped, not resolved.
+		Assert.Empty(OpenVsxThemeInstaller.ParseThemeContributions(packageJson, extensionDir));
+	}
 }

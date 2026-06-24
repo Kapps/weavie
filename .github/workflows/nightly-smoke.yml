@@ -1,0 +1,62 @@
+# Nightly live smoke: the ONE place the real claude runs, end to end through Weavie's stack. It is a
+# canary for "did the claude CLI / hook contract change?" — it asserts only that the app survives a real
+# turn, never on model content (that would be non-deterministic). Deliberately OFF the PR path: it needs a
+# credentialed claude and is allowed to be slow/occasionally flaky without blocking merges.
+#
+# Prerequisite: the runner must have a usable claude (a logged-in subscription, since Weavie strips
+# ANTHROPIC_API_KEY for the claude pane). Wire that up before enabling — until then this is a scaffold that
+# skips (the test also self-skips unless WEAVIE_LIVE_SMOKE is set). See
+# docs/specs/integration-testing-strategy.md.
+name: nightly-smoke
+
+on:
+  schedule:
+    # 07:23 UTC daily (off the :00 rush).
+    - cron: "23 7 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11.8.0
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: src/web/pnpm-lock.yaml
+
+      - name: Build web app
+        working-directory: src/web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm run build
+
+      - name: Build headless host
+        run: dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
+
+      - name: Install Playwright Chromium
+        working-directory: src/web
+        run: pnpm exec playwright install --with-deps chromium
+
+      # WEAVIE_LIVE_SMOKE turns the gated test on; it still needs a logged-in claude on the runner.
+      - name: Live smoke (real claude)
+        working-directory: src/web
+        env:
+          WEAVIE_LIVE_SMOKE: "1"
+        run: pnpm exec playwright test --project=live

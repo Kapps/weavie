@@ -21,7 +21,7 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testMatch: ["bridge.spec.ts", "headless-host.spec.ts"],
+      testMatch: ["bridge.spec.ts", "headless-host.spec.ts", "native-bridge.spec.ts"],
       use: { ...devices["Desktop Chrome"] },
     },
     // No device preset: its canonical userAgent says "Windows", which flips Monaco/vscode to backslash
@@ -36,6 +36,14 @@ export default defineConfig({
       name: "remote",
       testDir: "./e2e/functional",
       grep: /@cross|@remote/,
+      use: { viewport: { width: 1280, height: 800 } },
+    },
+    // Gated live smoke against the real claude — only the nightly workflow runs `--project=live`; the test
+    // itself also skips unless WEAVIE_LIVE_SMOKE is set.
+    {
+      name: "live",
+      testDir: "./e2e",
+      testMatch: ["live-smoke.spec.ts"],
       use: { viewport: { width: 1280, height: 800 } },
     },
   ],

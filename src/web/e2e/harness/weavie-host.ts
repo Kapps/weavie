@@ -35,6 +35,11 @@ export interface WeavieHost {
 
 export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
+  /**
+   * Run the REAL claude instead of the fake (the gated nightly live-smoke). Skips both the claude stub and
+   * the HOME isolation, so claude finds the host's credentials. Off by default.
+   */
+  realClaude?: boolean;
 }
 
 export function freePort(): Promise<number> {
@@ -114,6 +119,22 @@ export interface FakeScaffold {
 export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold> {
   const home = await mkdtemp(join(tmpdir(), "weavie-e2e-home-"));
   const workspace = await createGitWorkspace();
+
+  // Live smoke runs the real claude: leave HOME alone (so it finds the host's credentials) and don't stub.
+  if (options.realClaude) {
+    return {
+      home,
+      workspace,
+      env: { WEAVIE_CLAUDE_RESUMESESSION: "false" },
+      fakeLog: () => "",
+      cleanup: () =>
+        Promise.all([
+          rm(home, { recursive: true, force: true }),
+          removeWorkspace(workspace),
+        ]).then(),
+    };
+  }
+
   const wrapper = await writeFakeClaudeWrapper(home);
   const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {

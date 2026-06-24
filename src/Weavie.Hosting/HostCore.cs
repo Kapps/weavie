@@ -96,8 +96,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_recentFiles.Log += Log;
 	}
 
-	// The last file recorded as recent, so the debounced active-editor-changed stream (which re-fires on every
-	// cursor move within a file) bumps frecency once per distinct file visit, not per keystroke.
+	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
+	// file) bumps frecency once per distinct file visit, not per move.
 	private string? _lastRecentPath;
 
 	/// <summary>
@@ -250,6 +250,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// Layout: when the store changes (a reconciled web edit, or an MCP setLayout), push the canonical
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
+
+		// Recent files: record a visit whenever the primary session's active file changes. Primary-only (the
+		// recents track the workspace's own checkout, like the editor session); dies with the core, like _layout.
+		if (_primarySession is { } primary) {
+			primary.Editor.Changed += RecordRecentFile;
+		}
 	}
 
 	// Re-pushes the resolved theme (settings + overrides) so the web applies it live.

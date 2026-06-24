@@ -57,35 +57,36 @@ function findTolerant(finder: FileFinder, query: string): FzfResultItem<FileRow>
 // boundary hit the same whether it's "Sess" in SessionSlot or the "sess" after the hyphen in editor-session,
 // so without this tiebreak those tie and fall back to raw path length, burying the files you actually meant.
 function leafOffset(item: FileRow, positions: Set<number>): number {
-  let first = Number.MAX_SAFE_INTEGER;
-  for (const p of positions) {
-    if (p < first) {
-      first = p;
-    }
-  }
+  const first = Math.min(...positions);
   return first < item.leafStart ? Number.MAX_SAFE_INTEGER : first - item.leafStart;
 }
 
 /// Fuzzy-ranks the finder's files against `query` (best-first, uncapped). `recent` is most-recent-first
-/// absolute paths (the open tabs). Match quality stays primary; ties then break by where the match lands
-/// (filename-start beats mid-name beats directory-only), then recency, then path length — so the files you
-/// meant, and the ones you're working in, surface first. Typo-tolerant: a single stray or transposed
-/// character still matches.
+/// absolute paths. Match quality stays primary; ties then break by where the match lands (filename-start beats
+/// mid-name beats directory-only), then recency, then path length — so the files you meant, and the ones you're
+/// working in, surface first. Typo-tolerant: a single stray or transposed character still matches.
 export function rankFiles(
   finder: FileFinder,
   query: string,
   recent: readonly string[],
 ): ScoredFile[] {
   const rank = new Map(recent.map((abs, i) => [canonicalFsPath(abs), i] as const));
-  const recencyOf = (abs: string): number =>
-    rank.get(canonicalFsPath(abs)) ?? Number.MAX_SAFE_INTEGER;
+  // Compute each tiebreak key once per match, then sort — not inside the comparator, which would recompute
+  // leafOffset and canonicalFsPath O(n log n) times over a potentially huge match set.
   return findTolerant(finder, query)
+    .map((r) => ({
+      row: r.item,
+      positions: r.positions,
+      score: r.score,
+      leaf: leafOffset(r.item, r.positions),
+      recency: rank.get(canonicalFsPath(r.item.abs)) ?? Number.MAX_SAFE_INTEGER,
+    }))
     .sort(
       (a, b) =>
         b.score - a.score ||
-        leafOffset(a.item, a.positions) - leafOffset(b.item, b.positions) ||
-        recencyOf(a.item.abs) - recencyOf(b.item.abs) ||
-        a.item.rel.length - b.item.rel.length,
+        a.leaf - b.leaf ||
+        a.recency - b.recency ||
+        a.row.rel.length - b.row.rel.length,
     )
-    .map((r) => ({ row: r.item, positions: r.positions }));
+    .map(({ row, positions }) => ({ row, positions }));
 }

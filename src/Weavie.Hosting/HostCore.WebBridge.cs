@@ -92,16 +92,10 @@ public sealed partial class HostCore {
 			case "list-dir":
 				_session?.ListDirectory(root.GetStringOrEmpty("path"));
 				break;
-			case "active-editor-changed": {
+			case "active-editor-changed":
 				// Attribute by the page-stamped owner: a selection emit that lands after a switch must update the session it was FOR, or be rejected.
-				var editorTarget = EditorMessageTarget(root, "active-editor-changed");
-				editorTarget?.UpdateActiveEditor(root);
-				if (editorTarget is not null) {
-					RecordRecentFile(editorTarget, root);
-				}
-
+				EditorMessageTarget(root, "active-editor-changed")?.UpdateActiveEditor(root);
 				break;
-			}
 			case "open-editors-changed":
 				EditorMessageTarget(root, "open-editors-changed")?.UpdateOpenEditors(root);
 				break;
@@ -370,15 +364,12 @@ public sealed partial class HostCore {
 	private const int RecentFilesPushCount = 50;
 
 	/// <summary>
-	/// Records a visit to the active file in the per-workspace recent-files store and re-pushes the list. Scoped to
-	/// the primary session — recents track the workspace's own checkout, like the persisted editor session — and
-	/// deduped against the last visit so a debounced cursor-move stream doesn't inflate the frecency count.
+	/// Records a visit to the primary session's active file in the per-workspace recent-files store and re-pushes
+	/// the list. Wired to the primary's <see cref="EditorStore.Changed"/> (so it's primary-only, like the persisted
+	/// editor session) and deduped against the last visit so the active-editor stream — which also fires on cursor
+	/// moves within a file — bumps frecency once per distinct file, not per move.
 	/// </summary>
-	private void RecordRecentFile(HostSession target, JsonElement root) {
-		if (!ReferenceEquals(target, _primarySession) || !ActiveEditor.TryParse(root, out var editor) || editor is null) {
-			return;
-		}
-
+	private void RecordRecentFile(ActiveEditor editor) {
 		if (string.Equals(editor.FilePath, _lastRecentPath, StringComparison.Ordinal)) {
 			return;
 		}

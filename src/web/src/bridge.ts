@@ -342,6 +342,8 @@ export type WebBoundMessage =
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
   | { type: "file-index"; root: string; files: string[] }
+  // Host pushes the recently-used files (most-frecent-first absolute paths) for the omnibar's Recent section.
+  | { type: "recent-files"; files: string[] }
   // Host answers list-branches with the local branches available to check out, tagged by the request `id`.
   // Routed cross-backend (isSessionMessage) so the New Session dialog can query a non-active backend.
   | { type: "branches-result"; id: string; branches: string[] }

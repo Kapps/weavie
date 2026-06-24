@@ -71,6 +71,9 @@ public static class WeaviePaths {
 	/// <summary>A workspace's persisted editor session (open files + per-file Monaco view state): <c>~/.weavie/workspaces/&lt;id&gt;/editor-session.json</c>.</summary>
 	public static string WorkspaceEditorSessionFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "editor-session.json");
 
+	/// <summary>A workspace's frecency-ranked recent files (the omnibar's Recent section): <c>~/.weavie/workspaces/&lt;id&gt;/recent-files.json</c>.</summary>
+	public static string WorkspaceRecentFilesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "recent-files.json");
+
 	/// <summary>
 	/// A workspace's scratch (untitled-buffer) directory: <c>~/.weavie/workspaces/&lt;id&gt;/scratch</c>. New
 	/// files live here outside the workspace, so they never reach the file tree, index, git, or Claude until

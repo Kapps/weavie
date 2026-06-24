@@ -200,6 +200,7 @@ public sealed partial class HostCore {
 				// init — PostToWeb before navigation no-ops (window.__weavieReceive doesn't exist yet).
 				PushLayoutToWeb();
 				PushEditorSessionToWeb();
+				PushRecentFilesToWeb();
 				PushSessionList();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
@@ -387,6 +388,30 @@ public sealed partial class HostCore {
 			}
 		});
 	}
+
+	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the
+	// omnibar renders the top few as its Recent section.
+	private const int RecentFilesPushCount = 50;
+
+	/// <summary>
+	/// Records a visit to the primary session's active file in the per-workspace recent-files store and re-pushes
+	/// the list. Wired to the primary's <see cref="EditorStore.Changed"/> (so it's primary-only, like the persisted
+	/// editor session) and deduped against the last visit so the active-editor stream — which also fires on cursor
+	/// moves within a file — bumps frecency once per distinct file, not per move.
+	/// </summary>
+	private void RecordRecentFile(ActiveEditor editor) {
+		if (string.Equals(editor.FilePath, _lastRecentPath, StringComparison.Ordinal)) {
+			return;
+		}
+
+		_lastRecentPath = editor.FilePath;
+		_recentFiles.Record(editor.FilePath, DateTime.UtcNow.Ticks);
+		PushRecentFilesToWeb();
+	}
+
+	/// <summary>Pushes the frecency-ranked recent files (most-relevant first) for the omnibar's Recent section.</summary>
+	private void PushRecentFilesToWeb() =>
+		_bridge.PostToWeb(ShellProtocol.BuildRecentFiles(_recentFiles.Top(RecentFilesPushCount, DateTime.UtcNow.Ticks)));
 
 	/// <summary>
 	/// Pushes the per-turn change list (each changed file + its first-change line) for the page's review

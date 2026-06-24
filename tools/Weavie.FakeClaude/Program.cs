@@ -13,7 +13,7 @@ string? mcpConfigPath = ArgValue(args, "--mcp-config");
 string? scriptPath = Environment.GetEnvironmentVariable("WEAVIE_FAKE_CLAUDE_SCRIPT");
 
 // The banner doubles as the startup marker a test can wait for in the claude pane.
-Emit("weavie-fake-claude ready");
+Emit("ready");
 
 if (!string.IsNullOrEmpty(scriptPath) && File.Exists(scriptPath)) {
 	try {

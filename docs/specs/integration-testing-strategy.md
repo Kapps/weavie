@@ -133,11 +133,14 @@ All five steps landed (run `cd src/web && pnpm run e2e`):
   `launchHeadless`, `launchRemote` (boots `Weavie.Runner`), and a transport-parameterized Playwright
   fixture. Projects: `chromium` (bridge + native contract), `headless`, `remote`, `live`.
 - **Journeys** — `src/web/e2e/functional/`: omnibar+highlight, edit→save→persist (`@cross`), markdown
-  preview, fullscreen toggle, session lifecycle (`@cross`), MCP setting→UI, openDiff review (`@cross`).
-  `@cross` also runs on `remote`; `@remote` tests cover worker provisioning, token auth, reconnect.
+  preview, fullscreen toggle, session lifecycle + delete (`@cross`), MCP setting→UI, openDiff review +
+  change navigation + per-session diff state (`@cross`), and the permission gate (`@cross`, asserting the
+  hook decision with `claude.allowAllTools` off vs on — there is no web approval prompt; the gate is the
+  decision). `@cross` also runs on `remote`; `@remote` tests cover worker provisioning, token auth, reconnect.
 - **Native** — `e2e/native-bridge.spec.ts` proves the in-process WebView channel contract.
 - **CI** — `.github/workflows/ci.yml` builds the fake claude + runner so the journeys run on every PR.
 
-Open follow-ups (marked `test.fixme`): session **delete** (the delete-confirm affordance), **require-
-approval** via the PermissionRequest hook, and **cross-session diff navigation**. LSP find-all-references
-is in the matrix but not yet written (needs a language server in CI).
+The whole suite is green with no skips. Note two reframings the implementation forced: **require-approval**
+has no web affordance (approval lives in claude's TUI), so it's tested as the hook-bridge *decision*; and
+there is no cross-session diff *navigation* — diffs are per-session state, so the test asserts a session
+keeps its review across a switch. Not yet written: **LSP find-all-references** (needs a language server in CI).

@@ -89,4 +89,17 @@ public sealed class WorktreeRegistryTests {
 
 		Assert.Equal(2, count);
 	}
+
+	[Fact]
+	public void Remove_UnknownPath_DoesNotPersistOrNotify() {
+		var fs = new InMemoryFileSystem();
+		var registry = new WorktreeRegistry(fs, RegistryPath);
+		int count = 0;
+		registry.Changed += () => count++;
+
+		registry.Remove("/wt/never-added"); // nothing matched: no write, no event
+
+		Assert.Equal(0, count);
+		Assert.False(fs.FileExists(RegistryPath));
+	}
 }

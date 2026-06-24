@@ -239,6 +239,27 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void EditLocationFor_NotebookEdit_ReturnsNull() {
+		// Notebooks have no line-addressable jump target; EditLocationFor must yield null even after a real change.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/n.ipynb", "one\ntwo\n");
+		var tracker = Tracker(fileSystem);
+		static HookRequest Notebook(HookEventKind evt) => new() {
+			Event = evt,
+			ToolName = "NotebookEdit",
+			ToolInputJson = """{"notebook_path":"/w/n.ipynb"}""",
+			Cwd = "/w",
+		};
+
+		tracker.Observe(Notebook(HookEventKind.PreToolUse));
+		fileSystem.WriteAllText("/w/n.ipynb", "one\nTWO\n");
+		var post = Notebook(HookEventKind.PostToolUse);
+		tracker.Observe(post);
+
+		Assert.Null(tracker.EditLocationFor(post));
+	}
+
+	[Fact]
 	public void EditLocationFor_NoNetChange_ReturnsNull() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "same\n");

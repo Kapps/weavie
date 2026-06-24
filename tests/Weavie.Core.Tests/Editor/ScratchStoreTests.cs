@@ -89,4 +89,20 @@ public sealed class ScratchStoreTests {
 		Assert.True(fs.FileExists(workspaceFile));
 		Assert.False(fs.FileExists(outsideFile)); // outside both roots
 	}
+
+	[Fact]
+	public void FileProvider_Read_RefusesOutOfBoundsEvenWhenFileExists() {
+		var fs = new InMemoryFileSystem();
+		string workspace = TempDir("ws");
+		string scratch = TempDir("scratch");
+		var provider = new FileProviderService(fs, workspace, scratch);
+		string outsideFile = Path.Combine(TempDir("elsewhere"), "secret.txt");
+		fs.WriteAllText(outsideFile, "secret content");
+
+		string reply = provider.Read("r", outsideFile);
+
+		// An on-disk file outside both roots must not be read — it answers FileNotFound, never its content.
+		Assert.Contains("FileNotFound", reply);
+		Assert.DoesNotContain("secret content", reply);
+	}
 }

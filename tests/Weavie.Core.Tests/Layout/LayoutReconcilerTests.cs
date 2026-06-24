@@ -101,6 +101,44 @@ public sealed class LayoutReconcilerTests {
 	}
 
 	[Fact]
+	public void InjectsFarRightAnchor_AsRightmostChild() {
+		var registry = LayoutPanes.CreateRegistry();
+		registry.Register(new PaneDefinition {
+			Kind = "inspector",
+			Description = "Inspector.",
+			IntroducedIn = 2,
+			DefaultAnchor = PaneAnchor.FarRight,
+		});
+		var doc = LayoutPanes.Default(BaseRegistry()) with { SeenPaneLevel = 1 };
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		var split = Assert.IsType<SplitNode>(outcome.Document.Root);
+		Assert.Equal(SplitDirection.Row, split.Dir);
+		var rightmost = Assert.IsType<PaneNode>(split.Children[^1]);
+		Assert.Equal("inspector", rightmost.Kind);
+	}
+
+	[Fact]
+	public void NonPositiveWeight_IsFlooredNotZeroed() {
+		var registry = BaseRegistry();
+		var root = new SplitNode {
+			Dir = SplitDirection.Row,
+			Weights = [1, 0],
+			Children = [
+				new PaneNode { Id = "a", Kind = LayoutPanes.Editor },
+				new PaneNode { Id = "b", Kind = LayoutPanes.TerminalShell },
+			],
+		};
+		var doc = new LayoutDocument { SeenPaneLevel = registry.CurrentPaneLevel, Root = root };
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		var split = Assert.IsType<SplitNode>(outcome.Document.Root);
+		Assert.True(split.Weights[1] > 0, "a zero weight must be floored, not left at zero");
+	}
+
+	[Fact]
 	public void RepairsFocus_WhenPointingAtMissingPane() {
 		var registry = BaseRegistry();
 		var doc = LayoutPanes.Default(registry) with { Focused = "does_not_exist" };

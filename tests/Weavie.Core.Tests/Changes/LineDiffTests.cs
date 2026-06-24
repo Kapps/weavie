@@ -41,6 +41,18 @@ public sealed class LineDiffTests {
 	}
 
 	[Fact]
+	public void Count_PastLcsCellCap_CoarseDeltaKeepsAddedAndRemovedDistinct() {
+		// Beyond the O(n·m) LCS cap the count falls back to a line-count delta; added/removed must not be swapped.
+		string before = string.Join("\n", Enumerable.Range(0, 2100).Select(i => $"line{i}"));
+		string after = before + "\nextra1\nextra2\nextra3";
+
+		var (added, removed) = LineDiff.Count(before, after);
+
+		Assert.Equal(3, added);
+		Assert.Equal(0, removed);
+	}
+
+	[Fact]
 	public void FirstChangedLine_Identical_ReturnsNull() =>
 		Assert.Null(LineDiff.FirstChangedLine("a\nb\nc", "a\nb\nc"));
 

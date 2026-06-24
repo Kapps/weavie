@@ -59,6 +59,16 @@ public sealed class LayoutStoreTests {
 	}
 
 	[Fact]
+	public void SetPanes_NoPanes_Throws() {
+		var fs = new InMemoryFileSystem();
+		var store = NewStore(fs);
+		var empty = new SplitNode { Dir = SplitDirection.Row, Weights = [], Children = [] };
+
+		var ex = Assert.Throws<LayoutValidationException>(() => store.SetPanes(empty, null, LayoutSource.Mcp));
+		Assert.Contains("at least one pane", ex.Message);
+	}
+
+	[Fact]
 	public void SetWindow_PersistsButDoesNotRaiseChanged() {
 		var fs = new InMemoryFileSystem();
 		var store = NewStore(fs);

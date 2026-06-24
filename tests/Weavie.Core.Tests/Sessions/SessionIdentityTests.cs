@@ -27,6 +27,8 @@ public sealed class SessionIdentityTests {
 	[InlineData("feature/auth-refactor", "AR")]
 	[InlineData("feature/auth", "AU")]
 	[InlineData("a", "A")]
+	[InlineData("--", "?")] // no alphanumerics survive the filter -> the fallback monogram
+	[InlineData("c#", "C")] // non-alphanumerics are stripped from the leaf's first two chars
 	public void Monogram_Cases(string label, string expected) =>
 		Assert.Equal(expected, SessionIdentity.Monogram(label));
 }

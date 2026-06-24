@@ -71,6 +71,28 @@
 .session-chip.status-starting .session-chip-dot {
   background: var(--busy);
 }
+/* A host op in flight against the session (delete / load / unload): the monogram dims and a spinner ring
+   sweeps over the chip, so the session reads as busy and not yet actionable. */
+.session-chip.pending {
+  cursor: progress;
+}
+.session-chip.pending .session-chip-mono {
+  opacity: 0.25;
+}
+.session-chip-spinner {
+  position: absolute;
+  inset: 4px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.3);
+  border-top-color: #fff;
+  animation: weavie-spin 0.7s linear infinite;
+  pointer-events: none;
+}
+@keyframes weavie-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
 .session-rail-add {
   flex: 0 0 auto;
   width: 28px;
@@ -296,6 +318,12 @@
 }
 .remote-session.unloaded {
   opacity: 0.4;
+}
+.remote-session.pending {
+  cursor: progress;
+}
+.remote-session.pending .remote-session-mono {
+  opacity: 0.25;
 }
 .remote-session-mono {
   pointer-events: none;

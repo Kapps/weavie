@@ -10,7 +10,17 @@ import {
   onHostMessage,
   postToHost,
 } from "../bridge";
-import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./types";
+import { trackSessionCommand } from "../chrome/session-store";
+import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
+
+// Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
+// chip shows a spinner (session-store's pending set). The delete's classify probe is excluded — it's a quick
+// read with no mutation, so it shouldn't flash a spinner.
+const SESSION_LIFECYCLE = new Set<string>([
+  CommandIds.loadSession,
+  CommandIds.unloadSession,
+  CommandIds.deleteSession,
+]);
 
 // A web command handler. Return `false` to decline (let a keybinding's keystroke fall through);
 // anything else, including a Promise or undefined, consumes the event.
@@ -53,10 +63,16 @@ export function findCommand(id: string): CommandInfo | undefined {
 // Run a Core command and return its result. A `backendId` arg (a rail / cloud-panel op on a specific session)
 // targets that backend so the command runs on the session's owning host; otherwise the active backend.
 function routeCoreCommand(id: string, args: unknown): Promise<CommandResult> {
-  const backendId = (args as { backendId?: unknown } | undefined)?.backendId;
+  const fields = args as { backendId?: unknown; id?: unknown; classify?: unknown } | undefined;
+  const backendId = fields?.backendId;
   const target =
     typeof backendId === "string" && backendId.length > 0 ? backendId : activeBackendId();
-  return invokeCommandOnBackend(target, id, args);
+  const run = (): Promise<CommandResult> => invokeCommandOnBackend(target, id, args);
+  // A session-lifecycle op (not the delete's classify probe) flags its session as pending until it settles.
+  if (SESSION_LIFECYCLE.has(id) && typeof fields?.id === "string" && fields.classify !== true) {
+    return trackSessionCommand(target, fields.id, run);
+  }
+  return run();
 }
 
 /** Subscribe to catalog/keybinding changes; returns an unsubscribe function. */

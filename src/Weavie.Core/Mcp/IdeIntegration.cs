@@ -1,6 +1,7 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Weavie.Core.Layout;
 using Weavie.Core.Theming;
@@ -106,14 +107,15 @@ public sealed class IdeIntegration : IAsyncDisposable {
 			return null;
 		}
 
+		// The config embeds the Bearer token, so keep it (and the dir) owner-only on POSIX.
 		string directory = WeaviePaths.Internal("mcp");
-		Directory.CreateDirectory(directory);
+		SecureFile.CreateDirectory(directory);
 		// Port-scoped filename so concurrent weavie instances never clobber each other's config.
 		string path = Path.Combine(directory, $"weavie-{RegistryPort}.mcp.json");
 		string json =
 			$"{{\"mcpServers\":{{\"{McpServerName}\":{{\"type\":\"ws\",\"url\":\"ws://127.0.0.1:{RegistryPort}\"," +
 			$"\"headers\":{{\"Authorization\":\"Bearer {AuthToken}\"}}}}}}}}";
-		File.WriteAllText(path, json);
+		SecureFile.WriteAllText(path, json);
 		return path;
 	}
 

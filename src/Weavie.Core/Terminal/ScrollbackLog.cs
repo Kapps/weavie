@@ -38,6 +38,8 @@ public sealed class ScrollbackLog : IDisposable {
 
 			// ReadWrite so BuildReplay can read back through the same handle; seek to end for appends.
 			_stream = new FileStream(path, FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+			// Raw shell output can capture a secret the user typed/echoed; keep the log owner-only on POSIX.
+			FileSystem.SecureFile.Restrict(path);
 			_stream.Seek(0, SeekOrigin.End);
 			_boundary = _stream.Length;
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException) {

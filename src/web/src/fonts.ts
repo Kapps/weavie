@@ -46,6 +46,15 @@ export function onFontsChanged(handler: (config: FontConfig) => void): () => voi
   };
 }
 
+// Publish the editor font size as a :root CSS var so CSS-styled DOM surfaces (the Markdown Preview) can scale
+// to it declaratively, the way chrome/theme vars work — Monaco/xterm instead push the size into their own
+// options. Set now and on every change (it's registered as a subscriber below).
+function publishFontVars(config: FontConfig): void {
+  document.documentElement.style.setProperty("--editor-font-size", `${config.editor.size}px`);
+}
+publishFontVars(current);
+subscribers.add(publishFontVars);
+
 // A single permanent bridge listener (registered once at module load) fans every host font push out to all
 // subscribers; the editor/terminal subscribe through onFontsChanged rather than the bridge.
 onHostMessage((message) => {

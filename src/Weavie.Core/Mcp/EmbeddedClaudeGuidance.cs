@@ -22,5 +22,10 @@ public static class EmbeddedClaudeGuidance {
 		`~/.weavie/` such as `theme-overrides.json`, or `~/.claude.json`. Those are only the persisted layer
 		and can diverge from the live app: an override may be applied in-session but not yet written, or a
 		file edited without a reload. Always read live state through the `mcp__weavie__*` tools instead.
+
+		When you reference a file in your replies, write its path relative to the repository root with the line
+		number (e.g. `src/web/src/editor/preview/preview.css:22`), never a bare filename. Weavie turns
+		`path:line` references into clickable links that reveal the file in the editor, and a bare name can't be
+		resolved.
 		""";
 }

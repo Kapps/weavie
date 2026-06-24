@@ -151,8 +151,7 @@ public static class CoreCommands {
 		});
 
 		// Fullscreen the active pane: it fills the whole pane area (the session rail stays). Switching panes keeps
-		// fullscreen; toggling again restores the saved layout. Web-handled (pure layout-view state). No default
-		// keybinding yet — reachable from the palette and Claude until one is chosen.
+		// fullscreen; toggling again restores the saved layout. Web-handled (pure layout-view state).
 		registry.Register(new CommandDefinition {
 			Id = ToggleFullscreenPane,
 			Title = "Toggle Fullscreen Pane",
@@ -161,6 +160,7 @@ public static class CoreCommands {
 			Description = "Expand the active pane to fill the window, hiding the other panes (the session rail stays). "
 				+ "Switching panes keeps fullscreen; run again to restore the previous layout.",
 			Aliases = ["fullscreen", "fullscreen pane", "maximize pane", "toggle fullscreen", "expand pane", "zen mode"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Shift+Enter" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -498,7 +498,6 @@ public static class CoreCommands {
 			Description = "Switch the active file between Source (the Monaco editor) and a rendered Preview "
 				+ "(Markdown today). Does nothing for file types without a preview.",
 			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "show preview", "source view"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+v" }],
 			When = "editorFocused",
 		});
 

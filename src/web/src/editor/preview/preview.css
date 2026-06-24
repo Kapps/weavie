@@ -8,6 +8,9 @@
   padding: 1.5em 2em;
   background: var(--bg);
   color: var(--fg);
+  /* Scale prose to the editor's font size (published by fonts.ts) so Preview reads at the same scale as
+     Source. Only the size tracks — the body keeps the readable UI font; code spans keep their monospace. */
+  font-size: var(--editor-font-size);
 }
 
 /* Focus is structural (so the pane counts as editor-focused + scrolls by keyboard), not a visible ring. */
@@ -16,7 +19,7 @@
 }
 
 .editor-preview-body {
-  max-width: 48em;
+  max-width: 48rem;
   margin: 0 auto;
   line-height: 1.6;
 }

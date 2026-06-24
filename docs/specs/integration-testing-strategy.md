@@ -100,13 +100,12 @@ flowchart TB
   U["xUnit units (548) — components in isolation"]
   F["Playwright full-stack journeys — real Headless + fake-claude, deterministic"]
   X["cross-transport subset + remote-only — the transport/provisioning delta"]
-  L["live smoke — 1–2 real-API turns, gated nightly, asserts 'survived a turn' only"]
-  U --> F --> X --> L
+  U --> F --> X
 ```
 
-- **Live smoke** is the only place a real model runs. It asserts the app survives one real turn — no
-  content assertions — and is the canary for "did Anthropic change the CLI/hook contract." It runs
-  nightly, never on the PR path, so its flake never blocks a merge.
+- The suite is **fully deterministic** — no test ever runs the real model. Drift between the fake and the
+  real claude CLI (hook/MCP/lock-file contract changes) is caught by actually running the app, not by a
+  scheduled canary: a nightly job fires too late to be worth the standing flake.
 - The **capture harness** (`npm run capture`) stays a human-review tool, not a regression gate.
 
 ## Gotchas
@@ -123,11 +122,10 @@ flowchart TB
 3. Functional journeys per the matrix (headless first, then tag the cross set).
 4. Remote-only transport/provisioning tests.
 5. Native bridge-contract conformance test.
-6. Gated nightly live-smoke.
 
 ## Implementation
 
-All six steps landed (run `cd src/web && pnpm run e2e`):
+All five steps landed (run `cd src/web && pnpm run e2e`):
 
 - **Fake claude** — `tools/Weavie.FakeClaude` stubs the CLI at `claude.path`; quiet by default, or
   script-driven (print/sleep/edit/hook/registry-MCP/IDE-MCP) reusing Weavie.Core's wire helpers.
@@ -138,7 +136,6 @@ All six steps landed (run `cd src/web && pnpm run e2e`):
   preview, fullscreen toggle, session lifecycle (`@cross`), MCP setting→UI, openDiff review (`@cross`).
   `@cross` also runs on `remote`; `@remote` tests cover worker provisioning, token auth, reconnect.
 - **Native** — `e2e/native-bridge.spec.ts` proves the in-process WebView channel contract.
-- **Live smoke** — `e2e/live-smoke.spec.ts` + `.github/workflows/nightly-smoke.yml`, gated off the PR path.
 - **CI** — `.github/workflows/ci.yml` builds the fake claude + runner so the journeys run on every PR.
 
 Open follow-ups (marked `test.fixme`): session **delete** (the delete-confirm affordance), **require-

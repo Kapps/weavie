@@ -64,8 +64,8 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
 
 Regressions live in **our** code, not the model's. Full-stack tests stub `claude` at the process
 seam (`TerminalController.ResolveClaudeLaunch`) so a journey through the whole stack (web → WSS →
-HostCore → PTY → hook bridge → MCP → render) is **deterministic** — never assert on real model
-responses outside a gated nightly smoke. **Transport is a harness parameter, not a duplicated suite**:
+HostCore → PTY → hook bridge → MCP → render) is **deterministic** — no test ever runs the real model.
+**Transport is a harness parameter, not a duplicated suite**:
 run the full functional suite on `headless`, only the transport-sensitive delta on `remote`. See
 [docs/specs/integration-testing-strategy.md](docs/specs/integration-testing-strategy.md).
 

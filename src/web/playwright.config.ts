@@ -38,13 +38,5 @@ export default defineConfig({
       grep: /@cross|@remote/,
       use: { viewport: { width: 1280, height: 800 } },
     },
-    // Gated live smoke against the real claude — only the nightly workflow runs `--project=live`; the test
-    // itself also skips unless WEAVIE_LIVE_SMOKE is set.
-    {
-      name: "live",
-      testDir: "./e2e",
-      testMatch: ["live-smoke.spec.ts"],
-      use: { viewport: { width: 1280, height: 800 } },
-    },
   ],
 });

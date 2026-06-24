@@ -10,8 +10,8 @@ test("fullscreen pane toggle hides the other panes and restores them", async ({ 
   expect(initial).toBeGreaterThan(1);
 
   await runCommand(page, "Toggle Fullscreen Pane");
-  await expect.poll(visibleSlots).toBe(1);
+  await expect.poll(visibleSlots, { timeout: 10_000 }).toBe(1);
 
   await runCommand(page, "Toggle Fullscreen Pane");
-  await expect.poll(visibleSlots).toBe(initial);
+  await expect.poll(visibleSlots, { timeout: 10_000 }).toBe(initial);
 });

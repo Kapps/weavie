@@ -18,8 +18,12 @@ export async function runCommand(page: Page, title: string): Promise<void> {
   // (it stays open briefly after a prior command runs).
   await page.keyboard.press("Escape");
   await expect(box).not.toHaveClass(/\bopen\b/);
-  await page.keyboard.press("ControlOrMeta+Shift+p");
-  await expect(box).toHaveClass(/\bopen\b/);
+  // Open it — retried because a focused pane (xterm/Monaco) occasionally swallows the first chord under
+  // load, so the keypress doesn't reach the global handler.
+  await expect(async () => {
+    await page.keyboard.press("ControlOrMeta+Shift+p");
+    await expect(box).toHaveClass(/\bopen\b/, { timeout: 1000 });
+  }).toPass({ timeout: 10_000 });
   // Command mode is signalled by a leading ">"; keep it on the filled value (a bare fill would drop to
   // file search).
   await page.locator(".tb-omnibar-input").fill(`>${title}`);

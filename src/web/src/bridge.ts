@@ -105,16 +105,14 @@ export type HostBoundMessage =
   | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
-  // commands via invoke-command; the delete confirm flow is the exception (delete-session-request →
-  // session-delete-prompt → delete-session, `force` for a dirty worktree).
+  // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
+  // on that one command, not its own messages). See docs/specs/command-responses.md.
   | { type: "switch-session"; id: string }
   // Create a new session. `existing` ⇒ check out the EXISTING `branch` (base ignored); else create a new
   // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
   | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
   | { type: "list-branches"; id: string }
-  | { type: "delete-session-request"; id: string }
-  | { type: "delete-session"; id: string; force: boolean }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -238,14 +236,6 @@ export type WebBoundMessage =
   // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
   // session switch so a new / selected session lands focus in Claude.
   | { type: "focus-pane"; kind: string }
-  // Reply to delete-session-request: the worktree's `state` drives the confirm — "clean" plain, "untracked"
-  // two-step, "modified" checkbox gate. On accept the page sends delete-session (force when dirty).
-  | {
-      type: "session-delete-prompt";
-      id: string;
-      label: string;
-      state: "clean" | "untracked" | "modified";
-    }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

@@ -153,6 +153,20 @@ public sealed class SessionCommandsTests {
 		Assert.True(host.LastDeleteForce);
 	}
 
+	[Fact]
+	public async Task Delete_Classify_RoutesToClassify_NotDelete_AndReturnsPayload() {
+		var (dispatcher, host) = NewWired();
+
+		var result = await dispatcher.InvokeAsync(
+			SessionCommands.DeleteSession, "{\"id\":\"abcd\",\"classify\":true}", CancellationToken.None);
+
+		Assert.True(host.ClassifyCalled);
+		Assert.Equal("abcd", host.LastClassifiedId);
+		Assert.False(host.DeleteCalled);
+		Assert.True(result.Ok);
+		Assert.Equal("{\"state\":\"clean\",\"label\":\"x\"}", result.DataJson);
+	}
+
 	private static (CommandDispatcher Dispatcher, FakeSessionHost Host) NewWired() {
 		var registry = new CommandRegistry();
 		SessionCommands.Register(registry);
@@ -208,6 +222,16 @@ public sealed class SessionCommandsTests {
 			LastDeletedId = sessionId;
 			LastDeleteForce = force;
 			return Task.FromResult(CommandResult.Success("deleted"));
+		}
+
+		public bool ClassifyCalled { get; private set; }
+
+		public string? LastClassifiedId { get; private set; }
+
+		public Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct = default) {
+			ClassifyCalled = true;
+			LastClassifiedId = sessionId;
+			return Task.FromResult(CommandResult.Success(null, "{\"state\":\"clean\",\"label\":\"x\"}"));
 		}
 	}
 }

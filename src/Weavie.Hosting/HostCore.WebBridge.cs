@@ -66,16 +66,6 @@ public sealed partial class HostCore {
 				break;
 			}
 
-			case "delete-session-request": {
-				_ = DeleteSessionPromptAsync(root.GetStringOrEmpty("id"));
-				break;
-			}
-
-			case "delete-session": {
-				_ = DeleteSessionFromWebAsync(root.GetStringOrEmpty("id"), root.GetBoolOrFalse("force"));
-				break;
-			}
-
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				// Route by owning session (diff ids are process-unique): a switch mid-resolve must not hit another session's diff.
@@ -670,59 +660,6 @@ public sealed partial class HostCore {
 		}
 
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "branches-result", id, branches }));
-	}
-
-	/// <summary>
-	/// Handles the rail's <c>delete-session-request</c>: classifies the worktree state (clean/untracked/modified)
-	/// and asks the page for the matching confirm, so the user never sees "branch is kept" when work would be lost.
-	/// </summary>
-	private async Task DeleteSessionPromptAsync(string id) {
-		if (string.IsNullOrEmpty(id)) {
-			return;
-		}
-
-		var slot = _sessions?.Find(id);
-		if (slot is null) {
-			Notify("error", "No such session.");
-			return;
-		}
-
-		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — prompt as clean
-		// so the user can still complete the delete (which just reconciles the leftover bookkeeping).
-		if (!IsLiveWorktree(slot.WorktreePath)) {
-			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-delete-prompt", id = slot.Id, label = slot.Label, state = "clean" }));
-			return;
-		}
-
-		try {
-			var state = await new GitService().GetChangeStateAsync(slot.WorktreePath, CancellationToken.None).ConfigureAwait(false);
-			string stateName = state switch {
-				WorktreeChangeState.UntrackedOnly => "untracked",
-				WorktreeChangeState.Modified => "modified",
-				_ => "clean",
-			};
-			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-delete-prompt", id = slot.Id, label = slot.Label, state = stateName }));
-		} catch (GitException ex) {
-			Notify("error", $"Couldn't check '{slot.Label}' for changes: {ex.Message}");
-		}
-	}
-
-	/// <summary>
-	/// Handles the page's confirmed <c>delete-session</c> and toasts the outcome. <paramref name="force"/> is set
-	/// for a dirty worktree so the removal isn't refused.
-	/// </summary>
-	private async Task DeleteSessionFromWebAsync(string id, bool force) {
-		if (string.IsNullOrEmpty(id)) {
-			return;
-		}
-
-		string label = _sessions?.Find(id)?.Label ?? id;
-		var result = await DeleteSessionAsync(id, force, CancellationToken.None).ConfigureAwait(false);
-		if (result.Ok) {
-			Notify("info", $"Deleted session '{label}' (branch kept).");
-		} else {
-			Notify("error", result.Error ?? "Couldn't delete the session.");
-		}
 	}
 
 	/// <summary>

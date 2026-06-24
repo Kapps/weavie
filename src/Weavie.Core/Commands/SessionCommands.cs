@@ -181,13 +181,16 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Delete a session (the active one, or the session 'id'): remove its git worktree but KEEP the "
 				+ "branch (committed work survives on it). Refuses when the worktree has uncommitted changes unless "
-				+ "'force' is true, so work is never discarded silently. The primary session can't be deleted. This is "
-				+ "the programmatic entry (for Claude); the interactive UI uses 'Delete Session…' (weavie.session.deletePrompt).",
+				+ "'force' is true, so work is never discarded silently. The primary session can't be deleted. With "
+				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
+				+ "for a confirm prompt. This is the programmatic entry (for Claude); the interactive UI uses 'Delete "
+				+ "Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
 			// The human-facing entry is the guarded prompt (DeleteSessionPrompt); the raw delete stays reachable by Claude.
 			ShowInPalette = false,
 			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the active session\"},"
-				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"}}",
+				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
+				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -255,7 +258,9 @@ public static class SessionCommands {
 				ct)),
 			dispatcher.RegisterHandler(LoadSession, (argsJson, ct) => host.LoadSessionAsync(GetString(argsJson, "id"), ct)),
 			dispatcher.RegisterHandler(UnloadSession, (argsJson, ct) => host.UnloadSessionAsync(GetString(argsJson, "id"), ct)),
-			dispatcher.RegisterHandler(DeleteSession, (argsJson, ct) => host.DeleteSessionAsync(GetString(argsJson, "id"), GetBool(argsJson, "force"), ct)),
+			dispatcher.RegisterHandler(DeleteSession, (argsJson, ct) => GetBool(argsJson, "classify")
+				? host.ClassifyDeleteAsync(GetString(argsJson, "id"), ct)
+				: host.DeleteSessionAsync(GetString(argsJson, "id"), GetBool(argsJson, "force"), ct)),
 		};
 
 		return new CompositeDisposable(registrations);

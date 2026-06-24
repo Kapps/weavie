@@ -573,6 +573,34 @@ public sealed partial class HostCore {
 		return result.Task;
 	}
 
+	/// <inheritdoc/>
+	public async Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) {
+		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
+		if (target is null) {
+			return CommandResult.Failure("No such session.");
+		}
+
+		if (target.IsPrimary) {
+			return CommandResult.Failure("The primary session can't be deleted; close the window instead.");
+		}
+
+		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
+		string state = "clean";
+		if (IsLiveWorktree(target.WorktreePath)) {
+			try {
+				state = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false) switch {
+					WorktreeChangeState.UntrackedOnly => "untracked",
+					WorktreeChangeState.Modified => "modified",
+					_ => "clean",
+				};
+			} catch (GitException ex) {
+				return CommandResult.Failure($"Couldn't check '{target.Label}' for changes: {ex.Message}");
+			}
+		}
+
+		return CommandResult.Success(null, JsonSerializer.Serialize(new { state, label = target.Label }));
+	}
+
 	/// <summary>
 	/// Tears down a slot's live backend, leaving it dormant (a faded chip): if it was active, binds the primary
 	/// first, then disposes its <see cref="HostSession"/> while keeping the slot so the worktree stays surfaced.

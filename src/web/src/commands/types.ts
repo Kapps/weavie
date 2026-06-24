@@ -84,6 +84,7 @@ export const CommandIds = {
   selectSessionByIndex: "weavie.session.selectByIndex",
   loadSession: "weavie.session.load",
   unloadSession: "weavie.session.unload",
+  deleteSession: "weavie.session.delete",
   deleteSessionPrompt: "weavie.session.deletePrompt",
   disconnectRemoteAgent: "weavie.session.disconnectRemote",
   removeFromRail: "weavie.session.removeFromRail",

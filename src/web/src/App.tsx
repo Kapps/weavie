@@ -16,7 +16,6 @@ import {
   activeBackendId,
   connectedBackends,
   onHostMessage,
-  onSessionMessage,
   postToBackend,
   postToHost,
   setActiveBackendId,
@@ -282,38 +281,55 @@ export default function App(): JSX.Element {
     return true;
   };
 
-  // A pending session delete, opened once the host classifies the worktree (session-delete-prompt reply)
-  // and DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the
-  // owning host, so a remote session deleted from the cloud panel routes its request + confirm back to it.
+  // A pending session delete, opened once weavie.session.delete (classify mode) returns the worktree state and
+  // DeleteSessionDialog raises the matching confirm (clean / untracked / modified). `backendId` is the owning
+  // host, so a remote session deleted from the cloud panel routes its classify + delete back to it.
   const [deleteReq, setDeleteReq] = createSignal<{
     id: string;
     label: string;
     state: DeleteSessionState;
     backendId: string;
   } | null>(null);
-  // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Asks the
-  // OWNING backend to classify the worktree; its session-delete-prompt reply opens the dialog.
-  const promptDeleteSession = (args: unknown): void => {
+  // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Classify the
+  // OWNING backend's worktree (weavie.session.delete with classify) to open the dialog at the right escalation.
+  const promptDeleteSession = async (args: unknown): Promise<void> => {
     const a = args as { id?: string; backendId?: string } | undefined;
     const active = sessions().find((s) => s.active);
     const id = a?.id ?? active?.id;
     const backendId = a?.backendId ?? active?.backendId ?? "local";
-    if (id !== undefined) {
-      postToBackend(backendId, { type: "delete-session-request", id });
+    if (id === undefined) {
+      return;
     }
+    const result = await dispatchCommand(CommandIds.deleteSession, {
+      id,
+      backendId,
+      classify: true,
+    });
+    if (!result.ok) {
+      addToast("error", result.error ?? "Couldn't check the session for changes.");
+      return;
+    }
+    const info = result.data as { state?: DeleteSessionState; label?: string } | undefined;
+    setDeleteReq({ id, label: info?.label ?? id, state: info?.state ?? "clean", backendId });
   };
-  const confirmDeleteSession = (): void => {
+  const confirmDeleteSession = async (): Promise<void> => {
     const req = deleteReq();
     if (req === null) {
       return;
     }
     setDeleteReq(null);
     // A dirty worktree (untracked or modified) needs force, or git refuses the removal.
-    postToBackend(req.backendId, {
-      type: "delete-session",
+    const result = await dispatchCommand(CommandIds.deleteSession, {
       id: req.id,
+      backendId: req.backendId,
       force: req.state !== "clean",
     });
+    addToast(
+      result.ok ? "info" : "error",
+      result.ok
+        ? (result.message ?? "Session deleted.")
+        : (result.error ?? "Couldn't delete the session."),
+    );
   };
 
   // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
@@ -509,14 +525,6 @@ export default function App(): JSX.Element {
       // survive HMR); they're intentionally not handled here.
     });
 
-    // The delete-confirm reply routes cross-backend (so a remote session deleted from the cloud panel
-    // answers even while its backend is in the background); open the dialog tagged with its owning backend.
-    const offDeletePrompt = onSessionMessage((message, backendId) => {
-      if (message.type === "session-delete-prompt") {
-        setDeleteReq({ id: message.id, label: message.label, state: message.state, backendId });
-      }
-    });
-
     // Commands: register the web-side handlers, then install the capture-phase keybinding resolver. Core
     // commands route to the host. See docs/specs/commands.md.
     // A tab command's optional `path` arg (sent by the tab context menu); absent ⇒ act on the active tab.
@@ -657,7 +665,6 @@ export default function App(): JSX.Element {
       }
       document.removeEventListener("focusin", onFocusIn);
       offHost();
-      offDeletePrompt();
       editor.dispose();
     });
   });

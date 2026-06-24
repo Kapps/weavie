@@ -51,4 +51,12 @@ public interface ISessionHost {
 	/// but keeps the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>.
 	/// </summary>
 	Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct = default);
+
+	/// <summary>
+	/// Classifies a session's worktree for the delete confirm without deleting anything: the result's
+	/// <see cref="CommandResult.DataJson"/> carries <c>{ state, label }</c> where <c>state</c> is
+	/// <c>clean</c>/<c>untracked</c>/<c>modified</c>, so the UI can escalate the confirmation. The interactive
+	/// delete classifies first, then deletes with <c>force</c> on confirm.
+	/// </summary>
+	Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct = default);
 }

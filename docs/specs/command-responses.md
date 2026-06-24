@@ -1,6 +1,6 @@
 # Command responses
 
-Status: proposed
+Status: implemented (phases 1–4; phase 5 trims the delete outcome — other bespoke flows pending)
 Last updated: 2026-06-23
 
 A follow-on to [Commands & keybindings](commands.md). Commands are the unit of action, but only one
@@ -190,16 +190,22 @@ fabricated by a timer.
 
 ## Phasing
 
-1. **Core**: add `DataJson` to `CommandResult` (additive; existing call sites unchanged).
-2. **Bridge**: tokened `invoke-command` + `command-result`; web-side pending-token map; `command-result`
-   exempt from the view gate (class 3). Keep the old fire-and-forget accepted during migration.
-3. **Web**: `dispatchCommand` returns `Promise<CommandResult>`; menu/palette/keybinding call sites
-   migrated; toasts driven from results.
-4. **Collapse**: re-model `weavie.session.delete` to return the confirm-needed payload; remove
-   `delete-session-request` / `session-delete-prompt` / `delete-session` and the cross-backend
-   workaround in `bridge.ts`. Migrate `list-branches`.
-5. **Trim `notify`**: audit every `Notify(...)` that is really a command outcome and move it to the
-   result.
+1. **Core** ✅: `CommandResult` gained `DataJson` (additive; existing call sites unchanged).
+2. **Bridge** ✅: tokened `invoke-command` + `command-result`; web-side pending-token map;
+   `command-result` exempt from the view gate (class 3); a dropped link fails in-flight commands.
+   Token-less `invoke-command` stays fire-and-forget.
+3. **Web** ✅: `dispatchCommand` returns `Promise<CommandResult>`; the shared `ContextMenu` toasts a
+   command's failure. (Web command handlers still return `void | boolean`; `dispatchCommand`
+   synthesizes their result — the typed web-handler-result contract is deferred, see open questions.)
+4. **Collapse** ✅: `weavie.session.delete` gained a `classify` arg returning `{ state, label }` (via
+   `ISessionHost.ClassifyDeleteAsync`); the UI classifies → confirms → deletes, all through the one
+   command. Removed `delete-session-request` / `session-delete-prompt` / `delete-session` and the
+   cross-backend workaround. (`list-branches` not yet migrated — it still uses `branches-result`.)
+5. **Trim `notify`** ◑: the delete command-outcome notify is gone (its result carries the message).
+   Remaining `Notify(...)` are either genuinely unsolicited (worktree setup/teardown progress) or the
+   outcomes of *bespoke non-command* web messages (`new-session`, the inline-review
+   `undo/revert/reject`, `save-scratch-as`). Those have no command result to carry them yet; each
+   needs its own delete-style collapse onto a command before its notify can move. Tracked, not done.
 
 ## Open questions
 

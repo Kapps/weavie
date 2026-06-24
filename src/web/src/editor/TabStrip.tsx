@@ -1,5 +1,14 @@
-import { Code, Eye, Pin, X } from "lucide-solid";
-import { For, type JSX, Show, createMemo, createSignal } from "solid-js";
+import { ChevronLeft, ChevronRight, Code, Eye, Pin, X } from "lucide-solid";
+import {
+  For,
+  type JSX,
+  Show,
+  createEffect,
+  createMemo,
+  createSignal,
+  onCleanup,
+  onMount,
+} from "solid-js";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
@@ -33,6 +42,8 @@ export function TabStrip(props: {
   tabs: () => EditorSessionEntry[];
   activePath: () => string | null;
   actions: TabActions;
+  // Persistent right-edge content (the pane-switch shortcut badge), placed past the scroll controls.
+  trailing: JSX.Element;
 }): JSX.Element {
   const sameTabs = (a: TabView[], b: TabView[]): boolean =>
     a.length === b.length &&
@@ -76,6 +87,40 @@ export function TabStrip(props: {
     return (previewing() ? "Show source" : "Show preview") + suffix;
   };
 
+  // The scrollable tab track: chevron buttons drive it (the native scrollbar is hidden). `overflow` gates the
+  // buttons' visibility and dims the one with nothing further to reveal.
+  let track!: HTMLDivElement;
+  const [overflow, setOverflow] = createSignal({ left: false, right: false });
+  const updateOverflow = (): void => {
+    const max = track.scrollWidth - track.clientWidth;
+    setOverflow({ left: track.scrollLeft > 1, right: track.scrollLeft < max - 1 });
+  };
+  const nudge = (dir: -1 | 1): void => {
+    track.scrollBy({ left: dir * track.clientWidth * 0.8, behavior: "smooth" });
+  };
+  onMount(() => {
+    track.addEventListener("scroll", updateOverflow, { passive: true });
+    const ro = new ResizeObserver(updateOverflow);
+    ro.observe(track);
+    onCleanup(() => {
+      track.removeEventListener("scroll", updateOverflow);
+      ro.disconnect();
+    });
+  });
+  // A changed tab set or active tab can shift overflow and push the active tab off-screen (e.g. Ctrl+Tab
+  // stepping to a hidden tab); re-measure and reveal it after the DOM settles.
+  createEffect(() => {
+    void views();
+    void active();
+    queueMicrotask(() => {
+      updateOverflow();
+      track.querySelector<HTMLElement>(".editor-tab.active")?.scrollIntoView({
+        block: "nearest",
+        inline: "nearest",
+      });
+    });
+  });
+
   // Right-click menu targets the clicked tab via each command's `path` arg; keyboard/palette omit it to act
   // on the active tab.
   const [menu, setMenu] = createSignal<ContextMenuState | null>(null);
@@ -98,8 +143,22 @@ export function TabStrip(props: {
 
   return (
     <>
-      <Show when={views().length > 0}>
-        <div class="editor-tabs">
+      <div class="editor-tabs">
+        {/* Scroll-left: the dedicated left edge, shown only when the tabs overflow. */}
+        <Show when={overflow().left || overflow().right}>
+          <button
+            type="button"
+            class="editor-tab-scroll left"
+            disabled={!overflow().left}
+            title="Scroll tabs left"
+            aria-label="Scroll tabs left"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => nudge(-1)}
+          >
+            <ChevronLeft size={15} />
+          </button>
+        </Show>
+        <div class="editor-tabs-track" ref={track}>
           <For each={views()}>
             {(view) => (
               <div
@@ -149,22 +208,37 @@ export function TabStrip(props: {
               </div>
             )}
           </For>
-          {/* Source/Preview toggle: shown only for previewable files; pinned right, sticky over scroll.
-              Routes through the command so button / keybinding / palette / Claude share one handler. */}
-          <Show when={activePreviewable()}>
-            <button
-              type="button"
-              class="editor-preview-toggle"
-              title={toggleTitle()}
-              aria-pressed={previewing()}
-              onMouseDown={(event) => event.preventDefault()}
-              onClick={() => dispatchCommand(CommandIds.toggleEditorPreview)}
-            >
-              {previewing() ? <Code size={14} /> : <Eye size={14} />}
-            </button>
-          </Show>
         </div>
-      </Show>
+        {/* Scroll-right: the dedicated right edge, mirroring scroll-left. */}
+        <Show when={overflow().left || overflow().right}>
+          <button
+            type="button"
+            class="editor-tab-scroll right"
+            disabled={!overflow().right}
+            title="Scroll tabs right"
+            aria-label="Scroll tabs right"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => nudge(1)}
+          >
+            <ChevronRight size={15} />
+          </button>
+        </Show>
+        {/* Source/Preview toggle: shown only for previewable files. Routes through the command so button /
+            keybinding / palette / Claude share one handler. */}
+        <Show when={activePreviewable()}>
+          <button
+            type="button"
+            class="editor-preview-toggle"
+            title={toggleTitle()}
+            aria-pressed={previewing()}
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => dispatchCommand(CommandIds.toggleEditorPreview)}
+          >
+            {previewing() ? <Code size={14} /> : <Eye size={14} />}
+          </button>
+        </Show>
+        {props.trailing}
+      </div>
       <Show when={menu()}>{(m) => <ContextMenu menu={m()} onClose={() => setMenu(null)} />}</Show>
     </>
   );

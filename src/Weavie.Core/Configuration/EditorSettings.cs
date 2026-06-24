@@ -8,8 +8,9 @@ namespace Weavie.Core.Configuration;
 /// analogue of <see cref="FontSettings"/>. All are <see cref="ApplyMode.Live"/>: a change re-pushes the
 /// resolved options to the web, which applies them with <c>editor.updateOptions</c>.
 /// <para>
-/// <see cref="SuggestExpandDocs"/> and <see cref="CommentProse"/> have no <c>updateOptions</c> field; the web
-/// maps them to small custom behaviors. Everything else is a straight passthrough.
+/// <see cref="SuggestExpandDocs"/>, <see cref="CommentProse"/>, and <see cref="PaneShortcutHints"/> have no
+/// <c>updateOptions</c> field; the web maps them to small custom behaviors. Everything else is a straight
+/// passthrough.
 /// </para>
 /// </summary>
 public static class EditorSettings {
@@ -64,11 +65,14 @@ public static class EditorSettings {
 	/// <summary>Which comments render as styled prose — none/documentation/multiline/all (custom behavior).</summary>
 	public const string CommentProse = "editor.commentProse";
 
+	/// <summary>Show the Ctrl+N pane-switch shortcut hint badges on the panes (custom behavior).</summary>
+	public const string PaneShortcutHints = "editor.paneShortcutHints";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
-		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse,
+		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
 	];
 
 	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
@@ -149,6 +153,13 @@ public static class EditorSettings {
 			["comment prose", "render comments", "pretty comments", "comment rendering", "prose comments",
 				"format comments"],
 			["none", "documentation", "multiline", "all"], "documentation"));
+
+		registry.Register(Toggle(PaneShortcutHints,
+			"Show the Ctrl+N pane-switch shortcut hint badges in the pane headers and the editor tab bar. "
+				+ "On by default; turn it off to hide them once the shortcuts are familiar.",
+			["pane shortcuts", "pane shortcut hints", "shortcut badges", "ctrl+n hints", "pane numbers",
+				"hide shortcut hints"],
+			true));
 	}
 
 	/// <summary>
@@ -192,6 +203,7 @@ public static class EditorSettings {
 		writer.WriteNumber("hoverDelay", store.RequireInt(HoverDelay));
 		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
 		writer.WriteString("commentProse", store.RequireString(CommentProse));
+		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
 		writer.WriteEndObject();
 	}
 

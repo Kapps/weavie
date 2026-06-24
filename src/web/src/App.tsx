@@ -49,6 +49,7 @@ import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
 import { dispatchCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
+import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
@@ -132,6 +133,8 @@ export default function App(): JSX.Element {
   // The child-set terminal title (OSC 0/2) per `${slot}:${pane}`, shown in the shell pane header (the claude
   // pane keeps its fixed "Claude Code" label).
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
+  // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
+  const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
   // A stable string[] of the active backend's loaded session ids, so <For> never remounts a session's
   // terminals across rail pushes — keeping them alive makes a switch pure show/hide. Excludes dormant and
@@ -372,7 +375,20 @@ export default function App(): JSX.Element {
           classList={{ active: focusedKind() === "editor" }}
           data-kind="editor"
         >
-          <TabStrip tabs={openTabs} activePath={activePath} actions={editor.tabs} />
+          <TabStrip
+            tabs={openTabs}
+            activePath={activePath}
+            actions={editor.tabs}
+            trailing={
+              // Pane-switch badge: its own cell at the right of the tab bar (no longer floating over the tabs).
+              <Show when={showPaneHints()}>
+                <span class="pane-shortcut">
+                  {CTRL_LABEL}
+                  {numberOf("editor")}
+                </span>
+              </Show>
+            }
+          />
           <div class="editor-pane">
             <div class="editor" ref={editorContainer} />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
@@ -386,11 +402,6 @@ export default function App(): JSX.Element {
               </Suspense>
             </Show>
           </div>
-          {/* Pane-switch badge: top-right of the PANE (over the tab strip), not over the editor content. */}
-          <span class="pane-shortcut editor-badge">
-            {CTRL_LABEL}
-            {numberOf("editor")}
-          </span>
         </div>
       );
     }
@@ -413,10 +424,12 @@ export default function App(): JSX.Element {
               title={STATUS_LABEL[claudeStatus() as SessionStatusName]}
             />
           </Show>
-          <span class="pane-shortcut">
-            {CTRL_LABEL}
-            {numberOf(kind)}
-          </span>
+          <Show when={showPaneHints()}>
+            <span class="pane-shortcut">
+              {CTRL_LABEL}
+              {numberOf(kind)}
+            </span>
+          </Show>
         </div>
         <div class="pane-body">
           {/* One live xterm per loaded session, only the active shown. Keyed by session id so a session keeps
@@ -636,6 +649,10 @@ export default function App(): JSX.Element {
         return true;
       }),
     ];
+    // Live-track the pane-hint setting so toggling editor.paneShortcutHints shows/hides the badges at once.
+    const offEditorOptions = onEditorOptionsChanged((options) =>
+      setShowPaneHints(options.paneShortcutHints),
+    );
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
@@ -658,6 +675,7 @@ export default function App(): JSX.Element {
 
     onCleanup(() => {
       window.clearTimeout(persistTimer);
+      offEditorOptions();
       offKeybindings();
       offDoubleShift();
       for (const off of offCommands) {

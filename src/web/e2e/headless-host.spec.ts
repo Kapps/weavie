@@ -88,6 +88,20 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     });
     // Use the port the host reports binding, robust to the freePort race.
     port = await waitForListening(proc, 30_000);
+    // The "open …" line can print just before the listener actually accepts, so poll until it responds —
+    // otherwise the first navigation can hit ERR_CONNECTION_REFUSED.
+    const deadline = Date.now() + 30_000;
+    for (;;) {
+      try {
+        await fetch(`http://127.0.0.1:${port}/`, { redirect: "manual" });
+        break;
+      } catch {
+        if (Date.now() > deadline) {
+          throw new Error("host never answered after reporting its port");
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+    }
   });
 
   test.afterAll(() => {

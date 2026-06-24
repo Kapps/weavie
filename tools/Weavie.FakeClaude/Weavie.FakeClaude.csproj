@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Stand-in for the `claude` binary in integration tests. Weavie launches it via the claude.path setting
+    in place of the real CLI, so a full-stack journey (web → bridge → HostCore → PTY → hook/MCP → render)
+    is deterministic and never spends model usage. Quiet by default (just stays alive so the terminal
+    supervisor sees a healthy child); a script file (WEAVIE_FAKE_CLAUDE_SCRIPT) drives the MCP + hook seams.
+    Not shipped — a dev/test tool, like Weavie.IdeHarness.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <OutputType>Exe</OutputType>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Weavie.Core\Weavie.Core.csproj" />
+  </ItemGroup>
+
+</Project>

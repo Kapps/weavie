@@ -1,9 +1,12 @@
 import { defineConfig, devices } from "@playwright/test";
 
-// End-to-end tests for the web app's remote bridge transport. They serve the *built* app (dist/) from
-// an in-process mock host and drive it in headless Chromium, so the WebSocket bridge path is exercised
-// exactly as remote/web Weavie will use it. The mock host is started inside each test (no external
-// webServer); `pnpm run e2e` builds dist first. See e2e/mock-host.ts.
+// E2E tests for the web app. Three projects:
+//   chromium  — the original bridge-transport specs (mock host + a real headless `ready` round-trip).
+//   headless  — full-stack functional journeys against a real Weavie.Headless with a stubbed claude.
+//   remote    — the transport-sensitive subset, run against Weavie.Runner (browser → WSS → worker).
+// Transport is a harness parameter, not a duplicated suite: the full functional suite runs on `headless`,
+// and only @cross / @remote tests also run on `remote`. See docs/specs/integration-testing-strategy.md.
+// `pnpm run e2e` builds dist first; the headless/remote projects also need the C# host built.
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: false,
@@ -15,5 +18,25 @@ export default defineConfig({
     headless: true,
     trace: "retain-on-failure",
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    {
+      name: "chromium",
+      testMatch: ["bridge.spec.ts", "headless-host.spec.ts", "native-bridge.spec.ts"],
+      use: { ...devices["Desktop Chrome"] },
+    },
+    // No device preset: its canonical userAgent says "Windows", which flips Monaco/vscode to backslash
+    // fs paths and breaks file opens against the Linux host. Use the browser's native (Linux) UA.
+    {
+      name: "headless",
+      testDir: "./e2e/functional",
+      grepInvert: /@remote/,
+      use: { viewport: { width: 1280, height: 800 } },
+    },
+    {
+      name: "remote",
+      testDir: "./e2e/functional",
+      grep: /@cross|@remote/,
+      use: { viewport: { width: 1280, height: 800 } },
+    },
+  ],
 });

@@ -124,6 +124,7 @@ jobs:
             tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
             tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj \
             tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
+            tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
             tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj \
             tools/Weavie.LspHarness/Weavie.LspHarness.csproj; do
             echo "::group::dotnet format $proj"
@@ -155,6 +156,16 @@ jobs:
         if: matrix.name == 'linux'
         run: dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
 
+      # The full-stack functional + remote journeys need the fake claude (stubs the CLI at the process
+      # seam) and the runner (the remote control plane). Without these built, the headless/remote
+      # Playwright projects skip; with them, they run against a real host. See
+      # docs/specs/integration-testing-strategy.md.
+      - name: Build integration-test helpers
+        if: matrix.name == 'linux'
+        run: |
+          dotnet build tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj -c Debug
+          dotnet build src/Weavie.Runner/Weavie.Runner.csproj -c Debug
+
       # Cache the downloaded browser binaries (~120MB) keyed on the lockfile, so the install below is a
       # no-op download on a hit. We still run the install with --with-deps regardless: it skips the
       # download when the binary is already present but always (re)installs the OS-level apt
@@ -172,7 +183,10 @@ jobs:
         working-directory: src/web
         run: pnpm exec playwright install --with-deps chromium
 
-      - name: Web e2e (bridge + real headless host)
+      # Runs every Playwright project: the bridge specs (chromium), the full-stack functional journeys
+      # against a real Weavie.Headless with a stubbed claude (headless), and the transport-sensitive
+      # subset against Weavie.Runner (remote). See docs/specs/integration-testing-strategy.md.
+      - name: Web e2e (bridge + functional + remote)
         if: matrix.name == 'linux'
         working-directory: src/web
         run: pnpm run e2e

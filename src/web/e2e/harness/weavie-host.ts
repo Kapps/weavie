@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
@@ -26,8 +26,10 @@ export function headlessBuilt(): boolean {
 export interface WeavieHost {
   readonly url: string;
   readonly workspace: string;
-  /** Everything the host has written to stdout so far (status lines, fake-claude markers). */
+  /** Everything the host has written to stdout so far (status lines). */
   log(): string;
+  /** The fake claude's markers (its MCP/hook activity), or "" when no script ran. */
+  fakeLog(): string;
   stop(): Promise<void>;
 }
 
@@ -112,8 +114,10 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
   };
+  const fakeLogPath = join(home, "fake-claude.log");
   if (options.fakeScript) {
     env.WEAVIE_FAKE_CLAUDE_SCRIPT = await writeFakeScript(home, options.fakeScript);
+    env.WEAVIE_FAKE_CLAUDE_LOG = fakeLogPath;
   }
 
   let log = "";
@@ -136,6 +140,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
     url,
     workspace,
     log: () => log,
+    fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
     async stop() {
       proc.kill("SIGINT");
       await new Promise((resolve) => setTimeout(resolve, 200));

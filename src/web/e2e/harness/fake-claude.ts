@@ -35,7 +35,7 @@ export type FakeStep =
   | { op: "sleep"; ms: number }
   | { op: "edit"; path: string; content: string }
   | { op: "hook"; request: Record<string, unknown> }
-  | { op: "mcp"; tool: string; args?: Record<string, unknown> };
+  | { op: "mcp"; tool: string; args?: Record<string, unknown>; server?: "ide" };
 
 export async function writeFakeScript(dir: string, steps: FakeStep[]): Promise<string> {
   const path = join(dir, "fake-claude-script.json");

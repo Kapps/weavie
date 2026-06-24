@@ -4,9 +4,10 @@ import { type WeavieHost, headlessBuilt, launchHeadless } from "./weavie-host";
 import { launchRemote, runnerBuilt } from "./weavie-runner";
 
 // Per-test options. `fakeScript` (set via test.use) seeds the fake claude before the host boots, so MCP/
-// hook-driven journeys have their script in place when the claude pane launches.
+// hook-driven journeys have their script in place when the claude pane launches. Wrapped in an object
+// because Playwright mangles a bare top-level array option value into [value, config].
 type WeavieOptions = {
-  fakeScript: import("./fake-claude").FakeStep[] | null;
+  fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
 };
 
 type WeavieFixtures = {
@@ -33,7 +34,9 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         "Weavie.Runner not built (dotnet build src/Weavie.Runner)",
       );
 
-      const host = await (remote ? launchRemote : launchHeadless)({ fakeScript });
+      const host = await (remote ? launchRemote : launchHeadless)({
+        fakeScript: fakeScript?.steps ?? null,
+      });
       await page.goto(host.url, { waitUntil: "domcontentloaded" });
       // The app removes the splash element once it has booted (layout + first session). Its disappearance
       // is the "app is interactive" signal — not a fixed sleep.

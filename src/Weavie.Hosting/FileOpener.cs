@@ -8,7 +8,8 @@ namespace Weavie.Hosting;
 /// Loads a file and pushes its contents to Monaco to reveal at a line. Shared by clickable terminal file:line
 /// links and the MCP <c>openFile</c> tool; relative paths resolve against the workspace. The read goes through
 /// the session's <see cref="FileProviderService"/>, the one validated reader, so an open is confined to the
-/// worktree (+ scratch) — a terminal link or MCP call can't reveal an arbitrary path.
+/// worktree (+ scratch) by normalized path. (The opened repo is trusted: an in-tree symlink that resolves
+/// outside is still followed — confinement is by path string, not by the link target.)
 /// </summary>
 public sealed class FileOpener {
 	private readonly SessionEditorChannel _channel;
@@ -33,8 +34,8 @@ public sealed class FileOpener {
 	/// </summary>
 	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
-		// Validated read: null for an out-of-workspace, missing, or unreadable path, so a reveal-file / openFile
-		// can't be coaxed into reading an arbitrary file off a terminal link or MCP call.
+		// Validated read: null for a path outside the worktree (+ scratch), missing, or unreadable, so a
+		// reveal-file / openFile is confined to the worktree by path (an in-tree symlink is followed — the repo is trusted).
 		if (_files.ReadIfAllowed(resolved) is not { } content) {
 			Console.Error.WriteLine($"[weavie] reveal-file: refused or not found: {resolved}");
 			return;

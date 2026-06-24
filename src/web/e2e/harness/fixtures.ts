@@ -1,0 +1,40 @@
+import { test as base, expect } from "@playwright/test";
+import { fakeClaudeBuilt } from "./fake-claude";
+import { type WeavieHost, headlessBuilt, launchHeadless } from "./weavie-host";
+import { launchRemote, runnerBuilt } from "./weavie-runner";
+
+// Per-test options. `fakeScript` (set via test.use) seeds the fake claude before the host boots, so MCP/
+// hook-driven journeys have their script in place when the claude pane launches.
+type WeavieOptions = {
+  fakeScript: import("./fake-claude").FakeStep[] | null;
+};
+
+type WeavieFixtures = {
+  weavie: WeavieHost;
+};
+
+// Transport is the project name: `headless` (browser → WSS → Weavie.Headless) or `remote` (browser → WSS
+// → Weavie.Runner → spawned worker). The same journey runs on either; see the coverage matrix in
+// docs/specs/integration-testing-strategy.md.
+export const test = base.extend<WeavieOptions & WeavieFixtures>({
+  fakeScript: [null, { option: true }],
+  weavie: async ({ page, fakeScript }, use, testInfo) => {
+    const remote = testInfo.project.name === "remote";
+    test.skip(!headlessBuilt(), "Weavie.Headless not built (dotnet build src/Weavie.Headless)");
+    test.skip(
+      !fakeClaudeBuilt(),
+      "Weavie.FakeClaude not built (dotnet build tools/Weavie.FakeClaude)",
+    );
+    test.skip(remote && !runnerBuilt(), "Weavie.Runner not built (dotnet build src/Weavie.Runner)");
+
+    const host = await (remote ? launchRemote : launchHeadless)({ fakeScript });
+    await page.goto(host.url, { waitUntil: "domcontentloaded" });
+    // The app removes the splash element once it has booted (layout + first session). Its disappearance is
+    // the "app is interactive" signal — not a fixed sleep.
+    await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+    await use(host);
+    await host.stop();
+  },
+});
+
+export { expect };

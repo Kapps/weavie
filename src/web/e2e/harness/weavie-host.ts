@@ -37,7 +37,7 @@ export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
 }
 
-function freePort(): Promise<number> {
+export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
     srv.listen(0, "127.0.0.1", () => {
@@ -81,7 +81,11 @@ function waitForListening(
 }
 
 // Polls the host URL until it answers (any HTTP status), so callers connect only once the listener accepts.
-async function waitForHttp(url: string, getLog: () => string, timeoutMs: number): Promise<void> {
+export async function waitForHttp(
+  url: string,
+  getLog: () => string,
+  timeoutMs: number,
+): Promise<void> {
   const deadline = Date.now() + timeoutMs;
   for (;;) {
     try {
@@ -96,29 +100,52 @@ async function waitForHttp(url: string, getLog: () => string, timeoutMs: number)
   }
 }
 
-// Boots a real Weavie.Headless over a throwaway git workspace, with HOME redirected to a temp dir (so all
-// ~/.weavie state is isolated per test) and the claude binary stubbed by the fake. Returns once the host
-// reports the port it bound.
-export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost> {
+// Shared per-test scaffolding both transports need: an isolated HOME, a throwaway git workspace, claude
+// stubbed at the process seam (resume off so no managed-session startup watcher fires on the fake), and the
+// optional fake script + its readable debug log. The worker inherits these env vars.
+export interface FakeScaffold {
+  home: string;
+  workspace: string;
+  env: NodeJS.ProcessEnv;
+  fakeLog: () => string;
+  cleanup: () => Promise<void>;
+}
+
+export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold> {
   const home = await mkdtemp(join(tmpdir(), "weavie-e2e-home-"));
   const workspace = await createGitWorkspace();
   const wrapper = await writeFakeClaudeWrapper(home);
-
-  const requestedPort = await freePort();
+  const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {
-    ...process.env,
     HOME: home,
-    WEAVIE_SERVE_PORT: String(requestedPort),
-    WEAVIE_SERVE_WORKSPACE: workspace,
-    // Stub claude at the process seam; resume off so no managed-session startup watcher fires on the fake.
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
   };
-  const fakeLogPath = join(home, "fake-claude.log");
   if (options.fakeScript) {
     env.WEAVIE_FAKE_CLAUDE_SCRIPT = await writeFakeScript(home, options.fakeScript);
     env.WEAVIE_FAKE_CLAUDE_LOG = fakeLogPath;
   }
+  return {
+    home,
+    workspace,
+    env,
+    fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
+    cleanup: () =>
+      Promise.all([rm(home, { recursive: true, force: true }), removeWorkspace(workspace)]).then(),
+  };
+}
+
+// Boots a real Weavie.Headless over the scaffold (browser → WSS → Weavie.Headless). Returns once the host
+// reports — and actually accepts on — the port it bound.
+export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost> {
+  const fake = await prepareFake(options);
+  const requestedPort = await freePort();
+  const env: NodeJS.ProcessEnv = {
+    ...process.env,
+    ...fake.env,
+    WEAVIE_SERVE_PORT: String(requestedPort),
+    WEAVIE_SERVE_WORKSPACE: fake.workspace,
+  };
 
   let log = "";
   const proc = spawn("dotnet", [headlessDll], { env, stdio: ["ignore", "pipe", "pipe"] });
@@ -138,13 +165,13 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
 
   return {
     url,
-    workspace,
+    workspace: fake.workspace,
     log: () => log,
-    fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
+    fakeLog: fake.fakeLog,
     async stop() {
       proc.kill("SIGINT");
       await new Promise((resolve) => setTimeout(resolve, 200));
-      await Promise.all([rm(home, { recursive: true, force: true }), removeWorkspace(workspace)]);
+      await fake.cleanup();
     },
   };
 }

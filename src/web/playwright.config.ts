@@ -24,16 +24,19 @@ export default defineConfig({
       testMatch: ["bridge.spec.ts", "headless-host.spec.ts"],
       use: { ...devices["Desktop Chrome"] },
     },
+    // No device preset: its canonical userAgent says "Windows", which flips Monaco/vscode to backslash
+    // fs paths and breaks file opens against the Linux host. Use the browser's native (Linux) UA.
     {
       name: "headless",
       testDir: "./e2e/functional",
-      use: { ...devices["Desktop Chrome"] },
+      grepInvert: /@remote/,
+      use: { viewport: { width: 1280, height: 800 } },
     },
     {
       name: "remote",
       testDir: "./e2e/functional",
       grep: /@cross|@remote/,
-      use: { ...devices["Desktop Chrome"] },
+      use: { viewport: { width: 1280, height: 800 } },
     },
   ],
 });

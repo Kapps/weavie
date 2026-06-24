@@ -73,4 +73,22 @@ public sealed class LspFramingTests {
 		byte[]? read = await LspFraming.ReadFrameAsync(stream, CancellationToken.None);
 		Assert.Equal(body, read);
 	}
+
+	[Fact]
+	public async Task ReadFrame_Throws_WhenStreamEndsMidHeader() {
+		using var stream = new MemoryStream(Encoding.ASCII.GetBytes("Content-Length: 4\r\n")); // no blank line
+		await Assert.ThrowsAsync<EndOfStreamException>(() => LspFraming.ReadFrameAsync(stream, CancellationToken.None));
+	}
+
+	[Fact]
+	public async Task ReadFrame_Throws_WhenContentLengthHeaderMissing() {
+		using var stream = new MemoryStream(Encoding.ASCII.GetBytes("Content-Type: x\r\n\r\nbody"));
+		await Assert.ThrowsAsync<InvalidDataException>(() => LspFraming.ReadFrameAsync(stream, CancellationToken.None));
+	}
+
+	[Fact]
+	public async Task ReadFrame_ReturnsNull_WhenBodyTruncated() {
+		using var stream = new MemoryStream(Encoding.ASCII.GetBytes("Content-Length: 10\r\n\r\nshort")); // only 5 of 10 body bytes
+		Assert.Null(await LspFraming.ReadFrameAsync(stream, CancellationToken.None));
+	}
 }

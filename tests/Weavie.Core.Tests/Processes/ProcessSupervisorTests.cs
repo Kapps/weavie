@@ -129,6 +129,26 @@ public sealed class ProcessSupervisorTests {
 	}
 
 	[Fact]
+	public async Task Backoff_IsCappedAtMaxBackoff() {
+		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 100, mult: 2, maxMs: 150));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+
+		// First crash: 100ms (under the cap).
+		h.Sup.NotifyExited(1);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
+		Assert.True(await h.WaitStartAsync());
+
+		// Second consecutive crash: grown would be 200ms but the cap clamps it to 150ms.
+		h.Sup.NotifyExited(1);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(149));
+		Assert.Equal(2, h.StartCount); // not yet
+		h.Clock.Advance(TimeSpan.FromMilliseconds(1));
+		Assert.True(await h.WaitStartAsync());
+		Assert.Equal(3, h.StartCount); // fired at the cap, not at 200ms
+	}
+
+	[Fact]
 	public async Task CrashLoop_TripsBreakerAfterMaxRestarts() {
 		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 10, maxRestarts: 2));
 		h.Sup.Start();

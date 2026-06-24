@@ -133,6 +133,22 @@ public sealed class ShellControllerTests {
 	}
 
 	[Fact]
+	public void HandleWindowControl_MaximizeToggle_TogglesWindow() {
+		var window = new FakeWindow();
+		Make(window, out _).HandleWindowControl(Parse("""{"action":"maximize-toggle"}"""));
+
+		Assert.Equal(["toggle-maximize"], window.Calls);
+	}
+
+	[Fact]
+	public void HandleMenuAction_OpenFolder_ShowsPicker() {
+		var window = new FakeWindow();
+		Make(window, out _).HandleMenuAction(Parse("""{"action":"open-folder"}"""));
+
+		Assert.Equal(["open-folder"], window.Calls);
+	}
+
+	[Fact]
 	public void HandleWindowResize_KnownEdge_StartsResize() {
 		var window = new FakeWindow();
 		Make(window, out _).HandleWindowResize(Parse("""{"type":"window-resize","edge":"bottom-right"}"""));
@@ -154,6 +170,15 @@ public sealed class ShellControllerTests {
 		Make(window, out _).HandleMenuAction(Parse("""{"action":"open-recent","path":"C:\\proj"}"""));
 
 		Assert.Equal("C:\\proj", window.OpenedPath);
+	}
+
+	[Fact]
+	public void HandleMenuAction_OpenRecent_EmptyPath_DoesNotOpen() {
+		var window = new FakeWindow();
+		Make(window, out _).HandleMenuAction(Parse("""{"action":"open-recent","path":""}"""));
+
+		Assert.Empty(window.Calls);
+		Assert.Null(window.OpenedPath);
 	}
 
 	[Fact]

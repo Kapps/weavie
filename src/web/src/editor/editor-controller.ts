@@ -140,32 +140,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
-  // Per-hunk Keep marks (path → reviewed signatures). Web-only; survives reopen + revert recompute; cleared on
-  // turn-reset.
-  const reviewMarks = new Map<string, Set<string>>();
-  // Per-file hunk signatures last rendered, so the Keep walk knows which files still have pending hunks.
-  const fileHunks = new Map<string, string[]>();
-
-  const isHunkReviewed = (path: string, signature: string): boolean =>
-    reviewMarks.get(path)?.has(signature) ?? false;
-  const markHunkReviewed = (path: string, signature: string): void => {
-    let marks = reviewMarks.get(path);
-    if (marks === undefined) {
-      marks = new Set<string>();
-      reviewMarks.set(path, marks);
-    }
-    marks.add(signature);
-  };
-  // Whether a file still has a pending (un-kept) hunk. An unseen file is treated as pending so the walk opens
-  // it to find out; once seen, it's pending iff some signature isn't marked.
-  const fileHasPending = (path: string): boolean => {
-    const signatures = fileHunks.get(path);
-    if (signatures === undefined) {
-      return true;
-    }
-    const marks = reviewMarks.get(path);
-    return signatures.some((signature) => !(marks?.has(signature) ?? false));
-  };
   // The openDiff under inline review (at most one live, since openDiff blocks). `reviewUri` keys the transient
   // review model the inline diff is rendered over.
   let activeReview:
@@ -499,24 +473,20 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     return true;
   };
 
-  // The Keep walk reached the end of a file's hunks: open the next file (wrapping) that still has a pending
-  // hunk, on its first change. Skips fully-kept files; when nothing remains pending, finalize the review.
+  // A file's diff just cleared (its last hunk was kept or reverted) while other changed files remain under
+  // review: open the next changed file (wrapping, on its first change) so the toolbar follows the review
+  // instead of vanishing. Only called when more than one file remains; the kept/reverted file is skipped
+  // since the host drops it from the review set right after.
   const advanceToNextPendingFile = (fromPath: string): void => {
     const idx = reviewFiles.findIndex((f) => samePath(f.path, fromPath));
     const start = idx === -1 ? 0 : idx;
     for (let step = 1; step <= reviewFiles.length; step++) {
       const candidate = reviewFiles[(start + step) % reviewFiles.length];
-      if (candidate === undefined || samePath(candidate.path, fromPath)) {
-        continue;
-      }
-      if (fileHasPending(candidate.path)) {
+      if (candidate !== undefined && !samePath(candidate.path, fromPath)) {
         openReviewFile(candidate);
         return;
       }
     }
-    // Nothing pending: keeping the last change finalizes the review like Keep-all; the host emits turn-reset
-    // to tear the viewer down. Without this the diff + toolbar would linger on screen.
-    postToHost({ type: "accept-turn" });
   };
 
   // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
@@ -539,6 +509,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // for a created file emptied by the revert), which re-renders without the reverted hunk.
   const revertHunk = (path: string, hunk: HunkRevert): void => {
     afterFlush(path, () => postToHost({ type: "reject-hunk", path, ...hunk }));
+  };
+
+  // Keep just this hunk: the host advances its review baseline over it (no disk write) so it drops from the
+  // pending diff for good. Flush first so the host's guardText check sees the same disk content the web does.
+  const keepHunk = (path: string, hunk: HunkRevert): void => {
+    afterFlush(path, () => postToHost({ type: "keep-hunk", path, ...hunk }));
+  };
+
+  // Keep every change in one file: the host advances its review baseline to current, so the file leaves the
+  // review set for good. No confirm — keeping is non-destructive.
+  const keepFile = (path: string): void => {
+    afterFlush(path, () => postToHost({ type: "keep-file", path }));
   };
 
   // Revert every change in one file to its turn baseline on disk, after a confirm (the host restores the file
@@ -694,16 +676,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           original: message.baseline,
           claudeVersion: message.current,
           mode: "applied",
-          onKeepHunk: (signature) => markHunkReviewed(message.path, signature),
-          isReviewed: (signature) => isHunkReviewed(message.path, signature),
+          onKeepHunk: (hunk) => keepHunk(message.path, hunk),
+          onKeepFile: () => keepFile(message.path),
           onRevertHunk: (hunk) => revertHunk(message.path, hunk),
           onRevertFile: () => revertFile(message.path),
           onKeepAll: () => postToHost({ type: "accept-turn" }),
           onUndo: revertAll,
-          onHunks: (signatures) => {
-            fileHunks.set(message.path, signatures);
-          },
-          onAdvanceFile: () => advanceToNextPendingFile(message.path),
           // Always present so the stacked toolbar label shows the filename even for a single-file review.
           fileLabel: message.name,
           ...fileNav,
@@ -714,12 +692,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return true;
       }
       case "turn-reset":
-        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers and the
-        // web-side review state so a fresh set starts clean. reviewFiles too — else a switch with no following
-        // turn-changes leaves the ← / → walk pointed at the previous session's (possibly non-existent) paths.
+        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers so a
+        // fresh set starts clean (kept/reviewed state lives in Core now). reviewFiles too — else a switch
+        // with no following turn-changes leaves the ← / → walk on the previous session's (maybe gone) paths.
         inlineDiff?.clearAll();
-        reviewMarks.clear();
-        fileHunks.clear();
         reviewFiles = [];
         commentProse?.refresh();
         return true;

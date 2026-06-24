@@ -23,12 +23,14 @@ the time you look at it (that is the entire point of the mode). So review is **p
 inverts what the two actions mean:
 
 - **Revert = the only action that mutates the file** — it undoes a change that already landed.
-- **Keep = mark-reviewed + advance.** A no-op for disk; the change is already there. It only records
-  "I looked at this" and moves you on.
+- **Keep = advance the review baseline + move on.** No disk write — the change is already there — but
+  not a no-op: it advances **Core's** review baseline over the kept change so the hunk leaves the
+  pending-diff set *for good* (it disappears from the diff and never returns, even across a session
+  switch). The kept content becomes part of the new baseline.
 - **Do nothing = keep, but unreviewed.** Whatever you don't touch stays on disk *and stays in the
   review set* (see [Accumulate](#accumulate-the-baseline-is-last-reviewed-not-turn-start)).
 
-The asymmetry (revert is the heavy, disk-touching action; keep is cosmetic) is the load-bearing idea.
+The asymmetry (revert mutates the file; keep only advances the baseline) is the load-bearing idea.
 
 ## Accumulate: the baseline is "last reviewed", not "turn start"
 
@@ -67,9 +69,9 @@ around a **scope picker**:
 |---|---|
 | `↑` / `↓` (`$mod+Up` / `$mod+Down`) | previous / next **change** (hunk) within the file |
 | `←` / `→` (`$mod+Left` / `$mod+Right`) | previous / next **file** in the review set |
-| **Keep** (`$mod+Enter`) | keep this change (mark the current hunk reviewed), advance |
+| **Keep** (`$mod+Enter`) | keep this change (drop the current hunk from the pending diff for good), advance |
 | **Revert** (`$mod+Backspace`) | revert this change (undo the current hunk on disk), advance |
-| Keep file (`$mod+Shift+Enter`) | keep every hunk in this file, advance to the next file |
+| Keep file (`$mod+Shift+Enter`) | keep every change in this file, advance to the next file |
 | Revert file (`$mod+Shift+Backspace`) | revert every change in this file on disk (confirms) |
 
 The vertical axis walks hunks; the horizontal axis walks files. A **stacked label** names where you are
@@ -118,22 +120,23 @@ re-enters the walk manually if you navigated away.
 
 | Layer | Owner | Lifetime |
 |---|---|---|
-| Disk truth (file contents, review baseline, the revert write) | **Core** (`SessionChangeTracker` + host) | session |
+| Disk truth (file contents, review baseline, the keep/revert baseline advance, the revert write) | **Core** (`SessionChangeTracker` + host) | session |
 | Hunk geometry (which lines are a change) | **Web** (VSCode `linesDiffComputers`) | recomputed per render |
-| Per-hunk review marks (reviewed vs pending, keyed by hunk identity) | **Web** (ephemeral review state) | until the file's baseline advances |
 
-### Hunk identity & persistence
+Both kept and reviewed-state are **Core-owned** now: a Keep advances `_reviewBaseline` (the same field a
+revert and keep-all advance), so there is no web-side "reviewed marks" layer to persist or reconcile, and
+nothing about review progress is lost on a session switch. The web holds only the transient hunk geometry.
 
-The user reviews hunk-by-hunk, and **reverting one hunk must not disturb the others** — not their
-content and not their review marks. Each hunk carries a **stable identity** that survives the diff
-recompute a revert triggers.
+### Hunk independence
 
+The user reviews hunk-by-hunk, and **keeping or reverting one hunk must not disturb the others' content**.
 There is a guarantee underneath: **two separate hunks are always separated by ≥1 equal line** — that is
-what makes them two hunks. Reverting a hunk replaces its current lines with its baseline lines, making
-that region equal to the baseline; it only ever *adds* equality. So it can never merge two neighbours
-and never alters another hunk's text — only line numbers move. A hunk's identity is therefore its
-**content signature**: `hash(baselineLines, currentLines)` plus a document-order ordinal to disambiguate
-identical hunks. That signature is stable across a revert, a keep, and navigating away and back.
+what makes them two hunks. Keeping a hunk advances the baseline over just that hunk's lines (making that
+region equal to current); reverting replaces its current lines with its baseline lines (making that region
+equal to the baseline). Either way the operation only ever *adds* equality to one region — it can never
+merge two neighbours or alter another hunk's text, only shift line numbers. Keep additionally leaves the
+**live model untouched** (no disk write), so every other hunk's current-side coordinates stay valid and the
+walk can reveal the next hunk optimistically before the host re-emits the trimmed diff.
 
 ### How revert (per-hunk) works
 
@@ -172,13 +175,25 @@ across the three.
 
 ### How keep works
 
-Keep is web-only — no host message, no disk write. It marks the current hunk's signature **reviewed**
-and auto-advances to the next *pending* hunk; when a file has no pending hunk left, the walk auto-opens
-the next pending file at its first pending hunk. Manual `nextChange`/`prevChange` still walk *all* hunks
-(so a reviewed one can be revisited), but the Keep loop only stops on pending ones. **Keep-all** marks
-every remaining hunk reviewed at once — the debt-clearing action. When a hunk is kept its baseline
-advances (so it never reappears in a later turn's review set); the accumulate baseline is exactly the
-union of kept content.
+Keep advances **Core's** review baseline — no disk write, but the kept change leaves the pending diff for
+good (it survives session switches; the earlier web-only "reviewed marks" model lost kept state on a
+switch). It mirrors revert's coordinate protocol exactly, only it splices the *current* lines into the
+baseline instead of the *baseline* lines into the file:
+
+1. **Web → host** `keep-hunk { path, baselineStart, baselineEndExclusive, currentStart,
+   currentEndExclusive, guardText }` — the same shape and `guardText` optimistic-concurrency check as
+   `reject-hunk`. The web flushes the working copy first so `guardText` matches what Core reads.
+2. **Host (Core):** confirm `[currentStart, currentEndExclusive)` equals `guardText`; on mismatch, toast
+   "file changed — re-open to review" and re-emit a fresh `turn-diff` without advancing. On match, splice
+   the current hunk's lines into `_reviewBaseline` over `[baselineStart, baselineEndExclusive)` (no file
+   write), then re-emit `turn-diff` — now baseline-equals-current over that region, so the hunk is gone.
+3. The web reveals the next hunk; when the file's last hunk is kept, baseline equals current and the file
+   drops out of `turn-changes`, so the walk advances to the next changed file.
+
+**Keep file** (`keep-file { path }`) advances the whole file's baseline to current in one step; **Keep-all**
+(`accept-turn`) does it for every file — the debt-clearing action. The accumulate baseline is exactly the
+union of kept content, and because it lives in Core it is identical on every session the file is viewed
+from.
 
 ## Commands & keybindings
 
@@ -225,7 +240,9 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | type | when | payload |
 |---|---|---|
 | `get-turn-diff` | the walk opens a file | `{ path }` → host replies `turn-diff` |
+| `keep-hunk` | user keeps a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` → host advances `_reviewBaseline` over it (no disk write; reuses `SessionChangeTracker.KeepHunk`) |
 | `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
+| `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |
 | `accept-turn` | Keep-all | `{}` |
 | `undo-turn` | Revert-all (revert the whole set) | `{}` |
@@ -239,16 +256,16 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 src/Weavie.Core/
   Changes/
     SessionChangeTracker.cs   // accumulate: the review baseline advances on keep/accept, NOT on every
-                              //   BeginTurn; + _turnCreated; RevertHunk(path, baselineRange, currentRange,
-                              //   guard) with concurrency guard + delete-on-revert for created files
-    ChangeMessages.cs         // turn-changes / turn-diff (re-emitted after a revert) / turn-reset
+                              //   BeginTurn; KeepHunk/KeepFile (advance baseline, no disk write) +
+                              //   RevertHunk/RevertFile (concurrency guard + delete-on-revert for created files)
+    ChangeMessages.cs         // turn-changes / turn-diff (re-emitted after a keep or revert) / turn-reset
   Commands/
     CoreCommands.cs           // weavie.review.{open,nextFile,prevFile}; ToggleChanges removed; reviewActive when
-src/Weavie.Win | Mac | Linux/ // handle get-turn-diff, reject-hunk; re-emit turn-diff post-revert; the
-                              //   session-changes "show changes" feed is removed (the panel is gone)
+src/Weavie.Win | Mac | Linux/ // handle get-turn-diff, keep-hunk/keep-file, reject-hunk/revert-file; re-emit
+                              //   turn-diff post-keep/revert; the session-changes "show changes" feed is removed
 src/web/src/
   editor/inline-diff.ts       // applied mode = the 2D navigator: ←/→ file nav + `name (i/N)` label,
-                              //   per-hunk Keep/Revert, emphasize current hunk, reject-hunk message
+                              //   per-hunk Keep/Revert, emphasize current hunk, keep-hunk/reject-hunk messages
   editor/editor-controller.ts // holds the review file list; ←/→ steps it; open-at-first-hunk
   App.tsx                     // turn-changes → controller; auto-arm on idle; review.* handlers; no panels
   commands/types.ts           // mirror new command ids; drop toggleChanges
@@ -269,17 +286,21 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 2. **Accumulate baseline (Core + hosts).** Stop resetting the review baseline on `BeginTurn`; advance it
    only on keep/accept. Drop the `turn-reset`-on-new-prompt clear. Remove the now-dead session-changes
    feed from all hosts. Verify: changes survive a new prompt and accumulate until kept.
-3. **Per-hunk keep + persistent marks (web-only).** Stable hunk identity (content signature) + the
-   per-file reviewed-set; repurpose `$mod+Enter` to Keep the current hunk in `reviewActive`; per-file
-   auto-advance to the next pending file. Verify: keeping walks hunk→hunk→file→file and the marks survive
-   leaving and re-opening a file.
+3. **Per-hunk keep (first cut: web-only marks — superseded by step 6).** Repurpose `$mod+Enter` to Keep
+   the current hunk in `reviewActive`; per-file auto-advance to the next pending file.
 4. **Per-hunk revert (the new Core capability).** `reject-hunk` + `SessionChangeTracker.RevertHunk` with
    the guard, the existence bit + delete-on-revert for created files, the post-revert re-emit, and
-   `$mod+Backspace` per-hunk. The keep marks on *other* hunks must survive the revert recompute. Tests:
-   reverting a middle hunk restores exactly those lines and leaves the others' content *and marks*
-   intact; guard mismatch aborts without writing; reverting a created file deletes it.
+   `$mod+Backspace` per-hunk. Tests: reverting a middle hunk restores exactly those lines and leaves the
+   others' content intact; guard mismatch aborts without writing; reverting a created file deletes it.
 5. **Polish.** Toolbar Keep/Revert relabel with `formatKey` tooltips, current-hunk emphasis, the
    `reviewActive` context wiring, Keep-all header action.
+6. **Keep becomes Core-owned (done).** The step-3 web-only "reviewed marks" lost kept state on a session
+   switch (the kept hunk reappeared, since Core's review baseline never advanced). Fix: `keep-hunk` /
+   `keep-file` advance `_reviewBaseline` in Core exactly as a revert does (no disk write), so a kept hunk
+   leaves `TurnChanges()` durably and survives switches. The web's `reviewMarks`/`fileHunks`/hunk-signature
+   bookkeeping and the de-emphasised "reviewed" decoration are deleted — a kept hunk simply disappears from
+   the diff. Tests: `KeepHunk` middle-hunk advances baseline leaving others pending, guard mismatch is a
+   no-op, last hunk drops the file from the review set; `KeepFile` drops the whole file.
 
 ## Edge cases
 
@@ -298,8 +319,5 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 
 ## Open questions
 
-- **Confirmed-hunk visual weight.** Reviewed hunks stay visible but de-emphasised so progress reads at a
-  glance. The exact treatment — gutter check, faded background, or collapse — is a design detail to
-  settle live against the Weavie Dark palette.
 - **`$mod+Left/Right` vs word-nav.** Overriding word navigation during an active review is the chosen
   trade for the 2D model; if it grates in practice, `Alt+Left/Right` is the fallback binding.

@@ -60,6 +60,15 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
   revert, or investigate them, and don't retry in a tight loop. Wait, then re-run.
 - Only act on failures in files you actually changed.
 
+## Integration testing
+
+Regressions live in **our** code, not the model's. Full-stack tests stub `claude` at the process
+seam (`TerminalController.ResolveClaudeLaunch`) so a journey through the whole stack (web → WSS →
+HostCore → PTY → hook bridge → MCP → render) is **deterministic** — no test ever runs the real model.
+**Transport is a harness parameter, not a duplicated suite**:
+run the full functional suite on `headless`, only the transport-sensitive delta on `remote`. See
+[docs/specs/integration-testing-strategy.md](docs/specs/integration-testing-strategy.md).
+
 ## Code standards
 
 - **Minimize lines of code.** Every line is a liability — to read, maintain, and break. Write the

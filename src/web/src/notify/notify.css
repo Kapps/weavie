@@ -30,6 +30,37 @@
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
+  /* Drop in rather than pop; the leaving class fades it back out before it's removed (Toasts.tsx), so
+     dismissing one doesn't snap the rest of the stack up. */
+  animation: toast-in 180ms ease;
+  transition: opacity 200ms ease, transform 200ms ease;
+}
+
+.toast.leaving {
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  pointer-events: none;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: none;
+    transition: opacity 120ms ease;
+  }
+  .toast.leaving {
+    transform: none;
+  }
 }
 
 .toast-error {
@@ -43,6 +74,9 @@
 .toast-msg {
   flex: 1 1 auto;
   word-break: break-word;
+  /* A long error (e.g. a multi-line git message) scrolls within the toast instead of growing to fill the screen. */
+  max-height: 38vh;
+  overflow-y: auto;
 }
 
 .toast-close {

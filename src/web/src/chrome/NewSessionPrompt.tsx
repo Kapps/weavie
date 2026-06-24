@@ -17,16 +17,27 @@ export function NewSessionPrompt(props: {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
   const [branch, setBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
+  const [loadingBranches, setLoadingBranches] = createSignal(false);
   const [highlight, setHighlight] = createSignal(-1);
+
+  // If the picked location disconnects while the prompt is open, fall back to local so a create/checkout
+  // can't silently post into a dead backend (postToBackend would no-op).
+  createEffect(() => {
+    if (!connectedBackends().some((b) => b.id === backendId())) {
+      setBackendId("local");
+    }
+  });
 
   // Load the chosen backend's branches, reloading on location change; ignore a stale reply from a location
   // the user has since switched away from.
   createEffect(() => {
     const id = backendId();
     setBranches([]);
+    setLoadingBranches(true);
     void requestBranches(id).then((list) => {
       if (backendId() === id) {
         setBranches(list);
+        setLoadingBranches(false);
       }
     });
   });
@@ -174,6 +185,11 @@ export function NewSessionPrompt(props: {
                   )}
                 </For>
               </ul>
+            </Show>
+            {/* While branches load, say so — otherwise a typed name that matches an existing branch looks
+                like a new branch (no suggestion yet), and a hung backend looks identical to an empty repo. */}
+            <Show when={loadingBranches() && trimmed().length > 0 && suggestions().length === 0}>
+              <div class="session-prompt-hint">Loading branches…</div>
             </Show>
           </div>
           <div class="session-prompt-actions">

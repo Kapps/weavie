@@ -28,9 +28,15 @@ public sealed class WorkspaceBrowser {
 	/// inside it), directories first then files, each case-insensitive. Empty if the directory doesn't exist.
 	/// </summary>
 	public IReadOnlyList<BrowserEntry> List(string? requestedPath) {
-		string target = string.IsNullOrEmpty(requestedPath)
-			? Root
-			: Path.GetFullPath(Path.Combine(Root, requestedPath));
+		string target;
+		try {
+			target = string.IsNullOrEmpty(requestedPath)
+				? Root
+				: Path.GetFullPath(Path.Combine(Root, requestedPath));
+		} catch (Exception ex) when (ex is ArgumentException or PathTooLongException or NotSupportedException) {
+			return []; // a malformed path has no listing — never throw past the caller's reply
+		}
+
 		if (!IsWithinRoot(target)) {
 			target = Root; // deny escape attempts (e.g. ../../) by falling back to the root
 		}

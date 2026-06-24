@@ -2,11 +2,12 @@
 // window.__weavieReceive). JSON messages; in a plain browser (dev) the host handler is absent and outbound
 // is a no-op by design, never a thrown error.
 
-import { createSignal } from "solid-js";
+import { createMemo, createSignal } from "solid-js";
 import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
 import type { WeavieLspConfig } from "./lsp/lsp-client";
+import { notify } from "./notify/notify";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
@@ -383,6 +384,39 @@ const sessionListeners = new Set<SessionMessageHandler>();
 const [activeBackend, setActiveBackend] = createSignal("local");
 const LOCAL_BACKEND_ID = "local";
 
+// The live link state of a backend's transport: opening for the first time, connected, or dropped and
+// retrying. The native in-process backend has no entry and is treated as always online. Drives the
+// reconnecting banner over the active panes; transitions also raise the one-shot connection toasts.
+export type BackendPhase = "connecting" | "online" | "reconnecting";
+const [phases, setPhases] = createSignal<Map<string, BackendPhase>>(new Map());
+function setBackendPhase(id: string, phase: BackendPhase): void {
+  setPhases((prev) => {
+    if (prev.get(id) === phase) {
+      return prev;
+    }
+    const next = new Map(prev);
+    next.set(id, phase);
+    return next;
+  });
+}
+function clearBackendPhase(id: string): void {
+  setPhases((prev) => {
+    if (!prev.has(id)) {
+      return prev;
+    }
+    const next = new Map(prev);
+    next.delete(id);
+    return next;
+  });
+}
+
+/** The live link state of the backend currently driving the page (online unless its socket is opening/retrying). */
+export const activeBackendPhase = createMemo<BackendPhase>(
+  () => phases().get(activeBackend()) ?? "online",
+);
+/** True while the active backend's link is down (opening or reconnecting) — the panes can't reach their host. */
+export const activeBackendOffline = createMemo<boolean>(() => activeBackendPhase() !== "online");
+
 // These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
 // feed the rail, the New Session typeahead, and local-only registry/rail state. Everything else is gated to
 // the bound backend.
@@ -500,14 +534,19 @@ class WebSocketTransport implements BridgeTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // Set once the backend is deliberately disconnected; stops the close→reconnect loop for good.
   private disposed = false;
+  // Mirrors the published phase so a drop can decide its one-shot toast without a reactive read.
+  private phase: BackendPhase = "connecting";
 
   constructor(
     private readonly backendId: string,
     private readonly url: string,
+    // Human label for connection toasts/banner ("the Weavie host" for local, the agent name for a remote).
+    private readonly label: string,
     // Re-sent on every (re)connect, so a backend re-pushes its state after a dropped link. Remotes pass
     // `ready`; the local backend leaves it undefined (main.tsx sends its initial ready).
     private readonly hello?: string,
   ) {
+    setBackendPhase(this.backendId, "connecting");
     this.connect();
   }
 
@@ -528,6 +567,7 @@ class WebSocketTransport implements BridgeTransport {
     }
     this.socket?.close();
     this.socket = null;
+    clearBackendPhase(this.backendId);
   }
 
   private connect(): void {
@@ -538,12 +578,17 @@ class WebSocketTransport implements BridgeTransport {
     try {
       socket = new WebSocket(this.url);
     } catch {
-      this.scheduleReconnect();
+      this.onDrop();
       return;
     }
     this.socket = socket;
     socket.onopen = (): void => {
       this.reconnectDelayMs = 500;
+      if (this.phase === "reconnecting") {
+        notify("info", `Reconnected to ${this.label}.`);
+      }
+      this.phase = "online";
+      setBackendPhase(this.backendId, "online");
       if (this.hello !== undefined) {
         socket.send(this.hello);
       }
@@ -565,7 +610,7 @@ class WebSocketTransport implements BridgeTransport {
         "The backend disconnected before the command completed.",
       );
       if (!this.disposed) {
-        this.scheduleReconnect();
+        this.onDrop();
       }
     };
     socket.onerror = (): void => {
@@ -573,6 +618,19 @@ class WebSocketTransport implements BridgeTransport {
       // transport blip never surfaces as an uncaught error.
       socket.close();
     };
+  }
+
+  // A link that dropped (or never opened): raise exactly one toast on the online→retry transition (and one on
+  // a first-connect failure), mark the backend reconnecting so the panes show it, and schedule a retry.
+  private onDrop(): void {
+    if (this.phase === "online") {
+      notify("error", `Lost connection to ${this.label}. Reconnecting…`);
+    } else if (this.phase === "connecting") {
+      notify("warn", `Can't reach ${this.label}. Retrying…`);
+    }
+    this.phase = "reconnecting";
+    setBackendPhase(this.backendId, "reconnecting");
+    this.scheduleReconnect();
   }
 
   private scheduleReconnect(): void {
@@ -631,7 +689,8 @@ function publishBackends(): void {
     transport = nativeTransport;
   } else {
     const wsUrl = resolveBridgeWsUrl();
-    transport = wsUrl === null ? null : new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl);
+    transport =
+      wsUrl === null ? null : new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl, "the Weavie host");
   }
   if (transport !== null) {
     backends.set(LOCAL_BACKEND_ID, {
@@ -649,7 +708,7 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, wsUrl, JSON.stringify({ type: "ready" }));
+  const transport = new WebSocketTransport(id, wsUrl, name, JSON.stringify({ type: "ready" }));
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }

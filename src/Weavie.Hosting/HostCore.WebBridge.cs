@@ -794,41 +794,49 @@ public sealed partial class HostCore {
 	/// out-of-workspace files); replies cancelled when the host has no native dialog.
 	/// </summary>
 	private async Task SaveScratchAsAsync(JsonElement root) {
+		string scratchPath = root.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? string.Empty : string.Empty;
 		if (_session is not { } session) {
+			PostScratchSaved(scratchPath, string.Empty, reopen: false); // no active session — never leave Ctrl+S hanging
 			return;
 		}
 
-		string scratchPath = root.TryGetProperty("path", out var pEl) ? pEl.GetString() ?? string.Empty : string.Empty;
 		string content = root.TryGetProperty("content", out var cEl) ? cEl.GetString() ?? string.Empty : string.Empty;
 		string suggested = root.TryGetProperty("suggestedName", out var nEl) ? nEl.GetString() ?? "Untitled" : "Untitled";
 
-		// Default the dialog to the ACTIVE session's worktree, so saving from a worktree session lands there
-		// and the reopen check below recognizes it as in-workspace.
-		string sessionRoot = Path.GetFullPath(session.WorkspaceRoot);
-		string? target = _platform.Dialogs is { } dialogs
-			? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, CancellationToken.None).ConfigureAwait(false)
-			: null;
-
-		if (string.IsNullOrEmpty(target)) {
-			PostScratchSaved(scratchPath, string.Empty, reopen: false); // cancelled / no dialog
-			return;
-		}
-
 		try {
-			session.FileSystem.WriteAllText(target, content);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
+			// Default the dialog to the ACTIVE session's worktree, so saving from a worktree session lands there
+			// and the reopen check below recognizes it as in-workspace.
+			string sessionRoot = Path.GetFullPath(session.WorkspaceRoot);
+			string? target = _platform.Dialogs is { } dialogs
+				? await dialogs.PickSaveAsPathAsync(suggested, sessionRoot, CancellationToken.None).ConfigureAwait(false)
+				: null;
+
+			if (string.IsNullOrEmpty(target)) {
+				PostScratchSaved(scratchPath, string.Empty, reopen: false); // cancelled / no dialog
+				return;
+			}
+
+			try {
+				session.FileSystem.WriteAllText(target, content);
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Notify("error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
+				PostScratchSaved(scratchPath, string.Empty, reopen: false);
+				return;
+			}
+
+			session.Scratch.Delete(scratchPath);
+			bool reopen = BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target);
+			if (!reopen) {
+				Notify("info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
+			}
+
+			PostScratchSaved(scratchPath, target, reopen);
+		} catch (Exception ex) {
+			// Any unforeseen fault (the dialog, the temp delete) must still settle the web's await, or the
+			// untitled tab is stuck and Ctrl+S looks dead.
+			Notify("error", $"Couldn't save the file: {ex.Message}");
 			PostScratchSaved(scratchPath, string.Empty, reopen: false);
-			return;
 		}
-
-		session.Scratch.Delete(scratchPath);
-		bool reopen = BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target);
-		if (!reopen) {
-			Notify("info", $"Saved {Path.GetFileName(target)} outside the workspace — it won't open in the editor.");
-		}
-
-		PostScratchSaved(scratchPath, target, reopen);
 	}
 
 	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>

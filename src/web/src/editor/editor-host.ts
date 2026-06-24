@@ -401,6 +401,9 @@ export async function createEditorHost(
       ref.dispose();
       refs.delete(key);
     }
+    // Disposing a model doesn't reliably fire onDidChangeDirty(false), so a discarded (or error-held) dirty
+    // file would leave a phantom `*` in the dirty store that resurrects on reopen. Clear it explicitly.
+    setDirtyPath(monaco.Uri.parse(key).fsPath, false);
   };
 
   // The current text of an open working copy (seeds a scratch "save as" and decides whether a scratch close
@@ -439,6 +442,9 @@ export async function createEditorHost(
       flushSave(key);
       ref.dispose();
       refs.delete(key);
+      // Clear any lingering dirty flag (a model held back by the error gate stays dirty); the global dirty
+      // store isn't session-scoped, so an uncleared path would outlive the switch.
+      setDirtyPath(monaco.Uri.parse(key).fsPath, false);
     }
     editor.setModel(null);
   };

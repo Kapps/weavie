@@ -14,6 +14,9 @@ import {
   type SessionStatusName,
   type TermSession,
   activeBackendId,
+  activeBackendOffline,
+  activeBackendPhase,
+  backendName,
   connectedBackends,
   onHostMessage,
   postToBackend,
@@ -161,7 +164,7 @@ export default function App(): JSX.Element {
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
-  const { toasts, addToast, dismissToast } = createToasts();
+  const { toasts, addToast, dismissToast, isLeaving } = createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
@@ -260,6 +263,10 @@ export default function App(): JSX.Element {
     }
     postToBackend(session.backendId, { type: "switch-session", id: session.id });
   };
+
+  // The active backend's human name for the reconnecting banner ("the host" for the local headless link).
+  const connectionLabel = (): string =>
+    activeBackendId() === "local" ? "the host" : backendName(activeBackendId());
 
   // The location to preselect in the New Session prompt: the last-used backend if still connected, else
   // local (a remembered agent that failed to reconnect falls back rather than picking a dead id).
@@ -738,7 +745,18 @@ export default function App(): JSX.Element {
             )
           }
         />
-        <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+        <div class="pane-area" classList={{ offline: activeBackendOffline() }}>
+          <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+          <Show when={activeBackendOffline()}>
+            <output class="connection-banner">
+              <span class="connection-spinner" aria-hidden="true" />
+              <span>
+                {activeBackendPhase() === "connecting" ? "Connecting to " : "Reconnecting to "}
+                {connectionLabel()}…
+              </span>
+            </output>
+          </Show>
+        </div>
       </div>
       <Show when={newSessionOpen()}>
         <NewSessionPrompt
@@ -823,7 +841,7 @@ export default function App(): JSX.Element {
           />
         </Suspense>
       </Show>
-      <Toasts toasts={toasts()} onDismiss={dismissToast} />
+      <Toasts toasts={toasts()} onDismiss={dismissToast} isLeaving={isLeaving} />
       <Show when={confirmReq()}>
         {(req) => (
           <ConfirmDialog

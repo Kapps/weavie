@@ -303,6 +303,12 @@ export function Omnibar(props: {
           return;
         }
         setQuery(request.mode === "command" ? ">" : "");
+        // Capture the element we're stealing focus from BEFORE focusing the input: a programmatic focus()
+        // delivers a null relatedTarget, so the input's onFocus can't record it, and close would drop focus.
+        const active = document.activeElement as HTMLElement | null;
+        if (active !== null && active !== document.body && !rootRef.contains(active)) {
+          priorFocus = active;
+        }
         setOpen(true);
         props.onRequestIndex();
         queueMicrotask(() => inputRef.focus());
@@ -327,6 +333,15 @@ export function Omnibar(props: {
     setOpen(false);
     setQuery("");
     restorePriorFocus();
+  };
+
+  // Dismiss because focus left the omnibar (Tab-away or an outside click): close WITHOUT grabbing focus back —
+  // it belongs wherever the user moved it. Resets state so a reopen starts clean (the old path leaked query +
+  // priorFocus and used an uncleared timer).
+  const dismiss = (): void => {
+    setOpen(false);
+    setQuery("");
+    priorFocus = null;
   };
 
   const openFile = (abs: string | undefined): void => {
@@ -442,13 +457,25 @@ export function Omnibar(props: {
     }
   };
 
-  // Close when focus leaves the omnibar entirely; a short delay lets a row's click register first.
+  // Keyboard focus moved to a real element outside the omnibar (Tab-away): dismiss. A null relatedTarget is a
+  // mouse blur (clicking elsewhere) — left to the pointer-down-outside listener, which distinguishes a row
+  // click from an outside click without the old settle timer.
   const onFocusOut = (e: FocusEvent): void => {
     const next = e.relatedTarget as Node | null;
-    if (next === null || !(e.currentTarget as HTMLElement).contains(next)) {
-      window.setTimeout(() => setOpen(false), 120);
+    if (next !== null && !(e.currentTarget as HTMLElement).contains(next)) {
+      dismiss();
     }
   };
+
+  // Mouse dismiss: a pointer-down anywhere outside the open omnibar closes it (capture phase, so it lands
+  // before the click activates whatever was hit). A click on a row is inside rootRef, so it's never caught.
+  const onPointerDownOutside = (e: PointerEvent): void => {
+    if (open() && !rootRef.contains(e.target as Node)) {
+      dismiss();
+    }
+  };
+  window.addEventListener("pointerdown", onPointerDownOutside, true);
+  onCleanup(() => window.removeEventListener("pointerdown", onPointerDownOutside, true));
 
   return (
     <div class="tb-omnibar" ref={rootRef} onFocusOut={onFocusOut}>

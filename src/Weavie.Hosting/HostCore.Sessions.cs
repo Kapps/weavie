@@ -199,6 +199,8 @@ public sealed partial class HostCore {
 				await _worktreeProvisioner.RunSetupAsync(worktreePath, CancellationToken.None).ConfigureAwait(false);
 			} catch (Exception ex) {
 				Console.WriteLine($"[weavie] worktree setup command failed to run: {ex}");
+				_ui.Post(() => Notify(
+					"error", $"Worktree setup for '{WorktreeLabel(worktreePath)}' couldn't run: {ex.Message}"));
 			}
 		});
 	}
@@ -284,6 +286,7 @@ public sealed partial class HostCore {
 			PushSessionList();
 		} catch (GitException ex) {
 			Console.WriteLine($"[weavie] worktree reconcile failed: {ex.Message}");
+			Notify("warn", "Couldn't list existing worktrees — some sessions may not appear on the rail.");
 		}
 	}
 

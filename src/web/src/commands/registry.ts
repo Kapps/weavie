@@ -156,16 +156,26 @@ onHostMessage((message) => {
   }
 });
 
+// Tokens currently being run, so a replayed run-command frame (the multi-connection headless bridge can
+// re-deliver) doesn't run a non-idempotent web command twice. Bounded: a token is removed when its run settles.
+const inFlightCommands = new Set<string>();
+
 async function ackRunCommand(id: string, args: unknown, token: string): Promise<void> {
+  if (inFlightCommands.has(token)) {
+    return; // a replayed delivery of an invocation already in flight
+  }
   const handler = handlers.get(id);
   if (handler === undefined) {
     postToHost({ type: "command-ack", token, ok: false, error: `no web handler for '${id}'` });
     return;
   }
+  inFlightCommands.add(token);
   try {
     await handler(args);
     postToHost({ type: "command-ack", token, ok: true });
   } catch (error) {
     postToHost({ type: "command-ack", token, ok: false, error: String(error) });
+  } finally {
+    inFlightCommands.delete(token);
   }
 }

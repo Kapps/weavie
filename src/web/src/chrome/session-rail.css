@@ -34,6 +34,18 @@
   outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
+/* Keyboard focus ring — the rail is tabbable, so every chip/button must show where focus lands. Offset
+   further than the active selection outline so a focused-but-inactive chip reads distinctly. */
+.session-chip:focus-visible,
+.session-rail-add:focus-visible,
+.session-rail-cloud:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+/* A faded (dormant) chip brightens on focus so its ring + monogram read while tabbing. */
+.session-chip.unloaded:focus-visible {
+  opacity: 0.85;
+}
 /* A dormant (unloaded) worktree: surfaced so it can't leak, but no live backend — rendered faded, with no
    status dot. Hovering brings it most of the way back so it reads as clickable (click loads it). */
 .session-chip.unloaded {
@@ -146,6 +158,16 @@
   }
   50% {
     opacity: 0.35;
+  }
+}
+
+/* Honor reduced-motion: drop the continuous spin/pulse to a static indicator (status colour still reads). */
+@media (prefers-reduced-motion: reduce) {
+  .session-chip-spinner,
+  .session-status.status-working,
+  .session-chip.status-working .session-chip-dot,
+  .session-chip.status-working .session-chip-cloud {
+    animation: none;
   }
 }
 
@@ -283,16 +305,28 @@
 }
 .remote-agent-x {
   flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
   padding: 0 2px;
   border: 0;
   background: transparent;
   color: var(--bad);
-  font-size: 12px;
   opacity: 0.6;
   cursor: pointer;
 }
+.remote-agent-x svg {
+  width: 13px;
+  height: 13px;
+}
 .remote-agent-x:hover {
   opacity: 1;
+}
+/* A connected agent with no sessions yet — say so rather than show a bare header that reads as broken. */
+.remote-agent-empty {
+  margin-top: 6px;
+  color: var(--dim);
+  font-size: 11px;
+  font-style: italic;
 }
 .remote-agent-sessions {
   display: flex;
@@ -318,6 +352,12 @@
 .remote-session.in-rail {
   outline: 2px solid var(--accent);
   outline-offset: 1px;
+}
+.remote-session:focus-visible,
+.remote-agent-x:focus-visible,
+.remote-panel-add:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
 }
 .remote-session.unloaded {
   opacity: 0.4;

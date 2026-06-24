@@ -1,4 +1,4 @@
-import { For, type JSX, createMemo } from "solid-js";
+import { For, type JSX, createMemo, onCleanup } from "solid-js";
 import {
   type Rect,
   type SplitterInfo,
@@ -34,8 +34,14 @@ export function LayoutView(props: {
   const rects = createMemo(() => computeRects(props.root));
   const splitters = createMemo(() => computeSplitters(props.root));
 
+  // Tears down the in-flight drag's window listeners; set while a drag is active so a new drag, a stray
+  // pointerup, OR an unmount mid-drag can all remove them (the window listeners would otherwise outlive the
+  // component and keep firing onResize against a detached tree).
+  let endDrag: (() => void) | null = null;
+
   const startDrag = (splitter: SplitterInfo, event: PointerEvent): void => {
     event.preventDefault();
+    endDrag?.(); // never stack two drags
     const onMove = (move: PointerEvent): void => {
       const box = container.getBoundingClientRect();
       const pct =
@@ -45,13 +51,17 @@ export function LayoutView(props: {
       const fraction = (pct - splitter.axisStart) / (splitter.axisSize || 1);
       props.onResize(setBoundary(props.root, splitter.path, splitter.index, fraction));
     };
-    const onUp = (): void => {
+    const onUp = (): void => endDrag?.();
+    endDrag = (): void => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
+      endDrag = null;
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
   };
+
+  onCleanup(() => endDrag?.());
 
   return (
     <div class="layout-root" ref={container}>

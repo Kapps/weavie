@@ -125,7 +125,19 @@ function describeError(err: unknown): string {
 
 function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0): void {
   const url = `${config.url}/${server.id}?token=${encodeURIComponent(config.token)}`;
-  const webSocket = new WebSocket(url);
+  let webSocket: WebSocket;
+  try {
+    webSocket = new WebSocket(url);
+  } catch (err) {
+    // A malformed bridge URL throws synchronously here — before any of this attempt's recovery machinery
+    // exists. Surface it and drop the started mark, so the language server isn't silently disabled for the
+    // whole session (a later model-open can retry).
+    started.delete(server.id);
+    clients.delete(server.id);
+    log("error", `lsp: ${server.id} couldn't open a connection: ${describeError(err)}`);
+    notify("error", `${server.id} language intelligence couldn't start: ${describeError(err)}`);
+    return;
+  }
   const gen = generation;
   let openedAt = 0;
   // Set on intentional teardown (session switch): the supervised reconnect stands down and a late onopen closes.

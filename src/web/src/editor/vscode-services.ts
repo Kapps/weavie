@@ -29,6 +29,8 @@ import "@codingame/monaco-vscode-go-default-extension";
 // contribution on `onWillCreateCodeEditor`, which never fires for a standalone editor — so we construct it
 // ourselves in doInit(), else the provider is registered but never consumed.
 import { DocumentSemanticTokensFeature } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/semanticTokens/browser/documentSemanticTokens";
+import { log } from "../bridge";
+import { notify } from "../notify/notify";
 import { currentMonacoTheme, onMonacoThemeChanged } from "../theme";
 import { applyMonacoTheme } from "../theme/monaco-theme";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
@@ -142,7 +144,12 @@ async function doInit(): Promise<void> {
   const initialTheme = currentMonacoTheme();
   await applyMonacoTheme(initialTheme.id, initialTheme.theme);
   onMonacoThemeChanged((update) => {
-    void applyMonacoTheme(update.id, update.theme);
+    applyMonacoTheme(update.id, update.theme).catch((err: unknown) => {
+      // A live theme push that fails to register would otherwise silently keep the old theme.
+      const message = err instanceof Error ? err.message : String(err);
+      log("error", `theme: applying '${update.id}' failed: ${message}`);
+      notify("warn", `Couldn't apply the theme: ${message}`);
+    });
   });
 
   // Broad highlighting for every other language. Must run before any model is created, since Monaco resolves

@@ -1,7 +1,17 @@
 import { ChevronRight } from "lucide-solid";
 import { For, type JSX, Show, createSignal, onCleanup } from "solid-js";
+import { formatKey } from "../commands/keybindings";
+import { findCommand } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 
 export type MenuAction = "open-folder" | "open-recent" | "close-window" | "exit";
+
+// The resolved shortcut for a command, formatted for display ("" when unbound) — so a menu item advertises
+// its keybinding (keyboard-first), read live from the catalog rather than hardcoded.
+function shortcutOf(commandId: string): string {
+  const keys = findCommand(commandId)?.keys ?? [];
+  return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
+}
 
 function leaf(path: string): string {
   const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
@@ -76,6 +86,8 @@ export function Menu(props: {
             <div
               class="tb-dropitem has-submenu"
               classList={{ disabled: props.recents.length === 0 }}
+              // Focusable (unless empty) so a keyboard user can reach it; the submenu reveals on :focus-within.
+              tabindex={props.recents.length === 0 ? undefined : 0}
             >
               <span>Open Recent</span>
               <span class="tb-submenu-arrow">
@@ -128,6 +140,9 @@ export function Menu(props: {
               onClick={() => viewAction(props.onToggleFiles)}
             >
               <span>Toggle Files</span>
+              <Show when={shortcutOf(CommandIds.toggleFileBrowser)}>
+                {(keys) => <span class="tb-dropitem-keys">{keys()}</span>}
+              </Show>
             </button>
           </div>
         </Show>

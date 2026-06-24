@@ -735,6 +735,18 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
   };
   document.addEventListener("pointerdown", onDocDown, true);
+  // Escape closes an open scope dropdown from the keyboard (capture so it beats the editor's own Escape).
+  const onDocKey = (event: KeyboardEvent): void => {
+    if (
+      event.key === "Escape" &&
+      scopeMenuNode !== undefined &&
+      scopeMenuNode.style.display !== "none"
+    ) {
+      event.stopPropagation();
+      scopeMenuNode.style.display = "none";
+    }
+  };
+  document.addEventListener("keydown", onDocKey, true);
 
   // Register/remove a diff keyed by an exact model URI string (the path-based set/clear convert a file path
   // to its file:// URI; the review path passes the transient model's URI).
@@ -782,6 +794,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         clearTimeout(recomputeTimer);
       }
       document.removeEventListener("pointerdown", onDocDown, true);
+      document.removeEventListener("keydown", onDocKey, true);
       onCursor.dispose();
       onModel.dispose();
       onContent.dispose();

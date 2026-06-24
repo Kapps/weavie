@@ -435,7 +435,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         postToHost({ type: "monaco-ready" });
         mark("editor-ready");
       })
-      .catch((error: unknown) => log("error", `editor init failed: ${String(error)}`))
+      .catch((error: unknown) => {
+        log("error", `editor init failed: ${String(error)}`);
+        // The pane is now dead (host stays undefined, every openFile silently queues), so tell the user
+        // rather than leave a blank editor that swallows clicks.
+        deps.onOpenError("The editor failed to load. Reload the window to try again.");
+      })
       .finally(() => {
         window.clearTimeout(initTimer);
         dismissSplash();
@@ -485,14 +490,19 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // Flush the file's pending save (so the host reverts from current disk content), then run `send`. Both the
-  // per-hunk and whole-file reverts go through this so the host never races a debounced write.
+  // per-hunk and whole-file reverts go through this so the host never races a debounced write. A failed flush
+  // means the revert would act against stale disk content, so surface it and abort rather than misapply silently.
   const afterFlush = (path: string, send: () => void): void => {
     const flushed = host?.flush(path);
     if (flushed === undefined) {
       send();
-    } else {
-      void flushed.then(send, send);
+      return;
     }
+    flushed.then(send, (error: unknown) => {
+      deps.onSaveError(
+        `Couldn't save ${basename(path)} before reverting — revert aborted: ${String(error)}`,
+      );
+    });
   };
 
   // Ask the host to revert just this hunk on disk. The host re-emits the file's diff (or an fs-change removal
@@ -682,9 +692,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return true;
       }
       case "turn-reset":
-        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers so a fresh
-        // set starts clean. The kept/reviewed state lives in Core now, nothing web-side to reset.
+        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers so a
+        // fresh set starts clean (kept/reviewed state lives in Core now). reviewFiles too — else a switch
+        // with no following turn-changes leaves the ← / → walk on the previous session's (maybe gone) paths.
         inlineDiff?.clearAll();
+        reviewFiles = [];
         commentProse?.refresh();
         return true;
       case "fs-change": {

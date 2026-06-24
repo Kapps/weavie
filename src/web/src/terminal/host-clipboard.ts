@@ -7,6 +7,7 @@ import type { Terminal } from "@xterm/xterm";
 import { onHostMessage, postToHost } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { notify } from "../notify/notify";
 import { base64ToBytes } from "./base64";
 
 // Live terminals by key (slot:pane) + the most recently focused one, so the copy/paste commands target the
@@ -45,7 +46,8 @@ function writeClipboard(text: string): void {
 let readSeq = 0;
 const pendingReads = new Map<string, (text: string) => void>();
 // The host answers clipboard-read synchronously; the timeout only guards against a dropped bridge so a paste
-// can't hang forever (mirrors requestBranches).
+// can't hang forever. It REJECTS (not resolves "") so the paste handler can tell a dropped link from a
+// genuinely-empty clipboard and surface the former.
 const READ_TIMEOUT_MS = 3000;
 
 onHostMessage((message) => {
@@ -56,10 +58,10 @@ onHostMessage((message) => {
 
 function readClipboard(): Promise<string> {
   const id = `clip${++readSeq}`;
-  return new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       pendingReads.delete(id);
-      resolve("");
+      reject(new Error("the host didn't respond"));
     }, READ_TIMEOUT_MS);
     pendingReads.set(id, (text) => {
       clearTimeout(timer);
@@ -108,11 +110,18 @@ export function installTerminalClipboardCommands(): () => void {
     if (term === undefined) {
       return false;
     }
-    return readClipboard().then((text) => {
-      if (text.length > 0) {
-        term.paste(text);
-      }
-    });
+    return readClipboard().then(
+      (text) => {
+        if (text.length > 0) {
+          term.paste(text);
+        }
+      },
+      (error: unknown) =>
+        notify(
+          "warn",
+          `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+        ),
+    );
   });
 
   return () => {

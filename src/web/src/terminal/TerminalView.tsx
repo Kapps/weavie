@@ -65,6 +65,12 @@ export function TerminalView(props: {
     // Re-fit to the container (updating cols/rows, notifying the PTY) and force a repaint, for any event
     // that can leave the canvas stale or the PTY mis-sized. Both throw on a zero-size (hidden) pane — ignored.
     const refit = (): void => {
+      // Only the visible session's pane drives its PTY size; a background session's pane (hidden) must not
+      // fit + emit term-resize, which would resize that session's TUI behind the user's back. It refits on
+      // becoming active (the props.active effect below).
+      if (!props.active) {
+        return;
+      }
       try {
         fit.fit();
         term.refresh(0, term.rows - 1);

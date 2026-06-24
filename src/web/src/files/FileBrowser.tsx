@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, X } from "lucide-solid";
-import { For, type JSX, Show, createEffect, createSignal } from "solid-js";
+import { For, type JSX, Show, createEffect, createSignal, onMount } from "solid-js";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
 export interface DirEntry {
@@ -105,13 +105,29 @@ export default function FileBrowser(props: {
   onOpen: (path: string) => void;
   onClose: () => void;
 }): JSX.Element {
+  let closeButton: HTMLButtonElement | undefined;
+  // Escape closes the panel (matching the omnibar/dialogs). Scoped to the panel — focus is moved into it on
+  // open — so it never hijacks the editor's own Escape (suggestions, etc.).
+  const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      props.onClose();
+    }
+  };
+  onMount(() => closeButton?.focus());
   return (
-    <div class="browser-panel">
+    <div class="browser-panel" onKeyDown={onKeyDown}>
       <div class="browser-head">
         <span class="browser-title" title={props.root}>
           {leafName(props.root)}
         </span>
-        <button type="button" class="browser-close" onClick={() => props.onClose()}>
+        <button
+          type="button"
+          class="browser-close"
+          title="Close (Esc)"
+          ref={closeButton}
+          onClick={() => props.onClose()}
+        >
           <X />
         </button>
       </div>

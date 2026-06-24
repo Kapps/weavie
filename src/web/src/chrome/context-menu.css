@@ -41,15 +41,18 @@
   text-align: left;
   cursor: pointer;
 }
-.context-menu-item:hover {
+.context-menu-item:hover,
+.context-menu-item:focus {
   background: var(--accent);
   color: #042019;
+  outline: none;
 }
 .context-menu-keys {
   color: var(--dim);
   font-size: 0.9em;
 }
-.context-menu-item:hover .context-menu-keys {
+.context-menu-item:hover .context-menu-keys,
+.context-menu-item:focus .context-menu-keys {
   color: rgba(6, 35, 29, 0.7);
 }
 .context-menu-sep {
@@ -62,10 +65,12 @@
 .context-menu-item.danger {
   color: var(--bad);
 }
-.context-menu-item.danger:hover {
+.context-menu-item.danger:hover,
+.context-menu-item.danger:focus {
   background: var(--danger);
   color: #fff;
 }
-.context-menu-item.danger:hover .context-menu-keys {
+.context-menu-item.danger:hover .context-menu-keys,
+.context-menu-item.danger:focus .context-menu-keys {
   color: rgba(255, 255, 255, 0.75);
 }

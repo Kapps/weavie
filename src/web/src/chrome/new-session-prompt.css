@@ -151,6 +151,16 @@
   font-size: 0.85em;
 }
 
+/* "Loading branches…" — anchored under the input like the suggestions dropdown (only shown when there are
+   none), so it informs without shifting the footer. */
+.session-prompt-hint {
+  position: absolute;
+  left: 0.2em;
+  top: calc(100% + 6px);
+  color: var(--dim);
+  font-size: 0.82em;
+}
+
 /* Just an accent border on focus — a single clean ring, no extra box-shadow glow. */
 .session-prompt-input:focus {
   outline: none;

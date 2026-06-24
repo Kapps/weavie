@@ -21,6 +21,12 @@
   opacity: 1;
 }
 
+.browser-toggle:focus-visible,
+.browser-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .browser-panel {
   position: fixed;
   top: 0;
@@ -99,6 +105,11 @@
 
 .browser-row:hover {
   background: var(--bar);
+}
+
+.browser-row:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 .browser-row.active {

@@ -4,15 +4,18 @@
 import type { ILink, Terminal } from "@xterm/xterm";
 import { postToHost } from "../bridge";
 
-// A path with an extension followed by :line (optionally :col), e.g. src/foo.ts:42.
-const FILE_LINE = /(?:[~.]{0,2}\/)?[\w./-]+\.[A-Za-z0-9]+:\d+(?::\d+)?/g;
+// A path with an extension followed by :line (optionally :col), e.g. src/foo.ts:42 or C:\src\foo.ts:42.
+// An optional Windows drive prefix (C:\…) is matched explicitly so its colon isn't mistaken for the :line.
+const FILE_LINE = /(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/])?[\w.\\/-]+\.[A-Za-z0-9]+:\d+(?::\d+)?/g;
 // A bare http(s) URL (stops at whitespace and common trailing delimiters).
 const URL_RE = /https?:\/\/[^\s"'<>()]+/g;
 
 function revealFile(matchText: string): void {
-  const [path, lineText] = matchText.split(":");
-  if (path !== undefined && path.length > 0) {
-    postToHost({ type: "reveal-file", path, line: Number(lineText) || 1 });
+  // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
+  const match = /^(.*?):(\d+)(?::\d+)?$/.exec(matchText);
+  const path = match?.[1] ?? matchText;
+  if (path.length > 0) {
+    postToHost({ type: "reveal-file", path, line: match ? Number(match[2]) : 1 });
   }
 }
 

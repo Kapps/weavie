@@ -34,14 +34,40 @@ export interface ContextMenuState {
  * outside-click / Escape / blur. Callers build the entries and own the open signal. See docs/specs/commands.md.
  */
 export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void }): JSX.Element {
+  let menuEl: HTMLDivElement | undefined;
+  const items = (): HTMLButtonElement[] =>
+    menuEl ? [...menuEl.querySelectorAll<HTMLButtonElement>(".context-menu-item")] : [];
   const onPointerDown = (event: PointerEvent): void => {
     if (!(event.target as HTMLElement).closest(".context-menu")) {
       props.onClose();
     }
   };
+  // Keyboard-operable like a real menu: Escape closes, Up/Down/Home/End roam the rows (Enter/Space fire the
+  // focused row's command natively — they're buttons). Without this the menu's advertised shortcuts are
+  // mouse-only.
   const onKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
       props.onClose();
+      return;
+    }
+    const list = items();
+    if (list.length === 0) {
+      return;
+    }
+    const current = list.indexOf(document.activeElement as HTMLButtonElement);
+    let next: number | undefined;
+    if (event.key === "ArrowDown") {
+      next = current < 0 ? 0 : (current + 1) % list.length;
+    } else if (event.key === "ArrowUp") {
+      next = current < 0 ? list.length - 1 : (current - 1 + list.length) % list.length;
+    } else if (event.key === "Home") {
+      next = 0;
+    } else if (event.key === "End") {
+      next = list.length - 1;
+    }
+    if (next !== undefined) {
+      event.preventDefault();
+      list[next]?.focus();
     }
   };
   // Listeners are added on mount (after the opening right-click is handled) and torn down on close.
@@ -49,6 +75,8 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", props.onClose);
+    // Land focus on the first row so arrow keys + Enter work immediately (queued so the For has rendered).
+    queueMicrotask(() => items()[0]?.focus());
   });
   onCleanup(() => {
     window.removeEventListener("pointerdown", onPointerDown);
@@ -77,6 +105,7 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
       <div
         class="context-menu"
         ref={(el) => {
+          menuEl = el;
           // Position at the cursor imperatively — the menu mounts fresh on each open.
           el.style.left = `${props.menu.x}px`;
           el.style.top = `${props.menu.y}px`;

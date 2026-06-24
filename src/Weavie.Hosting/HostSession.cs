@@ -244,7 +244,20 @@ public sealed class HostSession : IAsyncDisposable {
 	/// page (directories first). The file browser calls this on open and folder expand.
 	/// </summary>
 	public void ListDirectory(string requestedPath) {
-		var entries = Browser.List(requestedPath);
+		IReadOnlyList<BrowserEntry> entries;
+		try {
+			entries = Browser.List(requestedPath);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			// Surface the failure instead of letting it throw past the reply (which would hang the browser on
+			// a folder that never fills); the page still gets an (empty) listing so its spinner resolves.
+			entries = [];
+			_bridge.PostToWeb(JsonSerializer.Serialize(new {
+				type = "notify",
+				level = "error",
+				message = $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}",
+			}));
+		}
+
 		string json = JsonSerializer.Serialize(new {
 			type = "dir-listing",
 			path = string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath,

@@ -1,3 +1,4 @@
+import { X } from "lucide-solid";
 import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
@@ -88,11 +89,15 @@ export function RemoteAgentsPanel(props: {
                     type="button"
                     class="remote-agent-x"
                     title={`Disconnect ${agent.name}`}
+                    aria-label={`Disconnect ${agent.name}`}
                     onClick={() => props.onDisconnect(agent.name)}
                   >
-                    ✕
+                    <X />
                   </button>
                 </div>
+                <Show when={agent.connected && agent.sessions.length === 0}>
+                  <div class="remote-agent-empty">No sessions yet</div>
+                </Show>
                 <Show when={agent.connected && agent.sessions.length > 0}>
                   <div class="remote-agent-sessions">
                     <For each={agent.sessions}>

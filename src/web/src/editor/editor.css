@@ -277,6 +277,20 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
+/* Keyboard focus reveals the otherwise-hidden close button and rings the tab controls, so tabbing through
+   the strip is visible (the controls sit edge-to-edge, so the ring is inset to avoid clipping). */
+.editor-tab:focus-within .editor-tab-close,
+.editor-tab-close:focus-visible {
+  opacity: 0.85;
+}
+.editor-tab-main:focus-visible,
+.editor-tab-close:focus-visible,
+.editor-tab-scroll:focus-visible,
+.editor-preview-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
 /* Source/Preview toggle: a fixed control at the right of the tab strip (past the scroll buttons, before the
    pane-number badge). Shown only for previewable files (see TabStrip). */
 .editor-preview-toggle {

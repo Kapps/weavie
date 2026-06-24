@@ -19,7 +19,13 @@ export function RegisterAgentModal(props: {
     name().trim() !== "" && url().trim() !== "" && token().trim() !== "" && !busy();
 
   const save = async (): Promise<void> => {
-    if (!canSave()) {
+    if (busy()) {
+      return;
+    }
+    // The primary button is disabled when fields are blank, but the Enter shortcut bypasses that — so say
+    // what's missing rather than no-op silently.
+    if (name().trim() === "" || url().trim() === "" || token().trim() === "") {
+      setError("Enter a name, runner URL, and token.");
       return;
     }
     setBusy(true);

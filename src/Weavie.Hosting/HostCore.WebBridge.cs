@@ -156,8 +156,14 @@ public sealed partial class HostCore {
 			case "reject-hunk":
 				RejectHunk(root);
 				break;
+			case "keep-hunk":
+				KeepHunk(root);
+				break;
 			case "revert-file":
 				RevertFile(root);
+				break;
+			case "keep-file":
+				KeepFile(root);
 				break;
 			case "invoke-command":
 				// A web keybinding/palette/menu invoked a Core command — run it on the active session. A `token`
@@ -574,6 +580,54 @@ public sealed partial class HostCore {
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
+	}
+
+	/// <summary>
+	/// Keeps a single hunk: advances Core's review baseline over it (no disk write) so it drops from the pending
+	/// diff for good and survives session switches. The web sends the same line ranges + <c>guardText</c> as a
+	/// revert; a guard mismatch (a parallel edit moved the file) re-emits a fresh diff without advancing.
+	/// </summary>
+	private void KeepHunk(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.GetStringOrEmpty("path");
+		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			return;
+		}
+
+		var baselineRange = new LineRange(JsonInt(root, "baselineStart"), JsonInt(root, "baselineEndExclusive"));
+		var currentRange = new LineRange(JsonInt(root, "currentStart"), JsonInt(root, "currentEndExclusive"));
+		string guardText = root.GetStringOrEmpty("guardText");
+
+		if (!session.Changes.KeepHunk(path, baselineRange, currentRange, guardText)) {
+			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
+			return;
+		}
+
+		PushTurnDiffToWeb(path);  // the inline diff drops the kept hunk
+		PushTurnChangesToWeb();   // the file may have left the review set
+	}
+
+	/// <summary>
+	/// Keeps a whole file: advances its review baseline to current (no disk write) so it leaves the review set for
+	/// good — the file-scoped analogue of keep-all, sharing <see cref="SessionChangeTracker.KeepFile"/>.
+	/// </summary>
+	private void KeepFile(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.GetStringOrEmpty("path");
+		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			return;
+		}
+
+		session.Changes.KeepFile(path);
+		PushTurnDiffToWeb(path);  // baseline == current → the inline markers clear
+		PushTurnChangesToWeb();   // the file has left the review set
 	}
 
 	/// <summary>

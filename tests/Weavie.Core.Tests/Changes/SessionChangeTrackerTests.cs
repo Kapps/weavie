@@ -359,6 +359,86 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Equal("", fileSystem.ReadAllText("/w/a.txt"));
 	}
 
+	[Fact]
+	public void KeepHunk_MiddleHunk_AdvancesBaselineLeavingOthersPending() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt"); // baseline = a\nb\nc\nd\ne\n
+											 // Lines 2 (b->B) and 4 (d->D) change: two hunks separated by equal line c.
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n");
+		tracker.RecordChange("/w/a.txt");
+
+		// Keep only the second hunk (line 4: d->D). Disk is never touched; the review baseline advances over it.
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+
+		Assert.Equal("a\nB\nc\nD\ne\n", fileSystem.ReadAllText("/w/a.txt")); // disk unchanged
+		// Diff now shows only the still-pending first hunk: the baseline absorbed line 4's change.
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\nc\nD\ne\n", change!.BaselineText);
+		Assert.Equal("a\nB\nc\nD\ne\n", change.CurrentText);
+		Assert.Single(tracker.TurnChanges()); // file still pending (first hunk)
+	}
+
+	[Fact]
+	public void KeepHunk_GuardMismatch_LeavesBaselineUnchanged() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
+		tracker.RecordChange("/w/a.txt");
+
+		// Concurrent edit moved the file after the web snapshotted its guard text.
+		fileSystem.WriteAllText("/w/a.txt", "a\nXYZ\n");
+		Assert.False(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
+
+		// Baseline never advanced — the file is still fully pending against its original baseline.
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\n", change!.BaselineText);
+	}
+
+	[Fact]
+	public void KeepHunk_LastHunk_DropsFileFromReviewSetKeepingSessionDiff() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
+		tracker.RecordChange("/w/a.txt");
+
+		// The file's one hunk: keeping it advances the review baseline to current, so it leaves the review set.
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
+
+		Assert.Empty(tracker.TurnChanges());     // dropped from the review walk for good
+		Assert.Single(tracker.Changes());        // session diff (b -> B) survives, like keep-all
+	}
+
+	[Fact]
+	public void KeepFile_AdvancesWholeBaseline_DropsFromReviewSetKeepingSessionDiff() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "A\nb\nC\n"); // two hunks (lines 1 and 3)
+		tracker.RecordChange("/w/a.txt");
+
+		tracker.KeepFile("/w/a.txt");
+
+		Assert.Empty(tracker.TurnChanges()); // whole file left the review set
+		Assert.Equal("A\nb\nC\n", fileSystem.ReadAllText("/w/a.txt")); // disk unchanged
+		Assert.Single(tracker.Changes());    // session diff survives
+	}
+
+	[Fact]
+	public void KeepFile_Untracked_NoOp() {
+		var tracker = Tracker(new InMemoryFileSystem());
+		tracker.KeepFile("/w/never.txt"); // never recorded — must not throw or invent a change
+		Assert.Empty(tracker.TurnChanges());
+	}
+
 	private static HookRequest Bash(HookEventKind evt, string command) => new() {
 		Event = evt,
 		ToolName = "Bash",

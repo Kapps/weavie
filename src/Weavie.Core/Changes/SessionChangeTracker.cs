@@ -224,6 +224,56 @@ public sealed class SessionChangeTracker {
 		}
 	}
 
+	/// <summary>
+	/// Keeps a single hunk: advances the file's review baseline over just that hunk so it leaves the pending diff
+	/// for good (and survives session switches), without touching disk. <paramref name="guardText"/> is the same
+	/// optimistic-concurrency check as <see cref="RevertHunk"/>; a mismatch aborts and returns <see langword="false"/>.
+	/// </summary>
+	/// <param name="path">Absolute file path.</param>
+	/// <param name="baselineRange">The hunk's range in the review baseline (1-based, end-exclusive).</param>
+	/// <param name="currentRange">The hunk's range in the current file (1-based, end-exclusive).</param>
+	/// <param name="guardText">The exact current text of <paramref name="currentRange"/> as the web sees it.</param>
+	public bool KeepHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(guardText);
+		lock (_gate) {
+			var currentLines = SplitLines(ReadOrEmpty(path));
+			if (!TryGetSlice(currentLines, currentRange, out var currentSlice)
+			|| !string.Equals(string.Join("\n", currentSlice), guardText, StringComparison.Ordinal)) {
+				return false;
+			}
+
+			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
+			if (!TryGetSlice(baselineLines, baselineRange, out _)) {
+				return false;
+			}
+
+			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
+			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
+			_reviewBaseline[path] = string.Join("\n", baselineLines);
+			_current[path] = string.Join("\n", currentLines);
+			return true;
+		}
+	}
+
+	/// <summary>
+	/// Keeps a whole file: advances its review baseline to current content so the file leaves the pending diff for
+	/// good (and survives session switches), without touching disk. No-op for an untracked path.
+	/// </summary>
+	/// <param name="path">Absolute file path.</param>
+	public void KeepFile(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		lock (_gate) {
+			if (!_current.ContainsKey(path)) {
+				return;
+			}
+
+			string current = ReadOrEmpty(path);
+			_reviewBaseline[path] = current;
+			_current[path] = current;
+		}
+	}
+
 	// Drops a path from every tracked set after the file was deleted on revert. Caller holds _gate.
 	private void Forget(string path) {
 		_current.Remove(path);

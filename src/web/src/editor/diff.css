@@ -302,16 +302,3 @@
   color: var(--dim);
   font-size: 11px;
 }
-
-/* A hunk the user has KEPT (marked reviewed) stays visible but de-emphasised, so review progress reads at a
-   glance — the green wash fades and the gutter bar goes grey, distinguishing "looked at" from still-pending. */
-.weavie-inline-reviewed {
-  background: rgba(120, 120, 120, 0.08);
-}
-
-.weavie-inline-reviewed-gutter {
-  background: var(--dim);
-  width: 3px !important;
-  margin-left: 3px;
-  opacity: 0.6;
-}

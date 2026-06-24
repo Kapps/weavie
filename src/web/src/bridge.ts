@@ -156,6 +156,20 @@ export type HostBoundMessage =
       currentEndExclusive: number;
       guardText: string;
     }
+  // Inline review: KEEP ONE hunk — advance the host's review baseline over it (no disk write) so it drops from
+  // the pending diff for good and survives session switches. Same ranges + `guardText` shape as reject-hunk.
+  | {
+      type: "keep-hunk";
+      path: string;
+      baselineStart: number;
+      baselineEndExclusive: number;
+      currentStart: number;
+      currentEndExclusive: number;
+      guardText: string;
+    }
+  // Inline review: KEEP ALL of one file's changes — advance its review baseline to current (no disk write) so the
+  // file leaves the review set for good (the file-scoped analogue of accept-turn).
+  | { type: "keep-file"; path: string }
   // The file browser asks the host to list a directory under the session root (root when path is "").
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.

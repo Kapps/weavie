@@ -16,6 +16,11 @@ if (listen is null) {
 
 string bind = listen.BindAddress;
 
+// Remote mode token-gates every request, so the bridge's legitimate client is cross-origin by design (the
+// app at https://weavie.app, the runner's picker page on another port). The CSWSH same-origin check below is
+// therefore the LOCAL no-token mode's only bridge defense and applies only there.
+bool tokenGated = listen is ListenMode.Remote;
+
 // The host outlives any one page: built once, each browser connection (re)attaches its socket.
 var bridge = new WebSocketHostBridge();
 var services = HostServices.CreateDefault();
@@ -31,7 +36,13 @@ builder.Logging.ClearProviders(); // We print our own status; Kestrel request lo
 builder.WebHost.UseUrls($"http://{bind}:{port}");
 var app = builder.Build();
 
-app.UseWebSockets();
+// Keepalive with a timeout so a half-open peer (an unclean refresh / crash / sleep / network drop, which sends
+// no close frame) is actively detected and aborted, instead of lingering as a zombie the bridge keeps
+// broadcasting to. The per-connection send queues bound the damage either way; this is the prompt detector.
+app.UseWebSockets(new WebSocketOptions {
+	KeepAliveInterval = TimeSpan.FromSeconds(30),
+	KeepAliveTimeout = TimeSpan.FromSeconds(30),
+});
 
 var assets = Directory.Exists(wwwroot) ? new PhysicalFileProvider(wwwroot) : null;
 
@@ -76,10 +87,10 @@ app.Map("/weavie-bridge", async context => {
 		return;
 	}
 
-	// Reject a cross-origin upgrade (CSWSH): a browser always sends Origin on a WS handshake, so an Origin whose
-	// authority isn't this server's own Host is a foreign page reaching the bridge. This is the only defense for
-	// the local no-token mode (a malicious tab hitting 127.0.0.1); the token still gates remote mode on top.
-	if (!SameOriginOrNonBrowser(context.Request)) {
+	// CSWSH guard for the LOCAL no-token mode only — there the bridge has no other auth, so a cross-origin
+	// browser upgrade (Origin authority ≠ our own Host) is a foreign page and is rejected. In remote mode the
+	// token already gated this request and the real client is cross-origin by design, so the check must not run.
+	if (!tokenGated && !SameOriginOrNonBrowser(context.Request)) {
 		context.Response.StatusCode = StatusCodes.Status403Forbidden;
 		return;
 	}

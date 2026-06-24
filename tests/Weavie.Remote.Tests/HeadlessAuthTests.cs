@@ -1,5 +1,6 @@
 using System.Net;
 using System.Net.WebSockets;
+using System.Text;
 using Xunit;
 
 namespace Weavie.Remote.Tests;
@@ -90,13 +91,20 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	}
 
 	[Fact]
-	public async Task Bridge_websocket_upgrade_is_rejected_with_a_foreign_origin() {
-		// CSWSH: even with the token, a cross-origin Origin (a foreign browser tab) is refused.
+	public async Task Bridge_websocket_upgrade_succeeds_with_a_foreign_origin_when_token_gated() {
+		// In remote mode the token is the gate and the real client is cross-origin by design (the app at
+		// https://weavie.app, the runner's picker page on another port), so a foreign Origin + correct token must
+		// connect. The same-origin (CSWSH) check applies to the local no-token mode only. Regression: the
+		// hardening applied it unconditionally and 403'd every remote agent's bridge. See remote-sessions.md.
 		using var socket = new ClientWebSocket();
-		socket.Options.SetRequestHeader("Origin", "http://evil.example");
+		socket.Options.SetRequestHeader("Origin", "https://weavie.app");
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-		await Assert.ThrowsAsync<WebSocketException>(() =>
-			socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={Tokens.Correct}"), cts.Token));
+		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={Tokens.Correct}"), cts.Token);
+		Assert.Equal(WebSocketState.Open, socket.State);
+		try {
+			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
+		} catch (WebSocketException) {
+		}
 	}
 
 	[Fact]
@@ -117,6 +125,67 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 		// Default-deny: a path that is neither a public asset nor a known route still requires the token.
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/api/secret");
 		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+	}
+
+	[Fact]
+	public async Task Bridge_broadcasts_pushes_to_every_connected_page() {
+		// Two pages on one worker (a second tab, or a remote agent that loops back to the same worker) must BOTH
+		// receive server pushes — a newcomer must never steal the stream from the others. Regression: the bridge
+		// held a single socket, so a second connection silently starved the first of all output (input still
+		// flowed over its own read loop, so the page "rendered once and then froze").
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+		using var first = await ConnectBridgeAsync(fixture.Host.Port, cts.Token);
+		using var second = await ConnectBridgeAsync(fixture.Host.Port, cts.Token);
+
+		// `ready` makes the host push its restore state (the session list among it); with broadcast it reaches
+		// every socket, so `first` — which sent nothing itself — must still receive the push `second` triggered.
+		await SendTextAsync(second, "{\"type\":\"ready\"}", cts.Token);
+
+		Assert.True(
+			await ReceivesTypeAsync(first, "session-list", cts.Token),
+			"the first page received no broadcast push after a second page connected");
+		Assert.True(
+			await ReceivesTypeAsync(second, "session-list", cts.Token),
+			"the second page received no push for its own ready");
+	}
+
+	private static async Task<ClientWebSocket> ConnectBridgeAsync(int port, CancellationToken ct) {
+		var socket = new ClientWebSocket();
+		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/weavie-bridge?token={Tokens.Correct}"), ct);
+		return socket;
+	}
+
+	private static Task SendTextAsync(ClientWebSocket socket, string json, CancellationToken ct) =>
+		socket.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, endOfMessage: true, ct);
+
+	/// <summary>Reads bridge frames until one is a message of the given <paramref name="type"/>, or the token cancels (→ false).</summary>
+	private static async Task<bool> ReceivesTypeAsync(ClientWebSocket socket, string type, CancellationToken ct) {
+		string needle = $"\"type\":\"{type}\"";
+		byte[] buffer = new byte[64 * 1024];
+		using var message = new MemoryStream();
+		try {
+			while (socket.State == WebSocketState.Open) {
+				var result = await socket.ReceiveAsync(buffer, ct);
+				if (result.MessageType == WebSocketMessageType.Close) {
+					return false;
+				}
+
+				message.Write(buffer, 0, result.Count);
+				if (!result.EndOfMessage) {
+					continue;
+				}
+
+				string text = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
+				message.SetLength(0);
+				if (text.Contains(needle, StringComparison.Ordinal)) {
+					return true;
+				}
+			}
+		} catch (OperationCanceledException) {
+			return false;
+		}
+
+		return false;
 	}
 }
 
@@ -148,7 +217,11 @@ public sealed class LocalHeadlessFixture : IAsyncLifetime {
 	}
 }
 
-/// <summary>Local mode is loopback-only and unauthenticated by design — the document is served with no token.</summary>
+/// <summary>
+/// Local mode is loopback-only and unauthenticated by design — the document is served with no token, and the
+/// bridge's only defense against a malicious browser tab is the same-origin (CSWSH) check (which applies here,
+/// not in token-gated remote mode).
+/// </summary>
 public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClassFixture<LocalHeadlessFixture> {
 	private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
@@ -156,6 +229,30 @@ public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClas
 	public async Task Document_is_served_without_a_token_in_local_mode() {
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/");
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+	}
+
+	[Fact]
+	public async Task Bridge_websocket_upgrade_is_rejected_with_a_foreign_origin() {
+		// No token here, so the same-origin check is the bridge's sole defense: a foreign browser tab is refused.
+		using var socket = new ClientWebSocket();
+		socket.Options.SetRequestHeader("Origin", "http://evil.example");
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+		await Assert.ThrowsAsync<WebSocketException>(() =>
+			socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge"), cts.Token));
+	}
+
+	[Fact]
+	public async Task Bridge_websocket_upgrade_succeeds_with_a_matching_origin() {
+		// The local page is same-origin with its loopback host, so a matching Origin connects (no token needed).
+		using var socket = new ClientWebSocket();
+		socket.Options.SetRequestHeader("Origin", $"http://127.0.0.1:{fixture.Host.Port}");
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge"), cts.Token);
+		Assert.Equal(WebSocketState.Open, socket.State);
+		try {
+			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
+		} catch (WebSocketException) {
+		}
 	}
 }
 

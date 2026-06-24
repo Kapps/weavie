@@ -17,8 +17,12 @@ export function RemoteAgentsPanel(props: {
   onClose: () => void;
 }): JSX.Element {
   const onPointerDown = (event: PointerEvent): void => {
-    // Ignore the cloud button too, so clicking it to close doesn't close-then-reopen via its toggle handler.
-    if (!(event.target as HTMLElement).closest(".remote-panel, .session-rail-cloud")) {
+    // Ignore the cloud button (so its toggle handler isn't fought) and our own context menu — it portals
+    // OUTSIDE the panel, so without this a mousedown on a menu item closes the panel, unmounting the menu
+    // (a child of this component) mid-click, and the click lands on whatever was behind it.
+    if (
+      !(event.target as HTMLElement).closest(".remote-panel, .session-rail-cloud, .context-menu")
+    ) {
       props.onClose();
     }
   };

@@ -116,7 +116,11 @@ internal sealed class WelcomeWindow : Form {
 
 		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
-		core.Settings.AreDevToolsEnabled = true;
+#if DEBUG
+		core.Settings.AreDevToolsEnabled = true; // local debugging, Debug builds only
+#else
+		core.Settings.AreDevToolsEnabled = false;
+#endif
 		core.Settings.IsStatusBarEnabled = false;
 
 		_bridge.Attach(_webView);

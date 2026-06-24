@@ -29,6 +29,17 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// Backstop the dispatch: a malformed message (missing field, bad base64, wrong value kind) must not throw
+		// out of the bridge callback and crash the host — especially the network-exposed headless/Runner worker.
+		try {
+			Dispatch(type, root, json);
+		} catch (Exception ex) {
+			Log($"[weavie] error handling '{type}': {ex.Message}");
+		}
+	}
+
+	/// <summary>Routes one parsed web message to its handler. Isolated from <see cref="OnWebMessage"/> so a throw is contained, not fatal.</summary>
+	private void Dispatch(string type, JsonElement root, string json) {
 		switch (type) {
 			case "term-input":
 				TerminalFor(root)?.Write(Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty));

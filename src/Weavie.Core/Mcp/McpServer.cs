@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Net.WebSockets;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Commands;
@@ -169,8 +170,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 					bearer = authHeader["Bearer ".Length..].Trim();
 				}
 
-				if (!string.Equals(ideToken, _authToken, StringComparison.Ordinal)
-					&& !string.Equals(bearer, _authToken, StringComparison.Ordinal)) {
+				// Constant-time compare so the token can't be recovered via early-exit timing.
+				static bool TokenEquals(string? presented, string expected) =>
+					presented is not null && CryptographicOperations.FixedTimeEquals(
+						Encoding.ASCII.GetBytes(presented), Encoding.ASCII.GetBytes(expected));
+				if (!TokenEquals(ideToken, _authToken) && !TokenEquals(bearer, _authToken)) {
 					Emit("rejected connection: missing/invalid auth token");
 					await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 					return;

@@ -1,6 +1,7 @@
 using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Mcp;
 
@@ -36,7 +37,9 @@ public static class IdeLockFile {
 		ArgumentException.ThrowIfNullOrEmpty(ideName);
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 
-		Directory.CreateDirectory(DirectoryPath);
+		// The lock file holds the auth token (RCE-equivalent: it unlocks the registry server's setSetting), so
+		// keep it and its directory owner-only on POSIX.
+		SecureFile.CreateDirectory(DirectoryPath);
 
 		using var stream = new MemoryStream();
 		using (var writer = new Utf8JsonWriter(stream)) {
@@ -54,7 +57,7 @@ public static class IdeLockFile {
 			writer.WriteEndObject();
 		}
 
-		File.WriteAllBytes(PathForPort(port), stream.ToArray());
+		SecureFile.WriteAllBytes(PathForPort(port), stream.ToArray());
 	}
 
 	/// <summary>Removes the lock file for <paramref name="port"/> if present; best-effort (ignores I/O errors).</summary>

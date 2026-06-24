@@ -1,6 +1,7 @@
 using System.IO.Compression;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Theming;
 
@@ -50,6 +51,11 @@ public sealed class OpenVsxThemeInstaller {
 			throw new InvalidOperationException($"Open VSX metadata for {ns}.{name} has no .vsix download.");
 		}
 
+		if (!IsTrustedDownloadUrl(downloadUrl)) {
+			throw new InvalidOperationException(
+				$"Open VSX returned an untrusted .vsix URL for {ns}.{name} ('{downloadUrl}'); expected https on the registry host.");
+		}
+
 		byte[] vsix = await _http.GetByteArrayAsync(downloadUrl, ct).ConfigureAwait(false);
 		return await ExtractAndIndexAsync(ns, name, resolvedVersion, vsix, ct).ConfigureAwait(false);
 	}
@@ -84,6 +90,14 @@ public sealed class OpenVsxThemeInstaller {
 			return [];
 		}
 	}
+
+	// The .vsix download must be https on the registry's own host, so a metadata response can't redirect the
+	// fetch to an attacker host or downgrade it to cleartext.
+	private bool IsTrustedDownloadUrl(string url) =>
+		Uri.TryCreate(url, UriKind.Absolute, out var u)
+		&& u.Scheme == Uri.UriSchemeHttps
+		&& Uri.TryCreate(_registry, UriKind.Absolute, out var registry)
+		&& string.Equals(u.Host, registry.Host, StringComparison.OrdinalIgnoreCase);
 
 	/// <summary>
 	/// Parses Open VSX extension metadata, returning the <c>.vsix</c> download URL and resolved version (both
@@ -128,6 +142,11 @@ public sealed class OpenVsxThemeInstaller {
 				?? Path.GetFileNameWithoutExtension(rawPath);
 			string uiTheme = (theme.TryGetProperty("uiTheme", out var u) ? u.GetString() : null) ?? "vs-dark";
 			string fullPath = Path.GetFullPath(Path.Combine(extensionDir, rawPath));
+			// A malicious manifest path (e.g. ../../../etc/passwd) must not escape the unpacked extension dir.
+			if (!PathBoundary.Contains(extensionDir, fullPath)) {
+				continue;
+			}
+
 			result.Add(new ThemeContribution(label, uiTheme, fullPath));
 		}
 

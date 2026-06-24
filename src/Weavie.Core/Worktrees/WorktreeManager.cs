@@ -1,3 +1,4 @@
+using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
 
 namespace Weavie.Core.Worktrees;
@@ -322,14 +323,10 @@ public sealed class WorktreeManager {
 
 	// True when the path sits strictly inside the managed worktrees dir. The containment guard for manual deletion:
 	// Weavie only places worktrees here, so a path inside it that git can't remove is safe to delete directly.
-	private bool IsWithinWorktreesDir(string normalizedPath) {
-		string root = Normalize(_worktreesDir);
-		if (PathComparer.Equals(normalizedPath, root)) {
-			return false;
-		}
-
-		return normalizedPath.StartsWith(root + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase);
-	}
+	private bool IsWithinWorktreesDir(string normalizedPath) =>
+		// Strictly inside — never the worktrees dir itself, so this guard can't authorize deleting that root.
+		!PathComparer.Equals(normalizedPath, Normalize(_worktreesDir))
+		&& PathBoundary.Contains(_worktreesDir, normalizedPath);
 
 	// Whether git's failure is a transient OS file lock (worth retrying) rather than a real error; anything else is surfaced.
 	private static bool IsTransientFileLock(GitException ex) =>

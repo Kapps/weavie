@@ -37,11 +37,24 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// counterpart of the macOS app:// scheme handler.
 		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
-		core.Settings.AreDevToolsEnabled = true;          // local debugging
+#if DEBUG
+		core.Settings.AreDevToolsEnabled = true; // local debugging, Debug builds only
+#else
+		core.Settings.AreDevToolsEnabled = false;
+#endif
 		core.Settings.IsStatusBarEnabled = false;
 		// Let the web title bar declare its draggable caption via CSS `app-region: drag`; WebView2 then handles
 		// dragging, double-click-maximize, and the right-click system menu for the frameless window.
 		core.Settings.IsNonClientRegionSupportEnabled = true;
+
+		// A window.open / target=_blank goes to the OS browser, never a second in-app WebView with bridge access.
+		core.NewWindowRequested += OnNewWindowRequested;
+#if !DEBUG
+		// First-party app: in Release, a top-level navigation to a foreign web origin (an injected link/redirect)
+		// is cancelled and handed to the OS browser, so it can never keep bridge access. (Debug has its own
+		// dev-server NavigationStarting handler + dev origin, so the gate is Release-only.)
+		core.NavigationStarting += OnNavigationStarting;
+#endif
 
 		// Wire the web↔host bridge before bring-up; the shared launcher then starts the backend, injects the
 		// bootstrap, and navigates (Weavie.Hosting.Web.WebAppLauncher).
@@ -100,6 +113,35 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 			}
 		});
 		return tcs.Task;
+	}
+
+	// External URLs (window.open / target=_blank) open in the OS browser, http(s) only; an in-app new window
+	// (which would share the bridge) is never created.
+	private void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e) {
+		e.Handled = true;
+		OpenExternalIfWeb(e.Uri);
+	}
+
+#if !DEBUG
+	private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e) {
+		// Allow the app host and non-web schemes (about:/data: for NavigateToString error pages); cancel a
+		// top-level navigation to any other web origin and route it to the OS browser instead.
+		if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri)
+			|| (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
+			|| string.Equals(uri.Host, AppHost, StringComparison.OrdinalIgnoreCase)) {
+			return;
+		}
+
+		e.Cancel = true;
+		OpenExternalIfWeb(e.Uri);
+	}
+#endif
+
+	private void OpenExternalIfWeb(string? uri) {
+		if (Uri.TryCreate(uri, UriKind.Absolute, out var parsed)
+			&& (parsed.Scheme == Uri.UriSchemeHttp || parsed.Scheme == Uri.UriSchemeHttps)) {
+			((IHostPlatform)this).OpenExternalUrl(parsed.AbsoluteUri);
+		}
 	}
 
 	/// <summary>Schedules the unattended deliverable screenshot when WEAVIE_SHOT_DIR is set (never in the shipped app).</summary>

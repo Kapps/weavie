@@ -634,9 +634,17 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
 		}
 
-		string branch = string.IsNullOrWhiteSpace(requestedBranch)
-			? await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(false)
-			: requestedBranch.Trim();
+		string branch;
+		if (string.IsNullOrWhiteSpace(requestedBranch)) {
+			branch = await DeriveUniqueBranchNameAsync(prompt, ct).ConfigureAwait(false);
+		} else {
+			branch = requestedBranch.Trim();
+			// The branch name is web-supplied; reject a malformed/option-shaped name before it reaches git.
+			if (!GitService.IsValidBranchName(branch)) {
+				return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
+			}
+		}
+
 		string baseRef;
 		try {
 			baseRef = await ResolveBaseRefAsync(baseSpec, ct).ConfigureAwait(false);
@@ -671,6 +679,9 @@ public sealed partial class HostCore {
 		}
 
 		string branch = requestedBranch.Trim();
+		if (!GitService.IsValidBranchName(branch)) {
+			return CommandResult.Failure($"'{branch}' isn't a valid branch name.");
+		}
 
 		// Already a live/dormant Weavie session for this branch (slot ids are the branch name)? Switch to it.
 		if (_sessions?.Find(branch) is { } existingSlot) {

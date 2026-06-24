@@ -58,4 +58,16 @@ public sealed class HostCoreTerminalActionsTests {
 
 		Assert.Null(host.Platform.LastOpenedUrl); // the OS opener was never reached
 	}
+
+	[Fact]
+	public async Task MalformedMessage_IsContainedAndTheHostKeepsWorking() {
+		await using var host = await TestHost.StartAsync();
+
+		// Bad base64 in term-input throws inside the dispatch; the backstop must contain it (it would otherwise
+		// crash the network-exposed worker), and the host keeps handling subsequent messages.
+		host.Send("""{"type":"term-input","dataB64":"!!! not base64 !!!"}""");
+		host.Send(Msg(new { type = "clipboard-write", text = "still working" }));
+
+		Assert.Equal("still working", host.Platform.LastWrittenClipboard);
+	}
 }

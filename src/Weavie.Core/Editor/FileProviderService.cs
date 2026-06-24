@@ -55,6 +55,8 @@ public sealed class FileProviderService {
 	/// out-of-workspace, missing, or unreadable path. The single validated read every host-side file *open*
 	/// shares — the editor provider above, plus <c>FileOpener</c> (reveal-file / MCP <c>openFile</c>) and the
 	/// openDiff baseline — so the same confinement is enforced in one place and can't be bypassed by a caller.
+	/// Confinement is by normalized path (<c>Path.GetFullPath</c>), not by resolved link target: an in-tree
+	/// symlink that points outside is followed, which is acceptable under the trusted-opened-repo model.
 	/// </summary>
 	public string? ReadIfAllowed(string path) {
 		if (!IsAllowed(path) || !_fileSystem.FileExists(path)) {

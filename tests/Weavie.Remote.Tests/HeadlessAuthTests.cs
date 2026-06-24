@@ -90,6 +90,29 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	}
 
 	[Fact]
+	public async Task Bridge_websocket_upgrade_is_rejected_with_a_foreign_origin() {
+		// CSWSH: even with the token, a cross-origin Origin (a foreign browser tab) is refused.
+		using var socket = new ClientWebSocket();
+		socket.Options.SetRequestHeader("Origin", "http://evil.example");
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+		await Assert.ThrowsAsync<WebSocketException>(() =>
+			socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={Tokens.Correct}"), cts.Token));
+	}
+
+	[Fact]
+	public async Task Bridge_websocket_upgrade_succeeds_with_a_matching_origin() {
+		using var socket = new ClientWebSocket();
+		socket.Options.SetRequestHeader("Origin", $"http://127.0.0.1:{fixture.Host.Port}");
+		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={Tokens.Correct}"), cts.Token);
+		Assert.Equal(WebSocketState.Open, socket.State);
+		try {
+			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);
+		} catch (WebSocketException) {
+		}
+	}
+
+	[Fact]
 	public async Task Unknown_path_is_denied_by_default_without_a_token() {
 		// Default-deny: a path that is neither a public asset nor a known route still requires the token.
 		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/api/secret");

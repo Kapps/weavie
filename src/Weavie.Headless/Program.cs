@@ -76,6 +76,14 @@ app.Map("/weavie-bridge", async context => {
 		return;
 	}
 
+	// Reject a cross-origin upgrade (CSWSH): a browser always sends Origin on a WS handshake, so an Origin whose
+	// authority isn't this server's own Host is a foreign page reaching the bridge. This is the only defense for
+	// the local no-token mode (a malicious tab hitting 127.0.0.1); the token still gates remote mode on top.
+	if (!SameOriginOrNonBrowser(context.Request)) {
+		context.Response.StatusCode = StatusCodes.Status403Forbidden;
+		return;
+	}
+
 	using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
 	await bridge.ServeAsync(socket, context.RequestAborted).ConfigureAwait(false);
 });
@@ -100,6 +108,18 @@ static int ResolvePort(string[] args) {
 	}
 
 	return int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SERVE_PORT"), out int fromEnv) ? fromEnv : 8700;
+}
+
+// A WS upgrade is same-origin (Origin authority == this server's Host) or has no Origin (a non-browser client,
+// which carries no ambient credentials so isn't a CSWSH vector). Anything else is a foreign page → reject.
+static bool SameOriginOrNonBrowser(HttpRequest request) {
+	string origin = request.Headers.Origin.ToString();
+	if (string.IsNullOrEmpty(origin)) {
+		return true;
+	}
+
+	return Uri.TryCreate(origin, UriKind.Absolute, out var parsed)
+		&& string.Equals(parsed.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
 }
 
 static bool TokenMatches(HttpContext context, string expected) {

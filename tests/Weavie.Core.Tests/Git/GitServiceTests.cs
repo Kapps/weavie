@@ -51,4 +51,30 @@ public sealed class GitServiceTests {
 		Assert.Single(list);
 		Assert.Equal("main", list[0].Branch);
 	}
+
+	[Theory]
+	[InlineData("feature")]
+	[InlineData("feature/login")]
+	[InlineData("fix-123")]
+	[InlineData("user/my.branch")]
+	public void IsValidBranchName_AcceptsOrdinaryNames(string name) =>
+		Assert.True(GitService.IsValidBranchName(name));
+
+	[Theory]
+	[InlineData("")]
+	[InlineData("-rf")]                 // leading '-' would parse as a git option
+	[InlineData("--upload-pack=evil")]
+	[InlineData(".hidden")]
+	[InlineData("a..b")]
+	[InlineData("a//b")]
+	[InlineData("with space")]
+	[InlineData("with~tilde")]
+	[InlineData("with:colon")]
+	[InlineData("with\\backslash")]
+	[InlineData("ends/")]
+	[InlineData("ends.lock")]
+	[InlineData("q?mark")]
+	[InlineData("@")]
+	public void IsValidBranchName_RejectsMalformedOrOptionShapedNames(string name) =>
+		Assert.False(GitService.IsValidBranchName(name));
 }

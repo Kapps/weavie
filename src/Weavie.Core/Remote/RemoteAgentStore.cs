@@ -118,6 +118,8 @@ public sealed class RemoteAgentStore {
 				Agents = [.. _items.Select(a => new AgentEntry { Name = a.Name, Url = a.Url, Token = a.Token })],
 			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
+			// The file holds runner control-plane bearer tokens; keep it owner-only on POSIX.
+			SecureFile.Restrict(FilePath);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Log?.Invoke($"[remote-agents] could not persist: {ex.Message}");
 		}

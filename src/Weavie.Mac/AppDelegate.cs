@@ -45,8 +45,10 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 		var config = new WKWebViewConfiguration();
 		config.SetUrlSchemeHandler(new AppSchemeHandler(wwwroot), "app");
 		config.UserContentController.AddScriptMessageHandler(_bridge, "weavie");
-		// Allow the Web Inspector for local debugging.
+#if DEBUG
+		// Allow the Web Inspector for local debugging (Debug builds only).
 		config.Preferences.SetValueForKey(NSNumber.FromBoolean(true), new NSString("developerExtrasEnabled"));
+#endif
 		// Render at the display's full refresh (120Hz) instead of WKWebView's default 60fps pacing.
 		WebKitFeatureFlags.DisablePrefer60Fps(config.Preferences);
 

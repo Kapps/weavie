@@ -87,6 +87,8 @@ export interface EditorOptionsSpec {
   hoverDelay: number;
   suggestExpandDocs: boolean;
   commentProse: CommentProseMode;
+  // Not a Monaco option: toggles the Ctrl+N pane-switch hint badges (see App.tsx).
+  paneShortcutHints: boolean;
 }
 
 /**

@@ -34,6 +34,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   hoverDelay: 300,
   suggestExpandDocs: true,
   commentProse: "documentation",
+  paneShortcutHints: true,
 };
 
 let current: EditorOptionsSpec = hostInjected(

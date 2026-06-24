@@ -131,15 +131,66 @@
   white-space: nowrap;
 }
 
-/* Editor tab strip: chrome inside the editor pane (not a layout pane). Height is content-driven. */
+/* Editor tab strip: chrome inside the editor pane (not a layout pane). Height is content-driven. A fixed
+   row — scroll buttons + trailing controls flank a scrollable track — so nothing overflows the strip. */
 .editor-tabs {
   display: flex;
   flex: 0 0 auto;
-  overflow-x: auto;
-  overflow-y: hidden;
+  align-items: stretch;
+  overflow: hidden;
   background: var(--bar);
   border-bottom: 1px solid var(--border);
-  scrollbar-width: thin;
+}
+
+/* The horizontally-scrollable tab lane. The native scrollbar is hidden — the chevron buttons drive
+   scrolling (the mouse wheel still works). */
+.editor-tabs-track {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.editor-tabs-track::-webkit-scrollbar {
+  display: none;
+}
+
+/* Left/right tab-scroll buttons occupying the strip's edges; rendered only when the tabs overflow, and
+   dimmed when there's nothing further to reveal in that direction. */
+.editor-tab-scroll {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  padding: 0 0.35em;
+  border: none;
+  background: var(--bar);
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.editor-tab-scroll.left {
+  border-right: 1px solid var(--border);
+}
+
+.editor-tab-scroll.right {
+  border-left: 1px solid var(--border);
+}
+
+.editor-tab-scroll:hover:not(:disabled) {
+  color: var(--fg);
+}
+
+.editor-tab-scroll:disabled {
+  opacity: 0.3;
+  cursor: default;
+}
+
+/* The pane-switch badge in the tab bar: a centered chip past the scroll/preview controls, not stretched. */
+.editor-tabs .pane-shortcut {
+  align-self: center;
+  margin: 0 6px 0 0;
 }
 
 .editor-tab {
@@ -226,16 +277,10 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-/* Source/Preview toggle, pinned to the right of the (scrollable) tab strip. `sticky` + `margin-left:auto`
-   keeps it at the right edge whether or not the tabs overflow; the opaque --bar background occludes tabs
-   that scroll under it. `margin-right` reserves the corner for the floating pane-number badge so the two
-   don't overlap. Shown only for previewable files (see TabStrip). */
+/* Source/Preview toggle: a fixed control at the right of the tab strip (past the scroll buttons, before the
+   pane-number badge). Shown only for previewable files (see TabStrip). */
 .editor-preview-toggle {
   flex: 0 0 auto;
-  position: sticky;
-  right: 0;
-  margin-left: auto;
-  margin-right: 54px;
   display: inline-flex;
   align-items: center;
   padding: 0 0.6em;

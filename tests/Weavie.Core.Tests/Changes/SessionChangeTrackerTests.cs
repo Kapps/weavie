@@ -372,8 +372,8 @@ public sealed class SessionChangeTrackerTests {
 		// Keep only the second hunk (line 4: d->D). Disk is never touched; the review baseline advances over it.
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
 
-		Assert.Equal("a\nB\nc\nD\ne\n", fileSystem.ReadAllText("/w/a.txt")); // disk unchanged
-		// Diff now shows only the still-pending first hunk: the baseline absorbed line 4's change.
+		// Disk is untouched, and the diff now shows only the still-pending first hunk (the baseline absorbed line 4).
+		Assert.Equal("a\nB\nc\nD\ne\n", fileSystem.ReadAllText("/w/a.txt"));
 		var change = tracker.GetTurn("/w/a.txt");
 		Assert.NotNull(change);
 		Assert.Equal("a\nb\nc\nD\ne\n", change!.BaselineText);

@@ -23,6 +23,10 @@ public sealed partial class SessionChangeTracker {
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
 	private readonly Dictionary<string, string> _reviewBaseline = new(StringComparer.Ordinal);
+	// Each file's content at the last keep-all (the commit point), advanced ONLY by AcceptTurn. The faded
+	// "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays visible-but-
+	// faded with an inline undo until keep-all clears it. See docs/specs/turn-review.md (Phase 2).
+	private readonly Dictionary<string, string> _acceptedAnchor = new(StringComparer.Ordinal);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly Dictionary<string, string> _preEdit = new(StringComparer.Ordinal);
 	// Files absent on disk when their review baseline was captured, so reverting their last hunk deletes rather
@@ -82,14 +86,17 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// Keep-all: advances every review baseline to current content, clearing the inline diff. The session diff
-	/// (vs the session baseline) is kept, and nothing counts as "created since baseline" any more.
+	/// Keep-all: advances every review baseline AND accepted anchor to current content, clearing every inline
+	/// marker (bright pending and faded accepted alike). The session diff (vs the session baseline) is kept, and
+	/// nothing counts as "created since baseline" any more.
 	/// </summary>
 	public void AcceptTurn() {
 		lock (_gate) {
 			_reviewBaseline.Clear();
+			_acceptedAnchor.Clear();
 			foreach (var (path, content) in _current) {
 				_reviewBaseline[path] = content;
+				_acceptedAnchor[path] = content; // commit point: the faded band collapses to nothing
 			}
 
 			_createdSinceBaseline.Clear();
@@ -113,6 +120,7 @@ public sealed partial class SessionChangeTracker {
 				_createdSinceBaseline.Add(path);
 			}
 
+			_acceptedAnchor.TryAdd(path, content); // seeded == reviewBaseline; diverges only as hunks are kept
 			_preEdit[path] = content;
 		}
 	}
@@ -128,6 +136,7 @@ public sealed partial class SessionChangeTracker {
 				_createdSinceBaseline.Add(path);
 			}
 
+			_acceptedAnchor.TryAdd(path, string.Empty);
 			_current[path] = ReadOrEmpty(path);
 		}
 
@@ -322,11 +331,46 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
+	/// <summary>
+	/// Un-keeps a single accepted (faded) hunk: splices the accepted anchor's lines back into the review baseline
+	/// over that hunk, so it returns to the bright pending band. The inverse of <see cref="KeepHunk"/> — but it
+	/// operates on the accepted-anchor→review-baseline span (both Core-internal) and touches neither disk nor the
+	/// undo history, so it composes safely with the LIFO keep/revert stack (a stale stack entry just declines via
+	/// its own guard). <paramref name="guardText"/> is the review-baseline text the web diffed; a mismatch (a
+	/// concurrent keep moved the baseline) aborts with <see langword="false"/>.
+	/// </summary>
+	/// <param name="path">Absolute file path.</param>
+	/// <param name="acceptedRange">The hunk's range in the accepted anchor — the source of the restored lines (1-based, end-exclusive).</param>
+	/// <param name="reviewRange">The hunk's range in the review baseline — where the accepted lines are spliced back (1-based, end-exclusive).</param>
+	/// <param name="guardText">The exact review-baseline text of <paramref name="reviewRange"/> as the web sees it.</param>
+	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string guardText) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(guardText);
+		lock (_gate) {
+			var reviewLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
+			if (!TryGetSlice(reviewLines, reviewRange, out var reviewSlice)
+				|| !string.Equals(string.Join("\n", reviewSlice), guardText, StringComparison.Ordinal)) {
+				return false;
+			}
+
+			var acceptedLines = SplitLines(_acceptedAnchor.GetValueOrDefault(path, string.Empty));
+			if (!TryGetSlice(acceptedLines, acceptedRange, out var replacement)) {
+				return false;
+			}
+
+			reviewLines.RemoveRange(reviewRange.Start - 1, reviewRange.EndExclusive - reviewRange.Start);
+			reviewLines.InsertRange(reviewRange.Start - 1, replacement);
+			_reviewBaseline[path] = string.Join("\n", reviewLines); // disk + _current untouched — the hunk just goes bright again
+			return true;
+		}
+	}
+
 	// Drops a path from every tracked set after the file was deleted on revert. Caller holds _gate.
 	private void Forget(string path) {
 		_current.Remove(path);
 		_baseline.Remove(path);
 		_reviewBaseline.Remove(path);
+		_acceptedAnchor.Remove(path);
 		_preEdit.Remove(path);
 		_createdSinceBaseline.Remove(path);
 	}
@@ -392,13 +436,22 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	/// <summary>The files whose current content differs from their review baseline (the inline review diff set).</summary>
+	/// <summary>
+	/// The inline review diff set: every file whose current content differs from its accepted anchor — so a
+	/// fully-kept-but-uncommitted file (review baseline == current, but accepted anchor still behind) STAYS in the
+	/// set to carry its faded band, until keep-all snaps the anchor to current and drops it.
+	/// </summary>
 	public IReadOnlyList<FileChange> TurnChanges() {
 		lock (_gate) {
 			var changes = new List<FileChange>();
-			foreach (var (path, baseline) in _reviewBaseline) {
-				if (_current.TryGetValue(path, out string? current) && !string.Equals(baseline, current, StringComparison.Ordinal)) {
-					changes.Add(new FileChange { Path = path, BaselineText = baseline, CurrentText = current });
+			foreach (var (path, accepted) in _acceptedAnchor) {
+				if (_current.TryGetValue(path, out string? current) && !string.Equals(accepted, current, StringComparison.Ordinal)) {
+					changes.Add(new FileChange {
+						Path = path,
+						AcceptedBaselineText = accepted,
+						BaselineText = _reviewBaseline.GetValueOrDefault(path, accepted),
+						CurrentText = current,
+					});
 				}
 			}
 
@@ -407,8 +460,9 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// The change for <paramref name="path"/> against its review baseline, or <see langword="null"/> if the file
-	/// isn't tracked. Baseline may equal current — the caller treats an equal pair as "no markers".
+	/// The change for <paramref name="path"/> as the (accepted anchor, review baseline, current) triple, or
+	/// <see langword="null"/> if the file isn't tracked. Any pair may be equal — the caller treats accepted ==
+	/// current as "no markers", review baseline == current as "no pending hunks (faded only)".
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	public FileChange? GetTurn(string path) {
@@ -418,7 +472,12 @@ public sealed partial class SessionChangeTracker {
 				return null;
 			}
 
-			return new FileChange { Path = path, BaselineText = baseline, CurrentText = current };
+			return new FileChange {
+				Path = path,
+				AcceptedBaselineText = _acceptedAnchor.GetValueOrDefault(path, baseline),
+				BaselineText = baseline,
+				CurrentText = current,
+			};
 		}
 	}
 

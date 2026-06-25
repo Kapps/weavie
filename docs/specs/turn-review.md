@@ -1,7 +1,7 @@
 # Reviewing auto-applied changes (post-turn review)
 
 Status: in progress
-Last updated: 2026-06-22
+Last updated: 2026-06-24
 
 A keyboard-first flow for reviewing what Claude changed during an autonomous turn in an **auto-apply
 mode** (`acceptEdits` / `bypassPermissions`). Claude runs a full turn without stopping to ask; when it
@@ -22,11 +22,14 @@ whether the edit ever happens. In an auto-apply mode there is no gate: the edit 
 the time you look at it (that is the entire point of the mode). So review is **post-hoc**, and that
 inverts what the two actions mean:
 
-- **Revert = the only action that mutates the file** — it undoes a change that already landed.
-- **Keep = advance the review baseline + move on.** No disk write — the change is already there — but
-  not a no-op: it advances **Core's** review baseline over the kept change so the hunk leaves the
-  pending-diff set *for good* (it disappears from the diff and never returns, even across a session
-  switch). The kept content becomes part of the new baseline.
+- **Revert = the only action that mutates the file** — it undoes a change that already landed. It removes
+  the change from disk, so it vanishes entirely (nothing left to fade); it stays recoverable through the
+  undo history (`Ctrl+Shift+Backspace` / Redo), not an inline affordance.
+- **Keep = advance the review baseline + fade the hunk.** No disk write — the change is already there — but
+  not a no-op: it advances **Core's** review baseline over the kept change so the hunk leaves the *bright
+  pending* band. It does **not** vanish: it stays visible as a **faded "accepted" band** — proof it was
+  kept, still recoverable — with an inline **↶ undo** beside it, until **Keep-all** commits the whole set.
+  See [The faded "accepted" band](#the-faded-accepted-band-keep-fades-a-hunk-it-doesnt-hide-it).
 - **Do nothing = keep, but unreviewed.** Whatever you don't touch stays on disk *and stays in the
   review set* (see [Accumulate](#accumulate-the-baseline-is-last-reviewed-not-turn-start)).
 
@@ -131,8 +134,8 @@ and it's race-free across a session switch by construction (parking never touche
 
 | Layer | Owner | Lifetime |
 |---|---|---|
-| Disk truth (file contents, review baseline, the keep/revert baseline advance, the revert write) | **Core** (`SessionChangeTracker` + host) | session |
-| Hunk geometry (which lines are a change) | **Web** (VSCode `linesDiffComputers`) | recomputed per render |
+| Disk truth (file contents, review baseline + accepted anchor, the keep/revert/un-keep baseline advance, the revert write) | **Core** (`SessionChangeTracker` + host) | session |
+| Hunk geometry (which lines are a change) + the faded band's model-line placement | **Web** (VSCode `linesDiffComputers`, `reviewToModelLine`) | recomputed per render |
 
 Both kept and reviewed-state are **Core-owned** now: a Keep advances `_reviewBaseline` (the same field a
 revert and keep-all advance), so there is no web-side "reviewed marks" layer to persist or reconcile, and
@@ -197,14 +200,48 @@ baseline instead of the *baseline* lines into the file:
 2. **Host (Core):** confirm `[currentStart, currentEndExclusive)` equals `guardText`; on mismatch, toast
    "file changed — re-open to review" and re-emit a fresh `turn-diff` without advancing. On match, splice
    the current hunk's lines into `_reviewBaseline` over `[baselineStart, baselineEndExclusive)` (no file
-   write), then re-emit `turn-diff` — now baseline-equals-current over that region, so the hunk is gone.
-3. The web reveals the next hunk; when the file's last hunk is kept, baseline equals current and the file
-   drops out of `turn-changes`, so the walk advances to the next changed file.
+   write), then re-emit `turn-diff` — now review-baseline-equals-current over that region, so the hunk
+   leaves the *bright* band and reappears *faded* (`accepted anchor → review baseline`, see below).
+3. The web reveals the next bright hunk; when the file's last bright hunk is kept, review baseline equals
+   current (no pending hunks) but the file **stays** in `turn-changes` carrying its faded band — it only
+   drops out when the **accepted anchor** catches up at Keep-all.
 
-**Keep file** (`keep-file { path }`) advances the whole file's baseline to current in one step; **Keep-all**
-(`accept-turn`) does it for every file — the debt-clearing action. The accumulate baseline is exactly the
-union of kept content, and because it lives in Core it is identical on every session the file is viewed
-from.
+**Keep file** (`keep-file { path }`) advances the whole file's review baseline to current in one step, so
+the entire file goes faded; **Keep-all** (`accept-turn`) advances *both* the review baseline and the
+accepted anchor for every file — the commit point that clears every marker (bright and faded). The
+accumulate baseline is exactly the union of kept content, and because it lives in Core it is identical on
+every session the file is viewed from.
+
+### The faded "accepted" band: Keep fades a hunk, it doesn't hide it
+
+A kept hunk that simply *disappeared* gave no proof it had been accepted and no in-place way back. So Core
+keeps a **third** per-file content alongside the review baseline: the **accepted anchor**, the file's
+content at the last Keep-all, advanced **only** by Keep-all. With it, each file splits into two bands:
+
+- **Pending (bright green)** = `review baseline → current` — Claude's still-unreviewed changes.
+- **Accepted (faded green)** = `accepted anchor → review baseline` — hunks you've kept but not yet
+  committed.
+
+A Keep advances the review baseline over the hunk, so the hunk slides from the bright band into the faded
+band; **Keep-all** advances the accepted anchor to current, collapsing the faded band to nothing (the
+commit point). The faded band therefore persists across turns until Keep-all, exactly like the review set.
+
+**Inline ↶ undo (un-keep).** Each faded hunk carries an inline **↶ undo** beside it (and `Ctrl+Shift+Enter`
+un-keeps the most-recent keep via the [history](#undoredo)). It posts `unkeep-hunk { path, acceptedStart,
+acceptedEndExclusive, reviewStart, reviewEndExclusive, guardText }` — the inverse of `keep-hunk`, operating
+on the `accepted anchor → review baseline` span (both Core-internal, no disk). Core splices the accepted
+anchor's lines back into the review baseline over `[reviewStart, reviewEndExclusive)`, so the hunk returns
+to the bright band; `guardText` is the review-baseline text the web saw, and a mismatch (a concurrent keep
+moved it) aborts with a re-emit. It deliberately does **not** touch the LIFO undo history, so it composes
+with `Ctrl+Shift+Enter` without disturbing the stack (a stale stack entry just declines via its own guard).
+
+**Rendering (web).** The bright band is the existing `diff(review baseline, model)` pass, untouched — so
+the per-hunk keep/revert coordinates and the ↑/↓ nav still key on the review baseline. The faded band is a
+separate overlay: `diff(accepted anchor, review baseline)` gives each faded hunk's `(acceptedRange,
+reviewRange)` directly (the `unkeep-hunk` payload), and its review-baseline position is mapped onto a live
+model line via `reviewToModelLine` (the bright diff's line deltas), since a kept hunk sits in a region the
+review baseline and model agree on. The faded band never enters `currentHunks`, so it is a pure visual +
+inline-undo overlay — the nav and Keep/Revert only ever touch bright pending hunks.
 
 ## Undo/redo
 
@@ -278,9 +315,9 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 
 | type | when | payload |
 |---|---|---|
-| `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line }] }` |
-| `turn-diff` | per file, on change and after a revert | `{ path, name, baseline, current }` |
-| `turn-reset` | the whole set was kept (`accept-turn`) | `{}` |
+| `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line }] }` (a file stays in the set while only faded hunks remain, until Keep-all) |
+| `turn-diff` | per file, on change and after a keep/revert/un-keep | `{ path, name, acceptedBaseline, baseline, current }` — the (accepted anchor, review baseline, current) triple |
+| `turn-reset` | the whole set was committed (`accept-turn`) | `{}` |
 | `review-history` | after every review op + switch-in | `{ canUndo, canUndoKeep, canUndoRevert, canRedo }` |
 
 **Web → host**
@@ -288,7 +325,8 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | type | when | payload |
 |---|---|---|
 | `get-turn-diff` | the walk opens a file | `{ path }` → host replies `turn-diff` |
-| `keep-hunk` | user keeps a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` → host advances `_reviewBaseline` over it (no disk write; reuses `SessionChangeTracker.KeepHunk`) |
+| `keep-hunk` | user keeps a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` → host advances `_reviewBaseline` over it (no disk write; the hunk goes faded; reuses `SessionChangeTracker.KeepHunk`) |
+| `unkeep-hunk` | user un-keeps a faded hunk (inline ↶ undo) | `{ path, acceptedStart, acceptedEndExclusive, reviewStart, reviewEndExclusive, guardText }` → host splices the accepted anchor's lines back into `_reviewBaseline` (no disk write; the hunk goes bright; `SessionChangeTracker.UnkeepHunk`) |
 | `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
 | `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |

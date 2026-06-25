@@ -170,6 +170,9 @@ public sealed partial class HostCore {
 			case "keep-hunk":
 				KeepHunk(root);
 				break;
+			case "unkeep-hunk":
+				UnkeepHunk(root);
+				break;
 			case "revert-file":
 				RevertFile(root);
 				break;
@@ -718,9 +721,39 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
-		PushTurnDiffToWeb(path);  // baseline == current → the inline markers clear
-		PushTurnChangesToWeb();   // the file has left the review set
+		PushTurnDiffToWeb(path);  // every hunk is now faded-accepted (review baseline == current)
+		PushTurnChangesToWeb();   // the file's pending count drops, but it stays (faded) until keep-all
 		PushReviewHistoryToWeb(); // a keep is now undoable
+	}
+
+	/// <summary>
+	/// Un-keeps a single faded (accepted) hunk: Core splices its accepted-anchor lines back into the review
+	/// baseline, returning it to the bright pending band. The inverse of <see cref="KeepHunk"/>; the web sends the
+	/// accepted-anchor + review-baseline ranges and a <c>guardText</c> snapshot of the review baseline (a guard
+	/// mismatch — a concurrent keep moved it — re-emits a fresh diff without un-keeping). No disk write.
+	/// </summary>
+	private void UnkeepHunk(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.GetStringOrEmpty("path");
+		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			return;
+		}
+
+		var acceptedRange = new LineRange(JsonInt(root, "acceptedStart"), JsonInt(root, "acceptedEndExclusive"));
+		var reviewRange = new LineRange(JsonInt(root, "reviewStart"), JsonInt(root, "reviewEndExclusive"));
+		string guardText = root.GetStringOrEmpty("guardText");
+
+		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, guardText)) {
+			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
+			return;
+		}
+
+		PushTurnDiffToWeb(path); // the hunk moves from the faded band back to the bright pending band
+		PushTurnChangesToWeb();  // its first-pending-line shifts (the file was already in the set)
 	}
 
 	/// <summary>

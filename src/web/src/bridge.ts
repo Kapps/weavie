@@ -173,6 +173,18 @@ export type HostBoundMessage =
   // Inline review: KEEP ALL of one file's changes — advance its review baseline to current (no disk write) so the
   // file leaves the review set for good (the file-scoped analogue of accept-turn).
   | { type: "keep-file"; path: string }
+  // Inline review: UN-KEEP one faded (accepted) hunk — Core splices the accepted-anchor lines back into the review
+  // baseline so it returns to the bright pending band (no disk write). `accepted*` is the range in the accepted
+  // anchor (the restored lines); `review*` the range in the review baseline (splice target + `guardText` check).
+  | {
+      type: "unkeep-hunk";
+      path: string;
+      acceptedStart: number;
+      acceptedEndExclusive: number;
+      reviewStart: number;
+      reviewEndExclusive: number;
+      guardText: string;
+    }
   // Review undo/redo. `kind` "keep" undoes the last keep, "revert" the last revert (the type-split chords);
   // omitted, the most recent action of either kind (the toolbar's generic Undo). Redo re-applies the last undone.
   | { type: "review-undo"; kind?: "keep" | "revert" }
@@ -339,9 +351,17 @@ export type WebBoundMessage =
       type: "turn-changes";
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
-  // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
-  // baseline === current means "no markers" (the file was accepted or reverted this turn).
-  | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }
+  // One file's per-TURN diff as the (acceptedBaseline, baseline, current) triple: baseline→current is the bright
+  // pending band, acceptedBaseline→baseline the faded accepted band. `acceptedBaseline === current` means "no
+  // markers"; `baseline === current` means "faded accepted only" (every hunk kept but not yet committed).
+  | {
+      type: "turn-diff";
+      path: string;
+      name: string;
+      acceptedBaseline: string;
+      baseline: string;
+      current: string;
+    }
   // A turn boundary: clear all inline turn markers (the prior turn is implicitly accepted).
   | { type: "turn-reset" }
   // Review undo/redo availability, so the page enables its Undo/Redo affordances and lets the type-split undo

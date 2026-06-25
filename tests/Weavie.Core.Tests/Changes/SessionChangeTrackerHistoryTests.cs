@@ -24,7 +24,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Changed(fileSystem, "/w/a.txt", "a\nb\n", "a\nB\n");
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
-		Assert.Empty(tracker.TurnChanges()); // kept → left the review set
+		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept → review baseline == current (no pending hunk)
 		Assert.True(tracker.CanUndoKeep);
 
 		var result = tracker.UndoLastKeep();
@@ -50,7 +50,7 @@ public sealed class SessionChangeTrackerHistoryTests {
 		var result = tracker.Redo();
 
 		Assert.True(result.Acted);
-		Assert.Empty(tracker.TurnChanges()); // kept again
+		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // kept again → review baseline == current
 		Assert.False(tracker.CanRedo);
 		Assert.True(tracker.CanUndoKeep);
 	}

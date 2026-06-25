@@ -30,15 +30,21 @@ public sealed class ChangeMessagesTests {
 	}
 
 	[Fact]
-	public void TurnDiff_CarriesBaselineAndCurrent() {
-		var change = new FileChange { Path = "/w/dir/a.cs", BaselineText = "before", CurrentText = "after" };
+	public void TurnDiff_CarriesTheAcceptedReviewCurrentTriple() {
+		var change = new FileChange {
+			Path = "/w/dir/a.cs",
+			AcceptedBaselineText = "anchor",
+			BaselineText = "before",
+			CurrentText = "after",
+		};
 
 		var root = Parse(ChangeMessages.TurnDiff(change));
 
 		Assert.Equal("turn-diff", root.GetProperty("type").GetString());
 		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("a.cs", root.GetProperty("name").GetString());
-		Assert.Equal("before", root.GetProperty("baseline").GetString());
+		Assert.Equal("anchor", root.GetProperty("acceptedBaseline").GetString()); // faded band origin
+		Assert.Equal("before", root.GetProperty("baseline").GetString());         // bright band origin (review baseline)
 		Assert.Equal("after", root.GetProperty("current").GetString());
 	}
 

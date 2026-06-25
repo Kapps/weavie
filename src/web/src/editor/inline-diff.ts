@@ -7,6 +7,7 @@ import { formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
+import { reviewToModelLine } from "./diff-geometry";
 import { canonicalFsPath } from "./fs-path";
 import { monaco } from "./monaco-setup";
 
@@ -41,9 +42,28 @@ export interface HunkRevert {
   guardText: string;
 }
 
+/**
+ * Coordinates + concurrency guard for un-keeping one faded (accepted) hunk. `accepted*` is its range in the
+ * accepted anchor (the lines spliced back); `review*` its range in the review baseline (the splice target);
+ * `guardText` is the review-baseline text the web sees — the host aborts if Core's review baseline moved.
+ */
+export interface HunkUnkeep {
+  acceptedStart: number;
+  acceptedEndExclusive: number;
+  reviewStart: number;
+  reviewEndExclusive: number;
+  guardText: string;
+}
+
 export interface InlineDiffOptions {
-  /** The baseline/original text the live model is diffed against. */
+  /** The baseline/original text the live model is diffed against (the review baseline — the bright pending band). */
   original: string;
+  /**
+   * Applied mode — the accepted anchor (content at the last keep-all). The faded "accepted" band is
+   * acceptedBaseline → original (kept-but-uncommitted hunks): they're rendered faded green, in place, with an
+   * inline ↶ undo. Omitted or equal to `original` → no faded band.
+   */
+  acceptedBaseline?: string;
   /**
    * The content Claude produced. Live-model lines that differ from this are the user's own typing and render
    * fainter green. Omitted → no fade (every changed line is treated as Claude's).
@@ -64,6 +84,11 @@ export interface InlineDiffOptions {
   onKeepHunk?: (hunk: HunkRevert) => void;
   /** Applied mode — per-hunk Revert: undo this hunk on disk (the host splices the baseline lines back). */
   onRevertHunk?: (hunk: HunkRevert) => void;
+  /**
+   * Applied mode — per-faded-hunk Un-keep: the host splices the accepted-anchor lines back into the review
+   * baseline, so the kept hunk returns to the bright pending band (no disk write). Drives the inline ↶ undo.
+   */
+  onUnkeepHunk?: (hunk: HunkUnkeep) => void;
   /** Applied mode — Keep-all: clear the whole accumulated review set in one action. */
   onKeepAll?: () => void;
   /** Applied mode — Keep-file: keep ALL of this file's changes, advancing its review baseline to current. */
@@ -169,6 +194,11 @@ interface Hunk {
   currentEndExclusive: number;
 }
 
+// One faded (accepted) hunk: where it sits in the live model (anchorLine) plus the coordinates an un-keep needs.
+interface AcceptedHunk extends HunkUnkeep {
+  anchorLine: number;
+}
+
 /**
  * The 1-based modified-side line of the first change between `original` and `modified`, or 1 when identical.
  * Uses the same diff machinery and anchor rule as `render`, so it matches where "next change" first lands.
@@ -194,6 +224,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
   let currentOptions: InlineDiffOptions | undefined;
   let currentHunks: Hunk[] = [];
+  // Monaco content widgets for the faded band's inline ↶ undo affordances (one per accepted hunk), removed on
+  // every re-render. The faded band is a visual overlay only — it never feeds the ↑/↓ nav or Keep/Revert.
+  let acceptedWidgets: monaco.editor.IContentWidget[] = [];
   // Which scope the Keep / Revert buttons act on; sticky across file switches, reset only on clearAll.
   let currentScope: ReviewScope = "change";
   // Live-updated applied-toolbar bits: the `file i/N · change j/M` subtitle + change dots, plus the scope
@@ -229,6 +262,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       });
       zoneIds = [];
     }
+    for (const widget of acceptedWidgets) {
+      editor.removeContentWidget(widget);
+    }
+    acceptedWidgets = [];
     toolbarNode?.remove();
     toolbarNode = undefined;
     counterNode = undefined;
@@ -244,9 +281,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     renderedUri = undefined;
   };
 
-  const buildGhost = (lines: string[]): HTMLElement => {
+  const buildGhost = (lines: string[], faded: boolean): HTMLElement => {
     const node = document.createElement("div");
-    node.className = "weavie-inline-removed";
+    // Faded variant: a removed line in an already-accepted hunk, dimmed to match its faded green counterpart.
+    node.className = faded
+      ? "weavie-inline-removed weavie-inline-removed-faded"
+      : "weavie-inline-removed";
     // Use the resolved metrics, not the raw font setting: the view zone reserves `lines.length * lineHeight`
     // px, so the ghost rows must use that same line height or they overflow the zone.
     const fontInfo = editor.getOption(monaco.editor.EditorOption.fontInfo);
@@ -263,6 +303,44 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       node.appendChild(row);
     }
     return node;
+  };
+
+  // A Monaco content widget hugging a faded hunk's first line: a "✓ accepted" tag + an inline ↶ undo that
+  // un-keeps just that hunk (posts onUnkeepHunk). Anchored EXACT at the line's end so it sits beside the code.
+  const buildUndoWidget = (
+    hunk: AcceptedHunk,
+    index: number,
+    model: monaco.editor.ITextModel,
+    onUnkeep: (hunk: HunkUnkeep) => void,
+  ): monaco.editor.IContentWidget => {
+    const line = Math.min(model.getLineCount(), Math.max(1, hunk.anchorLine));
+    const dom = document.createElement("div");
+    dom.className = "weavie-inline-accepted-tag";
+    const kept = document.createElement("span");
+    kept.className = "weavie-inline-accepted-kept";
+    kept.textContent = "✓ accepted";
+    const undo = makeButton(
+      "weavie-inline-accepted-undo",
+      "↶ undo",
+      withShortcut("Undo keep", CommandIds.undoKeep),
+      () =>
+        onUnkeep({
+          acceptedStart: hunk.acceptedStart,
+          acceptedEndExclusive: hunk.acceptedEndExclusive,
+          reviewStart: hunk.reviewStart,
+          reviewEndExclusive: hunk.reviewEndExclusive,
+          guardText: hunk.guardText,
+        }),
+    );
+    dom.append(kept, undo);
+    return {
+      getId: () => `weavie.accepted.${index}.${line}`,
+      getDomNode: () => dom,
+      getPosition: () => ({
+        position: { lineNumber: line, column: model.getLineMaxColumn(line) },
+        preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+      }),
+    };
   };
 
   const makeButton = (
@@ -749,8 +827,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const { changes } = linesDiffComputers
       .getDefault()
       .computeDiff(original, modified, DIFF_OPTIONS);
-    if (changes.length === 0) {
-      return; // no net change — nothing to render
+    // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
+    const hasFadedBand =
+      options.mode === "applied" &&
+      options.acceptedBaseline !== undefined &&
+      options.acceptedBaseline !== options.original;
+    if (changes.length === 0 && !hasFadedBand) {
+      return; // no net change and nothing kept — nothing to render
     }
 
     // Lines the user typed (diff the live model against `claudeVersion`) render fainter. Empty when
@@ -772,8 +855,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
 
     const deltas: monaco.editor.IModelDeltaDecoration[] = [];
-    const ghosts: { afterLineNumber: number; lines: string[] }[] = [];
+    const ghosts: { afterLineNumber: number; lines: string[]; faded?: boolean }[] = [];
     const hunks: Hunk[] = [];
+    const acceptedHunks: AcceptedHunk[] = [];
 
     for (const change of changes) {
       hunks.push({
@@ -829,6 +913,56 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
     }
 
+    // The faded "accepted" band: kept-but-uncommitted hunks (acceptedBaseline → review baseline). They're EQUAL
+    // between the review baseline (`original`) and the live model — a keep made them so — so they sit in the
+    // UNCHANGED regions of the bright diff above. Translate each one's review-baseline position into a live model
+    // line via that diff, wash it faded green in place, and hang an inline ↶ undo beside it. The faded band is a
+    // pure overlay: it never enters `hunks`, so ↑/↓ and Keep/Revert only ever touch the bright pending hunks.
+    if (hasFadedBand && options.acceptedBaseline !== undefined) {
+      const accepted = splitLines(options.acceptedBaseline);
+      const fadedChanges = linesDiffComputers
+        .getDefault()
+        .computeDiff(accepted, original, DIFF_OPTIONS).changes;
+      for (const change of fadedChanges) {
+        const reviewStart = change.modified.startLineNumber;
+        const reviewEndExclusive = change.modified.endLineNumberExclusive;
+        const modelStart = reviewToModelLine(changes, reviewStart);
+        for (let i = 0; i < reviewEndExclusive - reviewStart; i++) {
+          const ln = modelStart + i;
+          deltas.push({
+            range: new monaco.Range(ln, 1, ln, 1),
+            options: {
+              isWholeLine: true,
+              className: "weavie-inline-accepted",
+              linesDecorationsClassName: "weavie-inline-accepted-gutter",
+              overviewRuler: {
+                color: "rgba(78, 201, 120, 0.3)",
+                position: monaco.editor.OverviewRulerLane.Left,
+              },
+            },
+          });
+        }
+        if (!change.original.isEmpty) {
+          ghosts.push({
+            afterLineNumber: Math.max(0, modelStart - 1),
+            lines: accepted.slice(
+              change.original.startLineNumber - 1,
+              change.original.endLineNumberExclusive - 1,
+            ),
+            faded: true,
+          });
+        }
+        acceptedHunks.push({
+          anchorLine: Math.max(1, modelStart),
+          acceptedStart: change.original.startLineNumber,
+          acceptedEndExclusive: change.original.endLineNumberExclusive,
+          reviewStart,
+          reviewEndExclusive,
+          guardText: original.slice(reviewStart - 1, reviewEndExclusive - 1).join("\n"),
+        });
+      }
+    }
+
     decorations = editor.createDecorationsCollection(deltas);
     editor.changeViewZones((accessor) => {
       for (const ghost of ghosts) {
@@ -836,7 +970,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
           accessor.addZone({
             afterLineNumber: ghost.afterLineNumber,
             heightInLines: ghost.lines.length,
-            domNode: buildGhost(ghost.lines),
+            domNode: buildGhost(ghost.lines, ghost.faded === true),
           }),
         );
       }
@@ -849,6 +983,15 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (editorDom !== null) {
       toolbarNode = buildToolbar(options);
       editorDom.appendChild(toolbarNode);
+    }
+    // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
+    if (options.onUnkeepHunk !== undefined) {
+      const onUnkeep = options.onUnkeepHunk;
+      acceptedHunks.forEach((hunk, index) => {
+        const widget = buildUndoWidget(hunk, index, model, onUnkeep);
+        acceptedWidgets.push(widget);
+        editor.addContentWidget(widget);
+      });
     }
     renderedUri = uriString;
   };

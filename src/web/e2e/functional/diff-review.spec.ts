@@ -23,7 +23,9 @@ const read = (workspace: string, rel: string): string => readFileSync(join(works
 // The live applied toolbar carries the scope picker; the parked navigator doesn't — so this asserts "a live
 // review is rendered over the active file" specifically (not just any toolbar).
 const SCOPE = ".weavie-inline-scope";
-const ADDED = ".weavie-inline-added"; // one decoration per changed line → one per single-line hunk
+const ADDED = ".weavie-inline-added"; // one decoration per BRIGHT (pending) changed line → one per single-line hunk
+const ACCEPTED = ".weavie-inline-accepted"; // one decoration per FADED (kept-but-uncommitted) line
+const UNDO = ".weavie-inline-accepted-undo"; // the inline ↶ undo beside a faded hunk
 const TOOLBAR = ".weavie-inline-toolbar";
 
 // Land the caret on the first hunk deterministically (next-change from the top of the file), so a per-hunk
@@ -48,6 +50,41 @@ test.describe("applied review — keep & undo", () => {
     // Undo the keep — the hunk returns to the pending set.
     await page.keyboard.press("ControlOrMeta+Shift+Enter");
     await expect(page.locator(ADDED)).toHaveCount(2);
+  });
+});
+
+test.describe("applied review — accepted band fades (kept, not vanished) + inline undo", () => {
+  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+
+  test("keeping a hunk fades it with an inline ↶ undo that re-pends it", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2); // two bright pending hunks
+    await expect(page.locator(ACCEPTED)).toHaveCount(0); // nothing kept yet
+
+    // Keep the first hunk: it stays VISIBLE but faded — proof it's accepted — with an inline ↶ undo beside it.
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1); // one bright hunk remains
+    await expect(page.locator(ACCEPTED)).toHaveCount(1); // the kept hunk is now faded, not gone
+    await expect(page.locator(UNDO)).toHaveCount(1); // its inline ↶ undo
+
+    // Click the inline undo: the kept hunk returns to the bright pending band (no disk write — it never moved disk).
+    await page.locator(UNDO).click();
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+  });
+
+  test("keep-all clears both the pending and the faded accepted band", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → it fades, leaving one pending + one accepted
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+
+    // Keep-all is the commit point: the accepted anchor snaps to current, so EVERY marker clears (bright + faded).
+    await runCommand(page, "Keep All Changes");
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 });
 
@@ -97,7 +134,9 @@ test.describe("applied review — Shift+Enter never types into the file (regress
 test.describe("applied review — scope picker (keep whole file)", () => {
   test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
-  test("with scope = File, one Keep clears every hunk in the file", async ({ page }) => {
+  test("with scope = File, one Keep fades every hunk in the file (kept, not gone)", async ({
+    page,
+  }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(2);
 
@@ -106,7 +145,11 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await page.locator(".weavie-inline-scope-item", { hasText: "This file" }).click();
     await page.locator(".weavie-inline-accept").click();
 
-    await expect(page.locator(ADDED)).toHaveCount(0); // the whole file left the review
+    // No pending hunks remain, but the whole file is now faded-accepted (both hunks) with their inline undos —
+    // a fully-kept file still renders its faded band (it isn't bailed on for having no bright diff).
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(2);
+    await expect(page.locator(UNDO)).toHaveCount(2);
   });
 });
 

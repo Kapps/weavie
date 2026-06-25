@@ -14,20 +14,26 @@ public static class ChangeMessages {
 	public static string TurnChanges(SessionChangeTracker tracker) {
 		ArgumentNullException.ThrowIfNull(tracker);
 		var files = tracker.TurnChanges().Select(change => {
-			var (added, removed) = LineDiff.Count(change.BaselineText, change.CurrentText);
+			// Count over the full span (accepted anchor → current) so a fully-kept (faded-only) file still reads as
+			// changed; land the walk on the first PENDING hunk, falling back to the first faded one.
+			var (added, removed) = LineDiff.Count(change.AcceptedBaselineText, change.CurrentText);
 			return new {
 				path = change.Path,
 				name = Path.GetFileName(change.Path),
 				added,
 				removed,
-				line = LineDiff.FirstChangedLine(change.BaselineText, change.CurrentText) ?? 1,
+				line = LineDiff.FirstChangedLine(change.BaselineText, change.CurrentText)
+					?? LineDiff.FirstChangedLine(change.AcceptedBaselineText, change.CurrentText)
+					?? 1,
 			};
 		});
 		return JsonSerializer.Serialize(new { type = "turn-changes", files });
 	}
 
 	/// <summary>
-	/// One file's turn diff (baseline vs. current) for the inline editor diff. An equal pair means "no markers".
+	/// One file's turn diff as the (accepted anchor, review baseline, current) triple for the inline editor diff:
+	/// review baseline → current is the bright pending band, accepted anchor → review baseline the faded accepted
+	/// band. <c>accepted == current</c> means "no markers"; <c>baseline == current</c> means "faded only".
 	/// </summary>
 	public static string TurnDiff(FileChange change) {
 		ArgumentNullException.ThrowIfNull(change);
@@ -35,6 +41,7 @@ public static class ChangeMessages {
 			type = "turn-diff",
 			path = change.Path,
 			name = Path.GetFileName(change.Path),
+			acceptedBaseline = change.AcceptedBaselineText,
 			baseline = change.BaselineText,
 			current = change.CurrentText,
 		});

@@ -121,6 +121,7 @@ public sealed partial class SessionChangeTracker {
 			_baseline.GetValueOrDefault(path, string.Empty),
 			_current.GetValueOrDefault(path, string.Empty),
 			_reviewBaseline.GetValueOrDefault(path, string.Empty),
+			_acceptedAnchor.GetValueOrDefault(path, string.Empty),
 			_preEdit.GetValueOrDefault(path, string.Empty),
 			_createdSinceBaseline.Contains(path),
 			onDisk,
@@ -134,6 +135,7 @@ public sealed partial class SessionChangeTracker {
 			_baseline[state.Path] = state.Baseline;
 			_current[state.Path] = state.Current;
 			_reviewBaseline[state.Path] = state.ReviewBaseline;
+			_acceptedAnchor[state.Path] = state.AcceptedAnchor;
 			_preEdit[state.Path] = state.PreEdit;
 			if (state.Created) {
 				_createdSinceBaseline.Add(state.Path);
@@ -204,6 +206,7 @@ public sealed partial class SessionChangeTracker {
 		string Baseline,
 		string Current,
 		string ReviewBaseline,
+		string AcceptedAnchor,
 		string PreEdit,
 		bool Created,
 		bool OnDisk,

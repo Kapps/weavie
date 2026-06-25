@@ -10,6 +10,7 @@ import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
 import {
   type HunkRevert,
+  type HunkUnkeep,
   type InlineDiff,
   createInlineDiff,
   firstChangedLine,
@@ -548,6 +549,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     afterFlush(path, () => postToHost({ type: "keep-hunk", path, ...hunk }));
   };
 
+  // Un-keep just this faded hunk: the host splices the accepted-anchor lines back into the review baseline, so it
+  // returns to the bright pending band. No disk read (the guard is against Core's review baseline), so no flush.
+  const unkeepHunk = (path: string, hunk: HunkUnkeep): void => {
+    postToHost({ type: "unkeep-hunk", path, ...hunk });
+  };
+
   // Keep every change in one file: the host advances its review baseline to current, so the file leaves the
   // review set for good. No confirm — keeping is non-destructive.
   const keepFile = (path: string): void => {
@@ -675,12 +682,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         tabs.close(message.path);
         return true;
       case "turn-diff": {
-        // Inline diff of this turn's changes. Equal baseline/current = no markers.
-        if (message.baseline === message.current) {
+        // Inline diff of this turn's changes, as the (acceptedBaseline, baseline, current) triple: baseline→current
+        // is the bright pending band, acceptedBaseline→baseline the faded accepted band. The file has NO markers
+        // only once the accepted anchor catches up to current (keep-all, or a full revert with nothing kept).
+        if (message.acceptedBaseline === message.current) {
           inlineDiff?.clear(message.path);
           commentProse?.refresh();
           // A revert emptied this file's diff. If it's under review and other changed files remain, walk on to
-          // the next so the toolbar follows the review instead of vanishing (same advance Keep does).
+          // the next so the toolbar follows the review instead of vanishing.
           const active = activePath();
           if (active !== null && samePath(active, message.path) && reviewFiles.length > 1) {
             advanceToNextPendingFile(message.path);
@@ -705,12 +714,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             : {};
         inlineDiff?.set(message.path, {
           original: message.baseline,
+          acceptedBaseline: message.acceptedBaseline,
           claudeVersion: message.current,
           mode: "applied",
           onKeepHunk: (hunk) => keepHunk(message.path, hunk),
           onKeepFile: () => keepFile(message.path),
           onRevertHunk: (hunk) => revertHunk(message.path, hunk),
           onRevertFile: () => revertFile(message.path),
+          onUnkeepHunk: (hunk) => unkeepHunk(message.path, hunk),
           onKeepAll: () => postToHost({ type: "accept-turn" }),
           onUndo: revertAll,
           // Always present so the stacked toolbar label shows the filename even for a single-file review.

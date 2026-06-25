@@ -26,6 +26,7 @@ const SCOPE = ".weavie-inline-scope";
 const ADDED = ".weavie-inline-added"; // one decoration per BRIGHT (pending) changed line → one per single-line hunk
 const ACCEPTED = ".weavie-inline-accepted"; // one decoration per FADED (kept-but-uncommitted) line
 const UNDO = ".weavie-inline-accepted-undo"; // the inline ↶ undo beside a faded hunk
+const HIST_UNDO = ".weavie-inline-hist"; // the toolbar's ↶ Undo (first) / ↷ Redo history buttons
 const TOOLBAR = ".weavie-inline-toolbar";
 
 // Land the caret on the first hunk deterministically (next-change from the top of the file), so a per-hunk
@@ -99,6 +100,12 @@ test.describe("applied review — revert & undo-revert (disk)", () => {
     await page.keyboard.press("ControlOrMeta+Backspace");
     await expect.poll(() => read(weavie.workspace, "hello.ts")).toContain("Hello, ${name}"); // baseline line is back on disk
     expect(read(weavie.workspace, "hello.ts")).toContain("console.warn"); // the other hunk is untouched
+
+    // The revert writes disk INSIDE Core, before its turn-diff/review-history messages reach the page — so
+    // syncing on disk alone races the undo: Ctrl+Shift+Backspace would consume the key but no-op while the
+    // client's canUndoRevert is still false. Wait for the web to reflect the revert before undoing it.
+    await expect(page.locator(ADDED)).toHaveCount(1); // the reverted hunk left the bright band
+    await expect(page.locator(HIST_UNDO).first()).toBeEnabled(); // the revert is now undoable on the client
 
     // Undo the revert: the change is rewritten to disk.
     await page.keyboard.press("ControlOrMeta+Shift+Backspace");

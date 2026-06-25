@@ -45,6 +45,13 @@ export function TerminalView(props: {
     cursorBlink: true,
     scrollback: 8000,
     allowProposedApi: true,
+    // Shell pane: advertise enhanced keyboard input so its line editor can negotiate Shift+Enter et al. (e.g.
+    // newline-without-submit) like it does under Windows Terminal — win32-input-mode is the Windows/ConPTY path,
+    // kitty covers POSIX shells. The claude pane is left legacy: it never negotiates and gets Shift+Enter from
+    // the injected handler below, so enabling the protocol there would only mis-encode keys it doesn't expect.
+    ...(props.pane === "shell"
+      ? { vtExtensions: { win32InputMode: true, kittyKeyboard: true } }
+      : {}),
   });
   const fit = new FitAddon();
   const encoder = new TextEncoder();
@@ -169,14 +176,37 @@ export function TerminalView(props: {
       refit();
     });
 
-    term.onData((data) => {
+    const sendInput = (data: string): void => {
       postToHost({
         type: "term-input",
         slot: props.slot,
         session: props.pane,
         dataB64: bytesToBase64(encoder.encode(data)),
       });
+    };
+
+    // Shift+Enter → newline (not submit): send the standard kitty sequence for it (CSI 13;2u), which claude
+    // parses. Claude never enables the protocol (it runs legacy and only parses incoming CSI-u), so we emit just
+    // this one chord and leave every other key legacy — force-enabling the whole protocol would also re-encode
+    // Ctrl+C etc. as CSI-u, which claude doesn't expect. Claude-pane only, so the shell isn't fed CSI-u.
+    term.attachCustomKeyEventHandler((e) => {
+      if (
+        props.pane === "claude" &&
+        e.type === "keydown" &&
+        e.key === "Enter" &&
+        e.shiftKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.metaKey
+      ) {
+        e.preventDefault();
+        sendInput("\x1b[13;2u");
+        return false;
+      }
+      return true;
     });
+
+    term.onData(sendInput);
 
     term.onResize(({ cols, rows }) => {
       postToHost({ type: "term-resize", slot: props.slot, session: props.pane, cols, rows });

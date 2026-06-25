@@ -5,15 +5,10 @@ import { createSignal } from "solid-js";
 import { type WebBoundMessage, log, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
-import { type CommentProse, createCommentProse } from "./comment-prose";
+import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
-import {
-  type HunkRevert,
-  type InlineDiff,
-  createInlineDiff,
-  firstChangedLine,
-} from "./inline-diff";
+import type { HunkRevert, InlineDiff } from "./inline-diff";
 import {
   type ActivateResult,
   activateTab,
@@ -129,6 +124,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let host: EditorHost | undefined;
   let inlineDiff: InlineDiff | undefined;
   let commentProse: CommentProse | undefined;
+  // Captured from the dynamic inline-diff import in start(); used by the show-diff handler, which can
+  // only fire once the editor host (and thus this import) is up.
+  let firstChangedLine: ((original: string, modified: string) => number) | undefined;
   let initTimer: number | undefined;
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
@@ -406,9 +404,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       );
     });
     void Promise.race([editorReady, initDeadline])
-      .then((created) => {
+      .then(async (created) => {
         host = created;
-        inlineDiff = createInlineDiff(created.editor);
+        // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
+        // editor host above) so they stay off the first-paint entry chunk.
+        const [diff, prose] = await Promise.all([
+          import("./inline-diff"),
+          import("./comment-prose"),
+        ]);
+        firstChangedLine = diff.firstChangedLine;
+        inlineDiff = diff.createInlineDiff(created.editor);
         // Track the active model's text so the Preview overlay renders live (edits, Claude writes, reloads).
         const syncContent = (): void => {
           setActiveContent(created.editor.getModel()?.getValue() ?? "");
@@ -419,7 +424,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         ];
         syncContent();
         // Suspended over a model with a live inline diff so a collapsed comment never hides a changed line.
-        commentProse = createCommentProse(created.editor, {
+        commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
         });
         if (pendingOpen !== undefined) {
@@ -566,7 +571,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         const reviewUri = host?.beginReview(
           message.path,
           message.proposed,
-          firstChangedLine(message.original, message.proposed),
+          // host is set in the same .then that captures firstChangedLine, so it's defined here; fall
+          // back to the file top if somehow not.
+          firstChangedLine?.(message.original, message.proposed) ?? 1,
         );
         activeReview = {
           id: message.id,

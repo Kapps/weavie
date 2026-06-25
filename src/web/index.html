@@ -7,9 +7,10 @@
     <title>weavie</title>
     <!-- Painted before any JS loads: a dark canvas + centered wordmark so the WebView's first frame is
          intentional, not a white flash. The splash stays on top of the whole app and is removed by
-         dismissSplash() in one step once the editor is ready — one clean reveal instead of a relay of
-         placeholders, and no fade (a fade is pure startup latency). Inline (no external CSS) so it costs
-         zero requests and paints immediately. -->
+         dismissSplash() in one step on the first painted terminal frame (the primary surface; the editor
+         pane fills in under it when Monaco loads) — or on editor-ready as a fallback. One clean reveal
+         instead of a relay of placeholders, and no fade (a fade is pure startup latency). Inline (no
+         external CSS) so it costs zero requests and paints immediately. -->
     <style>
       html, body { height: 100%; margin: 0; background: #000000; color: #cdd5dc; }
       #root { height: 100%; }

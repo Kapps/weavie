@@ -68,9 +68,9 @@ import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
-import { rebindLanguageServices } from "./lsp/lsp-client";
 import { Toasts, createToasts } from "./notify/Toasts";
 import { setNotifySink } from "./notify/notify";
+import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
@@ -459,6 +459,7 @@ export default function App(): JSX.Element {
                     slot={sid}
                     pane={pane}
                     active={isActive()}
+                    onFirstRender={dismissSplash}
                     onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
                     onTitle={(title) =>
                       setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
@@ -533,8 +534,12 @@ export default function App(): JSX.Element {
         }
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
-        // worktree root), tearing the previous session's clients down.
-        rebindLanguageServices(message.config);
+        // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
+        // Monaco, which must stay off the first-paint chunk.
+        const config = message.config;
+        void import("./lsp/lsp-client").then(({ rebindLanguageServices }) =>
+          rebindLanguageServices(config),
+        );
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
       } else if (message.type === "window-state") {

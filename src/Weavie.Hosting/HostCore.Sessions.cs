@@ -156,19 +156,19 @@ public sealed partial class HostCore {
 		return false;
 	}
 
-	/// <summary>Builds the workspace's worktree manager, or returns <c>null</c> when the root is not a git repo.</summary>
-	private async Task<WorktreeManager?> BuildWorktreeManagerAsync() {
+	/// <summary>One git probe (instance reused downstream) for the rail label + worktree manager, so is-repo isn't
+	/// run twice. Returns <c>IsRepo=false</c> when git is missing — the workspace still opens.</summary>
+	private async Task<(GitService Git, bool IsRepo)> ProbeGitAsync() {
 		var git = new GitService();
 		try {
-			if (!await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false)) {
-				return null;
-			}
+			return (git, await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false));
 		} catch (GitException) {
-			// git missing: worktree-backed sessions are unavailable, but the workspace still opens. Never let a
-			// missing git break window init.
-			return null;
+			return (git, false);
 		}
+	}
 
+	/// <summary>Builds the workspace's worktree manager from the shared git probe. Caller guards on is-repo.</summary>
+	private WorktreeManager BuildWorktreeManager(GitService git) {
 		var registry = new WorktreeRegistry(new LocalFileSystem(), WeaviePaths.WorkspaceWorktreesFile(Id));
 		registry.Log += line => Console.WriteLine($"[worktrees] {line}");
 
@@ -313,17 +313,16 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-list", sessions }));
 	}
 
-	private async Task<string> ResolvePrimaryLabelAsync() {
+	private async Task<string> ResolvePrimaryLabelAsync(GitService git, bool isRepo) {
 		try {
-			var git = new GitService();
-			if (await git.IsRepositoryAsync(WorkspaceRoot).ConfigureAwait(false)) {
+			if (isRepo) {
 				string? branch = await git.GetCurrentBranchAsync(WorkspaceRoot).ConfigureAwait(false);
 				if (!string.IsNullOrWhiteSpace(branch)) {
 					return branch;
 				}
 			}
 		} catch (GitException) {
-			// No git → fall back to the folder name for the rail label.
+			// Branch read failed → fall back to the folder name for the rail label.
 		}
 
 		return Path.GetFileName(WorkspaceRoot.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));

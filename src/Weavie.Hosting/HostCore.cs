@@ -50,6 +50,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private WorktreeManager? _worktrees;
 	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	private string _pageOrigin = string.Empty;
+	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
+	// creation, and the web launcher awaits it again — both join this one run.
+	private readonly object _startGate = new();
+	private Task? _startTask;
 	// The active session + first review file the page was told to auto-open this idle (see ShouldOpenReview),
 	// so review opens once per idle yet re-arms on a new turn or a session switch. Null = nothing armed.
 	private string? _armedReviewKey;
@@ -127,10 +131,17 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// <summary>
 	/// Builds the workspace's live backend: the primary session, the session set (pre-existing worktrees
 	/// reconciled into dormant chips), the title-bar controller + global hotkeys where supported, and the store
-	/// reactions. Call once, after the bridge is attached and <paramref name="pageOrigin"/> is resolved.
+	/// reactions. Idempotent — the shell may kick it off early (to overlap WebView2 bring-up) and the web launcher
+	/// awaits it again; both join one run. Call after the bridge is attached and <paramref name="pageOrigin"/> is resolved.
 	/// </summary>
-	public async Task StartAsync(string pageOrigin) {
+	public Task StartAsync(string pageOrigin) {
 		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
+		lock (_startGate) {
+			return _startTask ??= StartCoreAsync(pageOrigin);
+		}
+	}
+
+	private async Task StartCoreAsync(string pageOrigin) {
 		_pageOrigin = pageOrigin;
 
 		// GUI hosts serve over app:// and may launch (Finder, a desktop entry) with a minimal environment; import
@@ -155,7 +166,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_primarySession.Scratch.GarbageCollect(
 			_editorSession.Current.Open.Where(entry => entry.Scratch).Select(entry => entry.Path));
 
-		string primaryLabel = await ResolvePrimaryLabelAsync().ConfigureAwait(false);
+		// One git probe shared by the rail label and the worktree manager (was two redundant is-repo calls).
+		var (git, isRepo) = await ProbeGitAsync().ConfigureAwait(false);
+		string primaryLabel = await ResolvePrimaryLabelAsync(git, isRepo).ConfigureAwait(false);
 
 		// Title bar: route the web title-bar messages to the shared controller, but only when the platform
 		// renders one (web custom chrome). Native-chrome hosts leave _shell null and those messages no-op.
@@ -166,7 +179,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// Sessions: the worktree manager + slot set, the primary (always-loaded) slot, then reconcile
 		// pre-existing worktrees into dormant slots so none leak. The rail's session list is pushed on the
 		// page's `ready` message (PostToWeb before navigation no-ops).
-		_worktrees = await BuildWorktreeManagerAsync().ConfigureAwait(false);
+		_worktrees = isRepo ? BuildWorktreeManager(git) : null;
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);

@@ -21,8 +21,15 @@ export function fakeClaudeBuilt(): boolean {
 }
 
 // Weavie execs the claude.path setting as a single executable, so wrap the managed dll in a tiny launcher
-// script and point claude.path at that. Written into the test's isolated HOME.
+// script and point claude.path at that. Written into the test's isolated HOME. On Windows the wrapper is a
+// .cmd (CreateProcess can't run a .sh; WindowsPtyLauncher routes .cmd/.bat through cmd.exe); elsewhere a
+// .sh — so the functional suite runs on the developer's OS, not just Linux CI.
 export async function writeFakeClaudeWrapper(dir: string): Promise<string> {
+  if (process.platform === "win32") {
+    const wrapper = join(dir, "fake-claude.cmd");
+    await writeFile(wrapper, `@echo off\r\ndotnet ${JSON.stringify(fakeClaudeDll)} %*\r\n`);
+    return wrapper;
+  }
   const wrapper = join(dir, "fake-claude.sh");
   await writeFile(wrapper, `#!/bin/sh\nexec dotnet ${JSON.stringify(fakeClaudeDll)} "$@"\n`);
   await chmod(wrapper, 0o755);
@@ -41,4 +48,28 @@ export async function writeFakeScript(dir: string, steps: FakeStep[]): Promise<s
   const path = join(dir, "fake-claude-script.json");
   await writeFile(path, JSON.stringify(steps));
   return path;
+}
+
+// One Claude edit as the change tracker sees it: PreToolUse snapshots the file's baseline, the file is
+// written, PostToolUse records the new content. This 3-beat is what the tracker folds into the post-turn
+// review set (the `edit` op alone never registers — the tracker is hook-driven). `path` may use the
+// {{WORKSPACE}} placeholder, which the fake resolves to the session's worktree.
+export function appliedEdit(path: string, content: string): FakeStep[] {
+  const toolInput = { file_path: path };
+  const hookFor = (event: string): FakeStep => ({
+    op: "hook",
+    request: {
+      hook_event_name: event,
+      tool_name: "Edit",
+      tool_input: toolInput,
+      cwd: "{{WORKSPACE}}",
+    },
+  });
+  return [hookFor("PreToolUse"), { op: "edit", path, content }, hookFor("PostToolUse")];
+}
+
+// Ends the turn (a Stop hook → Idle), which arms and auto-opens the post-turn review of the applied edits —
+// the same surfacing a real turn produces. Append after one or more appliedEdit() sequences.
+export function endTurn(): FakeStep {
+  return { op: "hook", request: { hook_event_name: "Stop" } };
 }

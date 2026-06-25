@@ -12,13 +12,16 @@ namespace Weavie.Hosting.Tests;
 /// out-of-workspace path is refused, not revealed.
 /// </summary>
 public sealed class FileOpenerTests {
-	private const string Workspace = "/ws";
+	// A real worktree root is always fully rooted; "/ws" is drive-relative on Windows, where Path.GetFullPath
+	// would root it to the current drive (C:\ws) and a relative-path resolution would diverge from Path.Combine.
+	private static readonly string Workspace = OperatingSystem.IsWindows() ? @"C:\ws" : "/ws";
+	private static readonly string Scratch = OperatingSystem.IsWindows() ? @"C:\scratch" : "/scratch";
 
 	private static (FileOpener opener, SessionEditorChannel channel, FakeHostBridge bridge, InMemoryFileSystem fs) New() {
 		var bridge = new FakeHostBridge();
 		var channel = new SessionEditorChannel(bridge);
 		var fs = new InMemoryFileSystem();
-		var files = new FileProviderService(fs, Workspace, "/scratch");
+		var files = new FileProviderService(fs, Workspace, Scratch);
 		return (new FileOpener(channel, files, Workspace), channel, bridge, fs);
 	}
 

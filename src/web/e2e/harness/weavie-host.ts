@@ -37,6 +37,25 @@ export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
 }
 
+// Terminate the spawned host/runner AND its descendants (worker, claude, shell, LSP), then resolve once it has
+// actually exited — so the workspace/HOME can be removed without racing live handles. Node's kill() reaches only
+// the root process on Windows; taskkill /T kills the whole tree. Waiting on the real `exit` is the deterministic
+// teardown signal (never a fixed sleep), so cleanup never papers over a still-running child with a retry.
+export function killProcessTree(proc: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null || proc.pid === undefined) {
+      resolve();
+      return;
+    }
+    proc.once("exit", () => resolve());
+    if (process.platform === "win32") {
+      spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+    } else {
+      proc.kill("SIGINT");
+    }
+  });
+}
+
 export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -118,6 +137,12 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {
     HOME: home,
+    // Isolate Weavie's and Claude's on-disk config away from the developer's real home. $HOME alone doesn't do
+    // this on Windows (the user-profile known folder ignores it), so pin the two roots explicitly: WEAVIE_ROOT
+    // for ~/.weavie (settings, worktrees) and CLAUDE_CONFIG_DIR for ~/.claude (the IDE lock). Without it a run
+    // reads real settings (e.g. claude.allowAllTools) and writes real config — non-deterministic and polluting.
+    WEAVIE_ROOT: join(home, ".weavie"),
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
   };
@@ -131,7 +156,12 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     env,
     fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
     cleanup: () =>
-      Promise.all([rm(home, { recursive: true, force: true }), removeWorkspace(workspace)]).then(),
+      // Same bounded wait as removeWorkspace: the tree is dead, but Windows frees its handles under HOME (logs,
+      // config, IDE lock) asynchronously, so an immediate rm can race them.
+      Promise.all([
+        rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+        removeWorkspace(workspace),
+      ]).then(),
   };
 }
 
@@ -169,8 +199,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {
-      proc.kill("SIGINT");
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await killProcessTree(proc);
       await fake.cleanup();
     },
   };

@@ -47,7 +47,7 @@
   "devDependencies": {
     "@biomejs/biome": "1.9.4",
     "@codingame/esbuild-import-meta-url-plugin": "^1.0.3",
-    "@playwright/test": "1.56.1",
+    "@playwright/test": "1.61.1",
     "@types/markdown-it": "^14.1.2",
     "@types/ws": "^8.5.13",
     "typescript": "5.7.2",

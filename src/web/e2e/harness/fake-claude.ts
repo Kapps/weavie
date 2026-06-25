@@ -21,8 +21,14 @@ export function fakeClaudeBuilt(): boolean {
 }
 
 // Weavie execs the claude.path setting as a single executable, so wrap the managed dll in a tiny launcher
-// script and point claude.path at that. Written into the test's isolated HOME.
+// and point claude.path at that. Written into the test's isolated HOME. Windows can't CreateProcess a `.sh`,
+// so write a `.cmd` there — WindowsPtyLauncher runs `.cmd`/`.bat` through cmd.exe; POSIX gets an exec'd shell script.
 export async function writeFakeClaudeWrapper(dir: string): Promise<string> {
+  if (process.platform === "win32") {
+    const wrapper = join(dir, "fake-claude.cmd");
+    await writeFile(wrapper, `@dotnet "${fakeClaudeDll}" %*\r\n`);
+    return wrapper;
+  }
   const wrapper = join(dir, "fake-claude.sh");
   await writeFile(wrapper, `#!/bin/sh\nexec dotnet ${JSON.stringify(fakeClaudeDll)} "$@"\n`);
   await chmod(wrapper, 0o755);

@@ -14,7 +14,7 @@ namespace Weavie.Core.Changes;
 /// the editor can't read, stranding a blank tab.
 /// </para>
 /// </summary>
-public sealed class SessionChangeTracker {
+public sealed partial class SessionChangeTracker {
 	private readonly IFileSystem _fileSystem;
 	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
@@ -93,6 +93,9 @@ public sealed class SessionChangeTracker {
 			}
 
 			_createdSinceBaseline.Clear();
+			// Keep-all is the commit point — accepted changes are locked in, so the undo history resets here.
+			_undoStack.Clear();
+			_redoStack.Clear();
 		}
 	}
 
@@ -190,15 +193,18 @@ public sealed class SessionChangeTracker {
 			newLines.InsertRange(currentRange.Start - 1, replacement);
 			string newContent = string.Join("\n", newLines);
 
+			var before = Capture(path, withDisk: true);
 			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
 			if (newContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
 				_fileSystem.DeleteFile(path);
 				Forget(path);
+				Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
 				return RevertHunkOutcome.Deleted;
 			}
 
 			_fileSystem.WriteAllText(path, newContent);
 			_current[path] = newContent;
+			Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
 			return RevertHunkOutcome.Reverted;
 		}
 	}
@@ -211,17 +217,52 @@ public sealed class SessionChangeTracker {
 	public RevertHunkOutcome RevertFile(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		lock (_gate) {
-			string baseline = _reviewBaseline.GetValueOrDefault(path, string.Empty);
-			if (baseline.Length == 0 && _createdSinceBaseline.Contains(path)) {
-				_fileSystem.DeleteFile(path);
-				Forget(path);
-				return RevertHunkOutcome.Deleted;
+			var before = Capture(path, withDisk: true);
+			var outcome = RevertFileLocked(path);
+			Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
+			return outcome;
+		}
+	}
+
+	/// <summary>
+	/// Reverts every file in the review set to its baseline on disk as a single undoable step (the whole-set
+	/// analogue of <see cref="RevertFile"/>). A no-op (and not recorded) when the set is empty.
+	/// </summary>
+	public ReviewHistoryResult RevertAll() {
+		lock (_gate) {
+			var paths = new List<string>();
+			foreach (var (path, baseline) in _reviewBaseline) {
+				if (_current.TryGetValue(path, out string? current) && !string.Equals(baseline, current, StringComparison.Ordinal)) {
+					paths.Add(path);
+				}
 			}
 
-			_fileSystem.WriteAllText(path, baseline);
-			_current[path] = baseline;
-			return RevertHunkOutcome.Reverted;
+			if (paths.Count == 0) {
+				return ReviewHistoryResult.Blocked(false);
+			}
+
+			var before = paths.ConvertAll(p => Capture(p, withDisk: true));
+			foreach (string path in paths) {
+				RevertFileLocked(path);
+			}
+
+			Record(ReviewActionKind.Revert, touchesDisk: true, before, paths);
+			return ReviewHistoryResult.Done(true, paths);
 		}
+	}
+
+	// The revert-file body without locking or history, so RevertFile and RevertAll share it. Holds _gate.
+	private RevertHunkOutcome RevertFileLocked(string path) {
+		string baseline = _reviewBaseline.GetValueOrDefault(path, string.Empty);
+		if (baseline.Length == 0 && _createdSinceBaseline.Contains(path)) {
+			_fileSystem.DeleteFile(path);
+			Forget(path);
+			return RevertHunkOutcome.Deleted;
+		}
+
+		_fileSystem.WriteAllText(path, baseline);
+		_current[path] = baseline;
+		return RevertHunkOutcome.Reverted;
 	}
 
 	/// <summary>
@@ -248,10 +289,12 @@ public sealed class SessionChangeTracker {
 				return false;
 			}
 
+			var before = Capture(path, withDisk: false);
 			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
 			_reviewBaseline[path] = string.Join("\n", baselineLines);
 			_current[path] = string.Join("\n", currentLines);
+			Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
 			return true;
 		}
 	}
@@ -268,9 +311,14 @@ public sealed class SessionChangeTracker {
 				return;
 			}
 
+			var before = Capture(path, withDisk: false);
 			string current = ReadOrEmpty(path);
 			_reviewBaseline[path] = current;
 			_current[path] = current;
+			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
+			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal)) {
+				Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
+			}
 		}
 	}
 

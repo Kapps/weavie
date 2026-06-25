@@ -50,9 +50,6 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private WorktreeManager? _worktrees;
 	private ShellWorktreeProvisioner? _worktreeProvisioner;
 	private string _pageOrigin = string.Empty;
-	// The active session + first review file the page was told to auto-open this idle (see ShouldOpenReview),
-	// so review opens once per idle yet re-arms on a new turn or a session switch. Null = nothing armed.
-	private string? _armedReviewKey;
 
 	// Drives the custom title bar (window-control / menu-action / file-index), present only when the platform
 	// exposes an IShellWindow (a web-rendered title bar). Null on native-chrome hosts.

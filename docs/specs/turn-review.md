@@ -69,34 +69,45 @@ around a **scope picker**:
 |---|---|
 | `↑` / `↓` (`$mod+Up` / `$mod+Down`) | previous / next **change** (hunk) within the file |
 | `←` / `→` (`$mod+Left` / `$mod+Right`) | previous / next **file** in the review set |
-| **Keep** (`$mod+Enter`) | keep this change (drop the current hunk from the pending diff for good), advance |
-| **Revert** (`$mod+Backspace`) | revert this change (undo the current hunk on disk), advance |
-| Keep file (`$mod+Shift+Enter`) | keep every change in this file, advance to the next file |
-| Revert file (`$mod+Shift+Backspace`) | revert every change in this file on disk (confirms) |
+| **Keep** (`$mod+Enter`) | keep at the toolbar's **scope** (this change / file / all), advance |
+| **Revert** (`$mod+Backspace`) | revert at the toolbar's **scope** (this change / file / all), advance |
+| Undo keep (`$mod+Shift+Enter`) | undo the most recent keep — bring its change back into the pending set |
+| Undo revert (`$mod+Shift+Backspace`) | undo the most recent revert — restore its change on disk |
 
 The vertical axis walks hunks; the horizontal axis walks files. A **stacked label** names where you are
 — the filename over a `file i/N · change j/M` subtitle, with change-position dots — and a `Scope: <X> ▾`
 picker (This change / This file / All files, each annotated with its reach) chooses what the singular
 **Keep** / **Revert** buttons act on. The picker is **sticky** across files (reset only on a turn-reset).
 
-Crucially the keyboard shortcuts are *not* scope-driven: the plain keys are always per-hunk and
-`$mod+Shift` is always per-file, so a forgotten sticky scope can never turn a routine keypress into a
-bulk action. Keep-all / Revert-all (the whole set) live in the picker's **All** scope — on the buttons,
-the palette, and Claude — with no default key. **Revert file and Revert all confirm** (Enter confirms)
-before discarding, since they throw away work with no undo; per-hunk Revert and every Keep stay
-frictionless.
+The plain **Keep** / **Revert** keys act at the toolbar's **sticky scope** — the same scope the buttons
+follow — so a keypress always matches what the picker shows. The modifier picks *direction*, not scope:
+`$mod+Shift+Enter` / `$mod+Shift+Backspace` **undo** the last keep / revert (see [Undo/redo](#undoredo)).
+Every keep and revert is undoable, so a misfire is one keystroke from recovery. Keep-all / Revert-all (the
+whole set) live in the picker's **All** scope. **Revert file and Revert all still confirm** before
+discarding a batch, though both are now undoable.
+
+All the diff/review chords carry a `!terminalFocused` **per-binding** guard, so a routine `$mod+Backspace`
+(delete-word) in the embedded Claude never reaches into the editor to revert a hunk — yet the commands
+stay in the palette regardless of focus (a per-binding `when` doesn't gate palette visibility).
 
 Every button advertises its live shortcut on hover via the command catalog (`formatKey`), per the
 keyboard-first rule — bindings are never hardcoded, and the Keep/Revert tooltips name the current scope.
 
-### Auto-arm
+### Parked navigator — surface live, never hijack the editor
 
-Review is **implicit**: when a turn ends, the navigator arms itself — no shortcut to start it. The
-turn-end signal already exists: Claude's `Stop` hook drives the session to **Idle** status (see
-[hook-bridge.md](../concepts/hook-bridge.md)). The web watches the active session's Claude status; on a
-transition **into idle** while the review set is non-empty, it opens the first changed file at its first
-hunk (as a preview tab, so walking files doesn't pile up tabs). `weavie.review.open` (palette-only)
-re-enters the walk manually if you navigated away.
+The review **surfaces itself the moment a change lands**, but it never moves your editor. As soon as the
+review set is non-empty, the toolbar appears over the editor pane in a **parked** state — the same
+bottom-center bar as a live review, sitting at "change 0" — regardless of what file you're looking at. It
+reads `N files · press ↓ to start`; only the nav affordances are lit. Any nav (`↑`/`↓`/`←`/`→`) or `Keep`
+**steps in** — opening the first changed file at its first hunk, where the bar expands into the live
+per-hunk toolbar. Keep/Revert are inert while parked; Undo/Redo still reflect the session history.
+
+This replaces the old "jump the editor to the first changed file when the turn goes idle" behavior: the
+editor is **never** auto-moved (mid-turn or at turn-end). Stepping in is always user-driven. The host just
+pushes the review set live (on every edit, via `Changes.Changed`); the page decides to park or expand it
+purely from whether a changed file is in view — so there's no host-side `open` flag or auto-arm bookkeeping,
+and it's race-free across a session switch by construction (parking never touches the editor). The
+`weavie.review.open` command (palette) still jumps to the first change on demand.
 
 ## What already exists (reused, not rebuilt)
 
@@ -195,33 +206,69 @@ baseline instead of the *baseline* lines into the file:
 union of kept content, and because it lives in Core it is identical on every session the file is viewed
 from.
 
+## Undo/redo
+
+Every keep and revert is **undoable**, so review is forgiving — a misfire (or the old "Ctrl+Backspace in
+Claude reverted a hunk" footgun) is one keystroke from recovery. The history lives in
+`SessionChangeTracker` (per session, so it survives switches like the baselines do) as a stack of
+mementos: each keep/revert snapshots the affected paths' full review state — plus the on-disk content for
+reverts, which mutate the file — so the action can be **reversed** (undo) or **re-applied** (redo)
+uniformly.
+
+- **Undo keep** (`$mod+Shift+Enter`) rolls the review baseline back over the kept hunk, so it returns to
+  the pending set. No disk write (keep never wrote).
+- **Undo revert** (`$mod+Shift+Backspace`) rewrites the reverted change back to disk (re-creating a file a
+  revert deleted). The chords are **type-split** — Shift+Enter only undoes keeps, Shift+Backspace only
+  reverts — while the toolbar's single **Undo** button reverses the most recent of either kind.
+- **Redo** (toolbar / palette, no key) re-applies the most recently undone action.
+- A `!terminalFocused` guard + an availability check let an undo chord **decline** (fall through) when
+  there's nothing of that kind to undo.
+
+Undo is **guarded**: an action is reversible only while the paths it touched still match its post-action
+snapshot. A newer edit to the same file blocks the out-of-order undo (a toast, not a clobber) — the same
+optimistic-concurrency stance as the per-hunk guard.
+
+**Keep all is the commit point.** It advances every review baseline to current *and clears the history* —
+accepted changes are locked in, so there's nothing to undo past a commit. Nothing else clears the history
+(it accumulates across turns with the review set).
+
+The host bridges this with two messages (`review-undo` carrying an optional `kind`, `review-redo`) and
+re-pushes a `review-history { canUndo, canUndoKeep, canUndoRevert, canRedo }` after every review op so the
+toolbar's Undo/Redo buttons and the chords' decline stay in sync. `RevertAll` (Revert-all) is a single
+undoable step covering the whole set, not a per-file loop.
+
 ## Commands & keybindings
 
-The diff/review keys carry no `when` gate; instead each web handler **declines** (returns false, falling
-through to the editor) when no applied-mode diff is active, so their `default`-mode / editing meaning is
-unchanged outside a review.
+Every keybound diff/review command carries a `!terminalFocused` **per-binding** guard so a terminal
+keystroke (e.g. `$mod+Backspace` = delete-word in Claude) is never hijacked, and each web handler
+additionally **declines** (returns false, falling through to the editor) when there's nothing to act on,
+so the editing meaning is unchanged outside a review. A per-binding `when` does **not** gate palette
+visibility, so the commands stay runnable from the palette regardless of focus.
 
 | Command id | Default key | Action in review context |
 |---|---|---|
-| `weavie.diff.nextChange` (existing) | `$mod+Down` | next hunk |
-| `weavie.diff.prevChange` (existing) | `$mod+Up` | previous hunk |
-| `weavie.diff.accept` (existing) | `$mod+Enter` | **Keep** current hunk, advance |
-| `weavie.diff.reject` (existing) | `$mod+Backspace` | **Revert** current hunk on disk, advance |
-| `weavie.review.keepFile` (new) | `$mod+Shift+Enter` | **Keep file** — mark every hunk reviewed, advance to the next file |
-| `weavie.review.revertFile` (new) | `$mod+Shift+Backspace` | **Revert file** — revert the whole file on disk (confirms) |
-| `weavie.review.keepAll` (new) | _(palette-only)_ | **Keep all** — clear the whole review set |
-| `weavie.diff.undo` (existing) | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms) |
-| `weavie.review.nextFile` (existing) | `$mod+Right` | next file in the review set (land on first change) |
-| `weavie.review.prevFile` (existing) | `$mod+Left` | previous file in the review set |
-| `weavie.review.open` (existing) | _(palette-only)_ | open the first reviewed file at its first change |
+| `weavie.diff.nextChange` | `$mod+Down` | next hunk |
+| `weavie.diff.prevChange` | `$mod+Up` | previous hunk |
+| `weavie.diff.accept` | `$mod+Enter` | **Keep** at the toolbar's scope, advance |
+| `weavie.diff.reject` | `$mod+Backspace` | **Revert** at the toolbar's scope, advance |
+| `weavie.review.undoKeep` | `$mod+Shift+Enter` | **Undo keep** — re-pend the most recent kept change |
+| `weavie.review.undoRevert` | `$mod+Shift+Backspace` | **Undo revert** — restore the most recent reverted change on disk |
+| `weavie.review.redo` | _(palette/toolbar)_ | **Redo** the most recently undone keep/revert |
+| `weavie.review.keepFile` | _(palette + scope picker)_ | **Keep file** (= Keep at scope "File") |
+| `weavie.review.revertFile` | _(palette + scope picker)_ | **Revert file** (= Revert at scope "File"; confirms) |
+| `weavie.review.keepAll` | _(palette-only)_ | **Keep all** — the commit point; clears the marks + undo history |
+| `weavie.diff.undo` | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms; undoable) |
+| `weavie.review.nextFile` | `$mod+Right` | next file in the review set (land on first change) |
+| `weavie.review.prevFile` | `$mod+Left` | previous file in the review set |
+| `weavie.review.open` | _(palette-only)_ | open the first reviewed file at its first change |
 
 `$mod+Left`/`$mod+Right` override Monaco's word-navigation **only while an applied-mode diff is active**
-(the handlers decline when there is no review diff), so normal editing keeps word-nav; the new
-`$mod+Shift+Enter`/`$mod+Shift+Backspace` chords are otherwise unbound and likewise no-op outside a
-review. New commands follow the standard path: declare in `CoreCommands.cs` (`RunsIn = Web`), mirror the
-id in `src/web/src/commands/types.ts`, register a web handler in `App.tsx`. The sticky **scope** the
-toolbar buttons act on is web-only UI state — not a command — since every scoped action already has its
-own id above.
+(the handlers decline when there is no review diff), so normal editing keeps word-nav. The
+`$mod+Shift+Enter`/`$mod+Shift+Backspace` chords (formerly Keep file / Revert file) now mean **Undo keep
+/ Undo revert**; file-scope keep/revert moved onto the sticky scope picker. New commands follow the
+standard path: declare in `CoreCommands.cs` (`RunsIn = Web`), mirror the id in
+`src/web/src/commands/types.ts`, register a web handler in `App.tsx`. The sticky **scope** the toolbar
+buttons act on is web-only UI state — not a command.
 
 ## Message protocol
 
@@ -234,6 +281,7 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | `turn-changes` | review set updates / turn end, auto-apply modes only | `{ files: [{ path, name, added, removed, line }] }` |
 | `turn-diff` | per file, on change and after a revert | `{ path, name, baseline, current }` |
 | `turn-reset` | the whole set was kept (`accept-turn`) | `{}` |
+| `review-history` | after every review op + switch-in | `{ canUndo, canUndoKeep, canUndoRevert, canRedo }` |
 
 **Web → host**
 
@@ -244,8 +292,10 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 | `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
 | `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |
-| `accept-turn` | Keep-all | `{}` |
-| `undo-turn` | Revert-all (revert the whole set) | `{}` |
+| `accept-turn` | Keep-all (commit; clears history) | `{}` |
+| `undo-turn` | Revert-all (one undoable step via `SessionChangeTracker.RevertAll`) | `{}` |
+| `review-undo` | undo the last keep / revert (or generic) | `{ kind?: "keep" \| "revert" }` |
+| `review-redo` | redo the last undone action | `{}` |
 
 `turn-changes` is gated to auto-apply modes in the host push (mirroring how `turn-diff` is suppressed in
 `default`).

@@ -105,9 +105,9 @@ export interface InlineDiff {
   nextFile(): boolean;
   /** Walk to the previous file in the review set (applied mode); false when there's nothing to step to. */
   prevFile(): boolean;
-  /** Accept the active diff (review Keep / applied Accept). */
+  /** Keep at the toolbar's current scope (applied review), or accept the openDiff proposal (review mode). */
   accept(): boolean;
-  /** Reject the active review proposal. */
+  /** Revert at the toolbar's current scope (applied review), or reject the openDiff proposal (review mode). */
   reject(): boolean;
   /** Undo the active applied turn (revert all). */
   undo(): boolean;
@@ -117,8 +117,42 @@ export interface InlineDiff {
   revertFile(): boolean;
   /** Keep the whole accumulated review set in one action (applied review). */
   keepAll(): boolean;
+  /** Undo the most recent keep; false (key falls through) when there's none. */
+  undoKeep(): boolean;
+  /** Undo the most recent revert; false (key falls through) when there's none. */
+  undoRevert(): boolean;
+  /** Redo the most recently undone review action; false when there's none. */
+  redoReview(): boolean;
+  /** Bind the session-global undo/redo handlers (set once; review undo/redo isn't tied to a file). */
+  bindHistory(handlers: ReviewHistoryHandlers): void;
+  /** Update the review undo/redo availability (host-pushed) so the toolbar + chords reflect it. */
+  setReviewHistory(state: ReviewHistoryState): void;
+  /** Set (or clear) the parked-navigator summary; it surfaces when no changed file is in view. */
+  setParkedReview(summary: ParkedReview | undefined): void;
   /** Tear down listeners + any rendered markers (never disposes a model). */
   dispose(): void;
+}
+
+/** The parked-navigator summary: how many files are pending review, and how to step into the first change. */
+export interface ParkedReview {
+  fileCount: number;
+  stepIn: () => void;
+}
+
+/** Session-global undo/redo handlers — review history isn't per-file, so these are bound once. */
+export interface ReviewHistoryHandlers {
+  onUndoKeep: () => void;
+  onUndoRevert: () => void;
+  onUndoLast: () => void;
+  onRedo: () => void;
+}
+
+/** Host-pushed review undo/redo availability (`canUndo` is "either kind"). */
+export interface ReviewHistoryState {
+  canUndo: boolean;
+  canUndoKeep: boolean;
+  canUndoRevert: boolean;
+  canRedo: boolean;
 }
 
 // Split a string into lines the way a Monaco model does (so `original` lines line up with getLinesContent()).
@@ -168,6 +202,21 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   let dotsNode: HTMLElement | undefined;
   let scopeMenuNode: HTMLElement | undefined;
   let scopeWrapNode: HTMLElement | undefined;
+  // Session-global review undo/redo: availability (host-pushed) + the bound handlers, plus the toolbar buttons
+  // that reflect it. Not per-file, so it survives the active diff clearing.
+  let history: ReviewHistoryState = {
+    canUndo: false,
+    canUndoKeep: false,
+    canUndoRevert: false,
+    canRedo: false,
+  };
+  let historyHandlers: ReviewHistoryHandlers | undefined;
+  let undoButton: HTMLButtonElement | undefined;
+  let redoButton: HTMLButtonElement | undefined;
+  // The parked-navigator summary (review set non-empty, no changed file in view) + whether it's the rendered
+  // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
+  let parkedReview: ParkedReview | undefined;
+  let showingParked = false;
 
   const clearRender = (): void => {
     decorations?.clear();
@@ -186,6 +235,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     dotsNode = undefined;
     scopeMenuNode = undefined;
     scopeWrapNode = undefined;
+    undoButton = undefined;
+    redoButton = undefined;
+
+    showingParked = false;
     currentOptions = undefined;
     currentHunks = [];
     renderedUri = undefined;
@@ -339,8 +392,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   // Active-diff actions shared by the toolbar buttons and commands; each returns whether it acted, so an
   // unmatched keybinding falls through. accept/reject are per-hunk in applied mode, whole-proposal in review.
-  const nextChange = (): boolean => goToChange(1);
-  const prevChange = (): boolean => goToChange(-1);
   const runAction = (action: (() => void) | undefined): boolean => {
     if (action === undefined) {
       return false;
@@ -348,14 +399,24 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     action();
     return true;
   };
-  const accept = (): boolean =>
-    currentOptions?.mode === "applied" ? keepHunk() : runAction(currentOptions?.onAccept);
-  const reject = (): boolean =>
-    currentOptions?.mode === "applied" ? revertHunk() : runAction(currentOptions?.onReject);
+  // Parked navigator: the review set is non-empty but no changed file is in view, so the toolbar sits at
+  // "change 0" without moving the editor. Any nav (or Keep) steps in — opens the first change — at which point
+  // the live toolbar takes over. stepIn declines when there's nothing to step into.
+  const stepIn = (): boolean => {
+    if (parkedReview === undefined) {
+      return false;
+    }
+    parkedReview.stepIn();
+    return true;
+  };
+  const nextChange = (): boolean => (showingParked ? stepIn() : goToChange(1));
+  const prevChange = (): boolean => (showingParked ? stepIn() : goToChange(-1));
   const undo = (): boolean => runAction(currentOptions?.onUndo);
   const keepAll = (): boolean => runAction(currentOptions?.onKeepAll);
-  const nextFile = (): boolean => runAction(currentOptions?.onNextFile);
-  const prevFile = (): boolean => runAction(currentOptions?.onPrevFile);
+  const nextFile = (): boolean =>
+    showingParked ? stepIn() : runAction(currentOptions?.onNextFile);
+  const prevFile = (): boolean =>
+    showingParked ? stepIn() : runAction(currentOptions?.onPrevFile);
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
   // from the review set. Returns false outside applied mode.
@@ -365,6 +426,72 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // editor-controller routes this through a confirm before posting. Returns false outside applied mode.
   const revertFile = (): boolean =>
     runAction(currentOptions?.mode === "applied" ? currentOptions.onRevertFile : undefined);
+
+  // Keep / Revert act at the toolbar's sticky scope in applied mode (change → hunk, file → whole file, all →
+  // the set); in review mode they resolve the openDiff proposal. The plain keys and the toolbar buttons share
+  // these, so a keypress always matches the picker.
+  const accept = (): boolean => {
+    if (showingParked) {
+      return stepIn(); // Keep at "change 0" enters the review rather than acting
+    }
+    const options = currentOptions;
+    if (options?.mode !== "applied") {
+      return runAction(options?.onAccept);
+    }
+    const scope = effectiveScope(options);
+    return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
+  };
+  const reject = (): boolean => {
+    if (showingParked) {
+      return false; // nothing to revert from "change 0"
+    }
+    const options = currentOptions;
+    if (options?.mode !== "applied") {
+      return runAction(options?.onReject);
+    }
+    const scope = effectiveScope(options);
+    return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
+  };
+
+  // Review undo/redo (session-global; bound once via bindHistory). While a review surface is up the undo chords
+  // CONSUME the key even with nothing to undo — never fall through and let Monaco insert a newline (Shift+Enter)
+  // into the file under review. They only decline (fall through to the editor) when no review is up at all.
+  // A review surface is up (a live diff or the parked navigator), or there's undo history to act on — in either
+  // case the undo chords are meaningful and must consume the key rather than type into the editor.
+  const reviewUp = (): boolean =>
+    parkedReview !== undefined || currentOptions?.mode === "applied" || history.canUndo;
+  const undoKeep = (): boolean => {
+    if (!reviewUp()) {
+      return false;
+    }
+    if (history.canUndoKeep) {
+      runAction(historyHandlers?.onUndoKeep);
+    }
+    return true;
+  };
+  const undoRevert = (): boolean => {
+    if (!reviewUp()) {
+      return false;
+    }
+    if (history.canUndoRevert) {
+      runAction(historyHandlers?.onUndoRevert);
+    }
+    return true;
+  };
+  const undoLast = (): boolean =>
+    history.canUndo ? runAction(historyHandlers?.onUndoLast) : false;
+  const redoReview = (): boolean => (history.canRedo ? runAction(historyHandlers?.onRedo) : false);
+
+  // Dim/enable the toolbar's Undo/Redo buttons to match availability (cheap — no full re-render).
+  const syncHistoryButtons = (): void => {
+    if (undoButton !== undefined) {
+      undoButton.disabled = !history.canUndo;
+    }
+    if (redoButton !== undefined) {
+      redoButton.disabled = !history.canRedo;
+    }
+  };
+
   // Set the sticky scope the Keep / Revert buttons act on and re-render so their labels/handlers follow.
   const setScope = (scope: ReviewScope): void => {
     if (currentOptions?.mode !== "applied") {
@@ -518,28 +645,56 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     bar.appendChild(divider);
     bar.appendChild(buildScopePicker(options));
 
+    // Keep / Revert always carry the plain chords (Ctrl+Enter / Ctrl+Backspace); accept/reject route to the
+    // sticky scope, so the buttons and the keys stay in lockstep. Only the tooltip names the current scope.
     const scope = effectiveScope(options);
-    const keep = {
-      change: { tip: "Keep this change", cmd: CommandIds.acceptChange, run: accept },
-      file: { tip: "Keep this file", cmd: CommandIds.keepFile, run: keepFile },
-      all: { tip: "Keep all files", cmd: CommandIds.keepAll, run: keepAll },
-    }[scope];
-    const revert = {
-      change: { tip: "Revert this change", cmd: CommandIds.rejectChange, run: reject },
-      file: { tip: "Revert this file", cmd: CommandIds.revertFile, run: revertFile },
-      all: { tip: "Revert all files", cmd: CommandIds.undoChange, run: undo },
-    }[scope];
+    const keepTip =
+      scope === "change"
+        ? "Keep this change"
+        : scope === "file"
+          ? "Keep this file"
+          : "Keep all files";
+    const revertTip =
+      scope === "change"
+        ? "Revert this change"
+        : scope === "file"
+          ? "Revert this file"
+          : "Revert all files";
     bar.appendChild(
-      makeButton("weavie-inline-accept", "Keep", withShortcut(keep.tip, keep.cmd), keep.run),
+      makeButton(
+        "weavie-inline-accept",
+        "Keep",
+        withShortcut(keepTip, CommandIds.acceptChange),
+        accept,
+      ),
     );
     bar.appendChild(
       makeButton(
         "weavie-inline-reject",
         "Revert",
-        withShortcut(revert.tip, revert.cmd),
-        revert.run,
+        withShortcut(revertTip, CommandIds.rejectChange),
+        reject,
       ),
     );
+    // Undo / Redo of review actions (session-global). The generic Undo reverses the most recent of either kind;
+    // its tooltip names the two type-split chords. Both dim when there's nothing to do (syncHistoryButtons).
+    const histDivider = document.createElement("span");
+    histDivider.className = "weavie-inline-divider";
+    bar.appendChild(histDivider);
+    undoButton = makeButton(
+      "weavie-inline-hist",
+      "↶",
+      `Undo last review action — ${withShortcut("keep", CommandIds.undoKeep)}, ${withShortcut("revert", CommandIds.undoRevert)}`,
+      undoLast,
+    );
+    redoButton = makeButton(
+      "weavie-inline-hist",
+      "↷",
+      withShortcut("Redo review action", CommandIds.redoReview),
+      redoReview,
+    );
+    bar.append(undoButton, redoButton);
+    syncHistoryButtons();
     renderCounter();
   };
 
@@ -689,6 +844,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     currentOptions = options;
     currentHunks = hunks;
+    showingParked = false;
     const editorDom = editor.getDomNode();
     if (editorDom !== null) {
       toolbarNode = buildToolbar(options);
@@ -697,11 +853,110 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     renderedUri = uriString;
   };
 
-  // Re-render the active model's diff if it has one, else clear.
+  // The parked toolbar: the same bottom-center bar as a live review, sitting at "change 0" over whatever the
+  // editor shows. Its nav + Keep step into the review (stepIn); Keep/Revert are inert until then; Undo/Redo
+  // still reflect the session history. Reuses the live toolbar's classes so stepping in is a seamless expand.
+  const renderParked = (): void => {
+    clearRender();
+    const editorDom = editor.getDomNode();
+    if (editorDom === null || parkedReview === undefined) {
+      return;
+    }
+    const bar = document.createElement("div");
+    bar.className = "weavie-inline-toolbar";
+    const multiFile = parkedReview.fileCount > 1;
+    if (multiFile) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "←",
+          withShortcut("Review changes", CommandIds.reviewPrevFile),
+          stepIn,
+        ),
+      );
+    }
+    const stack = document.createElement("div");
+    stack.className = "weavie-inline-stack";
+    const name = document.createElement("span");
+    name.className = "weavie-inline-stack-name";
+    name.textContent = "Review changes";
+    const sub = document.createElement("span");
+    sub.className = "weavie-inline-stack-sub";
+    sub.textContent = `${parkedReview.fileCount} file${parkedReview.fileCount === 1 ? "" : "s"} · press ↓ to start`;
+    stack.append(name, sub);
+    bar.appendChild(stack);
+    if (multiFile) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "→",
+          withShortcut("Review changes", CommandIds.reviewNextFile),
+          stepIn,
+        ),
+      );
+    }
+    bar.append(
+      makeButton(
+        "weavie-inline-nav",
+        "↑",
+        withShortcut("Review changes", CommandIds.prevChange),
+        stepIn,
+      ),
+      makeButton(
+        "weavie-inline-nav",
+        "↓",
+        withShortcut("Review changes", CommandIds.nextChange),
+        stepIn,
+      ),
+    );
+    const divider = document.createElement("span");
+    divider.className = "weavie-inline-divider";
+    bar.appendChild(divider);
+    // Inert until a change is in view, but shown so the bar reads as the same toolbar at "change 0".
+    const keep = makeButton(
+      "weavie-inline-accept",
+      "Keep",
+      "Step into a change first (↓)",
+      () => {},
+    );
+    const revert = makeButton(
+      "weavie-inline-reject",
+      "Revert",
+      "Step into a change first (↓)",
+      () => {},
+    );
+    keep.disabled = true;
+    revert.disabled = true;
+    bar.append(keep, revert);
+    const histDivider = document.createElement("span");
+    histDivider.className = "weavie-inline-divider";
+    bar.appendChild(histDivider);
+    undoButton = makeButton(
+      "weavie-inline-hist",
+      "↶",
+      `Undo last review action — ${withShortcut("keep", CommandIds.undoKeep)}, ${withShortcut("revert", CommandIds.undoRevert)}`,
+      undoLast,
+    );
+    redoButton = makeButton(
+      "weavie-inline-hist",
+      "↷",
+      withShortcut("Redo review action", CommandIds.redoReview),
+      redoReview,
+    );
+    bar.append(undoButton, redoButton);
+    syncHistoryButtons();
+    toolbarNode = bar;
+    editorDom.appendChild(bar);
+    showingParked = true;
+  };
+
+  // Render the active model's diff if it has one; else park the navigator when a review set is pending; else clear.
   const renderActive = (): void => {
     const model = editor.getModel();
     if (model !== null && diffs.has(model.uri.toString())) {
       render(model.uri.toString());
+    } else if (parkedReview !== undefined && parkedReview.fileCount > 0) {
+      renderParked();
     } else {
       clearRender();
     }
@@ -760,7 +1015,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const clearByUri = (key: string): void => {
     diffs.delete(key);
     if (renderedUri === key) {
-      clearRender();
+      renderActive(); // fall back to the parked navigator when a review set still remains
     }
   };
 
@@ -776,6 +1031,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     clearAll() {
       diffs.clear();
       currentScope = "change";
+      parkedReview = undefined;
       clearRender();
     },
     hasDiffForUri: (uri) => diffs.has(uri),
@@ -789,6 +1045,20 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     keepFile,
     revertFile,
     keepAll,
+    undoKeep,
+    undoRevert,
+    redoReview,
+    bindHistory(handlers) {
+      historyHandlers = handlers;
+    },
+    setReviewHistory(state) {
+      history = state;
+      syncHistoryButtons();
+    },
+    setParkedReview(summary) {
+      parkedReview = summary;
+      renderActive();
+    },
     dispose() {
       if (recomputeTimer !== undefined) {
         clearTimeout(recomputeTimer);

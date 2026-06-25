@@ -240,6 +240,22 @@
   color: #ffe8e8;
 }
 
+/* Undo / redo of review actions: ghost buttons like the nav arrows, dimmed when there's nothing to do. */
+.weavie-inline-toolbar .weavie-inline-hist {
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.weavie-inline-toolbar .weavie-inline-hist:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.weavie-inline-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Scope picker: a `Scope: <X> ▾` toggle over an "Apply to…" dropdown that sets what Keep/Revert act on. The
    accent border marks it as the stateful control among the actions. */
 .weavie-inline-toolbar .weavie-inline-scope {

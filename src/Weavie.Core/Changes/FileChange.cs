@@ -10,4 +10,11 @@ public sealed record FileChange {
 
 	/// <summary>The file's latest content.</summary>
 	public required string CurrentText { get; init; }
+
+	/// <summary>
+	/// The file's content at the last keep-all (the review's "accepted anchor"), for the inline turn-review's
+	/// faded band (accepted anchor → review baseline). Only meaningful on the <see cref="SessionChangeTracker.GetTurn"/>
+	/// / <see cref="SessionChangeTracker.TurnChanges"/> triple; defaults to empty for the session-diff views.
+	/// </summary>
+	public string AcceptedBaselineText { get; init; } = string.Empty;
 }

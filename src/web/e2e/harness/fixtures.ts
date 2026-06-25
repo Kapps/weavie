@@ -24,15 +24,17 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
   weavie: [
     async ({ page, fakeScript }, use, testInfo) => {
       const remote = testInfo.project.name === "remote";
-      test.skip(!headlessBuilt(), "Weavie.Headless not built (dotnet build src/Weavie.Headless)");
-      test.skip(
-        !fakeClaudeBuilt(),
-        "Weavie.FakeClaude not built (dotnet build tools/Weavie.FakeClaude)",
-      );
-      test.skip(
-        remote && !runnerBuilt(),
-        "Weavie.Runner not built (dotnet build src/Weavie.Runner)",
-      );
+      // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
+      // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.
+      if (!headlessBuilt()) {
+        throw new Error("Weavie.Headless not built — run: dotnet build src/Weavie.Headless");
+      }
+      if (!fakeClaudeBuilt()) {
+        throw new Error("Weavie.FakeClaude not built — run: dotnet build tools/Weavie.FakeClaude");
+      }
+      if (remote && !runnerBuilt()) {
+        throw new Error("Weavie.Runner not built — run: dotnet build src/Weavie.Runner");
+      }
 
       const host = await (remote ? launchRemote : launchHeadless)({
         fakeScript: fakeScript?.steps ?? null,

@@ -10,16 +10,7 @@ public sealed class ChangeMessagesTests {
 	private static JsonElement Parse(string json) => JsonDocument.Parse(json).RootElement;
 
 	[Fact]
-	public void EmptyTurnChanges_IsTypeWithEmptyFilesAndNeverOpens() {
-		var root = Parse(ChangeMessages.EmptyTurnChanges());
-
-		Assert.Equal("turn-changes", root.GetProperty("type").GetString());
-		Assert.Empty(root.GetProperty("files").EnumerateArray());
-		Assert.False(root.GetProperty("open").GetBoolean());
-	}
-
-	[Fact]
-	public void TurnChanges_ListsFilesAndCarriesOpenFlag() {
+	public void TurnChanges_ListsChangedFilesWithCountsAndFirstChangeLine() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\n");
 		// CaptureBaseline/RecordChange are called directly here (not via Observe), so scope is moot; accept all.
@@ -28,10 +19,9 @@ public sealed class ChangeMessagesTests {
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		tracker.RecordChange("/w/a.txt");
 
-		var root = Parse(ChangeMessages.TurnChanges(tracker, open: true));
+		var root = Parse(ChangeMessages.TurnChanges(tracker));
 
 		Assert.Equal("turn-changes", root.GetProperty("type").GetString());
-		Assert.True(root.GetProperty("open").GetBoolean());
 		var file = Assert.Single(root.GetProperty("files").EnumerateArray());
 		Assert.Equal("/w/a.txt", file.GetProperty("path").GetString());
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
@@ -40,15 +30,21 @@ public sealed class ChangeMessagesTests {
 	}
 
 	[Fact]
-	public void TurnDiff_CarriesBaselineAndCurrent() {
-		var change = new FileChange { Path = "/w/dir/a.cs", BaselineText = "before", CurrentText = "after" };
+	public void TurnDiff_CarriesTheAcceptedReviewCurrentTriple() {
+		var change = new FileChange {
+			Path = "/w/dir/a.cs",
+			AcceptedBaselineText = "anchor",
+			BaselineText = "before",
+			CurrentText = "after",
+		};
 
 		var root = Parse(ChangeMessages.TurnDiff(change));
 
 		Assert.Equal("turn-diff", root.GetProperty("type").GetString());
 		Assert.Equal("/w/dir/a.cs", root.GetProperty("path").GetString());
 		Assert.Equal("a.cs", root.GetProperty("name").GetString());
-		Assert.Equal("before", root.GetProperty("baseline").GetString());
+		Assert.Equal("anchor", root.GetProperty("acceptedBaseline").GetString()); // faded band origin
+		Assert.Equal("before", root.GetProperty("baseline").GetString());         // bright band origin (review baseline)
 		Assert.Equal("after", root.GetProperty("current").GetString());
 	}
 

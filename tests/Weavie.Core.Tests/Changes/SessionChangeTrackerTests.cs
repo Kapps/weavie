@@ -422,7 +422,7 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void KeepHunk_LastHunk_DropsFileFromReviewSetKeepingSessionDiff() {
+	public void KeepHunk_LastHunk_StaysFadedInReviewSetUntilKeepAll() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		var tracker = Tracker(fileSystem);
@@ -430,15 +430,22 @@ public sealed class SessionChangeTrackerTests {
 		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
 		tracker.RecordChange("/w/a.txt");
 
-		// The file's one hunk: keeping it advances the review baseline to current, so it leaves the review set.
+		// Keeping the file's one hunk advances the review baseline to current (no more pending hunks), but the
+		// file STAYS in the set as a faded accepted band (accepted anchor still behind) until keep-all commits it.
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
 
-		Assert.Empty(tracker.TurnChanges());     // dropped from the review walk for good
-		Assert.Single(tracker.Changes());        // session diff (b -> B) survives, like keep-all
+		var faded = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("a\nb\n", faded.AcceptedBaselineText); // faded band = accepted anchor → review baseline
+		Assert.Equal("a\nB\n", faded.BaselineText);         // review baseline == current → no bright pending hunks
+		Assert.Equal("a\nB\n", faded.CurrentText);
+		Assert.Single(tracker.Changes());                   // session diff (b -> B) survives
+
+		tracker.AcceptTurn();
+		Assert.Empty(tracker.TurnChanges()); // keep-all snaps the anchor to current — the faded band clears
 	}
 
 	[Fact]
-	public void KeepFile_AdvancesWholeBaseline_DropsFromReviewSetKeepingSessionDiff() {
+	public void KeepFile_AdvancesWholeBaseline_StaysFadedUntilKeepAll() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");
 		var tracker = Tracker(fileSystem);
@@ -448,9 +455,15 @@ public sealed class SessionChangeTrackerTests {
 
 		tracker.KeepFile("/w/a.txt");
 
-		Assert.Empty(tracker.TurnChanges()); // whole file left the review set
+		// Every hunk is now faded-accepted (review baseline == current), but the file stays in the set until keep-all.
+		var faded = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("a\nb\nc\n", faded.AcceptedBaselineText);
+		Assert.Equal("A\nb\nC\n", faded.BaselineText);
 		Assert.Equal("A\nb\nC\n", fileSystem.ReadAllText("/w/a.txt")); // disk unchanged
 		Assert.Single(tracker.Changes());    // session diff survives
+
+		tracker.AcceptTurn();
+		Assert.Empty(tracker.TurnChanges());
 	}
 
 	[Fact]
@@ -458,6 +471,64 @@ public sealed class SessionChangeTrackerTests {
 		var tracker = Tracker(new InMemoryFileSystem());
 		tracker.KeepFile("/w/never.txt"); // never recorded — must not throw or invent a change
 		Assert.Empty(tracker.TurnChanges());
+	}
+
+	[Fact]
+	public void UnkeepHunk_RestoresKeptHunkToPending() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\nd\ne\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt"); // accepted anchor = review baseline = a\nb\nc\nd\ne\n
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\nD\ne\n"); // two hunks (lines 2 and 4)
+		tracker.RecordChange("/w/a.txt");
+
+		// Keep the second hunk (line 4): review baseline advances over it to a\nb\nc\nD\ne\n; the anchor holds.
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+		Assert.Equal("a\nb\nc\nD\ne\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
+
+		// Un-keep it (the faded band is accepted→review = line 4: d→D). The accepted anchor's "d" splices back
+		// into the review baseline over the "D", re-pending the hunk. Disk is never touched.
+		Assert.True(tracker.UnkeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\nc\nd\ne\n", change!.AcceptedBaselineText); // anchor unmoved
+		Assert.Equal("a\nb\nc\nd\ne\n", change.BaselineText);          // review baseline back to the anchor → both hunks pending
+		Assert.Equal("a\nB\nc\nD\ne\n", change.CurrentText);          // disk untouched
+		Assert.Equal("a\nB\nc\nD\ne\n", fileSystem.ReadAllText("/w/a.txt"));
+	}
+
+	[Fact]
+	public void UnkeepHunk_GuardMismatch_LeavesBaselineUnchanged() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\n");
+		tracker.RecordChange("/w/a.txt");
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B")); // review baseline = a\nB\n
+
+		// A concurrent keep moved the review baseline after the web diffed it: the guard ("X" != "B") aborts.
+		Assert.False(tracker.UnkeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "X"));
+		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // review baseline never reverted
+	}
+
+	[Fact]
+	public void UnkeepHunk_PureAddition_RemovesKeptLinesFromBaseline() {
+		// Claude ADDED a line (kept), so the faded band is an accepted→review insertion: accepted range empty,
+		// review range the added line. Un-keeping removes it from the review baseline → it goes bright-pending again.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nc\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt"); // anchor = a\nc\n
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n"); // inserted B on line 2
+		tracker.RecordChange("/w/a.txt");
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 2), new LineRange(2, 3), "B")); // review baseline = a\nB\nc\n
+
+		// Faded band: accepted range [2,2) (empty), review range [2,3) ("B"). Un-keep splices the anchor's nothing
+		// over "B" → review baseline back to a\nc\n.
+		Assert.True(tracker.UnkeepHunk("/w/a.txt", new LineRange(2, 2), new LineRange(2, 3), "B"));
+		Assert.Equal("a\nc\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
 	}
 
 	private static HookRequest Bash(HookEventKind evt, string command) => new() {

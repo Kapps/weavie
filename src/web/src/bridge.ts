@@ -173,6 +173,22 @@ export type HostBoundMessage =
   // Inline review: KEEP ALL of one file's changes — advance its review baseline to current (no disk write) so the
   // file leaves the review set for good (the file-scoped analogue of accept-turn).
   | { type: "keep-file"; path: string }
+  // Inline review: UN-KEEP one faded (accepted) hunk — Core splices the accepted-anchor lines back into the review
+  // baseline so it returns to the bright pending band (no disk write). `accepted*` is the range in the accepted
+  // anchor (the restored lines); `review*` the range in the review baseline (splice target + `guardText` check).
+  | {
+      type: "unkeep-hunk";
+      path: string;
+      acceptedStart: number;
+      acceptedEndExclusive: number;
+      reviewStart: number;
+      reviewEndExclusive: number;
+      guardText: string;
+    }
+  // Review undo/redo. `kind` "keep" undoes the last keep, "revert" the last revert (the type-split chords);
+  // omitted, the most recent action of either kind (the toolbar's generic Undo). Redo re-applies the last undone.
+  | { type: "review-undo"; kind?: "keep" | "revert" }
+  | { type: "review-redo" }
   // The file browser asks the host to list a directory under the session root (root when path is "").
   | { type: "list-dir"; path: string }
   // The user changed the pane layout (split ratio, active pane); host persists + reconciles it.
@@ -329,18 +345,34 @@ export type WebBoundMessage =
   // catching an external edit): fire the provider's change event so VSCode reloads the affected working copies.
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
   // The per-TURN change list (files + each file's first-change line), driving the inline review walk's
-  // ← / → axis. `open` is the host's race-free decision to auto-open the first file. Pushed in auto-keep
-  // modes only; empty (open=false) after a turn boundary / switch.
+  // ← / → axis and the parked navigator (which surfaces the review without moving the editor). Pushed live as
+  // changes land; empty after a turn boundary / switch.
   | {
       type: "turn-changes";
-      open: boolean;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
-  // One file's per-TURN diff (baseline-at-turn-start vs current), to render inline in the live editor.
-  // baseline === current means "no markers" (the file was accepted or reverted this turn).
-  | { type: "turn-diff"; path: string; name: string; baseline: string; current: string }
+  // One file's per-TURN diff as the (acceptedBaseline, baseline, current) triple: baseline→current is the bright
+  // pending band, acceptedBaseline→baseline the faded accepted band. `acceptedBaseline === current` means "no
+  // markers"; `baseline === current` means "faded accepted only" (every hunk kept but not yet committed).
+  | {
+      type: "turn-diff";
+      path: string;
+      name: string;
+      acceptedBaseline: string;
+      baseline: string;
+      current: string;
+    }
   // A turn boundary: clear all inline turn markers (the prior turn is implicitly accepted).
   | { type: "turn-reset" }
+  // Review undo/redo availability, so the page enables its Undo/Redo affordances and lets the type-split undo
+  // chords decline (fall through) when there's nothing of that kind to undo. `canUndo` is "either kind".
+  | {
+      type: "review-history";
+      canUndo: boolean;
+      canUndoKeep: boolean;
+      canUndoRevert: boolean;
+      canRedo: boolean;
+    }
   // A session switch: re-point the editor's language clients at the incoming session's LSP bridge (its own
   // worktree root + token). Handled by rebindLanguageServices (lsp/lsp-client.ts).
   | { type: "lsp-config"; config: WeavieLspConfig }

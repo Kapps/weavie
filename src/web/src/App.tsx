@@ -499,9 +499,6 @@ export default function App(): JSX.Element {
     }
   });
 
-  // Review auto-open is decided HOST-side (it reads the session's status + change set together, so the
-  // decision is race-free across a switch) and delivered as the `open` flag on `turn-changes`. The page obeys.
-
   onMount(() => {
     // Apply the active theme to Weavie's chrome. The controller owns the active theme + override ops and
     // also drives Monaco + xterm; this pushes the chrome's CSS vars.
@@ -526,12 +523,10 @@ export default function App(): JSX.Element {
         // xterms persist across switches, so focusing the slot is valid even mid-respawn.
         focusPane(message.kind);
       } else if (message.type === "turn-changes") {
-        // The review set (auto-keep modes): feed the editor's ← / → file walk; on `open`, surface review by
-        // opening the first file. Review is the inline editor toolbar, not a panel.
+        // The review set: feed the editor's ← / → file walk + the parked navigator, which surfaces the review
+        // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an
+        // auto-jump. (weavie.review.open / palette still jumps on demand.)
         editor.setReviewFiles(message.files);
-        if (message.open) {
-          editor.openFirstReviewFile();
-        }
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
         // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
@@ -601,6 +596,11 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
       registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
       registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
+      // Review undo/redo. The undo chords are type-split (Shift+Enter keep / Shift+Backspace revert) and decline
+      // (fall through) when there's nothing of that kind to undo; redo is palette/toolbar-only.
+      registerCommand(CommandIds.undoKeep, () => editor.inline.undoKeep()),
+      registerCommand(CommandIds.undoRevert, () => editor.inline.undoRevert()),
+      registerCommand(CommandIds.redoReview, () => editor.inline.redoReview()),
       // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
       // through to the editor) when no multi-file review is active, so $mod+Left/Right keep word-nav outside one.
       registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),

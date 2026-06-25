@@ -57,24 +57,10 @@ public sealed partial class HostCore {
 		session.Status.Changed += status => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
-				switch (status) {
-					case SessionStatus.Idle:
-					case SessionStatus.NeedsInput:
-						// Turn ended or Claude awaits input: re-push the review set so its auto-open flag reshows it.
-						// NeedsInput must arm+show like Idle, or a post-turn notification wipes the diff on switch.
-						PushTurnChangesToWeb();
-						break;
-					case SessionStatus.Working:
-					case SessionStatus.Starting:
-						// New turn starting — re-arm so its first file opens when THIS turn ends. NeedsInput must NOT
-						// reset the arm, or the post-turn notification re-fires the auto-open and fights review nav.
-						_armedReviewKey = null;
-						break;
-					default:
-						break; // Error — leave the review state as-is
-				}
 			}
 
+			// The review set is pushed live on every edit (Changes.Changed), so the page's parked navigator
+			// surfaces changes as they land — no status-driven re-push or auto-open arming needed here.
 			_ui.Post(PushSessionList);
 		};
 		session.Lsp.FileChanges += changes => {

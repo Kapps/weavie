@@ -37,22 +37,54 @@ export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
 }
 
-// Terminate the spawned host/runner AND its descendants (worker, claude, shell, LSP), then resolve once it has
-// actually exited — so the workspace/HOME can be removed without racing live handles. Node's kill() reaches only
-// the root process on Windows; taskkill /T kills the whole tree. Waiting on the real `exit` is the deterministic
-// teardown signal (never a fixed sleep), so cleanup never papers over a still-running child with a retry.
+// Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve
+// once it has actually exited, so the workspace/HOME can be removed without racing live handles. Node's kill()
+// reaches only the root process on Windows; taskkill /T kills the whole tree. Resolving on the real `exit` is the
+// deterministic signal (not a fixed sleep), but a graceful shutdown that stalls (a child that ignores SIGINT, or
+// a slow dispose) must not hang teardown — so escalate to an unconditional kill after a bounded grace.
 export function killProcessTree(proc: ChildProcess): Promise<void> {
   return new Promise((resolve) => {
-    if (proc.exitCode !== null || proc.signalCode !== null || proc.pid === undefined) {
+    const pid = proc.pid;
+    if (proc.exitCode !== null || proc.signalCode !== null || pid === undefined) {
       resolve();
       return;
     }
-    proc.once("exit", () => resolve());
+    let settled = false;
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    const forceKill = (): void => {
+      if (process.platform === "win32") {
+        spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    };
+    proc.once("exit", finish);
+    // Windows: force-kill the tree immediately (taskkill is the only thing that reaches descendants). POSIX: ask
+    // for a graceful SIGINT first.
     if (process.platform === "win32") {
-      spawn("taskkill", ["/pid", String(proc.pid), "/T", "/F"], { stdio: "ignore" });
+      forceKill();
     } else {
       proc.kill("SIGINT");
     }
+    // If `exit` hasn't fired in time (a child ignoring SIGINT, or a stalled dispose), force-kill and resolve so
+    // teardown is bounded — a no-op once the process already exited.
+    setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      forceKill();
+      finish();
+    }, 3000).unref();
   });
 }
 

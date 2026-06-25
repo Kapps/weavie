@@ -7,6 +7,7 @@ test("app boots and launches the stubbed claude backend", async ({ weavie, page 
   await expect(page.locator(".layout-root")).toBeVisible();
   await expect(page.locator(".pane-slot").first()).toBeVisible();
 
-  // The supervisor's start line names the resolved claude binary — our fake wrapper, not the real CLI.
-  await expect.poll(() => weavie.log(), { timeout: 20_000 }).toContain("fake-claude.sh");
+  // The supervisor's start line names the resolved claude binary — our fake wrapper (.sh on POSIX, .cmd on
+  // Windows), not the real CLI.
+  await expect.poll(() => weavie.log(), { timeout: 20_000 }).toContain("fake-claude.");
 });

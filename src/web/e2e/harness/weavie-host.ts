@@ -37,6 +37,57 @@ export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
 }
 
+// Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve
+// once it has actually exited, so the workspace/HOME can be removed without racing live handles. Node's kill()
+// reaches only the root process on Windows; taskkill /T kills the whole tree. Resolving on the real `exit` is the
+// deterministic signal (not a fixed sleep), but a graceful shutdown that stalls (a child that ignores SIGINT, or
+// a slow dispose) must not hang teardown — so escalate to an unconditional kill after a bounded grace.
+export function killProcessTree(proc: ChildProcess): Promise<void> {
+  return new Promise((resolve) => {
+    const pid = proc.pid;
+    if (proc.exitCode !== null || proc.signalCode !== null || pid === undefined) {
+      resolve();
+      return;
+    }
+    let settled = false;
+    const finish = (): void => {
+      if (settled) {
+        return;
+      }
+      settled = true;
+      resolve();
+    };
+    const forceKill = (): void => {
+      if (process.platform === "win32") {
+        spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      } else {
+        try {
+          proc.kill("SIGKILL");
+        } catch {
+          // already gone
+        }
+      }
+    };
+    proc.once("exit", finish);
+    // Windows: force-kill the tree immediately (taskkill is the only thing that reaches descendants). POSIX: ask
+    // for a graceful SIGINT first.
+    if (process.platform === "win32") {
+      forceKill();
+    } else {
+      proc.kill("SIGINT");
+    }
+    // If `exit` hasn't fired in time (a child ignoring SIGINT, or a stalled dispose), force-kill and resolve so
+    // teardown is bounded — a no-op once the process already exited.
+    setTimeout(() => {
+      if (settled) {
+        return;
+      }
+      forceKill();
+      finish();
+    }, 3000).unref();
+  });
+}
+
 export function freePort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const srv = createServer();
@@ -118,6 +169,12 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {
     HOME: home,
+    // Isolate Weavie's and Claude's on-disk config away from the developer's real home. $HOME alone doesn't do
+    // this on Windows (the user-profile known folder ignores it), so pin the two roots explicitly: WEAVIE_ROOT
+    // for ~/.weavie (settings, worktrees) and CLAUDE_CONFIG_DIR for ~/.claude (the IDE lock). Without it a run
+    // reads real settings (e.g. claude.allowAllTools) and writes real config — non-deterministic and polluting.
+    WEAVIE_ROOT: join(home, ".weavie"),
+    CLAUDE_CONFIG_DIR: join(home, ".claude"),
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
   };
@@ -131,7 +188,12 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     env,
     fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
     cleanup: () =>
-      Promise.all([rm(home, { recursive: true, force: true }), removeWorkspace(workspace)]).then(),
+      // Same bounded wait as removeWorkspace: the tree is dead, but Windows frees its handles under HOME (logs,
+      // config, IDE lock) asynchronously, so an immediate rm can race them.
+      Promise.all([
+        rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 }),
+        removeWorkspace(workspace),
+      ]).then(),
   };
 }
 
@@ -169,8 +231,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {
-      proc.kill("SIGINT");
-      await new Promise((resolve) => setTimeout(resolve, 200));
+      await killProcessTree(proc);
       await fake.cleanup();
     },
   };

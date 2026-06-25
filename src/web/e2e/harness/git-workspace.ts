@@ -33,5 +33,21 @@ export async function createGitWorkspace(): Promise<string> {
 }
 
 export async function removeWorkspace(dir: string): Promise<void> {
-  await rm(dir, { recursive: true, force: true });
+  // The host tree is already dead (killProcessTree awaited its exit), but Windows releases a dead process's file
+  // handles asynchronously, so an immediate rm can still race them with EBUSY. A short bounded wait covers that OS
+  // latency (mirrors Core's WorktreeManager) — NOT the old fallback that retried while real orphans stayed alive.
+  await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+}
+
+// The absolute paths of every git worktree of `repoRoot` except the primary checkout — i.e. the worktrees
+// HostCore created for forked sessions. Lets a multi-session test assert each session's writes land in its
+// own worktree, with no dependence on Weavie's internal worktree-naming.
+export function sessionWorktrees(repoRoot: string): string[] {
+  const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+    cwd: repoRoot,
+    encoding: "utf8",
+  });
+  const paths = [...out.matchAll(/^worktree (.+)$/gm)].map((m) => m[1].trim());
+  const primary = paths[0]; // git lists the main working tree first
+  return paths.filter((p) => p !== primary);
 }

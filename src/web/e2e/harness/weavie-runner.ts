@@ -8,6 +8,7 @@ import {
   type WeavieHost,
   freePort,
   headlessDll,
+  killProcessTree,
   prepareFake,
   waitForHttp,
 } from "./weavie-host";
@@ -99,9 +100,9 @@ export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> 
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {
-      // SIGINT lets the runner dispose its backends (and the worker) cleanly.
-      proc.kill("SIGINT");
-      await new Promise((resolve) => setTimeout(resolve, 400));
+      // Kill the runner AND its spawned worker (+ that worker's claude/shell/LSP children) — Node's kill()
+      // reaches only the runner on Windows, orphaning the worker, whose live handles then block workspace removal.
+      await killProcessTree(proc);
       await fake.cleanup();
     },
   };

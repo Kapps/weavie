@@ -23,8 +23,8 @@ public sealed class TurnKeepTests {
 		host.Bridge.Clear();
 		host.Send($$"""{"type":"keep-file","path":{{JsonSerializer.Serialize(path)}}}""");
 
-		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — keep is not a revert
 		// The file stays in the review set as a faded accepted band (no pending hunks) until keep-all commits it.
+		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — keep is not a revert
 		var turn = session.Changes.GetTurn(path);
 		Assert.NotNull(turn);
 		Assert.Equal(turn!.BaselineText, turn.CurrentText);     // review baseline == current → nothing bright/pending
@@ -48,8 +48,8 @@ public sealed class TurnKeepTests {
 			{"type":"keep-hunk","path":{{JsonSerializer.Serialize(path)}},"baselineStart":2,"baselineEndExclusive":2,"currentStart":2,"currentEndExclusive":3,"guardText":"world"}
 			""");
 
-		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched
 		// The only hunk is now faded-accepted: no pending diff (review baseline == current), but the file stays.
+		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched
 		var turn = session.Changes.GetTurn(path);
 		Assert.NotNull(turn);
 		Assert.Equal(turn!.BaselineText, turn.CurrentText);

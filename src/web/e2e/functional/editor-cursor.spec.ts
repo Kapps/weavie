@@ -5,7 +5,19 @@ import { expect, test } from "../harness/fixtures";
 // The editor caret is positioned by Monaco from its measured `FontInfo`; the glyphs themselves are flowed by
 // the browser using the actually-loaded font. If those diverge (e.g. metrics measured against a fallback before
 // the bundled webfont — Go Mono — finished loading, never remeasured), the caret drifts off the characters.
-// These tests pin the caret to where the glyphs really are, read from the browser's own layout.
+// These tests pin the caret to where the glyphs really are, read from the browser's own layout, and place the
+// caret deterministically through the editor handle (window.__WEAVIE_EDITOR__) rather than counting keystrokes.
+
+// The slice of the Monaco editor this spec drives, via the read-only handle the app publishes on window for
+// e2e / diagnostics. Declared structurally here so the spec stays self-contained (e2e isn't in the app
+// tsconfig, so it doesn't see the app-side global.d.ts declaration).
+interface EditorHandle {
+  focus(): void;
+  setPosition(position: { lineNumber: number; column: number }): void;
+  getPosition(): { lineNumber: number; column: number } | null;
+  getModel(): { getLineContent(line: number): string } | null;
+}
+type WeavieWindow = Window & { __WEAVIE_EDITOR__?: EditorHandle };
 
 interface CaretSample {
   /** Viewport x of the painted caret's left edge. */
@@ -13,58 +25,88 @@ interface CaretSample {
   /** Viewport x of the real character boundary the caret should sit on (left edge of the char to its right,
    *  or the right edge of the last char when the caret is at end-of-line). */
   boundary: number;
-  /** Advance width of the reference glyph, for tolerance scaling / diagnostics. */
+  /** Advance width of the reference glyph, for diagnostics. */
   charWidth: number;
-  /** Character count of the measured line. */
-  lineLen: number;
+}
+
+// Focuses the editor and moves the caret to (line, column); returns the actual position Monaco settled on
+// (clamped to the line), so callers can pass an over-large column to mean "end of line".
+async function placeCaret(
+  page: Page,
+  line: number,
+  column: number,
+): Promise<{ line: number; column: number }> {
+  const pos = await page.evaluate(
+    ({ line, column }) => {
+      const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
+      if (editor === undefined) {
+        return null;
+      }
+      editor.focus();
+      editor.setPosition({ lineNumber: line, column });
+      const p = editor.getPosition();
+      return p === null ? null : { line: p.lineNumber, column: p.column };
+    },
+    { line, column },
+  );
+  if (pos === null) {
+    throw new Error("editor handle not available");
+  }
+  return pos;
 }
 
 // Reads the caret's painted position and the ground-truth glyph boundary for `column` (1-based) on `line`.
 // Ground truth comes from a DOM Range over the rendered text, i.e. where the browser actually drew the glyphs.
 async function caretVsGlyph(page: Page, line: number, column: number): Promise<CaretSample | null> {
   return page.evaluate(
-    ({ line, column }) => {
-      const editor = document.querySelector(".monaco-editor");
-      const caret = editor?.querySelector(".cursors-layer .cursor");
-      const lineEls = [
-        ...(editor?.querySelectorAll(".view-lines .view-line") ?? []),
-      ] as HTMLElement[];
-      lineEls.sort((a, b) => Number.parseFloat(a.style.top) - Number.parseFloat(b.style.top));
-      const lineEl = lineEls[line - 1];
-      if (caret === null || caret === undefined || lineEl === undefined) {
-        return null;
-      }
-      // Pixel box of the `index`-th character (0-based) as the browser laid it out.
-      const charRect = (index: number): DOMRect | null => {
-        const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
-        let remaining = index;
-        let node = walker.nextNode();
-        while (node !== null) {
-          const len = node.nodeValue?.length ?? 0;
-          if (remaining < len) {
-            const range = document.createRange();
-            range.setStart(node, remaining);
-            range.setEnd(node, remaining + 1);
-            return range.getBoundingClientRect();
-          }
-          remaining -= len;
-          node = walker.nextNode();
-        }
-        return null;
-      };
-      const lineLen = (lineEl.textContent ?? "").length;
-      const atEnd = column - 1 >= lineLen;
-      const ref = charRect(atEnd ? lineLen - 1 : column - 1);
-      if (ref === null) {
-        return null;
-      }
-      return {
-        caretLeft: caret.getBoundingClientRect().left,
-        boundary: atEnd ? ref.right : ref.left,
-        charWidth: ref.width,
-        lineLen,
-      };
-    },
+    ({ line, column }) =>
+      new Promise<CaretSample | null>((resolve) => {
+        requestAnimationFrame(() =>
+          requestAnimationFrame(() => {
+            const editorEl = document.querySelector(".monaco-editor");
+            const caret = editorEl?.querySelector(".cursors-layer .cursor");
+            const lineEls = [
+              ...(editorEl?.querySelectorAll(".view-lines .view-line") ?? []),
+            ] as HTMLElement[];
+            lineEls.sort((a, b) => Number.parseFloat(a.style.top) - Number.parseFloat(b.style.top));
+            const lineEl = lineEls[line - 1];
+            if (caret === null || caret === undefined || lineEl === undefined) {
+              resolve(null);
+              return;
+            }
+            // Pixel box of the `index`-th character (0-based) as the browser laid it out.
+            const charRect = (index: number): DOMRect | null => {
+              const walker = document.createTreeWalker(lineEl, NodeFilter.SHOW_TEXT);
+              let remaining = index;
+              let node = walker.nextNode();
+              while (node !== null) {
+                const len = node.nodeValue?.length ?? 0;
+                if (remaining < len) {
+                  const range = document.createRange();
+                  range.setStart(node, remaining);
+                  range.setEnd(node, remaining + 1);
+                  return range.getBoundingClientRect();
+                }
+                remaining -= len;
+                node = walker.nextNode();
+              }
+              return null;
+            };
+            const lineLen = (lineEl.textContent ?? "").length;
+            const atEnd = column - 1 >= lineLen;
+            const ref = charRect(atEnd ? lineLen - 1 : column - 1);
+            if (ref === null) {
+              resolve(null);
+              return;
+            }
+            resolve({
+              caretLeft: caret.getBoundingClientRect().left,
+              boundary: atEnd ? ref.right : ref.left,
+              charWidth: ref.width,
+            });
+          }),
+        );
+      }),
     { line, column },
   );
 }
@@ -84,36 +126,40 @@ async function settle(page: Page): Promise<void> {
   );
 }
 
-// How far the caret may sit from the true glyph boundary. Correct alignment is sub-pixel; the bug under test
-// drifts by a meaningful fraction of a character, so this cleanly separates the two.
-const TOLERANCE_PX = 1.5;
+// The length of a model line, via the editor handle.
+async function lineLength(page: Page, line: number): Promise<number> {
+  const len = await page.evaluate(
+    (line) =>
+      (window as WeavieWindow).__WEAVIE_EDITOR__?.getModel()?.getLineContent(line).length ?? null,
+    line,
+  );
+  return need(len, "editor handle / model not available");
+}
+
+// How far the caret may sit from the true glyph boundary. When aligned the residual is a flat ~1px that
+// doesn't grow along the line (a caret-box / sub-pixel constant); the bug drifts ~¼px per column, reaching
+// 5–11px by mid/end of line. 2.5px clears the benign floor with margin while still catching that drift.
+const TOLERANCE_PX = 2.5;
 
 test("caret stays on the glyph boundary across a line", async ({ page }) => {
   await openFile(page, "hello.ts");
   await settle(page);
-  await page.locator(".monaco-editor .view-lines").click();
-  await page.keyboard.press("ControlOrMeta+Home");
-  await settle(page);
-
-  const start = need(await caretVsGlyph(page, 1, 1), "could not measure the caret at line start");
-  const len = start.lineLen;
-  // Probe the start, two interior columns, and end-of-line (where accumulated metric drift is largest).
-  const columns = [...new Set([1, Math.floor(len / 3), Math.floor((2 * len) / 3), len + 1])].sort(
-    (a, b) => a - b,
-  );
+  const len = await lineLength(page, 1);
+  // Probe the start, several interior columns, and end-of-line (drift grows with column).
+  const columns = [...new Set([1, 11, 21, 31, 41, len + 1].filter((c) => c <= len + 1))];
 
   const deltas: { column: number; delta: number; charWidth: number }[] = [];
-  let at = 1;
   for (const column of columns) {
-    while (at < column) {
-      await page.keyboard.press("ArrowRight");
-      at += 1;
-    }
+    const at = await placeCaret(page, 1, column);
     const sample = need(
-      await caretVsGlyph(page, 1, column),
+      await caretVsGlyph(page, at.line, at.column),
       `could not measure the caret at column ${column}`,
     );
-    deltas.push({ column, delta: sample.caretLeft - sample.boundary, charWidth: sample.charWidth });
+    deltas.push({
+      column: at.column,
+      delta: sample.caretLeft - sample.boundary,
+      charWidth: sample.charWidth,
+    });
   }
 
   console.log("caret-vs-glyph deltas (px):", JSON.stringify(deltas));
@@ -128,25 +174,20 @@ test("caret stays on the glyph boundary across a line", async ({ page }) => {
 test("a typed character is inserted at the caret and the caret stays aligned", async ({ page }) => {
   await openFile(page, "hello.ts");
   await settle(page);
-  await page.locator(".monaco-editor .view-lines").click();
-  await page.keyboard.press("ControlOrMeta+Home");
+
+  // Insert mid-line (column 20), where any caret drift is large, then type through the real input path.
+  await placeCaret(page, 1, 20);
+  await page.keyboard.type("X");
   await settle(page);
 
-  await page.keyboard.type("Z");
-  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+  // The character landed exactly at the caret column (1-based 20 → 0-based index 19).
+  const lineText = await page.evaluate(
+    () => (window as WeavieWindow).__WEAVIE_EDITOR__?.getModel()?.getLineContent(1) ?? "",
+  );
+  expect(lineText[19]).toBe("X");
 
-  // The character lands at the caret: line 1 now begins with it.
-  const lineText = await page.evaluate(() => {
-    const lines = [
-      ...document.querySelectorAll(".monaco-editor .view-lines .view-line"),
-    ] as HTMLElement[];
-    lines.sort((a, b) => Number.parseFloat(a.style.top) - Number.parseFloat(b.style.top));
-    return lines[0]?.textContent ?? "";
-  });
-  expect(lineText.startsWith("Z")).toBe(true);
-
-  // The caret advanced past it and sits on the boundary of the real glyphs (column 2 = after "Z").
-  const sample = need(await caretVsGlyph(page, 1, 2), "could not measure the caret after typing");
+  // The caret advanced past it (now column 21) and sits on the boundary of the real glyphs.
+  const sample = need(await caretVsGlyph(page, 1, 21), "could not measure the caret after typing");
   expect(
     Math.abs(sample.caretLeft - sample.boundary),
     `caret is ${(sample.caretLeft - sample.boundary).toFixed(2)}px off after inserting a character`,
@@ -156,31 +197,30 @@ test("a typed character is inserted at the caret and the caret stays aligned", a
 test("autocomplete opens and the caret stays aligned while it is showing", async ({ page }) => {
   await openFile(page, "hello.ts");
   await settle(page);
-  await page.locator(".monaco-editor .view-lines").click();
-  // A fresh line whose prefix matches an identifier already in the buffer (`greet`), so word-based
-  // completion has something deterministic to offer.
-  await page.keyboard.press("ControlOrMeta+End");
+
+  // A fresh end-of-file line typed with the prefix of an identifier already in the buffer (`console`), so
+  // word-based completion has something deterministic to offer — and the caret is far enough into the line
+  // that any drift is well above the measurement floor.
+  await placeCaret(page, 9999, 9999);
   await page.keyboard.press("Enter");
-  await page.keyboard.type("gre");
-  await page.evaluate(() => new Promise<void>((r) => requestAnimationFrame(() => r())));
+  await page.keyboard.type("consol");
+  await settle(page);
 
   await page.keyboard.press("Control+Space");
   const widget = page.locator(".suggest-widget");
   await expect(widget).toBeVisible();
-  await expect(widget).toContainText("greet");
+  await expect(widget).toContainText("console");
 
-  // The suggestion anchors to the caret; the caret must be where the typed glyphs actually are. Find the
-  // line that now holds "gre" and check column 4 (just after it).
-  const line = await page.evaluate(() => {
-    const lines = [
-      ...document.querySelectorAll(".monaco-editor .view-lines .view-line"),
-    ] as HTMLElement[];
-    lines.sort((a, b) => Number.parseFloat(a.style.top) - Number.parseFloat(b.style.top));
-    return lines.findIndex((el) => (el.textContent ?? "").startsWith("gre")) + 1;
-  });
-  expect(line).toBeGreaterThan(0);
+  // The suggestion anchors to the caret; the caret must be where the typed glyphs actually are.
+  const pos = need(
+    await page.evaluate(() => {
+      const p = (window as WeavieWindow).__WEAVIE_EDITOR__?.getPosition();
+      return p === undefined || p === null ? null : { line: p.lineNumber, column: p.column };
+    }),
+    "could not read caret position",
+  );
   const sample = need(
-    await caretVsGlyph(page, line, 4),
+    await caretVsGlyph(page, pos.line, pos.column),
     "could not measure the caret with autocomplete open",
   );
   expect(

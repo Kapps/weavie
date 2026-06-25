@@ -118,8 +118,10 @@ function need<T>(value: T | null, message: string): T {
   return value;
 }
 
-// A settled paint: the bundled webfont has loaded and the editor has had a frame to lay out against it.
+// A settled paint: the editor handle is up (it rides a lazily-loaded chunk, so it can lag the tab appearing),
+// the bundled webfont has loaded, and the editor has had a frame to lay out against it.
 async function settle(page: Page): Promise<void> {
+  await page.waitForFunction(() => (window as WeavieWindow).__WEAVIE_EDITOR__ !== undefined);
   await page.evaluate(() => document.fonts.ready);
   await page.evaluate(
     () => new Promise<void>((r) => requestAnimationFrame(() => requestAnimationFrame(() => r()))),

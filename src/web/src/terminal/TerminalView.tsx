@@ -31,6 +31,9 @@ export function TerminalView(props: {
   onFocusReady?: (focus: () => void) => void;
   // Called when the child sets the terminal title (OSC 0/2), so the pane header can show it.
   onTitle?: (title: string) => void;
+  // Called once when this terminal paints its first frame, so the shell can dismiss the startup splash on the
+  // terminal (the primary surface) instead of waiting for the editor.
+  onFirstRender?: () => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
 
@@ -133,6 +136,13 @@ export function TerminalView(props: {
         webgl.dispose();
         webgl = null;
       }
+    });
+
+    // Dismiss the startup splash on the first painted terminal frame (the primary surface), not on editor-ready.
+    // Fires once, then detaches.
+    const renderSub = term.onRender(() => {
+      renderSub.dispose();
+      props.onFirstRender?.();
     });
 
     // OSC 8 + auto-detected file:line and http(s) links (file:// → Monaco, URLs → OS browser).
@@ -281,6 +291,7 @@ export function TerminalView(props: {
 
     onCleanup(() => {
       disposed = true;
+      renderSub.dispose();
       offHost();
       offFonts();
       offTheme();

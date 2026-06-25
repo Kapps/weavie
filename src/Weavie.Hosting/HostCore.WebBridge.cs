@@ -170,11 +170,20 @@ public sealed partial class HostCore {
 			case "keep-hunk":
 				KeepHunk(root);
 				break;
+			case "unkeep-hunk":
+				UnkeepHunk(root);
+				break;
 			case "revert-file":
 				RevertFile(root);
 				break;
 			case "keep-file":
 				KeepFile(root);
+				break;
+			case "review-undo":
+				ReviewUndo(root);
+				break;
+			case "review-redo":
+				ReviewRedo();
 				break;
 			case "invoke-command":
 				// A web keybinding/palette/menu invoked a Core command — run it on the active session. A `token`
@@ -420,41 +429,15 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb(ShellProtocol.BuildRecentFiles(_recentFiles.Top(RecentFilesPushCount, DateTime.UtcNow.Ticks)));
 
 	/// <summary>
-	/// Pushes the per-turn change list (each changed file + its first-change line) for the page's review
-	/// navigator, with the host-decided auto-open flag (see <see cref="ShouldOpenReview"/>). Driven by the change
-	/// tracker, which records edits in every permission mode, so it's the review surface in default mode too.
+	/// Pushes the per-turn change list (each changed file + its first-change line) for the page's review walk +
+	/// parked navigator. Driven by the change tracker, which records edits in every permission mode, so it's the
+	/// review surface in default mode too. The page surfaces the review itself (parked, editor untouched) — the
+	/// host no longer decides an auto-open.
 	/// </summary>
 	private void PushTurnChangesToWeb() {
 		if (_session is { } session) {
-			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session)));
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
 		}
-	}
-
-	/// <summary>
-	/// Decides — and records — whether the page should auto-open the first review file: true when the session is
-	/// settled with auto-applied changes it hasn't opened yet. Armed once per session + first changed file, so
-	/// more edits in the same idle don't re-jump the editor while a new turn or a switch re-arms.
-	/// </summary>
-	private bool ShouldOpenReview(HostSession session) {
-		// Settled = Idle (turn ended) or NeedsInput (waiting on input); both mean edits are ready to review. Only
-		// an actively-Working session has nothing to show yet.
-		if (session.Status.Status is not (SessionStatus.Idle or SessionStatus.NeedsInput)) {
-			return false;
-		}
-
-		var turn = session.Changes.TurnChanges();
-		if (turn.Count == 0) {
-			return false;
-		}
-
-		// turn[0] is what the page opens as reviewFiles[0]; key the arm on it so a changed first file re-arms.
-		string key = $"{session.Id}:{turn[0].Path}";
-		if (string.Equals(_armedReviewKey, key, StringComparison.Ordinal)) {
-			return false;
-		}
-
-		_armedReviewKey = key;
-		return true;
 	}
 
 	/// <summary>
@@ -468,15 +451,15 @@ public sealed partial class HostCore {
 	/// Pushes the incoming session's inline turn-review set onto the page after a switch — the inbound half (markers
 	/// already cleared by <see cref="ResetReviewMarkers"/>). The live turn pushes are gated on <c>IsActiveSession</c>,
 	/// so a session that edited while muted has a tracker the page never heard about (an empty set also clears the
-	/// stale ← / → walk). The arm key resets first so it re-opens its review on switch-in.
+	/// stale ← / → walk + parked navigator).
 	/// </summary>
 	private void PushIncomingReviewState() {
 		if (_session is not { } session) {
 			return;
 		}
 
-		_armedReviewKey = null;
-		_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ShouldOpenReview(session)));
+		_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
+		PushReviewHistoryToWeb(); // the incoming session's undo history persists — reflect it on the toolbar
 	}
 
 	/// <summary>Pushes a live-refresh of one edited file via an <c>fs-change</c> (VSCode reloads the non-dirty model from disk).</summary>
@@ -523,6 +506,7 @@ public sealed partial class HostCore {
 		_session.Changes.AcceptTurn();
 		_bridge.PostToWeb(ChangeMessages.TurnReset());
 		PushTurnChangesToWeb();
+		PushReviewHistoryToWeb(); // keep-all is the commit point — the undo history reset
 	}
 
 	/// <summary>
@@ -535,20 +519,92 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// Workspace-guard every file before touching disk: one path outside the worktree aborts the whole revert.
 		foreach (var change in session.Changes.TurnChanges()) {
 			if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, change.Path)) {
-				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: path is outside the workspace.");
-				continue;
+				Notify("error", $"Couldn't revert {Path.GetFileName(change.Path)}: path is outside the workspace.");
+				return;
 			}
+		}
 
-			try {
-				PushAfterRevert(change.Path, session.Changes.RevertFile(change.Path));
-			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				Notify("error", $"Couldn't undo {Path.GetFileName(change.Path)}: {ex.Message}");
+		try {
+			ApplyHistoryResult(session.Changes.RevertAll()); // one undoable step for the whole set
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't revert all changes: {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Undoes a review action: <c>kind</c> "keep"/"revert" drives the type-split chords, an absent kind the
+	/// toolbar's generic Undo. A blocked undo (a newer edit moved the file) toasts; otherwise the editor refreshes.
+	/// </summary>
+	private void ReviewUndo(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string? kind = root.GetStringOrNull("kind");
+		HandleHistory(kind switch {
+			"keep" => session.Changes.UndoLastKeep(),
+			"revert" => session.Changes.UndoLastRevert(),
+			_ => session.Changes.UndoLast(),
+		});
+	}
+
+	/// <summary>Redoes the most recently undone review action (the toolbar/palette Redo).</summary>
+	private void ReviewRedo() {
+		if (_session is { } session) {
+			HandleHistory(session.Changes.Redo());
+		}
+	}
+
+	/// <summary>
+	/// Applies an undo/redo outcome: a blocked result (a newer edit is in the way) toasts and re-pushes
+	/// availability; an action that ran refreshes each affected file and the review set via <see cref="ApplyHistoryResult"/>.
+	/// </summary>
+	private void HandleHistory(ReviewHistoryResult result) {
+		if (result.Acted) {
+			ApplyHistoryResult(result);
+			return;
+		}
+
+		if (result.WasBlocked) {
+			Notify("warn", "That change moved since — re-open to review before undoing it.");
+		}
+
+		PushReviewHistoryToWeb();
+	}
+
+	/// <summary>
+	/// Pushes the editor refreshes for a completed undo/redo or revert-all: a deletion for a path the op removed,
+	/// else a reload (when it touched disk) plus a fresh per-file diff. Then re-emits the review set + history state.
+	/// </summary>
+	private void ApplyHistoryResult(ReviewHistoryResult result) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		foreach (string path in result.Paths) {
+			if (session.Changes.GetTurn(path) is null) {
+				PushDeletionToWeb(path); // the op removed (or re-removed) the file
+			} else {
+				if (result.TouchedDisk) {
+					PushRefreshToWeb(path); // a revert/undo-of-revert rewrote disk — reload the model
+				}
+
+				PushTurnDiffToWeb(path);
 			}
 		}
 
 		PushTurnChangesToWeb();
+		PushReviewHistoryToWeb();
+	}
+
+	/// <summary>Pushes the review undo/redo availability so the page enables its Undo/Redo affordances.</summary>
+	private void PushReviewHistoryToWeb() {
+		if (_session is { } session) {
+			_bridge.PostToWeb(ChangeMessages.ReviewHistory(session.Changes));
+		}
 	}
 
 	/// <summary>
@@ -585,6 +641,7 @@ public sealed partial class HostCore {
 
 			PushAfterRevert(path, outcome);
 			PushTurnChangesToWeb(); // the file may have left the review set
+			PushReviewHistoryToWeb(); // a revert is now undoable
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
@@ -613,6 +670,7 @@ public sealed partial class HostCore {
 		try {
 			PushAfterRevert(path, session.Changes.RevertFile(path));
 			PushTurnChangesToWeb(); // the file has left the review set
+			PushReviewHistoryToWeb(); // a revert is now undoable
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
@@ -645,6 +703,7 @@ public sealed partial class HostCore {
 
 		PushTurnDiffToWeb(path);  // the inline diff drops the kept hunk
 		PushTurnChangesToWeb();   // the file may have left the review set
+		PushReviewHistoryToWeb(); // a keep is now undoable
 	}
 
 	/// <summary>
@@ -662,8 +721,39 @@ public sealed partial class HostCore {
 		}
 
 		session.Changes.KeepFile(path);
-		PushTurnDiffToWeb(path);  // baseline == current → the inline markers clear
-		PushTurnChangesToWeb();   // the file has left the review set
+		PushTurnDiffToWeb(path);  // every hunk is now faded-accepted (review baseline == current)
+		PushTurnChangesToWeb();   // the file's pending count drops, but it stays (faded) until keep-all
+		PushReviewHistoryToWeb(); // a keep is now undoable
+	}
+
+	/// <summary>
+	/// Un-keeps a single faded (accepted) hunk: Core splices its accepted-anchor lines back into the review
+	/// baseline, returning it to the bright pending band. The inverse of <see cref="KeepHunk"/>; the web sends the
+	/// accepted-anchor + review-baseline ranges and a <c>guardText</c> snapshot of the review baseline (a guard
+	/// mismatch — a concurrent keep moved it — re-emits a fresh diff without un-keeping). No disk write.
+	/// </summary>
+	private void UnkeepHunk(JsonElement root) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string path = root.GetStringOrEmpty("path");
+		if (string.IsNullOrEmpty(path) || !BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
+			return;
+		}
+
+		var acceptedRange = new LineRange(JsonInt(root, "acceptedStart"), JsonInt(root, "acceptedEndExclusive"));
+		var reviewRange = new LineRange(JsonInt(root, "reviewStart"), JsonInt(root, "reviewEndExclusive"));
+		string guardText = root.GetStringOrEmpty("guardText");
+
+		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, guardText)) {
+			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
+			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
+			return;
+		}
+
+		PushTurnDiffToWeb(path); // the hunk moves from the faded band back to the bright pending band
+		PushTurnChangesToWeb();  // its first-pending-line shifts (the file was already in the set)
 	}
 
 	/// <summary>

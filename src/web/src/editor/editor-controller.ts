@@ -10,6 +10,7 @@ import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
 import {
   type HunkRevert,
+  type HunkUnkeep,
   type InlineDiff,
   createInlineDiff,
   firstChangedLine,
@@ -70,6 +71,10 @@ export interface InlineDiffActions {
   revertFile(): boolean;
   /** Keep the whole accumulated review set (applied review). */
   keepAll(): boolean;
+  /** Undo the most recent keep / revert, or redo the last undone action; false (key falls through) when none. */
+  undoKeep(): boolean;
+  undoRevert(): boolean;
+  redoReview(): boolean;
 }
 
 /**
@@ -409,6 +414,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       .then((created) => {
         host = created;
         inlineDiff = createInlineDiff(created.editor);
+        // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
+        // targets the type-split chords; the generic Undo (toolbar) omits it.
+        inlineDiff.bindHistory({
+          onUndoKeep: () => postToHost({ type: "review-undo", kind: "keep" }),
+          onUndoRevert: () => postToHost({ type: "review-undo", kind: "revert" }),
+          onUndoLast: () => postToHost({ type: "review-undo" }),
+          onRedo: () => postToHost({ type: "review-redo" }),
+        });
         // Track the active model's text so the Preview overlay renders live (edits, Claude writes, reloads).
         const syncContent = (): void => {
           setActiveContent(created.editor.getModel()?.getValue() ?? "");
@@ -452,6 +465,25 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openReviewFile = (file: ReviewFile): void => {
     openFile(file.path, file.line, true);
     postToHost({ type: "get-turn-diff", path: file.path });
+  };
+
+  // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
+  // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —
+  // stepping in (a nav key) opens the first change. Called wherever reviewFiles changes.
+  const updateParkedReview = (): void => {
+    inlineDiff?.setParkedReview(
+      reviewFiles.length > 0
+        ? {
+            fileCount: reviewFiles.length,
+            stepIn: () => {
+              const first = reviewFiles[0];
+              if (first !== undefined) {
+                openReviewFile(first);
+              }
+            },
+          }
+        : undefined,
+    );
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false (so
@@ -517,6 +549,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     afterFlush(path, () => postToHost({ type: "keep-hunk", path, ...hunk }));
   };
 
+  // Un-keep just this faded hunk: the host splices the accepted-anchor lines back into the review baseline, so it
+  // returns to the bright pending band. No disk read (the guard is against Core's review baseline), so no flush.
+  const unkeepHunk = (path: string, hunk: HunkUnkeep): void => {
+    postToHost({ type: "unkeep-hunk", path, ...hunk });
+  };
+
   // Keep every change in one file: the host advances its review baseline to current, so the file leaves the
   // review set for good. No confirm — keeping is non-destructive.
   const keepFile = (path: string): void => {
@@ -529,7 +567,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void deps
       .confirm({
         title: "Revert file?",
-        body: `Discard all changes to "${basename(path)}" and restore it to before this turn? This can't be undone.`,
+        body: `Discard all changes to "${basename(path)}" and restore it to before this turn? You can undo this afterward.`,
         confirmLabel: "Revert file",
       })
       .then((ok) => {
@@ -644,12 +682,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         tabs.close(message.path);
         return true;
       case "turn-diff": {
-        // Inline diff of this turn's changes. Equal baseline/current = no markers.
-        if (message.baseline === message.current) {
+        // Inline diff of this turn's changes, as the (acceptedBaseline, baseline, current) triple: baseline→current
+        // is the bright pending band, acceptedBaseline→baseline the faded accepted band. The file has NO markers
+        // only once the accepted anchor catches up to current (keep-all, or a full revert with nothing kept).
+        if (message.acceptedBaseline === message.current) {
           inlineDiff?.clear(message.path);
           commentProse?.refresh();
           // A revert emptied this file's diff. If it's under review and other changed files remain, walk on to
-          // the next so the toolbar follows the review instead of vanishing (same advance Keep does).
+          // the next so the toolbar follows the review instead of vanishing.
           const active = activePath();
           if (active !== null && samePath(active, message.path) && reviewFiles.length > 1) {
             advanceToNextPendingFile(message.path);
@@ -674,12 +714,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
             : {};
         inlineDiff?.set(message.path, {
           original: message.baseline,
+          acceptedBaseline: message.acceptedBaseline,
           claudeVersion: message.current,
           mode: "applied",
           onKeepHunk: (hunk) => keepHunk(message.path, hunk),
           onKeepFile: () => keepFile(message.path),
           onRevertHunk: (hunk) => revertHunk(message.path, hunk),
           onRevertFile: () => revertFile(message.path),
+          onUnkeepHunk: (hunk) => unkeepHunk(message.path, hunk),
           onKeepAll: () => postToHost({ type: "accept-turn" }),
           onUndo: revertAll,
           // Always present so the stacked toolbar label shows the filename even for a single-file review.
@@ -699,6 +741,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         reviewFiles = [];
         commentProse?.refresh();
         return true;
+      case "review-history":
+        // Host-pushed undo/redo availability: drives the toolbar's Undo/Redo buttons and lets the undo chords
+        // decline (fall through) when there's nothing of that kind to undo.
+        inlineDiff?.setReviewHistory({
+          canUndo: message.canUndo,
+          canUndoKeep: message.canUndoKeep,
+          canUndoRevert: message.canUndoRevert,
+          canRedo: message.canRedo,
+        });
+        return true;
       case "fs-change": {
         // Host-side deletion (e.g. a revert that deleted a created file). Close a deleted file's tab and discard
         // its working copy before the provider fires DELETED, so no "Unable to read file" toast shows. Returns
@@ -710,6 +762,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           // Drop the deleted file from the ← / → walk, else stepReviewFile lands on an unresolvable path. The
           // host re-pushes corrected turn-changes; pruning here keeps the set consistent in the gap.
           reviewFiles = reviewFiles.filter((file) => !samePath(file.path, change.path));
+          updateParkedReview();
           inlineDiff?.clear(change.path);
           const entry = openTabs().find((tab) => samePath(tab.path, change.path));
           if (entry === undefined) {
@@ -764,6 +817,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     save,
     setReviewFiles: (files) => {
       reviewFiles = files;
+      updateParkedReview();
     },
     openFirstReviewFile: () => {
       const first = reviewFiles[0];
@@ -786,6 +840,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       keepFile: () => inlineDiff?.keepFile() ?? false,
       revertFile: () => inlineDiff?.revertFile() ?? false,
       keepAll: () => inlineDiff?.keepAll() ?? false,
+      undoKeep: () => inlineDiff?.undoKeep() ?? false,
+      undoRevert: () => inlineDiff?.undoRevert() ?? false,
+      redoReview: () => inlineDiff?.redoReview() ?? false,
     },
     tabs,
     dispose: () => {

@@ -41,5 +41,7 @@ interface Window {
   __WEAVIE_WELCOME__?: WeavieWelcomeConfig;
   /** Live xterm terminals keyed by "slot:pane", published by TerminalView for e2e / diagnostics (read-only). */
   __WEAVIE_TERMINALS__?: Record<string, import("@xterm/xterm").Terminal>;
+  /** The live Monaco editor, published by createEditor for e2e / diagnostics (read-only). */
+  __WEAVIE_EDITOR__?: import("monaco-editor").editor.IStandaloneCodeEditor;
   // The LSP bridge config (window.__WEAVIE_LSP__) is augmented onto Window in lsp/lsp-client.ts.
 }

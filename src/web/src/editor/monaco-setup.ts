@@ -53,6 +53,15 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   );
   editor.onDidDispose(offFonts);
 
+  // Monaco measures its FontInfo when the editor is created; the bundled editor webfont (Go Mono) only loads
+  // once text first renders in it, so the initial metrics are the fallback font's and the caret ends up
+  // misaligned from the glyphs (drifting ~¼px per column). Remeasure once fonts are ready and whenever a font
+  // finishes loading, so the caret tracks the real glyph advances. remeasureFonts() relays out every editor.
+  const remeasure = (): void => monaco.editor.remeasureFonts();
+  void document.fonts.ready.then(remeasure);
+  document.fonts.addEventListener("loadingdone", remeasure);
+  editor.onDidDispose(() => document.fonts.removeEventListener("loadingdone", remeasure));
+
   // Apply live editor-option changes the same way fonts do.
   const offEditorOptions = onEditorOptionsChanged((next) => {
     editor.updateOptions(toMonacoOptions(next));
@@ -62,6 +71,10 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
 
   // The editor service opens go-to-def / reveal-file targets through this editor.
   registerActiveEditor(editor);
+
+  // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
+  // global.d.ts.
+  window.__WEAVIE_EDITOR__ = editor;
   return editor;
 }
 

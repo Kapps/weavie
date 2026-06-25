@@ -49,14 +49,14 @@ importers:
         specifier: 25.1.2
         version: 25.1.2
       '@xterm/addon-fit':
-        specifier: 0.10.0
-        version: 0.10.0(@xterm/xterm@5.5.0)
+        specifier: 0.12.0-beta.287
+        version: 0.12.0-beta.287(@xterm/xterm@6.1.0-beta.287)
       '@xterm/addon-webgl':
-        specifier: 0.18.0
-        version: 0.18.0(@xterm/xterm@5.5.0)
+        specifier: 0.20.0-beta.286
+        version: 0.20.0-beta.286(@xterm/xterm@6.1.0-beta.287)
       '@xterm/xterm':
-        specifier: 5.5.0
-        version: 5.5.0
+        specifier: 6.1.0-beta.287
+        version: 6.1.0-beta.287
       dompurify:
         specifier: 3.4.11
         version: 3.4.11
@@ -748,18 +748,18 @@ packages:
   '@vscode/iconv-lite-umd@0.7.1':
     resolution: {integrity: sha512-tK6k0DXFHW7q5+GGuGZO+phpAqpxO4WXl+BLc/8/uOk3RsM2ssAL3CQUQDb1TGfwltjsauhN6S4ghYZzs4sPFw==}
 
-  '@xterm/addon-fit@0.10.0':
-    resolution: {integrity: sha512-UFYkDm4HUahf2lnEyHvio51TNGiLK66mqP2JoATy7hRZeXaGMRDr00JiSF7m63vR5WKATF605yEggJKsw0JpMQ==}
+  '@xterm/addon-fit@0.12.0-beta.287':
+    resolution: {integrity: sha512-2MDj+J4x67bjOS/SuBPxSYEWH38NbX6ENV18RbKVOhfRYCX3yERnuHBOrgH9hYdY8rCtsLQmuVgF6cmvCJiV2w==}
     peerDependencies:
-      '@xterm/xterm': ^5.0.0
+      '@xterm/xterm': ^6.1.0-beta.287
 
-  '@xterm/addon-webgl@0.18.0':
-    resolution: {integrity: sha512-xCnfMBTI+/HKPdRnSOHaJDRqEpq2Ugy8LEj9GiY4J3zJObo3joylIFaMvzBwbYRg8zLtkO0KQaStCeSfoaI2/w==}
+  '@xterm/addon-webgl@0.20.0-beta.286':
+    resolution: {integrity: sha512-Nvk9Jic7OCXtL1lS1/Ryurkpd2VElO7PCBOf+DEB3ODs9yU+F31sJwQD+LIdZ6GAJ+Atp7LuWHjSNhRv/xSY0w==}
     peerDependencies:
-      '@xterm/xterm': ^5.0.0
+      '@xterm/xterm': ^6.1.0-beta.287
 
-  '@xterm/xterm@5.5.0':
-    resolution: {integrity: sha512-hqJHYaQb5OptNunnyAnkHyM8aCjZ1MEIDTQu1iIbbTD/xops91NB5yq1ZK/dC2JDbVWtF23zUtl9JE2NqwT87A==}
+  '@xterm/xterm@6.1.0-beta.287':
+    resolution: {integrity: sha512-3aOHVlxlRVb3tOHI4b/z2O/OsRnqpW5u0qq8OqpqbwLVTbUhThmQ7mBKaehGdbsmcCCBTP1cBwhG0qcvuOjowA==}
 
   argparse@2.0.1:
     resolution: {integrity: sha512-8+9WqebbFzpX9OR+Wa6O29asIogeRMzcGtAINdpMHHyAg10f05aSFVBbcEqGf/PXw1EjAZ+q2/bEBg3DvurK3Q==}
@@ -1704,15 +1704,15 @@ snapshots:
 
   '@vscode/iconv-lite-umd@0.7.1': {}
 
-  '@xterm/addon-fit@0.10.0(@xterm/xterm@5.5.0)':
+  '@xterm/addon-fit@0.12.0-beta.287(@xterm/xterm@6.1.0-beta.287)':
     dependencies:
-      '@xterm/xterm': 5.5.0
+      '@xterm/xterm': 6.1.0-beta.287
 
-  '@xterm/addon-webgl@0.18.0(@xterm/xterm@5.5.0)':
+  '@xterm/addon-webgl@0.20.0-beta.286(@xterm/xterm@6.1.0-beta.287)':
     dependencies:
-      '@xterm/xterm': 5.5.0
+      '@xterm/xterm': 6.1.0-beta.287
 
-  '@xterm/xterm@5.5.0': {}
+  '@xterm/xterm@6.1.0-beta.287': {}
 
   argparse@2.0.1: {}
 

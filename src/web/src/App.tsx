@@ -423,7 +423,15 @@ export default function App(): JSX.Element {
     };
     return (
       <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
-        <div class="pane-head">
+        {/* The head holds no focusable element, so a bare click would blur to <body> and strand keystrokes;
+            preventDefault stops that and focusPane lands focus on this pane's xterm. The body (xterm) self-focuses. */}
+        <div
+          class="pane-head"
+          onMouseDown={(event) => {
+            event.preventDefault();
+            focusPane(kind);
+          }}
+        >
           <span class="pane-label">{paneTitle()}</span>
           <Show when={kind === "terminal:claude" && claudeStatus() !== undefined}>
             <span

@@ -128,6 +128,62 @@
   text-decoration-color: rgba(210, 90, 90, 0.5);
 }
 
+/* Faded "accepted" band: a kept-but-uncommitted hunk, still visible as proof it was accepted and still undoable.
+   The same green as .weavie-inline-added at a much lower alpha, so it reads as "done, not pending". */
+.weavie-inline-accepted {
+  background: rgba(46, 160, 67, 0.04);
+}
+
+.weavie-inline-accepted-gutter {
+  background: rgba(46, 160, 67, 0.4);
+  width: 3px !important;
+  margin-left: 3px;
+}
+
+:root[data-theme-type="light"] .weavie-inline-accepted {
+  background: rgba(46, 160, 67, 0.03);
+}
+
+/* A removed line inside an accepted hunk — the dimmed counterpart of .weavie-inline-removed (replacement keeps). */
+.weavie-inline-removed-faded {
+  background: rgba(210, 90, 90, 0.05);
+  box-shadow: inset 3px 0 0 rgba(210, 90, 90, 0.4);
+  opacity: 0.7;
+}
+
+/* The inline "✓ accepted · ↶ undo" tag hugging a faded hunk's first line (a Monaco content widget). Sans-serif so
+   it reads as chrome, not code; pointer-events on so the button is clickable over the editor. */
+.weavie-inline-accepted-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-size: 11px;
+  line-height: 1.4;
+  white-space: nowrap;
+  pointer-events: auto;
+}
+
+.weavie-inline-accepted-kept {
+  color: var(--dim);
+  opacity: 0.85;
+}
+
+.weavie-inline-accepted-undo {
+  font: inherit;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+.weavie-inline-accepted-undo:hover {
+  border-color: var(--accent);
+}
+
 /* Floating action bar for the inline diff: a DOM child of the editor, pinned bottom-center so it clears
    the minimap (right) and sticky-scroll (top); a high z-index keeps it above both. */
 .weavie-inline-toolbar {
@@ -238,6 +294,22 @@
   background: #5a1d1d;
   border-color: #a33;
   color: #ffe8e8;
+}
+
+/* Undo / redo of review actions: ghost buttons like the nav arrows, dimmed when there's nothing to do. */
+.weavie-inline-toolbar .weavie-inline-hist {
+  padding: 3px 8px;
+  background: transparent;
+  color: var(--fg);
+}
+
+.weavie-inline-toolbar .weavie-inline-hist:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.weavie-inline-toolbar button:disabled {
+  opacity: 0.4;
+  cursor: default;
 }
 
 /* Scope picker: a `Scope: <X> ▾` toggle over an "Apply to…" dropdown that sets what Keep/Revert act on. The

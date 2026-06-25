@@ -68,6 +68,15 @@ public static class CoreCommands {
 	/// <summary>Keeps the whole accumulated review set (the cosmetic counterpart to Undo All Changes); palette/Claude only.</summary>
 	public const string KeepAll = "weavie.review.keepAll";
 
+	/// <summary>Undoes the most recent keep — re-pending its change(s); bound to <c>$mod+Shift+Enter</c>.</summary>
+	public const string UndoKeep = "weavie.review.undoKeep";
+
+	/// <summary>Undoes the most recent revert — restoring its change on disk; bound to <c>$mod+Shift+Backspace</c>.</summary>
+	public const string UndoRevert = "weavie.review.undoRevert";
+
+	/// <summary>Redoes the most recently undone review action; palette/toolbar only, no default keybinding.</summary>
+	public const string RedoReview = "weavie.review.redo";
+
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
 
@@ -252,7 +261,9 @@ public static class CoreCommands {
 
 		// Inline-diff navigation + actions (the floating diff toolbar), all web-handled. The handlers DECLINE
 		// (let the key fall through to the editor) when no diff is active, so these safely reuse familiar editor
-		// chords. Undo is left unbound (a whole-turn revert is destructive).
+		// chords. Each chord carries a per-binding `!terminalFocused` guard so it never fires while a terminal
+		// holds focus — Ctrl+Backspace in Claude must delete a word, not revert a hunk — while the commands stay
+		// in the palette regardless of focus (a per-binding When doesn't gate palette visibility).
 		registry.Register(new CommandDefinition {
 			Id = NextChange,
 			Title = "Next Change",
@@ -260,7 +271,7 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Jump to the next change in the inline diff.",
 			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Down" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Down", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -270,7 +281,7 @@ public static class CoreCommands {
 			Category = "Diff",
 			Description = "Jump to the previous change in the inline diff.",
 			Aliases = ["previous change", "prev change", "previous diff", "previous hunk"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Up" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Up", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -279,9 +290,9 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
 			Description = "Keep the proposed edit under review (default-mode openDiff), or — in post-turn review "
-				+ "(acceptEdits/bypass) — keep the current hunk (mark it reviewed) and advance to the next pending hunk.",
+				+ "(acceptEdits/bypass) — keep at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["accept change", "keep change", "keep edit", "keep hunk", "accept edit"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Enter", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -290,9 +301,9 @@ public static class CoreCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
 			Description = "Reject the proposed edit under review (default-mode openDiff), or — in post-turn review "
-				+ "(acceptEdits/bypass) — revert the current hunk on disk and advance.",
+				+ "(acceptEdits/bypass) — revert at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["reject change", "revert hunk", "reject edit", "discard proposal"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Backspace", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -324,7 +335,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the next changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["next file in review", "next changed file", "next review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Right" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Right", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -334,11 +345,12 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["previous file in review", "previous changed file", "prev review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Left" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Left", When = "!terminalFocused" }],
 		});
 
-		// File-scoped review actions (the toolbar's scope picker). Web-handled; like the other review commands
-		// they DECLINE when no review diff is active, so their chords fall through harmlessly outside a review.
+		// File-scoped review actions. Scope now rides the toolbar's sticky picker (Keep/Revert at file scope =
+		// Ctrl+Enter/Ctrl+Backspace with the picker on "File"), so these carry no chord of their own — they stay
+		// palette + Claude entries. The Shift+Enter/Shift+Backspace chords they used to own are now Undo Keep/Revert.
 		registry.Register(new CommandDefinition {
 			Id = KeepFile,
 			Title = "Keep File (Review)",
@@ -346,7 +358,6 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Keep every change in the active file under review (mark them reviewed) and advance to the next file.",
 			Aliases = ["keep file", "keep this file", "accept file", "keep whole file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -356,7 +367,6 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Revert every change in the active file under review back to its turn baseline on disk (confirms first).",
 			Aliases = ["revert file", "revert this file", "discard file", "undo file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -364,8 +374,41 @@ public static class CoreCommands {
 			Title = "Keep All Changes (Review)",
 			RunsIn = CommandLocation.Web,
 			Category = "Review",
-			Description = "Keep the whole accumulated review set in one action (the cosmetic counterpart to Undo All Changes).",
+			Description = "Keep the whole accumulated review set in one action (the commit point — clears the marks "
+				+ "and the review undo history).",
 			Aliases = ["keep all", "keep all changes", "accept all", "accept turn", "keep everything"],
+		});
+
+		// Review undo/redo. The modifier picks direction: Shift+Enter undoes the last keep, Shift+Backspace the
+		// last revert (the inverse of the plain Keep/Revert chords). Both carry the `!terminalFocused` guard and
+		// decline (fall through) when there's nothing of that kind to undo. Redo is palette/toolbar only.
+		registry.Register(new CommandDefinition {
+			Id = UndoKeep,
+			Title = "Undo Keep (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Undo the most recent Keep — bring its change back into the pending review set.",
+			Aliases = ["undo keep", "undo accept", "unkeep", "undo last keep"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Enter", When = "!terminalFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = UndoRevert,
+			Title = "Undo Revert (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Undo the most recent Revert — restore its change on disk.",
+			Aliases = ["undo revert", "undo reject", "restore reverted", "undo last revert"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+Backspace", When = "!terminalFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RedoReview,
+			Title = "Redo Review Action",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			Description = "Re-apply the most recently undone review action (the counterpart to Undo Keep / Undo Revert).",
+			Aliases = ["redo review", "redo keep", "redo revert", "redo change"],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab are gated to editor focus (a tab key shouldn't act while a

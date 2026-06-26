@@ -1,66 +1,56 @@
-using System.Reflection;
-using CoreGraphics;
 using Foundation;
+using Weavie.Core.Commands;
 using Weavie.Core.FileSystem;
-using Weavie.Core.Layout;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
-using Weavie.Hosting.Web;
 using Weavie.Mac.Hosting;
-using WebKit;
 
 namespace Weavie.Mac;
 
 /// <summary>
-/// The macOS application delegate: a thin shell over <see cref="HostCore"/>, owning the native pieces (window,
-/// <c>app://</c> scheme, menu, hotkeys, dialogs, main-thread marshal) exposed via <see cref="IHostPlatform"/>.
+/// The macOS application delegate: a thin controller over the open <see cref="WorkspaceWindow"/> set. It owns the
+/// app-global pieces shared across windows (settings/keybindings via <see cref="HostServices"/>, recents, the native
+/// dialogs, the UI-thread marshal, the PTY launcher, and the app-level global hotkeys) and exposes them to each
+/// window. Opening a second folder opens a second native window, so normal macOS window switching moves between them.
 /// </summary>
 [Register("AppDelegate")]
-public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
-	private readonly HostBridge _bridge = new();
+public sealed partial class AppDelegate : NSApplicationDelegate {
+	private readonly List<WorkspaceWindow> _windows = [];
 	private readonly PosixPtyLauncher _ptyLauncher = new();
-	private HostCore? _core;
 	private HostServices? _services;
 	private RecentWorkspaces? _recents;
 	private MacGlobalHotkeys? _hotkeyRegistrar;
 	private MacDialogs? _dialogs;
 	private IUiDispatcher? _dispatcher;
-	private string? _workspace;
-	private NSWindow? _window;
-	private WKWebView? _webView;
-#if DEBUG
-	// Shared dev-server bring-up; compiled out in Release.
-	private DevWebBringUp? _devBringUp;
-#endif
+	private GlobalHotkeyService? _hotkeys;
+	private WorkspaceWindow? _lastActive;
+
+	/// <summary>App-global Core stores (settings, keybindings, theme/remote/rail), shared by every window.</summary>
+	internal HostServices Services => _services!;
+
+	/// <summary>Recent workspaces, for File ▸ Open Recent and each window's shell config.</summary>
+	internal RecentWorkspaces Recents => _recents!;
+
+	/// <summary>Marshals work onto the main thread; shared by every window's bridge + web surface.</summary>
+	internal IUiDispatcher Dispatcher => _dispatcher!;
+
+	/// <summary>The PTY backend launcher (stateless), shared by every window's sessions.</summary>
+	internal IPtyLauncher PtyLauncher => _ptyLauncher;
+
+	/// <summary>The native modal file dialogs, shared by every window.</summary>
+	internal IHostDialogs Dialogs => _dialogs!;
 
 	/// <summary>
-	/// Creates the host window and WKWebView, wires the <c>app://</c> scheme and <c>weavie</c> bridge, builds the
-	/// shared core, native menu, and global hotkeys, then loads the web app.
+	/// Builds the app-global stores + native pieces, opens the initial workspace window, the menu, and the app-level
+	/// global hotkeys, then activates the app.
 	/// </summary>
 	public override void DidFinishLaunching(NSNotification notification) {
-		string resourcePath = NSBundle.MainBundle.ResourcePath
-			?? throw new InvalidOperationException("No bundle resource path.");
-		string wwwroot = Path.Combine(resourcePath, "wwwroot");
-
-		var config = new WKWebViewConfiguration();
-		config.SetUrlSchemeHandler(new AppSchemeHandler(wwwroot), "app");
-		config.UserContentController.AddScriptMessageHandler(_bridge, "weavie");
-#if DEBUG
-		// Allow the Web Inspector for local debugging (Debug builds only).
-		config.Preferences.SetValueForKey(NSNumber.FromBoolean(true), new NSString("developerExtrasEnabled"));
-#endif
-		// Render at the display's full refresh (120Hz) instead of WKWebView's default 60fps pacing.
-		WebKitFeatureFlags.DisablePrefer60Fps(config.Preferences);
-
 		_services = HostServices.CreateDefault();
 		string workspace = _services.Settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		_workspace = workspace;
 		// Surfaces in File ▸ Open Recent + the omnibar shell config.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
-		_recents.Add(workspace);
 
-		// IHostPlatform native capabilities; created before the core, whose constructor reads the dispatcher.
 		_dispatcher = new DelegateUiDispatcher(action => {
 			if (NSThread.IsMain) {
 				action();
@@ -72,223 +62,89 @@ public sealed partial class AppDelegate : NSApplicationDelegate, IWebSurface {
 		_hotkeyRegistrar.Log += Log;
 		_dialogs = new MacDialogs();
 
-		_core = new HostCore(this, _services, workspace);
+		var firstWindow = Open(workspace);
 
-		// Startup geometry via the shared placement policy: saved-if-valid-and-on-screen, else centered.
-		var screens = NSScreen.Screens
-			.Select(s => new PixelRect((int)s.VisibleFrame.X, (int)s.VisibleFrame.Y, (int)s.VisibleFrame.Width, (int)s.VisibleFrame.Height))
-			.ToList();
-		var placement = WindowPlacement.Resolve(_core.SavedWindow, screens, 1280, 840);
-		var frame = new CGRect(placement.X, placement.Y, placement.Width, placement.Height);
-		_webView = new WKWebView(frame, config);
-		_bridge.Attach(_webView);
-#if DEBUG
-		// Intercept the dev-server error page's weavie-dev:// action links (Retry / Load stale bundle).
-		_webView.NavigationDelegate = new DevLinkNavigationDelegate(
-			onRetry: () => _ = RetryDevServerAsync(),
-			onLoadBundle: () => _ = LoadBundleAsync());
-#endif
-
-		_window = new NSWindow(
-			frame,
-			NSWindowStyle.Titled | NSWindowStyle.Closable | NSWindowStyle.Resizable | NSWindowStyle.Miniaturizable,
-			NSBackingStore.Buffered,
-			false) {
-			Title = $"{WorkspaceNaming.Label(workspace)} — weavie",
-			ContentView = _webView,
-		};
-		if (!placement.UseSaved) {
-			_window.Center();
-		} else if (placement.Maximized) {
-			_window.Zoom(null);
-		}
-
-		// Persist geometry on resize-end and on close; SaveWindow no-ops when nothing changed.
-		NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.DidEndLiveResizeNotification, _ => SaveWindowState(), _window);
-		NSNotificationCenter.DefaultCenter.AddObserver(NSWindow.WillCloseNotification, _ => SaveWindowState(), _window);
-		_window.MakeKeyAndOrderFront(null);
-
-		nint screenHz = (_window.Screen ?? NSScreen.MainScreen)?.MaximumFramesPerSecond ?? 0;
-		Console.WriteLine($"[weavie] NSScreen.maximumFramesPerSecond = {screenHz}");
-
-		// File/View items dispatch the same Weavie command ids the keyboard + omnibar use; shortcuts read from
-		// the keybinding store.
+		// File/View items dispatch the same Weavie command ids the keyboard + omnibar use (routed to the front
+		// window), with shortcuts read from the keybinding store. The recents list is a launch-time snapshot.
 		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build(
-			runCommand: id => _core?.InvokeCommand(id),
+			runCommand: id => Frontmost?.InvokeCommand(id),
 			resolveChord: ResolveChord,
 			openFolder: OpenFolderInteractive,
-			openRecent: SwitchWorkspace,
+			openRecent: path => OpenOrFocus(path),
 			recents: _recents.Items);
 
-		// Fire-and-forget so the readiness poll doesn't block launch.
-		_ = LoadWebAppAsync();
+		// Global hotkeys (e.g. ctrl+` → toggle the front window): app-level, so a single registration covers every
+		// window instead of each window's core re-registering the same chord. Dispatches to the front window.
+		var globalCommands = new CommandDispatcher(_services.CommandRegistry);
+		globalCommands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
+			_dispatcher.Post(ToggleFrontmost);
+			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
+		});
+		_hotkeys = new GlobalHotkeyService(_services.Keybindings, globalCommands, _hotkeyRegistrar);
+		_hotkeys.Log += Log;
 
 		NSApplication.SharedApplication.Activate();
 
 		// Unattended screenshot, gated on WEAVIE_SHOT_DIR so the shipped app never writes one.
-		if (ScreenshotRequest.FromEnvironment() is { } shot) {
-			NSTimer.CreateScheduledTimer(shot.DelaySeconds, repeats: false, _ => CaptureSnapshot(shot));
+		if (firstWindow is not null && ScreenshotRequest.FromEnvironment() is { } shot) {
+			firstWindow.ScheduleSnapshot(shot);
 		}
 	}
 
-	/// <summary>
-	/// Brings the app up via the shared <see cref="WebAppLauncher"/>. In Debug, <c>DevWebBringUp</c> tries the Vite
-	/// dev server and renders a loud error page on failure (never a silent stale-bundle swap); Release loads the
-	/// bundled <c>app://</c> assets.
-	/// </summary>
-	private async Task LoadWebAppAsync() {
-		if (_core is null) {
-			return;
-		}
-
-		var launcher = new WebAppLauncher(this, _core, string.Empty);
-#if DEBUG
-		_devBringUp = new DevWebBringUp(
-			launcher, this,
-			DevWebRoot.Resolve(Assembly.GetExecutingAssembly()),
-			"app://app",
-			line => {
-				Console.WriteLine($"[vite] {line}");
-				Console.Out.Flush();
-			});
-		await _devBringUp.RunAsync().ConfigureAwait(false);
-#else
-		await launcher.LaunchAsync("app://app").ConfigureAwait(false);
-#endif
-	}
-
-	// IWebSurface — WKWebView is main-thread-affine, so each op marshals onto the main thread.
-	void IWebSurface.Navigate(string url) =>
-		_dispatcher!.Post(() => _webView?.LoadRequest(new NSUrlRequest(new NSUrl(url))));
-
-	void IWebSurface.RenderHtml(string html) =>
-		_dispatcher!.Post(() => _webView?.LoadHtmlString(new NSString(html), null));
-
-	Task IWebSurface.InjectStartupScriptAsync(string script) {
-		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		_dispatcher!.Post(() => {
-			try {
-				_webView?.Configuration.UserContentController.AddUserScript(new WKUserScript(
-					new NSString(script),
-					WKUserScriptInjectionTime.AtDocumentStart,
-					isForMainFrameOnly: true));
-				tcs.SetResult();
-			} catch (Exception ex) {
-				tcs.SetException(ex);
-			}
-		});
-		return tcs.Task;
-	}
-
-#if DEBUG
-	/// <summary>Retry button on the dev-server error page: ask the shared bring-up to try again.</summary>
-	private async Task RetryDevServerAsync() {
-		if (_devBringUp is null) {
-			return;
-		}
-
-		Console.WriteLine("[weavie] retrying Vite dev server…");
-		await _devBringUp.RunAsync().ConfigureAwait(false);
-	}
-
-	/// <summary>"Load stale bundle anyway" button: the developer explicitly accepts the possibly-stale bundle.</summary>
-	private async Task LoadBundleAsync() {
-		if (_devBringUp is null) {
-			return;
-		}
-
-		Console.WriteLine("[weavie] loading STALE bundled wwwroot at app://app (explicit developer choice)");
-		await _devBringUp.LoadBundleAsync().ConfigureAwait(false);
-	}
-#endif
-
-	/// <summary>Quits the app when its last (only) window is closed.</summary>
+	/// <summary>Quits the app when its last window is closed.</summary>
 	public override bool ApplicationShouldTerminateAfterLastWindowClosed(NSApplication sender) => true;
 
-	/// <summary>Persists geometry, tears down the core (terminals / IDE-MCP / LSP / hotkeys), and disposes the app stores on exit.</summary>
+	/// <summary>Tears down every still-open window's core, then disposes the app-level hotkeys and shared stores on exit.</summary>
 	public override void WillTerminate(NSNotification notification) {
-		SaveWindowState();
-		_core?.DisposeAsync().AsTask().GetAwaiter().GetResult(); // disposes sessions + global hotkeys
-#if DEBUG
-		_devBringUp?.Dispose(); // kills the Vite dev server this run spawned; a reused one is left alone
-#endif
+		foreach (var window in _windows.ToArray()) {
+			window.SaveWindowState();
+			window.DisposeCore();
+		}
+
+		_windows.Clear();
+		_hotkeys?.Dispose(); // also disposes the global hotkey registrar
 		_services?.Keybindings.Dispose();
 		_services?.Settings.Dispose();
 	}
 
+	/// <summary>Records the window that just became key, so the global hotkey + menu commands target the front one.</summary>
+	internal void MarkActive(WorkspaceWindow window) => _lastActive = window;
+
+	/// <summary>Saves the closing window's geometry, drops it from the set, and disposes its core.</summary>
+	internal void OnWindowClosed(WorkspaceWindow window) {
+		window.SaveWindowState();
+		_windows.Remove(window);
+		if (_lastActive == window) {
+			_lastActive = _windows.LastOrDefault();
+		}
+
+		window.DisposeCore();
+	}
+
 	/// <summary>
-	/// Toggles Weavie (global hotkey / <c>weavie.window.toggle</c>): hide if active, else activate + raise.
-	/// Must run on the main thread.
+	/// Toggles <paramref name="target"/> for <c>weavie.window.toggle</c>: hide the app if active, else activate and
+	/// raise the window. Must run on the main thread.
 	/// </summary>
-	private void ToggleWindow() {
+	internal void ToggleWindow(NSWindow target) {
+		ArgumentNullException.ThrowIfNull(target);
 		var app = NSApplication.SharedApplication;
 		if (app.Active) {
-			app.Hide(this);
+			app.Hide(app);
 		} else {
 			app.Activate();
-			_window?.MakeKeyAndOrderFront(null);
+			target.MakeKeyAndOrderFront(null);
 		}
 	}
 
-	private void SaveWindowState() {
-		if (_window is null || _core is null || _window.IsMiniaturized) {
-			return;
+	// The front window (last to become key, else the most-recently-opened) — the target for menu commands and the
+	// global toggle hotkey.
+	private WorkspaceWindow? Frontmost =>
+		_lastActive is not null && _windows.Contains(_lastActive) ? _lastActive : _windows.LastOrDefault();
+
+	private void ToggleFrontmost() {
+		if (Frontmost is { Window: var target }) {
+			ToggleWindow(target);
 		}
-
-		_core.SaveWindow(CaptureWindowState());
-	}
-
-	/// <summary>Snapshots the current geometry, keeping the prior un-zoomed restore bounds while zoomed.</summary>
-	private Core.Layout.WindowState CaptureWindowState() {
-		if (_window!.IsZoomed && _core!.SavedWindow is { } prior) {
-			return prior with { Maximized = true };
-		}
-
-		var frame = _window.Frame;
-		return new Core.Layout.WindowState {
-			X = (int)frame.X,
-			Y = (int)frame.Y,
-			Width = (int)frame.Width,
-			Height = (int)frame.Height,
-			Maximized = _window.IsZoomed,
-		};
-	}
-
-
-	private void CaptureSnapshot(ScreenshotRequest shot) {
-		if (_webView is null) {
-			return;
-		}
-
-		Directory.CreateDirectory(shot.DirectoryPath);
-		string path = shot.TargetPath;
-
-		_webView.TakeSnapshot(new WKSnapshotConfiguration(), (image, error) => {
-			if (image is null) {
-				Console.Error.WriteLine($"[weavie] snapshot failed: {error?.LocalizedDescription}");
-				return;
-			}
-
-			var tiff = image.AsTiff();
-			if (tiff is null) {
-				return;
-			}
-
-			using var rep = new NSBitmapImageRep(tiff);
-			var png = rep.RepresentationUsingTypeProperties(NSBitmapImageFileType.Png, new NSDictionary());
-			if (png is null) {
-				Console.Error.WriteLine("[weavie] snapshot: PNG encoding failed");
-				return;
-			}
-
-			if (png.Save(path, true, out var saveError)) {
-				Console.WriteLine($"[weavie] snapshot saved: {path}");
-			} else {
-				Console.Error.WriteLine($"[weavie] snapshot save failed: {saveError?.LocalizedDescription}");
-			}
-
-			Console.Out.Flush();
-		});
 	}
 
 	private static void Log(string line) {

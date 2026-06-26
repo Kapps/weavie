@@ -44,51 +44,80 @@ flowchart LR
   subgraph Host[HostCore · all four hosts]
     Bridge[WebBridge dispatch]
     Flow[OpenPullRequest flow]
-    GH[IGitHubService]
-    Git[IGitService · fetch + attach + show base:path]
+    Prov[IPullRequestProvider + IReviewCommentStore<br/>forge-agnostic]
+    Git[IGitService · fetch + attach<br/>diff base...head + show base:path]
     Sess[SessionManager · slot.Pr]
   end
-  GitHub[(GitHub REST API)]
+  Forge[(forge API · GitHub impl)]
   Picker -->|list-prs / open-pr| Bridge
   Editor -->|get-pr-diff / add-pr-comment| Bridge
-  Bridge --> Flow --> GH --> GitHub
-  Flow --> Git
+  Bridge --> Flow
+  Flow -->|PRs + comments| Prov --> Forge
+  Flow -->|diff + base content| Git
   Flow --> Sess
-  GH -->|prs-result / pr-changes / pr-diff| Bridge --> Editor
+  Bridge -->|prs-result / pr-changes / pr-diff| Editor
 ```
 
 Why host-side: the token must never reach the renderer (untrusted surface), API calls need no CORS dance, and
 every host (Win/Mac/Linux/Headless/Remote) inherits the feature by adding it to `HostCore`, not per-OS.
 
-### GitHub access layer
+### Two seams: git for the diff, a forge-agnostic provider for PRs + comments
 
-A new `Weavie.Core.GitHub` namespace, parallel to `Weavie.Core.Git`, behind an interface so the session flow
-and the integration harness can run against a fake (the same seam strategy as `IGitService` and the stubbed
-`claude`, see [integration-testing-strategy](integration-testing-strategy.md)).
+The work splits cleanly along what each piece actually needs:
+
+- **The diff is git, not GitHub.** A PR's `base…head` diff is a local operation once both refs are fetched —
+  no API call. It belongs on `IGitService` alongside the existing worktree operations, so it's the *same* diff
+  machinery for any branch comparison (a fork's branch, a local topic branch, a PR), not a PR-only path.
+- **PRs and comments are forge operations, behind a forge-agnostic interface.** Listing PRs and
+  loading/adding comments do need a remote API — but the host shouldn't know it's *GitHub*. The seam is a
+  provider-agnostic interface; **GitHub is one implementation**, so GitLab/Bitbucket/Gitea slot in later
+  without touching the session flow or the editor. This is the same seam strategy as `IGitService` and the
+  stubbed `claude` ([integration-testing-strategy](integration-testing-strategy.md)) — the integration harness
+  runs against a fake provider.
+
+**`IGitService` additions** (`Weavie.Core.Git`):
 
 ```csharp
-public interface IGitHubService {
-    Task<GitHubRepo?> ResolveRepoAsync(string repoDir, CancellationToken ct);              // owner/repo from origin
-    Task<IReadOnlyList<PullRequestSummary>> ListOpenPullRequestsAsync(GitHubRepo repo, CancellationToken ct);
-    Task<PullRequestDetail> GetPullRequestAsync(GitHubRepo repo, int number, CancellationToken ct);
-    Task<IReadOnlyList<ReviewComment>> ListReviewCommentsAsync(GitHubRepo repo, int number, CancellationToken ct);
-    Task<ReviewComment> AddReviewCommentAsync(GitHubRepo repo, int number, NewReviewComment draft, CancellationToken ct);
-    Task<ReviewComment> ReplyToReviewCommentAsync(GitHubRepo repo, int number, long inReplyTo, string body, CancellationToken ct);
+Task FetchAsync(string repoDir, string remote, string refName, CancellationToken ct);                 // git fetch origin <ref>
+Task<IReadOnlyList<DiffFile>> DiffRefsAsync(string repoDir, string baseRef, string headRef, CancellationToken ct); // base...head, name + ±counts
+Task<string> ShowFileAtRefAsync(string repoDir, string refName, string path, CancellationToken ct);   // git show <ref>:<path> — the diff baseline
+Task<string?> GetRemoteUrlAsync(string repoDir, string remote, CancellationToken ct);                 // remote URL → forge + repo selection
+```
+
+`DiffRefsAsync` feeds the `←`/`→` file axis (`pr-changes`); `ShowFileAtRefAsync` supplies each file's diff
+**baseline** (current comes from the worktree on disk). Three-dot `base...head` diffs against the merge-base,
+so it's exactly what GitHub shows.
+
+**Forge-agnostic review provider** (`Weavie.Core.Review`, parallel to `Weavie.Core.Git`):
+
+```csharp
+public interface IPullRequestProvider {                       // discover + list PRs for a repo
+    Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct);
+    Task<PullRequestDetail> GetAsync(RepoRef repo, int number, CancellationToken ct);
+}
+
+public interface IReviewCommentStore {                        // load / add / reply — the "similar interface for comments"
+    Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct);
+    Task<ReviewComment> AddAsync(RepoRef repo, int number, NewReviewComment draft, CancellationToken ct);
+    Task<ReviewComment> ReplyAsync(RepoRef repo, int number, long inReplyTo, string body, CancellationToken ct);
 }
 ```
 
-`GitHubService` is `HttpClient`-backed against `https://api.github.com` (a `github.apiBaseUrl` setting, defaulting
-there, leaves room for GitHub Enterprise later). Each `ReviewComment` carries what anchoring needs:
+The DTOs are forge-neutral. `ReviewComment` carries what anchoring needs:
 `{ id, path, line, side, originalLine, commitId, diffHunk, author, body, createdAt, inReplyTo, isOutdated }`.
+`RepoRef { host, owner, name }` is derived from the remote URL.
 
-**Owner/repo resolution.** `ResolveRepoAsync` reads `git remote get-url origin` (a new `IGitService.GetRemoteUrlAsync`)
-and normalizes the GitHub URL forms — `https://github.com/owner/repo(.git)`, `git@github.com:owner/repo.git`,
-`ssh://git@github.com/owner/repo.git` — to `(owner, repo)` by taking the last two non-empty path segments and
-stripping `.git`. The host enters the PR number from the picker; the user never types owner/repo.
+**GitHub is the implementation.** `GitHubReviewProvider` (implementing both interfaces) is `HttpClient`-backed
+against `https://api.github.com` (a `github.apiBaseUrl` setting leaves room for GitHub Enterprise). **Auth is
+its concern, not the interface's** (see below). Which implementation the host constructs is chosen from the
+remote URL: `GetRemoteUrlAsync` is normalized — `https://github.com/owner/repo(.git)`,
+`git@github.com:owner/repo.git`, `ssh://git@host/owner/repo.git` — to `RepoRef` by taking the last two
+non-empty path segments (stripping `.git`); the `host` selects the provider. The user never types owner/repo.
 
 ## Authentication
 
-This is the open design question. Weavie runs in two very different contexts — a **desktop app** on a dev's
+Auth is the **GitHub implementation's** concern — the provider interfaces are credential-agnostic, and another
+forge's implementation would bring its own. This is the open design question for the GitHub one. Weavie runs in two very different contexts — a **desktop app** on a dev's
 machine, and a **headless/remote worker** on a server ([remote-sessions](remote-sessions.md)) — and the right
 credential source differs between them. The options:
 
@@ -192,6 +221,10 @@ PR) — instead a parallel, simpler message set feeds the same UI:
 - `→ get-pr-diff { number, path }` ⇒ `pr-diff { number, path, baseline, current, comments: ReviewComment[] }` —
   one file's base→head pair plus the review comments anchored in it, the PR analogue of `turn-diff`.
 
+The host builds these by composition: `pr-changes` from `IGitService.DiffRefsAsync(base, head)`, and each
+`pr-diff` from `ShowFileAtRefAsync(base, path)` (baseline) + the worktree file (current) + `IReviewCommentStore.ListAsync`
+(comments). The diff is pure git; only the comments touch the forge.
+
 ### Comments anchored on the diff
 
 Each `ReviewComment` carries `(path, line, side, commitId, diffHunk)`. Within the file's diff the web renders
@@ -206,9 +239,9 @@ ride the diff they sit exactly on the hunk they're about.
 
 ## Phase 3 — Adding comments
 
-- **Reply** in a thread → `add-pr-comment { number, inReplyTo, body }` → `ReplyToReviewCommentAsync`.
+- **Reply** in a thread → `add-pr-comment { number, inReplyTo, body }` → `IReviewCommentStore.ReplyAsync`.
 - **New comment** on the current hunk/line → `add-pr-comment { number, path, line, side, body }` →
-  `AddReviewCommentAsync` (the host supplies `commitId` from the PR head). On success the host re-pushes that
+  `IReviewCommentStore.AddAsync` (the host supplies `commitId` from the PR head). On success the host re-pushes that
   file's `pr-diff` so the thread re-renders; failure toasts and keeps the draft.
 - The composer (a small editor input) is a view-zone, opened either from a thread's **Reply** or as the diff
   navigator's repurposed per-hunk action — where post-turn review shows **Keep**, PR mode shows **Comment**
@@ -226,11 +259,13 @@ ride the diff they sit exactly on the hunk they're about.
 
 ## Testing
 
-Per [integration-testing-strategy](integration-testing-strategy.md), stub GitHub at the service seam: a
-`FakeGitHubService` returns canned PRs and comments so a full journey (picker → open-pr → fetch → branch
-checkout → comment render → add) is deterministic and never touches the network — the GitHub analogue of the
-stubbed `claude`. Pure units cover URL→`(owner,repo)` normalization and the token-source precedence. The
-`npm run capture` recording drives the picker and the comment thread against the fake.
+Per [integration-testing-strategy](integration-testing-strategy.md), stub the forge at the provider seam: a
+`FakeReviewProvider` (implementing `IPullRequestProvider` + `IReviewCommentStore`) returns canned PRs and
+comments so a full journey (picker → open-pr → fetch → branch checkout → diff render → comment → add) is
+deterministic and never touches the network — the forge analogue of the stubbed `claude`. The diff half needs
+no stub: `DiffRefsAsync` / `ShowFileAtRefAsync` run against a real throwaway git repo, like the existing
+worktree tests. Pure units cover URL→`RepoRef` normalization and the token-source precedence. The
+`npm run capture` recording drives the picker and the comment thread against the fake provider.
 
 ## Security
 
@@ -243,13 +278,14 @@ stubbed `claude`. Pure units cover URL→`(owner,repo)` normalization and the to
 
 ## Phasing
 
-1. **GitHub access + auth discovery + Open-PR → session.** `IGitHubService` (list/get PRs, repo resolve),
-   token discovery (gh → credential → env), `FetchAsync`, the `open-pr` flow, the picker, the command. No secret
-   store needed. ← the first PR.
+1. **Provider + git diff + Open-PR → session.** `IPullRequestProvider` (list/get PRs) with the `GitHubReviewProvider`
+   impl + repo selection from the remote URL, `IGitService.FetchAsync`/`DiffRefsAsync`/`ShowFileAtRefAsync`,
+   auth discovery (gh → credential → env), the `open-pr` flow, the picker, the command. No secret store needed.
+   ← the first PR.
 2. **The PR diff in the review surface.** A `pr` mode in `inline-diff.ts` fed the `base…head` diff
-   (`pr-changes` / `pr-diff`, Core supplying base content via `git show`), `ListReviewCommentsAsync` with the
-   comments anchored as view-zones on the hunks, the slot↔PR association + persistence.
-3. **Adding comments.** `AddReviewCommentAsync` / replies, the composer.
+   (`pr-changes` / `pr-diff` from `DiffRefsAsync` + `ShowFileAtRefAsync`), `IReviewCommentStore.ListAsync` with
+   the comments anchored as view-zones on the hunks, the slot↔PR association + persistence.
+3. **Adding comments.** `IReviewCommentStore.AddAsync` / `ReplyAsync`, the composer.
 4. **Explicit `github.token` setting** (needs the secret-store work item) and, later, **OAuth device flow**
    via a Weavie GitHub App.
 ```mermaid

@@ -17,7 +17,7 @@ public sealed class WorkspaceFileIndexTests {
 		fs.WriteAllText("/w/src/sub/c.ts", "");
 		var index = new WorkspaceFileIndex(fs, "/w");
 
-		var files = index.List(WorkspaceFileIndex.DefaultCap);
+		var files = index.List();
 
 		string[] expected = [Full("/w/a.txt"), Full("/w/src/b.cs"), Full("/w/src/sub/c.ts")];
 		Array.Sort(expected, StringComparer.OrdinalIgnoreCase);
@@ -33,32 +33,27 @@ public sealed class WorkspaceFileIndexTests {
 		fs.WriteAllText("/w/bin/out.dll", "");
 		var index = new WorkspaceFileIndex(fs, "/w");
 
-		var files = index.List(WorkspaceFileIndex.DefaultCap);
+		var files = index.List();
 
 		Assert.Equal([Full("/w/keep.cs")], files);
 	}
 
 	[Fact]
-	public void List_RespectsCap_AndLogsTruncation() {
+	public void List_IsUnbounded_ReturnsEveryFile() {
 		var fs = new InMemoryFileSystem();
-		for (int i = 0; i < 5; i++) {
+		for (int i = 0; i < 25_000; i++) {
 			fs.WriteAllText($"/w/f{i}.txt", "");
 		}
 
 		var index = new WorkspaceFileIndex(fs, "/w");
-		string? logged = null;
-		index.Log += m => logged = m;
 
-		var files = index.List(cap: 3);
-
-		Assert.Equal(3, files.Count);
-		Assert.NotNull(logged);
+		Assert.Equal(25_000, index.List().Count);
 	}
 
 	[Fact]
 	public void List_MissingRoot_IsEmpty() {
 		var index = new WorkspaceFileIndex(new InMemoryFileSystem(), "/nope");
 
-		Assert.Empty(index.List(WorkspaceFileIndex.DefaultCap));
+		Assert.Empty(index.List());
 	}
 }

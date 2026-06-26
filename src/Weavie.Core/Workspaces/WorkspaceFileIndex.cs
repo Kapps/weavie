@@ -7,9 +7,6 @@ namespace Weavie.Core.Workspaces;
 /// noise dirs) for the omnibar's "Go to File" quick-open.
 /// </summary>
 public sealed class WorkspaceFileIndex {
-	/// <summary>Default ceiling on returned files; a tree larger than this is truncated (and logged).</summary>
-	public const int DefaultCap = 20_000;
-
 	private readonly IFileSystem _fileSystem;
 
 	/// <summary>Creates an index rooted at <paramref name="root"/> over <paramref name="fileSystem"/>.</summary>
@@ -23,33 +20,23 @@ public sealed class WorkspaceFileIndex {
 	/// <summary>The absolute workspace root the index is scoped to.</summary>
 	public string Root { get; }
 
-	/// <summary>Diagnostic sink (e.g. when the cap truncates the walk). Optional.</summary>
-	public event Action<string>? Log;
-
 	/// <summary>
-	/// Returns every file's absolute path, sorted case-insensitively, pruning ignored directories and
-	/// stopping once <paramref name="cap"/> files are collected (logging the truncation).
+	/// Returns every file's absolute path, sorted case-insensitively, pruning ignored directories. The walk is
+	/// unbounded: an IDE must be able to open any file, so the index never drops one — the page filters locally.
 	/// </summary>
-	public IReadOnlyList<string> List(int cap) {
-		if (cap <= 0 || !_fileSystem.DirectoryExists(Root)) {
+	public IReadOnlyList<string> List() {
+		if (!_fileSystem.DirectoryExists(Root)) {
 			return [];
 		}
 
 		var files = new List<string>();
-		bool truncated = Walk(Root, files, cap);
-		if (truncated) {
-			Log?.Invoke($"file index truncated at {cap} files under {Root}");
-		}
-
+		Walk(Root, files);
 		files.Sort(StringComparer.OrdinalIgnoreCase);
 		return files;
 	}
 
-	/// <summary>
-	/// Depth-first walk collecting files into <paramref name="sink"/>, pruning ignored directories.
-	/// Returns true if the cap was hit (the walk stops early).
-	/// </summary>
-	private bool Walk(string directory, List<string> sink, int cap) {
+	/// <summary>Depth-first walk collecting every file into <paramref name="sink"/>, pruning ignored directories.</summary>
+	private void Walk(string directory, List<string> sink) {
 		// Iterative DFS so a deep tree can't blow the stack.
 		var stack = new Stack<string>();
 		stack.Push(directory);
@@ -63,15 +50,9 @@ public sealed class WorkspaceFileIndex {
 						stack.Push(fullPath);
 					}
 				} else {
-					if (sink.Count >= cap) {
-						return true;
-					}
-
 					sink.Add(fullPath);
 				}
 			}
 		}
-
-		return false;
 	}
 }

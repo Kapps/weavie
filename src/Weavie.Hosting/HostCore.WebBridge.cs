@@ -397,7 +397,7 @@ public sealed partial class HostCore {
 		}
 
 		_ = Task.Run(() => {
-			var files = session.FileIndex.List(WorkspaceFileIndex.DefaultCap);
+			var files = session.FileIndex.List();
 			if (ReferenceEquals(_session, session)) {
 				_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
 			}

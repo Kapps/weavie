@@ -73,7 +73,6 @@ public sealed class HostSession : IAsyncDisposable {
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
-		FileIndex.Log += Tagged("[index]");
 		Claude = new TerminalController(bridge, "claude", settings, ptyLauncher) {
 			Workspace = workspaceRoot,
 			// Resume this session's worktree's previous Claude conversation across launches (gated by the setting).

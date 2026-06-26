@@ -76,8 +76,12 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   you can.
 - **No duplication.** Repeated logic is a defect, not a shortcut — the first time you'd copy
   something, extract the shared part to one place (a helper, a base, a single source of truth).
-- **No silent fallbacks.** Never paper over a hang or failure with a safety-net timeout or a default
-  that hides it. Fail loudly within bounds and keep the failure observable.
+- **No fallbacks.** Never paper over a hang or failure with a safety-net timeout, a cap, or a default
+  that hides it. Don't add one unless explicitly asked — the absence of a fallback is the default.
+  When a bound is genuinely required, fail loudly *at the surface that meets the user*: a console log
+  or any other dev-only sink is still a silent fallback, because the person hitting the limit never
+  sees it (e.g. capping a file index at 20k and only logging it leaves files silently unopenable).
+  Surface it where the affected user is, or don't impose the bound.
 - **No nullable injected dependencies.** Don't accept `IFoo? = null`. Provide a `Noop`/`Headless`
   implementation and require the real thing.
 - **No optional / default-valued parameters.** Banned repo-wide by the `WV0001` analyzer (only

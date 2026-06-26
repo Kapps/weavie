@@ -7,7 +7,9 @@
 # which would decompress at launch and hurt cold start).
 #
 # Each shell publishes on its own OS (Weavie.Win needs Windows; Weavie.Mac needs the macOS workload)
-# and the result is uploaded as a build artifact. Triggered manually or by pushing a v* tag.
+# and the result is uploaded as a build artifact. The remote control plane (Weavie.Runner) ships too:
+# publishing it stages the Weavie.Headless worker beside it, so that one artifact is the complete
+# runner + headless deploy. Triggered manually or by pushing a v* tag.
 name: release
 
 on:
@@ -31,6 +33,14 @@ jobs:
             project: src/Weavie.Linux/Weavie.Linux.csproj
             rid: linux-x64
             # R2R + self-contained: native-precompiled, no machine .NET dependency.
+            extra: --self-contained -p:PublishReadyToRun=true
+          - name: runner-linux-x64
+            os: ubuntu-latest
+            project: src/Weavie.Runner/Weavie.Runner.csproj
+            rid: linux-x64
+            # The remote control plane. Its publish stages the Weavie.Headless worker into worker/,
+            # propagating RID + self-contained, so this single artifact is the full runner + headless
+            # deploy. Same R2R + self-contained lever as the linux shell.
             extra: --self-contained -p:PublishReadyToRun=true
           - name: win-x64
             os: windows-latest

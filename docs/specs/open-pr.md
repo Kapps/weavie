@@ -303,3 +303,7 @@ flowchart LR
   conversation)? This spec covers review comments; issue comments are a small additive follow-up.
 - **Push/refresh** — poll the PR for new comments while a session is open, or refresh only on focus/manual? (The
   remote-session webhook plumbing could feed this later.)
+- **PR details tab (deferred)** — a pinned tab in the PR session showing the PR's overview (description,
+  PR-level/issue conversation, the changed-file list as the entry into the diff walk). This wants a generalized
+  **non-file tab kind** to host custom content; parked until the in-flight browser-tabs-alongside-file-tabs work
+  lands, then designed on top of it.

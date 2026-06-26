@@ -10,10 +10,12 @@ or leave a new comment without leaving Weavie.
 
 Reviewing and addressing a PR today means bouncing between the GitHub web UI (to read the conversation) and
 the editor (to make the change). Weavie already owns the two halves that matter — a session is a branch on its
-own worktree ([multi-session-and-worktrees](multi-session-and-worktrees.md)) and the editor already renders
-per-line decorations + view-zone widgets for turn review ([turn-review](turn-review.md)). "Open PR" joins them:
-the PR becomes the session, and its comments become first-class editor content the user can read and answer in
-place, with Claude already checked out on the branch and primed with the PR's context.
+own worktree ([multi-session-and-worktrees](multi-session-and-worktrees.md)), and the editor already has a
+**diff-review surface**: the post-turn inline-diff navigator that walks a change set hunk-by-hunk and
+file-by-file, with a floating toolbar, position label, and per-hunk actions ([turn-review](turn-review.md)).
+"Open PR" joins them: the PR becomes the session, **its `base…head` diff is shown in that exact same review
+surface** — the same one you get when Claude ends a turn — and the PR's comments anchor onto that diff where
+they belong, answerable in place, with Claude already checked out on the branch and primed with the PR's context.
 
 ## User journey
 
@@ -37,24 +39,22 @@ existing web↔host bridge as new message types, exactly like `new-session` / `l
 flowchart LR
   subgraph Web[web · SolidJS]
     Picker[Open-PR picker]
-    Editor[Monaco · gutter + thread zones]
-    Panel[PR comments list]
+    Editor[inline-diff navigator · pr mode<br/>base→head diff + comment zones]
   end
   subgraph Host[HostCore · all four hosts]
     Bridge[WebBridge dispatch]
     Flow[OpenPullRequest flow]
     GH[IGitHubService]
-    Git[IGitService · fetch + attach]
+    Git[IGitService · fetch + attach + show base:path]
     Sess[SessionManager · slot.Pr]
   end
   GitHub[(GitHub REST API)]
   Picker -->|list-prs / open-pr| Bridge
-  Editor -->|add-pr-comment| Bridge
+  Editor -->|get-pr-diff / add-pr-comment| Bridge
   Bridge --> Flow --> GH --> GitHub
   Flow --> Git
   Flow --> Sess
-  GH -->|prs-result / pr-comments| Bridge --> Editor
-  Bridge --> Panel
+  GH -->|prs-result / pr-changes / pr-diff| Bridge --> Editor
 ```
 
 Why host-side: the token must never reach the renderer (untrusted surface), API calls need no CORS dance, and
@@ -165,32 +165,55 @@ The tractable, fully-testable core; reuses the existing attach-existing-branch m
 (*"Open Pull Request…"*) with a default keybinding and a palette entry, plus an entry on the session-rail "+"
 menu — every action advertises its shortcut, per the keyboard-first rule.
 
-## Phase 2 — Comments in the editor
+## Phase 2 — The PR diff in the post-turn review surface
 
-On switching to a PR session, the host fetches its review comments and pushes them to the web; the web fetches
-fresh on file open and after any add.
+A PR *is* a diff — `base…head` — so it renders in the **same inline-diff navigator the post-turn review uses**
+([turn-review](turn-review.md)), not a second viewer. Switching to a PR session arms that surface fed with the
+PR's diff; you walk it with the same chords (`↑`/`↓` hunks, `←`/`→` files), the same floating toolbar, and the
+same `file i/N · change j/M` label. The comments anchor onto the hunks, and the per-hunk action is repurposed
+from Keep/Revert to **Comment/Reply**.
 
-- **Anchoring.** Each comment carries `(path, line, side, commitId)`. The web renders, per commented line:
-  a **gutter glyph** (comment icon) and a **view-zone thread** below the line — reusing the view-zone +
-  decoration machinery the inline turn-review already owns (`src/web/src/editor/inline-diff.ts`), not a second
-  rendering path. Threads collapse to the glyph; clicking expands.
-- **Out-of-view + outdated.** A **PR comments panel** lists every thread grouped by file (clickable → reveal
-  `file:line`, the existing `reveal-file` message), so comments on unopened files are visible. Comments whose
-  line has moved since their `commitId` (`isOutdated`) render in the panel, flagged, rather than mis-anchored in
-  the gutter.
+### Feeding the PR diff into the existing renderer
+
+The renderer already takes a `(baseline, current)` pair per file and computes hunk geometry with VSCode's
+differ — that's what `turn-diff` carries today. The PR maps straight onto it:
+
+- **baseline** = the file at the PR's merge-base (`git show <base>:<path>`, supplied by Core).
+- **current** = the file on disk in the worktree (the PR head — and, naturally, any edits made since, so a fix
+  the user/Claude just made shows as a further change over the PR).
+
+So Phase 2 adds a **`pr` mode** to `inline-diff.ts` beside the existing `applied` / `review` / `view` modes,
+reusing all of the navigation, labeling, and decoration code. It does **not** reuse the *turn-review state
+machine* (the keep/revert baseline-advance is for your own working-tree edits, not for an already-committed
+PR) — instead a parallel, simpler message set feeds the same UI:
+
+- `→ pr-changes-request { number }` ⇒ `pr-changes { number, files: [{ path, name, added, removed }] }` — the
+  file axis (the `←`/`→` walk), the PR analogue of `turn-changes`.
+- `→ get-pr-diff { number, path }` ⇒ `pr-diff { number, path, baseline, current, comments: ReviewComment[] }` —
+  one file's base→head pair plus the review comments anchored in it, the PR analogue of `turn-diff`.
+
+### Comments anchored on the diff
+
+Each `ReviewComment` carries `(path, line, side, commitId, diffHunk)`. Within the file's diff the web renders
+each thread as a **view-zone under its line** — the same view-zone mechanism the faded "accepted" band and
+ghost-deletions already use — showing author, body, timestamp, collapsible to a gutter glyph. Because comments
+ride the diff they sit exactly on the hunk they're about.
+
+- **Outdated comments** (the line moved since the comment's `commitId`) can't be placed on the current diff, so
+  they surface in the navigator's file label / a thread list for that file, flagged — never mis-anchored.
 - **Untrusted content.** Comment bodies are external user input — sanitized through the existing `dompurify`
   path before rendering, like any markdown the app shows.
-
-`→ pr-comments-request { number }` ⇒ `pr-comments { number, comments: ReviewComment[] }`.
 
 ## Phase 3 — Adding comments
 
 - **Reply** in a thread → `add-pr-comment { number, inReplyTo, body }` → `ReplyToReviewCommentAsync`.
-- **New comment** on a line → `add-pr-comment { number, path, line, side, body }` → `AddReviewCommentAsync`
-  (the host supplies `commitId` from the PR head). On success the host re-pushes that PR's comments so the
-  thread re-renders; failure toasts and keeps the draft.
-- A composer (small editor input) is the view-zone widget's expanded state; **Comment (Ctrl+Enter)** posts,
-  Esc cancels — shortcut advertised on the button.
+- **New comment** on the current hunk/line → `add-pr-comment { number, path, line, side, body }` →
+  `AddReviewCommentAsync` (the host supplies `commitId` from the PR head). On success the host re-pushes that
+  file's `pr-diff` so the thread re-renders; failure toasts and keeps the draft.
+- The composer (a small editor input) is a view-zone, opened either from a thread's **Reply** or as the diff
+  navigator's repurposed per-hunk action — where post-turn review shows **Keep**, PR mode shows **Comment**
+  (`$mod+Enter`), reusing the toolbar's existing action slot and scope label. **Comment (`$mod+Enter`)** posts,
+  Esc cancels — shortcut read from the command catalog and advertised on the button, per the keyboard-first rule.
 
 ## Session ↔ PR association
 
@@ -223,8 +246,9 @@ stubbed `claude`. Pure units cover URL→`(owner,repo)` normalization and the to
 1. **GitHub access + auth discovery + Open-PR → session.** `IGitHubService` (list/get PRs, repo resolve),
    token discovery (gh → credential → env), `FetchAsync`, the `open-pr` flow, the picker, the command. No secret
    store needed. ← the first PR.
-2. **Comments in the editor.** `ListReviewCommentsAsync`, the gutter/thread rendering, the PR panel, the
-   slot↔PR association + persistence.
+2. **The PR diff in the review surface.** A `pr` mode in `inline-diff.ts` fed the `base…head` diff
+   (`pr-changes` / `pr-diff`, Core supplying base content via `git show`), `ListReviewCommentsAsync` with the
+   comments anchored as view-zones on the hunks, the slot↔PR association + persistence.
 3. **Adding comments.** `AddReviewCommentAsync` / replies, the composer.
 4. **Explicit `github.token` setting** (needs the secret-store work item) and, later, **OAuth device flow**
    via a Weavie GitHub App.

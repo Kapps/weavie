@@ -65,9 +65,7 @@ internal sealed class WelcomeWindow : IWebSurface {
 	public NSWindow Window { get; }
 
 	/// <summary>Re-injects the current recents and reloads welcome.html so a pruned entry drops out of the list.</summary>
-	internal void RefreshRecents() {
-		_ = _controller.RefreshAsync();
-	}
+	internal void RefreshRecents() => _ = _controller.RefreshAsync();
 
 	// IWebSurface — the WKWebView ops the shared welcome flow drives; each marshals onto the main thread.
 	void IWebSurface.Navigate(string url) =>

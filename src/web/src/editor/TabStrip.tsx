@@ -80,7 +80,8 @@ export function TabStrip(props: {
         ...(tab.kind !== undefined ? { kind: tab.kind } : {}),
         preview: tab.preview === true,
         pinned: tab.pinned === true,
-        dirty: dirty.has(canonicalFsPath(tab.path)),
+        // A web tab is never dirty (its path is a URL, not a file path to canonicalize).
+        dirty: tab.kind !== "web" && dirty.has(canonicalFsPath(tab.path)),
       }));
     },
     [],

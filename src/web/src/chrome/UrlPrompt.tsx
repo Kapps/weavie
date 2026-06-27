@@ -18,9 +18,8 @@ function normalizeUrl(raw: string): string | null {
 }
 
 /**
- * Portaled modal prompt for an http(s) URL to open in a web tab. Enter submits a valid URL; Escape / backdrop
- * cancels. A bare host is assumed https. Mirrors {@link ConfirmDialog}'s shell (capture-phase Enter/Escape so the
- * global keybinding resolver and editor never see those keys while it's up).
+ * Portaled modal prompt for an http(s) URL to open in a web tab (Enter submits, Escape / backdrop cancels; a bare
+ * host is assumed https). Reuses ConfirmDialog's shell + capture-phase Enter/Escape.
  */
 export function UrlPrompt(props: {
   onSubmit: (url: string) => void;

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Code, Eye, Pin, X } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Code, Eye, Globe, Pin, X } from "lucide-solid";
 import {
   For,
   type JSX,
@@ -23,6 +23,8 @@ import { isPreviewMode } from "./view-mode-store";
 // The structural fields the strip renders. Excludes view state so cursor/scroll updates don't re-render it.
 interface TabView {
   path: string;
+  // "web" for an iframe web tab (globe icon + host label); a file tab otherwise.
+  kind?: string;
   preview: boolean;
   pinned: boolean;
   // Unsaved changes: shows a `*` until autosave reaches disk.
@@ -32,6 +34,18 @@ interface TabView {
 function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
   return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
+}
+
+// A web tab shows its URL host; a file tab shows its basename.
+function tabLabel(view: TabView): string {
+  if (view.kind === "web") {
+    try {
+      return new URL(view.path).host || view.path;
+    } catch {
+      return view.path;
+    }
+  }
+  return basename(view.path);
 }
 
 /**
@@ -52,6 +66,7 @@ export function TabStrip(props: {
       return (
         other !== undefined &&
         tab.path === other.path &&
+        tab.kind === other.kind &&
         tab.preview === other.preview &&
         tab.pinned === other.pinned &&
         tab.dirty === other.dirty
@@ -62,9 +77,11 @@ export function TabStrip(props: {
       const dirty = dirtyPaths();
       return props.tabs().map((tab) => ({
         path: tab.path,
+        ...(tab.kind !== undefined ? { kind: tab.kind } : {}),
         preview: tab.preview === true,
         pinned: tab.pinned === true,
-        dirty: dirty.has(canonicalFsPath(tab.path)),
+        // A web tab is never dirty (its path is a URL, not a file path to canonicalize).
+        dirty: tab.kind !== "web" && dirty.has(canonicalFsPath(tab.path)),
       }));
     },
     [],
@@ -184,7 +201,10 @@ export function TabStrip(props: {
                   }}
                   onContextMenu={(event) => openMenu(event, view)}
                 >
-                  <span class="editor-tab-label">{basename(view.path)}</span>
+                  <Show when={view.kind === "web"}>
+                    <Globe size={13} class="editor-tab-icon" />
+                  </Show>
+                  <span class="editor-tab-label">{tabLabel(view)}</span>
                   <Show when={view.dirty}>
                     <span class="editor-tab-dirty" aria-label="Unsaved changes">
                       *

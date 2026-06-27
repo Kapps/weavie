@@ -102,6 +102,8 @@ export interface EditorController {
   start(container: HTMLElement): void;
   /** Opens a file (preview tab when `preview`), replaying once the editor chunk has loaded (last wins). */
   openFile(path: string, line: number, preview?: boolean): void;
+  /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
+  openWebTab(url: string): void;
   /** Handles an editor-related host message; returns false for messages this controller doesn't own. */
   handleMessage(message: WebBoundMessage): boolean;
   /** Focuses the editor (for focus-pane). */
@@ -160,6 +162,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Translate "active tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
   const applyActive = (result: ActivateResult): void => {
     deps.onCurrentFileChanged(result.path);
+    // A web (iframe) tab has no Monaco model: leave the editor host untouched (App overlays the iframe over it)
+    // and never read the URL as a file.
+    if (openTabs().find((tab) => tab.path === result.path)?.kind === "web") {
+      return;
+    }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
     // review model; re-showing the working copy would drop the diff. resolveReview → endReview restores it.
     if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
@@ -194,6 +201,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     applyActive(openTab(path, { line, preview, scratch }));
+  };
+
+  // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
+  // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
+  const openWebTab = (url: string): void => {
+    applyActive(openTab(url, { kind: "web" }));
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
@@ -249,6 +262,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const scratchPaths = new Set(
       doomed.filter((entry) => entry.scratch === true).map((entry) => entry.path),
     );
+    // Web tabs have no working copy to release.
+    const webPaths = new Set(
+      doomed.filter((entry) => entry.kind === "web").map((entry) => entry.path),
+    );
     const wasActive = activePath();
     const result = closeMany(predicate);
     if (result.disposed.length === 0) {
@@ -258,7 +275,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       applyOrClear(result.next);
     }
     for (const path of result.disposed) {
-      releaseClosed(path, scratchPaths.has(path));
+      if (!webPaths.has(path)) {
+        releaseClosed(path, scratchPaths.has(path));
+      }
     }
   };
 
@@ -278,7 +297,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (entry.path === wasActive) {
       applyOrClear(result.next);
     }
-    releaseClosed(result.disposed, scratch);
+    // A web tab has no working copy / Monaco model to release.
+    if (entry.kind !== "web") {
+      releaseClosed(result.disposed, scratch);
+    }
   };
 
   // Step through tabs in visual order, wrapping. Returns false (so the keybinding falls through to the editor)
@@ -817,6 +839,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   return {
     start,
     openFile,
+    openWebTab,
     handleMessage,
     focusEditor: () => host?.editor.focus(),
     newFile,

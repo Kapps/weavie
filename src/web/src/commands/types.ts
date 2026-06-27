@@ -81,6 +81,8 @@ export const CommandIds = {
   newFile: "weavie.editor.newFile",
   saveFile: "weavie.editor.save",
   toggleEditorPreview: "weavie.editor.togglePreview",
+  openFolder: "weavie.workspace.openFolder",
+  openUrl: "weavie.workspace.openUrl",
   newSessionPrompt: "weavie.session.newPrompt",
   nextSession: "weavie.session.next",
   prevSession: "weavie.session.prev",

@@ -41,15 +41,18 @@ export function editorOwner(): string | null {
 // Tell the host the live open-tab set so Claude's getOpenEditors reports it (and close_tab can target it).
 function emitOpenEditors(session: EditorSession): void {
   lastStructure = structureKey(session);
+  // Web tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a URL as a file.
   postToHost({
     type: "open-editors-changed",
     sessionId: currentOwner,
-    editors: session.open.map((entry) => ({
-      path: entry.path,
-      isActive: entry.path === session.active,
-      isPinned: entry.pinned === true,
-      isPreview: entry.preview === true,
-    })),
+    editors: session.open
+      .filter((entry) => entry.kind !== "web")
+      .map((entry) => ({
+        path: entry.path,
+        isActive: entry.path === session.active,
+        isPinned: entry.pinned === true,
+        isPreview: entry.preview === true,
+      })),
   });
 }
 
@@ -106,17 +109,22 @@ let postTimer: ReturnType<typeof setTimeout> | undefined;
 // Send a session to the host as editor-session-changed. Never sends file content — disk is the source of
 // truth. Flags are omitted when false so old files round-trip.
 function sendEditorSession(s: EditorSession, owner: string | null): void {
-  const open = s.open.map((entry) => ({
+  // Web (iframe) tabs are a web-only surface — never persisted host-side (the host would treat the URL as a file
+  // path). They're dropped here, so a web tab doesn't survive a reload / session switch (acceptable for v1).
+  const files = s.open.filter((entry) => entry.kind !== "web");
+  const open = files.map((entry) => ({
     path: entry.path,
     viewState: entry.viewState ?? null,
     ...(entry.preview ? { preview: true } : {}),
     ...(entry.pinned ? { pinned: true } : {}),
     ...(entry.scratch ? { scratch: true } : {}),
   }));
+  const active =
+    s.active !== null && files.some((entry) => entry.path === s.active) ? s.active : null;
   postToHost({
     type: "editor-session-changed",
     sessionId: owner,
-    session: { active: s.active, open },
+    session: { active, open },
   });
 }
 
@@ -160,7 +168,7 @@ export function flushEditorSession(): void {
 /// open promotes a preview tab. Returns the file to show + placement — `line` (> 1) wins, else saved view state.
 export function openTab(
   path: string,
-  opts: { line?: number; preview?: boolean; scratch?: boolean } = {},
+  opts: { line?: number; preview?: boolean; scratch?: boolean; kind?: "web" } = {},
 ): ActivateResult {
   const current = session() ?? { active: null, open: [] };
   const line = opts.line ?? 1;
@@ -192,7 +200,12 @@ export function openTab(
   } else {
     open = normalize([
       ...current.open,
-      { path, viewState: null, ...(scratch ? { scratch: true } : {}) },
+      {
+        path,
+        viewState: null,
+        ...(scratch ? { scratch: true } : {}),
+        ...(opts.kind ? { kind: opts.kind } : {}),
+      },
     ]);
   }
   commit({ active: path, open });

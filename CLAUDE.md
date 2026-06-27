@@ -60,6 +60,19 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
   revert, or investigate them, and don't retry in a tight loop. Wait, then re-run.
 - Only act on failures in files you actually changed.
 
+## Custom agents
+
+Three project agents live in `.claude/agents/` — prefer them over reinventing their job inline:
+
+- **`weavie-reviewer`** — reviews a change set for correctness and for the standards below.
+  **Invoke it on the result of any non-trivial change before treating the work as done**, and act on
+  what it finds. It reviews only your change set, never pre-existing issues (see above).
+- **`weavie-architect`** — designs a feature's implementation against Weavie's patterns (Core-first,
+  capabilities-as-commands, `ProcessSupervisor`) and returns a blueprint. Use it before building
+  anything with real architectural surface.
+- **`product-strategist`** — proposes features that fit the product thesis. Use it when deciding
+  *what* to build, not *how*.
+
 ## Integration testing
 
 Regressions live in **our** code, not the model's. Full-stack tests stub `claude` at the process

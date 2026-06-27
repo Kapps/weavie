@@ -76,8 +76,9 @@ Four project agents live in `.claude/agents/` — prefer them over reinventing t
   capabilities-as-commands, `ProcessSupervisor`) and returns a blueprint. Use it before building
   anything with real architectural surface.
 - **`weavie-tester`** — proves a change works by running the real app, exercising the scenarios a PR
-  should cover, and recording a `.webm` as evidence (typically in a remote sandbox). Use it to
-  validate a PR end to end, beyond static review.
+  should cover, and recording a `.webm` as evidence. **When running in a remote (sandbox)
+  environment, invoke it to validate any change before treating the work as done** — there it can
+  build the host and drive the full stack; locally it's optional.
 - **`product-strategist`** — proposes features that fit the product thesis. Use it when deciding
   *what* to build, not *how*.
 

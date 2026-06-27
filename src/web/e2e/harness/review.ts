@@ -17,7 +17,3 @@ export function appliedEdit(relPath: string, content: string): FakeStep[] {
   });
   return [hook("PreToolUse"), { op: "edit", path: file, content }, hook("PostToolUse")];
 }
-
-// Let the page connect before the edits fire, so their turn-changes/turn-diff pushes reach it (the host pushes
-// the review set live as changes land, not on reconnect). Mirrors the sleep diff.spec.ts uses before openDiff.
-export const settle: FakeStep = { op: "sleep", ms: 2000 };

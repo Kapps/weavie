@@ -7,10 +7,14 @@ import { defineConfig, devices } from "@playwright/test";
 // Transport is a harness parameter, not a duplicated suite: the full functional suite runs on `headless`,
 // and only @cross / @remote tests also run on `remote`. See docs/specs/integration-testing-strategy.md.
 // `pnpm run e2e` builds dist first; the headless/remote projects also need the C# host built.
+// Every test is fully self-isolated — its own mkdtemp HOME, its own throwaway git workspace, and an
+// OS-assigned port — so they run in parallel with no shared state. The per-test cost is dominated by the
+// dotnet host (+ fake-claude pane) spawn; concurrency across cores is the only lever on that, so workers
+// scale with the machine (a fraction of cores, leaving headroom for each test's 2-3 child dotnet processes).
 export default defineConfig({
   testDir: "./e2e",
-  fullyParallel: false,
-  workers: 1,
+  fullyParallel: true,
+  workers: "75%",
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: "list",

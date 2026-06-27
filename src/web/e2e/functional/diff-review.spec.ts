@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { appliedEdit, settle } from "../harness/review";
+import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
 // keyboard-fall-through regressions. Distinct from diff.spec.ts, which exercises the openDiff PROPOSAL seam.
@@ -37,7 +37,7 @@ async function focusFirstHunk(page: import("@playwright/test").Page): Promise<vo
 }
 
 test.describe("applied review — keep & undo", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   test("keeping a hunk drops only it from the diff; undo brings it back", async ({ page }) => {
     await openFile(page, "hello.ts");
@@ -55,7 +55,7 @@ test.describe("applied review — keep & undo", () => {
 });
 
 test.describe("applied review — accepted band fades (kept, not vanished) + inline undo", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   test("keeping a hunk fades it with an inline ↶ undo that re-pends it", async ({ page }) => {
     await openFile(page, "hello.ts");
@@ -90,7 +90,7 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
 });
 
 test.describe("applied review — revert & undo-revert (disk)", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   test("reverting a hunk rewrites disk; undo-revert restores it", async ({ page, weavie }) => {
     await openFile(page, "hello.ts");
@@ -114,7 +114,7 @@ test.describe("applied review — revert & undo-revert (disk)", () => {
 });
 
 test.describe("applied review — Shift+Enter never types into the file (regression)", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   // The bug: with nothing kept, undoKeep declined and the chord fell through to Monaco, which inserted a
   // newline INTO the file under review — corrupting it and mismatching the next keep/revert's guard.
@@ -139,7 +139,7 @@ test.describe("applied review — Shift+Enter never types into the file (regress
 });
 
 test.describe("applied review — scope picker (keep whole file)", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   test("with scope = File, one Keep fades every hunk in the file (kept, not gone)", async ({
     page,
@@ -161,7 +161,7 @@ test.describe("applied review — scope picker (keep whole file)", () => {
 });
 
 test.describe("parked navigator — surfaces without moving the editor", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   test("a pending review parks over an unrelated file; a nav key steps in", async ({ page }) => {
     // Open an UNCHANGED file: the review is non-empty, so the toolbar parks over it (editor untouched).
@@ -179,7 +179,7 @@ test.describe("parked navigator — surfaces without moving the editor", () => {
 });
 
 test.describe("applied review — keep-all commits the set", () => {
-  test.use({ fakeScript: { steps: [settle, ...appliedEdit("hello.ts", TWO_HUNKS)] } });
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
   test("keep-all clears the review surface", async ({ page }) => {
     await openFile(page, "hello.ts");
@@ -197,7 +197,6 @@ test.describe("multi-file review walk", () => {
   test.use({
     fakeScript: {
       steps: [
-        settle,
         ...appliedEdit("hello.ts", TWO_HUNKS),
         ...appliedEdit("notes.txt", "just plain text\nand a second changed line\n"),
       ],

@@ -222,6 +222,12 @@ public sealed partial class HostCore {
 				Ready?.Invoke();
 				Log($"[weavie] {json}");
 				break;
+			case "monaco-ready":
+				// The editor pane can now render inline decorations. Replay the review set here (not on `ready`,
+				// which fires before the editor exists) so changes that landed before this connect — a reload, or a
+				// fast claude turn that beat the editor's init — surface deterministically, with no settle sleep.
+				PushReviewStateToWeb();
+				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
 				break;
@@ -460,6 +466,25 @@ public sealed partial class HostCore {
 
 		_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
 		PushReviewHistoryToWeb(); // the incoming session's undo history persists — reflect it on the toolbar
+	}
+
+	/// <summary>
+	/// Replays the active session's full review set to a just-connected page: the changed-file list (navigator),
+	/// each file's inline diff, and the undo/redo history. The live turn pushes only reach an already-connected
+	/// client, so without this a page that connects after the changes landed — a reload, or a slow first connect —
+	/// shows no review surface until a session switch. A no-op when nothing is pending.
+	/// </summary>
+	private void PushReviewStateToWeb() {
+		if (_session is not { } session) {
+			return;
+		}
+
+		PushTurnChangesToWeb();
+		foreach (var change in session.Changes.TurnChanges()) {
+			PushTurnDiffToWeb(change.Path);
+		}
+
+		PushReviewHistoryToWeb();
 	}
 
 	/// <summary>Pushes a live-refresh of one edited file via an <c>fs-change</c> (VSCode reloads the non-dirty model from disk).</summary>

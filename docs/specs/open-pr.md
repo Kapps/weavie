@@ -232,7 +232,8 @@ The tractable, fully-testable core; reuses the existing attach-existing-branch m
 2. Attach a session on it via the existing `AttachExistingSessionAsync(headRef)` — which already de-dupes to an
    existing session, handles the primary-checkout case, provisions the worktree, and switches.
 3. Record the PR on the slot (`SessionSlot.Pr`, see below) and seed Claude's first prompt with the PR
-   title + URL + body for context.
+   title + URL + body for context. The prompt frames the session as **review-only** — Claude reviews the
+   changes and does not edit the branch unless the user explicitly asks for a change.
 4. Open the PR's URL through the resolver — matching the registered **GitHub source** — and **pin it as the
    session's main tab**, so the session lands on the PR overview. (Resolving a URL also means a pasted PR link
    does the same thing.)

@@ -3,6 +3,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
+using Weavie.Core.Review;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 
@@ -45,6 +46,15 @@ public sealed record HostServices {
 	public required RailStateStore RailState { get; init; }
 
 	/// <summary>
+	/// Lists open pull requests for the Open-PR flow. The default talks to GitHub; the headless harness swaps a
+	/// <see cref="StaticPullRequestProvider"/> so a PR journey is deterministic and offline.
+	/// </summary>
+	public required IPullRequestProvider PullRequests { get; init; }
+
+	/// <summary>Loads/posts a PR's review comments (same GitHub client as <see cref="PullRequests"/>, or the harness stub).</summary>
+	public required IReviewCommentStore ReviewComments { get; init; }
+
+	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
 	/// </summary>
@@ -62,6 +72,7 @@ public sealed record HostServices {
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
 		railState.Log += Log;
+		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -70,6 +81,8 @@ public sealed record HostServices {
 			ClaudeSessions = claudeSessions,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
+			PullRequests = github,
+			ReviewComments = github,
 		};
 	}
 

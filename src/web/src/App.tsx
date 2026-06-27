@@ -26,6 +26,7 @@ import {
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
+import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -155,6 +156,7 @@ export default function App(): JSX.Element {
 
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
+  const [openPrOpen, setOpenPrOpen] = createSignal(false);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<{
@@ -544,6 +546,10 @@ export default function App(): JSX.Element {
         // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an
         // auto-jump. (weavie.review.open / palette still jumps on demand.)
         editor.setReviewFiles(message.files);
+      } else if (message.type === "pr-changes") {
+        // A PR session armed (or switched to): feed its changed files into the same ← / → walk + parked
+        // navigator, in read-only PR mode, so the diff navigator surfaces over the editor.
+        editor.setPrReview(message.number, message.files);
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
         // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
@@ -647,6 +653,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.openUrl, () => setUrlPromptOpen(true)),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
+      // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
+      registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
       // still cycles tabs): cycle the rail, wrapping. stepSession returns false with <2 sessions so the chord
       // falls through.
@@ -825,6 +833,26 @@ export default function App(): JSX.Element {
               removeAgent(name);
             }
           }}
+        />
+      </Show>
+      <Show when={openPrOpen()}>
+        <OpenPrPrompt
+          backendId={defaultLocation()}
+          onOpen={(target, location) => {
+            setOpenPrOpen(false);
+            setLastLocation(location);
+            // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
+            // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
+            promoteNextSessionOn(location);
+            setActiveBackendId(location);
+            postToBackend(location, {
+              type: "open-pr",
+              number: target.number,
+              owner: target.owner,
+              repo: target.repo,
+            });
+          }}
+          onCancel={() => setOpenPrOpen(false)}
         />
       </Show>
       <Show when={registerAgentOpen()}>

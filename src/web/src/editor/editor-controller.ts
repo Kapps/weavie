@@ -114,6 +114,8 @@ export interface EditorController {
   save(): boolean;
   /** Update the post-turn review set driving the inline toolbar's ← / → file walk; empty when nothing to review. */
   setReviewFiles(files: ReviewFile[]): void;
+  /** Arm a PR's base→head diff review (number + changed files) on the same navigator, in read-only "pr" mode. */
+  setPrReview(number: number, files: ReviewFile[]): void;
   /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
   openFirstReviewFile(): boolean;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
@@ -144,6 +146,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
+  // Which review the file walk shows: "turn" (Claude's edits — keep/revert) or "pr" (a PR's base→head diff —
+  // read + comment). Selects which per-file diff message openReviewFile requests and which inline-diff mode renders.
+  let reviewKind: "turn" | "pr" = "turn";
+  let prNumber = 0;
   // The openDiff under inline review (at most one live, since openDiff blocks). `reviewUri` keys the transient
   // review model the inline diff is rendered over.
   let activeReview:
@@ -490,7 +496,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // so applied markers render even if the push was missed.
   const openReviewFile = (file: ReviewFile): void => {
     openFile(file.path, file.line, true);
-    postToHost({ type: "get-turn-diff", path: file.path });
+    if (reviewKind === "pr") {
+      postToHost({ type: "get-pr-diff", number: prNumber, path: file.path });
+    } else {
+      postToHost({ type: "get-turn-diff", path: file.path });
+    }
   };
 
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
@@ -761,6 +771,55 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         commentProse?.refresh();
         return true;
       }
+      case "pr-diff": {
+        // A PR file's base→head diff: baseline (the file at the merge-base) → current (the worktree file).
+        // Rendered in the inline-diff's read-only "pr" mode — the same navigator, walked with ← / → and ↑ / ↓,
+        // but no keep/revert (the PR is already committed). Comments arrive in a later phase.
+        const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
+        const fileNav =
+          reviewFiles.length > 1 && idx !== -1
+            ? {
+                onPrevFile: (): void => {
+                  stepReviewFile(-1);
+                },
+                onNextFile: (): void => {
+                  stepReviewFile(1);
+                },
+                fileIndex: idx + 1,
+                fileCount: reviewFiles.length,
+              }
+            : {};
+        inlineDiff?.set(message.path, {
+          original: message.baseline,
+          claudeVersion: message.current,
+          mode: "pr",
+          fileLabel: message.name,
+          ...fileNav,
+          comments: message.comments,
+          onAddComment: (line, body) =>
+            postToHost({
+              type: "add-pr-comment",
+              number: message.number,
+              path: message.path,
+              line,
+              side: "right",
+              inReplyTo: 0,
+              body,
+            }),
+          onReply: (inReplyTo, body) =>
+            postToHost({
+              type: "add-pr-comment",
+              number: message.number,
+              path: message.path,
+              line: 0,
+              side: "right",
+              inReplyTo,
+              body,
+            }),
+        });
+        commentProse?.refresh();
+        return true;
+      }
       case "turn-reset":
         // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers so a
         // fresh set starts clean (kept/reviewed state lives in Core now). reviewFiles too — else a switch
@@ -845,8 +904,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     newFile,
     save,
     setReviewFiles: (files) => {
+      reviewKind = "turn";
       reviewFiles = files;
       updateParkedReview();
+    },
+    setPrReview: (number, files) => {
+      reviewKind = "pr";
+      prNumber = number;
+      reviewFiles = files;
+      updateParkedReview();
+      // Opening a PR is an explicit request to review it, so surface the diff immediately: open the first changed
+      // file on its diff (which also mounts the editor so the navigator can render). The ← / → walk takes it from
+      // there. (Unlike post-turn review, which never auto-moves the editor.)
+      const first = files[0];
+      if (first !== undefined) {
+        openReviewFile(first);
+      }
     },
     openFirstReviewFile: () => {
       const first = reviewFiles[0];

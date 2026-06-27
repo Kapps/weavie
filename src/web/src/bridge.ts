@@ -116,6 +116,28 @@ export type HostBoundMessage =
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
   | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
   | { type: "list-branches"; id: string }
+  // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
+  // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
+  // context. See docs/specs/open-pr.md.
+  // Browse the repo's PRs: empty `query` → the recent-open default list; a typed query → forge-side search.
+  | { type: "list-prs"; id: string; query: string }
+  // Open a PR by number (the host resolves its branch refs). `owner`/`repo` are set only for a pasted URL, so
+  // the host can refuse one that isn't this workspace's repository.
+  | { type: "open-pr"; number: number; owner: string; repo: string }
+  // Preview a typed #N / pasted URL: resolve it to a PR (answered by pr-resolved tagged with `id`).
+  | { type: "resolve-pr"; id: string; number: number; owner: string; repo: string }
+  // Ask the host for one PR file's base→head diff (answered by pr-diff).
+  | { type: "get-pr-diff"; number: number; path: string }
+  // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
+  | {
+      type: "add-pr-comment";
+      number: number;
+      path: string;
+      line: number;
+      side: "left" | "right";
+      inReplyTo: number;
+      body: string;
+    }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -394,6 +416,27 @@ export type WebBoundMessage =
   // Host answers list-branches with the local branches available to check out, tagged by the request `id`.
   // Routed cross-backend (isSessionMessage) so the New Session dialog can query a non-active backend.
   | { type: "branches-result"; id: string; branches: string[] }
+  // Host answers list-prs with the repo's open pull requests, tagged by the request `id` (cross-backend, like
+  // branches-result).
+  | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
+  // Host answers resolve-pr with the single PR (or null when it doesn't exist / is a foreign repo), tagged by `id`.
+  | { type: "pr-resolved"; id: string; pr: PullRequestInfo | null }
+  // PR review (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
+  // pr-diff is one file's base→head pair (baseline→current) rendered in the inline-diff "pr" mode.
+  | {
+      type: "pr-changes";
+      number: number;
+      files: { path: string; name: string; added: number; removed: number; line: number }[];
+    }
+  | {
+      type: "pr-diff";
+      number: number;
+      path: string;
+      name: string;
+      baseline: string;
+      current: string;
+      comments: ReviewCommentInfo[];
+    }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
   // Host pushes the persisted remote-agent registry (on `ready` + any add/remove); the web reconciles its
@@ -471,6 +514,8 @@ function isSessionMessage(type: string): boolean {
     type === "session-list" ||
     type === "session-status" ||
     type === "branches-result" ||
+    type === "prs-result" ||
+    type === "pr-resolved" ||
     type === "remote-agents" ||
     type === "rail-state"
   );
@@ -848,6 +893,87 @@ export function requestBranches(backendId: string): Promise<string[]> {
       resolve(branches);
     });
     postToBackend(backendId, { type: "list-branches", id });
+  });
+}
+
+/** One open pull request, as the Open-PR picker renders it. Mirrors the host's prs-result entries. */
+export interface PullRequestInfo {
+  number: number;
+  title: string;
+  author: string;
+  // The head branch — present in the default list (for display); empty for search results (refs resolve on open).
+  headRef: string;
+  url: string;
+  draft: boolean;
+}
+
+/** One PR review comment anchored to a diff line, as the inline-diff renders it. Mirrors the host's pr-diff entries. */
+export interface ReviewCommentInfo {
+  id: number;
+  line: number;
+  side: "left" | "right";
+  author: string;
+  body: string;
+  createdAt: string;
+  inReplyTo: number;
+}
+
+// Open-PR picker: ask a chosen backend for its repo's open PRs. prs-result routes cross-backend, so correlate
+// replies by id and resolve empty on timeout rather than hanging (the branches-typeahead pattern).
+let prSeq = 0;
+const pendingPrRequests = new Map<string, (prs: PullRequestInfo[]) => void>();
+const pendingResolveRequests = new Map<string, (pr: PullRequestInfo | null) => void>();
+onSessionMessage((message) => {
+  if (message.type === "prs-result") {
+    pendingPrRequests.get(message.id)?.(message.prs);
+  } else if (message.type === "pr-resolved") {
+    pendingResolveRequests.get(message.id)?.(message.pr);
+  }
+});
+
+/** Resolve a typed #N / pasted URL to its PR for preview (null when it doesn't exist; null on timeout). */
+export function resolvePullRequest(
+  backendId: string,
+  target: { number: number; owner: string; repo: string },
+): Promise<PullRequestInfo | null> {
+  const id = `rs${++prSeq}`;
+  return new Promise<PullRequestInfo | null>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingResolveRequests.delete(id);
+      resolve(null);
+    }, BRANCHES_TIMEOUT_MS);
+    pendingResolveRequests.set(id, (pr) => {
+      clearTimeout(timer);
+      pendingResolveRequests.delete(id);
+      resolve(pr);
+    });
+    postToBackend(backendId, {
+      type: "resolve-pr",
+      id,
+      number: target.number,
+      owner: target.owner,
+      repo: target.repo,
+    });
+  });
+}
+
+/**
+ * Ask `backendId` for its repo's pull requests: an empty `query` returns the recent-open default list; a
+ * non-empty query runs forge-side search (so the picker scales past the default). Empty on timeout.
+ */
+export function requestPullRequests(backendId: string, query: string): Promise<PullRequestInfo[]> {
+  const id = `pr${++prSeq}`;
+  return new Promise<PullRequestInfo[]>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingPrRequests.delete(id);
+      resolve([]);
+    }, BRANCHES_TIMEOUT_MS);
+    pendingPrRequests.set(id, (prs) => {
+      clearTimeout(timer);
+      pendingPrRequests.delete(id);
+      resolve(prs);
+    });
+    postToBackend(backendId, { type: "list-prs", id, query });
   });
 }
 

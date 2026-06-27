@@ -32,6 +32,110 @@ export async function createGitWorkspace(): Promise<string> {
   return dir;
 }
 
+// One canned PR for the Open-PR harness, matching a branch in the PR workspace below. Mirrors the
+// WEAVIE_FAKE_PRS JSON the headless host reads (FakePullRequests.FromFile).
+export interface PrSeed {
+  number: number;
+  title: string;
+  author: string;
+  headRef: string;
+  baseRef: string;
+  url: string;
+  draft: boolean;
+}
+
+// A git workspace wired for the Open-PR flow: a local bare repo stands in for `origin` (reached via an
+// insteadOf rewrite of a github.com URL, so `git remote get-url` still parses to owner/repo while every fetch
+// stays offline), a base branch (main) and a head branch with a real multi-file diff. The head branch is
+// pushed then deleted locally, so opening the PR exercises the real fetch-into-a-local-branch path. Returns the
+// working tree plus the canned PR that points at the head branch.
+// One canned review comment for the Open-PR harness, anchored to a line of the head-branch diff.
+export interface CommentSeed {
+  id: number;
+  path: string;
+  line: number;
+  side: "left" | "right";
+  author: string;
+  body: string;
+  createdAt: string;
+  inReplyTo: number;
+}
+
+export async function createPrWorkspace(): Promise<{
+  dir: string;
+  prs: PrSeed[];
+  comments: CommentSeed[];
+}> {
+  // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
+  // be misparsed as a key separator.
+  const bare = await mkdtemp(join(tmpdir(), "weavie-e2e-origin"));
+  const dir = await mkdtemp(join(tmpdir(), "weavie-e2e-ws-"));
+  const originUrl = "https://github.com/acme/demo.git";
+  const headRef = "pr-branch";
+  const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });
+
+  g(bare, "init", "-q", "--bare");
+  for (const [name, content] of Object.entries(SEED)) {
+    await writeFile(join(dir, name), content);
+  }
+  g(dir, "init", "-q", "-b", "main");
+  g(dir, "config", "user.email", "e2e@example.com");
+  g(dir, "config", "user.name", "Weavie E2E");
+  // origin's stored URL is a github.com one (so RepoRef parses owner/repo), rewritten to the local bare repo for
+  // every transport — no network, fully deterministic.
+  g(dir, "remote", "add", "origin", originUrl);
+  g(dir, "config", `url.${bare}.insteadOf`, originUrl);
+  g(dir, "add", "-A");
+  g(dir, "commit", "-q", "-m", "seed");
+  g(dir, "push", "-q", "-u", "origin", "main");
+
+  // The PR's head branch: a modified file (a two-hunk diff) plus a new file — a multi-file changeset to walk.
+  g(dir, "checkout", "-q", "-b", headRef);
+  await writeFile(
+    join(dir, "hello.ts"),
+    "export function greet(name: string): string {\n" +
+      "  return `Hi there, ${name}!`;\n" +
+      "}\n\n" +
+      'const message = greet("pull request");\n' +
+      "console.log(message);\n",
+  );
+  await writeFile(join(dir, "feature.ts"), "export const feature = true;\n");
+  g(dir, "add", "-A");
+  g(dir, "commit", "-q", "-m", "pr changes");
+  g(dir, "push", "-q", "origin", headRef);
+  // Back on base, head branch gone locally — opening the PR must fetch it fresh (the real path).
+  g(dir, "checkout", "-q", "main");
+  g(dir, "branch", "-q", "-D", headRef);
+
+  return {
+    dir,
+    prs: [
+      {
+        number: 101,
+        title: "Add a feature and tweak the greeting",
+        author: "alice",
+        headRef,
+        baseRef: "main",
+        url: "https://github.com/acme/demo/pull/101",
+        draft: false,
+      },
+    ],
+    // A review comment on the changed greeting line of hello.ts (right/head side).
+    comments: [
+      {
+        id: 1,
+        path: "hello.ts",
+        line: 2,
+        side: "right",
+        author: "bob",
+        body: "Why change this greeting?",
+        createdAt: "2026-01-01T00:00:00Z",
+        inReplyTo: 0,
+      },
+    ],
+  };
+}
+
 export async function removeWorkspace(dir: string): Promise<void> {
   // The host tree is already dead (killProcessTree awaited its exit), but Windows releases a dead process's file
   // handles asynchronously, so an immediate rm can still race them with EBUSY. A short bounded wait covers that OS

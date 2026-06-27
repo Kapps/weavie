@@ -31,6 +31,24 @@ public sealed class GitServiceTests {
 		Assert.Empty(GitService.ParsePorcelainList(string.Empty));
 
 	[Fact]
+	public void ParseNumstat_ParsesCountsAndPaths_BinaryAsZero() {
+		string sample = "12\t3\tsrc/a.ts\n0\t7\tdocs/b.md\n-\t-\timg/logo.png\n";
+
+		var list = GitService.ParseNumstat(sample);
+
+		Assert.Equal(3, list.Count);
+		Assert.Equal("src/a.ts", list[0].Path);
+		Assert.Equal(12, list[0].Added);
+		Assert.Equal(3, list[0].Removed);
+		Assert.Equal(0, list[1].Added);
+		Assert.Equal(7, list[1].Removed);
+		// Binary files report "-" for both counts → 0/0.
+		Assert.Equal("img/logo.png", list[2].Path);
+		Assert.Equal(0, list[2].Added);
+		Assert.Equal(0, list[2].Removed);
+	}
+
+	[Fact]
 	public void ParsePorcelain_HandlesLockedAndPrunable() {
 		string sample = "worktree /repo/wt\nHEAD dddd\nbranch refs/heads/x\nlocked\nprunable gone\n";
 

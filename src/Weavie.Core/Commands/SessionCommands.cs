@@ -16,6 +16,9 @@ public static class SessionCommands {
 	/// <summary>Opens the interactive new-session prompt (branch name + base) in the UI; <c>$mod+Shift+n</c>.</summary>
 	public const string NewSessionPrompt = "weavie.session.newPrompt";
 
+	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
+	public const string OpenPr = "weavie.pr.open";
+
 	/// <summary>Forks the current session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
 	public const string ForkSession = "weavie.session.fork";
 
@@ -79,6 +82,17 @@ public static class SessionCommands {
 			Description = "Open the new-session prompt: name a branch, then branch off the current session's HEAD "
 				+ "(Enter) or main (Shift+Enter). The interactive counterpart of weavie.session.new.",
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+n" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenPr,
+			Title = "Open Pull Request…",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Open one of the repository's open pull requests as a session checked out on its head "
+				+ "branch, seeding Claude with the PR's context.",
+			Aliases = ["open pr", "open pull request", "review pr", "check out pr", "open github pr", "pull request"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+r" }],
 		});
 
 		registry.Register(new CommandDefinition {

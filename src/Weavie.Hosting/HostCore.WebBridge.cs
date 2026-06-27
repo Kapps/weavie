@@ -77,6 +77,44 @@ public sealed partial class HostCore {
 				break;
 			}
 
+			case "list-prs": {
+				_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("query"));
+				break;
+			}
+
+			case "open-pr": {
+				_ = OpenPullRequestFromWebAsync(
+					JsonInt(root, "number"),
+					root.GetStringOrEmpty("owner"),
+					root.GetStringOrEmpty("repo"));
+				break;
+			}
+
+			case "resolve-pr": {
+				_ = GetPullRequestForWebAsync(
+					root.GetStringOrEmpty("id"),
+					JsonInt(root, "number"),
+					root.GetStringOrEmpty("owner"),
+					root.GetStringOrEmpty("repo"));
+				break;
+			}
+
+			case "get-pr-diff": {
+				_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
+				break;
+			}
+
+			case "add-pr-comment": {
+				_ = AddPrCommentFromWebAsync(
+					JsonInt(root, "number"),
+					root.GetStringOrEmpty("path"),
+					JsonInt(root, "line"),
+					root.GetStringOrEmpty("side"),
+					root.TryGetProperty("inReplyTo", out var irt) && irt.ValueKind == JsonValueKind.Number ? irt.GetInt64() : 0,
+					root.GetStringOrEmpty("body"));
+				break;
+			}
+
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				// Route by owning session (diff ids are process-unique): a switch mid-resolve must not hit another session's diff.

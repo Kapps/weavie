@@ -8,6 +8,8 @@ import { launchRemote, runnerBuilt } from "./weavie-runner";
 // because Playwright mangles a bare top-level array option value into [value, config].
 type WeavieOptions = {
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
+  // Set via test.use to boot the Open-PR scenario: a base+head git workspace and a stubbed PR provider.
+  prScenario: boolean;
 };
 
 type WeavieFixtures = {
@@ -21,8 +23,9 @@ type WeavieFixtures = {
 // destructures the handle. Tests that need the host (workspace path, log) just add `weavie` to their args.
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
+  prScenario: [false, { option: true }],
   weavie: [
-    async ({ page, fakeScript }, use, testInfo) => {
+    async ({ page, fakeScript, prScenario }, use, testInfo) => {
       const remote = testInfo.project.name === "remote";
       // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
       // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.
@@ -38,6 +41,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
 
       const host = await (remote ? launchRemote : launchHeadless)({
         fakeScript: fakeScript?.steps ?? null,
+        pr: prScenario,
       });
       await page.goto(host.url, { waitUntil: "domcontentloaded" });
       // The app removes the splash element once it has booted (layout + first session). Its disappearance

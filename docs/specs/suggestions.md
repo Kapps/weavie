@@ -25,8 +25,9 @@ interactive session* (subscription-billed), never `claude -p`/SDK.
 - **Goal**: per-workspace dismissal — "don't ask again" silences it here, not on the next repo.
 - **Non-goal**: a notification *log* or history. A suggestion is live state; when it stops being
   relevant (or is dismissed) it disappears. Toasts (`notify`) remain the channel for transient events.
-- **Non-goal**: re-implementing prompt seeding. We reuse `SeedFirstPrompt` as-is; hardening it
-  (readiness detection, pre-fill-without-submit) is tracked separately under *Open questions*.
+- **Non-goal**: a bespoke prompt-injection mechanism. We seed the same way `SeedFirstPrompt` does
+  (write into the session's Claude input) but **pre-fill without submitting** rather than auto-Entering —
+  see *Seeding safety*. A general readiness/idle signal is tracked under *Open questions*.
 
 ## Model
 
@@ -83,7 +84,10 @@ flowchart LR
 - **`SuggestionService`** — owns evaluation and dismissal state. `Evaluate()` builds the context, drops
   ids that are snoozed (in-memory set) or dismissed-forever (persisted store), runs each `IsRelevant`,
   and pushes the surviving set. It re-evaluates on the trigger points and exposes `Snooze(id)` /
-  `DismissForever(id)`.
+  `DismissForever(id)`. It also owns the **bounded, memoized manifest probe**: kicked off asynchronously
+  on workspace open (off the hot path, with a fail-open timeout — see below), cached per workspace and
+  invalidated on switch, and it re-evaluates + pushes once the probe resolves. Re-evaluation on a
+  frequent trigger reads the cached signal rather than re-walking the disk.
 - **Triggers** — workspace open, after a session/worktree is created, and on `SettingChanged` for keys
   a suggestion depends on (so setting `worktree.setupCommand` makes the card vanish immediately).
 
@@ -134,15 +138,36 @@ meaningful keybinding and exist only in the context of a shown card.
 Registered in `CoreSuggestions`:
 
 - **Id** `worktree.setupCommand`.
-- **IsRelevant**: `worktree.setupCommand` resolves to empty **and** the repo has a recognizable
-  dependency/build manifest at its root (`package.json`, `pnpm-lock.yaml`, `Cargo.toml`, `go.mod`,
-  `pyproject.toml`, `Makefile`, …). The manifest check keeps us from nagging on repos with nothing to
-  install. (Dismissal filtering is handled by the service, not the predicate.)
+- **IsRelevant**: `worktree.setupCommand` resolves to empty (read via `SettingsStore.GetString` and
+  tested with `string.IsNullOrWhiteSpace` — there's no dedicated emptiness helper) **and** the repo has
+  a recognizable dependency/build manifest. The manifest scan is **shallow, not root-only**: it checks
+  the workspace root and up to two levels of subdirectories, skipping vendored/output dirs (`.git`,
+  `node_modules`, `bin`, `obj`, `target`, `dist`). Root-only would miss exactly the repos that most need
+  a setup command — Weavie's own checkout keeps `package.json`/`pnpm-lock.yaml` under `src/web/` with
+  `weavie.slnx` + `.csproj` files at the root, and monorepos keep manifests in package subdirs.
+  Recognized manifests: `package.json`, `pnpm-lock.yaml`, `Cargo.toml`, `go.mod`, `pyproject.toml`,
+  `Makefile`, and `*.slnx`/`*.sln`/`*.csproj` (.NET — `dotnet restore`/`build` is the canonical setup,
+  and was the notable omission). The scan keeps us from nagging on repos with nothing to install.
+  (Dismissal filtering is handled by the service, not the predicate.)
+- **Off the hot path.** The probe runs **asynchronously**, kicked off on workspace open — never inside a
+  trigger — and the surviving set is re-pushed when it resolves, so the card simply appears a beat after
+  open. The walk **short-circuits on the first manifest**, is capped structurally (root + ≤2 levels,
+  minus the skip-list), and is **memoized per workspace** (see below) so it runs at most once per open,
+  not per trigger.
+- **Timeout (a scoped, deliberate exception).** The probe also carries a wall-clock timeout, a backstop
+  against a pathologically slow or huge tree (e.g. a network filesystem) the structural cap alone
+  wouldn't bound in time. This knowingly breaks the repo's no-safety-net-timeout rule, allowed here on
+  one condition: it is made **honest by failing open**. On timeout the probe reports *manifest present*
+  and shows the dismissible card — it never silently concludes "no manifest" and hides a deserved one
+  (the anti-pattern the rule exists to stop). Failing open is also the better guess: a repo big or slow
+  enough to exhaust the timeout almost certainly has dependencies worth a setup command. Because the
+  probe is off the hot path, the timeout only bounds the background work; it never blocks the UI.
 - **Actions**: `Yes` → `weavie.worktree.suggestSetupCommand`; `Not now` → Snooze; `Don't ask again` →
   DismissForever.
 
-**"Yes" engages Claude via the embedded session.** The command handler calls `SeedFirstPrompt` against
-the **active** session's `Claude` controller with an analysis prompt:
+**"Yes" engages Claude in the primary session.** The command handler seeds the **primary** session's
+`Claude` controller (`PrimarySlot()`, `IsPrimary = true`) — not the *active* session — with an analysis
+prompt:
 
 > Look at this repository and decide a single shell command suitable for the `worktree.setupCommand`
 > setting — the one command needed to make a fresh checkout ready to work in (install dependencies,
@@ -154,12 +179,24 @@ Claude reads the repo, proposes, **and asks the user to confirm in the Claude pa
 is conversational, which is exactly the desired "Claude figures it out and asks you to confirm". On
 confirmation it persists the value through the existing `setSetting` MCP tool; the existing
 `ShellWorktreeProvisioner` picks it up on the next worktree create. No new save path, no new provisioner.
-
 Because the value is now set, the next `Evaluate()` (via `SettingChanged`) drops the card.
 
-> **Reuse note.** `SeedFirstPrompt` is reused unchanged — it auto-submits (text + Enter) after a fixed
-> 2.5s delay into the active session. That's acceptable for the typical trigger (workspace just opened,
-> Claude idle). Its known fragilities are tracked below, not fixed here.
+**Why the primary session — not the active one or a new one.** `worktree.setupCommand` is a global
+setting that scopes every future worktree, so the conversation belongs to no particular worktree. The
+*active* session may itself be a worktree, mid-turn, or one the user is typing in. The primary session
+is the right host: always loaded, never unloadable, and rooted directly at `WorkspaceRoot`
+(`AddPrimarySlot`, `IsPrimary = true`) — the same directory the manifest scan ran against. A *new*
+session "reusing the main worktree" was considered and rejected: it isn't supported (every new-session
+path allocates a fresh git worktree), and it's redundant — the primary session already **is** a session
+rooted at the main worktree. A second session sharing `WorkspaceRoot` would also collide with the
+primary on the two cwd-keyed stores (Claude-resume in `ClaudeSessionStore`, shell scrollback via
+`WorkspaceId.ForPath`).
+
+> **Seeding safety.** Even the primary session can be mid-turn or hold text the user is composing, so
+> the handler must **not** blindly inject text + Enter. `SeedFirstPrompt`'s fixed-2.5s auto-submit is
+> tuned for a just-spawned session and is **not** reused as-is here. v1 **pre-fills without submitting**
+> (write the prompt into the Claude input, no Enter) and lets the user press Enter — so the prompt can
+> never land in a busy session, and the click-to-engage gate stays explicit. See Open questions.
 
 ## Files touched
 
@@ -179,9 +216,11 @@ Because the value is now set, the next `Evaluate()` (via `SettingChanged`) drops
 
 ## Open questions / future
 
-- **Seeding robustness.** Gate seeding on the existing `ClaudeStartupWatcher`/idle signal instead of the
-  2.5s timer, and consider **pre-fill-without-submit** (write the prompt, no Enter) so we never inject
-  into a busy session and the user presses Enter themselves. Deferred per direction.
+- **Seeding robustness.** v1 settles on **pre-fill-without-submit** (write the prompt, no Enter; the
+  user presses Enter) — see *Seeding safety* above. Note there is **no** existing idle/turn-state signal
+  to gate on: `ClaudeStartupWatcher` confirms the TUI *came up* (gated on output volume), it does not
+  report whether a turn is in flight. A true "session is idle" signal would let us optionally auto-submit
+  when safe; building one is deferred.
 - **More suggestions.** Natural follow-ups: unbound high-value commands, a teardown-command nudge,
   surfacing capabilities the user has never invoked. The surface is built to absorb these without new UI.
 - **MCP exposure.** Should Claude be able to `listSuggestions` / raise one? Out of scope for v1.

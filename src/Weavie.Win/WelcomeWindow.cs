@@ -135,8 +135,9 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 	// Open Recent from the welcome page: open the folder, else (OpenOrFocus prunes a folder that's gone) refresh the
 	// list so the dead row disappears. A successful open closes this window (CloseWelcome).
 	private void OpenRecent(string path) {
+		// _controller is set in InitializeAsync before any message can route here, so it is non-null by now.
 		if (_app.OpenOrFocus(path) is null) {
-			_ = _controller.RefreshAsync();
+			_ = _controller!.RefreshAsync();
 		}
 	}
 

@@ -1,17 +1,17 @@
-using System.Text.Json;
 using Microsoft.Web.WebView2.Core;
 using Microsoft.Web.WebView2.WinForms;
 using Weavie.Core;
+using Weavie.Hosting.Web;
 using Weavie.Win.Hosting;
 
 namespace Weavie.Win;
 
 /// <summary>
 /// The app's empty state: an OS-chrome window rendering welcome.html in a WebView2, with no session until a
-/// folder is opened. Drives the app via the same <c>menu-action</c> bridge messages the File menu uses;
-/// closing it with nothing else open quits the app (see <see cref="AppController"/>).
+/// folder is opened. The shared <see cref="WelcomeController"/> injects the recents and routes the page's
+/// <c>menu-action</c> messages; closing it with nothing else open quits the app (see <see cref="AppController"/>).
 /// </summary>
-internal sealed class WelcomeWindow : Form {
+internal sealed class WelcomeWindow : Form, IWebSurface {
 	// Synthetic host for the virtual-host mapping; mirrors WorkspaceWindow / the macOS app:// scheme.
 	private const string AppHost = "weavie.app";
 
@@ -37,8 +37,8 @@ internal sealed class WelcomeWindow : Form {
 	private readonly AppController _app;
 	private readonly HostBridge _bridge = new();
 	private readonly WebView2 _webView;
+	private WelcomeController? _controller;
 	private bool _webViewTornDown;
-	private string? _recentsScriptId;
 
 	public WelcomeWindow(AppController app) {
 		ArgumentNullException.ThrowIfNull(app);
@@ -124,77 +124,50 @@ internal sealed class WelcomeWindow : Form {
 		core.Settings.IsStatusBarEnabled = false;
 
 		_bridge.Attach(_webView);
-		_bridge.MessageReceived += OnWebMessage;
-
-		// Recents reach the page as window.__WEAVIE_WELCOME__, injected before navigation (no flash, no round-trip).
-		await InjectRecentsAsync();
+		_controller = new WelcomeController(
+			_bridge, this, $"https://{AppHost}/welcome.html", () => _app.Recents.Items,
+			() => _app.OpenFolderInteractive(this), OpenRecent);
 
 		// Always the bundled wwwroot over https://weavie.app/; the empty state never probes for a Vite dev server.
-		core.Navigate($"https://{AppHost}/welcome.html");
+		await _controller.ShowAsync();
 	}
 
-	/// <summary>(Re)injects the current recents as <c>window.__WEAVIE_WELCOME__</c> for the next document load.</summary>
-	private async Task InjectRecentsAsync() {
-		var core = _webView.CoreWebView2;
-		if (core is null) {
-			return;
-		}
-
-		if (_recentsScriptId is not null) {
-			core.RemoveScriptToExecuteOnDocumentCreated(_recentsScriptId);
-		}
-
-		string json = JsonSerializer.Serialize(new { recents = _app.Recents.Items });
-		_recentsScriptId = await core.AddScriptToExecuteOnDocumentCreatedAsync($"window.__WEAVIE_WELCOME__ = {json};");
-	}
-
-	private void OnWebMessage(string json) {
-		JsonElement root;
-		string type;
-		try {
-			using var doc = JsonDocument.Parse(json);
-			root = doc.RootElement.Clone();
-			type = root.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty;
-		} catch (JsonException) {
-			Console.WriteLine($"[weavie] (welcome, unparsed) {json}");
-			return;
-		}
-
-		switch (type) {
-			case "menu-action":
-				HandleMenuAction(root);
-				break;
-			default:
-				// ready / log / anything else: surface for diagnostics and unattended capture.
-				Console.WriteLine($"[weavie] (welcome) {json}");
-				Console.Out.Flush();
-				break;
+	// Open Recent from the welcome page: open the folder, else (OpenOrFocus prunes a folder that's gone) refresh the
+	// list so the dead row disappears. A successful open closes this window (CloseWelcome).
+	private void OpenRecent(string path) {
+		// _controller is set in InitializeAsync before any message can route here, so it is non-null by now.
+		if (_app.OpenOrFocus(path) is null) {
+			_ = _controller!.RefreshAsync();
 		}
 	}
 
-	/// <summary>Routes the web's <c>menu-action</c> (Open Folder / Open Recent) to the app's open logic.</summary>
-	private void HandleMenuAction(JsonElement root) {
-		string action = root.TryGetProperty("action", out var a) ? a.GetString() ?? string.Empty : string.Empty;
-		switch (action) {
-			case "open-folder":
-				_app.OpenFolderInteractive(this);
-				break;
-			case "open-recent":
-				string? path = root.TryGetProperty("path", out var p) ? p.GetString() : null;
-				// OpenOrFocus returns null when the folder is gone (and prunes its recents entry); refresh
-				// the list so the dead row disappears. A successful open closes this window (CloseWelcome).
-				if (!string.IsNullOrEmpty(path) && _app.OpenOrFocus(path) is null) {
-					_ = RefreshRecentsAsync();
+	// IWebSurface — the WebView2 ops the shared welcome flow drives; WebView2 is UI-thread-affine, so each marshals.
+	void IWebSurface.Navigate(string url) => RunOnUi(() => _webView.CoreWebView2?.Navigate(url));
+
+	void IWebSurface.RenderHtml(string html) => RunOnUi(() => _webView.CoreWebView2?.NavigateToString(html));
+
+	Task IWebSurface.InjectStartupScriptAsync(string script) {
+		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		RunOnUi(async () => {
+			try {
+				if (_webView.CoreWebView2 is { } core) {
+					await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
 				}
 
-				break;
-		}
+				tcs.SetResult();
+			} catch (Exception ex) {
+				tcs.SetException(ex);
+			}
+		});
+		return tcs.Task;
 	}
 
-	/// <summary>Re-injects the current recents and reloads the page so a pruned entry drops out of the list.</summary>
-	private async Task RefreshRecentsAsync() {
-		await InjectRecentsAsync();
-		_webView.CoreWebView2?.Reload();
+	private void RunOnUi(Action action) {
+		if (InvokeRequired) {
+			BeginInvoke(action);
+		} else {
+			action();
+		}
 	}
 
 	/// <summary>Tears the WebView2 down deterministically before the handle is destroyed.</summary>
@@ -204,6 +177,7 @@ internal sealed class WelcomeWindow : Form {
 		}
 
 		_webViewTornDown = true;
+		_controller?.Detach();
 		try {
 			_webView.Dispose();
 		} catch (Exception ex) {

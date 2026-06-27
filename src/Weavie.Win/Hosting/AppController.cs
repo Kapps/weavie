@@ -6,6 +6,7 @@ using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
+using Weavie.Hosting;
 
 namespace Weavie.Win.Hosting;
 
@@ -98,7 +99,7 @@ internal sealed class AppController : ApplicationContext {
 		};
 		_manager = new WorkspaceManager(recents);
 
-		string? initial = ResolveInitialWorkspace();
+		string? initial = InitialWorkspace.Resolve(Settings, _manager.Recents);
 		if (initial is null || OpenOrFocus(initial) is null) {
 			ShowWelcome();
 		}
@@ -282,29 +283,6 @@ internal sealed class AppController : ApplicationContext {
 			_exiting = true;
 			ExitThread();
 		}
-	}
-
-	/// <summary>
-	/// Picks the workspace to reopen on launch: the last-opened folder if it still exists, else the explicitly-set
-	/// <c>workspace</c> setting, else <c>null</c> (show the welcome window).
-	/// </summary>
-	private string? ResolveInitialWorkspace() {
-		string? last = _manager.Recents.LastOpened;
-		if (!string.IsNullOrEmpty(last) && Directory.Exists(last)) {
-			return last;
-		}
-
-		// Honor `workspace` only when EXPLICITLY set: its computed default is the home directory, which shouldn't
-		// auto-open as a project.
-		var configured = Settings.Resolve("workspace");
-		if (configured.Source != SettingSource.Default
-			&& configured.Value is string root
-			&& !string.IsNullOrEmpty(root)
-			&& Directory.Exists(root)) {
-			return root;
-		}
-
-		return null;
 	}
 
 	/// <inheritdoc/>

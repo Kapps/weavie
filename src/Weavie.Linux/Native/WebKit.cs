@@ -51,6 +51,13 @@ internal static partial class WebKit {
 	internal static partial void webkit_web_view_load_uri(IntPtr webView, string uri);
 
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
+	internal static partial void webkit_web_view_load_html(IntPtr webView, string content, IntPtr baseUri);
+
+	/// <summary>Drops every user script registered on the manager — clears the welcome injection before the workspace loads.</summary>
+	[LibraryImport(Lib)]
+	internal static partial void webkit_user_content_manager_remove_all_scripts(IntPtr manager);
+
+	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial void webkit_web_view_evaluate_javascript(
 		IntPtr webView, string script, nint length, IntPtr worldName, IntPtr sourceUri,
 		IntPtr cancellable, IntPtr callback, IntPtr userData);

@@ -395,6 +395,13 @@ public sealed class WorktreeManagerTests {
 
 		public Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default) => Task.FromResult<string?>(null);
 
+		public Task<string?> MergeBaseAsync(string repositoryDirectory, string a, string b, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
+		public Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default) =>
+			Task.FromResult<IReadOnlyList<DiffFileChange>>([]);
+
+		public Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) => Task.FromResult(string.Empty);
+
 		public Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) => Task.FromResult(Branches.Contains(branch));
 
 		public Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) =>

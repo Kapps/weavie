@@ -88,4 +88,19 @@ public interface IGitService {
 
 	/// <summary>The configured URL of <paramref name="remote"/> (<c>git remote get-url</c>), or <c>null</c> when it has none.</summary>
 	Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default);
+
+	/// <summary>The merge-base (common ancestor) commit of <paramref name="a"/> and <paramref name="b"/>, or <c>null</c> when they share none.</summary>
+	Task<string?> MergeBaseAsync(string repositoryDirectory, string a, string b, CancellationToken ct = default);
+
+	/// <summary>
+	/// The files changed between <paramref name="fromRef"/> and <paramref name="toRef"/> (<c>git diff --numstat</c>),
+	/// each with its added/removed line counts — the changed-file list for a PR's diff walk.
+	/// </summary>
+	Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default);
+
+	/// <summary>
+	/// The contents of <paramref name="path"/> at <paramref name="reference"/> (<c>git show ref:path</c>), or the
+	/// empty string when the file doesn't exist there — the diff baseline for a PR file (empty ⇒ added in the PR).
+	/// </summary>
+	Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default);
 }

@@ -120,7 +120,16 @@ export type HostBoundMessage =
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
   // context. See docs/specs/open-pr.md.
   | { type: "list-prs"; id: string }
-  | { type: "open-pr"; number: number; headRef: string; title: string; url: string }
+  | {
+      type: "open-pr";
+      number: number;
+      headRef: string;
+      baseRef: string;
+      title: string;
+      url: string;
+    }
+  // Ask the host for one PR file's base→head diff (answered by pr-diff).
+  | { type: "get-pr-diff"; number: number; path: string }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -402,6 +411,21 @@ export type WebBoundMessage =
   // Host answers list-prs with the repo's open pull requests, tagged by the request `id` (cross-backend, like
   // branches-result).
   | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
+  // PR review (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
+  // pr-diff is one file's base→head pair (baseline→current) rendered in the inline-diff "pr" mode.
+  | {
+      type: "pr-changes";
+      number: number;
+      files: { path: string; name: string; added: number; removed: number; line: number }[];
+    }
+  | {
+      type: "pr-diff";
+      number: number;
+      path: string;
+      name: string;
+      baseline: string;
+      current: string;
+    }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
   // Host pushes the persisted remote-agent registry (on `ready` + any add/remove); the web reconciles its
@@ -866,6 +890,7 @@ export interface PullRequestInfo {
   title: string;
   author: string;
   headRef: string;
+  baseRef: string;
   url: string;
   draft: boolean;
 }

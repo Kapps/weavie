@@ -20,6 +20,7 @@ internal static class FakePullRequests {
 					Title = Str(pr, "title"),
 					Author = Str(pr, "author"),
 					HeadRef = Str(pr, "headRef"),
+					BaseRef = Str(pr, "baseRef"),
 					Url = Str(pr, "url"),
 					IsDraft = pr.TryGetProperty("draft", out var d) && d.ValueKind == JsonValueKind.True,
 				});

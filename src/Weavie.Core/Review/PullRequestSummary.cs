@@ -17,6 +17,9 @@ public sealed record PullRequestSummary {
 	/// <summary>The head branch the PR is built from — the branch a session checks out.</summary>
 	public required string HeadRef { get; init; }
 
+	/// <summary>The base branch the PR targets (e.g. <c>main</c>) — the other side of the diff.</summary>
+	public required string BaseRef { get; init; }
+
 	/// <summary>The PR's web URL (the overview source resolves this; the seed prompt cites it).</summary>
 	public required string Url { get; init; }
 

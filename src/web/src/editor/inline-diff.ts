@@ -24,7 +24,7 @@ const RECOMPUTE_DEBOUNCE_MS = 120;
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
 const MAX_CHANGE_DOTS = 7;
 
-export type InlineDiffMode = "review" | "applied" | "view";
+export type InlineDiffMode = "review" | "applied" | "view" | "pr";
 
 // Which scope the applied-review toolbar's Keep / Revert buttons act on; sticky across files (reset only on a
 // turn-reset via clearAll).
@@ -776,13 +776,62 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     renderCounter();
   };
 
-  // The floating action bar. Applied mode is the 2D scope navigator (buildAppliedBar); review mode is just the
-  // hunk arrows + Keep/Reject for the proposal; view mode is the hunk arrows alone.
+  // PR review bar: the file axis (← / →) + stacked label + hunk arrows (↑ / ↓) — the same 2D navigator as
+  // applied mode, but read-only (no scope picker, no Keep/Revert, no undo). The PR is already committed; the
+  // per-hunk action (Comment) lands in a later phase.
+  const buildPrBar = (bar: HTMLElement, options: InlineDiffOptions): void => {
+    const multiFile =
+      options.fileCount !== undefined &&
+      options.fileCount > 1 &&
+      options.onPrevFile !== undefined &&
+      options.onNextFile !== undefined;
+    if (multiFile) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "←",
+          withShortcut("Previous file", CommandIds.reviewPrevFile),
+          prevFile,
+        ),
+      );
+    }
+    const stack = document.createElement("div");
+    stack.className = "weavie-inline-stack";
+    const name = document.createElement("span");
+    name.className = "weavie-inline-stack-name";
+    name.textContent = options.fileLabel ?? "";
+    counterNode = document.createElement("span");
+    counterNode.className = "weavie-inline-stack-sub";
+    stack.append(name, counterNode);
+    bar.appendChild(stack);
+    if (multiFile) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-file",
+          "→",
+          withShortcut("Next file", CommandIds.reviewNextFile),
+          nextFile,
+        ),
+      );
+    }
+    dotsNode = document.createElement("span");
+    dotsNode.className = "weavie-inline-dots";
+    bar.appendChild(dotsNode);
+    bar.append(...navButtons());
+    renderCounter();
+  };
+
+  // The floating action bar. Applied mode is the 2D scope navigator (buildAppliedBar); pr mode is the same
+  // navigator read-only; review mode is the hunk arrows + Keep/Reject for the proposal; view mode is arrows alone.
   const buildToolbar = (options: InlineDiffOptions): HTMLElement => {
     const bar = document.createElement("div");
     bar.className = "weavie-inline-toolbar";
     if (options.mode === "applied") {
       buildAppliedBar(bar, options);
+      return bar;
+    }
+    if (options.mode === "pr") {
+      buildPrBar(bar, options);
       return bar;
     }
     bar.append(...navButtons());

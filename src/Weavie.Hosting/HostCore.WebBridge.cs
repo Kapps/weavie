@@ -86,8 +86,14 @@ public sealed partial class HostCore {
 				_ = OpenPullRequestFromWebAsync(
 					JsonInt(root, "number"),
 					root.GetStringOrEmpty("headRef"),
+					root.GetStringOrEmpty("baseRef"),
 					root.GetStringOrEmpty("title"),
 					root.GetStringOrEmpty("url"));
+				break;
+			}
+
+			case "get-pr-diff": {
+				_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
 				break;
 			}
 

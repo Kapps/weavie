@@ -1,12 +1,12 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { type FakeStep, writeFakeClaudeWrapper, writeFakeScript } from "./fake-claude";
-import { createGitWorkspace, removeWorkspace } from "./git-workspace";
+import { createGitWorkspace, createPrWorkspace, removeWorkspace } from "./git-workspace";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
 export const headlessDll = join(
@@ -35,6 +35,9 @@ export interface WeavieHost {
 
 export interface LaunchOptions {
   fakeScript: FakeStep[] | null;
+  // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
+  // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
+  pr?: boolean;
 }
 
 // Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve
@@ -164,7 +167,8 @@ export interface FakeScaffold {
 
 export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold> {
   const home = await mkdtemp(join(tmpdir(), "weavie-e2e-home-"));
-  const workspace = await createGitWorkspace();
+  const pr = options.pr ? await createPrWorkspace() : null;
+  const workspace = pr?.dir ?? (await createGitWorkspace());
   const wrapper = await writeFakeClaudeWrapper(home);
   const fakeLogPath = join(home, "fake-claude.log");
   const env: NodeJS.ProcessEnv = {
@@ -181,6 +185,11 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   if (options.fakeScript) {
     env.WEAVIE_FAKE_CLAUDE_SCRIPT = await writeFakeScript(home, options.fakeScript);
     env.WEAVIE_FAKE_CLAUDE_LOG = fakeLogPath;
+  }
+  if (pr) {
+    const prsPath = join(home, "fake-prs.json");
+    await writeFile(prsPath, JSON.stringify(pr.prs));
+    env.WEAVIE_FAKE_PRS = prsPath;
   }
   return {
     home,

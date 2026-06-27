@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
@@ -34,6 +35,7 @@ public sealed partial class HostCore {
 				title = p.Title,
 				author = p.Author,
 				headRef = p.HeadRef,
+				baseRef = p.BaseRef,
 				url = p.Url,
 				draft = p.IsDraft,
 			}),
@@ -45,7 +47,7 @@ public sealed partial class HostCore {
 	/// session (reusing the attach-existing path, which de-dupes to a live session if one already exists), seeding
 	/// Claude's first message with the PR's context. Any failure surfaces as a toast.
 	/// </summary>
-	private async Task OpenPullRequestFromWebAsync(int number, string headRef, string title, string url) {
+	private async Task OpenPullRequestFromWebAsync(int number, string headRef, string baseRef, string title, string url) {
 		if (number <= 0 || string.IsNullOrWhiteSpace(headRef)) {
 			return;
 		}
@@ -78,8 +80,122 @@ public sealed partial class HostCore {
 			CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
 			Notify("error", result.Error ?? $"Couldn't open PR #{number}.");
+			return;
+		}
+
+		await ArmPrReviewAsync(number, headRef, baseRef, title, url).ConfigureAwait(false);
+	}
+
+	// Each PR session's review state, keyed by session id (= the head branch). Holds what computing a per-file
+	// diff needs: the merge-base to diff against and the worktree the head is checked out in.
+	private readonly ConcurrentDictionary<string, PullRequestReview> _prReviews = new(StringComparer.Ordinal);
+
+	/// <summary>
+	/// Arms PR review on the just-opened session: fetches the base, computes the merge-base, records the review,
+	/// and pushes the changed-file list so the diff navigator surfaces. A diff failure toasts and leaves the
+	/// session usable (the checkout still succeeded).
+	/// </summary>
+	private async Task ArmPrReviewAsync(int number, string headRef, string baseRef, string title, string url) {
+		// The just-opened PR is the active session (attach switched to it). Key the review by the worktree path —
+		// stable across switches, unlike the session's path-hashed Id, and unique per session.
+		if (_session is not { } session) {
+			return;
+		}
+
+		string worktree = session.WorkspaceRoot;
+		var git = new GitService();
+		string? mergeBase = null;
+		try {
+			if (GitService.IsValidBranchName(baseRef)) {
+				await git.FetchAsync(WorkspaceRoot, "origin", baseRef, CancellationToken.None).ConfigureAwait(false);
+				mergeBase = await git.MergeBaseAsync(worktree, $"origin/{baseRef}", headRef, CancellationToken.None).ConfigureAwait(false)
+					?? await git.MergeBaseAsync(worktree, baseRef, headRef, CancellationToken.None).ConfigureAwait(false);
+			}
+		} catch (GitException ex) {
+			Log($"[weavie] pr #{number}: couldn't resolve base '{baseRef}': {ex.Message}");
+		}
+
+		if (mergeBase is null) {
+			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.");
+			return;
+		}
+
+		var review = new PullRequestReview(number, title, url, baseRef, headRef, mergeBase, worktree);
+		_prReviews[worktree] = review;
+		await PushPrChangesAsync(review).ConfigureAwait(false);
+	}
+
+	/// <summary>Computes and pushes a PR's changed-file list (<c>pr-changes</c>) — the file axis of the diff walk.</summary>
+	private async Task PushPrChangesAsync(PullRequestReview review) {
+		IReadOnlyList<DiffFileChange> changes;
+		try {
+			changes = await new GitService().DiffRefsAsync(review.Worktree, review.MergeBase, review.HeadRef, CancellationToken.None).ConfigureAwait(false);
+		} catch (GitException ex) {
+			Log($"[weavie] pr #{review.Number}: diff failed: {ex.Message}");
+			return;
+		}
+
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "pr-changes",
+			number = review.Number,
+			files = changes.Select(c => new {
+				path = Path.GetFullPath(Path.Combine(review.Worktree, c.Path)),
+				name = Path.GetFileName(c.Path),
+				added = c.Added,
+				removed = c.Removed,
+				line = 1,
+			}),
+		}));
+	}
+
+	/// <summary>
+	/// Answers <c>get-pr-diff</c> for one file: its base→head pair (baseline = the file at the merge-base, current
+	/// = the worktree file) so the inline-diff renderer can show it. Comments arrive in a later phase.
+	/// </summary>
+	private async Task SendPrDiffAsync(int number, string absolutePath) {
+		if (ActivePrReview() is not { } review || review.Number != number) {
+			return;
+		}
+
+		string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
+		string baseline;
+		try {
+			baseline = await new GitService().ShowFileAtRefAsync(review.Worktree, review.MergeBase, relative, CancellationToken.None).ConfigureAwait(false);
+		} catch (GitException) {
+			baseline = string.Empty;
+		}
+
+		string current;
+		try {
+			current = File.Exists(absolutePath) ? await File.ReadAllTextAsync(absolutePath).ConfigureAwait(false) : string.Empty;
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			current = string.Empty;
+		}
+
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "pr-diff",
+			number,
+			path = absolutePath,
+			name = Path.GetFileName(absolutePath),
+			baseline,
+			current,
+			comments = Array.Empty<object>(),
+		}));
+	}
+
+	/// <summary>The PR review armed for the active session, or <c>null</c> when the active session isn't a PR.</summary>
+	private PullRequestReview? ActivePrReview() =>
+		_session is { } session && _prReviews.TryGetValue(session.WorkspaceRoot, out var review) ? review : null;
+
+	/// <summary>Re-pushes the active session's PR change list on a switch, so the navigator follows the PR session.</summary>
+	private void PushActivePrChanges() {
+		if (ActivePrReview() is { } review) {
+			_ = PushPrChangesAsync(review);
 		}
 	}
+
+	private sealed record PullRequestReview(
+		int Number, string Title, string Url, string BaseRef, string HeadRef, string MergeBase, string Worktree);
 
 	/// <summary>Resolves the workspace's <c>origin</c> remote URL to a <see cref="RepoRef"/>, or <c>null</c> when it isn't a forge repo.</summary>
 	private async Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) {

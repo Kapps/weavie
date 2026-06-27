@@ -203,13 +203,69 @@ public sealed class GitService : IGitService {
 	public async Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(remote);
-		var result = await RunAsync(repositoryDirectory, ["remote", "get-url", remote], ct).ConfigureAwait(false);
+		// `config --get remote.<x>.url` is the *configured* URL (what identifies the repo); `git remote get-url`
+		// would instead apply any insteadOf rewrite, returning the transport URL rather than the github.com one.
+		var result = await RunAsync(repositoryDirectory, ["config", "--get", $"remote.{remote}.url"], ct).ConfigureAwait(false);
 		if (result.ExitCode != 0) {
 			return null;
 		}
 
 		string url = result.StdOut.Trim();
 		return url.Length == 0 ? null : url;
+	}
+
+	/// <inheritdoc/>
+	public async Task<string?> MergeBaseAsync(string repositoryDirectory, string a, string b, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(a);
+		ArgumentException.ThrowIfNullOrEmpty(b);
+		var result = await RunAsync(repositoryDirectory, ["merge-base", a, b], ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
+			return null;
+		}
+
+		string sha = result.StdOut.Trim();
+		return sha.Length == 0 ? null : sha;
+	}
+
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(fromRef);
+		ArgumentException.ThrowIfNullOrEmpty(toRef);
+		// --no-renames keeps each line a simple "added\tremoved\tpath"; "--" ends options so refs can't be misread.
+		var result = await RunCheckedAsync(repositoryDirectory, ["diff", "--numstat", "--no-renames", fromRef, toRef, "--"], ct).ConfigureAwait(false);
+		return ParseNumstat(result.StdOut);
+	}
+
+	/// <inheritdoc/>
+	public async Task<string> ShowFileAtRefAsync(string repositoryDirectory, string reference, string path, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(reference);
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		// A non-zero exit means the file is absent at that ref (added in the PR) — an empty baseline, not an error.
+		var result = await RunAsync(repositoryDirectory, ["show", $"{reference}:{path}"], ct).ConfigureAwait(false);
+		return result.ExitCode == 0 ? result.StdOut : string.Empty;
+	}
+
+	/// <summary>Parses <c>git diff --numstat</c> output ("added\tremoved\tpath" per line; binary files report "-"). Pure, for tests.</summary>
+	public static IReadOnlyList<DiffFileChange> ParseNumstat(string numstat) {
+		ArgumentNullException.ThrowIfNull(numstat);
+		var result = new List<DiffFileChange>();
+		foreach (string raw in numstat.Replace("\r", "", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries)) {
+			string[] parts = raw.Split('\t');
+			if (parts.Length < 3) {
+				continue;
+			}
+
+			result.Add(new DiffFileChange {
+				Path = parts[2].Trim(),
+				Added = int.TryParse(parts[0], out int added) ? added : 0,
+				Removed = int.TryParse(parts[1], out int removed) ? removed : 0,
+			});
+		}
+
+		return result;
 	}
 
 	/// <summary>

@@ -546,6 +546,10 @@ export default function App(): JSX.Element {
         // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an
         // auto-jump. (weavie.review.open / palette still jumps on demand.)
         editor.setReviewFiles(message.files);
+      } else if (message.type === "pr-changes") {
+        // A PR session armed (or switched to): feed its changed files into the same ← / → walk + parked
+        // navigator, in read-only PR mode, so the diff navigator surfaces over the editor.
+        editor.setPrReview(message.number, message.files);
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
         // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
@@ -845,6 +849,7 @@ export default function App(): JSX.Element {
               type: "open-pr",
               number: pr.number,
               headRef: pr.headRef,
+              baseRef: pr.baseRef,
               title: pr.title,
               url: pr.url,
             });

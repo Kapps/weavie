@@ -334,6 +334,8 @@ public sealed partial class HostCore {
 		string header = string.IsNullOrWhiteSpace(title) ? $"PR #{number}" : $"PR #{number}: {title}";
 		string link = string.IsNullOrWhiteSpace(url) ? string.Empty : $"\n{url}";
 		return $"You're checked out on the branch for {header}.{link}\n\n"
-			+ "Take a look at the changes on this branch and help me address any review feedback.";
+			+ "This is a REVIEW-ONLY session. Look over the changes on this branch and give me your review — "
+			+ "what's good, what's risky, what could be improved. Do NOT edit, create, or delete any files, and do "
+			+ "NOT run any commands that modify the branch, unless I explicitly ask you to make a change.";
 	}
 }

@@ -4,7 +4,12 @@ Turn a GitHub pull request into a Weavie session: check out the PR's branch in i
 PR's review comments into the editor anchored to the lines they're about, and let the user reply to a thread
 or leave a new comment without leaving Weavie.
 
-> Status: **design** — no code yet. This spec is the plan; it's built in the phases at the end.
+> Status: **building**. The Open-PR → session slice of Phase 1 is implemented — the forge-agnostic
+> `IPullRequestProvider` (GitHub impl + token discovery), `IGitService.FetchAsync`/`GetRemoteUrlAsync`, the
+> `list-prs`/`open-pr` bridge messages, the `OpenPrPrompt` picker, and the `weavie.pr.open` command. **Deferred
+> within Phase 1** until the source-tab system ([web-and-source-tabs.md](web-and-source-tabs.md)) lands: the PR
+> *overview source tab* and the host-run *OAuth* (token discovery covers auth meanwhile). Phases 2–3 (the diff
+> surface, comments) are still design.
 
 ## Why
 

@@ -116,6 +116,11 @@ export type HostBoundMessage =
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
   | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
   | { type: "list-branches"; id: string }
+  // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
+  // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
+  // context. See docs/specs/open-pr.md.
+  | { type: "list-prs"; id: string }
+  | { type: "open-pr"; number: number; headRef: string; title: string; url: string }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -394,6 +399,9 @@ export type WebBoundMessage =
   // Host answers list-branches with the local branches available to check out, tagged by the request `id`.
   // Routed cross-backend (isSessionMessage) so the New Session dialog can query a non-active backend.
   | { type: "branches-result"; id: string; branches: string[] }
+  // Host answers list-prs with the repo's open pull requests, tagged by the request `id` (cross-backend, like
+  // branches-result).
+  | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
   // Host pushes the persisted remote-agent registry (on `ready` + any add/remove); the web reconciles its
@@ -471,6 +479,7 @@ function isSessionMessage(type: string): boolean {
     type === "session-list" ||
     type === "session-status" ||
     type === "branches-result" ||
+    type === "prs-result" ||
     type === "remote-agents" ||
     type === "rail-state"
   );
@@ -848,6 +857,43 @@ export function requestBranches(backendId: string): Promise<string[]> {
       resolve(branches);
     });
     postToBackend(backendId, { type: "list-branches", id });
+  });
+}
+
+/** One open pull request, as the Open-PR picker renders it. Mirrors the host's prs-result entries. */
+export interface PullRequestInfo {
+  number: number;
+  title: string;
+  author: string;
+  headRef: string;
+  url: string;
+  draft: boolean;
+}
+
+// Open-PR picker: ask a chosen backend for its repo's open PRs. prs-result routes cross-backend, so correlate
+// replies by id and resolve empty on timeout rather than hanging (the branches-typeahead pattern).
+let prSeq = 0;
+const pendingPrRequests = new Map<string, (prs: PullRequestInfo[]) => void>();
+onSessionMessage((message) => {
+  if (message.type === "prs-result") {
+    pendingPrRequests.get(message.id)?.(message.prs);
+  }
+});
+
+/** Ask `backendId` for its repo's open pull requests (empty on timeout). */
+export function requestPullRequests(backendId: string): Promise<PullRequestInfo[]> {
+  const id = `pr${++prSeq}`;
+  return new Promise<PullRequestInfo[]>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingPrRequests.delete(id);
+      resolve([]);
+    }, BRANCHES_TIMEOUT_MS);
+    pendingPrRequests.set(id, (prs) => {
+      clearTimeout(timer);
+      pendingPrRequests.delete(id);
+      resolve(prs);
+    });
+    postToBackend(backendId, { type: "list-prs", id });
   });
 }
 

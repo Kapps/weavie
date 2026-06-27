@@ -189,6 +189,29 @@ public sealed class GitService : IGitService {
 		await RunCheckedAsync(repositoryDirectory, ["branch", force ? "-D" : "-d", branch], ct).ConfigureAwait(false);
 	}
 
+	/// <inheritdoc/>
+	public async Task FetchAsync(string repositoryDirectory, string remote, string refName, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(remote);
+		ArgumentException.ThrowIfNullOrEmpty(refName);
+		// remote ("origin") is host-derived; refName is a branch name validated upstream — pass both as explicit
+		// args so neither can be read as an option, and never accept a raw web-supplied refspec.
+		await RunCheckedAsync(repositoryDirectory, ["fetch", remote, refName], ct).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc/>
+	public async Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(remote);
+		var result = await RunAsync(repositoryDirectory, ["remote", "get-url", remote], ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
+			return null;
+		}
+
+		string url = result.StdOut.Trim();
+		return url.Length == 0 ? null : url;
+	}
+
 	/// <summary>
 	/// Parses <c>git worktree list --porcelain</c> output into <see cref="GitWorktree"/> entries — each a
 	/// block of <c>key value</c> lines separated by blank lines. Pure, so it's testable without a repository.

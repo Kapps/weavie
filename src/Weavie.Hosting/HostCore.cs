@@ -35,6 +35,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly RemoteAgentStore _remoteAgents;
 	// App-global session-rail UI state (last-used backend + promoted remote sessions); same push pattern.
 	private readonly RailStateStore _railState;
+	// Lists open PRs for the Open-PR flow (GitHub by default; a static stub under the headless harness).
+	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	private readonly LayoutStore _layout;
 	private readonly EditorSessionStore _editorSession;
 	private readonly RecentFilesStore _recentFiles;
@@ -86,6 +88,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_claudeSessions = services.ClaudeSessions;
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
+		_pullRequests = services.PullRequests;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 

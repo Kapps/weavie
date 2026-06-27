@@ -391,6 +391,10 @@ public sealed class WorktreeManagerTests {
 
 		public Task<string?> GetCurrentBranchAsync(string directory, CancellationToken ct = default) => Task.FromResult(DefaultBranch);
 
+		public Task FetchAsync(string repositoryDirectory, string remote, string refName, CancellationToken ct = default) => Task.CompletedTask;
+
+		public Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default) => Task.FromResult<string?>(null);
+
 		public Task<bool> BranchExistsAsync(string directory, string branch, CancellationToken ct = default) => Task.FromResult(Branches.Contains(branch));
 
 		public Task<IReadOnlyList<string>> ListBranchesAsync(string directory, CancellationToken ct = default) =>

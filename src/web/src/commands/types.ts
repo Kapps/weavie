@@ -84,6 +84,7 @@ export const CommandIds = {
   openFolder: "weavie.workspace.openFolder",
   openUrl: "weavie.workspace.openUrl",
   newSessionPrompt: "weavie.session.newPrompt",
+  openPr: "weavie.pr.open",
   nextSession: "weavie.session.next",
   prevSession: "weavie.session.prev",
   selectSessionByIndex: "weavie.session.selectByIndex",

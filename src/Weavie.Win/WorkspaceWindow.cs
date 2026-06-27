@@ -91,6 +91,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			ClaudeSessions = _app.ClaudeSessions,
 			RemoteAgents = _app.RemoteAgents,
 			RailState = _app.RailState,
+			PullRequests = new Weavie.Core.Review.GitHubReviewProvider(http: null, new Weavie.Core.Review.GitHubTokenSource()),
 		}, workspaceRoot);
 		// On the page's `ready`, push the native window state (maximize glyph + blur dim) the core can't know.
 		_core.Ready += OnPageReady;

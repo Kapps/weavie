@@ -431,7 +431,7 @@ public sealed partial class HostCore {
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		if (request.AttachExisting) {
-			return AttachExistingSessionAsync(request.Branch, ct);
+			return AttachExistingSessionAsync(request.Branch, request.Prompt, ct);
 		}
 
 		return CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, ct);
@@ -657,7 +657,7 @@ public sealed partial class HostCore {
 	/// Creates a session by checking out an existing branch into a new worktree. If Weavie already has a session
 	/// for that branch — or it's the primary checkout's own branch — switches to that instead of duplicating.
 	/// </summary>
-	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, CancellationToken ct) {
+	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, string? prompt, CancellationToken ct) {
 		if (_worktrees is not { } worktrees) {
 			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
 		}
@@ -700,7 +700,9 @@ public sealed partial class HostCore {
 			StartWorktreeSetup(record.Path);
 		}
 
-		return await BuildAndSwitchSlotAsync(branch, record, prompt: null, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
+		// Seed the first prompt only on this fresh-checkout path; switching to an existing session (above) must
+		// never re-seed it. The Open-PR flow uses this to brief Claude on the PR it just checked out.
+		return await BuildAndSwitchSlotAsync(branch, record, prompt, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>

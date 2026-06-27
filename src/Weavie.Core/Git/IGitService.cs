@@ -79,4 +79,13 @@ public interface IGitService {
 
 	/// <summary>Deletes the local branch <paramref name="branch"/> (<c>-d</c>, or <c>-D</c> when <paramref name="force"/>).</summary>
 	Task DeleteBranchAsync(string repositoryDirectory, string branch, bool force, CancellationToken ct = default);
+
+	/// <summary>
+	/// Fetches <paramref name="refName"/> from <paramref name="remote"/> (<c>git fetch &lt;remote&gt; &lt;ref&gt;</c>),
+	/// so a PR's head branch exists locally before a worktree checks it out.
+	/// </summary>
+	Task FetchAsync(string repositoryDirectory, string remote, string refName, CancellationToken ct = default);
+
+	/// <summary>The configured URL of <paramref name="remote"/> (<c>git remote get-url</c>), or <c>null</c> when it has none.</summary>
+	Task<string?> GetRemoteUrlAsync(string repositoryDirectory, string remote, CancellationToken ct = default);
 }

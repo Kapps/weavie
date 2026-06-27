@@ -93,6 +93,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			ClaudeSessions = claudeSessions,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
+			PullRequests = new Weavie.Core.Review.StaticPullRequestProvider([]),
 		};
 	}
 

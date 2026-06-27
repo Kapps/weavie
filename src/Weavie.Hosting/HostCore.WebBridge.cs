@@ -77,6 +77,20 @@ public sealed partial class HostCore {
 				break;
 			}
 
+			case "list-prs": {
+				_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"));
+				break;
+			}
+
+			case "open-pr": {
+				_ = OpenPullRequestFromWebAsync(
+					JsonInt(root, "number"),
+					root.GetStringOrEmpty("headRef"),
+					root.GetStringOrEmpty("title"),
+					root.GetStringOrEmpty("url"));
+				break;
+			}
+
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				// Route by owning session (diff ids are process-unique): a switch mid-resolve must not hit another session's diff.

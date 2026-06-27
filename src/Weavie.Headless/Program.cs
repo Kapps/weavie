@@ -24,6 +24,12 @@ bool tokenGated = listen is ListenMode.Remote;
 // The host outlives any one page: built once, each browser connection (re)attaches its socket.
 var bridge = new WebSocketHostBridge();
 var services = HostServices.CreateDefault();
+// Deterministic Open-PR journeys for the integration harness / capture: a JSON file of canned PRs replaces the
+// live GitHub provider, the PR analogue of WEAVIE_FAKE_CLAUDE_SCRIPT. Unset in normal use.
+if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fakePrsPath && File.Exists(fakePrsPath)) {
+	services = services with { PullRequests = FakePullRequests.FromFile(fakePrsPath) };
+}
+
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;

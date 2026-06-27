@@ -106,6 +106,27 @@ public sealed class SessionEditorChannel {
 	}
 
 	/// <summary>
+	/// Re-renders the active session's held openDiff to a just-(re)connected page. The diff is posted once when it
+	/// arrives, so a page that connects after that — a reload, or a slow first connect under load — never saw it
+	/// (<see cref="Activate"/> would re-render it but is idempotent and a no-op on the already-active session). A
+	/// no-op when inactive (a background session's diff must not surface over the foreground) or none is pending.
+	/// </summary>
+	public void Replay() {
+		string? show;
+		lock (_gate) {
+			if (!_active) {
+				return;
+			}
+
+			show = _liveDiffShow;
+		}
+
+		if (show is not null) {
+			_bridge.PostToWeb(show);
+		}
+	}
+
+	/// <summary>
 	/// Mutes this session: a held blocking diff is torn out of the page so it can't linger over the incoming
 	/// session (it re-renders on the next <see cref="Activate"/>). Idempotent.
 	/// </summary>

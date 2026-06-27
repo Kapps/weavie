@@ -223,10 +223,12 @@ public sealed partial class HostCore {
 				Log($"[weavie] {json}");
 				break;
 			case "monaco-ready":
-				// The editor pane can now render inline decorations. Replay the review set here (not on `ready`,
-				// which fires before the editor exists) so changes that landed before this connect — a reload, or a
-				// fast claude turn that beat the editor's init — surface deterministically, with no settle sleep.
+				// The editor pane can now render inline decorations. Replay the review set AND the active session's
+				// held openDiff here (not on `ready`, which fires before the editor exists) so changes/proposals that
+				// landed before this connect — a reload, or a claude turn that beat the editor's init — surface
+				// deterministically, with no settle sleep.
 				PushReviewStateToWeb();
+				_session?.EditorChannel.Replay();
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);

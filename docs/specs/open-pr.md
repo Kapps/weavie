@@ -147,12 +147,20 @@ const githubSource: Source = {
 };
 ```
 
-- **Read-only, by the source contract.** A source is deliberately read-only ("no API write-back" is an explicit
-  non-goal of the source model). That's exactly right for an *overview*: it renders the description, the
-  conversation, the checks, and the changed-file list — and **the write path (adding comments) is not here**.
-  It lives in the editor diff surface (Phase 3), where you're editing the branch anyway. Render and review read
-  through the source; comments are written through `IReviewCommentStore`. The split honors the source model
-  rather than fighting it.
+- **Read-only render — with one principled write exception.** The source *renders* read-only (description,
+  conversation, checks, file list), which is exactly right for an overview. Writes split by **comment class**:
+  - **Review comments** (inline, anchored to a diff line/hunk) are written from the **editor diff surface**
+    (Phase 3), where you're looking at the code — never from the overview.
+  - **PR-scoped / conversation comments** (the general thread) naturally belong to the overview, so **replying
+    to the conversation from the overview** is the one sensible write here. This does *not* contradict the
+    source model's "no write-back": that rule was argued against *document editing* (rebuilding an editor,
+    realtime, conflicts, fidelity chase); an append-only PR comment is a discrete structured action that hits
+    none of those. Either way the write goes through `IReviewCommentStore` (its issue-comment path), not the
+    source's read `fetch`.
+
+  The open contract question (below): does the generic `Source` interface grow a narrow, append-only
+  *post-reply* action, or does the GitHub overview layer a composer over a still-read-only source? Either keeps
+  document-style editing out.
 - **Routing + opening.** Resolving the PR URL matches the source and opens a `source` tab; the host also pins
   it as the session's main tab. Because routing is URL-based, **pasting a PR link** opens it natively too. A
   click on a file in the overview's file list routes through `reveal-file`, which in a PR session opens that
@@ -328,8 +336,12 @@ flowchart LR
 - **OAuth app** — a Weavie GitHub OAuth app/client must be registered for the source's `auth` descriptor to
   point at (the source model supplies the *flow* + secure store; this is the GitHub-specific registration). Who
   owns/operates it?
-- **Comment scope** — inline *review* comments only at first, or also PR-level *issue* comments (the general
-  conversation)? This spec covers review comments; issue comments are a small additive follow-up.
+- **Conversation replies + source-contract write** — PR-scoped (issue) comment replies belong to the overview
+  (above). Does the generic `Source` interface grow a narrow append-only *post-reply* action (so other forge
+  sources could reuse it), or does the GitHub overview layer a composer over a still-read-only source? Either
+  routes through `IReviewCommentStore` and keeps document-style editing out. (Owned partly by
+  [web-and-source-tabs.md](web-and-source-tabs.md), since it touches the source contract.) Inline review
+  comments are unaffected — they write from the diff surface.
 - **Push/refresh** — poll the PR for new comments while a session is open, or refresh only on focus/manual? (The
   remote-session webhook plumbing could feed this later.)
 - **Overview ↔ diff navigation** — the file list in the source overview links into the editor `pr` diff via

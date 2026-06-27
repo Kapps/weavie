@@ -62,7 +62,7 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
 
 ## Custom agents
 
-Three project agents live in `.claude/agents/` — prefer them over reinventing their job inline:
+Four project agents live in `.claude/agents/` — prefer them over reinventing their job inline:
 
 - **`weavie-reviewer`** — reviews a change set for correctness and for the standards below.
   **Invoke it on the result of any non-trivial change before treating the work as done**, and act on
@@ -70,6 +70,9 @@ Three project agents live in `.claude/agents/` — prefer them over reinventing 
 - **`weavie-architect`** — designs a feature's implementation against Weavie's patterns (Core-first,
   capabilities-as-commands, `ProcessSupervisor`) and returns a blueprint. Use it before building
   anything with real architectural surface.
+- **`weavie-tester`** — proves a change works by running the real app, exercising the scenarios a PR
+  should cover, and recording a `.webm` as evidence (typically in a remote sandbox). Use it to
+  validate a PR end to end, beyond static review.
 - **`product-strategist`** — proposes features that fit the product thesis. Use it when deciding
   *what* to build, not *how*.
 

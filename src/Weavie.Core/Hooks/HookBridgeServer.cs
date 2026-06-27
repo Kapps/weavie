@@ -37,62 +37,65 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 		if (_acceptLoop is not null) {
 			throw new InvalidOperationException("Server already started.");
 		}
-		_acceptLoop = Task.Run(() => AcceptLoopAsync(_cts.Token));
+		// A fixed pool of always-listening instances, so a relay connecting always finds a free one. The relay
+		// fires Pre/PostToolUse back-to-back as separate one-shot processes; with a single listener that's
+		// disposed and recreated per connection, the second connect races the gap — and on Linux (named pipes
+		// are Unix sockets) disposing the bound instance unlinks the socket file, resetting that connect
+		// ("broken pipe"). Keeping the instances bound for the server's lifetime and reusing them via Disconnect
+		// removes both races.
+		_acceptLoop = Task.WhenAll(Enumerable.Range(0, MaxInstances).Select(_ => Task.Run(() => ServeAsync(_cts.Token))));
 	}
 
-	private async Task AcceptLoopAsync(CancellationToken ct) {
-		while (!ct.IsCancellationRequested) {
-			NamedPipeServerStream server;
-			try {
-				server = new NamedPipeServerStream(
-					_pipeName, PipeDirection.InOut, MaxInstances, PipeTransmissionMode.Byte,
-					PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
-			} catch (IOException ex) {
-				Log?.Invoke($"hook pipe unavailable: {ex.Message}");
+	private async Task ServeAsync(CancellationToken ct) {
+		NamedPipeServerStream? server = null;
+		try {
+			while (!ct.IsCancellationRequested) {
+				if (server is null) {
+					try {
+						server = new NamedPipeServerStream(
+							_pipeName, PipeDirection.InOut, MaxInstances, PipeTransmissionMode.Byte,
+							PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+					} catch (IOException ex) {
+						Log?.Invoke($"hook pipe unavailable: {ex.Message}");
+						await Task.Delay(250, ct).ConfigureAwait(false);
+						continue;
+					}
+				}
+
 				try {
-					await Task.Delay(250, ct).ConfigureAwait(false);
+					await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
+					await HandleConnectionAsync(server, ct).ConfigureAwait(false);
+					server.Disconnect(); // reuse the bound instance — never dispose mid-life (that unlinks the socket)
 				} catch (OperationCanceledException) {
 					break;
+				} catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
+					await server.DisposeAsync().ConfigureAwait(false);
+					server = null;
 				}
-				continue;
 			}
-
-			try {
-				await server.WaitForConnectionAsync(ct).ConfigureAwait(false);
-			} catch (OperationCanceledException) {
+		} finally {
+			if (server is not null) {
 				await server.DisposeAsync().ConfigureAwait(false);
-				break;
-			} catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
-				await server.DisposeAsync().ConfigureAwait(false);
-				continue;
 			}
-
-			await HandleConnectionAsync(server, ct).ConfigureAwait(false);
 		}
 	}
 
 	private async Task HandleConnectionAsync(NamedPipeServerStream server, CancellationToken ct) {
-		try {
-			byte[]? requestBytes = await HookProtocol.ReadFramedAsync(server, ct).ConfigureAwait(false);
-			byte[] response = [];
+		byte[]? requestBytes = await HookProtocol.ReadFramedAsync(server, ct).ConfigureAwait(false);
+		byte[] response = [];
 
-			if (requestBytes is not null) {
-				var request = HookRequest.Parse(Encoding.UTF8.GetString(requestBytes));
-				if (request is not null) {
-					RaiseObserved(request);
-					string? json = _decide(request).ToHookOutputJson(request.Event);
-					if (json is not null) {
-						response = Encoding.UTF8.GetBytes(json);
-					}
+		if (requestBytes is not null) {
+			var request = HookRequest.Parse(Encoding.UTF8.GetString(requestBytes));
+			if (request is not null) {
+				RaiseObserved(request);
+				string? json = _decide(request).ToHookOutputJson(request.Event);
+				if (json is not null) {
+					response = Encoding.UTF8.GetBytes(json);
 				}
 			}
-
-			await HookProtocol.WriteFramedAsync(server, response, ct).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or OperationCanceledException) {
-			// Relay vanished or we're shutting down — the relay fails open, so there's nothing to recover.
-		} finally {
-			await server.DisposeAsync().ConfigureAwait(false);
 		}
+
+		await HookProtocol.WriteFramedAsync(server, response, ct).ConfigureAwait(false);
 	}
 
 	private void RaiseObserved(HookRequest request) {

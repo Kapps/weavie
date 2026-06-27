@@ -119,15 +119,11 @@ export type HostBoundMessage =
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
   // context. See docs/specs/open-pr.md.
-  | { type: "list-prs"; id: string }
-  | {
-      type: "open-pr";
-      number: number;
-      headRef: string;
-      baseRef: string;
-      title: string;
-      url: string;
-    }
+  // Browse the repo's PRs: empty `query` → the recent-open default list; a typed query → forge-side search.
+  | { type: "list-prs"; id: string; query: string }
+  // Open a PR by number (the host resolves its branch refs). `owner`/`repo` are set only for a pasted URL, so
+  // the host can refuse one that isn't this workspace's repository.
+  | { type: "open-pr"; number: number; owner: string; repo: string }
   // Ask the host for one PR file's base→head diff (answered by pr-diff).
   | { type: "get-pr-diff"; number: number; path: string }
   // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
@@ -900,8 +896,8 @@ export interface PullRequestInfo {
   number: number;
   title: string;
   author: string;
+  // The head branch — present in the default list (for display); empty for search results (refs resolve on open).
   headRef: string;
-  baseRef: string;
   url: string;
   draft: boolean;
 }
@@ -927,8 +923,11 @@ onSessionMessage((message) => {
   }
 });
 
-/** Ask `backendId` for its repo's open pull requests (empty on timeout). */
-export function requestPullRequests(backendId: string): Promise<PullRequestInfo[]> {
+/**
+ * Ask `backendId` for its repo's pull requests: an empty `query` returns the recent-open default list; a
+ * non-empty query runs forge-side search (so the picker scales past the default). Empty on timeout.
+ */
+export function requestPullRequests(backendId: string, query: string): Promise<PullRequestInfo[]> {
   const id = `pr${++prSeq}`;
   return new Promise<PullRequestInfo[]>((resolve) => {
     const timer = setTimeout(() => {
@@ -940,7 +939,7 @@ export function requestPullRequests(backendId: string): Promise<PullRequestInfo[
       pendingPrRequests.delete(id);
       resolve(prs);
     });
-    postToBackend(backendId, { type: "list-prs", id });
+    postToBackend(backendId, { type: "list-prs", id, query });
   });
 }
 

@@ -34,6 +34,21 @@ public sealed class GitHubReviewProviderTests {
 	public void ParsePullRequests_EmptyForNoArrayOrEmpty(string json) =>
 		Assert.Empty(GitHubReviewProvider.ParsePullRequests(json));
 
+	[Fact]
+	public void ParsePullRequest_SearchItem_HasNoRefs() {
+		// A /search/issues item is issue-shaped: number/title/user but no head/base — refs resolve on open.
+		using var doc = System.Text.Json.JsonDocument.Parse(
+			"""{ "number": 12, "title": "fix", "user": { "login": "ann" }, "html_url": "u", "draft": true }""");
+
+		var pr = GitHubReviewProvider.ParsePullRequest(doc.RootElement);
+
+		Assert.Equal(12, pr.Number);
+		Assert.Equal("ann", pr.Author);
+		Assert.Equal(string.Empty, pr.HeadRef);
+		Assert.Equal(string.Empty, pr.BaseRef);
+		Assert.True(pr.IsDraft);
+	}
+
 	[Theory]
 	[InlineData("github.com", "https://api.github.com")]
 	[InlineData("github.example.com", "https://github.example.com/api/v3")]

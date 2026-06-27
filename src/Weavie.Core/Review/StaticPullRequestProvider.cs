@@ -28,6 +28,26 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	}
 
 	/// <inheritdoc/>
+	public Task<IReadOnlyList<PullRequestSummary>> SearchAsync(RepoRef repo, string query, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		string q = query.Trim();
+		if (q.Length == 0) {
+			return Task.FromResult(_pullRequests);
+		}
+
+		var matches = _pullRequests
+			.Where(p => $"#{p.Number} {p.Title} {p.Author} {p.HeadRef}".Contains(q, StringComparison.OrdinalIgnoreCase))
+			.ToList();
+		return Task.FromResult<IReadOnlyList<PullRequestSummary>>(matches);
+	}
+
+	/// <inheritdoc/>
+	public Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		return Task.FromResult(_pullRequests.FirstOrDefault(p => p.Number == number));
+	}
+
+	/// <inheritdoc/>
 	public Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		lock (_gate) {
 			return Task.FromResult<IReadOnlyList<ReviewComment>>([.. _comments]);

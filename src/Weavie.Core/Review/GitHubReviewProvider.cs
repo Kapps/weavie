@@ -33,6 +33,33 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 	}
 
 	/// <inheritdoc/>
+	public async Task<IReadOnlyList<PullRequestSummary>> SearchAsync(RepoRef repo, string query, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		// /search/issues ranks across the repo; scope to PRs. The result items are issue-shaped (no head/base
+		// refs), so opening resolves them via GetAsync. The caller's query may add qualifiers (is:open, author:@me).
+		string q = Uri.EscapeDataString($"repo:{repo.Owner}/{repo.Name} is:pr {query}".Trim());
+		string body = await SendAsync(repo, HttpMethod.Get, $"/search/issues?q={q}&per_page=30", null, ct).ConfigureAwait(false);
+		using var doc = JsonDocument.Parse(body);
+		if (!doc.RootElement.TryGetProperty("items", out var items) || items.ValueKind != JsonValueKind.Array) {
+			return [];
+		}
+
+		var result = new List<PullRequestSummary>();
+		foreach (var item in items.EnumerateArray()) {
+			result.Add(ParsePullRequest(item));
+		}
+
+		return result;
+	}
+
+	/// <inheritdoc/>
+	public async Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		string? body = await SendOrNullAsync(repo, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}", ct).ConfigureAwait(false);
+		return body is null ? null : ParsePullRequest(JsonDocument.Parse(body).RootElement);
+	}
+
+	/// <inheritdoc/>
 	public async Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		string body = await SendAsync(
@@ -68,12 +95,40 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 	// One authenticated GitHub REST call: resolves the token, attaches the standard headers, and returns the body
 	// (throwing a clear message on a missing credential or a non-success status).
 	private async Task<string> SendAsync(RepoRef repo, HttpMethod method, string path, string? jsonBody, CancellationToken ct) {
+		using var request = await BuildRequestAsync(repo, method, path, jsonBody, ct).ConfigureAwait(false);
+		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+		if (!response.IsSuccessStatusCode) {
+			throw new InvalidOperationException($"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
+		}
+
+		return body;
+	}
+
+	// A GET that returns null on 404 (the resource doesn't exist — e.g. a typed PR number that isn't there),
+	// throwing on any other failure. Lets the caller distinguish "not found" from a real error.
+	private async Task<string?> SendOrNullAsync(RepoRef repo, string path, CancellationToken ct) {
+		using var request = await BuildRequestAsync(repo, HttpMethod.Get, path, null, ct).ConfigureAwait(false);
+		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		if (response.StatusCode == System.Net.HttpStatusCode.NotFound) {
+			return null;
+		}
+
+		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+		if (!response.IsSuccessStatusCode) {
+			throw new InvalidOperationException($"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
+		}
+
+		return body;
+	}
+
+	private async Task<HttpRequestMessage> BuildRequestAsync(RepoRef repo, HttpMethod method, string path, string? jsonBody, CancellationToken ct) {
 		string? token = await _tokenSource.GetTokenAsync(ct).ConfigureAwait(false);
 		if (string.IsNullOrEmpty(token)) {
 			throw new InvalidOperationException("No GitHub credential found. Sign in to GitHub (gh auth login), or set GITHUB_TOKEN.");
 		}
 
-		using var request = new HttpRequestMessage(method, ApiBase(repo.Host) + path);
+		var request = new HttpRequestMessage(method, ApiBase(repo.Host) + path);
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 		request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Weavie", "1.0"));
@@ -82,13 +137,7 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 			request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
 		}
 
-		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
-		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
-		if (!response.IsSuccessStatusCode) {
-			throw new InvalidOperationException($"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
-		}
-
-		return body;
+		return request;
 	}
 
 	/// <summary>The REST API base for a host: <c>api.github.com</c> for github.com, else Enterprise's <c>/api/v3</c>. Pure, for tests.</summary>
@@ -107,23 +156,27 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 
 		var result = new List<PullRequestSummary>();
 		foreach (var pr in doc.RootElement.EnumerateArray()) {
-			if (!pr.TryGetProperty("number", out var numberEl) || numberEl.ValueKind != JsonValueKind.Number) {
-				continue;
+			if (pr.TryGetProperty("number", out var numberEl) && numberEl.ValueKind == JsonValueKind.Number) {
+				result.Add(ParsePullRequest(pr));
 			}
-
-			result.Add(new PullRequestSummary {
-				Number = numberEl.GetInt32(),
-				Title = String(pr, "title"),
-				Author = pr.TryGetProperty("user", out var user) ? String(user, "login") : string.Empty,
-				HeadRef = pr.TryGetProperty("head", out var head) ? String(head, "ref") : string.Empty,
-				BaseRef = pr.TryGetProperty("base", out var bse) ? String(bse, "ref") : string.Empty,
-				Url = String(pr, "html_url"),
-				IsDraft = pr.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
-			});
 		}
 
 		return result;
 	}
+
+	/// <summary>
+	/// Parses one PR object — from <c>/pulls</c> or <c>/pulls/{n}</c> (with head/base refs) or a <c>/search/issues</c>
+	/// item (without them, left empty). Pure, for tests.
+	/// </summary>
+	public static PullRequestSummary ParsePullRequest(JsonElement pr) => new() {
+		Number = Int(pr, "number"),
+		Title = String(pr, "title"),
+		Author = pr.TryGetProperty("user", out var user) ? String(user, "login") : string.Empty,
+		HeadRef = pr.TryGetProperty("head", out var head) ? String(head, "ref") : string.Empty,
+		BaseRef = pr.TryGetProperty("base", out var bse) ? String(bse, "ref") : string.Empty,
+		Url = String(pr, "html_url"),
+		IsDraft = pr.TryGetProperty("draft", out var draft) && draft.ValueKind == JsonValueKind.True,
+	};
 
 	/// <summary>Parses the GitHub <c>GET /pulls/{n}/comments</c> array into review comments. Pure, for tests.</summary>
 	public static IReadOnlyList<ReviewComment> ParseComments(string json) {

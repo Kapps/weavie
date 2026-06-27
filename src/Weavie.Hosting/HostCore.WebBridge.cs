@@ -78,17 +78,15 @@ public sealed partial class HostCore {
 			}
 
 			case "list-prs": {
-				_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"));
+				_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("query"));
 				break;
 			}
 
 			case "open-pr": {
 				_ = OpenPullRequestFromWebAsync(
 					JsonInt(root, "number"),
-					root.GetStringOrEmpty("headRef"),
-					root.GetStringOrEmpty("baseRef"),
-					root.GetStringOrEmpty("title"),
-					root.GetStringOrEmpty("url"));
+					root.GetStringOrEmpty("owner"),
+					root.GetStringOrEmpty("repo"));
 				break;
 			}
 

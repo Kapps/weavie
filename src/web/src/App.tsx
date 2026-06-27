@@ -838,20 +838,18 @@ export default function App(): JSX.Element {
       <Show when={openPrOpen()}>
         <OpenPrPrompt
           backendId={defaultLocation()}
-          onOpen={(pr, location) => {
+          onOpen={(target, location) => {
             setOpenPrOpen(false);
             setLastLocation(location);
             // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
-            // reply wires the panes to it; then check out the PR's head branch there.
+            // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
             promoteNextSessionOn(location);
             setActiveBackendId(location);
             postToBackend(location, {
               type: "open-pr",
-              number: pr.number,
-              headRef: pr.headRef,
-              baseRef: pr.baseRef,
-              title: pr.title,
-              url: pr.url,
+              number: target.number,
+              owner: target.owner,
+              repo: target.repo,
             });
           }}
           onCancel={() => setOpenPrOpen(false)}

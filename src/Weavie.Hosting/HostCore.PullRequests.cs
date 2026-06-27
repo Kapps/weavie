@@ -15,11 +15,15 @@ public sealed partial class HostCore {
 	/// replies <c>prs-result</c> tagged by <paramref name="id"/>. A non-GitHub remote, a missing credential, or
 	/// an API failure toasts and replies an empty list (so the picker never hangs).
 	/// </summary>
-	private async Task ListPullRequestsForWebAsync(string id) {
+	private async Task ListPullRequestsForWebAsync(string id, string query) {
 		IReadOnlyList<PullRequestSummary> prs = [];
 		if (await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false) is { } repo) {
 			try {
-				prs = await _pullRequests.ListOpenAsync(repo, CancellationToken.None).ConfigureAwait(false);
+				// Empty query → the recent-open default list; a typed query → forge-side search (scales past the
+				// default without fetching everything).
+				prs = string.IsNullOrWhiteSpace(query)
+					? await _pullRequests.ListOpenAsync(repo, CancellationToken.None).ConfigureAwait(false)
+					: await _pullRequests.SearchAsync(repo, query, CancellationToken.None).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
 				Notify("error", $"Couldn't list pull requests: {ex.Message}");
 			}
@@ -35,7 +39,6 @@ public sealed partial class HostCore {
 				title = p.Title,
 				author = p.Author,
 				headRef = p.HeadRef,
-				baseRef = p.BaseRef,
 				url = p.Url,
 				draft = p.IsDraft,
 			}),
@@ -47,11 +50,42 @@ public sealed partial class HostCore {
 	/// session (reusing the attach-existing path, which de-dupes to a live session if one already exists), seeding
 	/// Claude's first message with the PR's context. Any failure surfaces as a toast.
 	/// </summary>
-	private async Task OpenPullRequestFromWebAsync(int number, string headRef, string baseRef, string title, string url) {
-		if (number <= 0 || string.IsNullOrWhiteSpace(headRef)) {
+	private async Task OpenPullRequestFromWebAsync(int number, string owner, string repoName) {
+		if (number <= 0) {
 			return;
 		}
 
+		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
+		if (repo is null) {
+			Notify("warn", "This workspace's 'origin' isn't a recognized GitHub repository.");
+			return;
+		}
+
+		// A pasted URL carries its own owner/repo; refuse one that isn't this workspace's origin (its branch
+		// wouldn't be fetchable here). A typed #N / a picked result sends no owner/repo and targets origin.
+		if (!string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repoName)
+			&& !(owner.Equals(repo.Owner, StringComparison.OrdinalIgnoreCase) && repoName.Equals(repo.Name, StringComparison.OrdinalIgnoreCase))) {
+			Notify("warn", $"PR #{number} is in {owner}/{repoName}, not this workspace's repository ({repo.Owner}/{repo.Name}).");
+			return;
+		}
+
+		PullRequestSummary? pr;
+		try {
+			pr = await _pullRequests.GetAsync(repo, number, CancellationToken.None).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
+			Notify("error", $"Couldn't open PR #{number}: {ex.Message}");
+			return;
+		}
+
+		if (pr is null || string.IsNullOrWhiteSpace(pr.HeadRef)) {
+			Notify("error", $"PR #{number} wasn't found in {repo.Owner}/{repo.Name}.");
+			return;
+		}
+
+		string headRef = pr.HeadRef;
+		string baseRef = pr.BaseRef;
+		string title = pr.Title;
+		string url = pr.Url;
 		if (!GitService.IsValidBranchName(headRef)) {
 			Notify("error", $"PR #{number} has an unexpected branch name ('{headRef}').");
 			return;

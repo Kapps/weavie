@@ -1,51 +1,64 @@
 import { For, type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { type PullRequestInfo, requestPullRequests } from "../bridge";
+import { type OpenPrTarget, parsePrRef } from "./pr-ref";
 
-// Open Pull Request: pick one of the repo's open PRs to check out as a session. Loads the chosen backend's PRs,
-// filters by a typed query (number / title / author / branch), and opens the highlighted one — Enter opens,
-// ↑/↓ move, Esc cancels. Mirrors NewSessionPrompt's keyboard-first shape. See docs/specs/open-pr.md.
+const SEARCH_DEBOUNCE_MS = 250;
+
+// Open Pull Request: type to search the repo's PRs (forge-side, so it scales past the default list), or paste a
+// URL / type #123 to open one directly by number. Enter opens, ↑/↓ move, Esc cancels. See docs/specs/open-pr.md.
 export function OpenPrPrompt(props: {
   backendId: string;
-  onOpen: (pr: PullRequestInfo, backendId: string) => void;
+  onOpen: (target: OpenPrTarget, backendId: string) => void;
   onCancel: () => void;
 }): JSX.Element {
-  const [prs, setPrs] = createSignal<PullRequestInfo[]>([]);
+  const [results, setResults] = createSignal<PullRequestInfo[]>([]);
   const [loading, setLoading] = createSignal(true);
   const [query, setQuery] = createSignal("");
   const [highlight, setHighlight] = createSignal(0);
 
-  onMount(() => {
-    void requestPullRequests(props.backendId).then((list) => {
-      setPrs(list);
+  const directRef = (): OpenPrTarget | null => parsePrRef(query());
+
+  // Debounced forge-side search (empty query = the recent-open default), latest-query-wins. Skipped while the
+  // input is a direct #N / URL reference — that opens by number without a list.
+  let seq = 0;
+  createEffect(() => {
+    const q = query();
+    if (parsePrRef(q) !== null) {
+      setResults([]);
       setLoading(false);
-    });
+      return;
+    }
+    setLoading(true);
+    const mine = ++seq;
+    const timer = setTimeout(() => {
+      void requestPullRequests(props.backendId, q.trim()).then((list) => {
+        if (mine === seq) {
+          setResults(list);
+          setLoading(false);
+        }
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    onCleanup(() => clearTimeout(timer));
   });
 
-  const matches = (pr: PullRequestInfo, q: string): boolean =>
-    `#${pr.number} ${pr.title} ${pr.author} ${pr.headRef}`.toLowerCase().includes(q);
-
-  const filtered = (): PullRequestInfo[] => {
-    const q = query().trim().toLowerCase();
-    return q.length === 0 ? prs() : prs().filter((pr) => matches(pr, q));
-  };
-
-  // Keep the highlight within the (re-filtered) list so Enter always has a valid target.
   createEffect(() => {
-    const count = filtered().length;
+    const count = results().length;
     if (highlight() >= count) {
       setHighlight(count === 0 ? 0 : count - 1);
     }
   });
 
-  const open = (pr: PullRequestInfo | undefined): void => {
-    if (pr !== undefined) {
-      props.onOpen(pr, props.backendId);
+  const openTarget = (target: OpenPrTarget | undefined): void => {
+    if (target !== undefined) {
+      props.onOpen(target, props.backendId);
     }
   };
+  const openResult = (pr: PullRequestInfo): void =>
+    openTarget({ number: pr.number, owner: "", repo: "" });
 
   const onKeyDown = (event: KeyboardEvent): void => {
-    const list = filtered();
+    const list = results();
     if (event.key === "ArrowDown" && list.length > 0) {
       event.preventDefault();
       event.stopPropagation();
@@ -57,7 +70,12 @@ export function OpenPrPrompt(props: {
     } else if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      open(list[highlight()]);
+      const ref = directRef();
+      if (ref !== null) {
+        openTarget(ref);
+      } else {
+        openTarget(list[highlight()] && { number: list[highlight()]!.number, owner: "", repo: "" });
+      }
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
@@ -76,13 +94,14 @@ export function OpenPrPrompt(props: {
         >
           <div class="confirm-title">Open pull request</div>
           <div class="confirm-body">
-            Check out a pull request's branch as a session. Pick one to open.
+            Search for a pull request, or paste its URL / type its number (e.g. #46) to open it
+            directly.
           </div>
           <div class="session-prompt-field">
             <input
               class="session-prompt-input"
               type="text"
-              placeholder="filter pull requests"
+              placeholder="search, #number, or URL"
               spellcheck={false}
               autocomplete="off"
               value={query()}
@@ -94,25 +113,45 @@ export function OpenPrPrompt(props: {
                 queueMicrotask(() => el.focus());
               }}
             />
-            <Show when={loading()}>
-              <div class="session-prompt-hint">Loading pull requests…</div>
+            {/* A direct #N / URL reference: one row to open it by number (resolved on the host). */}
+            <Show when={directRef() !== null}>
+              <ul class="session-prompt-suggestions">
+                <li
+                  class="session-prompt-suggestion active"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    openTarget(directRef() ?? undefined);
+                  }}
+                >
+                  <span class="pr-suggestion-number">#{directRef()?.number}</span>
+                  <span class="pr-suggestion-title">Open this pull request</span>
+                  <Show when={directRef()?.owner !== ""}>
+                    <span class="pr-suggestion-meta">
+                      {directRef()?.owner}/{directRef()?.repo}
+                    </span>
+                  </Show>
+                </li>
+              </ul>
             </Show>
-            <Show when={!loading() && prs().length === 0}>
+            <Show when={directRef() === null && loading()}>
+              <div class="session-prompt-hint">Searching pull requests…</div>
+            </Show>
+            <Show when={directRef() === null && !loading() && results().length === 0}>
               <div class="session-prompt-hint">
-                No open pull requests (or no GitHub credential).
+                No matching pull requests (or no GitHub credential).
               </div>
             </Show>
-            <Show when={!loading() && filtered().length > 0}>
+            <Show when={directRef() === null && results().length > 0}>
               <ul class="session-prompt-suggestions">
-                <For each={filtered()}>
+                <For each={results()}>
                   {(pr, i) => (
                     <li
                       class="session-prompt-suggestion"
                       classList={{ active: i() === highlight() }}
-                      title={`${pr.headRef} — open #${pr.number}`}
+                      title={`Open #${pr.number}`}
                       onPointerDown={(event) => {
                         event.preventDefault();
-                        open(pr);
+                        openResult(pr);
                       }}
                     >
                       <span class="pr-suggestion-number">#{pr.number}</span>
@@ -121,7 +160,8 @@ export function OpenPrPrompt(props: {
                         <span class="pr-suggestion-draft">draft</span>
                       </Show>
                       <span class="pr-suggestion-meta">
-                        @{pr.author} · {pr.headRef}
+                        @{pr.author}
+                        <Show when={pr.headRef !== ""}> · {pr.headRef}</Show>
                       </span>
                     </li>
                   )}
@@ -142,8 +182,17 @@ export function OpenPrPrompt(props: {
             <button
               type="button"
               class="session-prompt-btn session-prompt-btn-primary"
-              disabled={filtered().length === 0}
-              onClick={() => open(filtered()[highlight()])}
+              disabled={directRef() === null && results().length === 0}
+              onClick={() =>
+                openTarget(
+                  directRef() ??
+                    (results()[highlight()] && {
+                      number: results()[highlight()]!.number,
+                      owner: "",
+                      repo: "",
+                    }),
+                )
+              }
               title="Open the selected pull request (Enter)"
             >
               <span class="session-prompt-btn-label">Open PR</span>

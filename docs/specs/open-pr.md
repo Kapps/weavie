@@ -5,9 +5,12 @@ PR's review comments into the editor anchored to the lines they're about, and le
 or leave a new comment without leaving Weavie.
 
 > Status: **building**. Implemented and e2e-tested:
-> - **Phase 1 — Open PR → session.** `IPullRequestProvider` (GitHub impl + token discovery),
->   `IGitService.FetchAsync`/`GetRemoteUrlAsync`, the `list-prs`/`open-pr` messages, the `OpenPrPrompt` picker,
->   the `weavie.pr.open` command.
+> - **Phase 1 — Open PR → session.** `IPullRequestProvider` (GitHub impl + token discovery —
+>   `ListOpenAsync`/`SearchAsync`/`GetAsync`), `IGitService.FetchAsync`/`GetRemoteUrlAsync`, the
+>   `list-prs`/`open-pr` messages, the `OpenPrPrompt` picker, the `weavie.pr.open` command. The picker is
+>   **forge-side search** (debounced; empty query = recent open) so it scales past any default cap, and accepts a
+>   **direct `#N` or pasted URL** that opens by number — the host resolves the branch refs via `GetAsync` (works
+>   for any PR, any state; a foreign-repo URL is refused).
 > - **Phase 2 — the PR diff in the review surface.** Opening a PR computes the `base…head` diff
 >   (`IGitService.MergeBaseAsync`/`DiffRefsAsync`/`ShowFileAtRefAsync`) and pushes `pr-changes`/`pr-diff`; the
 >   editor's inline-diff navigator renders it in a read-only `pr` mode (walk files ←/→, hunks ↑/↓).

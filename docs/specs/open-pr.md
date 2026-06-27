@@ -13,9 +13,19 @@ the editor (to make the change). Weavie already owns the two halves that matter 
 own worktree ([multi-session-and-worktrees](multi-session-and-worktrees.md)), and the editor already has a
 **diff-review surface**: the post-turn inline-diff navigator that walks a change set hunk-by-hunk and
 file-by-file, with a floating toolbar, position label, and per-hunk actions ([turn-review](turn-review.md)).
-"Open PR" joins them: the PR becomes the session, **its `base…head` diff is shown in that exact same review
-surface** — the same one you get when Claude ends a turn — and the PR's comments anchor onto that diff where
-they belong, answerable in place, with Claude already checked out on the branch and primed with the PR's context.
+"Open PR" joins them across **two surfaces, each the natural fit for its half**:
+
+- **The PR overview** (title, description, conversation, checks, changed-file list) opens as the session's
+  **pinned main tab**, rendered by a registered **GitHub source** — the source-tab mechanism that just landed
+  ([web-and-source-tabs.md](web-and-source-tabs.md)). It's read-only, themed, Claude-readable, and reached by
+  resolving the PR URL.
+- **The code diff + commenting** lives in the editor's review surface: the PR's `base…head` diff is shown in
+  **that exact same navigator you get when Claude ends a turn**, with the PR's comments anchored onto the hunks
+  and a composer to answer in place.
+
+So the PR *is* the session — worktree checked out on its head branch, Claude primed with its context, overview
+in the main tab, code review in the editor. The read/write split is deliberate and falls out of the source
+model (below).
 
 ## User journey
 
@@ -39,22 +49,27 @@ existing web↔host bridge as new message types, exactly like `new-session` / `l
 flowchart LR
   subgraph Web[web · SolidJS]
     Picker[Open-PR picker]
+    Overview[main tab · GitHub source<br/>overview · read-only]
     Editor[inline-diff navigator · pr mode<br/>base→head diff + comment zones]
   end
   subgraph Host[HostCore · all four hosts]
     Bridge[WebBridge dispatch]
     Flow[OpenPullRequest flow]
+    Src[GitHub source · registered<br/>fetch → html/text]
     Prov[IPullRequestProvider + IReviewCommentStore<br/>forge-agnostic]
     Git[IGitService · fetch + attach<br/>diff base...head + show base:path]
     Sess[SessionManager · slot.Pr]
   end
   Forge[(forge API · GitHub impl)]
   Picker -->|list-prs / open-pr| Bridge
+  Overview -->|source-fetch| Bridge
   Editor -->|get-pr-diff / add-pr-comment| Bridge
   Bridge --> Flow
+  Flow --> Src --> Prov
   Flow -->|PRs + comments| Prov --> Forge
   Flow -->|diff + base content| Git
   Flow --> Sess
+  Bridge -->|source-doc| Overview
   Bridge -->|prs-result / pr-changes / pr-diff| Editor
 ```
 
@@ -114,62 +129,69 @@ remote URL: `GetRemoteUrlAsync` is normalized — `https://github.com/owner/repo
 `git@github.com:owner/repo.git`, `ssh://git@host/owner/repo.git` — to `RepoRef` by taking the last two
 non-empty path segments (stripping `.git`); the `host` selects the provider. The user never types owner/repo.
 
+### The PR overview as a registered GitHub source
+
+The overview tab is a **`source`** ([web-and-source-tabs.md](web-and-source-tabs.md)), not a bespoke surface: a
+GitHub source plugin registered in Core the same way settings/commands are, which is also what exposes the PR's
+text to Claude.
+
+```ts
+const githubSource: Source = {
+  id: "github",
+  match: (t) => /github\.com\/[^/]+\/[^/]+\/pull\/\d+/.test(t),   // claims PR URLs
+  icon: githubMark,
+  auth: githubOAuth,                                              // host-run, system browser, secure store
+  fetch: async (target, token) => {                              // → { html, text, icon, title }
+    // calls IPullRequestProvider/IReviewCommentStore + DiffRefsAsync, projects to html (human) + text (Claude)
+  },
+};
+```
+
+- **Read-only, by the source contract.** A source is deliberately read-only ("no API write-back" is an explicit
+  non-goal of the source model). That's exactly right for an *overview*: it renders the description, the
+  conversation, the checks, and the changed-file list — and **the write path (adding comments) is not here**.
+  It lives in the editor diff surface (Phase 3), where you're editing the branch anyway. Render and review read
+  through the source; comments are written through `IReviewCommentStore`. The split honors the source model
+  rather than fighting it.
+- **Routing + opening.** Resolving the PR URL matches the source and opens a `source` tab; the host also pins
+  it as the session's main tab. Because routing is URL-based, **pasting a PR link** opens it natively too. A
+  click on a file in the overview's file list routes through `reveal-file`, which in a PR session opens that
+  file in the editor's `pr` diff mode — the overview is the entry into the code review.
+- **Layering.** The source plugin is *presentation*; it consumes the same `IPullRequestProvider` /
+  `IReviewCommentStore` / `IGitService` data layer the diff surface does, projecting it to `html`/`text`. One
+  data layer, two renderings (native overview, Monaco diff).
+
 ## Authentication
 
-Auth is the **GitHub implementation's** concern — the provider interfaces are credential-agnostic, and another
-forge's implementation would bring its own. This is the open design question for the GitHub one. Weavie runs in two very different contexts — a **desktop app** on a dev's
-machine, and a **headless/remote worker** on a server ([remote-sessions](remote-sessions.md)) — and the right
-credential source differs between them. The options:
+Modeling GitHub as a **source** mostly settles this: the source model already prescribes a host-run **OAuth in
+the system browser** with the token in the **OS secure store** (DPAPI / Keychain / libsecret), shared by every
+source ([web-and-source-tabs.md](web-and-source-tabs.md)). So GitHub's `auth: OAuthDescriptor` is the *primary*
+path — the same "Sign in" flow as Notion, not a GitHub-special mechanism — and the **secret-storage question is
+answered** (the source store, no new "secret setting kind" needed). What remains GitHub-specific is registering
+a Weavie GitHub **OAuth app/client** to point the descriptor at.
 
-| Source | Setup cost | Works headless? | Secure storage | Notes |
-| --- | --- | --- | --- | --- |
-| `gh auth token` (GitHub CLI) | none *if installed* | rarely (gh seldom on servers) | gh owns it | correct scopes, zero config on a dev box |
-| `git credential fill` (origin) | none *if pushing over HTTPS* | sometimes | OS helper (keychain/manager) | reuses the token the user already pushes with; SSH-only users have none |
-| `GITHUB_TOKEN` / `GH_TOKEN` env | trivial | **yes** | none (process env) | standard server provisioning; "buried" as a *primary* desktop path |
-| Fine-grained PAT (explicit setting) | manual create + rotate | **yes** | must be keychain, **not** `settings.toml` | minimal scope (PRs RW on chosen repos), expires ≤1y |
-| OAuth device flow (Weavie GitHub App) | one click | yes | app-managed, refreshable | best UX; needs a Weavie-owned GitHub App + refresh handling |
+The one gap the source OAuth doesn't cover is **headless / remote** ([remote-sessions](remote-sessions.md)):
+there's no system browser on a server, so an interactive flow can't run. There a **configured token** is the
+answer. So the resolution is two-pronged, not a long precedence chain:
 
-### Recommendation — layered, discovery first, explicit override, OAuth later
-
-Resolve the token through one `IGitHubTokenSource` with a clear precedence, so each context gets the right
-answer without the user thinking about it:
+- **Desktop → OAuth (the source flow).** A *"Sign in to GitHub"* button → consent in the real browser →
+  short-lived, refreshable token in the secure store. Fine-grained, *Pull requests: read/write* scope.
+- **Headless / a token already on the box → discovery.** `github.token` setting (a fine-grained PAT) →
+  `GITHUB_TOKEN`/`GH_TOKEN` env → `gh auth token` → `git credential fill`. This is legitimate server credential
+  provisioning, and doubles as a zero-config convenience on a dev box that already has `gh`/a git credential.
 
 ```mermaid
 flowchart TD
-  A["github.token setting<br/>(fine-grained PAT, keychain-backed)"] -->|set| USE[Use it]
-  A -->|unset| B["gh auth token"]
-  B -->|found| USE
-  B -->|none| C["git credential fill · host=github.com"]
-  C -->|found| USE
-  C -->|none| D["GITHUB_TOKEN / GH_TOKEN env"]
-  D -->|found| USE
-  D -->|none| E["No GitHub access →<br/>'Connect GitHub' affordance"]
+  Ctx{context} -->|desktop, interactive| O["OAuth · system browser<br/>token → OS secure store"]
+  Ctx -->|headless / configured| T["github.token → env → gh → git credential"]
+  O --> USE[token]
+  T --> USE
+  USE -->|none| E["'Connect GitHub' affordance"]
 ```
 
-- **Desktop, zero-config (the common case):** discovery via `gh` → git credential → env reuses auth the dev
-  already has. Most users connect nothing.
-- **Explicit, philosophy-aligned override:** a first-class `github.token` setting (discoverable, documented —
-  per CLAUDE.md, not a buried env var) holding a **fine-grained PAT** scoped to *Pull requests: read/write* on
-  the chosen repos. It takes precedence and is the answer when discovery can't work.
-- **Headless / remote:** the env fallback is legitimate server credential provisioning here (not a hidden
-  desktop toggle), and the `github.token` path also works since the worker can be configured with a secret.
-- **Later — OAuth device flow** via a Weavie-owned **GitHub App**: a *"Sign in to GitHub"* button → approve in
-  the browser → short-lived, refreshable, fine-grained user-to-server token. Best desktop UX; deferred only
-  because it needs Weavie-owned app infrastructure (app registration + refresh-token handling). A GitHub App
-  (not an OAuth App) is preferred for per-install fine-grained permissions and no exposed client secret in the
-  device flow.
-
-> **Why not OAuth first?** It's the best end state but the only option that needs infrastructure we don't have
-> yet (a registered Weavie GitHub App). Discovery + PAT ship value immediately with no backend; the App slots in
-> as a higher-precedence source without changing anything downstream.
-
-### Secret-storage requirement (blocks the PAT path)
-
-`settings.toml` is plaintext, so a raw PAT must **never** be written there. The `github.token` setting is
-first-class and discoverable, but its *value* lives in the OS secret store — macOS Keychain, Windows Credential
-Manager, libsecret on Linux — with the setting holding only a reference. This needs a new "secret" setting kind
-(or a keychain-backed store beside `SettingsStore`); it's a prerequisite of the PAT path and is called out as
-its own work item. Discovery-only (gh/credential/env) needs none of this and can ship first.
+Because both feed one resolved token into the GitHub provider, the provider doesn't care which produced it.
+Auth stays the **GitHub implementation's** concern — the provider interfaces are credential-agnostic, and
+another forge brings its own descriptor.
 
 ## Phase 1 — Open PR → session on its branch
 
@@ -188,6 +210,13 @@ The tractable, fully-testable core; reuses the existing attach-existing-branch m
    existing session, handles the primary-checkout case, provisions the worktree, and switches.
 3. Record the PR on the slot (`SessionSlot.Pr`, see below) and seed Claude's first prompt with the PR
    title + URL + body for context.
+4. Open the PR's URL through the resolver — matching the registered **GitHub source** — and **pin it as the
+   session's main tab**, so the session lands on the PR overview. (Resolving a URL also means a pasted PR link
+   does the same thing.)
+
+**Source + auth.** Phase 1 registers the GitHub source (match + `fetch` → overview `html`/`text`) and wires its
+OAuth (the source's host-run flow), since opening the overview tab needs both. The provider's `ListOpenAsync`
+backs the picker; the source's `fetch` backs the tab. No secret store to build — the source model supplies it.
 
 **UI.** An `OpenPrPrompt.tsx` modeled on `NewSessionPrompt.tsx`: a typeahead list of open PRs (number · title ·
 @author · branch) with the same keyboard-first affordances. Reached by a new web command `weavie.pr.open`
@@ -272,38 +301,37 @@ worktree tests. Pure units cover URL→`RepoRef` normalization and the token-sou
 - Token stays host-side; never logged, never crosses the bridge to the web.
 - Web-supplied `headRef` / branch names pass `GitService.IsValidBranchName` before reaching `git` (no
   option/ref smuggling), matching the existing trust boundary.
-- `fetch` uses an explicit `origin <ref>` refspec, never web-supplied raw refspecs.
-- Comment bodies (external) are sanitized before render.
+- `git fetch` uses an explicit `origin <ref>` refspec, never web-supplied raw refspecs.
+- Comment bodies (external) are sanitized before render — both in the diff surface's view-zones and where the
+  GitHub source projects the conversation into its `html` (the source is a trusted plugin, but the PR's *content*
+  is still external user input it must sanitize).
 - PAT scope guidance: fine-grained, *Pull requests: read/write* on the selected repos only.
 
 ## Phasing
 
-1. **Provider + git diff + Open-PR → session.** `IPullRequestProvider` (list/get PRs) with the `GitHubReviewProvider`
-   impl + repo selection from the remote URL, `IGitService.FetchAsync`/`DiffRefsAsync`/`ShowFileAtRefAsync`,
-   auth discovery (gh → credential → env), the `open-pr` flow, the picker, the command. No secret store needed.
-   ← the first PR.
+1. **Open PR → session + overview tab.** `IPullRequestProvider` (list/get PRs) with the `GitHubReviewProvider`
+   impl + repo selection from the remote URL, `IGitService.FetchAsync`, the `open-pr` flow, the picker/command,
+   the registered **GitHub source** (`fetch` → overview) opened as the pinned main tab, and **OAuth** (the
+   source's host-run flow) with token discovery as the headless/convenience fallback. ← the first PR.
 2. **The PR diff in the review surface.** A `pr` mode in `inline-diff.ts` fed the `base…head` diff
    (`pr-changes` / `pr-diff` from `DiffRefsAsync` + `ShowFileAtRefAsync`), `IReviewCommentStore.ListAsync` with
-   the comments anchored as view-zones on the hunks, the slot↔PR association + persistence.
+   the comments anchored as view-zones on the hunks, the slot↔PR association + persistence, and `reveal-file`
+   from the overview file list opening `pr` mode.
 3. **Adding comments.** `IReviewCommentStore.AddAsync` / `ReplyAsync`, the composer.
-4. **Explicit `github.token` setting** (needs the secret-store work item) and, later, **OAuth device flow**
-   via a Weavie GitHub App.
 ```mermaid
 flowchart LR
-  P1[1 · Open PR → session] --> P2[2 · Read comments] --> P3[3 · Add comments]
-  P1 -.-> P4[4 · PAT setting + OAuth]
+  P1[1 · Open PR → session + overview] --> P2[2 · Diff + read comments] --> P3[3 · Add comments]
 ```
 
 ## Open questions
 
-- **Secret storage** — build a keychain-backed secret setting kind, or keep the PAT entirely outside settings
-  with only a keychain reference? (Prerequisite of the PAT path.)
-- **OAuth** — is a Weavie-owned GitHub App in scope, and who operates the device-flow token exchange/refresh?
+- **OAuth app** — a Weavie GitHub OAuth app/client must be registered for the source's `auth` descriptor to
+  point at (the source model supplies the *flow* + secure store; this is the GitHub-specific registration). Who
+  owns/operates it?
 - **Comment scope** — inline *review* comments only at first, or also PR-level *issue* comments (the general
   conversation)? This spec covers review comments; issue comments are a small additive follow-up.
 - **Push/refresh** — poll the PR for new comments while a session is open, or refresh only on focus/manual? (The
   remote-session webhook plumbing could feed this later.)
-- **PR details tab (deferred)** — a pinned tab in the PR session showing the PR's overview (description,
-  PR-level/issue conversation, the changed-file list as the entry into the diff walk). This wants a generalized
-  **non-file tab kind** to host custom content; parked until the in-flight browser-tabs-alongside-file-tabs work
-  lands, then designed on top of it.
+- **Overview ↔ diff navigation** — the file list in the source overview links into the editor `pr` diff via
+  `reveal-file`; confirm that a `reveal-file` in a PR session opens `pr` mode (not a plain file tab), and how the
+  overview tab and the diff coexist on screen (the diff opens beside/over the pinned overview tab).

@@ -100,6 +100,19 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = "pr.autoReviewPrompt",
+			Kind = SettingKind.Bool,
+			Description = "When you open a pull request as a session, automatically seed Claude's first message "
+				+ "asking it to look at the branch's changes and help address review feedback. On by default; "
+				+ "turn it off to open the PR (and its diff navigator) without prompting Claude. Takes effect the "
+				+ "next time a PR is opened.",
+			Aliases = ["pr review prompt", "auto review prompt", "auto prompt claude on pr", "seed pr prompt",
+				"prompt claude to review", "ask claude to review pr"],
+			Apply = ApplyMode.Live,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = "worktree.setupCommand",
 			Kind = SettingKind.String,
 			Description = "Shell command run once in a new session's worktree right after it is created "

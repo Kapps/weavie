@@ -26,7 +26,8 @@ public static class CoreSettings {
 			Description = "Directory Claude and the terminal open in (the IDE workspace).",
 			Aliases = ["workspace", "working directory", "project folder"],
 			Apply = ApplyMode.RestartRequired,
-			ComputeDefault = static () => Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+			// No default: an unset workspace is no workspace (the launch empty state → welcome screen), never a
+			// silent fall-back to the home directory.
 			Validate = static value => value is string dir && Directory.Exists(dir)
 				? ValidationResult.Success
 				: ValidationResult.Failure($"workspace '{value}' is not an existing directory."),

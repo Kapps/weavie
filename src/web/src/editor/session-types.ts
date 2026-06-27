@@ -7,6 +7,9 @@ export type EditorViewState = unknown;
 
 export interface EditorSessionEntry {
   path: string;
+  // Tab kind: a file tab (Monaco, the default — absent ⇒ "file") or a "web" tab (an http(s) URL in an iframe,
+  // where `path` is the URL). Web tabs are a web-only surface, not persisted host-side. Absent ⇒ "file".
+  kind?: "file" | "web";
   viewState: EditorViewState | null;
   // Preview tab: reused by the next preview open (single-click / go-to-def), shown italic; promoted to a
   // persistent tab by editing or double-clicking. Absent ⇒ false.

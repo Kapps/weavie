@@ -312,3 +312,25 @@
 .editor-preview-toggle[aria-pressed="true"] {
   color: var(--accent);
 }
+
+/* Web-tab icon in the tab strip (a globe before the host label). */
+.editor-tab-icon {
+  flex: 0 0 auto;
+  margin-right: 0.4em;
+  color: var(--dim);
+}
+
+/* Web-tab surface: an iframe covering the (kept-mounted) Monaco host, at the same layer as the Preview overlay
+   (see WebTabPane.tsx / .editor-preview). */
+.editor-web {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  background: var(--bg);
+}
+
+.editor-web-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}

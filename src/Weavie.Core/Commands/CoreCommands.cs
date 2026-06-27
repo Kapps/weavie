@@ -128,6 +128,12 @@ public static class CoreCommands {
 	/// <summary>Clears all color overrides on the active theme.</summary>
 	public const string ResetTheme = "weavie.theme.reset";
 
+	/// <summary>Open a different workspace folder via the native folder picker.</summary>
+	public const string OpenFolder = "weavie.workspace.openFolder";
+
+	/// <summary>Prompt for an http(s) URL and open it in a web (iframe) tab.</summary>
+	public const string OpenUrl = "weavie.workspace.openUrl";
+
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
 		var registry = new CommandRegistry();
@@ -200,6 +206,28 @@ public static class CoreCommands {
 			Description = "Open the command palette in the omnibar.",
 			Aliases = ["command palette", "show commands", "run command"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+p" }],
+		});
+
+		// Open Folder + Open URL. Both web-handled: Open Folder posts the existing menu-action to the host's native
+		// picker; Open URL opens a web (iframe) tab. Open Folder takes $mod+Shift+O so $mod+O is free for Open URL.
+		registry.Register(new CommandDefinition {
+			Id = OpenFolder,
+			Title = "Open Folder…",
+			RunsIn = CommandLocation.Web,
+			Category = "File",
+			Description = "Open a different workspace folder (shows the native folder picker).",
+			Aliases = ["open folder", "open workspace", "change folder", "pick folder"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+o" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenUrl,
+			Title = "Open URL…",
+			RunsIn = CommandLocation.Web,
+			Category = "File",
+			Description = "Open an http(s) URL in a web tab — e.g. a local dev server to preview your app.",
+			Aliases = ["open url", "open web page", "web tab", "preview url", "open browser tab"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+o" }],
 		});
 
 		registry.Register(new CommandDefinition {

@@ -1,0 +1,81 @@
+/* Suggestions: a bottom-right stack of dismissible contextual nudge cards (Suggestions.tsx). Persistent —
+   unlike the top-center toasts, a card stays until the user acts on it or dismisses it. */
+.suggestions {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 75; /* below toasts (80) so a transient error still wins */
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  max-width: min(360px, 90vw);
+  pointer-events: none;
+}
+
+.suggestion {
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  padding: 10px 12px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
+  pointer-events: auto;
+  animation: suggestion-in 180ms ease;
+}
+
+.suggestion-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.suggestion-body {
+  color: var(--dim);
+  font-size: 0.9em;
+  line-height: 1.4;
+}
+
+.suggestion-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.suggestion-action {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  padding: 3px 10px;
+}
+
+.suggestion-action:hover {
+  border-color: var(--accent);
+}
+
+.suggestion-action.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--bg);
+}
+
+@keyframes suggestion-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .suggestion {
+    animation: none;
+  }
+}

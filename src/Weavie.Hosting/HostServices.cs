@@ -5,6 +5,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
+using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 
 namespace Weavie.Hosting;
@@ -20,6 +21,9 @@ public sealed record HostServices {
 
 	/// <summary>The command catalog (built-in commands, including the session commands).</summary>
 	public required CommandRegistry CommandRegistry { get; init; }
+
+	/// <summary>The contextual-suggestion catalog (built-in nudges the per-workspace service evaluates).</summary>
+	public required SuggestionRegistry SuggestionRegistry { get; init; }
 
 	/// <summary>The user keybindings resolved over the defaults (<c>~/.weavie/keybindings.json</c>).</summary>
 	public required KeybindingStore Keybindings { get; init; }
@@ -62,6 +66,7 @@ public sealed record HostServices {
 		var settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		settings.Log += Log;
 		var registry = CoreCommands.CreateRegistry();
+		var suggestions = CoreSuggestions.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, filePath: null, enableWatcher: true);
 		keybindings.Log += Log;
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), path: null);
@@ -76,6 +81,7 @@ public sealed record HostServices {
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
+			SuggestionRegistry = suggestions,
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			ClaudeSessions = claudeSessions,

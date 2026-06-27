@@ -107,6 +107,12 @@ public static class WeaviePaths {
 	public static string WorkspaceWorktreesFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "worktrees.json");
 
 	/// <summary>
+	/// The per-workspace record of suggestions dismissed forever ("don't ask again"):
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/suggestions.json</c>. See <see cref="Suggestions.SuggestionDismissals"/>.
+	/// </summary>
+	public static string WorkspaceSuggestionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "suggestions.json");
+
+	/// <summary>
 	/// A workspace's persisted session set (the sessions and which was active):
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>. Lets a workspace reopen with the same sessions
 	/// bound to the same worktrees. See <see cref="Sessions.SessionStore"/>.

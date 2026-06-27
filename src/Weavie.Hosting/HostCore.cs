@@ -8,6 +8,7 @@ using Weavie.Core.Layout;
 using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
+using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
@@ -26,6 +27,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
 	private readonly CommandRegistry _commandRegistry;
+	private readonly SuggestionRegistry _suggestionRegistry;
 	private readonly KeybindingStore _keybindings;
 	private readonly ThemeOverridesStore _themeOverrides;
 	// App-global Claude-session-id map (keyed by cwd); each session resumes its own worktree's conversation.
@@ -85,6 +87,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_ui = platform.Dispatcher;
 		_settings = services.Settings;
 		_commandRegistry = services.CommandRegistry;
+		_suggestionRegistry = services.SuggestionRegistry;
 		_keybindings = services.Keybindings;
 		_themeOverrides = services.ThemeOverrides;
 		_claudeSessions = services.ClaudeSessions;
@@ -187,6 +190,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		AddPrimarySlot(primaryLabel);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
 
+		// Contextual suggestions: the manifest probe runs off the hot path; the active set is pushed on `ready`.
+		InitSuggestions();
+
 		// Global hotkeys (e.g. ctrl+` → toggle the window): the service reads the global bindings and dispatches
 		// to the primary session's command dispatcher (the always-loaded one), where the handlers are wired.
 		if (_platform.HotkeyRegistrar is { } registrar) {
@@ -238,6 +244,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 			if (ThemeSettings.Keys.Contains(change.Key)) {
 				PushThemeToWeb();
+			}
+
+			// Setting worktree.setupCommand makes the worktree-setup card vanish; re-evaluate the suggestions.
+			if (change.Key == "worktree.setupCommand") {
+				_suggestions?.Evaluate();
 			}
 		};
 		_settings.SettingChanged += _onSettingChanged;

@@ -72,6 +72,10 @@ public sealed partial class HostCore {
 				break;
 			}
 
+			case "dismiss-suggestion":
+				DismissSuggestion(root.GetStringOrEmpty("id"), root.GetBoolOrFalse("forever"));
+				break;
+
 			case "list-branches": {
 				_ = ListBranchesForWebAsync(root.GetStringOrEmpty("id"));
 				break;
@@ -257,6 +261,7 @@ public sealed partial class HostCore {
 				PushSessionList();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
+				_suggestions?.PushCurrent();
 				Ready?.Invoke();
 				Log($"[weavie] {json}");
 				break;

@@ -35,6 +35,12 @@ public sealed partial class HostCore {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
+		// Pre-fills the worktree-setup analysis prompt into the primary session's Claude (seeds whichever session
+		// is active when the card is clicked; the handler always targets the primary).
+		session.Commands.RegisterHandler(CoreCommands.SuggestSetupCommand, (_, _) => {
+			_ui.Post(SeedSetupCommandPrompt);
+			return Task.FromResult(CommandResult.Success("Asked Claude to suggest a worktree setup command."));
+		});
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		SessionCommands.RegisterHandlers(session.Commands, this);
 

@@ -88,6 +88,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		_core = new HostCore(this, new HostServices {
 			Settings = _app.Settings,
 			CommandRegistry = _app.CommandRegistry,
+			SuggestionRegistry = _app.SuggestionRegistry,
 			Keybindings = _app.Keybindings,
 			ThemeOverrides = _app.ThemeOverrides,
 			ClaudeSessions = _app.ClaudeSessions,

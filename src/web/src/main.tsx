@@ -19,6 +19,7 @@ import "./chrome/titlebar.css";
 import "./chrome/omnibar.css";
 import "./chrome/resize-frame.css";
 import "./notify/notify.css";
+import "./notify/suggestions.css";
 import "./editor/confirm-dialog.css";
 import "./chrome/new-session-prompt.css";
 

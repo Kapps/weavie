@@ -3,6 +3,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
+using Weavie.Hosting.Web;
 using Weavie.Linux.Hosting;
 using Weavie.Linux.Native;
 using LayoutGeometry = Weavie.Core.Layout.WindowState;
@@ -15,7 +16,7 @@ namespace Weavie.Linux;
 /// last workspace (else the <c>workspace</c> setting); with neither, it shows the welcome screen
 /// (<c>WorkspaceHost.Welcome.cs</c>) until the user opens a folder.
 /// </summary>
-internal sealed partial class WorkspaceHost {
+internal sealed partial class WorkspaceHost : IWebSurface {
 	// The default welcome-window size before a workspace (with its saved geometry) is opened.
 	private const int WelcomeWidth = 1000;
 	private const int WelcomeHeight = 680;
@@ -85,7 +86,9 @@ internal sealed partial class WorkspaceHost {
 		// touches nothing GTK-affine.
 		_core.StartAsync("app://app").GetAwaiter().GetResult();
 
-		// Inject the bootstrap globals before navigation so the app mounts at the user's settings with no flash.
+		// Drop any welcome injection (its window.__WEAVIE_WELCOME__) so it can't leak into the workspace page, then
+		// inject the bootstrap globals before navigation so the app mounts at the user's settings with no flash.
+		WebKit.webkit_user_content_manager_remove_all_scripts(_contentManager);
 		InjectAtDocumentStart(_core.BuildBootstrap());
 
 		ShowWindow();
@@ -130,6 +133,17 @@ internal sealed partial class WorkspaceHost {
 		IntPtr script = WebKit.webkit_user_script_new(
 			source, WebKit.InjectTopFrame, WebKit.InjectAtDocumentStart, IntPtr.Zero, IntPtr.Zero);
 		WebKit.webkit_user_content_manager_add_script(_contentManager, script);
+	}
+
+	// IWebSurface — the WelcomeController drives the welcome page through these. Every caller (Start + the bridge's
+	// main-thread message handler) is already on the GTK main thread, so these touch the view directly.
+	void IWebSurface.Navigate(string url) => WebKit.webkit_web_view_load_uri(_webView, url);
+
+	void IWebSurface.RenderHtml(string html) => WebKit.webkit_web_view_load_html(_webView, html, IntPtr.Zero);
+
+	Task IWebSurface.InjectStartupScriptAsync(string script) {
+		InjectAtDocumentStart(script);
+		return Task.CompletedTask;
 	}
 
 	private void SaveWindowState() {

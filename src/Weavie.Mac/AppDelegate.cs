@@ -46,8 +46,10 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	/// </summary>
 	public override void DidFinishLaunching(NSNotification notification) {
 		_services = HostServices.CreateDefault();
-		string workspace = _services.Settings.GetString("workspace")
-			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
+		// A persisted workspace whose folder was since deleted must not strand the app with no window; fall back to home.
+		string configured = _services.Settings.GetString("workspace") ?? home;
+		string workspace = Directory.Exists(configured) ? configured : home;
 		// Surfaces in File ▸ Open Recent + the omnibar shell config.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 
@@ -64,14 +66,10 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 
 		var firstWindow = Open(workspace);
 
-		// File/View items dispatch the same Weavie command ids the keyboard + omnibar use (routed to the front
-		// window), with shortcuts read from the keybinding store. The recents list is a launch-time snapshot.
-		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build(
-			runCommand: id => Frontmost?.InvokeCommand(id),
-			resolveChord: ResolveChord,
-			openFolder: OpenFolderInteractive,
-			openRecent: path => OpenOrFocus(path),
-			recents: _recents.Items);
+		// The native menu bar; rebuilt on a deferred main-loop turn whenever recents change so File ▸ Open Recent
+		// stays current — opening a folder no longer relaunches the app, which used to rebuild it.
+		BuildMenu();
+		_recents.Changed += () => NSApplication.SharedApplication.BeginInvokeOnMainThread(BuildMenu);
 
 		// Global hotkeys (e.g. ctrl+` → toggle the front window): app-level, so a single registration covers every
 		// window instead of each window's core re-registering the same chord. Dispatches to the front window.
@@ -146,6 +144,16 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 			ToggleWindow(target);
 		}
 	}
+
+	// File/View items dispatch the same Weavie command ids the keyboard + omnibar use (routed to the front window),
+	// with shortcuts read from the keybinding store. Open Recent reflects the recents at build time.
+	private void BuildMenu() =>
+		NSApplication.SharedApplication.MainMenu = MacAppMenu.Build(
+			runCommand: id => Frontmost?.InvokeCommand(id),
+			resolveChord: ResolveChord,
+			openFolder: OpenFolderInteractive,
+			openRecent: path => OpenOrFocus(path),
+			recents: _recents!.Items);
 
 	private static void Log(string line) {
 		Console.WriteLine(line);

@@ -30,7 +30,6 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		ArgumentNullException.ThrowIfNull(app);
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
 		_app = app;
-		Workspace = workspace;
 
 		string resourcePath = NSBundle.MainBundle.ResourcePath
 			?? throw new InvalidOperationException("No bundle resource path.");
@@ -88,8 +87,8 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		_ = LoadWebAppAsync();
 	}
 
-	/// <summary>The absolute workspace root this window serves.</summary>
-	public string Workspace { get; }
+	/// <summary>This window's workspace identity (path-derived), so the controller can focus an already-open folder.</summary>
+	public WorkspaceId Id => _core.Id;
 
 	/// <summary>The native window, so the controller can focus/raise it.</summary>
 	public NSWindow Window { get; }

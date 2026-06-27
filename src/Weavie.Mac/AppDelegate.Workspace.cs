@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Foundation;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Mac;
 
@@ -51,7 +52,10 @@ public sealed partial class AppDelegate {
 		}
 
 		_recents?.Add(path);
-		var existing = _windows.FirstOrDefault(w => SamePath(w.Workspace, path));
+		// Dedupe on the same identity that keys the workspace's on-disk state (case-folded, fully-resolved), so two
+		// paths reaching one folder focus the open window instead of opening a duplicate that clobbers its state.
+		var id = WorkspaceId.ForPath(path);
+		var existing = _windows.FirstOrDefault(w => w.Id == id);
 		if (existing is not null) {
 			Focus(existing);
 			return existing;
@@ -68,7 +72,4 @@ public sealed partial class AppDelegate {
 		NSApplication.SharedApplication.Activate();
 		window.Window.MakeKeyAndOrderFront(null);
 	}
-
-	private static bool SamePath(string a, string b) =>
-		Path.TrimEndingDirectorySeparator(a) == Path.TrimEndingDirectorySeparator(b);
 }

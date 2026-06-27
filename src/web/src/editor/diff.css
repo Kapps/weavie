@@ -375,3 +375,64 @@
   color: var(--dim);
   font-size: 11px;
 }
+
+/* PR review comment threads: a view zone below a commented line, with the comments and a reply composer. */
+.weavie-pr-thread {
+  padding: 6px 10px;
+  margin: 2px 0 2px 40px;
+  border-left: 2px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+  border-radius: 4px;
+  font-size: 12px;
+  overflow: auto;
+}
+
+.weavie-pr-comment {
+  padding: 2px 0;
+  line-height: 1.4;
+}
+
+.weavie-pr-comment-author {
+  color: var(--accent);
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+.weavie-pr-comment-body {
+  color: var(--fg);
+  white-space: pre-wrap;
+}
+
+.weavie-pr-composer {
+  display: flex;
+  gap: 6px;
+  align-items: flex-end;
+  margin-top: 4px;
+}
+
+.weavie-pr-composer-input {
+  flex: 1;
+  resize: none;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  border-radius: 4px;
+  padding: 4px 6px;
+}
+
+.weavie-pr-composer-submit,
+.weavie-pr-composer-cancel {
+  font: inherit;
+  padding: 3px 10px;
+  border-radius: 4px;
+  border: 1px solid color-mix(in srgb, var(--fg) 20%, transparent);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.weavie-pr-composer-submit {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  border-color: var(--accent);
+}

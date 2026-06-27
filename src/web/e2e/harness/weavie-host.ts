@@ -188,7 +188,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   }
   if (pr) {
     const prsPath = join(home, "fake-prs.json");
-    await writeFile(prsPath, JSON.stringify(pr.prs));
+    await writeFile(prsPath, JSON.stringify({ prs: pr.prs, comments: pr.comments }));
     env.WEAVIE_FAKE_PRS = prsPath;
   }
   return {

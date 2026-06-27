@@ -51,6 +51,9 @@ public sealed record HostServices {
 	/// </summary>
 	public required IPullRequestProvider PullRequests { get; init; }
 
+	/// <summary>Loads/posts a PR's review comments (same GitHub client as <see cref="PullRequests"/>, or the harness stub).</summary>
+	public required IReviewCommentStore ReviewComments { get; init; }
+
 	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
@@ -69,6 +72,7 @@ public sealed record HostServices {
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
 		railState.Log += Log;
+		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -77,7 +81,8 @@ public sealed record HostServices {
 			ClaudeSessions = claudeSessions,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
-			PullRequests = new GitHubReviewProvider(http: null, new GitHubTokenSource()),
+			PullRequests = github,
+			ReviewComments = github,
 		};
 	}
 

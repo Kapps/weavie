@@ -10,12 +10,16 @@ or leave a new comment without leaving Weavie.
 >   the `weavie.pr.open` command.
 > - **Phase 2 — the PR diff in the review surface.** Opening a PR computes the `base…head` diff
 >   (`IGitService.MergeBaseAsync`/`DiffRefsAsync`/`ShowFileAtRefAsync`) and pushes `pr-changes`/`pr-diff`; the
->   editor's inline-diff navigator renders it in a read-only `pr` mode (walk files ←/→, hunks ↑/↓). A Playwright
->   spec (`open-pr.spec.ts`, against a stubbed provider + a local base/head workspace) drives the whole journey.
+>   editor's inline-diff navigator renders it in a read-only `pr` mode (walk files ←/→, hunks ↑/↓).
+> - **Phase 3 — comments.** The forge-neutral `IReviewCommentStore` (GitHub impl + in-memory fake) loads a PR's
+>   review comments; they anchor as threads (view-zones) on the diff lines, with a composer to **reply** and a
+>   toolbar **Comment** action to add a new one (`add-pr-comment` → re-fetch → re-render).
+>
+> A Playwright spec (`open-pr.spec.ts`, against a stubbed provider + a local base/head workspace) drives the
+> whole journey: pick PR → checkout → diff navigator → walk files → see a comment → reply → add.
 >
 > **Deferred** until the source-tab system ([web-and-source-tabs.md](web-and-source-tabs.md)) lands: the PR
-> *overview source tab* and host-run *OAuth* (token discovery covers auth meanwhile). **Still to build:**
-> Phase 3 (comments — read/anchor + add/reply).
+> *overview source tab* and host-run *OAuth* (token discovery covers auth meanwhile).
 
 ## Why
 

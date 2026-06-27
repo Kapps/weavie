@@ -1,14 +1,16 @@
 using System.Net.Http.Headers;
+using System.Text;
 using System.Text.Json;
 
 namespace Weavie.Core.Review;
 
 /// <summary>
-/// The GitHub implementation of <see cref="IPullRequestProvider"/>: a thin <see cref="HttpClient"/> client over
-/// the GitHub REST API, authenticated by an <see cref="IGitHubTokenSource"/>. The host constructs one;
-/// presentation (the overview source, the picker) and the diff (git) live elsewhere — this only fetches PR data.
+/// The GitHub implementation of <see cref="IPullRequestProvider"/> and <see cref="IReviewCommentStore"/>: a thin
+/// <see cref="HttpClient"/> client over the GitHub REST API, authenticated by an <see cref="IGitHubTokenSource"/>.
+/// The host constructs one; presentation (the picker, the overview) and the diff (git) live elsewhere — this only
+/// fetches/posts PR data.
 /// </summary>
-public sealed class GitHubReviewProvider : IPullRequestProvider {
+public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentStore {
 	private const string DefaultHost = "github.com";
 	private readonly HttpClient _http;
 	private readonly IGitHubTokenSource _tokenSource;
@@ -25,27 +27,68 @@ public sealed class GitHubReviewProvider : IPullRequestProvider {
 	/// <inheritdoc/>
 	public async Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
+		string body = await SendAsync(
+			repo, HttpMethod.Get, $"/repos/{repo.Owner}/{repo.Name}/pulls?state=open&sort=updated&direction=desc&per_page=50", null, ct).ConfigureAwait(false);
+		return ParsePullRequests(body);
+	}
+
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		string body = await SendAsync(
+			repo, HttpMethod.Get, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments?per_page=100", null, ct).ConfigureAwait(false);
+		return ParseComments(body);
+	}
+
+	/// <inheritdoc/>
+	public async Task<ReviewComment> AddAsync(RepoRef repo, int number, string commitId, NewReviewComment draft, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		ArgumentNullException.ThrowIfNull(draft);
+		string payload = JsonSerializer.Serialize(new {
+			body = draft.Body,
+			commit_id = commitId,
+			path = draft.Path,
+			line = draft.Line,
+			side = draft.Side.Equals("left", StringComparison.OrdinalIgnoreCase) ? "LEFT" : "RIGHT",
+		});
+		string body = await SendAsync(
+			repo, HttpMethod.Post, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments", payload, ct).ConfigureAwait(false);
+		return ParseComment(JsonDocument.Parse(body).RootElement);
+	}
+
+	/// <inheritdoc/>
+	public async Task<ReviewComment> ReplyAsync(RepoRef repo, int number, long inReplyTo, string replyBody, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		string payload = JsonSerializer.Serialize(new { body = replyBody });
+		string body = await SendAsync(
+			repo, HttpMethod.Post, $"/repos/{repo.Owner}/{repo.Name}/pulls/{number}/comments/{inReplyTo}/replies", payload, ct).ConfigureAwait(false);
+		return ParseComment(JsonDocument.Parse(body).RootElement);
+	}
+
+	// One authenticated GitHub REST call: resolves the token, attaches the standard headers, and returns the body
+	// (throwing a clear message on a missing credential or a non-success status).
+	private async Task<string> SendAsync(RepoRef repo, HttpMethod method, string path, string? jsonBody, CancellationToken ct) {
 		string? token = await _tokenSource.GetTokenAsync(ct).ConfigureAwait(false);
 		if (string.IsNullOrEmpty(token)) {
-			throw new InvalidOperationException(
-				"No GitHub credential found. Sign in to GitHub (gh auth login), or set GITHUB_TOKEN.");
+			throw new InvalidOperationException("No GitHub credential found. Sign in to GitHub (gh auth login), or set GITHUB_TOKEN.");
 		}
 
-		string url = $"{ApiBase(repo.Host)}/repos/{repo.Owner}/{repo.Name}/pulls?state=open&sort=updated&direction=desc&per_page=50";
-		using var request = new HttpRequestMessage(HttpMethod.Get, url);
+		using var request = new HttpRequestMessage(method, ApiBase(repo.Host) + path);
 		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 		request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github+json"));
 		request.Headers.UserAgent.Add(new ProductInfoHeaderValue("Weavie", "1.0"));
 		request.Headers.Add("X-GitHub-Api-Version", "2022-11-28");
+		if (jsonBody is not null) {
+			request.Content = new StringContent(jsonBody, Encoding.UTF8, "application/json");
+		}
 
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
 		string body = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
 		if (!response.IsSuccessStatusCode) {
-			throw new InvalidOperationException(
-				$"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
+			throw new InvalidOperationException($"GitHub API returned {(int)response.StatusCode} for {repo.Owner}/{repo.Name}.");
 		}
 
-		return ParsePullRequests(body);
+		return body;
 	}
 
 	/// <summary>The REST API base for a host: <c>api.github.com</c> for github.com, else Enterprise's <c>/api/v3</c>. Pure, for tests.</summary>
@@ -82,8 +125,44 @@ public sealed class GitHubReviewProvider : IPullRequestProvider {
 		return result;
 	}
 
+	/// <summary>Parses the GitHub <c>GET /pulls/{n}/comments</c> array into review comments. Pure, for tests.</summary>
+	public static IReadOnlyList<ReviewComment> ParseComments(string json) {
+		ArgumentNullException.ThrowIfNull(json);
+		using var doc = JsonDocument.Parse(json);
+		if (doc.RootElement.ValueKind != JsonValueKind.Array) {
+			return [];
+		}
+
+		var result = new List<ReviewComment>();
+		foreach (var comment in doc.RootElement.EnumerateArray()) {
+			result.Add(ParseComment(comment));
+		}
+
+		return result;
+	}
+
+	private static ReviewComment ParseComment(JsonElement c) {
+		// `line` is the current-diff line; `original_line` is the fallback when the comment is on an unchanged-in-
+		// this-push line. Side defaults to the head (RIGHT) side.
+		int line = Int(c, "line") is var l && l > 0 ? l : Int(c, "original_line");
+		return new ReviewComment {
+			Id = Long(c, "id"),
+			Path = String(c, "path"),
+			Line = line,
+			Side = String(c, "side").Equals("LEFT", StringComparison.OrdinalIgnoreCase) ? "left" : "right",
+			Author = c.TryGetProperty("user", out var user) ? String(user, "login") : string.Empty,
+			Body = String(c, "body"),
+			CreatedAt = String(c, "created_at"),
+			InReplyTo = Long(c, "in_reply_to_id"),
+		};
+	}
+
 	private static string String(JsonElement element, string name) =>
-		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String
-			? value.GetString() ?? string.Empty
-			: string.Empty;
+		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
+
+	private static int Int(JsonElement element, string name) =>
+		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt32() : 0;
+
+	private static long Long(JsonElement element, string name) =>
+		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.Number ? value.GetInt64() : 0;
 }

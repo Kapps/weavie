@@ -795,6 +795,27 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           mode: "pr",
           fileLabel: message.name,
           ...fileNav,
+          comments: message.comments,
+          onAddComment: (line, body) =>
+            postToHost({
+              type: "add-pr-comment",
+              number: message.number,
+              path: message.path,
+              line,
+              side: "right",
+              inReplyTo: 0,
+              body,
+            }),
+          onReply: (inReplyTo, body) =>
+            postToHost({
+              type: "add-pr-comment",
+              number: message.number,
+              path: message.path,
+              line: 0,
+              side: "right",
+              inReplyTo,
+              body,
+            }),
         });
         commentProse?.refresh();
         return true;

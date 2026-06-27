@@ -120,9 +120,33 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		var review = new PullRequestReview(number, title, url, baseRef, headRef, mergeBase, worktree);
+		string headSha;
+		try {
+			headSha = await git.GetHeadCommitAsync(worktree, CancellationToken.None).ConfigureAwait(false);
+		} catch (GitException) {
+			headSha = headRef;
+		}
+
+		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
+		var review = new PullRequestReview(number, title, url, baseRef, headRef, mergeBase, headSha, repo, worktree);
 		_prReviews[worktree] = review;
+		await RefreshCommentsAsync(review).ConfigureAwait(false);
 		await PushPrChangesAsync(review).ConfigureAwait(false);
+	}
+
+	/// <summary>Re-loads a PR's review comments into the review (best-effort; a forge error leaves the prior set).</summary>
+	private async Task RefreshCommentsAsync(PullRequestReview review) {
+		if (review.Repo is not { } repo) {
+			return;
+		}
+
+		try {
+			var comments = await _reviewComments.ListAsync(repo, review.Number, CancellationToken.None).ConfigureAwait(false);
+			review.Comments.Clear();
+			review.Comments.AddRange(comments);
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
+			Log($"[weavie] pr #{review.Number}: couldn't load comments: {ex.Message}");
+		}
 	}
 
 	/// <summary>Computes and pushes a PR's changed-file list (<c>pr-changes</c>) — the file axis of the diff walk.</summary>
@@ -179,8 +203,47 @@ public sealed partial class HostCore {
 			name = Path.GetFileName(absolutePath),
 			baseline,
 			current,
-			comments = Array.Empty<object>(),
+			comments = review.Comments
+				.Where(c => string.Equals(c.Path, relative, StringComparison.Ordinal))
+				.Select(c => new {
+					id = c.Id,
+					line = c.Line,
+					side = c.Side,
+					author = c.Author,
+					body = c.Body,
+					createdAt = c.CreatedAt,
+					inReplyTo = c.InReplyTo,
+				}),
 		}));
+	}
+
+	/// <summary>
+	/// Posts a review comment (or a reply) on the active PR, then re-loads the thread and re-renders the file's
+	/// diff so the new comment appears. A non-reply needs the file path + line + side; a reply needs the parent
+	/// <paramref name="inReplyTo"/>. Failure toasts and keeps the draft (the web doesn't clear it until success).
+	/// </summary>
+	private async Task AddPrCommentFromWebAsync(int number, string absolutePath, int line, string side, long inReplyTo, string body) {
+		if (string.IsNullOrWhiteSpace(body) || ActivePrReview() is not { } review || review.Number != number || review.Repo is not { } repo) {
+			return;
+		}
+
+		try {
+			if (inReplyTo > 0) {
+				await _reviewComments.ReplyAsync(repo, number, inReplyTo, body, CancellationToken.None).ConfigureAwait(false);
+			} else {
+				string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
+				string resolvedSide = side.Equals("left", StringComparison.OrdinalIgnoreCase) ? "left" : "right";
+				await _reviewComments.AddAsync(
+					repo, number, review.HeadSha,
+					new NewReviewComment { Path = relative, Line = line, Side = resolvedSide, Body = body }, CancellationToken.None).ConfigureAwait(false);
+			}
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
+			Notify("error", $"Couldn't post the comment: {ex.Message}");
+			return;
+		}
+
+		await RefreshCommentsAsync(review).ConfigureAwait(false);
+		await SendPrDiffAsync(number, absolutePath).ConfigureAwait(false);
 	}
 
 	/// <summary>The PR review armed for the active session, or <c>null</c> when the active session isn't a PR.</summary>
@@ -195,7 +258,10 @@ public sealed partial class HostCore {
 	}
 
 	private sealed record PullRequestReview(
-		int Number, string Title, string Url, string BaseRef, string HeadRef, string MergeBase, string Worktree);
+		int Number, string Title, string Url, string BaseRef, string HeadRef, string MergeBase, string HeadSha, RepoRef? Repo, string Worktree) {
+		/// <summary>The PR's review comments, refreshed on arm and after each post.</summary>
+		public List<ReviewComment> Comments { get; } = [];
+	}
 
 	/// <summary>Resolves the workspace's <c>origin</c> remote URL to a <see cref="RepoRef"/>, or <c>null</c> when it isn't a forge repo.</summary>
 	private async Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) {

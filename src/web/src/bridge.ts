@@ -130,6 +130,16 @@ export type HostBoundMessage =
     }
   // Ask the host for one PR file's base→head diff (answered by pr-diff).
   | { type: "get-pr-diff"; number: number; path: string }
+  // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
+  | {
+      type: "add-pr-comment";
+      number: number;
+      path: string;
+      line: number;
+      side: "left" | "right";
+      inReplyTo: number;
+      body: string;
+    }
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
@@ -425,6 +435,7 @@ export type WebBoundMessage =
       name: string;
       baseline: string;
       current: string;
+      comments: ReviewCommentInfo[];
     }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
@@ -893,6 +904,17 @@ export interface PullRequestInfo {
   baseRef: string;
   url: string;
   draft: boolean;
+}
+
+/** One PR review comment anchored to a diff line, as the inline-diff renders it. Mirrors the host's pr-diff entries. */
+export interface ReviewCommentInfo {
+  id: number;
+  line: number;
+  side: "left" | "right";
+  author: string;
+  body: string;
+  createdAt: string;
+  inReplyTo: number;
 }
 
 // Open-PR picker: ask a chosen backend for its repo's open PRs. prs-result routes cross-backend, so correlate

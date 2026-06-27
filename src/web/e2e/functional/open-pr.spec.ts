@@ -36,3 +36,48 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
     .not.toBe(first);
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
 });
+
+test("a PR's review comments render, reply, and add", async ({ page }) => {
+  await runCommand(page, "Open Pull Request");
+  await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
+  await page.locator(".session-prompt-input").press("Enter");
+  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
+
+  // Walk to hello.ts (the commented file; the navigator auto-opens feature.ts first).
+  const label = page.locator(".weavie-inline-stack-name");
+  await page.locator(".monaco-editor").first().click();
+  for (let i = 0; i < 3 && (await label.textContent())?.trim() !== "hello.ts"; i++) {
+    await page.keyboard.press("ControlOrMeta+ArrowRight");
+    await page.waitForTimeout(400);
+  }
+  await expect(label).toHaveText("hello.ts");
+
+  // The seeded review comment shows in a thread on the diff.
+  await expect(
+    page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Reply in the thread → the reply appears (round-tripped through the stubbed comment store).
+  const thread = page.locator(".weavie-pr-thread").first();
+  await thread.locator(".weavie-pr-composer-input").fill("Addressed in the latest push.");
+  await thread.locator(".weavie-pr-composer-submit").click();
+  await expect(
+    page.locator(".weavie-pr-comment-body", { hasText: "Addressed in the latest push." }),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
+
+  // Add a brand-new comment from the toolbar → it appears as its own thread. Submit with Ctrl/Cmd+Enter (the
+  // composer's shortcut) so a transient toast over the button can't intercept the click.
+  await page.locator(".weavie-inline-comment").click();
+  const composer = page.locator(".weavie-pr-thread-new");
+  await composer.locator(".weavie-pr-composer-input").fill("Nit: keep the period.");
+  await composer.locator(".weavie-pr-composer-input").press("ControlOrMeta+Enter");
+  await expect(
+    page.locator(".weavie-pr-comment-body", { hasText: "Nit: keep the period." }),
+  ).toBeVisible({
+    timeout: 10_000,
+  });
+});

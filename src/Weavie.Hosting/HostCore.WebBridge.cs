@@ -97,6 +97,17 @@ public sealed partial class HostCore {
 				break;
 			}
 
+			case "add-pr-comment": {
+				_ = AddPrCommentFromWebAsync(
+					JsonInt(root, "number"),
+					root.GetStringOrEmpty("path"),
+					JsonInt(root, "line"),
+					root.GetStringOrEmpty("side"),
+					root.TryGetProperty("inReplyTo", out var irt) && irt.ValueKind == JsonValueKind.Number ? irt.GetInt64() : 0,
+					root.GetStringOrEmpty("body"));
+				break;
+			}
+
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
 				// Route by owning session (diff ids are process-unique): a switch mid-resolve must not hit another session's diff.

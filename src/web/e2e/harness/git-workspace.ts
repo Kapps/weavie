@@ -49,7 +49,23 @@ export interface PrSeed {
 // stays offline), a base branch (main) and a head branch with a real multi-file diff. The head branch is
 // pushed then deleted locally, so opening the PR exercises the real fetch-into-a-local-branch path. Returns the
 // working tree plus the canned PR that points at the head branch.
-export async function createPrWorkspace(): Promise<{ dir: string; prs: PrSeed[] }> {
+// One canned review comment for the Open-PR harness, anchored to a line of the head-branch diff.
+export interface CommentSeed {
+  id: number;
+  path: string;
+  line: number;
+  side: "left" | "right";
+  author: string;
+  body: string;
+  createdAt: string;
+  inReplyTo: number;
+}
+
+export async function createPrWorkspace(): Promise<{
+  dir: string;
+  prs: PrSeed[];
+  comments: CommentSeed[];
+}> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
   const bare = await mkdtemp(join(tmpdir(), "weavie-e2e-origin"));
@@ -102,6 +118,19 @@ export async function createPrWorkspace(): Promise<{ dir: string; prs: PrSeed[] 
         baseRef: "main",
         url: "https://github.com/acme/demo/pull/101",
         draft: false,
+      },
+    ],
+    // A review comment on the changed greeting line of hello.ts (right/head side).
+    comments: [
+      {
+        id: 1,
+        path: "hello.ts",
+        line: 2,
+        side: "right",
+        author: "bob",
+        body: "Why change this greeting?",
+        createdAt: "2026-01-01T00:00:00Z",
+        inReplyTo: 0,
       },
     ],
   };

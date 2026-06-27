@@ -3,6 +3,7 @@
 // live. Owns only its decorations/zones/widget — never disposes the host-owned live model.
 
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
+import type { ReviewCommentInfo } from "../bridge";
 import { formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -105,6 +106,12 @@ export interface InlineDiffOptions {
   fileLabel?: string;
   fileIndex?: number;
   fileCount?: number;
+  /** PR mode: review comments anchored to this file's lines, rendered as threads below their line. */
+  comments?: ReviewCommentInfo[];
+  /** PR mode: post a new comment on `line` (the current side). */
+  onAddComment?: (line: number, body: string) => void;
+  /** PR mode: reply to the thread rooted at `inReplyTo`. */
+  onReply?: (inReplyTo: number, body: string) => void;
 }
 
 /** Per-editor inline-diff controller. Diffs are keyed by file path; only the editor's current model renders. */
@@ -250,10 +257,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
   let parkedReview: ParkedReview | undefined;
   let showingParked = false;
+  // The transient "new comment" composer zone (PR mode), opened by the toolbar Comment button; removed on
+  // submit/cancel or any re-render. Kept out of zoneIds so cancel can drop just it.
+  let composerZoneId: string | undefined;
 
   const clearRender = (): void => {
     decorations?.clear();
     decorations = undefined;
+    closeNewComposer();
     if (zoneIds.length > 0) {
       editor.changeViewZones((accessor) => {
         for (const id of zoneIds) {
@@ -303,6 +314,133 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       node.appendChild(row);
     }
     return node;
+  };
+
+  // A comment composer: a textarea + a submit button. onSubmit fires with the trimmed body (ignored when empty);
+  // Ctrl/Cmd+Enter submits too. Used for both a new comment and a thread reply.
+  const buildComposer = (
+    placeholder: string,
+    submitLabel: string,
+    onSubmit: (body: string) => void,
+  ): HTMLElement => {
+    const wrap = document.createElement("div");
+    wrap.className = "weavie-pr-composer";
+    const input = document.createElement("textarea");
+    input.className = "weavie-pr-composer-input";
+    input.placeholder = placeholder;
+    input.rows = 2;
+    const submit = (): void => {
+      const body = input.value.trim();
+      if (body.length > 0) {
+        onSubmit(body);
+        input.value = "";
+      }
+    };
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+        event.preventDefault();
+        submit();
+      }
+    });
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "weavie-pr-composer-submit";
+    button.textContent = submitLabel;
+    button.addEventListener("click", submit);
+    wrap.append(input, button);
+    return wrap;
+  };
+
+  // A comment thread for one line: its comments (root + replies, in order) and a reply composer. The reply posts
+  // against the thread's root id (onReply); the host re-fetches and re-renders.
+  const buildCommentThread = (
+    comments: ReviewCommentInfo[],
+    options: InlineDiffOptions,
+  ): HTMLElement => {
+    const node = document.createElement("div");
+    node.className = "weavie-pr-thread";
+    const rootId = comments.find((c) => c.inReplyTo === 0)?.id ?? comments[0]?.id ?? 0;
+    for (const comment of comments) {
+      const item = document.createElement("div");
+      item.className = "weavie-pr-comment";
+      const author = document.createElement("span");
+      author.className = "weavie-pr-comment-author";
+      author.textContent = `@${comment.author}`;
+      const body = document.createElement("span");
+      body.className = "weavie-pr-comment-body";
+      body.textContent = comment.body;
+      item.append(author, body);
+      node.appendChild(item);
+    }
+    if (options.onReply !== undefined) {
+      const onReply = options.onReply;
+      node.appendChild(buildComposer("Reply…", "Reply", (text) => onReply(rootId, text)));
+    }
+    return node;
+  };
+
+  // Remove the transient new-comment composer zone, if one is open.
+  const closeNewComposer = (): void => {
+    if (composerZoneId !== undefined) {
+      const id = composerZoneId;
+      composerZoneId = undefined;
+      editor.changeViewZones((accessor) => accessor.removeZone(id));
+    }
+  };
+
+  // Open a new-comment composer below `line` (the toolbar Comment action). Submit posts via onAddComment (the
+  // host re-renders, dropping this); Cancel removes it.
+  const openNewComposer = (line: number, options: InlineDiffOptions): void => {
+    if (options.onAddComment === undefined) {
+      return;
+    }
+    const onAddComment = options.onAddComment;
+    closeNewComposer();
+    const node = document.createElement("div");
+    node.className = "weavie-pr-thread weavie-pr-thread-new";
+    node.appendChild(
+      buildComposer("Add a comment…", "Comment", (body) => onAddComment(line, body)),
+    );
+    const cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.className = "weavie-pr-composer-cancel";
+    cancel.textContent = "Cancel";
+    cancel.addEventListener("click", closeNewComposer);
+    node.appendChild(cancel);
+    editor.changeViewZones((accessor) => {
+      composerZoneId = accessor.addZone({ afterLineNumber: line, heightInPx: 96, domNode: node });
+    });
+    queueMicrotask(() => node.querySelector("textarea")?.focus());
+  };
+
+  // Render each commented line's thread as a view zone below it (PR mode). Zones are tracked in zoneIds so the
+  // next render clears them.
+  const renderPrCommentZones = (
+    model: monaco.editor.ITextModel,
+    options: InlineDiffOptions,
+  ): void => {
+    if (options.comments === undefined || options.comments.length === 0) {
+      return;
+    }
+    const byLine = new Map<number, ReviewCommentInfo[]>();
+    for (const comment of options.comments) {
+      const group = byLine.get(comment.line) ?? [];
+      group.push(comment);
+      byLine.set(comment.line, group);
+    }
+    editor.changeViewZones((accessor) => {
+      for (const [line, comments] of byLine) {
+        const clamped = Math.min(model.getLineCount(), Math.max(1, line));
+        const height = comments.length * 28 + (options.onReply !== undefined ? 84 : 12);
+        zoneIds.push(
+          accessor.addZone({
+            afterLineNumber: clamped,
+            heightInPx: height,
+            domNode: buildCommentThread(comments, options),
+          }),
+        );
+      }
+    });
   };
 
   // A Monaco content widget hugging a faded hunk's first line: a "✓ accepted" tag + an inline ↶ undo that
@@ -818,6 +956,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     dotsNode.className = "weavie-inline-dots";
     bar.appendChild(dotsNode);
     bar.append(...navButtons());
+    if (options.onAddComment !== undefined) {
+      bar.appendChild(
+        makeButton("weavie-inline-comment", "Comment", "Add a comment on the current line", () =>
+          openNewComposer(editor.getPosition()?.lineNumber ?? 1, options),
+        ),
+      );
+    }
     renderCounter();
   };
 
@@ -1024,6 +1169,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         );
       }
     });
+
+    if (options.mode === "pr") {
+      renderPrCommentZones(model, options);
+    }
 
     currentOptions = options;
     currentHunks = hunks;

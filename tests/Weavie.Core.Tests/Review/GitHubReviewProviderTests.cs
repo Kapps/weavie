@@ -39,4 +39,30 @@ public sealed class GitHubReviewProviderTests {
 	[InlineData("github.example.com", "https://github.example.com/api/v3")]
 	public void ApiBase_PicksPublicOrEnterprise(string host, string expected) =>
 		Assert.Equal(expected, GitHubReviewProvider.ApiBase(host));
+
+	[Fact]
+	public void ParseComments_MapsFieldsAndSideAndReply() {
+		string json = """
+		[
+		  { "id": 5, "path": "src/a.ts", "line": 12, "side": "RIGHT", "user": { "login": "bob" },
+		    "body": "why?", "created_at": "2026-01-01T00:00:00Z", "in_reply_to_id": null },
+		  { "id": 6, "path": "src/a.ts", "original_line": 4, "side": "LEFT", "user": { "login": "ann" },
+		    "body": "reply", "created_at": "2026-01-02T00:00:00Z", "in_reply_to_id": 5 }
+		]
+		""";
+
+		var comments = GitHubReviewProvider.ParseComments(json);
+
+		Assert.Equal(2, comments.Count);
+		Assert.Equal(5, comments[0].Id);
+		Assert.Equal("src/a.ts", comments[0].Path);
+		Assert.Equal(12, comments[0].Line);
+		Assert.Equal("right", comments[0].Side);
+		Assert.Equal("bob", comments[0].Author);
+		Assert.Equal(0, comments[0].InReplyTo);
+		// `original_line` is the fallback when `line` is absent; LEFT → left side; reply carries its parent id.
+		Assert.Equal(4, comments[1].Line);
+		Assert.Equal("left", comments[1].Side);
+		Assert.Equal(5, comments[1].InReplyTo);
+	}
 }

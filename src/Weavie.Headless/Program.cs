@@ -27,7 +27,8 @@ var services = HostServices.CreateDefault();
 // Deterministic Open-PR journeys for the integration harness / capture: a JSON file of canned PRs replaces the
 // live GitHub provider, the PR analogue of WEAVIE_FAKE_CLAUDE_SCRIPT. Unset in normal use.
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fakePrsPath && File.Exists(fakePrsPath)) {
-	services = services with { PullRequests = FakePullRequests.FromFile(fakePrsPath) };
+	var fakePrs = FakePullRequests.FromFile(fakePrsPath);
+	services = services with { PullRequests = fakePrs, ReviewComments = fakePrs };
 }
 
 string workspace = !string.IsNullOrEmpty(workspaceOverride)

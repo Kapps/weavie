@@ -88,6 +88,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
+			SuggestionRegistry = Weavie.Core.Suggestions.CoreSuggestions.CreateRegistry(),
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
 			ClaudeSessions = claudeSessions,

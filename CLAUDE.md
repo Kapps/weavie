@@ -25,6 +25,11 @@ load it only when you need it.
   launcher, optional window/hotkeys/dialogs). **Add host-facing features to the core, not per-OS** — a
   new web message, push, or session behavior goes in `HostCore` so all four hosts get it at once. See
   [docs/specs/host-core-unification.md](docs/specs/host-core-unification.md).
+- **Contextual suggestions** — a Core-owned surface for dismissible nudge cards that teach users what
+  Weavie can do. Declared once (`SuggestionDefinition`/`CoreSuggestions`), evaluated per-workspace by
+  `SuggestionService` (with a bounded, fail-open manifest probe off the hot path), and rendered as cards;
+  acting on one runs a command (never spends model tokens until the user clicks). First instance: offer to
+  configure `worktree.setupCommand`. See [docs/concepts/suggestions.md](docs/concepts/suggestions.md).
 
 ## Keyboard-first navigation
 

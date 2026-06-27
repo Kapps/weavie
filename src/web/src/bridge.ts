@@ -46,6 +46,23 @@ export interface SessionChip {
   monogram: string;
 }
 
+// One button on a contextual-suggestion card. A `RunCommand` action dispatches `commandId` (advertising its
+// keybinding); `Snooze`/`DismissForever` send a dismiss-suggestion back to the host.
+export interface SuggestionAction {
+  label: string;
+  kind: "RunCommand" | "Snooze" | "DismissForever";
+  commandId?: string;
+  argsJson?: string;
+}
+
+// A contextual-suggestion card (host-pushed in `suggestions`): a dismissible nudge for the current workspace.
+export interface Suggestion {
+  id: string;
+  title: string;
+  body: string;
+  actions: SuggestionAction[];
+}
+
 // A frameless-window resize edge/corner the user grabbed (Windows custom chrome). The web draws the grab
 // handles and names the edge; the host maps it to the matching native resize.
 export type ResizeEdge =
@@ -115,6 +132,8 @@ export type HostBoundMessage =
   // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
   | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
+  // Dismiss a contextual suggestion: `forever` ⇒ persist ("don't ask again"); else snooze for this run ("not now").
+  | { type: "dismiss-suggestion"; id: string; forever: boolean }
   | { type: "list-branches"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
@@ -288,6 +307,8 @@ export type WebBoundMessage =
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
+  // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.
+  | { type: "suggestions"; items: Suggestion[] }
   // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
   // session switch so a new / selected session lands focus in Claude.
   | { type: "focus-pane"; kind: string }
@@ -513,6 +534,7 @@ function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
     type === "session-status" ||
+    type === "suggestions" ||
     type === "branches-result" ||
     type === "prs-result" ||
     type === "pr-resolved" ||

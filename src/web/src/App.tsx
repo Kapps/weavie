@@ -49,6 +49,7 @@ import {
   remoteAgentRows,
   sessions,
 } from "./chrome/session-store";
+import { suggestions } from "./chrome/suggestions-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
@@ -71,6 +72,7 @@ import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+import { Suggestions } from "./notify/Suggestions";
 import { Toasts, createToasts } from "./notify/Toasts";
 import { setNotifySink } from "./notify/notify";
 import { dismissSplash } from "./splash";
@@ -905,6 +907,10 @@ export default function App(): JSX.Element {
         </Suspense>
       </Show>
       <Toasts toasts={toasts()} onDismiss={dismissToast} isLeaving={isLeaving} />
+      <Suggestions
+        items={suggestions()}
+        onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}
+      />
       <Show when={confirmReq()}>
         {(req) => (
           <ConfirmDialog

@@ -134,6 +134,9 @@ public static class CoreCommands {
 	/// <summary>Prompt for an http(s) URL and open it in a web (iframe) tab.</summary>
 	public const string OpenUrl = "weavie.workspace.openUrl";
 
+	/// <summary>Has Claude propose a <c>worktree.setupCommand</c> for the repo and set it on the user's confirmation; backs the worktree-setup suggestion. Palette-visible, no default keybinding.</summary>
+	public const string SuggestSetupCommand = "weavie.worktree.suggestSetupCommand";
+
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
 		var registry = new CommandRegistry();
@@ -640,6 +643,15 @@ public static class CoreCommands {
 			Category = "Theme",
 			Description = "Clear ALL color overrides on the active theme, returning it to its authored colors.",
 			Aliases = ["reset theme", "clear theme overrides", "restore theme defaults", "remove all overrides"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SuggestSetupCommand,
+			Title = "Suggest a Worktree Setup Command",
+			RunsIn = CommandLocation.Core,
+			Category = "Worktree",
+			Description = "Have Claude look at the repository, propose a worktree.setupCommand (the command to ready a fresh checkout), and set it on your confirmation.",
+			Aliases = ["suggest setup command", "worktree setup command", "configure worktree setup", "what should the setup command be"],
 		});
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via

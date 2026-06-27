@@ -4,6 +4,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
+using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -45,6 +46,7 @@ internal sealed class AppController : ApplicationContext {
 		// App-global command catalog + user keybindings (~/.weavie/keybindings.json merged over defaults); each
 		// window injects them into its web app and re-pushes on edit.
 		CommandRegistry = CoreCommands.CreateRegistry();
+		SuggestionRegistry = CoreSuggestions.CreateRegistry();
 		Keybindings = new KeybindingStore(CommandRegistry, filePath: null, enableWatcher: true);
 		Keybindings.Log += line => {
 			Console.WriteLine(line);
@@ -123,6 +125,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global command catalog (<see cref="CoreCommands"/>), shared by every window.</summary>
 	public CommandRegistry CommandRegistry { get; }
+
+	/// <summary>App-global contextual-suggestion catalog (<see cref="CoreSuggestions"/>), shared by every window.</summary>
+	public SuggestionRegistry SuggestionRegistry { get; }
 
 	/// <summary>App-global keybindings store (user file merged over command defaults), shared by every window.</summary>
 	public KeybindingStore Keybindings { get; }

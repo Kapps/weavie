@@ -132,7 +132,7 @@ public sealed partial class HostCore {
 			new NewSessionRequest {
 				Branch = headRef,
 				AttachExisting = true,
-				Prompt = SeedPrompt(number, title, url),
+				Prompt = _settings.GetBool("pr.autoReviewPrompt", fallback: true) ? SeedPrompt(number, title, url) : null,
 			},
 			CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {

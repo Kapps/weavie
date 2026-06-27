@@ -12,7 +12,7 @@ public sealed partial class AppDelegate {
 		_services?.Keybindings.Resolved.FirstOrDefault(binding => binding.Command == commandId && !binding.Global)?.Key;
 
 	/// <summary>Shows the File ▸ Open Folder picker; the chosen folder opens in a new window via <see cref="OpenOrFocus"/>.</summary>
-	private void OpenFolderInteractive() {
+	internal void OpenFolderInteractive() {
 		var panel = NSOpenPanel.OpenPanel;
 		panel.Title = "Open Folder";
 		panel.CanChooseFiles = false;
@@ -48,6 +48,7 @@ public sealed partial class AppDelegate {
 		if (!Directory.Exists(path)) {
 			_recents?.Remove(path);
 			Frontmost?.Notify("error", $"Folder not found: {path}");
+			_welcome?.RefreshRecents(); // drop the dead row if the welcome screen is showing it
 			return null;
 		}
 
@@ -58,13 +59,35 @@ public sealed partial class AppDelegate {
 		var existing = _windows.FirstOrDefault(w => w.Id == id);
 		if (existing is not null) {
 			Focus(existing);
+			CloseWelcome();
 			return existing;
 		}
 
 		var window = new WorkspaceWindow(this, path);
 		_windows.Add(window);
 		_lastActive = window;
+		CloseWelcome();
 		return window;
+	}
+
+	/// <summary>The empty state: a welcome window (welcome.html) shown at launch when no workspace resolves.</summary>
+	private void ShowWelcome() {
+		if (_welcome is not null) {
+			_welcome.Window.MakeKeyAndOrderFront(null);
+			return;
+		}
+
+		_welcome = new WelcomeWindow(this);
+	}
+
+	/// <summary>Records the welcome window as closed (so closing it with no workspace open lets the app terminate).</summary>
+	internal void OnWelcomeClosed() => _welcome = null;
+
+	// Dismisses the welcome window once a workspace opens; the workspace window already exists, so this isn't the
+	// last window closing (the app keeps running).
+	private void CloseWelcome() {
+		_welcome?.Window.Close();
+		_welcome = null;
 	}
 
 	private void Focus(WorkspaceWindow window) {

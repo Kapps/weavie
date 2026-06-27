@@ -24,6 +24,7 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	private IUiDispatcher? _dispatcher;
 	private GlobalHotkeyService? _hotkeys;
 	private WorkspaceWindow? _lastActive;
+	private WelcomeWindow? _welcome;
 
 	/// <summary>App-global Core stores (settings, keybindings, theme/remote/rail), shared by every window.</summary>
 	internal HostServices Services => _services!;
@@ -41,16 +42,12 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 	internal IHostDialogs Dialogs => _dialogs!;
 
 	/// <summary>
-	/// Builds the app-global stores + native pieces, opens the initial workspace window, the menu, and the app-level
-	/// global hotkeys, then activates the app.
+	/// Builds the app-global stores + native pieces, opens the initial workspace window (or the welcome screen when
+	/// none resolves), the menu, and the app-level global hotkeys, then activates the app.
 	/// </summary>
 	public override void DidFinishLaunching(NSNotification notification) {
 		_services = HostServices.CreateDefault();
-		string home = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
-		// A persisted workspace whose folder was since deleted must not strand the app with no window; fall back to home.
-		string configured = _services.Settings.GetString("workspace") ?? home;
-		string workspace = Directory.Exists(configured) ? configured : home;
-		// Surfaces in File ▸ Open Recent + the omnibar shell config.
+		// Surfaces in File ▸ Open Recent + the omnibar shell config, and drives reopen-last + the welcome screen.
 		_recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
 
 		_dispatcher = new DelegateUiDispatcher(action => {
@@ -64,7 +61,13 @@ public sealed partial class AppDelegate : NSApplicationDelegate {
 		_hotkeyRegistrar.Log += Log;
 		_dialogs = new MacDialogs();
 
-		var firstWindow = Open(workspace);
+		// Reopen the last workspace (else the explicit `workspace` setting); with neither, show the welcome screen
+		// rather than silently opening the home directory.
+		string? initial = InitialWorkspace.Resolve(_services.Settings, _recents);
+		var firstWindow = initial is not null ? Open(initial) : null;
+		if (firstWindow is null) {
+			ShowWelcome();
+		}
 
 		// The native menu bar; rebuilt on a deferred main-loop turn whenever recents change so File ▸ Open Recent
 		// stays current — opening a folder no longer relaunches the app, which used to rebuild it.

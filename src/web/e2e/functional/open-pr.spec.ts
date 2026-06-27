@@ -44,6 +44,10 @@ test("typing #N opens a PR directly by number", async ({ page }) => {
   // Type the number directly — no dependence on the list (the host resolves its branch by number).
   await page.locator(".session-prompt-input").fill("#101");
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
+  // The row previews the resolved PR's real title (debounced resolve-by-number).
+  await expect(page.locator(".pr-suggestion-title", { hasText: "Add a feature" })).toBeVisible({
+    timeout: 10_000,
+  });
   await page.locator(".session-prompt-input").press("Enter");
 
   await expect(page.locator(".session-chip")).toHaveCount(2, { timeout: 20_000 });

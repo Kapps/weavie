@@ -46,6 +46,29 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
+	/// Resolves a typed <c>#N</c> / pasted URL to its PR for the picker's live preview, replying <c>pr-resolved</c>
+	/// (tagged by <paramref name="id"/>) with the PR or <c>null</c> (not found, a foreign repo, or no credential).
+	/// </summary>
+	private async Task GetPullRequestForWebAsync(string id, int number, string owner, string repoName) {
+		object? payload = null;
+		if (number > 0 && await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false) is { } repo) {
+			bool foreign = !string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repoName)
+				&& !(owner.Equals(repo.Owner, StringComparison.OrdinalIgnoreCase) && repoName.Equals(repo.Name, StringComparison.OrdinalIgnoreCase));
+			if (!foreign) {
+				try {
+					if (await _pullRequests.GetAsync(repo, number, CancellationToken.None).ConfigureAwait(false) is { } pr) {
+						payload = new { number = pr.Number, title = pr.Title, author = pr.Author, headRef = pr.HeadRef, url = pr.Url, draft = pr.IsDraft };
+					}
+				} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
+					// Leave null — the preview just shows "not found"; opening surfaces the real error.
+				}
+			}
+		}
+
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "pr-resolved", id, pr = payload }));
+	}
+
+	/// <summary>
 	/// Opens a PR as a session: fetches its head branch from <c>origin</c>, then checks it out into a worktree
 	/// session (reusing the attach-existing path, which de-dupes to a live session if one already exists), seeding
 	/// Claude's first message with the PR's context. Any failure surfaces as a toast.

@@ -90,6 +90,15 @@ public sealed partial class HostCore {
 				break;
 			}
 
+			case "resolve-pr": {
+				_ = GetPullRequestForWebAsync(
+					root.GetStringOrEmpty("id"),
+					JsonInt(root, "number"),
+					root.GetStringOrEmpty("owner"),
+					root.GetStringOrEmpty("repo"));
+				break;
+			}
+
 			case "get-pr-diff": {
 				_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
 				break;

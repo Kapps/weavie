@@ -124,6 +124,8 @@ export type HostBoundMessage =
   // Open a PR by number (the host resolves its branch refs). `owner`/`repo` are set only for a pasted URL, so
   // the host can refuse one that isn't this workspace's repository.
   | { type: "open-pr"; number: number; owner: string; repo: string }
+  // Preview a typed #N / pasted URL: resolve it to a PR (answered by pr-resolved tagged with `id`).
+  | { type: "resolve-pr"; id: string; number: number; owner: string; repo: string }
   // Ask the host for one PR file's base→head diff (answered by pr-diff).
   | { type: "get-pr-diff"; number: number; path: string }
   // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
@@ -417,6 +419,8 @@ export type WebBoundMessage =
   // Host answers list-prs with the repo's open pull requests, tagged by the request `id` (cross-backend, like
   // branches-result).
   | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
+  // Host answers resolve-pr with the single PR (or null when it doesn't exist / is a foreign repo), tagged by `id`.
+  | { type: "pr-resolved"; id: string; pr: PullRequestInfo | null }
   // PR review (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
   // pr-diff is one file's base→head pair (baseline→current) rendered in the inline-diff "pr" mode.
   | {
@@ -511,6 +515,7 @@ function isSessionMessage(type: string): boolean {
     type === "session-status" ||
     type === "branches-result" ||
     type === "prs-result" ||
+    type === "pr-resolved" ||
     type === "remote-agents" ||
     type === "rail-state"
   );
@@ -917,11 +922,40 @@ export interface ReviewCommentInfo {
 // replies by id and resolve empty on timeout rather than hanging (the branches-typeahead pattern).
 let prSeq = 0;
 const pendingPrRequests = new Map<string, (prs: PullRequestInfo[]) => void>();
+const pendingResolveRequests = new Map<string, (pr: PullRequestInfo | null) => void>();
 onSessionMessage((message) => {
   if (message.type === "prs-result") {
     pendingPrRequests.get(message.id)?.(message.prs);
+  } else if (message.type === "pr-resolved") {
+    pendingResolveRequests.get(message.id)?.(message.pr);
   }
 });
+
+/** Resolve a typed #N / pasted URL to its PR for preview (null when it doesn't exist; null on timeout). */
+export function resolvePullRequest(
+  backendId: string,
+  target: { number: number; owner: string; repo: string },
+): Promise<PullRequestInfo | null> {
+  const id = `rs${++prSeq}`;
+  return new Promise<PullRequestInfo | null>((resolve) => {
+    const timer = setTimeout(() => {
+      pendingResolveRequests.delete(id);
+      resolve(null);
+    }, BRANCHES_TIMEOUT_MS);
+    pendingResolveRequests.set(id, (pr) => {
+      clearTimeout(timer);
+      pendingResolveRequests.delete(id);
+      resolve(pr);
+    });
+    postToBackend(backendId, {
+      type: "resolve-pr",
+      id,
+      number: target.number,
+      owner: target.owner,
+      repo: target.repo,
+    });
+  });
+}
 
 /**
  * Ask `backendId` for its repo's pull requests: an empty `query` returns the recent-open default list; a

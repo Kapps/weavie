@@ -1,9 +1,12 @@
 import { For, type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
-import { type PullRequestInfo, requestPullRequests } from "../bridge";
+import { type PullRequestInfo, requestPullRequests, resolvePullRequest } from "../bridge";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";
 
 const SEARCH_DEBOUNCE_MS = 250;
+
+// The live preview of a typed #N / pasted URL: resolving, the resolved PR, or not-found.
+type Preview = "loading" | "notfound" | PullRequestInfo;
 
 // Open Pull Request: type to search the repo's PRs (forge-side, so it scales past the default list), or paste a
 // URL / type #123 to open one directly by number. Enter opens, ↑/↓ move, Esc cancels. See docs/specs/open-pr.md.
@@ -17,7 +20,30 @@ export function OpenPrPrompt(props: {
   const [query, setQuery] = createSignal("");
   const [highlight, setHighlight] = createSignal(0);
 
+  const [preview, setPreview] = createSignal<Preview | null>(null);
+
   const directRef = (): OpenPrTarget | null => parsePrRef(query());
+
+  // Live-preview a direct #N / URL by resolving it on the host (debounced, latest-wins), so the row shows the
+  // real title/author as you type, or "not found".
+  let resolveSeq = 0;
+  createEffect(() => {
+    const ref = directRef();
+    if (ref === null) {
+      setPreview(null);
+      return;
+    }
+    setPreview("loading");
+    const mine = ++resolveSeq;
+    const timer = setTimeout(() => {
+      void resolvePullRequest(props.backendId, ref).then((pr) => {
+        if (mine === resolveSeq) {
+          setPreview(pr ?? "notfound");
+        }
+      });
+    }, SEARCH_DEBOUNCE_MS);
+    onCleanup(() => clearTimeout(timer));
+  });
 
   // Debounced forge-side search (empty query = the recent-open default), latest-query-wins. Skipped while the
   // input is a direct #N / URL reference — that opens by number without a list.
@@ -124,11 +150,26 @@ export function OpenPrPrompt(props: {
                   }}
                 >
                   <span class="pr-suggestion-number">#{directRef()?.number}</span>
-                  <span class="pr-suggestion-title">Open this pull request</span>
-                  <Show when={directRef()?.owner !== ""}>
-                    <span class="pr-suggestion-meta">
-                      {directRef()?.owner}/{directRef()?.repo}
-                    </span>
+                  {/* Show the resolved PR's title/author once the preview lands; otherwise resolving / not-found. */}
+                  <Show
+                    when={
+                      typeof preview() === "object" ? (preview() as PullRequestInfo) : undefined
+                    }
+                    fallback={
+                      <span class="pr-suggestion-title">
+                        {preview() === "notfound" ? "Not found in this repository" : "Resolving…"}
+                      </span>
+                    }
+                  >
+                    {(pr) => (
+                      <>
+                        <span class="pr-suggestion-title">{pr().title}</span>
+                        <Show when={pr().draft}>
+                          <span class="pr-suggestion-draft">draft</span>
+                        </Show>
+                        <span class="pr-suggestion-meta">@{pr().author}</span>
+                      </>
+                    )}
                   </Show>
                 </li>
               </ul>

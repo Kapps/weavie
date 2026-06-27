@@ -35,8 +35,10 @@ internal static class AppMenu {
 			ForeColor = FgColor,
 		};
 
+		// Ctrl+Shift+O is owned by the weavie.workspace.openFolder command (web keybinding layer), so this is a
+		// display-only hint — Ctrl+O is freed for Open URL (weavie.workspace.openUrl).
 		var openFolder = new ToolStripMenuItem("Open Folder…", null, (_, _) => app.OpenFolderInteractive(owner)) {
-			ShortcutKeys = Keys.Control | Keys.O,
+			ShortcutKeyDisplayString = "Ctrl+Shift+O",
 			ForeColor = FgColor,
 		};
 		var openRecent = new ToolStripMenuItem("Open &Recent") { ForeColor = FgColor };

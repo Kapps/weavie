@@ -120,3 +120,32 @@
 .confirm-check input {
   cursor: pointer;
 }
+
+/* URL prompt (UrlPrompt.tsx) — a single value field reusing the confirm-dialog shell. */
+.url-prompt-input {
+  width: 100%;
+  margin-top: 1.1em;
+  padding: 0.55em 0.7em;
+  box-sizing: border-box;
+  background: var(--bg);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.95em;
+}
+
+.url-prompt-input::placeholder {
+  color: var(--dim);
+}
+
+.url-prompt-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.url-prompt-error {
+  margin-top: 0.6em;
+  color: var(--bad);
+  font-size: 0.9em;
+}

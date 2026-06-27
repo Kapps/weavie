@@ -31,6 +31,7 @@ import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { TitleBar } from "./chrome/TitleBar";
+import { UrlPrompt } from "./chrome/UrlPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
@@ -56,6 +57,7 @@ import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
 import { TabStrip } from "./editor/TabStrip";
+import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
 import { canPreview } from "./editor/preview/preview-registry";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
@@ -161,6 +163,8 @@ export default function App(): JSX.Element {
   } | null>(null);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
+  // Whether the "Open URL" prompt (web-tab address) is open.
+  const [urlPromptOpen, setUrlPromptOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
@@ -251,6 +255,15 @@ export default function App(): JSX.Element {
     return path !== null && canPreview(path) && isPreviewMode(path) && !editor.reviewActive()
       ? path
       : null;
+  });
+
+  // The active tab's URL when it's a web (iframe) tab — drives the web overlay; null otherwise.
+  const activeWebUrl = createMemo<string | null>(() => {
+    const path = activePath();
+    if (path === null) {
+      return null;
+    }
+    return openTabs().find((tab) => tab.path === path)?.kind === "web" ? path : null;
   });
 
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
@@ -407,6 +420,10 @@ export default function App(): JSX.Element {
               <Suspense>
                 <PreviewPane content={() => editor.activeContent()} />
               </Suspense>
+            </Show>
+            {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
+            <Show when={activeWebUrl() !== null}>
+              <WebTabPane url={() => activeWebUrl() as string} />
             </Show>
           </div>
         </div>
@@ -623,6 +640,11 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
+      // Open Folder (reuses the host's native picker via the existing menu-action) + Open URL (opens a web tab).
+      registerCommand(CommandIds.openFolder, () => {
+        postToHost({ type: "menu-action", action: "open-folder" });
+      }),
+      registerCommand(CommandIds.openUrl, () => setUrlPromptOpen(true)),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
@@ -866,6 +888,15 @@ export default function App(): JSX.Element {
             onCancel={() => settleConfirm(false)}
           />
         )}
+      </Show>
+      <Show when={urlPromptOpen()}>
+        <UrlPrompt
+          onSubmit={(url) => {
+            setUrlPromptOpen(false);
+            editor.openWebTab(url);
+          }}
+          onCancel={() => setUrlPromptOpen(false)}
+        />
       </Show>
       <Show when={deleteReq()}>
         {(req) => (

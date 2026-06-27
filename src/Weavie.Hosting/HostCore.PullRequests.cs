@@ -56,7 +56,14 @@ public sealed partial class HostCore {
 		}
 
 		try {
-			await new GitService().FetchAsync(WorkspaceRoot, "origin", headRef, CancellationToken.None).ConfigureAwait(false);
+			var git = new GitService();
+			// A bare `git fetch origin <ref>` leaves only FETCH_HEAD + origin/<ref>, not a local branch — and the
+			// worktree checkout needs `refs/heads/<ref>`. So fetch the PR head into a *local* branch (the `<ref>:<ref>`
+			// refspec, both sides built from the validated name). Skip it when the branch already exists locally, so
+			// reopening a PR never clobbers local commits on it.
+			if (!await git.BranchExistsAsync(WorkspaceRoot, headRef, CancellationToken.None).ConfigureAwait(false)) {
+				await git.FetchAsync(WorkspaceRoot, "origin", $"{headRef}:{headRef}", CancellationToken.None).ConfigureAwait(false);
+			}
 		} catch (GitException ex) {
 			Notify("error", $"Couldn't fetch PR #{number} ('{headRef}'): {ex.Message}");
 			return;

@@ -376,8 +376,14 @@
   font-size: 11px;
 }
 
-/* PR review comment threads: a view zone below a commented line, with the comments and a reply composer. */
+/* PR review comment threads: a view zone below a commented line, with the comments and a reply composer.
+   Monaco appends `.view-zones` before the full-height `.view-lines` text layer, so without a stacking context
+   the text layer paints over the thread and swallows every click (the textarea/buttons get the editor's I-beam
+   instead). z-index lifts the interactive zone above the text layer; pointer-events keeps it clickable. */
 .weavie-pr-thread {
+  position: relative;
+  z-index: 5;
+  pointer-events: auto;
   padding: 6px 10px;
   margin: 2px 0 2px 40px;
   border-left: 2px solid var(--accent);

@@ -84,6 +84,9 @@ import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
+const SearchPanel = lazy(() =>
+  import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
+);
 
 // The PRIMARY session's workspace root (host-injected before navigation); seeds indexRoot and the "is there
 // a host workspace at all" check. The live root then follows the active session. Null in plain-browser dev.
@@ -168,6 +171,8 @@ export default function App(): JSX.Element {
   } | null>(null);
   const [dirListings, setDirListings] = createSignal<DirListings>({});
   const [browserOpen, setBrowserOpen] = createSignal(false);
+  // Whether the find-in-files (content search) panel is open; the weavie.search.findInFiles command toggles it.
+  const [searchOpen, setSearchOpen] = createSignal(false);
   // Whether the "Open URL" prompt (web-tab address) is open.
   const [urlPromptOpen, setUrlPromptOpen] = createSignal(false);
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
@@ -634,6 +639,8 @@ export default function App(): JSX.Element {
       installTerminalClipboardCommands(),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel (it focuses its input on mount).
+      registerCommand(CommandIds.findInFiles, () => setSearchOpen(true)),
       // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so
       // an unmatched keybinding (no active diff) falls through to the editor.
       registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),
@@ -938,6 +945,11 @@ export default function App(): JSX.Element {
             onOpen={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
             onClose={() => setBrowserOpen(false)}
           />
+        </Suspense>
+      </Show>
+      <Show when={searchOpen()}>
+        <Suspense>
+          <SearchPanel onClose={() => setSearchOpen(false)} />
         </Suspense>
       </Show>
       <Toasts toasts={toasts()} onDismiss={dismissToast} isLeaving={isLeaving} />

@@ -52,6 +52,7 @@ export const CommandIds = {
   toggleFileBrowser: "weavie.view.toggleFileBrowser",
   focusOmnibarFiles: "weavie.omnibar.focusFiles",
   focusOmnibarCommands: "weavie.omnibar.focusCommands",
+  findInFiles: "weavie.search.findInFiles",
   reopenTerminal: "weavie.terminal.reopen",
   terminalCopy: "weavie.terminal.copy",
   terminalPaste: "weavie.terminal.paste",

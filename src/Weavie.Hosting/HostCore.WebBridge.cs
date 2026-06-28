@@ -252,6 +252,9 @@ public sealed partial class HostCore {
 				// Build the omnibar's quick-open index from the active session's worktree, so switching re-roots "Go to File".
 				PushFileIndexToWeb();
 				break;
+			case "find-in-files":
+				_ = SearchInFilesAsync(root.GetStringOrEmpty("query"));
+				break;
 			case "ready":
 				// The page's bridge listener is live; push the persisted state to restore it. Must go on `ready`, not
 				// init — PostToWeb before navigation no-ops (window.__weavieReceive doesn't exist yet).
@@ -471,6 +474,43 @@ public sealed partial class HostCore {
 				_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
 			}
 		});
+	}
+
+	/// <summary>
+	/// Runs the find-in-files content search over the active session's worktree (<c>git grep</c>) and pushes the
+	/// matches (each with a canonical absolute path so a click reuses an open tab). The query is echoed back so the
+	/// page can drop a stale reply for a query the user has typed past; an empty query clears results without git.
+	/// A git failure sets <c>error</c> so the panel says the search failed rather than reporting it as no matches.
+	/// </summary>
+	private async Task SearchInFilesAsync(string query) {
+		if (_session is not { } session) {
+			return;
+		}
+
+		string root = session.WorkspaceRoot;
+		var matches = new List<object>();
+		bool truncated = false;
+		string? error = null;
+		if (query.Length > 0) {
+			try {
+				var result = await new GitService().GrepAsync(root, query, CancellationToken.None).ConfigureAwait(false);
+				truncated = result.Truncated;
+				foreach (var m in result.Matches) {
+					matches.Add(new {
+						path = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(root, m.Path))),
+						line = m.Line,
+						preview = m.Preview,
+					});
+				}
+			} catch (GitException ex) {
+				error = ex.Message;
+				Log($"[weavie] find-in-files failed: {ex.Message}");
+			}
+		}
+
+		if (ReferenceEquals(_session, session)) {
+			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "find-in-files-results", query, matches, truncated, error }));
+		}
 	}
 
 	/// <summary>

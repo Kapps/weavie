@@ -115,6 +115,13 @@ export interface EditorOptionsSpec {
  */
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";
 
+/** One find-in-files content-search hit: the file's absolute path, 1-based line, and the matched line. */
+export interface SearchMatch {
+  path: string;
+  line: number;
+  preview: string;
+}
+
 export type HostBoundMessage =
   | { type: "ready" }
   | { type: "monaco-ready" }
@@ -286,6 +293,9 @@ export type HostBoundMessage =
     }
   // The omnibar asks the host to (re)send the workspace's flat file list for "Go to File".
   | { type: "request-file-index" }
+  // Find-in-files: search the active session's worktree contents (git grep); the host replies with
+  // find-in-files-results echoing the query. An empty query clears results without running git.
+  | { type: "find-in-files"; query: string }
   // Remote-agent registry (host persists, web connects). add/remove persist/forget an agent. Both target the
   // local backend, since the registry is a local-machine concept. See remote-agents.ts.
   | { type: "add-remote-agent"; name: string; url: string; token: string }
@@ -437,6 +447,16 @@ export type WebBoundMessage =
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
   | { type: "file-index"; root: string; files: string[] }
+  // Host answers find-in-files with the content-search matches, echoing the `query` so the page can drop a
+  // stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
+  // `error` ⇒ the git search failed (e.g. git unavailable); the panel shows it rather than "No results".
+  | {
+      type: "find-in-files-results";
+      query: string;
+      matches: SearchMatch[];
+      truncated: boolean;
+      error?: string;
+    }
   // Host pushes the recently-used files (most-frecent-first absolute paths) for the omnibar's Recent section.
   | { type: "recent-files"; files: string[] }
   // Host answers list-branches with the local branches available to check out, tagged by the request `id`.

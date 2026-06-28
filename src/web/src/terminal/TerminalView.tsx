@@ -34,6 +34,9 @@ export function TerminalView(props: {
   // Called once when this terminal paints its first frame, so the shell can dismiss the startup splash on the
   // terminal (the primary surface) instead of waiting for the editor.
   onFirstRender?: () => void;
+  // Right-click on the terminal body, after this pane has taken focus (so the copy/paste/clear commands target
+  // it). The shell opens the shared context menu.
+  onContextMenu?: (event: MouseEvent) => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
 
@@ -312,5 +315,18 @@ export function TerminalView(props: {
     });
   });
 
-  return <div class="term" ref={container} />;
+  return (
+    <div
+      class="term"
+      ref={container}
+      onContextMenu={(event) => {
+        if (props.onContextMenu === undefined) {
+          return;
+        }
+        event.preventDefault();
+        term.focus(); // make this the focused terminal so the menu's copy/paste/clear act on it
+        props.onContextMenu(event);
+      }}
+    />
+  );
 }

@@ -38,6 +38,18 @@ public static class CoreCommands {
 	/// <summary>Pastes the OS clipboard into the focused terminal; bound to <c>Ctrl+Shift+V</c> / <c>⌘V</c>.</summary>
 	public const string TerminalPaste = "weavie.terminal.paste";
 
+	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
+	public const string TerminalClear = "weavie.terminal.clear";
+
+	/// <summary>Copies the editor selection to the clipboard (the editor right-click "Copy" action).</summary>
+	public const string EditorCopy = "weavie.editor.copy";
+
+	/// <summary>Cuts the editor selection to the clipboard (the editor right-click "Cut" action).</summary>
+	public const string EditorCut = "weavie.editor.cut";
+
+	/// <summary>Pastes the clipboard into the editor at the cursor (the editor right-click "Paste" action).</summary>
+	public const string EditorPaste = "weavie.editor.paste";
+
 	/// <summary>Toggles Weavie's window (focus it / minimize it); bound by default to the global hotkey <c>ctrl+`</c>.</summary>
 	public const string ToggleWindow = "weavie.window.toggle";
 
@@ -313,6 +325,51 @@ public static class CoreCommands {
 				new CommandKeybinding { Key = "cmd+v" },
 			],
 			When = "terminalFocused",
+		});
+
+		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);
+		// palette-visible under terminal focus for discovery.
+		registry.Register(new CommandDefinition {
+			Id = TerminalClear,
+			Title = "Clear",
+			RunsIn = CommandLocation.Web,
+			Category = "Terminal",
+			Description = "Clear the focused terminal's scrollback.",
+			Aliases = ["clear", "clear terminal", "clear scrollback", "cls"],
+			When = "terminalFocused",
+		});
+
+		// Editor clipboard actions: web-handled, they trigger Monaco's own copy/cut/paste so the chords stay
+		// Monaco's (no Weavie keybinding to double-handle Ctrl+C/X/V). Right-click surface + palette discovery,
+		// gated to editor focus.
+		registry.Register(new CommandDefinition {
+			Id = EditorCopy,
+			Title = "Copy",
+			RunsIn = CommandLocation.Web,
+			Category = "Edit",
+			Description = "Copy the editor selection to the clipboard.",
+			Aliases = ["copy", "copy selection", "editor copy"],
+			When = "editorFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = EditorCut,
+			Title = "Cut",
+			RunsIn = CommandLocation.Web,
+			Category = "Edit",
+			Description = "Cut the editor selection to the clipboard.",
+			Aliases = ["cut", "cut selection", "editor cut"],
+			When = "editorFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = EditorPaste,
+			Title = "Paste",
+			RunsIn = CommandLocation.Web,
+			Category = "Edit",
+			Description = "Paste the clipboard into the editor at the cursor.",
+			Aliases = ["paste", "paste clipboard", "editor paste"],
+			When = "editorFocused",
 		});
 
 		// Toggle Weavie in/out of the foreground via the GLOBAL hotkey ctrl+` so it fires even when another app

@@ -23,6 +23,7 @@ import {
   postToHost,
   setActiveBackendId,
 } from "./bridge";
+import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
@@ -225,6 +226,8 @@ export default function App(): JSX.Element {
       req.resolve(name);
     }
   };
+  // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
+  const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
   // Host-pushed window chrome (maximize glyph + blur dim) and the flat workspace file index shared by the
   // omnibar's "Go to File" and the file browser. indexRoot is the ACTIVE session's worktree root — it
   // follows session switches (host re-pushes file-index on each), seeded from WORKSPACE_ROOT until the first.
@@ -436,7 +439,28 @@ export default function App(): JSX.Element {
             }
           />
           <div class="editor-pane">
-            <div class="editor" ref={editorContainer} />
+            <div
+              class="editor"
+              ref={editorContainer}
+              onContextMenu={(event) => {
+                // Only when a document is mounted — the empty-state pane has no selection to act on.
+                if (openTabs().length === 0) {
+                  return;
+                }
+                event.preventDefault();
+                setContextMenu({
+                  x: event.clientX,
+                  y: event.clientY,
+                  entries: [
+                    { commandId: CommandIds.editorCut },
+                    { commandId: CommandIds.editorCopy },
+                    { commandId: CommandIds.editorPaste },
+                    { kind: "separator" },
+                    { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+                  ],
+                });
+              }}
+            />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
               <EditorEmptyState />
@@ -506,6 +530,19 @@ export default function App(): JSX.Element {
                     onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
                     onTitle={(title) =>
                       setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
+                    }
+                    onContextMenu={(event) =>
+                      setContextMenu({
+                        x: event.clientX,
+                        y: event.clientY,
+                        entries: [
+                          { commandId: CommandIds.terminalCopy },
+                          { commandId: CommandIds.terminalPaste },
+                          { commandId: CommandIds.terminalClear },
+                          { kind: "separator" },
+                          { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+                        ],
+                      })
                     }
                   />
                 </div>
@@ -675,6 +712,16 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.togglePinTab, (args) => editor.tabs.togglePin(tabPath(args))),
       registerCommand(CommandIds.reopenClosed, () => editor.tabs.reopenClosed()),
+      // Editor clipboard (the right-click menu): trigger Monaco's own actions so the native chords stay Monaco's.
+      registerCommand(CommandIds.editorCopy, () =>
+        editor.triggerAction("editor.action.clipboardCopyAction"),
+      ),
+      registerCommand(CommandIds.editorCut, () =>
+        editor.triggerAction("editor.action.clipboardCutAction"),
+      ),
+      registerCommand(CommandIds.editorPaste, () =>
+        editor.triggerAction("editor.action.clipboardPasteAction"),
+      ),
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
@@ -957,6 +1004,9 @@ export default function App(): JSX.Element {
         items={suggestions()}
         onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}
       />
+      <Show when={contextMenu()}>
+        {(m) => <ContextMenu menu={m()} onClose={() => setContextMenu(null)} />}
+      </Show>
       <Show when={confirmReq()}>
         {(req) => (
           <ConfirmDialog

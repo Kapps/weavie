@@ -42,6 +42,31 @@ test("Increase / Decrease / Reset Font Size resize the editor live", async ({ pa
   }).toPass({ timeout: 5000 });
 });
 
+// Regression: a normal font zoom is a *silent* Core success, which round-trips as `message: null` (not
+// `undefined`). The feedback guard once compared `message !== undefined`, so each zoom fired `notify("info",
+// null)` — an empty "broken" toast (a box with only the ✕ close button), stacking one per keypress. Pin that
+// zooming via the real keybindings never spawns a message-less toast.
+test("zooming via the keybindings does not spawn empty toasts", async ({ page }) => {
+  await openFile(page, "hello.ts");
+  const line = page.locator(".monaco-editor .view-line").first();
+  await expect(line).toBeVisible();
+  await line.click(); // focus the editor — the bug fired on the chord with the editor focused
+
+  for (let i = 0; i < 6; i++) {
+    await page.keyboard.press("ControlOrMeta+="); // Increase Font Size
+  }
+  await page.keyboard.press("ControlOrMeta+-"); // Decrease Font Size
+  await page.keyboard.press("ControlOrMeta+0"); // Reset Font Size (silent success)
+
+  // After the dust settles, no toast on screen may be empty: an empty `.toast-msg` (the broken box with only
+  // the ✕) is the regression. Reads every toast's message text directly rather than relying on `hasText`,
+  // which can't distinguish a message-less node from an absent one.
+  await expect(async () => {
+    const messages = await page.locator(".toast .toast-msg").allTextContents();
+    expect(messages.filter((m) => m.trim() === "")).toEqual([]);
+  }).toPass({ timeout: 3000 });
+});
+
 // The commands must be discoverable in the palette under the View category — that's the keyboard-first
 // discovery path the issue asked for.
 test("font-size commands appear in the palette under View", async ({ page }) => {

@@ -130,6 +130,9 @@ export interface EditorController {
   activeContent(): string;
   /** Whether an inline openDiff review is showing (reactive), so Preview suspends rather than hiding it. */
   reviewActive(): boolean;
+  /** How many files are pending post-turn review (reactive), so the empty-state pane can surface a review cue
+   * when no file is open. */
+  parkedReviewCount(): number;
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   dispose(): void;
@@ -150,6 +153,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const [activeContent, setActiveContent] = createSignal("");
   // Whether an inline openDiff review currently occupies the editor, so the Preview overlay suspends over it.
   const [reviewActive, setReviewActive] = createSignal(false);
+  // How many files are pending post-turn review, so the empty-state pane can surface a "review changes" cue
+  // when no file is open (the inline parked toolbar can't render without a mounted editor). See #125.
+  const [parkedReviewCount, setParkedReviewCount] = createSignal(0);
   // An open-file request that arrived before the editor was ready; replayed when it is.
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
@@ -555,6 +561,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —
   // stepping in (a nav key) opens the first change. Called wherever reviewFiles changes.
   const updateParkedReview = (): void => {
+    setParkedReviewCount(reviewFiles.length);
     inlineDiff?.setParkedReview(
       reviewFiles.length > 0
         ? {
@@ -874,6 +881,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // with no following turn-changes leaves the ← / → walk on the previous session's (maybe gone) paths.
         inlineDiff?.clearAll();
         reviewFiles = [];
+        updateParkedReview(); // keep the count signal in sync so the empty-state cue clears too (#125)
         commentProse?.refresh();
         return true;
       case "review-history":
@@ -1003,6 +1011,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     activeContent,
     reviewActive,
+    parkedReviewCount,
     inline: {
       nextChange: () => inlineDiff?.nextChange() ?? false,
       prevChange: () => inlineDiff?.prevChange() ?? false,

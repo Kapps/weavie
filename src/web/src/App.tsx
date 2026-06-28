@@ -463,7 +463,7 @@ export default function App(): JSX.Element {
             />
             {/* No file open: cover the blank Monaco host with an identity + keyboard-first starter actions. */}
             <Show when={openTabs().length === 0}>
-              <EditorEmptyState />
+              <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
             {/* Preview mode: render the active file (Markdown) over the still-mounted Monaco host. */}
             <Show when={previewActivePath() !== null}>

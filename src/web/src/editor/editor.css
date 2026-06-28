@@ -82,6 +82,39 @@
   transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
 }
 
+/* The "Claude changed files this turn" nudge: an accented variant of an action row, since when no file is
+   open it's the only place the pending review is visible. */
+.editor-empty-review {
+  display: flex;
+  align-items: center;
+  gap: 0.85em;
+  width: 100%;
+  margin-bottom: 0.6em;
+  padding: 0.6em 0.7em;
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+  border: 1px solid var(--accent);
+  border-radius: 0.5em;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s ease;
+}
+
+.editor-empty-review:hover {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.editor-empty-review:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--accent);
+}
+
+.editor-empty-review > svg {
+  flex: none;
+  color: var(--accent);
+}
+
 .editor-empty-action:hover {
   background: var(--bar);
   border-color: var(--border);

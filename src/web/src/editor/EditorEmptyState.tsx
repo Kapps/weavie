@@ -1,5 +1,5 @@
-import { Command, FilePlus, FileSearch, FolderTree } from "lucide-solid";
-import { For, type JSX } from "solid-js";
+import { Command, FilePlus, FileSearch, FolderTree, GitPullRequestArrow } from "lucide-solid";
+import { For, type JSX, Show } from "solid-js";
 import { WeavieIcon } from "../chrome/WeavieIcon";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
@@ -47,7 +47,10 @@ function keysOf(id: string): string {
   return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
 }
 
-export function EditorEmptyState(): JSX.Element {
+// `reviewCount` is the number of files pending post-turn review. When no file is open the inline parked
+// navigator can't render (it lives in the editor that isn't mounted), so this is the only place the user can
+// see that Claude landed changes — exactly when they most need to know (#125).
+export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
   return (
     <div class="editor-empty" data-kind="editor">
       <div class="editor-empty-inner">
@@ -60,6 +63,27 @@ export function EditorEmptyState(): JSX.Element {
             <p class="editor-empty-tagline">No file open. Open one to start editing.</p>
           </div>
         </header>
+        <Show when={props.reviewCount > 0}>
+          <button
+            type="button"
+            class="editor-empty-review"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => dispatchCommand(CommandIds.reviewOpen)}
+          >
+            <GitPullRequestArrow size="1.15em" />
+            <span class="editor-empty-action-text">
+              <span class="editor-empty-action-label">
+                Review changes — {props.reviewCount} file{props.reviewCount === 1 ? "" : "s"}
+              </span>
+              <span class="editor-empty-action-hint">
+                Claude changed files this turn. Step in to review.
+              </span>
+            </span>
+            {keysOf(CommandIds.reviewOpen) !== "" && (
+              <kbd class="editor-empty-keys">{keysOf(CommandIds.reviewOpen)}</kbd>
+            )}
+          </button>
+        </Show>
         <ul class="editor-empty-actions">
           <For each={ACTIONS}>
             {(action) => {

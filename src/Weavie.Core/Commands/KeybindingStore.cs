@@ -17,6 +17,7 @@ public sealed class KeybindingStore : IDisposable {
 	private readonly Timer? _debounce;
 
 	private List<ResolvedKeybinding> _resolved = [];
+	private IReadOnlyList<string> _unknownCommands = [];
 	private string _resolvedJson = "[]";
 	private bool _disposed;
 
@@ -56,6 +57,16 @@ public sealed class KeybindingStore : IDisposable {
 
 	/// <summary>Diagnostic log line: parse errors and dropped (unknown-command) entries.</summary>
 	public event Action<string>? Log;
+
+	/// <summary>Raised (off the UI thread) when the set of unknown command ids in the user file changes on a
+	/// live edit — so a host can surface (or clear) a "binding for unknown command…" warning.</summary>
+	public event Action<IReadOnlyList<string>>? UnknownCommandsChanged;
+
+	/// <summary>The command ids in the user file that match no registered command (their bindings are dropped);
+	/// empty when the file is clean.</summary>
+	public IReadOnlyList<string> UnknownCommands {
+		get { lock (_gate) { return _unknownCommands.ToArray(); } }
+	}
 
 	/// <summary>The keybindings file backing this store.</summary>
 	public string FilePath { get; }
@@ -106,31 +117,41 @@ public sealed class KeybindingStore : IDisposable {
 
 	private void OnDebounceElapsed(object? state) {
 		bool changed;
+		bool unknownChanged;
+		IReadOnlyList<string> unknown;
 		lock (_gate) {
 			if (_disposed) {
 				return;
 			}
 
-			changed = ReloadLocked();
+			(changed, unknownChanged) = ReloadLocked();
+			unknown = _unknownCommands;
 		}
 
 		if (changed) {
 			KeybindingsChanged?.Invoke();
 		}
+
+		if (unknownChanged) {
+			UnknownCommandsChanged?.Invoke(unknown);
+		}
 	}
 
 	// Reads + merges the file, swapping in the new resolved list. Returns whether the resolved JSON actually
 	// changed, so the watch path only fires on a real change. A malformed file keeps the last-good list.
-	private bool ReloadLocked() {
-		var merged = MergeLocked(ReadUserEntriesLocked());
+	private (bool ResolvedChanged, bool UnknownChanged) ReloadLocked() {
+		var unknown = new List<string>();
+		var merged = MergeLocked(ReadUserEntriesLocked(unknown));
+		bool unknownChanged = !unknown.SequenceEqual(_unknownCommands, StringComparer.Ordinal);
+		_unknownCommands = unknown;
 		string json = CommandCatalog.BuildKeybindingsArrayJson(merged);
 		if (string.Equals(json, _resolvedJson, StringComparison.Ordinal)) {
-			return false;
+			return (false, unknownChanged);
 		}
 
 		_resolved = merged;
 		_resolvedJson = json;
-		return true;
+		return (true, unknownChanged);
 	}
 
 	private List<ResolvedKeybinding> MergeLocked(IReadOnlyList<UserBinding> userEntries) {
@@ -170,7 +191,7 @@ public sealed class KeybindingStore : IDisposable {
 		return result;
 	}
 
-	private IReadOnlyList<UserBinding> ReadUserEntriesLocked() {
+	private IReadOnlyList<UserBinding> ReadUserEntriesLocked(List<string> unknownCommands) {
 		string text;
 		try {
 			text = File.Exists(FilePath) ? File.ReadAllText(FilePath) : string.Empty;
@@ -202,7 +223,7 @@ public sealed class KeybindingStore : IDisposable {
 
 			var entries = new List<UserBinding>();
 			foreach (var element in doc.RootElement.EnumerateArray()) {
-				if (TryParseEntry(element, out var entry)) {
+				if (TryParseEntry(element, unknownCommands, out var entry)) {
 					entries.Add(entry);
 				}
 			}
@@ -211,7 +232,7 @@ public sealed class KeybindingStore : IDisposable {
 		}
 	}
 
-	private bool TryParseEntry(JsonElement element, out UserBinding entry) {
+	private bool TryParseEntry(JsonElement element, List<string> unknownCommands, out UserBinding entry) {
 		entry = default;
 		if (element.ValueKind != JsonValueKind.Object) {
 			Log?.Invoke("[keybindings] skipping a non-object entry.");
@@ -229,6 +250,7 @@ public sealed class KeybindingStore : IDisposable {
 		string targetId = isUnbind ? command[1..] : command;
 		if (!_registry.TryGet(targetId, out _)) {
 			Log?.Invoke($"[keybindings] dropping binding for unknown command '{targetId}'.");
+			unknownCommands.Add(targetId);
 			return false;
 		}
 

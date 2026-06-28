@@ -268,6 +268,9 @@ public sealed partial class HostCore {
 					NotifySettingsMalformed(true);
 				}
 
+				// Likewise, unknown command ids present in keybindings.json at boot raised no change event.
+				NotifyUnknownKeybindingCommands(_keybindings.UnknownCommands);
+
 				Ready?.Invoke();
 				Log($"[weavie] {json}");
 				break;

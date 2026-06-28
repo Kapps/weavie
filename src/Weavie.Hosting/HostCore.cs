@@ -69,6 +69,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// The app-global stores (settings / keybindings / theme overrides) may outlive a window (Windows), so the
 	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
 	private Action? _onKeybindingsChanged;
+	private Action<IReadOnlyList<string>>? _onUnknownKeybindingCommands;
 	private Action<SettingChange>? _onSettingChanged;
 	private Action<bool>? _onSettingsMalformedChanged;
 	private Action<string>? _onThemeOverridesChanged;
@@ -273,6 +274,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"\"keybindings\":{_keybindings.BuildKeybindingsJson()}}}");
 		_keybindings.KeybindingsChanged += _onKeybindingsChanged;
 
+		// A binding to a typo'd/unknown command id is otherwise dropped silently (console only): name it so the
+		// user learns why their key does nothing.
+		_onUnknownKeybindingCommands = NotifyUnknownKeybindingCommands;
+		_keybindings.UnknownCommandsChanged += _onUnknownKeybindingCommands;
+
 		// Remote agents: a connect/disconnect (in this window or another sharing the app-global store) re-pushes
 		// the registry so every page's rail + New Session location list stays in sync. PostToWeb marshals itself.
 		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
@@ -306,6 +312,19 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 	}
 
+	// Surfaces a warning naming the keybindings.json command ids that match no command (their bindings are
+	// dropped). Empty ⇒ the file is clean now: no-op (the prior warn auto-dismisses). Called on the live
+	// change and once on the page's `ready`.
+	private void NotifyUnknownKeybindingCommands(IReadOnlyList<string> ids) {
+		if (ids.Count == 0) {
+			return;
+		}
+
+		string list = string.Join(", ", ids.Select(id => $"'{id}'"));
+		string verb = ids.Count == 1 ? "that binding was" : "those bindings were";
+		Notify("warn", $"keybindings.json references unknown command {list} — {verb} ignored.", "keybindings-unknown");
+	}
+
 	private static void Log(string line) {
 		Console.WriteLine(line);
 		Console.Out.Flush();
@@ -316,6 +335,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onKeybindingsChanged is not null) {
 			_keybindings.KeybindingsChanged -= _onKeybindingsChanged;
 			_onKeybindingsChanged = null;
+		}
+
+		if (_onUnknownKeybindingCommands is not null) {
+			_keybindings.UnknownCommandsChanged -= _onUnknownKeybindingCommands;
+			_onUnknownKeybindingCommands = null;
 		}
 
 		if (_onSettingChanged is not null) {

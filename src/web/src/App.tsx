@@ -544,7 +544,7 @@ export default function App(): JSX.Element {
         return;
       }
       if (message.type === "notify") {
-        addToast(message.level, message.message);
+        addToast(message.level, message.message, message.key);
       } else if (message.type === "focus-pane") {
         // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
         // xterms persist across switches, so focusing the slot is valid even mid-respawn.

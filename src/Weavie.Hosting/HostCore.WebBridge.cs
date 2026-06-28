@@ -262,6 +262,12 @@ public sealed partial class HostCore {
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
 				_suggestions?.PushCurrent();
+				// A settings.toml that was already malformed at boot never raised MalformedChanged, so surface it
+				// now that the page can render the toast.
+				if (_settings.IsMalformed) {
+					NotifySettingsMalformed(true);
+				}
+
 				Ready?.Invoke();
 				Log($"[weavie] {json}");
 				break;
@@ -878,6 +884,14 @@ public sealed partial class HostCore {
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>
 		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
+
+	/// <summary>
+	/// As <see cref="Notify(string,string)"/>, with a dedupe <paramref name="key"/>: a later toast carrying the
+	/// same key replaces the live one in place (e.g. a "reloaded" info clearing a lingering "malformed" error).
+	/// </summary>
+	public void Notify(string level, string message, string key) =>
+		_bridge.PostToWeb(
+			$"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)},\"key\":{JsonString(key)}}}");
 
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the

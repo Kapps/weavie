@@ -878,6 +878,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // with no following turn-changes leaves the ← / → walk on the previous session's (maybe gone) paths.
         inlineDiff?.clearAll();
         reviewFiles = [];
+        updateParkedReview(); // keep the count signal in sync so the empty-state cue clears too (#125)
         commentProse?.refresh();
         return true;
       case "review-history":

@@ -19,7 +19,7 @@ import {
 } from "solid-js";
 import { evaluateWhen } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, getCommands, onCommandsChanged } from "../commands/registry";
+import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import { type FileRow, type ScoredFile, createFileFinder, rankFiles } from "./file-search";
@@ -358,7 +358,7 @@ export function Omnibar(props: {
     if (cmd === undefined) {
       return;
     }
-    dispatchCommand(cmd.id);
+    void runCommandWithFeedback(cmd.id);
     close();
   };
 

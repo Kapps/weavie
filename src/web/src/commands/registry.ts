@@ -11,6 +11,7 @@ import {
   postToHost,
 } from "../bridge";
 import { trackSessionCommand } from "../chrome/session-store";
+import { notify } from "../notify/notify";
 import { CommandIds, type CommandInfo, type CommandResult, type ResolvedKeybinding } from "./types";
 
 // Session-lifecycle commands the user waits on the session to answer: while one is in flight, the session's
@@ -140,6 +141,21 @@ export function dispatchCommand(id: string, args?: unknown): Promise<CommandResu
     log("error", `command '${id}' threw: ${String(error)}`);
     return Promise.resolve({ ok: false, error: String(error) });
   }
+}
+
+/**
+ * Dispatches a command and surfaces its outcome as a toast, so every menu/palette caller gives the same
+ * feedback: a failure shows its `error`, an informational `message` shows as info. A bare success is silent —
+ * the action's own effect (a chip changing, a pane opening) is the feedback.
+ */
+export async function runCommandWithFeedback(id: string, args?: unknown): Promise<CommandResult> {
+  const result = await dispatchCommand(id, args);
+  if (!result.ok && result.error !== undefined) {
+    notify("error", result.error);
+  } else if (result.ok && result.message !== undefined) {
+    notify("info", result.message);
+  }
+  return result;
 }
 
 // Host → web: catalog/keybinding push (live keybindings.json edit) + run-command (a web command Claude

@@ -57,6 +57,33 @@
   }
 }
 
+/* "You are fullscreen" badge + exit affordance: a small floating button at the top-right of the pane area
+   while a pane is fullscreened, advertising the toggle shortcut so the way back is always discoverable. */
+.fullscreen-exit {
+  position: absolute;
+  top: 0.6em;
+  right: 0.6em;
+  z-index: 20;
+  padding: 0.35em 0.7em;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bar);
+  color: var(--fg);
+  font: inherit;
+  font-size: 0.85em;
+  cursor: pointer;
+  opacity: 0.8;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+}
+.fullscreen-exit:hover {
+  opacity: 1;
+  border-color: var(--accent);
+}
+.fullscreen-exit:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
 /* Right-hand editor column (and the diff overlay host). */
 .pane {
   position: relative;

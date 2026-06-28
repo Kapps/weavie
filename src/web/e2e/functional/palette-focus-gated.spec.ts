@@ -27,9 +27,9 @@ test("palette shows terminal-gated Copy/Paste when a terminal was focused before
   // Terminal category it carries (the file-search "No matching files" path can't produce these).
   const copyRow = page.locator(".tb-omnibar-row", { hasText: "Copy" });
   await expect(copyRow.first()).toBeVisible();
-  await expect(copyRow.filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) })).toHaveCount(
-    1,
-  );
+  await expect(
+    copyRow.filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
+  ).toHaveCount(1);
 
   // Paste is the same gate — confirm it surfaces too.
   await input.fill(">paste");

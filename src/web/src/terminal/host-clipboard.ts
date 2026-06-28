@@ -1,10 +1,11 @@
 // Terminal clipboard: copy/paste act on the focused terminal but read/write the OS clipboard through the
 // host. The WebView's navigator.clipboard is focus- and permission-gated (it throws when the document isn't
 // focused — the flakiness this fixes), so the host — which owns the real OS clipboard — does the work. Claude's
-// OSC 52 ("set clipboard", its copy-on-highlight) flows through the same write path.
+// OSC 52 ("set clipboard", its copy-on-highlight) flows through the same write path. On a browser-served shell
+// (headless/remote) there is no host clipboard, so we use the browser's own navigator.clipboard there instead.
 
 import type { Terminal } from "@xterm/xterm";
-import { onHostMessage, postToHost } from "../bridge";
+import { isBrowserHostedShell, onHostMessage, postToHost } from "../bridge";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
@@ -38,9 +39,16 @@ function focusedTerminal(): Terminal | undefined {
 }
 
 function writeClipboard(text: string): void {
-  if (text.length > 0) {
-    postToHost({ type: "clipboard-write", text });
+  if (text.length === 0) {
+    return;
   }
+  if (isBrowserHostedShell()) {
+    // The OS clipboard is the browser's here. Best-effort: a copy keypress is a user gesture (allowed), while
+    // an OSC 52 write isn't, so the browser may reject that one — fine, the keypress path is what matters.
+    void navigator.clipboard?.writeText(text).catch(() => {});
+    return;
+  }
+  postToHost({ type: "clipboard-write", text });
 }
 
 let readSeq = 0;
@@ -57,6 +65,12 @@ onHostMessage((message) => {
 });
 
 function readClipboard(): Promise<string> {
+  // Browser-served: read the browser's own clipboard. Paste (Ctrl+Shift+V) is a user gesture, so readText is
+  // permitted; a denial rejects and the paste handler surfaces it (rather than the old silent empty no-op).
+  if (isBrowserHostedShell()) {
+    return navigator.clipboard.readText();
+  }
+
   const id = `clip${++readSeq}`;
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {

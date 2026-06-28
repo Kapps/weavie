@@ -797,6 +797,16 @@ function publishBackends(): void {
   setBackendList([...backends.values()].map((b) => b.info));
 }
 
+// True when the page is served to a real browser over the WebSocket bridge (headless `serve` / a remote
+// runner) rather than a native WebView shell. The OS clipboard then lives in the browser, not the host
+// process, so terminal copy/paste must use navigator.clipboard instead of the (no-op) host clipboard.
+let browserHostedShell = false;
+
+/** Whether this is a browser-served shell (vs a native WebView) — see {@link browserHostedShell}. */
+export function isBrowserHostedShell(): boolean {
+  return browserHostedShell;
+}
+
 // The default/local backend: a native shell's in-process channel wins, else the same-origin headless
 // WebSocket. With neither (plain browser on the dev server), there's no local backend and outbound is a no-op.
 (() => {
@@ -807,8 +817,10 @@ function publishBackends(): void {
     transport = nativeTransport;
   } else {
     const wsUrl = resolveBridgeWsUrl();
-    transport =
-      wsUrl === null ? null : new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl, "the Weavie host");
+    if (wsUrl !== null) {
+      transport = new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl, "the Weavie host");
+      browserHostedShell = true;
+    }
   }
   if (transport !== null) {
     backends.set(LOCAL_BACKEND_ID, {

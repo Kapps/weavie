@@ -70,6 +70,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
 	private Action? _onKeybindingsChanged;
 	private Action<IReadOnlyList<string>>? _onUnknownKeybindingCommands;
+	private Action<bool>? _onKeybindingsMalformedChanged;
 	private Action<SettingChange>? _onSettingChanged;
 	private Action<bool>? _onSettingsMalformedChanged;
 	private Action<string>? _onThemeOverridesChanged;
@@ -279,6 +280,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_onUnknownKeybindingCommands = NotifyUnknownKeybindingCommands;
 		_keybindings.UnknownCommandsChanged += _onUnknownKeybindingCommands;
 
+		// A parse error in keybindings.json keeps the last-good bindings (it no longer wipes them to defaults):
+		// surface that the file is being ignored, and clear it (same toast key) once it parses cleanly again.
+		_onKeybindingsMalformedChanged = NotifyKeybindingsMalformed;
+		_keybindings.MalformedChanged += _onKeybindingsMalformedChanged;
+
 		// Remote agents: a connect/disconnect (in this window or another sharing the app-global store) re-pushes
 		// the registry so every page's rail + New Session location list stays in sync. PostToWeb marshals itself.
 		_onRemoteAgentsChanged = PushRemoteAgentsToWeb;
@@ -325,6 +331,16 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		Notify("warn", $"keybindings.json references unknown command {list} — {verb} ignored.", "keybindings-unknown");
 	}
 
+	// Surfaces (or clears) the malformed-keybindings toast. Keyed so the "reloaded" info replaces the lingering
+	// error in place once the file parses again. Called on the live transition and once on the page's `ready`.
+	private void NotifyKeybindingsMalformed(bool malformed) {
+		if (malformed) {
+			Notify("error", $"Your keybindings file ({_keybindings.FilePath}) has errors — your custom bindings are kept, but edits are ignored until you fix it.", "keybindings-malformed");
+		} else {
+			Notify("info", "Keybindings reloaded — your keybindings.json is active again.", "keybindings-malformed");
+		}
+	}
+
 	private static void Log(string line) {
 		Console.WriteLine(line);
 		Console.Out.Flush();
@@ -340,6 +356,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onUnknownKeybindingCommands is not null) {
 			_keybindings.UnknownCommandsChanged -= _onUnknownKeybindingCommands;
 			_onUnknownKeybindingCommands = null;
+		}
+
+		if (_onKeybindingsMalformedChanged is not null) {
+			_keybindings.MalformedChanged -= _onKeybindingsMalformedChanged;
+			_onKeybindingsMalformedChanged = null;
 		}
 
 		if (_onSettingChanged is not null) {

@@ -1,8 +1,7 @@
 import { For, type JSX, Show, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
-import { notify } from "../notify/notify";
+import { findCommand, runCommandWithFeedback } from "../commands/registry";
 
 // One row: a command to dispatch, an optional label override (defaults to the command's catalog title), and
 // a danger flag for destructive actions.
@@ -90,14 +89,10 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
     const keys = findCommand(item.commandId)?.keys ?? [];
     return keys.length > 0 ? keys.map(formatKey).join(" / ") : "";
   };
-  // Dispatch the row's command and surface a failure as a toast (success is silent — the action's own effect,
-  // e.g. a chip changing, is the feedback; a command that wants a success toast raises it itself).
+  // Dispatch the row's command and surface its outcome (failure/info) via the shared feedback wrapper.
   const run = async (item: ContextMenuItem): Promise<void> => {
     props.onClose();
-    const result = await dispatchCommand(item.commandId, item.args);
-    if (!result.ok && result.error !== undefined) {
-      notify("error", result.error);
-    }
+    await runCommandWithFeedback(item.commandId, item.args);
   };
 
   return (

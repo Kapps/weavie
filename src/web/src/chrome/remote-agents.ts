@@ -7,6 +7,7 @@ import {
   onSessionMessage,
   postToBackend,
 } from "../bridge";
+import { notify } from "../notify/notify";
 
 // A registered remote agent: a name plus how to reach its runner's control plane. The runner mints the actual
 // worker {url, token}, resolved on connect. Persisted host-side in ~/.weavie/remote-agents.json (the host owns
@@ -57,6 +58,7 @@ export async function addAgent(agent: RemoteAgent): Promise<void> {
 export function removeAgent(name: string): void {
   disconnectBackend(agentBackendId(name));
   postToBackend("local", { type: "remove-remote-agent", name });
+  notify("info", `Disconnected remote agent "${name}".`);
 }
 
 // Honored only from the LOCAL backend — a remote runner pushes its own registry, which must not leak in. The

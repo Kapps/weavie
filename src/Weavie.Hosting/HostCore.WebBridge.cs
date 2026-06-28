@@ -453,12 +453,33 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		_ = Task.Run(() => {
-			var files = session.FileIndex.List();
+		_ = Task.Run(async () => {
+			var files = await GitTrackedFilesAsync(session.FileIndex.Root).ConfigureAwait(false)
+				?? session.FileIndex.List();
 			if (ReferenceEquals(_session, session)) {
 				_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
 			}
 		});
+	}
+
+	/// <summary>
+	/// The workspace's files as git sees them (tracked + untracked, .gitignore honored), as canonical absolute
+	/// paths sorted like the plain index — so a gitignored file (a build artifact, a secret) never surfaces in
+	/// Go-to-File. Null when the root isn't a git repo, so the caller falls back to the unfiltered walk.
+	/// </summary>
+	private static async Task<IReadOnlyList<string>?> GitTrackedFilesAsync(string root) {
+		var relative = await new GitService().ListWorkspaceFilesAsync(root).ConfigureAwait(false);
+		if (relative is null) {
+			return null;
+		}
+
+		var absolute = new List<string>(relative.Count);
+		foreach (string rel in relative) {
+			absolute.Add(WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(root, rel))));
+		}
+
+		absolute.Sort(StringComparer.OrdinalIgnoreCase);
+		return absolute;
 	}
 
 	// How many recent files to push: enough to power the recency tiebreak across a working set, of which the

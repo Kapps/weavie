@@ -15,6 +15,7 @@ import "./editor/diff.css";
 import "./editor/comment-prose.css";
 import "./editor/preview/preview.css";
 import "./files/files.css";
+import "./chrome/search-panel.css";
 import "./chrome/titlebar.css";
 import "./chrome/omnibar.css";
 import "./chrome/resize-frame.css";

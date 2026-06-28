@@ -84,6 +84,58 @@ public sealed class GitServiceTests {
 		Assert.Equal("main", list[0].Branch);
 	}
 
+	[Fact]
+	public void ParseGrep_ParsesPathLinePreview() {
+		string sample = "src/a.ts:12:const x = 1;\nsrc/a.ts:30:import y;\ndocs/b.md:3:see foo\n";
+
+		var result = GitService.ParseGrep(sample, 500);
+
+		Assert.False(result.Truncated);
+		Assert.Equal(3, result.Matches.Count);
+		Assert.Equal("src/a.ts", result.Matches[0].Path);
+		Assert.Equal(12, result.Matches[0].Line);
+		Assert.Equal("const x = 1;", result.Matches[0].Preview);
+		Assert.Equal("docs/b.md", result.Matches[2].Path);
+	}
+
+	[Fact]
+	public void ParseGrep_PreservesColonsInPreview() {
+		// The preview itself can hold ':' — only the first two fields are split.
+		var result = GitService.ParseGrep("src/a.ts:1:const url = \"http://x:8080\";\n", 500);
+
+		Assert.Single(result.Matches);
+		Assert.Equal("const url = \"http://x:8080\";", result.Matches[0].Preview);
+	}
+
+	[Fact]
+	public void ParseGrep_CapsAndFlagsTruncation() {
+		string sample = "a:1:x\na:2:y\na:3:z\n";
+
+		var result = GitService.ParseGrep(sample, 2);
+
+		Assert.True(result.Truncated);
+		Assert.Equal(2, result.Matches.Count);
+	}
+
+	[Fact]
+	public void ParseGrep_SkipsMalformedLines_ToleratesCrLf() {
+		string sample = "good:1:hit\r\nnot-a-match-line\r\nbad:notnum:x\r\n";
+
+		var result = GitService.ParseGrep(sample, 500);
+
+		Assert.Single(result.Matches);
+		Assert.Equal("good", result.Matches[0].Path);
+		Assert.Equal("hit", result.Matches[0].Preview);
+	}
+
+	[Fact]
+	public void ParseGrep_Empty_ReturnsNoMatches() {
+		var result = GitService.ParseGrep(string.Empty, 500);
+
+		Assert.Empty(result.Matches);
+		Assert.False(result.Truncated);
+	}
+
 	[Theory]
 	[InlineData("feature")]
 	[InlineData("feature/login")]

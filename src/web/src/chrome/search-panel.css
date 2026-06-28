@@ -1,0 +1,199 @@
+/* Project-wide content search (find in files): a left-docked panel mirroring the file browser's chrome. */
+
+.search-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 41;
+  width: min(420px, 75vw);
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  box-shadow: 8px 0 24px rgba(0, 0, 0, 0.4);
+}
+
+.search-head {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--bar);
+  border-bottom: 1px solid var(--border);
+}
+
+.search-title {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.search-close {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--dim);
+  border: none;
+  cursor: pointer;
+}
+
+.search-close svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.search-close:hover {
+  color: var(--fg);
+}
+
+.search-close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.search-input-row {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-input-icon {
+  display: inline-flex;
+  align-items: center;
+  color: var(--dim);
+}
+
+.search-input-icon svg {
+  width: 1.05em;
+  height: 1.05em;
+}
+
+.search-input {
+  flex: 1 1 auto;
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 8px;
+  font: inherit;
+}
+
+.search-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-truncated {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  color: var(--warn, var(--accent));
+  font-size: 0.85em;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-error {
+  flex: 0 0 auto;
+  padding: 6px 12px;
+  color: var(--err, #e06c75);
+  font-size: 0.85em;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-body {
+  flex: 1 1 auto;
+  overflow: auto;
+  padding: 4px 0;
+}
+
+.search-empty {
+  padding: 8px 12px;
+  color: var(--dim);
+  font-style: italic;
+}
+
+.search-group-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 8px;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.search-group-head:hover {
+  background: var(--bar);
+}
+
+.search-twisty {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 16px;
+  color: var(--dim);
+  user-select: none;
+}
+
+.search-twisty svg {
+  width: 0.95em;
+  height: 0.95em;
+}
+
+.search-group-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-group-count {
+  margin-left: auto;
+  color: var(--dim);
+  font-weight: 400;
+}
+
+.search-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  width: 100%;
+  padding: 2px 8px 2px 30px;
+  border: none;
+  background: transparent;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  white-space: nowrap;
+  overflow: hidden;
+  cursor: pointer;
+}
+
+.search-row:hover {
+  background: var(--bar);
+}
+
+.search-row.selected {
+  background: var(--bar);
+  outline: 1px solid var(--accent);
+  outline-offset: -1px;
+}
+
+.search-row-line {
+  flex: 0 0 auto;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.search-row-preview {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-family: var(--mono, monospace);
+}

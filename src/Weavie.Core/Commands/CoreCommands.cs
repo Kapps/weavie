@@ -23,6 +23,9 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in command-palette mode.</summary>
 	public const string FocusOmnibarCommands = "weavie.omnibar.focusCommands";
 
+	/// <summary>Opens the project-wide content-search ("find in files") panel.</summary>
+	public const string FindInFiles = "weavie.search.findInFiles";
+
 	/// <summary>Reopens (restarts) the shell terminal pane.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
 
@@ -224,6 +227,17 @@ public static class CoreCommands {
 			Description = "Open the command palette in the omnibar.",
 			Aliases = ["command palette", "show commands", "run command"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+p" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = FindInFiles,
+			Title = "Find in Files",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Search the active session's workspace for text in file contents, grouped by file; "
+				+ "click or Enter on a result jumps to that line.",
+			Aliases = ["find in files", "search files", "search in files", "grep", "search project", "find text"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+f" }],
 		});
 
 		// Open Folder + Open URL. Both web-handled: Open Folder posts the existing menu-action to the host's native

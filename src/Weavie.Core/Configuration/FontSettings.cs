@@ -59,10 +59,14 @@ public static class FontSettings {
 	private const string DefaultEditorFamily =
 		"\"Go Mono\", ui-monospace, \"Cascadia Code\", Consolas, monospace";
 
-	private const long DefaultSize = 16;
+	/// <summary>The default global font size (px), and the value the "reset font size" command restores.</summary>
+	public const long DefaultSize = 16;
 	private const string DefaultWeight = "normal";
 	private const long MinSize = 6;
 	private const long MaxSize = 72;
+
+	/// <summary>Clamps a font size to the allowed range, so the zoom commands stop at the bounds (never an error).</summary>
+	public static long ClampSize(long size) => Math.Clamp(size, MinSize, MaxSize);
 
 	// CSS-recognized weights (keywords + numeric scale), mapped 1:1 onto Monaco's and xterm's weight strings.
 	private static readonly string[] Weights =

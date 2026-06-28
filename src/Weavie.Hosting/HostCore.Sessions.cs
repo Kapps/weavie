@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
@@ -46,6 +47,7 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Success("Asked Claude to suggest a worktree setup command."));
 		});
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
+		FontCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, this);
 
 		session.Changes.Changed += () => {

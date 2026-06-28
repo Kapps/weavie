@@ -113,6 +113,15 @@ public static class CoreCommands {
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
+	/// <summary>Increases the global font size; bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
+	public const string IncreaseFontSize = "weavie.font.increase";
+
+	/// <summary>Decreases the global font size; bound to <c>Ctrl+-</c> / <c>⌘-</c>.</summary>
+	public const string DecreaseFontSize = "weavie.font.decrease";
+
+	/// <summary>Resets the global font size to the default; bound to <c>Ctrl+0</c> / <c>⌘0</c>.</summary>
+	public const string ResetFontSize = "weavie.font.reset";
+
 	/// <summary>Installs a color theme from the Open VSX registry (args <c>namespace</c>/<c>name</c>/<c>version</c>).</summary>
 	public const string InstallTheme = "weavie.theme.install";
 
@@ -587,6 +596,39 @@ public static class CoreCommands {
 				+ "(Markdown today). Does nothing for file types without a preview.",
 			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "show preview", "source view"],
 			When = "editorFocused",
+		});
+
+		// Font zoom (handlers wired in Core by FontCommands): adjust the global font.size setting, which the web
+		// applies live to both the editor and terminal. The familiar browser-zoom chords; a matched binding
+		// preventDefaults, so the chord changes the app font instead of the page zoom.
+		registry.Register(new CommandDefinition {
+			Id = IncreaseFontSize,
+			Title = "Increase Font Size",
+			RunsIn = CommandLocation.Core,
+			Category = "View",
+			Description = "Increase the editor and terminal font size by one pixel.",
+			Aliases = ["increase font size", "zoom in", "bigger text", "larger font", "font bigger"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+=" }, new CommandKeybinding { Key = "$mod+shift+=" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DecreaseFontSize,
+			Title = "Decrease Font Size",
+			RunsIn = CommandLocation.Core,
+			Category = "View",
+			Description = "Decrease the editor and terminal font size by one pixel.",
+			Aliases = ["decrease font size", "zoom out", "smaller text", "smaller font", "font smaller"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+-" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ResetFontSize,
+			Title = "Reset Font Size",
+			RunsIn = CommandLocation.Core,
+			Category = "View",
+			Description = "Reset the editor and terminal font size to the default.",
+			Aliases = ["reset font size", "reset zoom", "default font size", "zoom reset"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+0" }],
 		});
 
 		// Theme verb actions (handlers wired in Core by ThemeCommands); the data-shaped override editors +

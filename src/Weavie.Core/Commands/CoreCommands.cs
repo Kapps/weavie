@@ -104,6 +104,9 @@ public static class CoreCommands {
 	/// <summary>Pins or unpins an editor tab (the active tab, or <c>path</c>).</summary>
 	public const string TogglePinTab = "weavie.editor.togglePin";
 
+	/// <summary>Reopens the most recently closed editor tab; bound to <c>Ctrl+Shift+T</c>.</summary>
+	public const string ReopenClosed = "weavie.editor.reopenClosed";
+
 	/// <summary>Opens a new scratch (untitled) editor buffer; bound to <c>$mod+n</c>.</summary>
 	public const string NewFile = "weavie.editor.newFile";
 
@@ -554,6 +557,18 @@ public static class CoreCommands {
 				+ "Close All / Close Others.",
 			Aliases = ["pin tab", "unpin tab", "pin editor", "unpin editor", "toggle pin"],
 			ArgsSchemaJson = tabPathArgs,
+		});
+
+		// The near-universal Ctrl+Shift+T. The handler declines (key falls through) when there's nothing to
+		// reopen, so the chord is harmless with no closed tabs.
+		registry.Register(new CommandDefinition {
+			Id = ReopenClosed,
+			Title = "Reopen Closed Editor",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Reopen the most recently closed editor tab.",
+			Aliases = ["reopen closed editor", "reopen closed tab", "reopen tab", "restore closed tab", "undo close tab"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+t" }],
 		});
 
 		// New File is gated "!terminalFocused" (not "editorFocused") so $mod+n works anywhere except a terminal

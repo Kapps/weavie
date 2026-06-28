@@ -78,6 +78,7 @@ export const CommandIds = {
   closeTabsToLeft: "weavie.editor.closeToLeft",
   closeTabsToRight: "weavie.editor.closeToRight",
   togglePinTab: "weavie.editor.togglePin",
+  reopenClosed: "weavie.editor.reopenClosed",
   newFile: "weavie.editor.newFile",
   saveFile: "weavie.editor.save",
   toggleEditorPreview: "weavie.editor.togglePreview",

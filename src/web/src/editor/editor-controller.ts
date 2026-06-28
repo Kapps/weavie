@@ -95,6 +95,8 @@ export interface TabActions {
   /** Activate the next / previous tab in visual order, wrapping. False if there's nothing to step to. */
   next(): boolean;
   prev(): boolean;
+  /** Reopen the most recently closed file/web tab. False when there's nothing to reopen. */
+  reopenClosed(): boolean;
 }
 
 export interface EditorController {
@@ -285,6 +287,44 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         releaseClosed(path, scratchPaths.has(path));
       }
     }
+    for (const entry of doomed) {
+      if (result.disposed.includes(entry.path)) {
+        recordClosed(entry);
+      }
+    }
+  };
+
+  // Recently-closed file/web tabs, most-recent last, so Reopen Closed Editor (Ctrl+Shift+T) can bring one back.
+  // Scratch buffers are excluded — their content is discarded on close, so there's nothing to reopen.
+  const closedTabs: { path: string; web: boolean }[] = [];
+  const CLOSED_TABS_LIMIT = 25;
+  const recordClosed = (entry: EditorSessionEntry): void => {
+    if (entry.scratch === true) {
+      return;
+    }
+    closedTabs.push({ path: entry.path, web: entry.kind === "web" });
+    if (closedTabs.length > CLOSED_TABS_LIMIT) {
+      closedTabs.shift();
+    }
+  };
+  // Reopen the most recently closed tab that isn't already open again; skip stale records for tabs reopened by
+  // other means. Declines (returns false) when there's nothing to reopen, so Ctrl+Shift+T falls through.
+  const reopenClosed = (): boolean => {
+    while (closedTabs.length > 0) {
+      const entry = closedTabs.pop();
+      if (entry === undefined || openTabs().some((tab) => samePath(tab.path, entry.path))) {
+        continue;
+      }
+      if (entry.web) {
+        openWebTab(entry.path);
+      } else {
+        openFile(entry.path, 1);
+      }
+
+      return true;
+    }
+
+    return false;
   };
 
   const closeTabAction = async (path: string): Promise<void> => {
@@ -300,6 +340,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (result === null) {
       return;
     }
+    recordClosed(entry);
     if (entry.path === wasActive) {
       applyOrClear(result.next);
     }
@@ -394,6 +435,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     next: () => step(1),
     prev: () => step(-1),
+    reopenClosed: () => reopenClosed(),
   };
 
   const resolveReview = (keep: boolean): void => {

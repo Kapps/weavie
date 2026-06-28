@@ -152,9 +152,11 @@ export function dispatchCommand(id: string, args?: unknown): Promise<CommandResu
  */
 export async function runCommandWithFeedback(id: string, args?: unknown): Promise<CommandResult> {
   const result = await dispatchCommand(id, args);
-  if (!result.ok && result.error !== undefined) {
+  // A Core command round-trips over JSON, so an absent message/error arrives as `null`, not `undefined` —
+  // compare with `!= null` so a silent success (e.g. a normal font zoom) doesn't fire an empty toast.
+  if (!result.ok && result.error != null) {
     notify("error", result.error);
-  } else if (result.ok && result.message !== undefined) {
+  } else if (result.ok && result.message != null) {
     notify("info", result.message);
   }
   return result;

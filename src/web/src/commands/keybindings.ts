@@ -6,7 +6,9 @@ import { evaluateWhen } from "./context";
 import { getKeybindings, onCommandsChanged, runForKeybinding } from "./registry";
 import type { ResolvedKeybinding } from "./types";
 
-const IS_MAC = /Mac|iP(hone|ad|od)/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
+/** Whether the runtime is macOS — used to resolve `$mod` and platform-specific key handling. */
+export const IS_MAC =
+  /Mac|iP(hone|ad|od)/.test(navigator.platform) || /Mac/.test(navigator.userAgent);
 
 interface Chord {
   mod: boolean;

@@ -45,9 +45,14 @@ flowchart LR
   clipboard", its copy-on-highlight) and posts `clipboard-write`. An explicit `weavie.terminal.copy`
   command (`Ctrl+Shift+C` / `⌘C`, gated `terminalFocused`) copies `term.getSelection()` the same way;
   it declines (key falls through) when there's no selection.
-- **Clipboard paste.** `weavie.terminal.paste` (`Ctrl+Shift+V` / `⌘V`, gated `terminalFocused`) reads
-  the OS clipboard via the `clipboard-read`/`clipboard-content` round-trip and `term.paste()`s it.
-  OSC 52 *read* requests (`52;c;?`) are denied — no clipboard exfiltration back to the child.
+- **Clipboard paste** (`Ctrl+V` / `⌘V`, gated `terminalFocused`). In the **native WebView** the
+  `weavie.terminal.paste` command reads the OS clipboard via the `clipboard-read`/`clipboard-content`
+  round-trip and `term.paste()`s it. In a **served browser tab** that programmatic read is forbidden
+  (`navigator.clipboard.readText()` throws "not allowed"), so the command declines and the keystroke
+  falls through to xterm's **native paste event** — the only clipboard read a browser permits (Linux
+  middle-click pastes the primary selection the same way; right-click opens Weavie's own menu, so it's
+  `Ctrl+V` that pastes). Its context-menu/palette entries are therefore WebView-only. OSC 52 *read*
+  requests (`52;c;?`) are denied — no clipboard exfiltration back to the child.
 - **Open URL.** The OSC 8 `linkHandler` posts `open-url` for `http(s)` (it already revealed `file:`),
   and a bare-`http(s)` link provider makes printed URLs clickable. Fixes the OAuth/login flow, where
   Claude prints/links an auth URL. **Security:** terminal content is untrusted (a printed/OSC 8 link

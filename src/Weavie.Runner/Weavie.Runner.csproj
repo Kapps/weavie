@@ -31,6 +31,20 @@
     Configuration / RID / self-contained are propagated so the worker's RID-specific bits (NativeAOT relay,
     apphost) match the runner's.
   -->
+  <!--
+    Build a fresh worker whenever the runner builds: the runner locates Weavie.Headless by probe (its sibling
+    bin in a dev layout) and deliberately doesn't reference it (see StageHeadlessWorker), so a plain build/run
+    would otherwise relaunch a STALE worker. Incremental; skipped under publish (StageHeadlessWorker stages a
+    complete worker there). A running worker locks its bin — stop the runner before rebuilding. AdditionalProperties
+    (not Properties) so the solution build's global props are inherited and its own Headless build is deduped, not
+    rebuilt as a separate configuration. Debug copies the last `pnpm run build` web (the fast-inner-loop choice).
+  -->
+  <Target Name="BuildHeadlessWorker" AfterTargets="Build" Condition="'$(_IsPublishing)' != 'true'">
+    <MSBuild Projects="$(MSBuildThisFileDirectory)..\Weavie.Headless\Weavie.Headless.csproj"
+             Targets="Build"
+             AdditionalProperties="Configuration=$(Configuration)" />
+  </Target>
+
   <Target Name="StageHeadlessWorker" AfterTargets="Publish">
     <PropertyGroup>
       <_WorkerProj>$(MSBuildThisFileDirectory)..\Weavie.Headless\Weavie.Headless.csproj</_WorkerProj>

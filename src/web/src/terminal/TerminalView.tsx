@@ -3,7 +3,8 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
-import { type TermSession, log, onHostMessage, postToHost } from "../bridge";
+import { type TermSession, isBrowserHostedShell, log, onHostMessage, postToHost } from "../bridge";
+import { IS_MAC } from "../commands/keybindings";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
 import { base64ToBytes, bytesToBase64 } from "./base64";
@@ -203,6 +204,19 @@ export function TerminalView(props: {
     // this one chord and leave every other key legacy — force-enabling the whole protocol would also re-encode
     // Ctrl+C etc. as CSI-u, which claude doesn't expect. Claude-pane only, so the shell isn't fed CSI-u.
     term.attachCustomKeyEventHandler((e) => {
+      // Ctrl+V / ⌘V on a served browser tab: the paste command declined (the browser blocks
+      // navigator.clipboard.readText), so return false to stop xterm eating it as ^V and let the browser's
+      // native paste event fire — the one clipboard read a browser allows. The native WebView pastes via the command.
+      if (
+        isBrowserHostedShell() &&
+        e.type === "keydown" &&
+        e.key.toLowerCase() === "v" &&
+        (IS_MAC ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey) &&
+        !e.shiftKey &&
+        !e.altKey
+      ) {
+        return false;
+      }
       if (
         props.pane === "claude" &&
         e.type === "keydown" &&

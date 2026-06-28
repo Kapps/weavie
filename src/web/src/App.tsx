@@ -18,6 +18,7 @@ import {
   activeBackendPhase,
   backendName,
   connectedBackends,
+  isBrowserHostedShell,
   onHostMessage,
   postToBackend,
   postToHost,
@@ -537,7 +538,11 @@ export default function App(): JSX.Element {
                         y: event.clientY,
                         entries: [
                           { commandId: CommandIds.terminalCopy },
-                          { commandId: CommandIds.terminalPaste },
+                          // A served browser tab can't read the clipboard from a click (only the native paste
+                          // event works there) — Ctrl+V is the paste path; the menu item only fits the WebView.
+                          ...(isBrowserHostedShell()
+                            ? []
+                            : [{ commandId: CommandIds.terminalPaste }]),
                           { commandId: CommandIds.terminalClear },
                           { kind: "separator" },
                           { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
@@ -786,6 +791,10 @@ export default function App(): JSX.Element {
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
+
+    // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
+    // off it in the command catalog — Ctrl+V there falls through to xterm's native paste instead. Session-static.
+    setContext("browserShell", isBrowserHostedShell());
 
     // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight, and publish it as a
     // `when`-context key so command guards (e.g. terminalFocused) can read it.

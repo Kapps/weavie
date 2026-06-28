@@ -5,7 +5,7 @@ import { expect, test } from "../harness/fixtures";
 // their `when` BEFORE accounting for that, so every focus-gated command was dropped — searching ">copy"
 // with a terminal focused returned ZERO rows. The fix evaluates `when` against the pane focused when the
 // palette opened. Pure frontend `when`-evaluation against pre-open focus → headless.
-test("palette shows terminal-gated Copy/Paste when a terminal was focused before opening", async ({
+test("palette shows terminal-gated Copy for a pre-focused terminal (and hides Paste on a browser shell)", async ({
   page,
 }) => {
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
@@ -31,13 +31,16 @@ test("palette shows terminal-gated Copy/Paste when a terminal was focused before
     copyRow.filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
   ).toHaveCount(1);
 
-  // Paste is the same gate — confirm it surfaces too.
+  // Paste carries the same terminalFocused gate AND `!browserShell`: a browser tab (this headless harness)
+  // can't read the clipboard programmatically, so the palette must NOT offer a Paste that could only no-op —
+  // there Ctrl+V falls through to xterm's native paste. So with a terminal focused, the Terminal Paste row is absent.
   await input.fill(">paste");
+  await expect(page.locator(".tb-omnibar-box")).toHaveClass(/\bopen\b/);
   await expect(
     page
       .locator(".tb-omnibar-row", { hasText: "Paste" })
       .filter({ has: page.locator(".tb-row-dir", { hasText: "Terminal" }) }),
-  ).toHaveCount(1);
+  ).toHaveCount(0);
 });
 
 // Negative half of the same gate: with NO terminal focused (the editor focused instead), the terminal-gated

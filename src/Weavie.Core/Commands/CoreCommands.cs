@@ -35,7 +35,7 @@ public static class CoreCommands {
 	/// <summary>Copies the focused terminal's selection to the OS clipboard; bound to <c>Ctrl+Shift+C</c> / <c>⌘C</c>.</summary>
 	public const string TerminalCopy = "weavie.terminal.copy";
 
-	/// <summary>Pastes the OS clipboard into the focused terminal; bound to <c>Ctrl+Shift+V</c> / <c>⌘V</c>.</summary>
+	/// <summary>Pastes the OS clipboard into the focused terminal; bound to <c>Ctrl+V</c> / <c>⌘V</c>.</summary>
 	public const string TerminalPaste = "weavie.terminal.paste";
 
 	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
@@ -296,9 +296,9 @@ public static class CoreCommands {
 
 		// Terminal copy/paste are web-handled (they act on the live xterm selection) but write/read the OS
 		// clipboard through the host. Gated terminalFocused so the chords are the editor's elsewhere; the copy
-		// handler additionally declines (key falls through) when there's no selection. Each carries BOTH the
-		// Win/Linux chord (Ctrl+Shift+C/V — Ctrl+C is SIGINT) and the macOS one (⌘C/V); the off-platform chord
-		// (Win+key / Ctrl+Shift+key on mac) is harmless since it's rarely pressed and still terminal-gated.
+		// handler additionally declines (key falls through) when there's no selection. Copy can't use Ctrl+C
+		// (SIGINT), so it takes Ctrl+Shift+C (+ ⌘C); paste has no such conflict and takes the plain $mod+v
+		// (Ctrl+V / ⌘V). The off-platform copy chord (Ctrl+Shift+C on mac) is harmless — rare and terminal-gated.
 		registry.Register(new CommandDefinition {
 			Id = TerminalCopy,
 			Title = "Copy",
@@ -320,11 +320,10 @@ public static class CoreCommands {
 			Category = "Terminal",
 			Description = "Paste the clipboard's text into the focused terminal.",
 			Aliases = ["paste", "paste clipboard", "terminal paste", "paste into terminal"],
-			DefaultKeybindings = [
-				new CommandKeybinding { Key = "ctrl+shift+v" },
-				new CommandKeybinding { Key = "cmd+v" },
-			],
-			When = "terminalFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+v" }],
+			// Not on a browser shell: it can't read the clipboard programmatically, so this command (and its
+			// palette row) would be a dead end there — Ctrl+V falls through to xterm's native paste instead.
+			When = "terminalFocused && !browserShell",
 		});
 
 		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);

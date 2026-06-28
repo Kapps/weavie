@@ -2,7 +2,9 @@
 // host. The WebView's navigator.clipboard is focus- and permission-gated (it throws when the document isn't
 // focused — the flakiness this fixes), so the host — which owns the real OS clipboard — does the work. Claude's
 // OSC 52 ("set clipboard", its copy-on-highlight) flows through the same write path. On a browser-served shell
-// (headless/remote) there is no host clipboard, so we use the browser's own navigator.clipboard there instead.
+// (headless/remote) there is no host clipboard: copy writes via the browser's navigator.clipboard.writeText,
+// but paste can't — a browser forbids navigator.clipboard.readText — so it declines and Ctrl+V falls through
+// to the terminal's native paste event (see TerminalView), the only clipboard read a browser permits.
 
 import type { Terminal } from "@xterm/xterm";
 import { isBrowserHostedShell, onHostMessage, postToHost } from "../bridge";
@@ -65,14 +67,8 @@ onHostMessage((message) => {
 });
 
 function readClipboard(): Promise<string> {
-  // Browser-served: read the browser's own clipboard. Paste (Ctrl+Shift+V) is a user gesture, so readText is
-  // permitted; a denial rejects and the paste handler surfaces it (rather than the old silent empty no-op).
-  if (isBrowserHostedShell()) {
-    // `?.` so a missing Clipboard API (an insecure context) rejects through the paste handler rather than
-    // throwing synchronously out of this function.
-    return navigator.clipboard?.readText() ?? Promise.reject(new Error("clipboard unavailable"));
-  }
-
+  // Native WebView only — a browser tab never reaches here (its paste declines to the native paste event). The
+  // host owns the OS clipboard and answers clipboard-read; the timeout only guards a dropped bridge.
   const id = `clip${++readSeq}`;
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -124,6 +120,12 @@ export function installTerminalClipboardCommands(): () => void {
   const offPaste = registerCommand(CommandIds.terminalPaste, () => {
     const term = focusedTerminal();
     if (term === undefined) {
+      return false;
+    }
+    // A served browser tab forbids programmatic clipboard reads (navigator.clipboard.readText throws "not
+    // allowed"), so decline: the keystroke falls through to the terminal's native paste event (see TerminalView),
+    // the one clipboard read a browser permits. Only the native WebView reads the OS clipboard through the host.
+    if (isBrowserHostedShell()) {
       return false;
     }
     return readClipboard().then(

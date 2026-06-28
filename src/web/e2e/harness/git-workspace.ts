@@ -107,6 +107,18 @@ export async function createPrWorkspace(): Promise<{
   g(dir, "checkout", "-q", "main");
   g(dir, "branch", "-q", "-D", headRef);
 
+  // A SECOND PR (#102) on its own head branch, with DISTINCT changed files (widget.ts added, notes.txt
+  // modified) — never overlapping #101's files — so two PR sessions can be checked for cross-contamination.
+  const headRef2 = "pr-branch-2";
+  g(dir, "checkout", "-q", "-b", headRef2);
+  await writeFile(join(dir, "widget.ts"), "export const widget = 42;\n");
+  await writeFile(join(dir, "notes.txt"), "just plain text\nplus a second-PR line\n");
+  g(dir, "add", "-A");
+  g(dir, "commit", "-q", "-m", "pr 102 changes");
+  g(dir, "push", "-q", "origin", headRef2);
+  g(dir, "checkout", "-q", "main");
+  g(dir, "branch", "-q", "-D", headRef2);
+
   return {
     dir,
     prs: [
@@ -117,6 +129,15 @@ export async function createPrWorkspace(): Promise<{
         headRef,
         baseRef: "main",
         url: "https://github.com/acme/demo/pull/101",
+        draft: false,
+      },
+      {
+        number: 102,
+        title: "Add a widget and note",
+        author: "carol",
+        headRef: headRef2,
+        baseRef: "main",
+        url: "https://github.com/acme/demo/pull/102",
         draft: false,
       },
     ],

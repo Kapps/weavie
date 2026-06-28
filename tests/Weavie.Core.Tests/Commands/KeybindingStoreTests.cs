@@ -6,8 +6,9 @@ namespace Weavie.Core.Tests;
 
 /// <summary>
 /// <see cref="KeybindingStore"/> against a real temp file: default seeding, user add/override/unbind,
-/// unknown-command dropping, args + when parsing, and malformed-file handling (keep defaults).
-/// Watcher off for deterministic, synchronous assertions.
+/// unknown-command dropping, args + when parsing, and malformed-file handling (defaults on cold load,
+/// last-good on a live edit). Watcher off for deterministic, synchronous assertions except the one
+/// watcher-driven test that exercises the live malformed→last-good→recover transition.
 /// </summary>
 public sealed class KeybindingStoreTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-keybinding-tests", Guid.NewGuid().ToString("N"));
@@ -120,6 +121,38 @@ public sealed class KeybindingStoreTests : IDisposable {
 		using var store = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: false);
 		Assert.Equal(2, store.Resolved.Count);
 		Assert.All(store.Resolved, b => Assert.Equal("weavie.pane.focusByIndex", b.Command));
+	}
+
+	// #104: a parse error introduced *after* a good load must keep the last-good bindings (not revert to
+	// defaults) and flag the file malformed; fixing the file clears the flag. Driven through the real watcher —
+	// the only path that reaches the live reload — synchronized on MalformedChanged rather than a sleep.
+	[Fact]
+	public void MalformedAfterGoodLoad_KeepsLastGood_ThenRecovers() {
+		File.WriteAllText(FilePath, """[{"key":"$mod+shift+t","command":"weavie.terminal.reopen"}]""");
+		using var store = new KeybindingStore(TestRegistry(), FilePath, enableWatcher: true);
+		Assert.Contains(store.Resolved, b => b is { Key: "$mod+shift+t", Command: "weavie.terminal.reopen" });
+
+		using var flipped = new ManualResetEventSlim(false);
+		store.MalformedChanged += malformed => {
+			if (malformed) {
+				flipped.Set();
+			}
+		};
+		File.WriteAllText(FilePath, "{ not valid json ]");
+		Assert.True(flipped.Wait(TimeSpan.FromSeconds(10)), "MalformedChanged(true) never fired");
+		Assert.True(store.IsMalformed);
+		Assert.Contains(store.Resolved, b => b.Key == "$mod+shift+t"); // last-good survived, not wiped to defaults
+
+		using var recovered = new ManualResetEventSlim(false);
+		store.MalformedChanged += malformed => {
+			if (!malformed) {
+				recovered.Set();
+			}
+		};
+		File.WriteAllText(FilePath, """[{"key":"$mod+shift+t","command":"weavie.terminal.reopen"}]""");
+		Assert.True(recovered.Wait(TimeSpan.FromSeconds(10)), "MalformedChanged(false) never fired on recovery");
+		Assert.False(store.IsMalformed);
+		Assert.Contains(store.Resolved, b => b.Key == "$mod+shift+t");
 	}
 
 	[Fact]

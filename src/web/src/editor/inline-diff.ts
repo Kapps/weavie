@@ -1369,6 +1369,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   };
   const clearByUri = (key: string): void => {
     diffs.delete(key);
+    syncDiffContext(); // an off-screen clear still changes whether any diff is active
     if (renderedUri === key) {
       renderActive(); // fall back to the parked navigator when a review set still remains
     }

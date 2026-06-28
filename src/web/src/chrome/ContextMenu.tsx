@@ -69,13 +69,36 @@ export function ContextMenu(props: { menu: ContextMenuState; onClose: () => void
       list[next]?.focus();
     }
   };
+  // Keep the menu inside the viewport: after it renders at the cursor, shift it left/up so it doesn't spill
+  // past the right/bottom edge (clamped to a small margin so a menu taller/wider than the viewport still pins
+  // to the top-left rather than scrolling its first rows off-screen).
+  const clampToViewport = (): void => {
+    if (menuEl === undefined) {
+      return;
+    }
+    const margin = 4;
+    const x = Math.max(
+      margin,
+      Math.min(props.menu.x, window.innerWidth - menuEl.offsetWidth - margin),
+    );
+    const y = Math.max(
+      margin,
+      Math.min(props.menu.y, window.innerHeight - menuEl.offsetHeight - margin),
+    );
+    menuEl.style.left = `${x}px`;
+    menuEl.style.top = `${y}px`;
+  };
   // Listeners are added on mount (after the opening right-click is handled) and torn down on close.
   onMount(() => {
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKeyDown);
     window.addEventListener("blur", props.onClose);
-    // Land focus on the first row so arrow keys + Enter work immediately (queued so the For has rendered).
-    queueMicrotask(() => items()[0]?.focus());
+    // Queued so the For has rendered and the menu has its final size: clamp into the viewport, then land
+    // focus on the first row so arrow keys + Enter work immediately.
+    queueMicrotask(() => {
+      clampToViewport();
+      items()[0]?.focus();
+    });
   });
   onCleanup(() => {
     window.removeEventListener("pointerdown", onPointerDown);

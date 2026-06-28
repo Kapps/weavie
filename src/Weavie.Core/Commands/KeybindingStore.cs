@@ -19,6 +19,10 @@ public sealed class KeybindingStore : IDisposable {
 	private List<ResolvedKeybinding> _resolved = [];
 	private IReadOnlyList<string> _unknownCommands = [];
 	private string _resolvedJson = "[]";
+	// Whether the file currently has JSON parse errors (its bindings ignored), and whether we've ever resolved a
+	// good file — the first-ever load of a malformed file has no last-good to keep, so it falls back to defaults.
+	private bool _malformed;
+	private bool _hasResolvedOnce;
 	private bool _disposed;
 
 	/// <summary>
@@ -61,6 +65,15 @@ public sealed class KeybindingStore : IDisposable {
 	/// <summary>Raised (off the UI thread) when the set of unknown command ids in the user file changes on a
 	/// live edit — so a host can surface (or clear) a "binding for unknown command…" warning.</summary>
 	public event Action<IReadOnlyList<string>>? UnknownCommandsChanged;
+
+	/// <summary>Raised when the file's malformed (JSON parse error) state flips on a live edit — true once it
+	/// has parse errors (its bindings ignored, the last-good list kept), false once it parses cleanly again.</summary>
+	public event Action<bool>? MalformedChanged;
+
+	/// <summary>Whether the user file currently has JSON parse errors, so its bindings are being ignored.</summary>
+	public bool IsMalformed {
+		get { lock (_gate) { return _malformed; } }
+	}
 
 	/// <summary>The command ids in the user file that match no registered command (their bindings are dropped);
 	/// empty when the file is clean.</summary>
@@ -118,14 +131,17 @@ public sealed class KeybindingStore : IDisposable {
 	private void OnDebounceElapsed(object? state) {
 		bool changed;
 		bool unknownChanged;
+		bool malformedChanged;
+		bool malformed;
 		IReadOnlyList<string> unknown;
 		lock (_gate) {
 			if (_disposed) {
 				return;
 			}
 
-			(changed, unknownChanged) = ReloadLocked();
+			(changed, unknownChanged, malformedChanged) = ReloadLocked();
 			unknown = _unknownCommands;
+			malformed = _malformed;
 		}
 
 		if (changed) {
@@ -135,23 +151,39 @@ public sealed class KeybindingStore : IDisposable {
 		if (unknownChanged) {
 			UnknownCommandsChanged?.Invoke(unknown);
 		}
+
+		if (malformedChanged) {
+			MalformedChanged?.Invoke(malformed);
+		}
 	}
 
 	// Reads + merges the file, swapping in the new resolved list. Returns whether the resolved JSON actually
 	// changed, so the watch path only fires on a real change. A malformed file keeps the last-good list.
-	private (bool ResolvedChanged, bool UnknownChanged) ReloadLocked() {
+	private (bool ResolvedChanged, bool UnknownChanged, bool MalformedChanged) ReloadLocked() {
+		bool wasMalformed = _malformed;
 		var unknown = new List<string>();
-		var merged = MergeLocked(ReadUserEntriesLocked(unknown));
+		var entries = ReadUserEntriesLocked(unknown); // sets _malformed
+		bool malformedChanged = _malformed != wasMalformed;
+
+		// A malformed file with a prior good resolution keeps the last-good list (and its unknown set): a
+		// transient parse error must not wipe the user's customizations. The first-ever load has no last-good,
+		// so it falls through to build defaults (entries is empty there).
+		if (_malformed && _hasResolvedOnce) {
+			return (false, false, malformedChanged);
+		}
+
+		var merged = MergeLocked(entries);
 		bool unknownChanged = !unknown.SequenceEqual(_unknownCommands, StringComparer.Ordinal);
 		_unknownCommands = unknown;
+		_hasResolvedOnce = true;
 		string json = CommandCatalog.BuildKeybindingsArrayJson(merged);
 		if (string.Equals(json, _resolvedJson, StringComparison.Ordinal)) {
-			return (false, unknownChanged);
+			return (false, unknownChanged, malformedChanged);
 		}
 
 		_resolved = merged;
 		_resolvedJson = json;
-		return (true, unknownChanged);
+		return (true, unknownChanged, malformedChanged);
 	}
 
 	private List<ResolvedKeybinding> MergeLocked(IReadOnlyList<UserBinding> userEntries) {
@@ -192,6 +224,7 @@ public sealed class KeybindingStore : IDisposable {
 	}
 
 	private IReadOnlyList<UserBinding> ReadUserEntriesLocked(List<string> unknownCommands) {
+		_malformed = false;
 		string text;
 		try {
 			text = File.Exists(FilePath) ? File.ReadAllText(FilePath) : string.Empty;
@@ -211,13 +244,15 @@ public sealed class KeybindingStore : IDisposable {
 				AllowTrailingCommas = true,
 			});
 		} catch (JsonException ex) {
-			Log?.Invoke($"[keybindings] {FilePath} has JSON parse errors ({ex.Message}); using defaults until fixed.");
+			_malformed = true;
+			Log?.Invoke($"[keybindings] {FilePath} has JSON parse errors ({ex.Message}); keeping the last-good bindings until fixed.");
 			return [];
 		}
 
 		using (doc) {
 			if (doc.RootElement.ValueKind != JsonValueKind.Array) {
-				Log?.Invoke($"[keybindings] {FilePath} must be a JSON array of bindings; using defaults.");
+				_malformed = true;
+				Log?.Invoke($"[keybindings] {FilePath} must be a JSON array of bindings; keeping the last-good bindings until fixed.");
 				return [];
 			}
 

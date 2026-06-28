@@ -619,7 +619,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     void deps
       .confirm({
         title: "Revert all changes?",
-        body: `Discard every change from this turn${count > 1 ? ` across ${count} files` : ""}? This can't be undone.`,
+        body: `Discard every change from this turn${count > 1 ? ` across ${count} files` : ""}? You can undo this afterward.`,
         confirmLabel: "Revert all",
       })
       .then((ok) => {

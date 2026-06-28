@@ -2,7 +2,7 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import { createSignal } from "solid-js";
-import { type WebBoundMessage, log, postToHost } from "../bridge";
+import { type WebBoundMessage, isBrowserHostedShell, log, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { CommentProse } from "./comment-prose";
@@ -38,6 +38,9 @@ export interface EditorControllerDeps {
   confirmDiscard: (names: string[]) => Promise<boolean>;
   /** Confirm a destructive review action (Revert file / Revert all). Resolves true to proceed. */
   confirm: (options: { title: string; body: string; confirmLabel: string }) => Promise<boolean>;
+  /** Prompt in-app for a scratch buffer's save name on a browser-served host (no native Save-As dialog);
+   * resolves the chosen workspace-relative name, or null if cancelled. */
+  promptScratchName: (suggestedName: string) => Promise<string | null>;
 }
 
 /** One changed file in the post-turn review set: path, line counts, and the 1-based line of its first change. */
@@ -925,14 +928,30 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const entry = openTabs().find((tab) => tab.path === path);
     if (entry?.scratch === true) {
-      const content = host?.contentOf(path) ?? "";
-      host?.cancelSave(path);
-      postToHost({
-        type: "save-scratch-as",
-        path,
-        content,
-        suggestedName: basename(path),
-      });
+      // A browser-served host (headless / remote) has no native Save-As dialog — prompt in-app for a name and
+      // send it for the host to resolve under the workspace. Native hosts use their OS dialog (save-scratch-as).
+      if (isBrowserHostedShell()) {
+        void deps.promptScratchName(basename(path)).then((name) => {
+          if (name === null) {
+            return;
+          }
+          host?.cancelSave(path);
+          postToHost({
+            type: "save-scratch-named",
+            path,
+            content: host?.contentOf(path) ?? "",
+            name,
+          });
+        });
+      } else {
+        host?.cancelSave(path);
+        postToHost({
+          type: "save-scratch-as",
+          path,
+          content: host?.contentOf(path) ?? "",
+          suggestedName: basename(path),
+        });
+      }
     }
     return true;
   };

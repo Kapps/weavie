@@ -299,6 +299,11 @@ public sealed partial class HostCore {
 				// Ctrl+S on a scratch buffer: prompt for a real name (native Save dialog), write it, drop the temp.
 				_ = SaveScratchAsAsync(root);
 				break;
+			case "save-scratch-named":
+				// Ctrl+S on a scratch buffer on a browser-served host (no native dialog): the web's in-app prompt
+				// chose a workspace-relative name; resolve it under the workspace, write it, drop the temp.
+				SaveScratchNamed(root);
+				break;
 			case "discard-scratch":
 				// The user closed (and confirmed discarding) a scratch buffer: delete its temp file.
 				_session?.Scratch.Delete(root.GetStringOrEmpty("path"));
@@ -1092,6 +1097,44 @@ public sealed partial class HostCore {
 			Notify("error", $"Couldn't save the file: {ex.Message}");
 			PostScratchSaved(scratchPath, string.Empty, reopen: false);
 		}
+	}
+
+	/// <summary>
+	/// Saves a scratch buffer under an in-app-chosen workspace-relative <c>name</c> (browser-served host, no
+	/// native dialog), resolved under the active session's worktree, then deletes the temp and replies
+	/// <c>scratch-saved</c>. Rejects a name that escapes the workspace.
+	/// </summary>
+	private void SaveScratchNamed(JsonElement root) {
+		string scratchPath = root.GetStringOrEmpty("path");
+		if (_session is not { } session) {
+			PostScratchSaved(scratchPath, string.Empty, reopen: false); // no active session — never leave Ctrl+S hanging
+			return;
+		}
+
+		string name = root.GetStringOrEmpty("name").Trim();
+		if (name.Length == 0) {
+			PostScratchSaved(scratchPath, string.Empty, reopen: false);
+			return;
+		}
+
+		string content = root.GetStringOrEmpty("content");
+		string target = Path.GetFullPath(Path.Combine(Path.GetFullPath(session.WorkspaceRoot), name));
+		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, target)) {
+			Notify("error", $"Can't save outside the workspace: {name}");
+			PostScratchSaved(scratchPath, string.Empty, reopen: false);
+			return;
+		}
+
+		try {
+			session.FileSystem.WriteAllText(target, content);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			Notify("error", $"Couldn't save {Path.GetFileName(target)}: {ex.Message}");
+			PostScratchSaved(scratchPath, string.Empty, reopen: false);
+			return;
+		}
+
+		session.Scratch.Delete(scratchPath);
+		PostScratchSaved(scratchPath, target, reopen: true);
 	}
 
 	/// <summary>Replies to <c>save-scratch-as</c>: the saved path (empty when cancelled) + whether to reopen it.</summary>

@@ -244,6 +244,9 @@ export type HostBoundMessage =
   // Save a scratch buffer under a real name: the host opens a Save dialog (default `suggestedName`), writes
   // `content` to the chosen path, deletes the temp file, and replies with `scratch-saved`. `path` is the temp path.
   | { type: "save-scratch-as"; path: string; content: string; suggestedName: string }
+  // Save a scratch buffer under a name chosen by the in-app prompt (browser-served host, no native dialog): the
+  // host resolves `name` under the workspace root, writes `content`, deletes the temp, and replies scratch-saved.
+  | { type: "save-scratch-named"; path: string; content: string; name: string }
   // Discard a scratch buffer the user closed: delete its temp file. (The web has already dropped the tab.)
   | { type: "discard-scratch"; path: string }
   // The editor's active file or selection changed -> host updates the editor store, which tells the

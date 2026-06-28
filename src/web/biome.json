@@ -37,5 +37,26 @@
   },
   "javascript": {
     "globals": ["weavie", "MonacoEnvironment"]
-  }
+  },
+  "overrides": [
+    {
+      "include": [
+        "src/chrome/Omnibar.tsx",
+        "src/chrome/NewSessionPrompt.tsx",
+        "src/chrome/DeleteSessionDialog.tsx",
+        "src/chrome/OpenPrPrompt.tsx",
+        "src/chrome/RegisterAgentModal.tsx",
+        "src/chrome/UrlPrompt.tsx",
+        "src/editor/ConfirmDialog.tsx"
+      ],
+      "linter": {
+        "rules": {
+          "a11y": {
+            "useSemanticElements": "off",
+            "useFocusableInteractive": "off"
+          }
+        }
+      }
+    }
+  ]
 }

@@ -105,9 +105,14 @@ export function NewSessionPrompt(props: {
       <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
         <div
           class="confirm-dialog session-prompt"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="new-session-title"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <div class="confirm-title">New session</div>
+          <div class="confirm-title" id="new-session-title">
+            New session
+          </div>
           <div class="confirm-body">
             A session runs on its own git worktree + branch. Pick where it runs, then name a new
             branch or pick an existing one to check out.
@@ -155,6 +160,14 @@ export function NewSessionPrompt(props: {
               class="session-prompt-input"
               type="text"
               placeholder="branch name"
+              role="combobox"
+              aria-label="Branch name"
+              aria-autocomplete="list"
+              aria-expanded={suggestions().length > 0}
+              aria-controls={suggestions().length > 0 ? "session-branch-suggestions" : undefined}
+              aria-activedescendant={
+                highlight() >= 0 ? `session-branch-opt-${highlight()}` : undefined
+              }
               spellcheck={false}
               autocomplete="off"
               value={branch()}
@@ -167,11 +180,20 @@ export function NewSessionPrompt(props: {
               }}
             />
             <Show when={suggestions().length > 0}>
-              <ul class="session-prompt-suggestions">
+              <div
+                class="session-prompt-suggestions"
+                id="session-branch-suggestions"
+                role="listbox"
+                aria-label="Matching branches"
+              >
                 <For each={suggestions()}>
                   {(name, i) => (
-                    <li
+                    <div
                       class="session-prompt-suggestion"
+                      role="option"
+                      tabindex={-1}
+                      id={`session-branch-opt-${i()}`}
+                      aria-selected={i() === highlight()}
                       classList={{ active: i() === highlight() }}
                       // pointerdown (not click) so picking a suggestion isn't lost to the input's blur, and
                       // preventDefault keeps focus in the field.
@@ -181,10 +203,10 @@ export function NewSessionPrompt(props: {
                       }}
                     >
                       {name}
-                    </li>
+                    </div>
                   )}
                 </For>
-              </ul>
+              </div>
             </Show>
             {/* While branches load, say so — otherwise a typed name that matches an existing branch looks
                 like a new branch (no suggestion yet), and a hung backend looks identical to an empty repo. */}

@@ -56,8 +56,16 @@ export function DeleteSessionDialog(props: {
   return (
     <Portal>
       <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
-        <div class="confirm-dialog" onPointerDown={(event) => event.stopPropagation()}>
-          <div class="confirm-title">Delete session?</div>
+        <div
+          class="confirm-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="delete-session-title"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div class="confirm-title" id="delete-session-title">
+            Delete session?
+          </div>
           <div class="confirm-body">
             <Show when={props.state === "clean"}>
               Remove the worktree for "{props.label}"? The branch is kept, so committed work is safe

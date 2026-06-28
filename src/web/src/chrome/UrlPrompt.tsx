@@ -58,8 +58,16 @@ export function UrlPrompt(props: {
   return (
     <Portal>
       <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
-        <div class="confirm-dialog" onPointerDown={(event) => event.stopPropagation()}>
-          <div class="confirm-title">Open URL</div>
+        <div
+          class="confirm-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="url-prompt-title"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div class="confirm-title" id="url-prompt-title">
+            Open URL
+          </div>
           <div class="confirm-body">
             Open an http(s) page in a web tab — e.g. a local dev server to preview your app.
           </div>

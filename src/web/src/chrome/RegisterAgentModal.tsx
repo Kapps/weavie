@@ -63,9 +63,14 @@ export function RegisterAgentModal(props: {
       <div class="modal-backdrop" onPointerDown={() => props.onClose()}>
         <div
           class="confirm-dialog session-prompt"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="register-agent-title"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <div class="confirm-title">Add remote agent</div>
+          <div class="confirm-title" id="register-agent-title">
+            Add remote agent
+          </div>
           <div class="confirm-body">
             Point Weavie at a remote runner. URL + token are printed in the runner's console at
             startup (reachable over Tailscale, e.g. http://your-host:8800).

@@ -31,8 +31,16 @@ export function ConfirmDialog(props: {
     <Portal>
       <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
         {/* Stop backdrop dismissal when interacting with the dialog itself. */}
-        <div class="confirm-dialog" onPointerDown={(event) => event.stopPropagation()}>
-          <div class="confirm-title">{props.title}</div>
+        <div
+          class="confirm-dialog"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="confirm-dialog-title"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          <div class="confirm-title" id="confirm-dialog-title">
+            {props.title}
+          </div>
           <div class="confirm-body">{props.body}</div>
           <div class="confirm-actions">
             <button type="button" class="confirm-btn" onClick={() => props.onCancel()}>

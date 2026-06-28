@@ -116,9 +116,14 @@ export function OpenPrPrompt(props: {
       <div class="modal-backdrop" onPointerDown={() => props.onCancel()}>
         <div
           class="confirm-dialog session-prompt"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="open-pr-title"
           onPointerDown={(event) => event.stopPropagation()}
         >
-          <div class="confirm-title">Open pull request</div>
+          <div class="confirm-title" id="open-pr-title">
+            Open pull request
+          </div>
           <div class="confirm-body">
             Search for a pull request, or paste its URL / type its number (e.g. #46) to open it
             directly.

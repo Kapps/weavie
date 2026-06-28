@@ -129,7 +129,7 @@ export function Omnibar(props: {
   const [expanded, setExpanded] = createSignal<Set<string>>(new Set());
   let inputRef!: HTMLInputElement;
   let rootRef!: HTMLDivElement;
-  let listRef: HTMLUListElement | undefined;
+  let listRef: HTMLDivElement | undefined;
 
   // Element focused when the omnibar opened; restored on close so the focusin-derived `when`-context
   // (editorFocused/terminalFocused) and editor-gated chords like Ctrl+Tab keep matching. See App's onFocusIn.
@@ -490,6 +490,14 @@ export function Omnibar(props: {
           ref={inputRef}
           class="tb-omnibar-input"
           type="text"
+          role="combobox"
+          aria-label={commandMode() ? "Command palette" : "Go to file"}
+          aria-expanded={open() && activeLen() > 0}
+          aria-controls={open() && activeLen() > 0 ? "tb-omnibar-listbox" : undefined}
+          aria-activedescendant={
+            open() && activeLen() > 0 ? `tb-omnibar-opt-${selected()}` : undefined
+          }
+          aria-autocomplete="list"
           spellcheck={false}
           placeholder={props.workspaceLabel}
           value={query()}
@@ -517,36 +525,44 @@ export function Omnibar(props: {
                 when={commandView().length > 0}
                 fallback={<div class="tb-omnibar-empty">No matching commands</div>}
               >
-                <ul class="tb-omnibar-list" ref={listRef}>
+                <div
+                  class="tb-omnibar-list"
+                  ref={listRef}
+                  id="tb-omnibar-listbox"
+                  role="listbox"
+                  aria-label="Commands"
+                >
                   <For each={commandView()}>
                     {(item, i) => (
-                      <li>
-                        <button
-                          type="button"
-                          class="tb-omnibar-row"
-                          classList={{ selected: i() === selected() }}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setSelected(i());
-                            runCommand(item.cmd);
-                          }}
-                        >
-                          <span class="tb-row-leaf">
-                            {highlightSlice(item.cmd.title, item.positions, 0)}
+                      <button
+                        type="button"
+                        class="tb-omnibar-row"
+                        role="option"
+                        tabindex={-1}
+                        id={`tb-omnibar-opt-${i()}`}
+                        aria-selected={i() === selected()}
+                        classList={{ selected: i() === selected() }}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setSelected(i());
+                          runCommand(item.cmd);
+                        }}
+                      >
+                        <span class="tb-row-leaf">
+                          {highlightSlice(item.cmd.title, item.positions, 0)}
+                        </span>
+                        <Show when={item.cmd.category}>
+                          <span class="tb-row-dir">{item.cmd.category}</span>
+                        </Show>
+                        <Show when={item.cmd.keys.length > 0}>
+                          <span class="tb-row-keys">
+                            {item.cmd.keys.map(formatKey).join(" / ")}
                           </span>
-                          <Show when={item.cmd.category}>
-                            <span class="tb-row-dir">{item.cmd.category}</span>
-                          </Show>
-                          <Show when={item.cmd.keys.length > 0}>
-                            <span class="tb-row-keys">
-                              {item.cmd.keys.map(formatKey).join(" / ")}
-                            </span>
-                          </Show>
-                        </button>
-                      </li>
+                        </Show>
+                      </button>
                     )}
                   </For>
-                </ul>
+                </div>
               </Show>
             }
           >
@@ -557,39 +573,47 @@ export function Omnibar(props: {
                   when={view().length > 0}
                   fallback={<div class="tb-omnibar-empty">No matching files</div>}
                 >
-                  <ul class="tb-omnibar-list" ref={listRef}>
+                  <div
+                    class="tb-omnibar-list"
+                    ref={listRef}
+                    id="tb-omnibar-listbox"
+                    role="listbox"
+                    aria-label="Files"
+                  >
                     <For each={view()}>
                       {(item, i) => (
-                        <li>
-                          <button
-                            type="button"
-                            class="tb-omnibar-row"
-                            classList={{
-                              selected: i() === selected(),
-                              current:
-                                props.currentFile !== null &&
-                                samePath(item.row.abs, props.currentFile),
-                            }}
-                            onMouseDown={(e) => {
-                              // mousedown fires before the input's focusout closes the popover.
-                              e.preventDefault();
-                              setSelected(i());
-                              openFile(item.row.abs);
-                            }}
-                          >
-                            <span class="tb-row-leaf">
-                              {highlightSlice(item.row.leaf, item.positions, item.row.leafStart)}
+                        <button
+                          type="button"
+                          class="tb-omnibar-row"
+                          role="option"
+                          tabindex={-1}
+                          id={`tb-omnibar-opt-${i()}`}
+                          aria-selected={i() === selected()}
+                          classList={{
+                            selected: i() === selected(),
+                            current:
+                              props.currentFile !== null &&
+                              samePath(item.row.abs, props.currentFile),
+                          }}
+                          onMouseDown={(e) => {
+                            // mousedown fires before the input's focusout closes the popover.
+                            e.preventDefault();
+                            setSelected(i());
+                            openFile(item.row.abs);
+                          }}
+                        >
+                          <span class="tb-row-leaf">
+                            {highlightSlice(item.row.leaf, item.positions, item.row.leafStart)}
+                          </span>
+                          <Show when={item.row.dir.length > 0}>
+                            <span class="tb-row-dir">
+                              {highlightSlice(item.row.dir, item.positions, 0)}
                             </span>
-                            <Show when={item.row.dir.length > 0}>
-                              <span class="tb-row-dir">
-                                {highlightSlice(item.row.dir, item.positions, 0)}
-                              </span>
-                            </Show>
-                          </button>
-                        </li>
+                          </Show>
+                        </button>
                       )}
                     </For>
-                  </ul>
+                  </div>
                   <Show when={hiddenCount() > 0}>
                     <div class="tb-omnibar-more">+{hiddenCount()} more — type to filter</div>
                   </Show>
@@ -600,52 +624,60 @@ export function Omnibar(props: {
                 when={visibleRows().length > 0}
                 fallback={<div class="tb-omnibar-empty">No files</div>}
               >
-                <ul class="tb-omnibar-list" ref={listRef}>
+                <div
+                  class="tb-omnibar-list"
+                  ref={listRef}
+                  id="tb-omnibar-listbox"
+                  role="listbox"
+                  aria-label="Files"
+                >
                   <For each={visibleRows()}>
                     {(r, i) => (
-                      <li>
-                        <button
-                          type="button"
-                          class="tb-omnibar-row tb-tree-row"
-                          classList={{
-                            dir: r.node.isDir,
-                            selected: i() === selected(),
-                            current:
-                              props.currentFile !== null &&
-                              r.node.abs !== undefined &&
-                              samePath(r.node.abs, props.currentFile),
-                          }}
-                          style={`padding-left: ${10 + r.depth * 14}px`}
-                          onMouseDown={(e) => {
-                            e.preventDefault();
-                            setSelected(i());
-                            if (r.node.isDir) {
-                              toggleDir(r.node.key);
-                            } else {
-                              openFile(r.node.abs);
-                            }
-                          }}
-                        >
-                          <span class="tb-tree-twisty" aria-hidden="true">
-                            <Show when={r.node.isDir}>
-                              <Show when={expanded().has(r.node.key)} fallback={<ChevronRight />}>
-                                <ChevronDown />
-                              </Show>
+                      <button
+                        type="button"
+                        class="tb-omnibar-row tb-tree-row"
+                        role="option"
+                        tabindex={-1}
+                        id={`tb-omnibar-opt-${i()}`}
+                        aria-selected={i() === selected()}
+                        classList={{
+                          dir: r.node.isDir,
+                          selected: i() === selected(),
+                          current:
+                            props.currentFile !== null &&
+                            r.node.abs !== undefined &&
+                            samePath(r.node.abs, props.currentFile),
+                        }}
+                        style={`padding-left: ${10 + r.depth * 14}px`}
+                        onMouseDown={(e) => {
+                          e.preventDefault();
+                          setSelected(i());
+                          if (r.node.isDir) {
+                            toggleDir(r.node.key);
+                          } else {
+                            openFile(r.node.abs);
+                          }
+                        }}
+                      >
+                        <span class="tb-tree-twisty" aria-hidden="true">
+                          <Show when={r.node.isDir}>
+                            <Show when={expanded().has(r.node.key)} fallback={<ChevronRight />}>
+                              <ChevronDown />
                             </Show>
-                          </span>
-                          <span class="tb-tree-icon" aria-hidden="true">
-                            <Show when={r.node.isDir} fallback={<FileIcon />}>
-                              <Show when={expanded().has(r.node.key)} fallback={<Folder />}>
-                                <FolderOpen />
-                              </Show>
+                          </Show>
+                        </span>
+                        <span class="tb-tree-icon" aria-hidden="true">
+                          <Show when={r.node.isDir} fallback={<FileIcon />}>
+                            <Show when={expanded().has(r.node.key)} fallback={<Folder />}>
+                              <FolderOpen />
                             </Show>
-                          </span>
-                          <span class="tb-row-leaf">{r.node.name}</span>
-                        </button>
-                      </li>
+                          </Show>
+                        </span>
+                        <span class="tb-row-leaf">{r.node.name}</span>
+                      </button>
                     )}
                   </For>
-                </ul>
+                </div>
               </Show>
             </Show>
           </Show>

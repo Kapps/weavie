@@ -5,6 +5,8 @@ const env = vi.hoisted(() => ({
   hostHandlers: [] as Array<(m: Record<string, unknown>) => void>,
   posted: [] as Array<Record<string, unknown>>,
   invokeCalls: [] as Array<{ backendId: string; id: string; args: unknown }>,
+  notified: [] as Array<{ level: string; message: unknown }>,
+  coreResult: { ok: true, data: "core-ran" } as CommandResult,
   active: "local",
 }));
 
@@ -17,7 +19,7 @@ vi.mock("../bridge", () => ({
     args: unknown,
   ): Promise<CommandResult> => {
     env.invokeCalls.push({ backendId, id, args });
-    return Promise.resolve({ ok: true, data: "core-ran" });
+    return Promise.resolve(env.coreResult);
   },
   log: () => {},
   onHostMessage: (h: (m: Record<string, unknown>) => void) => {
@@ -31,6 +33,11 @@ vi.mock("../bridge", () => ({
 // trackSessionCommand only wraps session-lifecycle ops; pass straight through for the tests.
 vi.mock("../chrome/session-store", () => ({
   trackSessionCommand: <T>(_b: string, _i: string, run: () => Promise<T>) => run(),
+}));
+vi.mock("../notify/notify", () => ({
+  notify: (level: string, message: unknown) => {
+    env.notified.push({ level, message });
+  },
 }));
 
 // registry reads window.__WEAVIE_* at module load.
@@ -58,6 +65,8 @@ const setCatalog = (commands: CommandInfo[]): void => {
 beforeEach(() => {
   env.posted.length = 0;
   env.invokeCalls.length = 0;
+  env.notified.length = 0;
+  env.coreResult = { ok: true, data: "core-ran" };
   env.active = "local";
   setCatalog([]);
 });
@@ -113,6 +122,40 @@ describe("dispatchCommand — core commands", () => {
     setCatalog([cmd("core.y", "core")]);
     await reg.dispatchCommand("core.y", { backendId: "remote:r" });
     expect(env.invokeCalls[0]?.backendId).toBe("remote:r");
+  });
+});
+
+describe("runCommandWithFeedback", () => {
+  // A Core command's silent success arrives over JSON as message:null (not undefined); it must not toast —
+  // otherwise a normal font zoom spams empty toasts (only the ✕ close button shows).
+  it("does not toast a silent core success (message is null over the wire)", async () => {
+    setCatalog([cmd("core.silent", "core")]);
+    env.coreResult = { ok: true, message: null, error: null } as unknown as CommandResult;
+    await reg.runCommandWithFeedback("core.silent");
+    expect(env.notified).toEqual([]);
+  });
+
+  it("toasts an informational core message", async () => {
+    setCatalog([cmd("core.info", "core")]);
+    env.coreResult = {
+      ok: true,
+      message: "Font size is already at its maximum (16px).",
+    } as CommandResult;
+    await reg.runCommandWithFeedback("core.info");
+    expect(env.notified).toEqual([
+      { level: "info", message: "Font size is already at its maximum (16px)." },
+    ]);
+  });
+
+  it("toasts a core failure error", async () => {
+    setCatalog([cmd("core.fail", "core")]);
+    env.coreResult = {
+      ok: false,
+      message: null,
+      error: "No active session.",
+    } as unknown as CommandResult;
+    await reg.runCommandWithFeedback("core.fail");
+    expect(env.notified).toEqual([{ level: "error", message: "No active session." }]);
   });
 });
 

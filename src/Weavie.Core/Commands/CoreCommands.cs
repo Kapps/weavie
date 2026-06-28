@@ -26,6 +26,9 @@ public static class CoreCommands {
 	/// <summary>Reopens (restarts) the shell terminal pane.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
 
+	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
+	public const string RestartClaude = "weavie.claude.restart";
+
 	/// <summary>Copies the focused terminal's selection to the OS clipboard; bound to <c>Ctrl+Shift+C</c> / <c>⌘C</c>.</summary>
 	public const string TerminalCopy = "weavie.terminal.copy";
 
@@ -240,6 +243,17 @@ public static class CoreCommands {
 			Category = "Terminal",
 			Description = "Restart the shell terminal pane (kills its scrollback and any running command).",
 			Aliases = ["reopen terminal", "restart shell", "reopen shell", "restart terminal"],
+		});
+
+		// No default keybinding: a deliberate recovery action, not a hot path. Recovers a Claude pane the
+		// crash-loop breaker gave up on — Restart() clears the breaker and respawns.
+		registry.Register(new CommandDefinition {
+			Id = RestartClaude,
+			Title = "Restart Claude",
+			RunsIn = CommandLocation.Core,
+			Category = "Claude",
+			Description = "Restart the Claude pane in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
+			Aliases = ["restart claude", "reopen claude", "relaunch claude", "claude crashed"],
 		});
 
 		// Terminal copy/paste are web-handled (they act on the live xterm selection) but write/read the OS

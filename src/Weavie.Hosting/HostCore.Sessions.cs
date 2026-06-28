@@ -31,6 +31,10 @@ public sealed partial class HostCore {
 			_ui.Post(() => session.Shell.Restart());
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
+		session.Commands.RegisterHandler(CoreCommands.RestartClaude, (_, _) => {
+			_ui.Post(() => session.Claude.Restart());
+			return Task.FromResult(CommandResult.Success("Restarted Claude."));
+		});
 		session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));

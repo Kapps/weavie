@@ -307,13 +307,15 @@ public static class CoreCommands {
 		// Inline-diff navigation + actions (the floating diff toolbar), all web-handled. The handlers DECLINE
 		// (let the key fall through to the editor) when no diff is active, so these safely reuse familiar editor
 		// chords. Each chord carries a per-binding `!terminalFocused` guard so it never fires while a terminal
-		// holds focus — Ctrl+Backspace in Claude must delete a word, not revert a hunk — while the commands stay
-		// in the palette regardless of focus (a per-binding When doesn't gate palette visibility).
+		// holds focus — Ctrl+Backspace in Claude must delete a word, not revert a hunk. A command-level
+		// `diffActive` guard keeps them out of the palette unless a diff/review is actually in play, so an empty
+		// workspace doesn't lead with commands that silently no-op (#137).
 		registry.Register(new CommandDefinition {
 			Id = NextChange,
 			Title = "Next Change",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
+			When = "diffActive",
 			Description = "Jump to the next change in the inline diff.",
 			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Down", When = "!terminalFocused" }],
@@ -324,6 +326,7 @@ public static class CoreCommands {
 			Title = "Previous Change",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
+			When = "diffActive",
 			Description = "Jump to the previous change in the inline diff.",
 			Aliases = ["previous change", "prev change", "previous diff", "previous hunk"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Up", When = "!terminalFocused" }],
@@ -334,6 +337,7 @@ public static class CoreCommands {
 			Title = "Keep Change",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
+			When = "diffActive",
 			Description = "Keep the proposed edit under review (default-mode openDiff), or — in post-turn review "
 				+ "(acceptEdits/bypass) — keep at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["accept change", "keep change", "keep edit", "keep hunk", "accept edit"],
@@ -345,6 +349,7 @@ public static class CoreCommands {
 			Title = "Revert Change",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
+			When = "diffActive",
 			Description = "Reject the proposed edit under review (default-mode openDiff), or — in post-turn review "
 				+ "(acceptEdits/bypass) — revert at the toolbar's current scope (this change, file, or all) and advance.",
 			Aliases = ["reject change", "revert hunk", "reject edit", "discard proposal"],
@@ -356,6 +361,7 @@ public static class CoreCommands {
 			Title = "Undo All Changes",
 			RunsIn = CommandLocation.Web,
 			Category = "Diff",
+			When = "diffActive",
 			Description = "Revert the whole accumulated review set on disk (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn", "undo all"],
 		});

@@ -4,6 +4,7 @@
 
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 import type { ReviewCommentInfo } from "../bridge";
+import { setContext } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -1291,8 +1292,20 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     showingParked = true;
   };
 
+  // True when the diff commands (Next/Previous/Keep/Revert Change, Undo All) would actually act: a diff is shown
+  // for the active model, or a review set is pending (their chords step into it). Gates them out of the palette
+  // otherwise — an empty workspace shouldn't lead with commands that silently no-op (#137).
+  const syncDiffContext = (): void => {
+    const model = editor.getModel();
+    const active =
+      (model !== null && diffs.has(model.uri.toString())) ||
+      (parkedReview !== undefined && parkedReview.fileCount > 0);
+    setContext("diffActive", active);
+  };
+
   // Render the active model's diff if it has one; else park the navigator when a review set is pending; else clear.
   const renderActive = (): void => {
+    syncDiffContext();
     const model = editor.getModel();
     if (model !== null && diffs.has(model.uri.toString())) {
       render(model.uri.toString());
@@ -1348,6 +1361,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // to its file:// URI; the review path passes the transient model's URI).
   const setByUri = (key: string, options: InlineDiffOptions): void => {
     diffs.set(key, options);
+    syncDiffContext();
     const model = editor.getModel();
     if (model !== null && model.uri.toString() === key) {
       render(key);
@@ -1374,6 +1388,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       currentScope = "change";
       parkedReview = undefined;
       clearRender();
+      syncDiffContext();
     },
     hasDiffForUri: (uri) => diffs.has(uri),
     nextChange,

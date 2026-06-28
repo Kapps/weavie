@@ -93,8 +93,10 @@ export function runForKeybinding(id: string, args: unknown): boolean {
     return false;
   }
   if (command.runsIn === "core") {
-    // Keystrokes don't await the outcome; fire it and consume the key.
-    void routeCoreCommand(id, args);
+    // Keystrokes don't await the outcome; fire it (surfacing any error/informational message as a toast, so a
+    // keyboard-run command isn't a silent no-op — e.g. Cycle Theme Mode reports the new mode when system and
+    // the OS polarity render identically) and consume the key.
+    void runCommandWithFeedback(id, args);
     return true;
   }
   const handler = handlers.get(id);

@@ -140,8 +140,18 @@ export function installTerminalClipboardCommands(): () => void {
     );
   });
 
+  const offClear = registerCommand(CommandIds.terminalClear, () => {
+    const term = focusedTerminal();
+    if (term === undefined) {
+      return false;
+    }
+    term.clear();
+    return true;
+  });
+
   return () => {
     offCopy();
     offPaste();
+    offClear();
   };
 }

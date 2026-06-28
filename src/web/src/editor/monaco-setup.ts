@@ -31,6 +31,9 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
     fontFamily: font.family,
     fontWeight: font.weight,
     automaticLayout: true,
+    // Weavie owns the right-click menu (App wires it on the editor container) so it's consistent with the rest
+    // of the app and command-driven; Monaco's own menu would double up.
+    contextmenu: false,
     // Render overflow widgets (suggest, hover) in a viewport-fixed node so they aren't clipped at a split
     // pane's edge. Safe because panes tile with absolute left/top, no transform ancestor to trap the node.
     fixedOverflowWidgets: true,

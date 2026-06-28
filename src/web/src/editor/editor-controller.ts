@@ -113,6 +113,9 @@ export interface EditorController {
   handleMessage(message: WebBoundMessage): boolean;
   /** Focuses the editor (for focus-pane). */
   focusEditor(): void;
+  /** Focuses the editor and triggers a Monaco action by id (e.g. the editor right-click Copy/Cut/Paste);
+   * false when no editor is mounted. */
+  triggerAction(actionId: string): boolean;
   /** New File: asks the host to create a scratch buffer, which comes back as an open-file with `scratch`. */
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
@@ -962,6 +965,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openWebTab,
     handleMessage,
     focusEditor: () => host?.editor.focus(),
+    triggerAction: (actionId) => {
+      if (host === undefined) {
+        return false;
+      }
+      host.editor.focus();
+      host.editor.trigger("weavie-menu", actionId, null);
+      return true;
+    },
     newFile,
     save,
     setReviewFiles: (files) => {

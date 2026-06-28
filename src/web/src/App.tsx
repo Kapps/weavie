@@ -50,7 +50,7 @@ import {
   sessions,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
-import { setContext } from "./commands/context";
+import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { installKeybindings } from "./commands/keybindings";
 import { dispatchCommand, registerCommand } from "./commands/registry";
@@ -712,16 +712,16 @@ export default function App(): JSX.Element {
     // Track which pane holds focus (by click, Ctrl+N, or tab) for the active highlight, and publish it as a
     // `when`-context key so command guards (e.g. terminalFocused) can read it.
     const onFocusIn = (event: FocusEvent): void => {
-      const slot = (event.target as HTMLElement | null)?.closest("[data-kind]");
-      const kind = slot?.getAttribute("data-kind") ?? null;
+      const focus = paneFocusContext(event.target as HTMLElement | null);
+      const kind = typeof focus.focusedPane === "string" ? focus.focusedPane : null;
       setFocusedKind(kind);
       // Remember the last real pane (survives focus moving to the omnibar / a dialog) as the fullscreen target.
       if (kind !== null) {
         setActivePane(kind);
       }
-      setContext("focusedPane", kind);
-      setContext("editorFocused", kind === "editor");
-      setContext("terminalFocused", kind?.startsWith("terminal:") ?? false);
+      for (const [key, value] of Object.entries(focus)) {
+        setContext(key, value);
+      }
     };
     document.addEventListener("focusin", onFocusIn);
 

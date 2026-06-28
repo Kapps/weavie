@@ -17,7 +17,7 @@ import {
   on,
   onCleanup,
 } from "solid-js";
-import { evaluateWhen } from "../commands/context";
+import { evaluateWhen, paneFocusContext } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
 import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
@@ -195,7 +195,10 @@ export function Omnibar(props: {
     if (!commandMode()) {
       return [];
     }
-    const all = commandList().filter((c) => c.showInPalette && evaluateWhen(c.when));
+    // Evaluate `when` against the pane focused when the palette opened, not the omnibar input it now holds —
+    // otherwise every focus-gated command (Copy/Paste, etc.) would be filtered out the moment the palette opens.
+    const focus = paneFocusContext(priorFocus);
+    const all = commandList().filter((c) => c.showInPalette && evaluateWhen(c.when, focus));
     const q = query().slice(1).trim();
     if (q.length === 0) {
       return [...all]

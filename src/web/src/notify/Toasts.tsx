@@ -5,6 +5,9 @@ export interface Toast {
   id: number;
   level: "error" | "warn" | "info";
   message: string;
+  // Optional dedupe key: a new toast with the same key replaces the live one in place (e.g. a "Reconnected"
+  // info replacing the lingering "Lost connection" error), instead of stacking a second row.
+  key?: string;
 }
 
 /** How long a non-error toast lingers before auto-dismissing. Errors are exempt — see addToast. */
@@ -20,7 +23,7 @@ const EXIT_MS = 200;
  */
 export function createToasts(): {
   toasts: () => Toast[];
-  addToast: (level: Toast["level"], message: string) => void;
+  addToast: (level: Toast["level"], message: string, key?: string) => void;
   dismissToast: (id: number) => void;
   isLeaving: (id: number) => boolean;
 } {
@@ -51,14 +54,35 @@ export function createToasts(): {
     setLeaving((prev) => new Set(prev).add(id));
     window.setTimeout(() => remove(id), EXIT_MS);
   };
-  const addToast = (level: Toast["level"], message: string): void => {
-    const id = ++nextId;
-    setToasts((list) => [...list, { id, level, message }]);
-    // Errors stay put until dismissed; everything else clears itself.
-    if (level !== "error") {
-      const timer = window.setTimeout(() => dismissToast(id), AUTO_DISMISS_MS);
-      timers.set(id, timer);
+  // Re-arms (or clears) a toast's auto-dismiss: errors persist until dismissed; everything else clears itself.
+  const armAutoDismiss = (id: number, level: Toast["level"]): void => {
+    const existing = timers.get(id);
+    if (existing !== undefined) {
+      window.clearTimeout(existing);
+      timers.delete(id);
     }
+    if (level !== "error") {
+      timers.set(
+        id,
+        window.setTimeout(() => dismissToast(id), AUTO_DISMISS_MS),
+      );
+    }
+  };
+  const addToast = (level: Toast["level"], message: string, key?: string): void => {
+    // A keyed toast replaces the live one with the same key in place — e.g. the "Reconnected" info supersedes
+    // the lingering "Lost connection" error, so a resolved condition never leaves a stale toast on screen.
+    if (key !== undefined) {
+      const current = toasts().find((t) => t.key === key && !leaving().has(t.id));
+      if (current !== undefined) {
+        setToasts((list) => list.map((t) => (t.id === current.id ? { ...t, level, message } : t)));
+        armAutoDismiss(current.id, level);
+        return;
+      }
+    }
+    const id = ++nextId;
+    const toast: Toast = key === undefined ? { id, level, message } : { id, level, message, key };
+    setToasts((list) => [...list, toast]);
+    armAutoDismiss(id, level);
   };
   return { toasts, addToast, dismissToast, isLeaving: (id) => leaving().has(id) };
 }

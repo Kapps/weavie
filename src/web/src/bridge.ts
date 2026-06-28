@@ -649,6 +649,11 @@ class WebSocketTransport implements BridgeTransport {
   private disposed = false;
   // Mirrors the published phase so a drop can decide its one-shot toast without a reactive read.
   private phase: BackendPhase = "connecting";
+  // Dedupe key shared by this backend's connection toasts, so a "Reconnected" info replaces the lingering
+  // "Lost connection" error in place rather than stacking on top of it (issue #136).
+  private get connectionToastKey(): string {
+    return `connection:${this.backendId}`;
+  }
 
   constructor(
     private readonly backendId: string,
@@ -698,7 +703,7 @@ class WebSocketTransport implements BridgeTransport {
     socket.onopen = (): void => {
       this.reconnectDelayMs = 500;
       if (this.phase === "reconnecting") {
-        notify("info", `Reconnected to ${this.label}.`);
+        notify("info", `Reconnected to ${this.label}.`, this.connectionToastKey);
       }
       this.phase = "online";
       setBackendPhase(this.backendId, "online");
@@ -737,9 +742,9 @@ class WebSocketTransport implements BridgeTransport {
   // a first-connect failure), mark the backend reconnecting so the panes show it, and schedule a retry.
   private onDrop(): void {
     if (this.phase === "online") {
-      notify("error", `Lost connection to ${this.label}. Reconnecting…`);
+      notify("error", `Lost connection to ${this.label}. Reconnecting…`, this.connectionToastKey);
     } else if (this.phase === "connecting") {
-      notify("warn", `Can't reach ${this.label}. Retrying…`);
+      notify("warn", `Can't reach ${this.label}. Retrying…`, this.connectionToastKey);
     }
     this.phase = "reconnecting";
     setBackendPhase(this.backendId, "reconnecting");

@@ -52,8 +52,8 @@ import {
 import { suggestions } from "./chrome/suggestions-store";
 import { setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
-import { installKeybindings } from "./commands/keybindings";
-import { dispatchCommand, registerCommand } from "./commands/registry";
+import { formatKey, installKeybindings } from "./commands/keybindings";
+import { dispatchCommand, findCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
@@ -510,6 +510,12 @@ export default function App(): JSX.Element {
     }
     setFullscreen((on) => !on);
   };
+  // The Toggle Fullscreen Pane shortcut, read live from the catalog so the fullscreen badge advertises the
+  // real (user-overridable) binding instead of a hardcoded one.
+  const fullscreenKeyHint = (): string => {
+    const keys = findCommand(CommandIds.toggleFullscreenPane)?.keys ?? [];
+    return keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
+  };
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
@@ -792,6 +798,16 @@ export default function App(): JSX.Element {
         />
         <div class="pane-area" classList={{ offline: activeBackendOffline() }}>
           <LayoutView root={displayRoot()} renderPane={renderPane} onResize={onLayoutResize} />
+          <Show when={fullscreen()}>
+            <button
+              type="button"
+              class="fullscreen-exit"
+              onClick={() => toggleFullscreen()}
+              title={`Exit fullscreen${fullscreenKeyHint()}`}
+            >
+              Exit Fullscreen{fullscreenKeyHint()}
+            </button>
+          </Show>
           <Show when={activeBackendOffline()}>
             <output class="connection-banner">
               <span class="connection-spinner" aria-hidden="true" />

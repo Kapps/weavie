@@ -99,6 +99,10 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Diagnostic log line: parse errors and ignored invalid values.</summary>
 	public event Action<string>? Log;
 
+	/// <summary>Raised when the file's malformed state flips on a live reload — true once it starts having parse
+	/// errors (edits ignored), false once it parses cleanly again. Lets a host surface it to the user.</summary>
+	public event Action<bool>? MalformedChanged;
+
 	/// <summary>The settings file backing this store.</summary>
 	public string FilePath { get; }
 
@@ -632,18 +636,26 @@ public sealed class SettingsStore : IDisposable {
 		_debounce?.Change(250, Timeout.Infinite);
 
 	private void OnDebounceElapsed(object? state) {
-		List<SettingChange> changes;
+		List<SettingChange> changes = [];
+		bool malformedFlipped;
+		bool nowMalformed;
 		lock (_gate) {
 			if (_disposed) {
 				return;
 			}
 
+			bool wasMalformed = _malformed;
 			LoadFromDiskLocked();
-			if (_malformed) {
-				return; // keep last-good resolved state; don't thrash reactions on a transient typo
+			nowMalformed = _malformed;
+			malformedFlipped = wasMalformed != nowMalformed;
+			// A malformed reload keeps the last-good resolved state; don't thrash reactions on a transient typo.
+			if (!nowMalformed) {
+				changes = RecomputeAndDiffLocked();
 			}
+		}
 
-			changes = RecomputeAndDiffLocked();
+		if (malformedFlipped) {
+			MalformedChanged?.Invoke(nowMalformed);
 		}
 
 		RaiseChanges(changes);

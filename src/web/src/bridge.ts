@@ -421,7 +421,9 @@ export type WebBoundMessage =
   | { type: "lsp-config"; config: WeavieLspConfig }
   // A user-facing notification to surface as a toast (e.g. an autosave write that failed — the user must
   // see that their work didn't reach disk, never a silent drop).
-  | { type: "notify"; level: "error" | "warn" | "info"; message: string }
+  // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"
+  // info clearing the lingering "settings malformed" error).
+  | { type: "notify"; level: "error" | "warn" | "info"; message: string; key?: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";

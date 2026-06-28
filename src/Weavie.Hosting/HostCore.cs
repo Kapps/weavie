@@ -70,6 +70,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// reaction handlers are kept here and detached on dispose to avoid leaking this core into them.
 	private Action? _onKeybindingsChanged;
 	private Action<SettingChange>? _onSettingChanged;
+	private Action<bool>? _onSettingsMalformedChanged;
 	private Action<string>? _onThemeOverridesChanged;
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
@@ -252,6 +253,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			}
 		};
 		_settings.SettingChanged += _onSettingChanged;
+
+		// A hand-edit that breaks settings.toml is otherwise silent (the parse error only reaches the console):
+		// surface it where the user is, and clear it (same toast key) once the file parses cleanly again.
+		_onSettingsMalformedChanged = NotifySettingsMalformed;
+		_settings.MalformedChanged += _onSettingsMalformedChanged;
+
 		_onThemeOverridesChanged = themeId => {
 			if (ThemeSettings.IsSelectedThemeId(_settings, themeId)) {
 				PushThemeToWeb();
@@ -289,6 +296,16 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// Re-pushes the resolved theme (settings + overrides) so the web applies it live.
 	private void PushThemeToWeb() => _bridge.PostToWeb(ThemeJson.Build(_settings, _themeOverrides, "theme", Log));
 
+	// Surfaces (or clears) the malformed-settings toast. Keyed so the "reloaded" info replaces the lingering
+	// error in place once the file parses again. Called on the live transition and once on the page's `ready`.
+	private void NotifySettingsMalformed(bool malformed) {
+		if (malformed) {
+			Notify("error", $"Your settings file ({_settings.FilePath}) has errors and is being ignored until you fix it.", "settings-malformed");
+		} else {
+			Notify("info", "Settings reloaded — your settings.toml is active again.", "settings-malformed");
+		}
+	}
+
 	private static void Log(string line) {
 		Console.WriteLine(line);
 		Console.Out.Flush();
@@ -304,6 +321,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onSettingChanged is not null) {
 			_settings.SettingChanged -= _onSettingChanged;
 			_onSettingChanged = null;
+		}
+
+		if (_onSettingsMalformedChanged is not null) {
+			_settings.MalformedChanged -= _onSettingsMalformedChanged;
+			_onSettingsMalformedChanged = null;
 		}
 
 		if (_onThemeOverridesChanged is not null) {

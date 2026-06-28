@@ -58,6 +58,7 @@ import { CommandIds } from "./commands/types";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
+import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 import { TabStrip } from "./editor/TabStrip";
 import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
@@ -204,6 +205,21 @@ export default function App(): JSX.Element {
       req.resolve(ok);
     }
   };
+  // A pending in-app "Save as" prompt for a scratch buffer (browser-served host, no native dialog): the
+  // suggested name + the resolver the dialog settles with the chosen name (null on cancel).
+  const [scratchNameReq, setScratchNameReq] = createSignal<{
+    suggestedName: string;
+    resolve: (name: string | null) => void;
+  } | null>(null);
+  const promptScratchName = (suggestedName: string): Promise<string | null> =>
+    new Promise<string | null>((resolve) => setScratchNameReq({ suggestedName, resolve }));
+  const settleScratchName = (name: string | null): void => {
+    const req = scratchNameReq();
+    if (req !== null) {
+      setScratchNameReq(null);
+      req.resolve(name);
+    }
+  };
   // Host-pushed window chrome (maximize glyph + blur dim) and the flat workspace file index shared by the
   // omnibar's "Go to File" and the file browser. indexRoot is the ACTIVE session's worktree root — it
   // follows session switches (host re-pushes file-index on each), seeded from WORKSPACE_ROOT until the first.
@@ -219,6 +235,7 @@ export default function App(): JSX.Element {
     onCurrentFileChanged: setCurrentFile,
     confirmDiscard,
     confirm,
+    promptScratchName,
   });
 
   const focusPane = (kind: string): void => {
@@ -948,6 +965,15 @@ export default function App(): JSX.Element {
           }}
           onCancel={() => setUrlPromptOpen(false)}
         />
+      </Show>
+      <Show when={scratchNameReq()}>
+        {(req) => (
+          <SaveAsPrompt
+            suggestedName={req().suggestedName}
+            onSave={(name) => settleScratchName(name)}
+            onCancel={() => settleScratchName(null)}
+          />
+        )}
       </Show>
       <Show when={deleteReq()}>
         {(req) => (

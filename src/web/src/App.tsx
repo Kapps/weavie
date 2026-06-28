@@ -650,6 +650,7 @@ export default function App(): JSX.Element {
         editor.tabs.closeToRight(tabPath(args)),
       ),
       registerCommand(CommandIds.togglePinTab, (args) => editor.tabs.togglePin(tabPath(args))),
+      registerCommand(CommandIds.reopenClosed, () => editor.tabs.reopenClosed()),
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),

@@ -68,7 +68,9 @@ function readClipboard(): Promise<string> {
   // Browser-served: read the browser's own clipboard. Paste (Ctrl+Shift+V) is a user gesture, so readText is
   // permitted; a denial rejects and the paste handler surfaces it (rather than the old silent empty no-op).
   if (isBrowserHostedShell()) {
-    return navigator.clipboard.readText();
+    // `?.` so a missing Clipboard API (an insecure context) rejects through the paste handler rather than
+    // throwing synchronously out of this function.
+    return navigator.clipboard?.readText() ?? Promise.reject(new Error("clipboard unavailable"));
   }
 
   const id = `clip${++readSeq}`;

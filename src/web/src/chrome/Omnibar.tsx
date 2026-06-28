@@ -492,9 +492,11 @@ export function Omnibar(props: {
           type="text"
           role="combobox"
           aria-label={commandMode() ? "Command palette" : "Go to file"}
-          aria-expanded={open()}
-          aria-controls={open() ? "tb-omnibar-listbox" : undefined}
-          aria-activedescendant={open() ? `tb-omnibar-opt-${selected()}` : undefined}
+          aria-expanded={open() && activeLen() > 0}
+          aria-controls={open() && activeLen() > 0 ? "tb-omnibar-listbox" : undefined}
+          aria-activedescendant={
+            open() && activeLen() > 0 ? `tb-omnibar-opt-${selected()}` : undefined
+          }
           aria-autocomplete="list"
           spellcheck={false}
           placeholder={props.workspaceLabel}

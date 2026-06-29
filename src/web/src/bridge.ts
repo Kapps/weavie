@@ -334,6 +334,9 @@ export type WebBoundMessage =
   // Result of validating + saving a pasted token (tagged with the request `id`): ok closes the dialog, else the
   // dialog shows `error` inline so the user can correct the token in place.
   | { type: "source-token-result"; id: string; ok: boolean; error: string }
+  // A fetched source doc (Notion), keyed by `target`: `html` is the rich render for the SourceView shadow root,
+  // `text` is Claude's markdown channel. Opens/feeds a kind:"source" tab. See docs/specs/notion-source-view.md.
+  | { type: "source-doc"; id: string; target: string; title: string; text: string; html: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

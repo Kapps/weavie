@@ -1,13 +1,15 @@
 namespace Weavie.Core.Sources;
 
 /// <summary>
-/// A read-only third-party document projection: <paramref name="Title"/> for the tab, <paramref name="Text"/> a
-/// clean markdown projection (what the human reads and what Claude reads — both from one fetch). The presentation
-/// <c>html</c>/<c>icon</c> fields land with the shadow-root SourceView; the auth slice needs only title + text.
+/// A read-only third-party document projection from one fetch: <paramref name="Title"/> for the tab,
+/// <paramref name="Html"/> the rich display projection rendered in the shadow-root SourceView, and
+/// <paramref name="Text"/> a clean markdown projection (Claude's reading channel). The per-document icon lands
+/// with a later slice.
 /// </summary>
 /// <param name="Title">The document's title.</param>
-/// <param name="Text">A markdown projection of the document's content.</param>
-public sealed record SourceDoc(string Title, string Text);
+/// <param name="Text">A markdown projection of the document's content (for Claude).</param>
+/// <param name="Html">A semantic-HTML projection of the document's content (for display), escaped at the source.</param>
+public sealed record SourceDoc(string Title, string Text, string Html);
 
 /// <summary>
 /// A registered source plugin: it matches a target (URL/id), validates the user's access token, and fetches a

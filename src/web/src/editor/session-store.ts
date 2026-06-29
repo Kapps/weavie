@@ -10,6 +10,11 @@ import type { EditorSession, EditorSessionEntry, EditorViewState } from "./sessi
 // the dynamic editor chunk.
 const [session, setSession] = createSignal<EditorSession | null>(null);
 
+// Web/source tabs are web-only overlay surfaces — never reported to the host or persisted (the host would treat
+// their path as a file). Only real file tabs round-trip.
+const isFileTab = (entry: EditorSessionEntry): boolean =>
+  entry.kind !== "web" && entry.kind !== "source";
+
 // The pinned-first ordering invariant in one place: pinned tabs (in pin order) precede unpinned (in open
 // order). Every mutator routes its result through this stable partition, so no other code reorders tabs.
 function normalize(open: EditorSessionEntry[]): EditorSessionEntry[] {
@@ -41,18 +46,16 @@ export function editorOwner(): string | null {
 // Tell the host the live open-tab set so Claude's getOpenEditors reports it (and close_tab can target it).
 function emitOpenEditors(session: EditorSession): void {
   lastStructure = structureKey(session);
-  // Web tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a URL as a file.
+  // Web/source tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a path as a file.
   postToHost({
     type: "open-editors-changed",
     sessionId: currentOwner,
-    editors: session.open
-      .filter((entry) => entry.kind !== "web")
-      .map((entry) => ({
-        path: entry.path,
-        isActive: entry.path === session.active,
-        isPinned: entry.pinned === true,
-        isPreview: entry.preview === true,
-      })),
+    editors: session.open.filter(isFileTab).map((entry) => ({
+      path: entry.path,
+      isActive: entry.path === session.active,
+      isPinned: entry.pinned === true,
+      isPreview: entry.preview === true,
+    })),
   });
 }
 
@@ -109,9 +112,9 @@ let postTimer: ReturnType<typeof setTimeout> | undefined;
 // Send a session to the host as editor-session-changed. Never sends file content — disk is the source of
 // truth. Flags are omitted when false so old files round-trip.
 function sendEditorSession(s: EditorSession, owner: string | null): void {
-  // Web (iframe) tabs are a web-only surface — never persisted host-side (the host would treat the URL as a file
-  // path). They're dropped here, so a web tab doesn't survive a reload / session switch (acceptable for v1).
-  const files = s.open.filter((entry) => entry.kind !== "web");
+  // Web/source tabs are a web-only surface — never persisted host-side (the host would treat the path as a file).
+  // They're dropped here, so they don't survive a reload / session switch (acceptable for v1).
+  const files = s.open.filter(isFileTab);
   const open = files.map((entry) => ({
     path: entry.path,
     viewState: entry.viewState ?? null,
@@ -168,7 +171,7 @@ export function flushEditorSession(): void {
 /// open promotes a preview tab. Returns the file to show + placement — `line` (> 1) wins, else saved view state.
 export function openTab(
   path: string,
-  opts: { line?: number; preview?: boolean; scratch?: boolean; kind?: "web" } = {},
+  opts: { line?: number; preview?: boolean; scratch?: boolean; kind?: "web" | "source" } = {},
 ): ActivateResult {
   const current = session() ?? { active: null, open: [] };
   const line = opts.line ?? 1;

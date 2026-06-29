@@ -16,14 +16,15 @@ internal sealed class FakeNotionSource : ISourceConnector {
 		_doc = doc;
 	}
 
-	/// <summary>Reads a <c>{ "title": …, "text": … }</c> file into a connector that serves it as the fetched doc.</summary>
+	/// <summary>Reads a <c>{ "title": …, "text": …, "html": … }</c> file into a connector that serves it as the fetched doc.</summary>
 	public static FakeNotionSource FromFile(string path) {
 		using var doc = JsonDocument.Parse(File.ReadAllText(path));
 		var root = doc.RootElement;
-		string title = root.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? string.Empty : string.Empty;
-		string text = root.TryGetProperty("text", out var x) && x.ValueKind == JsonValueKind.String ? x.GetString() ?? string.Empty : string.Empty;
-		return new FakeNotionSource(new SourceDoc(title, text));
+		return new FakeNotionSource(new SourceDoc(Str(root, "title"), Str(root, "text"), Str(root, "html")));
 	}
+
+	private static string Str(JsonElement element, string name) =>
+		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 
 	public string SetupUrlFor(string sourceId) => "https://app.notion.com/developers/tokens";
 

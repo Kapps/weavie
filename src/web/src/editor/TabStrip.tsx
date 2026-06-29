@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Code, Eye, Globe, Pin, X } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
 import {
   For,
   type JSX,
@@ -18,6 +18,7 @@ import type { TabActions } from "./editor-controller";
 import { canonicalFsPath } from "./fs-path";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
+import { sourceDoc } from "./source/source-store";
 import { isPreviewMode } from "./view-mode-store";
 
 // The structural fields the strip renders. Excludes view state so cursor/scroll updates don't re-render it.
@@ -36,7 +37,7 @@ function basename(path: string): string {
   return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
 }
 
-// A web tab shows its URL host; a file tab shows its basename.
+// A web tab shows its URL host; a source tab shows its doc title; a file tab shows its basename.
 function tabLabel(view: TabView): string {
   if (view.kind === "web") {
     try {
@@ -44,6 +45,9 @@ function tabLabel(view: TabView): string {
     } catch {
       return view.path;
     }
+  }
+  if (view.kind === "source") {
+    return sourceDoc(view.path)?.title || basename(view.path);
   }
   return basename(view.path);
 }
@@ -203,6 +207,9 @@ export function TabStrip(props: {
                 >
                   <Show when={view.kind === "web"}>
                     <Globe size={13} class="editor-tab-icon" />
+                  </Show>
+                  <Show when={view.kind === "source"}>
+                    <FileText size={13} class="editor-tab-icon" />
                   </Show>
                   <span class="editor-tab-label">{tabLabel(view)}</span>
                   <Show when={view.dirty}>

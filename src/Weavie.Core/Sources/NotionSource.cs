@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 
 namespace Weavie.Core.Sources;
 
@@ -63,9 +64,45 @@ public sealed class NotionSource : ISource {
 		ArgumentException.ThrowIfNullOrEmpty(accessToken);
 		string id = ExtractPageId(target);
 		string title = ParseTitle(await GetAsync($"https://api.notion.com/v1/pages/{id}", accessToken, ct).ConfigureAwait(false));
-		string body = NotionBlockMapper.ToMarkdown(
-			await GetAsync($"https://api.notion.com/v1/blocks/{id}/children?page_size=100", accessToken, ct).ConfigureAwait(false));
-		return new SourceDoc(title, body);
+		string tree = await FetchBlockTreeAsync(id, accessToken, ct).ConfigureAwait(false);
+		// One fetched tree → markdown (Claude's channel) + HTML (the rendered surface).
+		return new SourceDoc(title, NotionBlockMapper.ToMarkdown(tree), NotionHtmlMapper.ToHtml(tree));
+	}
+
+	// The page's full block tree as a `{ "results": [...] }` JSON string, with each has_children block's descendants
+	// attached as a `children` array, so the mappers walk one self-contained tree (no fetch callbacks).
+	private async Task<string> FetchBlockTreeAsync(string blockId, string accessToken, CancellationToken ct) {
+		var root = new JsonObject { ["results"] = await FetchChildrenAsync(blockId, accessToken, ct).ConfigureAwait(false) };
+		return root.ToJsonString();
+	}
+
+	// All children of a block, paged in full (no cap — page until has_more is false), each has_children block
+	// recursively populated. This is the nesting that makes toggles / columns / nested lists render.
+	private async Task<JsonArray> FetchChildrenAsync(string blockId, string accessToken, CancellationToken ct) {
+		var array = new JsonArray();
+		string? cursor = null;
+		do {
+			string url = $"https://api.notion.com/v1/blocks/{blockId}/children?page_size=100"
+				+ (cursor is null ? string.Empty : $"&start_cursor={Uri.EscapeDataString(cursor)}");
+			using var doc = JsonDocument.Parse(await GetAsync(url, accessToken, ct).ConfigureAwait(false));
+			var root = doc.RootElement;
+			if (root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array) {
+				foreach (var block in results.EnumerateArray()) {
+					var node = JsonNode.Parse(block.GetRawText())!.AsObject();
+					if (block.TryGetProperty("has_children", out var hc) && hc.ValueKind == JsonValueKind.True
+						&& SourceJson.String(block, "id") is { Length: > 0 } childId) {
+						node["children"] = await FetchChildrenAsync(childId, accessToken, ct).ConfigureAwait(false);
+					}
+
+					array.Add(node);
+				}
+			}
+
+			cursor = root.TryGetProperty("has_more", out var more) && more.ValueKind == JsonValueKind.True
+				? SourceJson.String(root, "next_cursor") : null;
+		} while (!string.IsNullOrEmpty(cursor));
+
+		return array;
 	}
 
 	private async Task<string> GetAsync(string url, string accessToken, CancellationToken ct) {

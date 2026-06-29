@@ -367,3 +367,13 @@
   height: 100%;
   border: 0;
 }
+
+/* Source-tab surface: the SourceView shadow-root render covering the (kept-mounted) Monaco host, same layer as the
+   Web/Preview overlays (see SourceView.tsx). The shadow root owns its own styles; this just positions + scrolls it. */
+.editor-source {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  overflow: auto;
+  background: var(--bg);
+}

@@ -1,62 +1,63 @@
-/* highlight.js token theme for the Preview pane, expressed in Weavie's semantic vars (the ANSI-mapped
-   --ok/--warn/--bad/--busy accents) so it re-themes with the active color theme in both polarities — no JS
-   theme wiring needed. Only the `.hljs-*` token spans are colored; the <pre.hljs> block keeps preview.css's
-   surface styling. */
-.editor-preview-body .hljs-comment,
-.editor-preview-body .hljs-quote {
+/* highlight.js token theme, expressed in Weavie's semantic vars (the ANSI-mapped --ok/--warn/--bad/--busy
+   accents) so it re-themes with the active color theme in both polarities — no JS theme wiring needed. Scoped to
+   `.hljs` (highlightFence's <pre class="hljs"> wrapper), not a pane container, so it colors highlighted code in
+   BOTH the Markdown preview light-DOM and the SourceView shadow root from one source. Only the `.hljs-*` token
+   spans are colored; the block's surface styling comes from each host (preview.css / source-styles). */
+.hljs .hljs-comment,
+.hljs .hljs-quote {
   color: var(--dim);
   font-style: italic;
 }
 
-.editor-preview-body .hljs-keyword,
-.editor-preview-body .hljs-selector-tag,
-.editor-preview-body .hljs-literal,
-.editor-preview-body .hljs-section,
-.editor-preview-body .hljs-doctag {
+.hljs .hljs-keyword,
+.hljs .hljs-selector-tag,
+.hljs .hljs-literal,
+.hljs .hljs-section,
+.hljs .hljs-doctag {
   color: var(--busy);
 }
 
-.editor-preview-body .hljs-string,
-.editor-preview-body .hljs-attribute,
-.editor-preview-body .hljs-template-tag,
-.editor-preview-body .hljs-addition,
-.editor-preview-body .hljs-meta-string {
+.hljs .hljs-string,
+.hljs .hljs-attribute,
+.hljs .hljs-template-tag,
+.hljs .hljs-addition,
+.hljs .hljs-meta-string {
   color: var(--ok);
 }
 
-.editor-preview-body .hljs-number,
-.editor-preview-body .hljs-built_in,
-.editor-preview-body .hljs-bullet,
-.editor-preview-body .hljs-symbol,
-.editor-preview-body .hljs-meta {
+.hljs .hljs-number,
+.hljs .hljs-built_in,
+.hljs .hljs-bullet,
+.hljs .hljs-symbol,
+.hljs .hljs-meta {
   color: var(--warn);
 }
 
-.editor-preview-body .hljs-title,
-.editor-preview-body .hljs-name,
-.editor-preview-body .hljs-selector-id,
-.editor-preview-body .hljs-selector-class {
+.hljs .hljs-title,
+.hljs .hljs-name,
+.hljs .hljs-selector-id,
+.hljs .hljs-selector-class {
   color: var(--busy);
 }
 
-.editor-preview-body .hljs-type,
-.editor-preview-body .hljs-class .hljs-title,
-.editor-preview-body .hljs-attr {
+.hljs .hljs-type,
+.hljs .hljs-class .hljs-title,
+.hljs .hljs-attr {
   color: var(--accent);
 }
 
-.editor-preview-body .hljs-tag,
-.editor-preview-body .hljs-deletion,
-.editor-preview-body .hljs-regexp,
-.editor-preview-body .hljs-variable,
-.editor-preview-body .hljs-template-variable {
+.hljs .hljs-tag,
+.hljs .hljs-deletion,
+.hljs .hljs-regexp,
+.hljs .hljs-variable,
+.hljs .hljs-template-variable {
   color: var(--bad);
 }
 
-.editor-preview-body .hljs-emphasis {
+.hljs .hljs-emphasis {
   font-style: italic;
 }
 
-.editor-preview-body .hljs-strong {
+.hljs .hljs-strong {
   font-weight: bold;
 }

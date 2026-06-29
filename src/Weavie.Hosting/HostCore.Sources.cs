@@ -49,10 +49,9 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-token-result", id, ok, error }));
 
 	/// <summary>
-	/// Fetches a source <paramref name="target"/> (the matching source must be connected), replies with the
-	/// host→web <c>source-doc</c> contract (tagged by <paramref name="id"/>), and opens it as a read-only markdown
-	/// tab on the active session — the interim visible surface until the shadow-root SourceView consumes
-	/// <c>source-doc</c>. A missing token or fetch failure toasts.
+	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
+	/// <c>source-doc</c> (tagged by <paramref name="id"/>, keyed by <paramref name="target"/>) carrying the rich
+	/// <c>html</c> the SourceView renders plus the <c>text</c> (Claude's channel). A missing token or fetch failure toasts.
 	/// </summary>
 	private async Task FetchSourceForWebAsync(string id, string target) {
 		if (string.IsNullOrWhiteSpace(target)) {
@@ -62,14 +61,13 @@ public sealed partial class HostCore {
 		SourceDoc doc;
 		try {
 			doc = await _sources.FetchAsync(target, CancellationToken.None).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException) {
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
 			Notify("error", $"Couldn't open that source: {ex.Message}");
 			return;
 		}
 
-		// source-doc is the host→web contract (web-and-source-tabs.md), posted intentionally ahead of its consumer:
-		// the shadow-root SourceView will render it natively. Until then the scratch tab below is the visible surface.
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-doc", id, title = doc.Title, text = doc.Text }));
-		_ui.Post(() => _session?.OpenSourceDoc(doc.Title, doc.Text));
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "source-doc", id, target, title = doc.Title, text = doc.Text, html = doc.Html,
+		}));
 	}
 }

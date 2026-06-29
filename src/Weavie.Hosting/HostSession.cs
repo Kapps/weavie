@@ -316,16 +316,6 @@ public sealed class HostSession : IAsyncDisposable {
 		FileOpener.Open(path, 1, preview: false, scratch: true);
 	}
 
-	/// <summary>
-	/// Opens a fetched read-only source document (e.g. a Notion page) as a markdown scratch tab — reusing the whole
-	/// editor + preview pipeline. A snapshot, outside the workspace/git/Claude view, like any scratch buffer.
-	/// </summary>
-	public void OpenSourceDoc(string title, string text) {
-		string header = string.IsNullOrWhiteSpace(title) ? string.Empty : $"# {title}\n\n";
-		string path = Scratch.CreateNew(".md", header + text);
-		FileOpener.Open(path, 1, preview: false, scratch: true);
-	}
-
 	private static Action<string> Tagged(string tag) => line => {
 		Console.WriteLine($"{tag} {line}");
 		Console.Out.Flush();

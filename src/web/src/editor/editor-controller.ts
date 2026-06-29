@@ -109,6 +109,8 @@ export interface EditorController {
   openFile(path: string, line: number, preview?: boolean): void;
   /** Opens an http(s) URL as a web (iframe) tab in the editor tab strip. */
   openWebTab(url: string): void;
+  /** Opens a fetched source doc (Notion) as a source (shadow-root) tab in the editor tab strip, keyed by its target. */
+  openSourceTab(target: string): void;
   /** Handles an editor-related host message; returns false for messages this controller doesn't own. */
   handleMessage(message: WebBoundMessage): boolean;
   /** Focuses the editor (for focus-pane). */
@@ -182,9 +184,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Translate "active tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
   const applyActive = (result: ActivateResult): void => {
     deps.onCurrentFileChanged(result.path);
-    // A web (iframe) tab has no Monaco model: leave the editor host untouched (App overlays the iframe over it)
-    // and never read the URL as a file.
-    if (openTabs().find((tab) => tab.path === result.path)?.kind === "web") {
+    // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
+    // shadow-root render over it) and never read the path as a file.
+    const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
+    if (activeKind === "web" || activeKind === "source") {
       return;
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
@@ -227,6 +230,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
   const openWebTab = (url: string): void => {
     applyActive(openTab(url, { kind: "web" }));
+  };
+
+  // Open a fetched source doc (Notion) as a source tab, keyed by its target. No Monaco model — App overlays the
+  // SourceView shadow-root render over the editor host when this tab is active; SourceView reads the html by target.
+  const openSourceTab = (target: string): void => {
+    applyActive(openTab(target, { kind: "source" }));
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
@@ -282,9 +291,11 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     const scratchPaths = new Set(
       doomed.filter((entry) => entry.scratch === true).map((entry) => entry.path),
     );
-    // Web tabs have no working copy to release.
-    const webPaths = new Set(
-      doomed.filter((entry) => entry.kind === "web").map((entry) => entry.path),
+    // Web/source overlay tabs have no working copy to release.
+    const overlayPaths = new Set(
+      doomed
+        .filter((entry) => entry.kind === "web" || entry.kind === "source")
+        .map((entry) => entry.path),
     );
     const wasActive = activePath();
     const result = closeMany(predicate);
@@ -295,7 +306,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       applyOrClear(result.next);
     }
     for (const path of result.disposed) {
-      if (!webPaths.has(path)) {
+      if (!overlayPaths.has(path)) {
         releaseClosed(path, scratchPaths.has(path));
       }
     }
@@ -306,15 +317,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
-  // Recently-closed file/web tabs, most-recent last, so Reopen Closed Editor (Ctrl+Shift+T) can bring one back.
-  // Scratch buffers are excluded — their content is discarded on close, so there's nothing to reopen.
-  const closedTabs: { path: string; web: boolean }[] = [];
+  // Recently-closed file/web/source tabs, most-recent last, so Reopen Closed Editor (Ctrl+Shift+T) can bring one
+  // back. Scratch buffers are excluded — their content is discarded on close, so there's nothing to reopen.
+  const closedTabs: { path: string; kind: EditorSessionEntry["kind"] }[] = [];
   const CLOSED_TABS_LIMIT = 25;
   const recordClosed = (entry: EditorSessionEntry): void => {
     if (entry.scratch === true) {
       return;
     }
-    closedTabs.push({ path: entry.path, web: entry.kind === "web" });
+    closedTabs.push({ path: entry.path, kind: entry.kind });
     if (closedTabs.length > CLOSED_TABS_LIMIT) {
       closedTabs.shift();
     }
@@ -327,8 +338,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       if (entry === undefined || openTabs().some((tab) => samePath(tab.path, entry.path))) {
         continue;
       }
-      if (entry.web) {
+      if (entry.kind === "web") {
         openWebTab(entry.path);
+      } else if (entry.kind === "source") {
+        openSourceTab(entry.path);
       } else {
         openFile(entry.path, 1);
       }
@@ -971,6 +984,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     start,
     openFile,
     openWebTab,
+    openSourceTab,
     handleMessage,
     focusEditor: () => host?.editor.focus(),
     triggerAction: (actionId) => {

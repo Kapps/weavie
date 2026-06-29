@@ -86,7 +86,8 @@ public sealed class HostCoreSourcesTests {
 		var doc = await WaitForAsync(() => host.Bridge.LastOfType("source-doc"));
 		Assert.Equal("s1", doc.GetProperty("id").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
-		Assert.Equal("Body text", doc.GetProperty("text").GetString());
+		Assert.Equal("Body text", doc.GetProperty("text").GetString());        // Claude's channel
+		Assert.Contains("<p>Body text</p>", doc.GetProperty("html").GetString()); // the rendered surface
 	}
 
 	[Fact]

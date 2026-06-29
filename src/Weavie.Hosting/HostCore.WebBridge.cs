@@ -274,6 +274,7 @@ public sealed partial class HostCore {
 				PushSessionList();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
+				PushSourceRegistryToWeb();
 				_suggestions?.PushCurrent();
 				// A settings.toml that was already malformed at boot never raised MalformedChanged, so surface it
 				// now that the page can render the toast.

@@ -26,6 +26,8 @@ internal sealed class FakeNotionSource : ISourceConnector {
 	private static string Str(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 
+	public IReadOnlyList<SourceDescriptor> Sources => [new SourceDescriptor(NotionSource.SourceId, NotionSource.NotionHosts)];
+
 	public string SetupUrlFor(string sourceId) => "https://app.notion.com/developers/tokens";
 
 	// Accept a realistic-looking token (ntn_…), reject anything else — so a capture can show the inline-rejection path.

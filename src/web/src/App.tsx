@@ -74,6 +74,7 @@ import { canPreview } from "./editor/preview/preview-registry";
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
 import { sourceIdForUrl } from "./editor/source/source-match";
+import { setSourceRegistry } from "./editor/source/source-registry";
 import { setSourceDoc, sourceDoc } from "./editor/source/source-store";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import type { DirListings } from "./files/FileBrowser";
@@ -677,6 +678,9 @@ export default function App(): JSX.Element {
         // A fetched source doc: store its rich html by target, then open/focus its source tab to render it.
         setSourceDoc(message.target, { title: message.title, html: message.html });
         editor.openSourceTab(message.target);
+      } else if (message.type === "source-registry") {
+        // The registered sources' host patterns — drive the open resolver (a Notion URL → native render).
+        setSourceRegistry(message.sources);
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.

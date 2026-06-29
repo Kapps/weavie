@@ -1,3 +1,4 @@
+using System.Linq;
 using System.Net;
 using System.Text.Json;
 using Xunit;
@@ -13,6 +14,19 @@ namespace Weavie.Hosting.Tests;
 [Collection("host-integration")]
 public sealed class HostCoreSourcesTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
+
+	[Fact]
+	public async Task Ready_PushesTheSourceRegistryForTheOpenResolver() {
+		await using var host = await TestHost.StartAsync();
+
+		var registry = host.Bridge.LastOfType("source-registry");
+		Assert.True(registry.HasValue);
+		var sources = registry!.Value.GetProperty("sources");
+		Assert.Equal("notion", sources[0].GetProperty("id").GetString());
+		var hosts = sources[0].GetProperty("hosts").EnumerateArray().Select(h => h.GetString()).ToList();
+		Assert.Contains("notion.so", hosts);
+		Assert.Contains("*.notion.so", hosts);
+	}
 
 	[Fact]
 	public async Task ConnectNotion_OpensTheTokenPageAndPromptsForTheToken() {

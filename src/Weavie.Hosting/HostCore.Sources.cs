@@ -9,6 +9,17 @@ namespace Weavie.Hosting;
 // and web tabs are later phases (see docs/specs/web-and-source-tabs.md).
 public sealed partial class HostCore {
 	/// <summary>
+	/// Pushes the registered sources' routing descriptors (id + host patterns) to the page on connect, so the web's
+	/// open resolver routes a matching URL (a Notion link) to the native SourceView from this one declaration —
+	/// never a hardcoded copy. Adding a source needs no web change.
+	/// </summary>
+	private void PushSourceRegistryToWeb() =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "source-registry",
+			sources = _sources.Sources.Select(s => new { id = s.Id, hosts = s.Hosts }),
+		}));
+
+	/// <summary>
 	/// Starts connecting Notion: opens Notion's token page in the browser and asks the page to show the token
 	/// input. The user pastes their personal access token there; <see cref="SaveSourceTokenAsync"/> (driven by the
 	/// <c>set-source-token</c> message) then validates and saves it. No file editing required.

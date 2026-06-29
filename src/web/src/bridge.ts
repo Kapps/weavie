@@ -340,6 +340,9 @@ export type WebBoundMessage =
   // A fetched source doc (Notion), keyed by `target`: `html` is the rich render for the SourceView shadow root,
   // `text` is Claude's markdown channel. Opens/feeds a kind:"source" tab. See docs/specs/notion-source-view.md.
   | { type: "source-doc"; id: string; target: string; title: string; text: string; html: string }
+  // The registered sources' routing descriptors (id + host patterns): the open resolver routes a matching URL to
+  // the native renderer from this declaration, never a hardcoded copy. Pushed on ready.
+  | { type: "source-registry"; sources: { id: string; hosts: string[] }[] }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";

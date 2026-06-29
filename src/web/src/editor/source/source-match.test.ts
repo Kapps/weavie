@@ -1,18 +1,25 @@
 import { describe, expect, it } from "vitest";
-import { sourceIdForUrl } from "./source-match";
+import { matchSource } from "./source-match";
 
-describe("sourceIdForUrl", () => {
+// The registry the host pushes for Notion (one declaration, mirrored from NotionSource.NotionHosts in Core).
+const NOTION = [{ id: "notion", hosts: ["notion.so", "*.notion.so", "*.notion.site"] }];
+
+describe("matchSource", () => {
   it("claims notion.so hosts (incl. www and workspace subdomains)", () => {
     expect(
-      sourceIdForUrl("https://www.notion.so/hightouch/Doc-38bab9c473d581e5aa47ccf84581a15b"),
+      matchSource("https://www.notion.so/hightouch/Doc-38bab9c473d581e5aa47ccf84581a15b", NOTION),
     ).toBe("notion");
-    expect(sourceIdForUrl("https://notion.so/Page-abc")).toBe("notion");
-    expect(sourceIdForUrl("https://acme.notion.site/Public-Page")).toBe("notion");
+    expect(matchSource("https://notion.so/Page-abc", NOTION)).toBe("notion");
+    expect(matchSource("https://acme.notion.site/Public-Page", NOTION)).toBe("notion");
   });
 
-  it("returns null for non-source URLs and junk", () => {
-    expect(sourceIdForUrl("https://example.com/notion.so")).toBeNull();
-    expect(sourceIdForUrl("https://evil-notion.so.attacker.com/x")).toBeNull();
-    expect(sourceIdForUrl("not a url")).toBeNull();
+  it("returns null for non-source URLs, look-alikes, and junk", () => {
+    expect(matchSource("https://example.com/notion.so", NOTION)).toBeNull();
+    expect(matchSource("https://evil-notion.so.attacker.com/x", NOTION)).toBeNull();
+    expect(matchSource("not a url", NOTION)).toBeNull();
+  });
+
+  it("returns null when the registry is empty (before the host pushes it)", () => {
+    expect(matchSource("https://www.notion.so/x", [])).toBeNull();
   });
 });

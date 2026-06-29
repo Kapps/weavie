@@ -575,8 +575,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       currentEndExclusive: hunk.currentEndExclusive,
       guardText,
     });
+    // Reveal the next bright hunk in this file; when the kept one was the last, the file stays in the review
+    // set carrying its faded band (so the host's re-emit won't advance) — step to the next file ourselves so
+    // Keep's "advance" promise carries across the file boundary. nextFile is a no-op for a single-file review.
     if (target !== undefined) {
       reveal(target.anchorLine);
+    } else {
+      nextFile();
     }
     return true;
   };

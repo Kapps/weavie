@@ -33,6 +33,9 @@ public sealed class SourceConnector : ISourceConnector {
 	}
 
 	/// <inheritdoc/>
+	public bool Matches(string target) => _sources.Any(s => s.Match(target));
+
+	/// <inheritdoc/>
 	public string SetupUrlFor(string sourceId) => Source(sourceId).SetupUrl;
 
 	/// <summary>

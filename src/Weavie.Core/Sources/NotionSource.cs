@@ -34,7 +34,10 @@ public sealed class NotionSource : ISource {
 	public string SetupUrl => "https://app.notion.com/developers/tokens";
 
 	/// <inheritdoc/>
-	public bool Match(string target) =>
+	public bool Match(string target) => ClaimsUrl(target);
+
+	/// <summary>True when <paramref name="target"/> is a <c>notion.so</c>/<c>notion.site</c> http(s) URL. Static so the headless fake shares one rule.</summary>
+	public static bool ClaimsUrl(string target) =>
 		Uri.TryCreate(target, UriKind.Absolute, out var uri)
 		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
 		&& (uri.Host.Equals("notion.so", StringComparison.OrdinalIgnoreCase)

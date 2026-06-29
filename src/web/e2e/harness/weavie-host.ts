@@ -38,6 +38,9 @@ export interface LaunchOptions {
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
+  // A canned Notion doc ({ title, text, html }); when set, the host's source connector is stubbed
+  // (WEAVIE_FAKE_NOTION) so a notion.so/notion.site open-target fetches + renders it deterministically.
+  notionDoc?: { title: string; text: string; html: string };
 }
 
 // Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve
@@ -190,6 +193,11 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     const prsPath = join(home, "fake-prs.json");
     await writeFile(prsPath, JSON.stringify({ prs: pr.prs, comments: pr.comments }));
     env.WEAVIE_FAKE_PRS = prsPath;
+  }
+  if (options.notionDoc) {
+    const notionPath = join(home, "fake-notion.json");
+    await writeFile(notionPath, JSON.stringify(options.notionDoc));
+    env.WEAVIE_FAKE_NOTION = notionPath;
   }
   return {
     home,

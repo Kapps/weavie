@@ -9,6 +9,24 @@ namespace Weavie.Hosting;
 // and web tabs are later phases (see docs/specs/web-and-source-tabs.md).
 public sealed partial class HostCore {
 	/// <summary>
+	/// The open resolver: the page hands every opened URL here, and the host — which owns the sources and their
+	/// <see cref="ISource.Match"/> — decides. A URL a source claims is fetched + rendered natively; anything else is
+	/// sent back as <c>open-web</c> for a web (iframe) tab. Keeping the match host-side means the web never
+	/// re-implements a source's predicate.
+	/// </summary>
+	private void OpenTargetForWeb(string url) {
+		if (!IsHttpUrl(url)) {
+			return;
+		}
+
+		if (_sources.Matches(url)) {
+			_ = FetchSourceForWebAsync(url);
+		} else {
+			_bridge.PostToWeb($"{{\"type\":\"open-web\",\"url\":{JsonString(url)}}}");
+		}
+	}
+
+	/// <summary>
 	/// Starts connecting Notion: opens Notion's token page in the browser and asks the page to show the token
 	/// input. The user pastes their personal access token there; <see cref="SaveSourceTokenAsync"/> (driven by the
 	/// <c>set-source-token</c> message) then validates and saves it. No file editing required.
@@ -50,14 +68,10 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
-	/// <c>source-doc</c> (tagged by <paramref name="id"/>, keyed by <paramref name="target"/>) carrying the rich
-	/// <c>html</c> the SourceView renders plus the <c>text</c> (Claude's channel). A missing token or fetch failure toasts.
+	/// <c>source-doc</c> (keyed by <paramref name="target"/>) carrying the rich <c>html</c> the SourceView renders
+	/// plus the <c>text</c> (Claude's channel). A missing token or fetch failure toasts.
 	/// </summary>
-	private async Task FetchSourceForWebAsync(string id, string target) {
-		if (string.IsNullOrWhiteSpace(target)) {
-			return;
-		}
-
+	private async Task FetchSourceForWebAsync(string target) {
 		SourceDoc doc;
 		try {
 			doc = await _sources.FetchAsync(target, CancellationToken.None).ConfigureAwait(false);
@@ -67,7 +81,7 @@ public sealed partial class HostCore {
 		}
 
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc", id, target, title = doc.Title, text = doc.Text, html = doc.Html,
+			type = "source-doc", target, title = doc.Title, text = doc.Text, html = doc.Html,
 		}));
 	}
 }

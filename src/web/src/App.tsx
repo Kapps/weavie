@@ -20,6 +20,7 @@ import {
   connectedBackends,
   isBrowserHostedShell,
   onHostMessage,
+  openTarget,
   postToBackend,
   postToHost,
   setActiveBackendId,
@@ -675,6 +676,9 @@ export default function App(): JSX.Element {
         // A fetched source doc: store its rich html by target, then open/focus its source tab to render it.
         setSourceDoc(message.target, { title: message.title, html: message.html });
         editor.openSourceTab(message.target);
+      } else if (message.type === "open-web") {
+        // The host's resolver decided this URL isn't a source — open it as a web (iframe) tab.
+        editor.openWebTab(message.url);
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.
@@ -1096,7 +1100,8 @@ export default function App(): JSX.Element {
         <UrlPrompt
           onSubmit={(url) => {
             setUrlPromptOpen(false);
-            editor.openWebTab(url);
+            // The host resolves it: a source (Notion) renders natively; anything else comes back as a web tab.
+            openTarget(url);
           }}
           onCancel={() => setUrlPromptOpen(false)}
         />

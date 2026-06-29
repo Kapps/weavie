@@ -144,6 +144,9 @@ export type HostBoundMessage =
   // The user pasted a source's access token into the connect dialog; the host validates + saves it and replies
   // source-token-result tagged with `id`. See docs/specs/notion-source-auth.md.
   | { type: "set-source-token"; id: string; sourceId: string; token: string }
+  // Hand an opened URL to the host's open resolver: the host matches it to a source (fetch + render) or replies
+  // open-web for a web (iframe) tab. The match (ISource.Match) lives host-side. See docs/specs/notion-source-view.md.
+  | { type: "open-target"; url: string }
   | { type: "list-branches"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
@@ -336,7 +339,9 @@ export type WebBoundMessage =
   | { type: "source-token-result"; id: string; ok: boolean; error: string }
   // A fetched source doc (Notion), keyed by `target`: `html` is the rich render for the SourceView shadow root,
   // `text` is Claude's markdown channel. Opens/feeds a kind:"source" tab. See docs/specs/notion-source-view.md.
-  | { type: "source-doc"; id: string; target: string; title: string; text: string; html: string }
+  | { type: "source-doc"; target: string; title: string; text: string; html: string }
+  // The host's open resolver decided the URL isn't a source — open it as a web (iframe) tab.
+  | { type: "open-web"; url: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";
@@ -938,6 +943,13 @@ onHostMessage((message) => {
     pendingTokenRequests.get(message.id)?.({ ok: message.ok, error: message.error });
   }
 });
+
+// Hand an opened URL to the host's resolver: a source-claimed URL (a Notion link) is fetched + rendered natively
+// (source-doc); any other URL comes back as open-web for a web tab. The match lives host-side (ISource.Match), so
+// the web never re-implements a source's predicate.
+export function openTarget(url: string): void {
+  postToHost({ type: "open-target", url });
+}
 
 export function submitSourceToken(
   sourceId: string,

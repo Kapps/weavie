@@ -1,5 +1,5 @@
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
-import { postToHost } from "../../bridge";
+import { openTarget } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { hydrateMermaid } from "../preview/diagrams";
 import { highlightFence } from "../preview/highlight";
@@ -55,7 +55,8 @@ export default function SourceView(props: { html: () => string }): JSX.Element {
     event.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
     if (/^https?:/i.test(href)) {
-      postToHost({ type: "open-url", url: href });
+      // The host resolves it: a Notion link renders natively in another source tab, anything else opens as a web tab.
+      openTarget(href);
     }
   };
 

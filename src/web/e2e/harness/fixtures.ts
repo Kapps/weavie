@@ -10,6 +10,9 @@ type WeavieOptions = {
   fakeScript: { steps: import("./fake-claude").FakeStep[] } | null;
   // Set via test.use to boot the Open-PR scenario: a base+head git workspace and a stubbed PR provider.
   prScenario: boolean;
+  // Set via test.use to stub the source connector with a canned Notion doc (WEAVIE_FAKE_NOTION), so a
+  // notion.so open-target fetches + renders it deterministically. Null in normal use.
+  notionDoc: { title: string; text: string; html: string } | null;
 };
 
 type WeavieFixtures = {
@@ -24,8 +27,9 @@ type WeavieFixtures = {
 export const test = base.extend<WeavieOptions & WeavieFixtures>({
   fakeScript: [null, { option: true }],
   prScenario: [false, { option: true }],
+  notionDoc: [null, { option: true }],
   weavie: [
-    async ({ page, fakeScript, prScenario }, use, testInfo) => {
+    async ({ page, fakeScript, prScenario, notionDoc }, use, testInfo) => {
       const remote = testInfo.project.name === "remote";
       // Fail LOUDLY when a prerequisite host isn't built — never silently skip, which hides a broken build
       // (e.g. a failed `dotnet build`) as a green-looking run. A missing host is a setup error, not a pass.
@@ -42,6 +46,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       const host = await (remote ? launchRemote : launchHeadless)({
         fakeScript: fakeScript?.steps ?? null,
         pr: prScenario,
+        notionDoc: notionDoc ?? undefined,
       });
       await page.goto(host.url, { waitUntil: "domcontentloaded" });
       // The app removes the splash element once it has booted (layout + first session). Its disappearance

@@ -5,6 +5,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
 using Weavie.Core.Sessions;
+using Weavie.Core.Sources;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 
@@ -59,6 +60,12 @@ public sealed record HostServices {
 	public required IReviewCommentStore ReviewComments { get; init; }
 
 	/// <summary>
+	/// The source system (Notion, …): validates the user's pasted access token and fetches docs. The default talks
+	/// to the real Notion API; the headless harness injects a deterministic stand-in for the connect/fetch journey.
+	/// </summary>
+	public required ISourceConnector Sources { get; init; }
+
+	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
 	/// </summary>
@@ -89,6 +96,7 @@ public sealed record HostServices {
 			RailState = railState,
 			PullRequests = github,
 			ReviewComments = github,
+			Sources = SourceConnector.CreateDefault(),
 		};
 	}
 

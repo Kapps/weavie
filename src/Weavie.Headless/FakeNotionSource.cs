@@ -1,0 +1,37 @@
+using System.Text.Json;
+using Weavie.Core.Sources;
+
+namespace Weavie.Headless;
+
+/// <summary>
+/// A deterministic <see cref="ISourceConnector"/> for the headless integration harness / capture: <c>connect</c>
+/// "validates" without a real API call (returning workspace "Demo Workspace"), and <c>fetch</c> serves one canned
+/// <see cref="SourceDoc"/>. The source analogue of <see cref="FakePullRequests"/>; wired only when
+/// <c>WEAVIE_FAKE_NOTION</c> points at a doc file, never in normal operation.
+/// </summary>
+internal sealed class FakeNotionSource : ISourceConnector {
+	private readonly SourceDoc _doc;
+
+	private FakeNotionSource(SourceDoc doc) {
+		_doc = doc;
+	}
+
+	/// <summary>Reads a <c>{ "title": …, "text": … }</c> file into a connector that serves it as the fetched doc.</summary>
+	public static FakeNotionSource FromFile(string path) {
+		using var doc = JsonDocument.Parse(File.ReadAllText(path));
+		var root = doc.RootElement;
+		string title = root.TryGetProperty("title", out var t) && t.ValueKind == JsonValueKind.String ? t.GetString() ?? string.Empty : string.Empty;
+		string text = root.TryGetProperty("text", out var x) && x.ValueKind == JsonValueKind.String ? x.GetString() ?? string.Empty : string.Empty;
+		return new FakeNotionSource(new SourceDoc(title, text));
+	}
+
+	public string SetupUrlFor(string sourceId) => "https://app.notion.com/developers/tokens";
+
+	// Accept a realistic-looking token (ntn_…), reject anything else — so a capture can show the inline-rejection path.
+	public Task<string> SaveTokenAsync(string sourceId, string token, CancellationToken ct = default) =>
+		token.StartsWith("ntn", StringComparison.Ordinal)
+			? Task.FromResult("Demo Workspace")
+			: Task.FromException<string>(new InvalidOperationException("Notion rejected the token — use a valid personal access token."));
+
+	public Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default) => Task.FromResult(_doc);
+}

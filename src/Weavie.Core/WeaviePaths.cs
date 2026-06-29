@@ -62,6 +62,15 @@ public static class WeaviePaths {
 	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 
+	/// <summary>
+	/// Where source (Notion, …) access tokens live: <c>~/.weavie/sources</c>. Holds personal access tokens, so it
+	/// stays off the Claude-facing settings surface (like <see cref="RemoteAgentsFile"/>).
+	/// </summary>
+	public static string SourcesDir { get; } = Path.Combine(Root, "sources");
+
+	/// <summary>A source's user-supplied access-token file: <c>~/.weavie/sources/&lt;sourceId&gt;.json</c> (<c>{ "token": "…" }</c>).</summary>
+	public static string SourceCredentialsFile(string sourceId) => Path.Combine(SourcesDir, $"{sourceId}.json");
+
 	/// <summary>Where installed and built-in themes live: <c>~/.weavie/themes</c>.</summary>
 	public static string Themes { get; } = Path.Combine(Root, "themes");
 

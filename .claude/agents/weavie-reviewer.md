@@ -39,6 +39,23 @@ Correctness first:
 
 Flag anything that widens an attack surface, even if it "works".
 
+**Usability** — review the change as the user will *experience* it, not just whether it functions:
+
+- **No manual out-of-band work the app could do itself.** Flag any flow that makes the user hand-edit
+  a config/JSON file, remember a magic filename or path, paste a secret into a terminal, set an env
+  var, or run shell commands by hand — when an in-app affordance (an input field, a button, a dialog,
+  a browser deep-link, a default that's written for them) would do it. "It works if you edit
+  `~/.weavie/...`" is a usability defect, not a feature.
+- **Discoverability + feedback.** A user-facing action must be reachable without prior knowledge and
+  must say what happened — success and failure both surface (a toast, a state change), never silence
+  or a dead-end. The keyboard path is advertised where the user meets the action (see the
+  capabilities rule below).
+- **Don't make the user do what the computer can.** Prefer opening the right page, pre-filling the
+  known value, and validating input inline over instructions the user must follow themselves.
+
+Raise these as **Should-fix** when they put real friction on the primary path, even if the code is
+correct. A working feature behind a hand-edited file is not done.
+
 Then Weavie's hard rules (these override generic "best practice"):
 
 - **No fallbacks.** No safety-net timeout, cap, or default that hides a hang or failure. A bound that

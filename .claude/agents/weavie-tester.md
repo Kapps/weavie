@@ -21,6 +21,20 @@ the happy path:
 
 List them explicitly before running anything — that list is what you report against.
 
+**Drive the real user path, and judge its usability.** Exercise the feature the way a user actually
+would — through the in-app UI (palette, dialog, button, input field), not a programmatic shortcut that
+skips the parts a human can't. While doing so, watch for friction the change leaves on the user and
+report it as a usability finding even when the underlying function works:
+
+- a step done out-of-band that the app should handle in-app (hand-editing a config/JSON file, setting
+  an env var, pasting a secret into a terminal, a magic filename to remember);
+- an action with no visible affordance, or no feedback on success/failure;
+- a dead-end where the user gets stuck with no next step.
+
+If the feature *only* works by editing a file or running a command by hand, drive that path, show it in
+the clip, and call it out — "functions, but the UX is a hand-edited file" is a partially-proven
+result, not proven.
+
 ## 2. Build the host first (fail loudly if you can't)
 
 The e2e fixture refuses to run against an unbuilt host — that's deliberate; a missing build is a setup

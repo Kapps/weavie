@@ -167,6 +167,9 @@ public static class CoreCommands {
 	/// <summary>Has Claude propose a <c>worktree.setupCommand</c> for the repo and set it on the user's confirmation; backs the worktree-setup suggestion. Palette-visible, no default keybinding.</summary>
 	public const string SuggestSetupCommand = "weavie.worktree.suggestSetupCommand";
 
+	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
+	public const string ConnectNotion = "weavie.source.connectNotion";
+
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
 		var registry = new CommandRegistry();
@@ -799,6 +802,19 @@ public static class CoreCommands {
 			Category = "Worktree",
 			Description = "Have Claude look at the repository, propose a worktree.setupCommand (the command to ready a fresh checkout), and set it on your confirmation.",
 			Aliases = ["suggest setup command", "worktree setup command", "configure worktree setup", "what should the setup command be"],
+		});
+
+		// Connect a Notion account (Core-handled in HostCore.Sources.cs). One-time action — palette + Claude, no
+		// default keybinding (like RestartClaude / SuggestSetupCommand).
+		registry.Register(new CommandDefinition {
+			Id = ConnectNotion,
+			Title = "Connect Notion",
+			RunsIn = CommandLocation.Core,
+			Category = "Source",
+			Description = "Connect your Notion account so you can open Notion docs (read-only). Opens Notion's token "
+				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
+				+ "it for you.",
+			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
 		});
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via

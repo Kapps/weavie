@@ -33,6 +33,7 @@ import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
+import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import { TitleBar } from "./chrome/TitleBar";
 import { UrlPrompt } from "./chrome/UrlPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
@@ -165,6 +166,11 @@ export default function App(): JSX.Element {
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
+  // The connect-a-source token dialog (host pushed prompt-source-token), or null when closed.
+  const [sourceTokenPrompt, setSourceTokenPrompt] = createSignal<{
+    sourceId: string;
+    label: string;
+  } | null>(null);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<{
@@ -643,6 +649,9 @@ export default function App(): JSX.Element {
         }
         setIndexRoot(message.root);
         setFileIndex(message.files);
+      } else if (message.type === "prompt-source-token") {
+        // The host opened the source's token page in the browser; show the dialog to paste the token.
+        setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.
@@ -953,6 +962,15 @@ export default function App(): JSX.Element {
           }}
           onCancel={() => setOpenPrOpen(false)}
         />
+      </Show>
+      <Show when={sourceTokenPrompt()}>
+        {(prompt) => (
+          <SourceTokenPrompt
+            sourceId={prompt().sourceId}
+            label={prompt().label}
+            onClose={() => setSourceTokenPrompt(null)}
+          />
+        )}
       </Show>
       <Show when={registerAgentOpen()}>
         <RegisterAgentModal

@@ -74,6 +74,11 @@ Then Weavie's hard rules (these override generic "best practice"):
 - **Long-lived child processes go through `ProcessSupervisor`** with an explicit `RestartPolicy` —
   flag hand-rolled `Process.Start` / PTY lifecycle. Transient one-shots are exempt.
 - **No buried debug flags.** Tracing/diagnostics toggles are settings (off by default), never env vars.
+- **Names must not lie about the signature.** A name that contradicts what the member actually is, is
+  a defect, not a nitpick — flag a synchronous `void`/non-`Task` method carrying an `Async` suffix (or
+  the reverse: an awaitable named as if synchronous), a getter that mutates, an `Is*`/`Has*` that
+  doesn't return `bool`, a "fetch"/"load" that returns a cached value. The fix is to rename to match
+  the behavior. Raise as Should-fix — a misleading name costs every future reader.
 - **Minimum lines of code.** Favour the fewest lines that do the job — prefer the plainest version,
   and prefer deleting over adding.
 - **No new duplication.** Duplication is already common in this codebase, so watch for it actively:

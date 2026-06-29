@@ -30,17 +30,19 @@ public sealed class NotionSource : ISource {
 	/// <inheritdoc/>
 	public string Id => SourceId;
 
-	/// <summary>The host patterns Notion claims — the one declaration that drives routing (host + web).</summary>
-	public static IReadOnlyList<string> NotionHosts { get; } = ["notion.so", "*.notion.so", "*.notion.site"];
-
 	/// <inheritdoc/>
 	public string SetupUrl => "https://app.notion.com/developers/tokens";
 
 	/// <inheritdoc/>
-	public IReadOnlyList<string> Hosts => NotionHosts;
+	public bool Match(string target) => ClaimsUrl(target);
 
-	/// <inheritdoc/>
-	public bool Match(string target) => SourceHostMatch.Matches(Hosts, target);
+	/// <summary>True when <paramref name="target"/> is a <c>notion.so</c>/<c>notion.site</c> http(s) URL. Static so the headless fake shares one rule.</summary>
+	public static bool ClaimsUrl(string target) =>
+		Uri.TryCreate(target, UriKind.Absolute, out var uri)
+		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
+		&& (uri.Host.Equals("notion.so", StringComparison.OrdinalIgnoreCase)
+			|| uri.Host.EndsWith(".notion.so", StringComparison.OrdinalIgnoreCase)
+			|| uri.Host.EndsWith(".notion.site", StringComparison.OrdinalIgnoreCase));
 
 	/// <inheritdoc/>
 	public async Task<string> ValidateAsync(string accessToken, CancellationToken ct = default) {

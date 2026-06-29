@@ -114,8 +114,9 @@ public sealed partial class HostCore {
 			case "set-source-token":
 				_ = SaveSourceTokenAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("sourceId"), root.GetStringOrEmpty("token"));
 				break;
-			case "source-fetch":
-				_ = FetchSourceForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("target"));
+			case "open-target":
+				// The open resolver: the host matches the URL to a source (render natively) or replies open-web.
+				OpenTargetForWebAsync(root.GetStringOrEmpty("url"));
 				break;
 
 			case "add-pr-comment": {
@@ -274,7 +275,6 @@ public sealed partial class HostCore {
 				PushSessionList();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
-				PushSourceRegistryToWeb();
 				_suggestions?.PushCurrent();
 				// A settings.toml that was already malformed at boot never raised MalformedChanged, so surface it
 				// now that the page can render the toast.

@@ -25,14 +25,7 @@ public interface ISource {
 	/// <summary>Where the user creates an access token — opened in their browser when they connect.</summary>
 	string SetupUrl { get; }
 
-	/// <summary>
-	/// The host patterns this source claims (an exact host, or a <c>*.</c> subdomain wildcard) — its declared
-	/// routing predicate. Surfaced to the web so opening a matching URL renders here, from this one declaration
-	/// rather than a hardcoded copy. e.g. <c>notion.so</c>, <c>*.notion.so</c>.
-	/// </summary>
-	IReadOnlyList<string> Hosts { get; }
-
-	/// <summary>True when <paramref name="target"/> (an http(s) URL) belongs to this source — implement via <see cref="SourceHostMatch"/> over <see cref="Hosts"/>.</summary>
+	/// <summary>True when <paramref name="target"/> (a URL) belongs to this source — the routing predicate.</summary>
 	bool Match(string target);
 
 	/// <summary>

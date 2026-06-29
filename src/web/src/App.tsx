@@ -18,9 +18,9 @@ import {
   activeBackendPhase,
   backendName,
   connectedBackends,
-  fetchSource,
   isBrowserHostedShell,
   onHostMessage,
+  openTarget,
   postToBackend,
   postToHost,
   setActiveBackendId,
@@ -73,8 +73,6 @@ import { canPreview } from "./editor/preview/preview-registry";
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
-import { sourceIdForUrl } from "./editor/source/source-match";
-import { setSourceRegistry } from "./editor/source/source-registry";
 import { setSourceDoc, sourceDoc } from "./editor/source/source-store";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import type { DirListings } from "./files/FileBrowser";
@@ -678,9 +676,9 @@ export default function App(): JSX.Element {
         // A fetched source doc: store its rich html by target, then open/focus its source tab to render it.
         setSourceDoc(message.target, { title: message.title, html: message.html });
         editor.openSourceTab(message.target);
-      } else if (message.type === "source-registry") {
-        // The registered sources' host patterns — drive the open resolver (a Notion URL → native render).
-        setSourceRegistry(message.sources);
+      } else if (message.type === "open-web") {
+        // The host's resolver decided this URL isn't a source — open it as a web (iframe) tab.
+        editor.openWebTab(message.url);
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.
@@ -1102,12 +1100,8 @@ export default function App(): JSX.Element {
         <UrlPrompt
           onSubmit={(url) => {
             setUrlPromptOpen(false);
-            // A registered source (Notion) renders natively; everything else is a web (iframe) tab.
-            if (sourceIdForUrl(url) !== null) {
-              fetchSource(url);
-            } else {
-              editor.openWebTab(url);
-            }
+            // The host resolves it: a source (Notion) renders natively; anything else comes back as a web tab.
+            openTarget(url);
           }}
           onCancel={() => setUrlPromptOpen(false)}
         />

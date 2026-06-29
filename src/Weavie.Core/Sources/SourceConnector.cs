@@ -33,7 +33,7 @@ public sealed class SourceConnector : ISourceConnector {
 	}
 
 	/// <inheritdoc/>
-	public IReadOnlyList<SourceDescriptor> Sources => [.. _sources.Select(s => new SourceDescriptor(s.Id, s.Hosts))];
+	public bool Matches(string target) => _sources.Any(s => s.Match(target));
 
 	/// <inheritdoc/>
 	public string SetupUrlFor(string sourceId) => Source(sourceId).SetupUrl;

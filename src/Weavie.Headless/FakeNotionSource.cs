@@ -26,7 +26,7 @@ internal sealed class FakeNotionSource : ISourceConnector {
 	private static string Str(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 
-	public IReadOnlyList<SourceDescriptor> Sources => [new SourceDescriptor(NotionSource.SourceId, NotionSource.NotionHosts)];
+	public bool Matches(string target) => NotionSource.ClaimsUrl(target);
 
 	public string SetupUrlFor(string sourceId) => "https://app.notion.com/developers/tokens";
 

@@ -1,4 +1,3 @@
-using System.Linq;
 using System.Net;
 using System.Text.Json;
 using Xunit;
@@ -16,16 +15,14 @@ public sealed class HostCoreSourcesTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 
 	[Fact]
-	public async Task Ready_PushesTheSourceRegistryForTheOpenResolver() {
+	public async Task OpenTarget_NonSourceUrl_RepliesOpenWeb() {
 		await using var host = await TestHost.StartAsync();
 
-		var registry = host.Bridge.LastOfType("source-registry");
-		Assert.True(registry.HasValue);
-		var sources = registry!.Value.GetProperty("sources");
-		Assert.Equal("notion", sources[0].GetProperty("id").GetString());
-		var hosts = sources[0].GetProperty("hosts").EnumerateArray().Select(h => h.GetString()).ToList();
-		Assert.Contains("notion.so", hosts);
-		Assert.Contains("*.notion.so", hosts);
+		host.Send(Msg(new { type = "open-target", url = "https://example.com/page" }));
+
+		var web = await WaitForAsync(() => host.Bridge.LastOfType("open-web"));
+		Assert.Equal("https://example.com/page", web.GetProperty("url").GetString());
+		Assert.Null(host.Bridge.LastOfType("source-doc")); // not a source — never fetched
 	}
 
 	[Fact]
@@ -95,20 +92,20 @@ public sealed class HostCoreSourcesTests {
 			_ => (HttpStatusCode.NotFound, "{}"),
 		};
 
-		host.Send(Msg(new { type = "source-fetch", id = "s1", target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
 
 		var doc = await WaitForAsync(() => host.Bridge.LastOfType("source-doc"));
-		Assert.Equal("s1", doc.GetProperty("id").GetString());
+		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", doc.GetProperty("target").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("Body text", doc.GetProperty("text").GetString());        // Claude's channel
 		Assert.Contains("<p>Body text</p>", doc.GetProperty("html").GetString()); // the rendered surface
 	}
 
 	[Fact]
-	public async Task SourceFetch_WithoutToken_Toasts() {
+	public async Task OpenTarget_NotionUrlWithoutToken_Toasts() {
 		await using var host = await TestHost.StartAsync();
 
-		host.Send(Msg(new { type = "source-fetch", id = "s1", target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
 
 		var error = await WaitForAsync(() => Notify(host, "error"));
 		Assert.Contains("Connect", error.GetProperty("message").GetString(), StringComparison.OrdinalIgnoreCase);

@@ -53,6 +53,7 @@ import {
   sessions,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
+import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { formatKey, installKeybindings } from "./commands/keybindings";
@@ -65,6 +66,7 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 import { TabStrip } from "./editor/TabStrip";
 import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
+import { basename, repoRelativePath } from "./editor/fs-path";
 import { canPreview } from "./editor/preview/preview-registry";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -685,6 +687,16 @@ export default function App(): JSX.Element {
       const path = (args as { path?: unknown } | undefined)?.path;
       return typeof path === "string" ? path : undefined;
     };
+    // Copy a string derived from the target tab's path (the menu's `path` arg, else the active tab) to the
+    // clipboard. Returns false (the command declines) when there's no tab to act on.
+    const copyTabPath = (args: unknown, derive: (path: string) => string): boolean => {
+      const path = tabPath(args) ?? activePath();
+      if (path === null || path === undefined) {
+        return false;
+      }
+      writeClipboard(derive(path));
+      return true;
+    };
     const offCommands = [
       // Returns false when there's no pane at that number, so an unbound Ctrl+digit falls through to the
       // focused xterm/Monaco.
@@ -747,6 +759,19 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.togglePinTab, (args) => editor.tabs.togglePin(tabPath(args))),
       registerCommand(CommandIds.reopenClosed, () => editor.tabs.reopenClosed()),
+      // Copy the target tab's name / repo-relative / absolute path to the clipboard (the tab menu's Copy
+      // submenu; palette / Claude act on the active tab). Decline when there's no target so the chord/row
+      // falls through rather than copying nothing.
+      registerCommand(CommandIds.copyTabName, (args) =>
+        copyTabPath(args, (path) => basename(path)),
+      ),
+      registerCommand(CommandIds.copyTabRelativePath, (args) =>
+        copyTabPath(args, (path) => {
+          const root = indexRoot();
+          return root === null ? path : repoRelativePath(root, path);
+        }),
+      ),
+      registerCommand(CommandIds.copyTabPath, (args) => copyTabPath(args, (path) => path)),
       // Editor clipboard (the right-click menu): trigger Monaco's own actions so the native chords stay Monaco's.
       registerCommand(CommandIds.editorCopy, () =>
         editor.triggerAction("editor.action.clipboardCopyAction"),

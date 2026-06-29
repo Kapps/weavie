@@ -15,7 +15,7 @@ import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { dirtyPaths } from "./dirty-store";
 import type { TabActions } from "./editor-controller";
-import { canonicalFsPath } from "./fs-path";
+import { basename, canonicalFsPath } from "./fs-path";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
 import { sourceDoc } from "./source/source-store";
@@ -30,11 +30,6 @@ interface TabView {
   pinned: boolean;
   // Unsaved changes: shows a `*` until autosave reaches disk.
   dirty: boolean;
-}
-
-function basename(path: string): string {
-  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
-  return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
 }
 
 // A web tab shows its URL host; a source tab shows its doc title; a file tab shows its basename.
@@ -155,6 +150,25 @@ export function TabStrip(props: {
       { commandId: CommandIds.closeAllTabs, args, label: "Close All" },
       { kind: "separator" },
       { commandId: CommandIds.togglePinTab, args, label: view.pinned ? "Unpin" : "Pin" },
+      // Copy fans out to the file's name / repo-relative / absolute path. File tabs only — a web tab's path is
+      // a URL, with no repo-relative form.
+      ...(view.kind === "web"
+        ? []
+        : [
+            {
+              kind: "submenu" as const,
+              label: "Copy",
+              entries: [
+                { commandId: CommandIds.copyTabName, args, label: "Name" },
+                {
+                  commandId: CommandIds.copyTabRelativePath,
+                  args,
+                  label: "Path (Relative to Repo)",
+                },
+                { commandId: CommandIds.copyTabPath, args, label: "Path (Absolute)" },
+              ],
+            },
+          ]),
     ];
   };
   const openMenu = (event: MouseEvent, view: TabView): void => {

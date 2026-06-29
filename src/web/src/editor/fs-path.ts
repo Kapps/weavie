@@ -25,3 +25,27 @@ export function normalizePath(path: string): string {
 export function samePath(a: string, b: string): boolean {
   return normalizePath(a) === normalizePath(b);
 }
+
+/** The final path segment (file name) of a path, keeping its original casing. */
+export function basename(path: string): string {
+  const parts = path.split(/[\\/]/).filter((part) => part.length > 0);
+  return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
+}
+
+/// Path of `path` relative to workspace `root`, keeping the original separators and casing (the prefix is
+/// matched case- and separator-insensitively). Returns the file name when they're the same path and the
+/// untouched `path` when it lies outside the root — a file with no place under the repo has no repo-relative
+/// form, so its own path is the honest answer.
+export function repoRelativePath(root: string, path: string): string {
+  const normalize = (value: string): string =>
+    value.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const normalizedRoot = normalize(root);
+  const normalizedPath = normalize(path);
+  if (normalizedPath === normalizedRoot) {
+    return basename(path);
+  }
+  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
+    return path.slice(root.replace(/[\\/]+$/, "").length + 1);
+  }
+  return path;
+}

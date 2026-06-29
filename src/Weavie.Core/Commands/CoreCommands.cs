@@ -122,6 +122,15 @@ public static class CoreCommands {
 	/// <summary>Reopens the most recently closed editor tab; bound to <c>Ctrl+Shift+T</c>.</summary>
 	public const string ReopenClosed = "weavie.editor.reopenClosed";
 
+	/// <summary>Copies an editor tab's file name to the clipboard (the active tab, or <c>path</c>).</summary>
+	public const string CopyTabName = "weavie.editor.copyName";
+
+	/// <summary>Copies an editor tab's repo-relative path to the clipboard (the active tab, or <c>path</c>).</summary>
+	public const string CopyTabRelativePath = "weavie.editor.copyRelativePath";
+
+	/// <summary>Copies an editor tab's absolute path to the clipboard (the active tab, or <c>path</c>).</summary>
+	public const string CopyTabPath = "weavie.editor.copyPath";
+
 	/// <summary>Opens a new scratch (untitled) editor buffer; bound to <c>$mod+n</c>.</summary>
 	public const string NewFile = "weavie.editor.newFile";
 
@@ -648,6 +657,44 @@ public static class CoreCommands {
 			Description = "Reopen the most recently closed editor tab.",
 			Aliases = ["reopen closed editor", "reopen closed tab", "reopen tab", "restore closed tab", "undo close tab"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+t" }],
+		});
+
+		// Copy an editor tab's name / repo-relative / absolute path to the clipboard — the tab menu's Copy
+		// submenu. Web-handled (the clipboard write follows the served browser vs native WebView split, like
+		// terminal copy); each takes an optional `path` so the menu targets the right-clicked tab while the
+		// palette / Claude act on the active one. Gated editorFocused so the palette rows aren't dead with no
+		// editor open.
+		registry.Register(new CommandDefinition {
+			Id = CopyTabName,
+			Title = "Copy Name",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Copy the editor tab's file name to the clipboard.",
+			Aliases = ["copy name", "copy file name", "copy filename"],
+			When = "editorFocused",
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CopyTabRelativePath,
+			Title = "Copy Relative Path",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Copy the editor tab's path relative to the repository root to the clipboard.",
+			Aliases = ["copy relative path", "copy repo path", "copy relative file path"],
+			When = "editorFocused",
+			ArgsSchemaJson = tabPathArgs,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = CopyTabPath,
+			Title = "Copy Path",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Copy the editor tab's absolute path to the clipboard.",
+			Aliases = ["copy path", "copy absolute path", "copy full path", "copy file path"],
+			When = "editorFocused",
+			ArgsSchemaJson = tabPathArgs,
 		});
 
 		// New File is gated "!terminalFocused" (not "editorFocused") so $mod+n works anywhere except a terminal

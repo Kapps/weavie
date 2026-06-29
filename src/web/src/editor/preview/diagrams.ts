@@ -40,7 +40,7 @@ function themeConfig(): Parameters<Mermaid["initialize"]>[0] {
 /**
  * Fills every `pre.mermaid-pending` placeholder under `root` with rendered, sanitized SVG. `isCurrent`
  * is re-checked after each await so a render resolving after a newer edit (or theme switch) is discarded
- * instead of landing in stale DOM.
+ * instead of landing in stale DOM. A diagram that fails to parse surfaces its error in place.
  */
 export async function hydrateMermaid(root: HTMLElement, isCurrent: () => boolean): Promise<void> {
   const pending = root.querySelectorAll<HTMLElement>("pre.mermaid-pending");
@@ -55,6 +55,8 @@ export async function hydrateMermaid(root: HTMLElement, isCurrent: () => boolean
   for (const node of pending) {
     const source = node.textContent ?? "";
     renderCount += 1;
+    // mermaid.render names the output SVG with this id and cleans up the off-screen node it measured in,
+    // so the id must not be reused to remove anything — doing so would delete the rendered SVG itself.
     const id = `weavie-mermaid-${renderCount}`;
     try {
       const { svg } = await mermaid.render(id, source);
@@ -77,8 +79,6 @@ export async function hydrateMermaid(root: HTMLElement, isCurrent: () => boolean
       error.className = "mermaid-error";
       error.textContent = err instanceof Error ? err.message : String(err);
       node.replaceWith(error);
-    } finally {
-      document.getElementById(id)?.remove();
     }
   }
 }

@@ -116,7 +116,7 @@ public sealed partial class HostCore {
 				break;
 			case "open-target":
 				// The open resolver: the host matches the URL to a source (render natively) or replies open-web.
-				OpenTargetForWebAsync(root.GetStringOrEmpty("url"));
+				OpenTargetForWeb(root.GetStringOrEmpty("url"));
 				break;
 
 			case "add-pr-comment": {

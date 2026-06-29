@@ -14,7 +14,7 @@ public sealed partial class HostCore {
 	/// sent back as <c>open-web</c> for a web (iframe) tab. Keeping the match host-side means the web never
 	/// re-implements a source's predicate.
 	/// </summary>
-	private void OpenTargetForWebAsync(string url) {
+	private void OpenTargetForWeb(string url) {
 		if (!IsHttpUrl(url)) {
 			return;
 		}

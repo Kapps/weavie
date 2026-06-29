@@ -70,8 +70,9 @@ test-results/
 playwright-report/
 .playwright/
 .recordings/
-# Per-change capture tour override — keep these local, never commit (capture.mjs is the frozen reference).
+# Per-change capture override + scratch runners — keep these local, never commit (capture.mjs is the frozen reference).
 tour.local.mjs
+*.local.mjs
 
 # Claude Code agent worktrees (transient, per-agent isolated checkouts)
 .claude/worktrees/

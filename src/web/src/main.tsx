@@ -14,6 +14,7 @@ import "./terminal/terminal.css";
 import "./editor/diff.css";
 import "./editor/comment-prose.css";
 import "./editor/preview/preview.css";
+import "./editor/preview/preview-highlight.css";
 import "./files/files.css";
 import "./chrome/search-panel.css";
 import "./chrome/titlebar.css";

@@ -6,7 +6,10 @@ import { join } from "node:path";
 // Seed files every journey can rely on: a markdown doc (preview), a TypeScript file (syntax highlight +
 // edit/persist + LSP), and a plain-text file. Kept tiny and deterministic.
 const SEED: Record<string, string> = {
-  "README.md": "# Sample project\n\nHello **world** — this is _markdown_.\n",
+  "README.md":
+    "# Sample project\n\nHello **world** — this is _markdown_.\n\n" +
+    "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n" +
+    "```ts\nconst answer: number = 42;\n```\n",
   "hello.ts":
     "export function greet(name: string): string {\n" +
     "  return `Hello, ${name}!`;\n" +

@@ -102,6 +102,7 @@ let state: ThemeState = (() => {
 
 const xtermSubscribers = new Set<(theme: XtermTheme) => void>();
 const monacoSubscribers = new Set<(update: MonacoThemeUpdate) => void>();
+const previewSubscribers = new Set<() => void>();
 
 function monacoUpdate(): MonacoThemeUpdate {
   // Id bumped per change because a registered-extension theme can't be mutated in place; a fresh id forces
@@ -140,6 +141,18 @@ export function onMonacoThemeChanged(handler: (update: MonacoThemeUpdate) => voi
   };
 }
 
+/**
+ * Subscribe to live theme changes for the Markdown preview; returns an unsubscribe function. Fired after the
+ * chrome CSS vars are republished, so handlers read the fresh palette (Mermaid bakes its theme into the SVG,
+ * so it must re-render on each switch). Carries no payload — the preview reads the live CSS vars directly.
+ */
+export function onPreviewThemeChanged(handler: () => void): () => void {
+  previewSubscribers.add(handler);
+  return () => {
+    previewSubscribers.delete(handler);
+  };
+}
+
 /** Applies the active theme to Weavie's chrome (CSS vars + color-scheme). Call once the DOM is mounted; idempotent. */
 export function applyChromeTheme(): void {
   const slot = activeSlot(state);
@@ -163,6 +176,9 @@ function reapplyActive(): void {
   const update = monacoUpdate();
   for (const handler of monacoSubscribers) {
     handler(update);
+  }
+  for (const handler of previewSubscribers) {
+    handler();
   }
 }
 

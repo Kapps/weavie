@@ -41,6 +41,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	// Loads/posts a PR's review comments (same GitHub client, or the harness stub).
 	private readonly Weavie.Core.Review.IReviewCommentStore _reviewComments;
+	// The source system (Notion personal-access-token validate + fetch); see HostCore.Sources.cs.
+	private readonly Weavie.Core.Sources.ISourceConnector _sources;
 	private readonly LayoutStore _layout;
 	private readonly EditorSessionStore _editorSession;
 	private readonly RecentFilesStore _recentFiles;
@@ -98,6 +100,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_railState = services.RailState;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
+		_sources = services.Sources;
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 

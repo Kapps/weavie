@@ -23,18 +23,26 @@ internal sealed class TestHost : IAsyncDisposable {
 	private readonly string _tempRoot;
 	private readonly HostServices _services;
 
-	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core) {
+	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		_tempRoot = tempRoot;
 		RepoRoot = repoRoot;
 		_services = services;
 		Bridge = bridge;
 		Platform = platform;
 		Core = core;
+		SourceHttp = sourceHttp;
+		SourcesDir = sourcesDir;
 	}
 
 	public FakeHostBridge Bridge { get; }
 	public TestPlatform Platform { get; }
 	public HostCore Core { get; }
+
+	/// <summary>The stub backing the source system's HTTP calls (the Notion token validate + API); set its responder per test.</summary>
+	public StubHttpMessageHandler SourceHttp { get; }
+
+	/// <summary>The temp <c>sources</c> dir — write a <c>notion.json</c> credentials file here to exercise the connect flow.</summary>
+	public string SourcesDir { get; }
 
 	/// <summary>The primary checkout (a git repo) this host is rooted at.</summary>
 	public string RepoRoot { get; }
@@ -51,14 +59,16 @@ internal sealed class TestHost : IAsyncDisposable {
 
 		EnsureRelayBinary();
 
-		var services = IsolatedServices(tempRoot);
+		var sourceHttp = new StubHttpMessageHandler();
+		string sourcesDir = Path.Combine(tempRoot, "sources");
+		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge);
 		var core = new HostCore(platform, services, repo);
 		await core.StartAsync("http://127.0.0.1:65111").ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		bridge.Receive("""{"type":"ready"}""");
-		return new TestHost(tempRoot, repo, services, bridge, platform, core);
+		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);
 	}
 
 	/// <summary>The primary session's id (its rail slot id), read from the initial set-editor-session sessionId.</summary>
@@ -77,7 +87,7 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>Sends a raw web message to the host (as the page would).</summary>
 	public void Send(string json) => Bridge.Receive(json);
 
-	private static HostServices IsolatedServices(string tempRoot) {
+	private static HostServices IsolatedServices(string tempRoot, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);
 		var registry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
@@ -96,7 +106,16 @@ internal sealed class TestHost : IAsyncDisposable {
 			RailState = railState,
 			PullRequests = new Weavie.Core.Review.StaticPullRequestProvider([], []),
 			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
+			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 		};
+	}
+
+	// A source connector wired to the stub HTTP handler + temp token paths, so connect/fetch journeys run
+	// deterministically and never touch the real ~/.weavie or the network.
+	private static Weavie.Core.Sources.SourceConnector BuildSourceConnector(StubHttpMessageHandler sourceHttp, string sourcesDir) {
+		var http = new HttpClient(sourceHttp);
+		return new Weavie.Core.Sources.SourceConnector(
+			[new Weavie.Core.Sources.NotionSource(http)], id => Path.Combine(sourcesDir, $"{id}.json"));
 	}
 
 	// IdeIntegration.WriteSettingsFile throws if the hook relay isn't co-located with the app; in a test run the

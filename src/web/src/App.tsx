@@ -33,6 +33,7 @@ import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
+import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import { TitleBar } from "./chrome/TitleBar";
 import { UrlPrompt } from "./chrome/UrlPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
@@ -71,6 +72,7 @@ import { canPreview } from "./editor/preview/preview-registry";
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import { setSourceDoc, sourceDoc } from "./editor/source/source-store";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
@@ -88,6 +90,7 @@ import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
 const PreviewPane = lazy(() => import("./editor/preview/PreviewPane"));
+const SourceView = lazy(() => import("./editor/source/SourceView"));
 const SearchPanel = lazy(() =>
   import("./chrome/SearchPanel").then((m) => ({ default: m.SearchPanel })),
 );
@@ -167,6 +170,11 @@ export default function App(): JSX.Element {
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
+  // The connect-a-source token dialog (host pushed prompt-source-token), or null when closed.
+  const [sourceTokenPrompt, setSourceTokenPrompt] = createSignal<{
+    sourceId: string;
+    label: string;
+  } | null>(null);
   const [registerAgentOpen, setRegisterAgentOpen] = createSignal(false);
   // The cloud panel's anchor (computed from the cloud button's rect) when open, else null.
   const [remotePanelAnchor, setRemotePanelAnchor] = createSignal<{
@@ -296,6 +304,15 @@ export default function App(): JSX.Element {
       return null;
     }
     return openTabs().find((tab) => tab.path === path)?.kind === "web" ? path : null;
+  });
+
+  // The active tab's target when it's a source (Notion) tab — drives the SourceView overlay; null otherwise.
+  const activeSourceTarget = createMemo<string | null>(() => {
+    const path = activePath();
+    if (path === null) {
+      return null;
+    }
+    return openTabs().find((tab) => tab.path === path)?.kind === "source" ? path : null;
   });
 
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
@@ -478,6 +495,12 @@ export default function App(): JSX.Element {
             <Show when={activeWebUrl() !== null}>
               <WebTabPane url={() => activeWebUrl() as string} />
             </Show>
+            {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco. */}
+            <Show when={activeSourceTarget() !== null}>
+              <Suspense>
+                <SourceView html={() => sourceDoc(activeSourceTarget() as string)?.html ?? ""} />
+              </Suspense>
+            </Show>
           </div>
         </div>
       );
@@ -645,6 +668,13 @@ export default function App(): JSX.Element {
         }
         setIndexRoot(message.root);
         setFileIndex(message.files);
+      } else if (message.type === "prompt-source-token") {
+        // The host opened the source's token page in the browser; show the dialog to paste the token.
+        setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
+      } else if (message.type === "source-doc") {
+        // A fetched source doc: store its rich html by target, then open/focus its source tab to render it.
+        setSourceDoc(message.target, { title: message.title, html: message.html });
+        editor.openSourceTab(message.target);
       }
       // session-status + session-list are owned by chrome/session-store (registered at module load so they
       // survive HMR); they're intentionally not handled here.
@@ -978,6 +1008,15 @@ export default function App(): JSX.Element {
           }}
           onCancel={() => setOpenPrOpen(false)}
         />
+      </Show>
+      <Show when={sourceTokenPrompt()}>
+        {(prompt) => (
+          <SourceTokenPrompt
+            sourceId={prompt().sourceId}
+            label={prompt().label}
+            onClose={() => setSourceTokenPrompt(null)}
+          />
+        )}
       </Show>
       <Show when={registerAgentOpen()}>
         <RegisterAgentModal

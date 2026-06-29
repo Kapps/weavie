@@ -31,6 +31,12 @@ if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fak
 	services = services with { PullRequests = fakePrs, ReviewComments = fakePrs };
 }
 
+// Deterministic Notion connect/fetch journeys for the integration harness / capture: a JSON file of the canned
+// doc swaps the real OAuth+API connector for one that fakes the sign-in and serves it. Unset in normal use.
+if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } fakeNotionPath && File.Exists(fakeNotionPath)) {
+	services = services with { Sources = FakeNotionSource.FromFile(fakeNotionPath) };
+}
+
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;

@@ -108,6 +108,16 @@ public sealed partial class HostCore {
 				break;
 			}
 
+			case "connect-notion":
+				PromptConnectNotion();
+				break;
+			case "set-source-token":
+				_ = SaveSourceTokenAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("sourceId"), root.GetStringOrEmpty("token"));
+				break;
+			case "source-fetch":
+				_ = FetchSourceForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("target"));
+				break;
+
 			case "add-pr-comment": {
 				_ = AddPrCommentFromWebAsync(
 					JsonInt(root, "number"),

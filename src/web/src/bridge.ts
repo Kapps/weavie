@@ -141,6 +141,9 @@ export type HostBoundMessage =
   | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
   // Dismiss a contextual suggestion: `forever` ⇒ persist ("don't ask again"); else snooze for this run ("not now").
   | { type: "dismiss-suggestion"; id: string; forever: boolean }
+  // The user pasted a source's access token into the connect dialog; the host validates + saves it and replies
+  // source-token-result tagged with `id`. See docs/specs/notion-source-auth.md.
+  | { type: "set-source-token"; id: string; sourceId: string; token: string }
   | { type: "list-branches"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
@@ -325,6 +328,15 @@ export type WebBoundMessage =
   // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
   // session switch so a new / selected session lands focus in Claude.
   | { type: "focus-pane"; kind: string }
+  // Connect a source: the host opened its token page in the browser; show the dialog to paste the token, which
+  // goes back as set-source-token. See docs/specs/notion-source-auth.md.
+  | { type: "prompt-source-token"; sourceId: string; label: string }
+  // Result of validating + saving a pasted token (tagged with the request `id`): ok closes the dialog, else the
+  // dialog shows `error` inline so the user can correct the token in place.
+  | { type: "source-token-result"; id: string; ok: boolean; error: string }
+  // A fetched source doc (Notion), keyed by `target`: `html` is the rich render for the SourceView shadow root,
+  // `text` is Claude's markdown channel. Opens/feeds a kind:"source" tab. See docs/specs/notion-source-view.md.
+  | { type: "source-doc"; id: string; target: string; title: string; text: string; html: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
   | {
       type: "show-diff";
@@ -915,6 +927,30 @@ export function postToBackend(backendId: string, message: HostBoundMessage): voi
 
 export function log(level: "info" | "warn" | "error", message: string): void {
   postToHost({ type: "log", level, message });
+}
+
+// The connect dialog hands the host the pasted access token to validate + save; resolves with the outcome so the
+// dialog can close on success or show the rejection inline. No timeout: the host replies in both branches.
+const pendingTokenRequests = new Map<string, (result: { ok: boolean; error: string }) => void>();
+let tokenSeq = 0;
+onHostMessage((message) => {
+  if (message.type === "source-token-result") {
+    pendingTokenRequests.get(message.id)?.({ ok: message.ok, error: message.error });
+  }
+});
+
+export function submitSourceToken(
+  sourceId: string,
+  token: string,
+): Promise<{ ok: boolean; error: string }> {
+  const id = `st${++tokenSeq}`;
+  return new Promise((resolve) => {
+    pendingTokenRequests.set(id, (result) => {
+      pendingTokenRequests.delete(id);
+      resolve(result);
+    });
+    postToHost({ type: "set-source-token", id, sourceId, token });
+  });
 }
 
 export function onHostMessage(handler: WebMessageHandler): () => void {

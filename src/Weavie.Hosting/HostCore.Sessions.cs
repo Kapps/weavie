@@ -46,6 +46,12 @@ public sealed partial class HostCore {
 			_ui.Post(SeedSetupCommandPrompt);
 			return Task.FromResult(CommandResult.Success("Asked Claude to suggest a worktree setup command."));
 		});
+		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
+		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
+		session.Commands.RegisterHandler(CoreCommands.ConnectNotion, (_, _) => {
+			PromptConnectNotion();
+			return Task.FromResult(CommandResult.Success("Opening your browser to connect Notion…"));
+		});
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, this);

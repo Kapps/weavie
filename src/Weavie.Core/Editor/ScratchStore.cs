@@ -27,12 +27,21 @@ public sealed class ScratchStore {
 	/// Creates the next empty <c>Untitled-N</c> scratch file (lowest number not on disk) and returns its absolute
 	/// path. Extensionless so the editor defaults it to plain text; the user picks a real extension on save.
 	/// </summary>
-	public string CreateNew() {
+	public string CreateNew() => CreateNew(string.Empty, string.Empty);
+
+	/// <summary>
+	/// Creates the next empty <c>Untitled-N&lt;extension&gt;</c> scratch file seeded with <paramref name="content"/>
+	/// and returns its absolute path — used to surface fetched read-only content (e.g. a Notion doc) as a normal
+	/// editor tab. Pass an empty <paramref name="extension"/> for the plain-text default.
+	/// </summary>
+	public string CreateNew(string extension, string content) {
+		ArgumentNullException.ThrowIfNull(extension);
+		ArgumentNullException.ThrowIfNull(content);
 		lock (_gate) {
 			for (int n = 1; ; n++) {
-				string path = Path.Combine(Directory, $"Untitled-{n}");
+				string path = Path.Combine(Directory, $"Untitled-{n}{extension}");
 				if (!_fileSystem.FileExists(path)) {
-					_fileSystem.WriteAllText(path, string.Empty);
+					_fileSystem.WriteAllText(path, content);
 					return path;
 				}
 			}

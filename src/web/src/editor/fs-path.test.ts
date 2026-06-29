@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { canonicalFsPath, normalizePath, samePath } from "./fs-path";
+import { basename, canonicalFsPath, normalizePath, repoRelativePath, samePath } from "./fs-path";
 
 describe("canonicalFsPath", () => {
   it("lowercases an uppercase drive letter, leaving the rest untouched", () => {
@@ -35,6 +35,41 @@ describe("normalizePath", () => {
   it("drops a trailing slash", () => {
     expect(normalizePath("C:/foo/")).toBe("c:/foo");
     expect(normalizePath("C:\\foo\\")).toBe("c:/foo");
+  });
+});
+
+describe("basename", () => {
+  it("returns the final segment for posix and windows paths", () => {
+    expect(basename("/home/user/proj/app.ts")).toBe("app.ts");
+    expect(basename("C:\\src\\Foo.cs")).toBe("Foo.cs");
+  });
+
+  it("ignores a trailing slash and falls back to the input when there's no segment", () => {
+    expect(basename("/home/user/proj/")).toBe("proj");
+    expect(basename("app.ts")).toBe("app.ts");
+  });
+});
+
+describe("repoRelativePath", () => {
+  it("strips the root prefix, keeping the original separators and casing", () => {
+    expect(repoRelativePath("/home/user/proj", "/home/user/proj/src/App.ts")).toBe("src/App.ts");
+    expect(repoRelativePath("C:\\Proj", "C:\\Proj\\src\\App.cs")).toBe("src\\App.cs");
+  });
+
+  it("matches the prefix case- and separator-insensitively", () => {
+    expect(repoRelativePath("c:/proj", "C:\\Proj\\src\\App.cs")).toBe("src\\App.cs");
+  });
+
+  it("tolerates a trailing slash on the root", () => {
+    expect(repoRelativePath("/home/user/proj/", "/home/user/proj/a.ts")).toBe("a.ts");
+  });
+
+  it("returns the file name when the path is the root itself", () => {
+    expect(repoRelativePath("/home/user/proj", "/home/user/proj")).toBe("proj");
+  });
+
+  it("returns the untouched path when it lies outside the root", () => {
+    expect(repoRelativePath("/home/user/proj", "/tmp/scratch.ts")).toBe("/tmp/scratch.ts");
   });
 });
 

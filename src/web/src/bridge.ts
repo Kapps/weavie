@@ -144,6 +144,9 @@ export type HostBoundMessage =
   // The user pasted a source's access token into the connect dialog; the host validates + saves it and replies
   // source-token-result tagged with `id`. See docs/specs/notion-source-auth.md.
   | { type: "set-source-token"; id: string; sourceId: string; token: string }
+  // Open a source doc by target (a Notion URL the open resolver matched): the host fetches it and pushes a
+  // source-doc, which opens/renders the source tab. See docs/specs/notion-source-view.md.
+  | { type: "source-fetch"; id: string; target: string }
   | { type: "list-branches"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
@@ -938,6 +941,13 @@ onHostMessage((message) => {
     pendingTokenRequests.get(message.id)?.({ ok: message.ok, error: message.error });
   }
 });
+
+// Open a third-party source doc (Notion) by target: the host fetches it and pushes source-doc, which opens +
+// renders the source tab. The open resolver routes matching URLs here instead of opening a web iframe.
+let sourceFetchSeq = 0;
+export function fetchSource(target: string): void {
+  postToHost({ type: "source-fetch", id: `sf${++sourceFetchSeq}`, target });
+}
 
 export function submitSourceToken(
   sourceId: string,

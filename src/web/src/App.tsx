@@ -18,6 +18,7 @@ import {
   activeBackendPhase,
   backendName,
   connectedBackends,
+  fetchSource,
   isBrowserHostedShell,
   onHostMessage,
   postToBackend,
@@ -72,6 +73,7 @@ import { canPreview } from "./editor/preview/preview-registry";
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import { sourceIdForUrl } from "./editor/source/source-match";
 import { setSourceDoc, sourceDoc } from "./editor/source/source-store";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import type { DirListings } from "./files/FileBrowser";
@@ -1096,7 +1098,12 @@ export default function App(): JSX.Element {
         <UrlPrompt
           onSubmit={(url) => {
             setUrlPromptOpen(false);
-            editor.openWebTab(url);
+            // A registered source (Notion) renders natively; everything else is a web (iframe) tab.
+            if (sourceIdForUrl(url) !== null) {
+              fetchSource(url);
+            } else {
+              editor.openWebTab(url);
+            }
           }}
           onCancel={() => setUrlPromptOpen(false)}
         />

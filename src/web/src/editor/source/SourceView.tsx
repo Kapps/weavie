@@ -1,11 +1,12 @@
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
-import { postToHost } from "../../bridge";
+import { fetchSource, postToHost } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { hydrateMermaid } from "../preview/diagrams";
 import { highlightFence } from "../preview/highlight";
 // The same hljs token theme the Markdown preview uses, injected into the shadow root so highlighted code is colored.
 import HIGHLIGHT_CSS from "../preview/preview-highlight.css?raw";
 import { sanitizeSourceHtml } from "./source-html";
+import { sourceIdForUrl } from "./source-match";
 import { SOURCE_STYLES } from "./source-styles";
 
 // Rich-HTML render of a fetched source doc (Notion) in an OPEN shadow root, overlaying the kept-mounted Monaco host
@@ -54,7 +55,9 @@ export default function SourceView(props: { html: () => string }): JSX.Element {
     }
     event.preventDefault();
     const href = anchor.getAttribute("href") ?? "";
-    if (/^https?:/i.test(href)) {
+    if (sourceIdForUrl(href) !== null) {
+      fetchSource(href); // a Notion link → render natively in another source tab, not the OS browser
+    } else if (/^https?:/i.test(href)) {
       postToHost({ type: "open-url", url: href });
     }
   };

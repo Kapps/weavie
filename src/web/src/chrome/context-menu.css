@@ -51,6 +51,15 @@
   color: var(--dim);
   font-size: 0.9em;
 }
+/* Submenu (fly-out) row: a dimmed chevron trails the label, lit to match the row on hover/focus. */
+.context-menu-chevron {
+  color: var(--dim);
+  flex-shrink: 0;
+}
+.context-menu-submenu:hover .context-menu-chevron,
+.context-menu-submenu:focus .context-menu-chevron {
+  color: #042019;
+}
 .context-menu-item:hover .context-menu-keys,
 .context-menu-item:focus .context-menu-keys {
   color: rgba(6, 35, 29, 0.7);

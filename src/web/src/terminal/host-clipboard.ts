@@ -8,6 +8,7 @@
 
 import type { Terminal } from "@xterm/xterm";
 import { isBrowserHostedShell, onHostMessage, postToHost } from "../bridge";
+import { writeClipboard } from "../clipboard";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
@@ -38,19 +39,6 @@ export function noteTerminalFocus(key: string): void {
 
 function focusedTerminal(): Terminal | undefined {
   return focusedKey === null ? undefined : terminals.get(focusedKey);
-}
-
-function writeClipboard(text: string): void {
-  if (text.length === 0) {
-    return;
-  }
-  if (isBrowserHostedShell()) {
-    // The OS clipboard is the browser's here. Best-effort: a copy keypress is a user gesture (allowed), while
-    // an OSC 52 write isn't, so the browser may reject that one — fine, the keypress path is what matters.
-    void navigator.clipboard?.writeText(text).catch(() => {});
-    return;
-  }
-  postToHost({ type: "clipboard-write", text });
 }
 
 let readSeq = 0;

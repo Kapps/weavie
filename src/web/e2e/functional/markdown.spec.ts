@@ -20,4 +20,8 @@ test("markdown preview renders edited content as HTML", async ({ page }) => {
   await expect(preview.locator("strong")).toHaveText("world");
   // ...and the heading typed into the editor rendered as an <h1>.
   await expect(preview.locator("h1", { hasText: heading })).toBeVisible();
+  // The seed's ```ts fence was syntax-highlighted (hljs token spans survived the sanitize)...
+  await expect(preview.locator("pre.hljs .hljs-keyword").first()).toBeVisible();
+  // ...and the ```mermaid fence was rendered to an SVG by the async hydrate pass.
+  await expect(preview.locator(".mermaid-rendered svg")).toBeVisible();
 });

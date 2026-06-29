@@ -115,3 +115,23 @@
 .editor-preview-body img {
   max-width: 100%;
 }
+
+/* Mermaid diagram, rendered async into the placeholder by hydrateMermaid. */
+.editor-preview-body .mermaid-rendered {
+  margin: 1em 0;
+  text-align: center;
+}
+
+.editor-preview-body .mermaid-rendered svg {
+  max-width: 100%;
+  height: auto;
+}
+
+.editor-preview-body pre.mermaid-pending {
+  color: var(--dim);
+}
+
+.editor-preview-body pre.mermaid-error {
+  color: var(--bad);
+  white-space: pre-wrap;
+}

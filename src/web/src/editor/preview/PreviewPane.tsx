@@ -1,4 +1,6 @@
-import { type JSX, createEffect, onMount } from "solid-js";
+import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
+import { onPreviewThemeChanged } from "../../theme/controller";
+import { hydrateMermaid } from "./diagrams";
 import { renderMarkdown } from "./preview-markdown";
 
 // Rendered-Markdown overlay shown over the (still-mounted) Monaco host when the active file is in Preview
@@ -9,11 +11,21 @@ import { renderMarkdown } from "./preview-markdown";
 export default function PreviewPane(props: { content: () => string }): JSX.Element {
   let host!: HTMLDivElement;
   let body!: HTMLDivElement;
+  // Each render bumps the generation; hydrateMermaid checks it after every await so an async diagram render
+  // that resolves after a newer edit (or theme switch) is dropped instead of landing in stale DOM.
+  let generation = 0;
 
-  createEffect(() => {
+  const render = (): void => {
+    generation += 1;
+    const gen = generation;
     body.replaceChildren(renderMarkdown(props.content()));
-  });
+    void hydrateMermaid(body, () => gen === generation);
+  };
+
+  createEffect(render);
   onMount(() => host.focus());
+  // Mermaid bakes the theme into its SVG, so re-render diagrams when the active theme switches.
+  onCleanup(onPreviewThemeChanged(render));
 
   return (
     <div class="editor-preview" data-kind="editor" tabindex="0" ref={host}>

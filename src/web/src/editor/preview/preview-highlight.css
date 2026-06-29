@@ -1,0 +1,62 @@
+/* highlight.js token theme for the Preview pane, expressed in Weavie's semantic vars (the ANSI-mapped
+   --ok/--warn/--bad/--busy accents) so it re-themes with the active color theme in both polarities — no JS
+   theme wiring needed. Only the `.hljs-*` token spans are colored; the <pre.hljs> block keeps preview.css's
+   surface styling. */
+.editor-preview-body .hljs-comment,
+.editor-preview-body .hljs-quote {
+  color: var(--dim);
+  font-style: italic;
+}
+
+.editor-preview-body .hljs-keyword,
+.editor-preview-body .hljs-selector-tag,
+.editor-preview-body .hljs-literal,
+.editor-preview-body .hljs-section,
+.editor-preview-body .hljs-doctag {
+  color: var(--busy);
+}
+
+.editor-preview-body .hljs-string,
+.editor-preview-body .hljs-attribute,
+.editor-preview-body .hljs-template-tag,
+.editor-preview-body .hljs-addition,
+.editor-preview-body .hljs-meta-string {
+  color: var(--ok);
+}
+
+.editor-preview-body .hljs-number,
+.editor-preview-body .hljs-built_in,
+.editor-preview-body .hljs-bullet,
+.editor-preview-body .hljs-symbol,
+.editor-preview-body .hljs-meta {
+  color: var(--warn);
+}
+
+.editor-preview-body .hljs-title,
+.editor-preview-body .hljs-name,
+.editor-preview-body .hljs-selector-id,
+.editor-preview-body .hljs-selector-class {
+  color: var(--busy);
+}
+
+.editor-preview-body .hljs-type,
+.editor-preview-body .hljs-class .hljs-title,
+.editor-preview-body .hljs-attr {
+  color: var(--accent);
+}
+
+.editor-preview-body .hljs-tag,
+.editor-preview-body .hljs-deletion,
+.editor-preview-body .hljs-regexp,
+.editor-preview-body .hljs-variable,
+.editor-preview-body .hljs-template-variable {
+  color: var(--bad);
+}
+
+.editor-preview-body .hljs-emphasis {
+  font-style: italic;
+}
+
+.editor-preview-body .hljs-strong {
+  font-weight: bold;
+}

@@ -31,11 +31,11 @@ public sealed class ClaudeWorkspaceTrustTests : IDisposable {
 		Assert.True((bool)Project("/work/repo")["hasTrustDialogAccepted"]!);
 	}
 
+	// Only the trust flag is set — the repo's own .mcp.json servers keep Claude's per-server consent.
 	[Fact]
 	public void DoesNotEnableProjectMcpServers() {
 		ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo");
 
-		// Only the trust flag is set — the repo's own .mcp.json servers keep Claude's per-server consent.
 		Assert.Null(Project("/work/repo")["enableAllProjectMcpServers"]);
 	}
 
@@ -49,10 +49,11 @@ public sealed class ClaudeWorkspaceTrustTests : IDisposable {
 
 		var root = (JsonObject)JsonNode.Parse(File.ReadAllText(_config))!;
 		Assert.Equal("x@y.z", (string)root["oauthAccount"]!["email"]!);
-		Assert.Equal(2, ((JsonArray)Project("/other")["history"]!).Count); // untouched
+		Assert.Equal(2, ((JsonArray)Project("/other")["history"]!).Count);
 		Assert.True((bool)Project("/work/repo")["hasTrustDialogAccepted"]!);
 	}
 
+	// The flip to trusted keeps the user's explicit per-server disable rather than overriding it.
 	[Fact]
 	public void MergesIntoExistingProjectEntry_KeepingItsOtherFields() {
 		File.WriteAllText(_config, """
@@ -62,8 +63,7 @@ public sealed class ClaudeWorkspaceTrustTests : IDisposable {
 		Assert.True(ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo"));
 
 		var project = Project("/work/repo");
-		Assert.True((bool)project["hasTrustDialogAccepted"]!); // flipped
-		// The user's explicit per-server disable is preserved, not overridden.
+		Assert.True((bool)project["hasTrustDialogAccepted"]!);
 		Assert.Equal("sentry", (string)((JsonArray)project["disabledMcpjsonServers"]!)[0]!);
 	}
 
@@ -73,7 +73,16 @@ public sealed class ClaudeWorkspaceTrustTests : IDisposable {
 		var firstWrite = File.GetLastWriteTimeUtc(_config);
 
 		Assert.True(ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo"));
-		Assert.Equal(firstWrite, File.GetLastWriteTimeUtc(_config)); // file untouched
+		Assert.Equal(firstWrite, File.GetLastWriteTimeUtc(_config));
+	}
+
+	// A custom CLAUDE_CONFIG_DIR may not exist on the first session; the write must create it, not no-op.
+	[Fact]
+	public void CreatesMissingConfigDirectory() {
+		string nested = Path.Combine(_dir, "does-not-exist-yet", ".claude.json");
+
+		Assert.True(ClaudeWorkspaceTrust.EnsureTrusted(nested, "/work/repo"));
+		Assert.True(File.Exists(nested));
 	}
 
 	[Fact]
@@ -81,12 +90,12 @@ public sealed class ClaudeWorkspaceTrustTests : IDisposable {
 		File.WriteAllText(_config, "{ this is not json ");
 
 		Assert.False(ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo"));
-		Assert.Equal("{ this is not json ", File.ReadAllText(_config)); // never clobbered
+		Assert.Equal("{ this is not json ", File.ReadAllText(_config));
 	}
 
 	[Fact]
 	public void LeavesValidNonObjectConfigUntouched_AndReportsFailure() {
-		File.WriteAllText(_config, "[1,2,3]"); // valid JSON, but not an object
+		File.WriteAllText(_config, "[1,2,3]");
 
 		Assert.False(ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo"));
 		Assert.Equal("[1,2,3]", File.ReadAllText(_config));

@@ -73,6 +73,12 @@ public static class ClaudeWorkspaceTrust {
 		project["hasTrustDialogAccepted"] = true;
 		string json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
 		try {
+			// Create a missing config dir (a custom CLAUDE_CONFIG_DIR may not exist yet) so the first session's write
+			// lands instead of no-op-warning; never chmod an existing dir (it can be the user's home).
+			if (Path.GetDirectoryName(configFilePath) is { Length: > 0 } directory) {
+				Directory.CreateDirectory(directory);
+			}
+
 			// Atomic replace so a concurrent reader (the user's other claude) never sees a half-written config; the
 			// temp inherits owner-only perms (the file holds an OAuth token), preserved across the rename.
 			string temp = configFilePath + ".weavie.tmp";

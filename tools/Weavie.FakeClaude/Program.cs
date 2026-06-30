@@ -121,13 +121,36 @@ static async Task<ClientWebSocket> ConnectIdeAsync(Func<int> nextId) {
 	string configDir = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR")
 		?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude");
 	string lockPath = Path.Combine(configDir, "ide", $"{port}.lock");
-	using var lockDoc = JsonDocument.Parse(await File.ReadAllTextAsync(lockPath).ConfigureAwait(false));
-	string token = lockDoc.RootElement.GetProperty("authToken").GetString()!;
+	string token = await ReadIdeTokenAsync(lockPath).ConfigureAwait(false);
 
 	var ws = new ClientWebSocket();
 	ws.Options.SetRequestHeader("x-claude-code-ide-authorization", token);
 	await HandshakeAsync(ws, $"ws://127.0.0.1:{port}/", nextId, "ide").ConfigureAwait(false);
 	return ws;
+}
+
+// Weavie writes the IDE lock (carrying the auth token) only after its IDE server has bound — which can lag the
+// pane launch. Wait for the lock to appear and parse, so a script that opens a diff on launch no longer needs to
+// guess a sleep. The lock is written after the server is listening, so its presence also means the WS is up.
+// Fails loudly if it never shows rather than hanging forever.
+static async Task<string> ReadIdeTokenAsync(string lockPath) {
+	var deadline = DateTime.UtcNow + TimeSpan.FromSeconds(20);
+	while (true) {
+		if (File.Exists(lockPath)) {
+			try {
+				using var lockDoc = JsonDocument.Parse(await File.ReadAllTextAsync(lockPath).ConfigureAwait(false));
+				if (lockDoc.RootElement.TryGetProperty("authToken", out var t) && t.GetString() is { } token) {
+					return token;
+				}
+			} catch (Exception ex) when (ex is IOException or JsonException) {
+				// Present but mid-write (incomplete JSON) — retry until the server finishes writing it.
+			}
+		}
+		if (DateTime.UtcNow > deadline) {
+			throw new InvalidOperationException($"IDE lock never appeared: {lockPath}");
+		}
+		await Task.Delay(100).ConfigureAwait(false);
+	}
 }
 
 static async Task HandshakeAsync(ClientWebSocket ws, string url, Func<int> nextId, string label) {

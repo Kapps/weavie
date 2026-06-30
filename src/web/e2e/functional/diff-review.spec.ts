@@ -132,8 +132,19 @@ test.describe("applied review — Shift+Enter never types into the file (regress
       await page.keyboard.press("ControlOrMeta+Shift+Enter");
       await page.keyboard.press("ControlOrMeta+Shift+Backspace");
     }
-    // Give any (buggy) autosave of an inserted newline time to reach disk, then assert nothing changed.
-    await page.waitForTimeout(1500);
+    // The bug inserts a newline straight into the editor MODEL (which then autosaves). Reading the model is the
+    // immediate, deterministic signal — no autosave round-trip to wait on — and it must still equal the
+    // freshly-opened baseline...
+    const modelText = await page.evaluate(
+      () =>
+        (
+          window as Window & { __WEAVIE_EDITOR__?: { getModel(): { getValue(): string } | null } }
+        ).__WEAVIE_EDITOR__
+          ?.getModel()
+          ?.getValue() ?? null,
+    );
+    expect(modelText).toBe(before);
+    // ...so with no edit ever made, disk is byte-for-byte untouched too.
     expect(read(weavie.workspace, "hello.ts")).toBe(before);
   });
 });

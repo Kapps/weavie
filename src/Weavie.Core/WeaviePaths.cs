@@ -77,6 +77,15 @@ public static class WeaviePaths {
 	/// <summary>Root for host-internal caches (e.g. the WebView2 user-data folder): <c>~/.weavie/internals</c>.</summary>
 	public static string Internals { get; } = Path.Combine(Root, "internals");
 
+	/// <summary>Where host diagnostics and crash reports are written: <c>~/.weavie/logs</c>.</summary>
+	public static string Logs { get; } = Path.Combine(Root, "logs");
+
+	/// <summary>The live append target for unhandled-crash reports: <c>~/.weavie/logs/last-crash.log</c>.</summary>
+	public static string LastCrashFile { get; } = Path.Combine(Logs, "last-crash.log");
+
+	/// <summary>The prior run's crash report, rotated here once it's surfaced: <c>~/.weavie/logs/previous-crash.log</c>.</summary>
+	public static string PreviousCrashFile { get; } = Path.Combine(Logs, "previous-crash.log");
+
 	/// <summary>
 	/// A named host-internal cache folder under <see cref="Internals"/>,
 	/// e.g. <c>Internal("webview2")</c> → <c>~/.weavie/internals/webview2</c>.

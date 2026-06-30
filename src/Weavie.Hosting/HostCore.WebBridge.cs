@@ -297,6 +297,9 @@ public sealed partial class HostCore {
 				}
 
 				_suggestions?.PushCurrent();
+				// A prior run that died on an unhandled exception left a crash report; surface it once, now that
+				// the page can render the toast, so a silent hard exit doesn't go unnoticed.
+				SurfacePriorCrash();
 				// A settings.toml that was already malformed at boot never raised MalformedChanged, so surface it
 				// now that the page can render the toast.
 				if (_settings.IsMalformed) {
@@ -984,6 +987,15 @@ public sealed partial class HostCore {
 
 	/// <summary>Runs a Core command with JSON arguments on the active session (native-trigger overload).</summary>
 	public void InvokeCommand(string id, string? argsJson) => InvokeCommandFromWeb(id, argsJson, null);
+
+	/// <summary>Surfaces a prior run's unhandled crash as a one-time toast pointing at the saved report.</summary>
+	private void SurfacePriorCrash() {
+		if (CrashReporter.TakePendingReport() is null) {
+			return;
+		}
+
+		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {Weavie.Core.WeaviePaths.PreviousCrashFile}.");
+	}
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>

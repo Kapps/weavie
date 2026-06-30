@@ -80,7 +80,10 @@ public sealed class LspControllerTests {
 		var controller = new LspController(
 			bridge, Path.GetTempPath(), launcher,
 			_ => new LanguageServerDescriptor {
-				Id = "ghost", DisplayName = "Ghost", LanguageIds = ["ghost"], FileExtensions = [".ghost"],
+				Id = "ghost",
+				DisplayName = "Ghost",
+				LanguageIds = ["ghost"],
+				FileExtensions = [".ghost"],
 				Candidates = [new("weavie-no-such-language-server-xyz", [])],
 			},
 			_ => { });

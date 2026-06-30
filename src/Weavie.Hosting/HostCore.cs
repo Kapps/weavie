@@ -153,9 +153,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	private async Task StartCoreAsync(string pageOrigin) {
-		// GUI hosts serve over app:// and may launch (Finder, a desktop entry) with a minimal environment; import
-		// the login-shell environment so spawned children (LSP servers, git) resolve as from a terminal.
+		// GUI hosts serve over app:// and may launch (Finder, a desktop entry) through launchd with a minimal
+		// environment AND a stingy open-file limit (256). Raise the descriptor limit so a second session can't
+		// exhaust it mid-switch, and import the login-shell environment so spawned children (LSP servers, git)
+		// resolve as from a terminal — both giving a GUI launch the headroom a terminal launch already has.
 		if (pageOrigin.StartsWith("app://", StringComparison.Ordinal)) {
+			PosixFileLimit.RaiseToHardLimit(line => Log($"[fd] {line}"));
 			await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
 		}
 

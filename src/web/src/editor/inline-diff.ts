@@ -193,6 +193,16 @@ function splitLines(text: string): string[] {
   return text.replace(/\r\n?/g, "\n").split("\n");
 }
 
+// A file carries a faded "accepted" band (kept-but-uncommitted hunks) iff its accepted anchor diverges from the
+// review baseline. Only meaningful in applied mode. A fully-kept file has no bright hunks but still shows this band.
+function hasFadedBand(options: InlineDiffOptions): boolean {
+  return (
+    options.mode === "applied" &&
+    options.acceptedBaseline !== undefined &&
+    options.acceptedBaseline !== options.original
+  );
+}
+
 // One change hunk: the line coordinates a keep/revert needs. anchorLine is the modified-side line to reveal.
 interface Hunk {
   anchorLine: number;
@@ -611,8 +621,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
     // with acceptedBaseline != current, so the re-emit won't advance and we must. Without one the file clears
     // (acceptedBaseline == current) and the controller advances on its own.
-    const fadedRemains =
-      options.acceptedBaseline !== undefined && options.acceptedBaseline !== options.original;
+    const fadedRemains = hasFadedBand(options);
     options.onRevertHunk({
       baselineStart: hunk.baselineStart,
       baselineEndExclusive: hunk.baselineEndExclusive,
@@ -1040,11 +1049,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       .getDefault()
       .computeDiff(original, modified, DIFF_OPTIONS);
     // A fully-kept file has no bright (pending) hunks but still carries a faded accepted band — don't bail on it.
-    const hasFadedBand =
-      options.mode === "applied" &&
-      options.acceptedBaseline !== undefined &&
-      options.acceptedBaseline !== options.original;
-    if (changes.length === 0 && !hasFadedBand) {
+    if (changes.length === 0 && !hasFadedBand(options)) {
       return; // no net change and nothing kept — nothing to render
     }
 
@@ -1130,7 +1135,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     // UNCHANGED regions of the bright diff above. Translate each one's review-baseline position into a live model
     // line via that diff, wash it faded green in place, and hang an inline ↶ undo beside it. The faded band is a
     // pure overlay: it never enters `hunks`, so ↑/↓ and Keep/Revert only ever touch the bright pending hunks.
-    if (hasFadedBand && options.acceptedBaseline !== undefined) {
+    if (hasFadedBand(options) && options.acceptedBaseline !== undefined) {
       const accepted = splitLines(options.acceptedBaseline);
       const fadedChanges = linesDiffComputers
         .getDefault()

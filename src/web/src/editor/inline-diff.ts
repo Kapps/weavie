@@ -548,6 +548,16 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return hunk;
   };
 
+  // After a per-hunk keep/revert clears the file's LAST bright hunk, the file lingers in the review set while a
+  // faded band remains, so the host's re-emit has acceptedBaseline != current and won't advance — step to the
+  // next file ourselves (a no-op for a single-file review). With no faded band the file clears and the
+  // controller advances, so callers pass fadedRemains=false there to avoid a double-step.
+  const advanceIfExhausted = (kept: Hunk, fadedRemains: boolean): void => {
+    if (fadedRemains && !currentHunks.some((h) => h !== kept)) {
+      nextFile();
+    }
+  };
+
   // Per-hunk Keep: advance the host's review baseline over the current hunk (no disk write; same coordinates +
   // guard as a revert) so it drops from the pending diff for good. Keeping doesn't move the live model, so the
   // remaining hunks' anchors hold — reveal the next one now; the host re-emits the diff without the kept hunk.
@@ -575,13 +585,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       currentEndExclusive: hunk.currentEndExclusive,
       guardText,
     });
-    // Reveal the next bright hunk; when the kept one was the last, the file stays in the review set carrying
-    // its faded band (so the host's re-emit won't advance) — step to the next file ourselves to honor "advance".
     if (target !== undefined) {
       reveal(target.anchorLine);
-    } else {
-      nextFile();
     }
+    advanceIfExhausted(hunk, true); // keeping always leaves the hunk faded, so the re-emit never advances
     return true;
   };
 
@@ -601,6 +608,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       .getLinesContent()
       .slice(hunk.currentStart - 1, hunk.currentEndExclusive - 1)
       .join("\n");
+    // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
+    // with acceptedBaseline != current, so the re-emit won't advance and we must. Without one the file clears
+    // (acceptedBaseline == current) and the controller advances on its own.
+    const fadedRemains =
+      options.acceptedBaseline !== undefined && options.acceptedBaseline !== options.original;
     options.onRevertHunk({
       baselineStart: hunk.baselineStart,
       baselineEndExclusive: hunk.baselineEndExclusive,
@@ -608,6 +620,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       currentEndExclusive: hunk.currentEndExclusive,
       guardText,
     });
+    advanceIfExhausted(hunk, fadedRemains);
     return true;
   };
 

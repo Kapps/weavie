@@ -189,7 +189,7 @@ export async function createEditorHost(
   const disposables: monaco.IDisposable[] = [
     editor.onDidChangeModel(scheduleEmitActiveEditor),
     editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
-    editor.onDidChangeCursorPosition(updateStatus),
+    // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
     editor.onDidChangeModelLanguage(updateStatus),

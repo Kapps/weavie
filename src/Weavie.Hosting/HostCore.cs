@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Reflection;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -220,8 +221,13 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
 			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
-			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents);
+			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
+
+	/// <summary>The app's build identity (SemVer + build metadata, e.g. <c>0.1.0+247.a36131b</c>), stamped at build time.</summary>
+	private static string BuildNumber =>
+		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");
 
 	/// <summary>Pushes the title bar's current window state (maximize glyph + blur dim); no-op on native-chrome hosts.</summary>
 	public void PushWindowState(bool maximized, bool focused) => _shell?.PushWindowState(maximized, focused);

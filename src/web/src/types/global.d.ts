@@ -14,6 +14,8 @@ interface WeavieShellConfig {
   workspaceLabel: string;
   /** Recent workspace paths (absolute); the web derives leaf names for the File ▸ Open Recent submenu. */
   recents: string[];
+  /** Build identity (SemVer + build metadata, e.g. "0.1.0+247.a36131b"); shown read-only as the title-bar badge. */
+  buildNumber: string;
 }
 
 /** Host-injected config for the standalone welcome window (window.__WEAVIE_WELCOME__), set before navigation. */

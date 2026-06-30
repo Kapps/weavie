@@ -123,7 +123,10 @@ async function main() {
 
   try {
     await waitForHost(host, 60_000);
-    const browser = await chromium.launch();
+    // When the project pins a Playwright newer than the pre-installed browser build, launch the bundled
+    // Chromium directly (WEAVIE_CHROMIUM) instead of downloading a matching build.
+    const executablePath = process.env.WEAVIE_CHROMIUM || undefined;
+    const browser = await chromium.launch({ executablePath });
     const context = await browser.newContext({
       viewport,
       recordVideo: { dir: outDir, size: viewport },

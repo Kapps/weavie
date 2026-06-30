@@ -24,6 +24,7 @@ export function TitleBar(props: {
   const shell = window.__WEAVIE_SHELL__;
   const recents = (): string[] => shell?.recents ?? [];
   const label = (): string => shell?.workspaceLabel ?? "weavie";
+  const build = (): string => shell?.buildNumber ?? "";
 
   return (
     <div class="titlebar" classList={{ blurred: !props.focused }}>
@@ -50,6 +51,11 @@ export function TitleBar(props: {
       </div>
 
       <div class="tb-controls">
+        <Show when={build()}>
+          <span class="tb-build" title={`Weavie ${build()}`}>
+            {build()}
+          </span>
+        </Show>
         <button
           type="button"
           class="tb-ctl"

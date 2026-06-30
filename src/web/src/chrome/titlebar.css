@@ -102,6 +102,21 @@
   app-region: no-drag;
 }
 
+/* Build badge: dimmed, read-only build identity tucked in the corner before the window controls. Tabular
+   numerals keep it from jittering; the full version sits in its tooltip. */
+.tb-build {
+  padding: 0 10px;
+  color: var(--dim);
+  font-size: 0.85em;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  cursor: default;
+}
+
+.titlebar.blurred .tb-build {
+  opacity: 0.6;
+}
+
 .tb-icon {
   display: flex;
   align-items: center;

@@ -63,6 +63,7 @@ internal sealed class TailscaleServeFront : ITlsFront {
 	}
 
 	private string DiscoverMagicDns() {
+		_log?.Invoke("discovering this node's MagicDNS name (tailscale status)…");
 		var result = _cli.Run(["status", "--json"]);
 		if (result.ExitCode != 0) {
 			throw new InvalidOperationException($"tailscale status failed (exit {result.ExitCode}): {Hint(result.Stderr)}");

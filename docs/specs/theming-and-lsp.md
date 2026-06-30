@@ -455,7 +455,7 @@ folder. The root is resolved once via **`Weavie.Core.WeaviePaths`** (the single 
 ## 14. Build / integration considerations
 
 - **Assets:** the textmate/theme stack ships **oniguruma WASM** + grammars; servers/grammars are
-  files that must be served. Under the `https://weavie.app/` virtual-host mapping this is doable but
+  files that must be served. Under the `https://weavie.dev/` virtual-host mapping this is doable but
   is real wiring (workers + asset paths).
 - **Workers:** Monaco + the language services use web workers; ensure they load under the custom
   scheme (we already build Monaco workers as classic/iife for this reason).
@@ -501,7 +501,7 @@ Beyond the happy-path flow, design these in (or consciously defer):
 - **Server stderr + LSP trace** routed to the host log (like `[mcp]`) — essential during bring-up.
 
 ### Biggest unknowns — verify first
-1. **Does the `monaco-vscode-api` stack build & load under the WebView2 `https://weavie.app/` scheme?**
+1. **Does the `monaco-vscode-api` stack build & load under the WebView2 `https://weavie.dev/` scheme?**
    (oniguruma WASM + grammars + workers.) — answered by **M0**.
 2. **Does tsgo's LSP emit semantic tokens** and the features we need? — answered by **M1**
    (fallback: vtsls).

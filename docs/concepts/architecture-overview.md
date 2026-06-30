@@ -2,8 +2,8 @@
 
 A map of how Weavie is put together end to end: the processes and where they run, the one channel
 everything rides, what renders where, and the full path of the three flows that matter most — a keystroke
-in the Claude TUI, opening a file, and an autocomplete. It closes with how remote runners work and the one
-transport constraint that still gates them.
+in the Claude TUI, opening a file, and an autocomplete. It closes with how remote runners work and the
+transport constraint that TLS termination now closes.
 
 This is the orientation doc. The deeper, per-area specs are linked inline; load those when you need detail.
 
@@ -109,7 +109,7 @@ All three surfaces live in the WebView and read their state over the bridge:
 
 The build is Vite, multi-page (`index.html` for the workspace, `welcome.html` for the empty state), output
 copied to the host's `wwwroot`. The native host serves it from a secure virtual origin —
-`https://weavie.app` via WebView2's `SetVirtualHostNameToFolderMapping`
+`https://weavie.dev` via WebView2's `SetVirtualHostNameToFolderMapping`
 (`src/Weavie.Win/WorkspaceWindow.WebView.cs`) — with no network and no localhost port. A Headless worker
 serves the same `wwwroot` over Kestrel and injects bootstrap globals into `index.html`
 (`src/Weavie.Headless/Program.cs`).
@@ -242,7 +242,7 @@ A remote machine runs **two** processes: the **runner** (control plane) and the 
 
 ```mermaid
 graph TB
-    subgraph web["web (local WebView @ https://weavie.app)"]
+    subgraph web["web (local WebView @ https://weavie.dev)"]
         RA["remote-agents.ts"]
         BK["connectBackend → WebSocketTransport"]
     end
@@ -272,10 +272,12 @@ graph TB
    `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
    backend: terminals, files, status — all the flows above — over that socket.
 
-Transport security today is Tailscale-only (no TLS); the runner control plane is token-gated default-deny.
-See [remote-sessions](../specs/remote-sessions.md) and the security posture in the spec.
+Transport security: the runner terminates TLS in front of its loopback endpoints (`--tls tailscale` runs
+`tailscale serve` with the node's trusted cert; `--tls proxy` for a bring-your-own terminator), so the app
+reaches a remote backend as `wss://`; an exposed bind without TLS fails closed. The control plane is token-gated
+default-deny. See [remote-sessions](../specs/remote-sessions.md) and [tls-on-the-runner](../specs/tls-on-the-runner.md).
 
-## LSP and the one remaining transport constraint
+## LSP and the bridge's transport constraint
 
 LSP used to have its **own** reachability bug. The web ended up with two URLs for a remote backend: the bridge
 was origin-relative (`pageUrlToBridgeWs` → `ws://<remote-host>:<port>/weavie-bridge`, pointing at the remote ✅),
@@ -284,9 +286,11 @@ nothing was listening ❌. So a remote session silently aimed language intellige
 
 Folding LSP into the bridge removed that: there is no LSP socket left to mis-address. What remains is the
 bridge's single constraint, now shared by every capability — the **mixed-content** problem. The WebView runs the
-page at the secure origin `https://weavie.app`, and a browser will only open an insecure socket to **loopback**
-(treated as trustworthy) or a **TLS** origin. A plain `ws://<remote>` is neither, so it is blocked. Today that is
-bridged by Tailscale; the planned fix is for the host to terminate TLS (host-as-proxy / `tailscale serve`).
+page at the secure origin `https://weavie.dev`, and a browser will only open an insecure socket to **loopback**
+(treated as trustworthy) or a **TLS** origin. A plain `ws://<remote>` is neither, so it is blocked. This is
+solved by terminating TLS in front of the one loopback bridge — `--tls tailscale` runs `tailscale serve` (the
+node's trusted `*.ts.net` cert, zero client install), or `--tls proxy` for any reverse proxy. See
+[tls-on-the-runner](../specs/tls-on-the-runner.md).
 
 Because LSP now rides the one bridge socket, there is exactly **one** endpoint per backend to secure and to
 proxy — not two, one of them a per-session dynamic port. Solve the bridge's reachability once and language

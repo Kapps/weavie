@@ -32,7 +32,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// Start the WebView2 runtime (its browser process spins up out-of-process) and, in Release, overlap the
 		// backend bring-up (sessions + git) with it rather than waiting — the two largest serial startup costs are
 		// independent. StartAsync is idempotent, so the web launcher below joins this same run. Debug stays serial:
-		// it navigates a dev-server origin, not https://weavie.app, so we mustn't pre-pin the wrong page origin.
+		// it navigates a dev-server origin, not https://weavie.dev, so we mustn't pre-pin the wrong page origin.
 		var environmentTask = CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
 #if !DEBUG
 		_ = _core.StartAsync($"https://{AppHost}");
@@ -41,7 +41,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		await _webView.EnsureCoreWebView2Async(environment);
 		var core = _webView.CoreWebView2;
 
-		// Serve the built web app from wwwroot over https://weavie.app/ (no network, no localhost port), the WebView2
+		// Serve the built web app from wwwroot over https://weavie.dev/ (no network, no localhost port), the WebView2
 		// counterpart of the macOS app:// scheme handler.
 		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);

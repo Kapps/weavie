@@ -9,7 +9,7 @@ namespace Weavie.Runner;
 /// <c>url</c> is built against the request's own host. See docs/specs/remote-sessions.md.
 /// </summary>
 internal static class ControlApi {
-	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options) {
+	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options, ITlsFront front) {
 		// The one auth gate, registered first so it covers every endpoint. Unauthorized → 401 with a
 		// constant hint body, never derived from the request.
 		app.Use(async (context, next) => {
@@ -30,7 +30,7 @@ internal static class ControlApi {
 		app.MapGet("/backend", (HttpContext ctx) => {
 			var backend = backends.Ensure();
 			return Results.Json(new {
-				url = backend.PageUrl(HostOf(ctx)),
+				url = front.WorkerPageUrl(HostOf(ctx), backend),
 				status = backend.Status,
 				workspace = backend.WorkspaceRoot,
 			});

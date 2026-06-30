@@ -28,7 +28,7 @@ function fixTextmateLazyImport(): Plugin {
 }
 
 // The built app is served to the WebView through a custom scheme handler (macOS `app://`, Windows
-// `https://weavie.app`) — no network, secure origin. `base: "./"` keeps every asset reference relative
+// `https://weavie.dev`) — no network, secure origin. `base: "./"` keeps every asset reference relative
 // so it resolves under the scheme. Workers are ES modules: the monaco-vscode-api textmate worker is a
 // code-splitting build, which Rollup cannot emit as iife/umd. Module workers are fine under a secure
 // context (both schemes qualify, as does http://localhost — see the dev server below).

@@ -5,8 +5,8 @@ namespace Weavie.Runner;
 /// <summary>
 /// One multi-session <c>Weavie.Headless</c> worker for a workspace — the remote backend a client connects to.
 /// A single worker hosts every worktree session via the shared <c>HostCore</c> (no process per session);
-/// <see cref="Token"/>, carried in <see cref="PageUrl"/>, alone unlocks its bridge.
-/// See docs/specs/remote-sessions.md.
+/// <see cref="Token"/> alone unlocks its bridge. The client-facing URL is built by the <see cref="ITlsFront"/>,
+/// which owns the scheme/host. See docs/specs/remote-sessions.md and docs/specs/tls-on-the-runner.md.
 /// </summary>
 public sealed class WorkspaceBackend {
 	/// <summary>Absolute path to the workspace (git repo) root the worker serves.</summary>
@@ -29,7 +29,4 @@ public sealed class WorkspaceBackend {
 		SupervisorState.Idle => "stopped",
 		_ => "starting",
 	};
-
-	/// <summary>The client URL for this worker against <paramref name="host"/> (the control request's host).</summary>
-	public string PageUrl(string host) => $"http://{host}:{Port}/?token={Token}";
 }

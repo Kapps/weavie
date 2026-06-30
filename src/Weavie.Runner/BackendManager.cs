@@ -45,7 +45,9 @@ public sealed class BackendManager : IAsyncDisposable {
 			_backend?.Supervisor?.Dispose();
 			var backend = new WorkspaceBackend {
 				WorkspaceRoot = _options.WorkspaceRoot,
-				Port = AllocatePort(),
+				// A pinned port (secured modes) keeps the TLS-front mapping valid across worker restarts; otherwise
+				// grab a free one (local use, where nothing fronts a fixed port).
+				Port = _options.WorkerPort ?? AllocatePort(),
 				Token = RunnerOptions.NewToken(),
 			};
 			backend.Supervisor = _launcher.BuildSupervisor(backend);

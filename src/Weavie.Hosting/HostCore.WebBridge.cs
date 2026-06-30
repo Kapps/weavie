@@ -289,6 +289,13 @@ public sealed partial class HostCore {
 				PushSessionList();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
+				// Re-advertise the active session's LSP catalog so a reconnect (a remote bridge drop, a refresh)
+				// rebinds language clients on fresh channels — the resync the remote path needs. Background backends
+				// are suppressed page-side, so only the active backend rebinds. See docs/specs/lsp-over-bridge.md.
+				if (_session is { } lspSession) {
+					PushLspConfigToWeb(lspSession);
+				}
+
 				_suggestions?.PushCurrent();
 				// A settings.toml that was already malformed at boot never raised MalformedChanged, so surface it
 				// now that the page can render the toast.

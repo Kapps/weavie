@@ -36,6 +36,21 @@ public sealed class HostCoreSessionRoutingTests {
 	}
 
 	[Fact]
+	public async Task Reconnect_ResyncsLspConfigForTheActiveSession() {
+		await using var host = await TestHost.StartAsync();
+
+		// A bridge reconnect replays `ready`. The host must re-advertise the active session's LSP catalog so the
+		// page rebinds language clients on fresh channels — the resync the remote path needs (a network drop, a
+		// worker restart). See docs/specs/lsp-over-bridge.md.
+		host.Bridge.Clear();
+		host.Send("""{"type":"ready"}""");
+
+		var lsp = host.Bridge.LastOfType("lsp-config");
+		Assert.True(lsp.HasValue);
+		Assert.False(string.IsNullOrEmpty(lsp!.Value.GetProperty("config").GetProperty("slot").GetString()));
+	}
+
+	[Fact]
 	public async Task FsRead_RoutesByPathToTheOwningSession_EvenWhenItIsBackground() {
 		await using var host = await TestHost.StartAsync();
 		// A distinct on-disk marker in the PRIMARY worktree; not present in the feature worktree.

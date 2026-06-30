@@ -47,6 +47,10 @@ public static class LanguageServerCatalog {
 	/// <summary>All built-in recipes, in catalog order.</summary>
 	public static IReadOnlyList<LanguageServerDescriptor> All { get; } = [TypeScript, CSharp, Go];
 
+	/// <summary>Every served file extension across all recipes — the set the workspace watcher filters on.</summary>
+	public static IReadOnlySet<string> WatchedExtensions { get; } =
+		All.SelectMany(d => d.FileExtensions).ToHashSet(StringComparer.OrdinalIgnoreCase);
+
 	/// <summary>
 	/// Returns the recipe that handles <paramref name="languageId"/> (case-insensitive), or
 	/// <see langword="null"/> if no built-in server claims that language.
@@ -62,4 +66,12 @@ public static class LanguageServerCatalog {
 	/// <param name="serverId">The <see cref="LanguageServerDescriptor.Id"/> to look up.</param>
 	public static LanguageServerDescriptor? ForServerId(string serverId) =>
 		All.FirstOrDefault(d => string.Equals(d.Id, serverId, StringComparison.OrdinalIgnoreCase));
+
+	/// <summary>
+	/// Resolves a selector the page sends in an <c>lsp-start</c> to its recipe: a server id first (what the web
+	/// actually sends), falling back to a language id. <see langword="null"/> if nothing claims it.
+	/// </summary>
+	/// <param name="selector">A server id (e.g. <c>typescript</c>) or an LSP language id.</param>
+	public static LanguageServerDescriptor? Resolve(string selector) =>
+		ForServerId(selector) ?? ForLanguage(selector);
 }

@@ -184,6 +184,11 @@ export type HostBoundMessage =
   | { type: "open-url"; url: string }
   // The shell child reported its working directory (OSC 7); the host relaunches the shell there on reopen.
   | { type: "term-cwd"; slot: string; session: TermSession; cwd: string }
+  // LSP over the bridge: a language client opening (the host spawns `server` for this `slot`, bound to the
+  // page-minted `channel`), one JSON-RPC message to the server (payload embedded — already JSON), or closing it.
+  | { type: "lsp-start"; slot: string; server: string; channel: string }
+  | { type: "lsp-data"; slot: string; channel: string; payload: unknown }
+  | { type: "lsp-stop"; slot: string; channel: string }
   // The review walk asks the host for one file's turn diff (review-baseline vs current), so opening a file in
   // the review re-renders its inline applied diff even if its per-file turn-diff push was missed.
   | { type: "get-turn-diff"; path: string }
@@ -446,9 +451,13 @@ export type WebBoundMessage =
       canUndoRevert: boolean;
       canRedo: boolean;
     }
-  // A session switch: re-point the editor's language clients at the incoming session's LSP bridge (its own
-  // worktree root + token). Handled by rebindLanguageServices (lsp/lsp-client.ts).
+  // A session switch: re-point the editor's language clients at the incoming session's worktree (its own root +
+  // slot to tag frames with). Handled by rebindLanguageServices (lsp/lsp-client.ts).
   | { type: "lsp-config"; config: WeavieLspConfig }
+  // One JSON-RPC frame from a language server (demuxed by `channel`), or its exit/failure-to-start (`reason`
+  // carries the host-side cause, e.g. "no server on PATH"). Routed to lsp-bridge-transport.ts.
+  | { type: "lsp-data"; slot: string; channel: string; payload: unknown }
+  | { type: "lsp-exit"; slot: string; channel: string; code: number; reason?: string }
   // A user-facing notification to surface as a toast (e.g. an autosave write that failed — the user must
   // see that their work didn't reach disk, never a silent drop).
   // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"

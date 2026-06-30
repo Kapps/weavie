@@ -1,20 +1,20 @@
 using System.Collections.Concurrent;
 using System.Diagnostics;
-using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Threading.Channels;
 
 namespace Weavie.LspHarness;
 
 /// <summary>
-/// A minimal LSP/JSON-RPC client over the bridge's loopback WebSocket — the deterministic stand-in for
-/// <c>monaco-languageclient</c>. Sends one JSON-RPC message per frame, matches responses to requests by id,
+/// A minimal LSP/JSON-RPC client over the in-process LSP bridge — the deterministic stand-in for
+/// <c>monaco-languageclient</c>. Outbound messages go to <c>sendFrame</c> (the host's <c>lsp-data</c> sink);
+/// inbound server frames are pushed in via <see cref="Deliver"/>. Matches responses to requests by id,
 /// auto-answers the server-initiated startup requests (<c>workspace/configuration</c>,
 /// <c>client/registerCapability</c>, …), and collects <c>publishDiagnostics</c> for the harness to assert on.
 /// </summary>
 internal sealed class LspTestClient : IAsyncDisposable {
-	private readonly ClientWebSocket _ws = new();
 	private readonly ConcurrentDictionary<int, TaskCompletionSource<JsonElement>> _pending = new();
 	private readonly ConcurrentDictionary<string, JsonElement> _diagnosticsByUri = new(StringComparer.Ordinal);
 	private readonly List<(Func<JsonElement, bool> Match, TaskCompletionSource<JsonElement> Tcs)> _notificationWaiters = [];
@@ -24,24 +24,29 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	private readonly JsonNode? _defaultSettings;
 	private readonly Action<string> _log;
 	private readonly bool _debug;
+	private readonly Action<ReadOnlyMemory<byte>> _sendFrame;
+	// Inbound server frames, drained by a single consumer so they're dispatched in arrival order.
+	private readonly Channel<byte[]> _inbound = Channel.CreateUnbounded<byte[]>(new UnboundedChannelOptions { SingleReader = true });
 	private readonly CancellationTokenSource _cts = new();
 	private int _nextId;
 	private Task? _receiveLoop;
 
-	public LspTestClient(IReadOnlyList<string> workspaceFolders, Action<string> log, bool debug, JsonNode? defaultSettings) {
+	public LspTestClient(IReadOnlyList<string> workspaceFolders, Action<string> log, bool debug, JsonNode? defaultSettings, Action<ReadOnlyMemory<byte>> sendFrame) {
 		_workspaceFolders = workspaceFolders;
 		_defaultSettings = defaultSettings;
 		_log = log;
 		_debug = debug;
+		_sendFrame = sendFrame;
 	}
 
 	/// <summary>Methods the server registered dynamically via <c>client/registerCapability</c> (e.g. csharp-ls).</summary>
 	public bool IsRegistered(string method) => _registeredMethods.ContainsKey(method);
 
-	public async Task ConnectAsync(Uri uri, CancellationToken ct) {
-		await _ws.ConnectAsync(uri, ct);
-		_receiveLoop = Task.Run(() => ReceiveLoopAsync(_cts.Token), CancellationToken.None);
-	}
+	/// <summary>Begins draining inbound frames. Call once before issuing requests.</summary>
+	public void Start() => _receiveLoop = Task.Run(() => ReceiveLoopAsync(_cts.Token), CancellationToken.None);
+
+	/// <summary>Pushes one server JSON-RPC payload (an <c>lsp-data</c> from the host) into the client.</summary>
+	public void Deliver(ReadOnlyMemory<byte> payload) => _inbound.Writer.TryWrite(payload.ToArray());
 
 	/// <summary>Sends a request and awaits its matching response, throwing on a JSON-RPC error.</summary>
 	public async Task<JsonElement> RequestAsync(string method, JsonNode? parameters, CancellationToken ct) {
@@ -149,31 +154,11 @@ internal sealed class LspTestClient : IAsyncDisposable {
 	}
 
 	private async Task ReceiveLoopAsync(CancellationToken ct) {
-		byte[] buffer = new byte[64 * 1024];
-		using var message = new MemoryStream();
 		try {
-			while (_ws.State == WebSocketState.Open && !ct.IsCancellationRequested) {
-				WebSocketReceiveResult result;
-				try {
-					result = await _ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-				} catch (Exception ex) when (ex is WebSocketException or OperationCanceledException) {
-					break;
-				}
-
-				if (result.MessageType == WebSocketMessageType.Close) {
-					break;
-				}
-
-				message.Write(buffer, 0, result.Count);
-				if (!result.EndOfMessage) {
-					continue;
-				}
-
-				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
-				message.SetLength(0);
-				await DispatchAsync(json, ct);
+			await foreach (byte[] frame in _inbound.Reader.ReadAllAsync(ct)) {
+				await DispatchAsync(Encoding.UTF8.GetString(frame), ct);
 			}
-		} catch (Exception ex) when (ex is JsonException or InvalidOperationException) {
+		} catch (Exception ex) when (ex is JsonException or InvalidOperationException or OperationCanceledException) {
 			_log($"receive loop error: {ex.Message}");
 		}
 	}
@@ -301,12 +286,14 @@ internal sealed class LspTestClient : IAsyncDisposable {
 		return array;
 	}
 
-	private async Task SendAsync(JsonNode envelope, CancellationToken ct) {
-		byte[] bytes = Encoding.UTF8.GetBytes(envelope.ToJsonString());
-		await _ws.SendAsync(bytes, WebSocketMessageType.Text, endOfMessage: true, ct);
+	private Task SendAsync(JsonNode envelope, CancellationToken ct) {
+		ct.ThrowIfCancellationRequested();
+		_sendFrame(Encoding.UTF8.GetBytes(envelope.ToJsonString()));
+		return Task.CompletedTask;
 	}
 
 	public async ValueTask DisposeAsync() {
+		_inbound.Writer.TryComplete();
 		await _cts.CancelAsync();
 		if (_receiveLoop is not null) {
 			try {
@@ -316,15 +303,6 @@ internal sealed class LspTestClient : IAsyncDisposable {
 			}
 		}
 
-		if (_ws.State is WebSocketState.Open or WebSocketState.CloseReceived) {
-			try {
-				await _ws.CloseAsync(WebSocketCloseStatus.NormalClosure, null, CancellationToken.None);
-			} catch (Exception ex) when (ex is WebSocketException or ObjectDisposedException) {
-				// peer already gone
-			}
-		}
-
-		_ws.Dispose();
 		_cts.Dispose();
 	}
 }

@@ -7,6 +7,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\Weavie.Core\Weavie.Core.csproj" />
+    <ProjectReference Include="..\..\src\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>
 
 </Project>

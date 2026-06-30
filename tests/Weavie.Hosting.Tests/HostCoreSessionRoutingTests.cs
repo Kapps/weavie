@@ -209,9 +209,15 @@ public sealed class HostCoreSessionRoutingTests {
 
 		var lsp = host.Bridge.LastOfType("lsp-config");
 		Assert.True(lsp.HasValue);
-		string? workspace = lsp!.Value.GetProperty("config").GetProperty("workspace").GetString();
-		// The feature session's LSP bridge is rooted at its own worktree, not the primary checkout.
+		var config = lsp!.Value.GetProperty("config");
+		string? workspace = config.GetProperty("workspace").GetString();
+		// The feature session's LSP is rooted at its own worktree, not the primary checkout.
 		Assert.NotNull(workspace);
 		Assert.NotEqual(host.RepoRoot, workspace);
+		// LSP rides the bridge now: the config carries the session slot to tag frames with, and no longer a
+		// loopback URL or token (the old per-session socket is gone).
+		Assert.False(string.IsNullOrEmpty(config.GetProperty("slot").GetString()));
+		Assert.False(config.TryGetProperty("url", out _));
+		Assert.False(config.TryGetProperty("token", out _));
 	}
 }

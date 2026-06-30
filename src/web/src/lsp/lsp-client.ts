@@ -1,16 +1,17 @@
-// The WebView half of the language-server bridge (spec §10): monaco-languageclient connected to the host's
-// loopback WS↔stdio proxy via injected `window.__WEAVIE_LSP__`. A client starts lazily — only when a
-// document of its language first opens — so csharp-ls/gopls aren't spawned until a .cs/.go file appears.
+// The WebView half of LSP: monaco-languageclient connected to the host's language servers over the Weavie
+// bridge (no socket of its own — see lsp-bridge-transport.ts), via injected `window.__WEAVIE_LSP__`. A client
+// starts lazily — only when a document of its language first opens — so csharp-ls/gopls aren't spawned until a
+// .cs/.go file appears.
 //
-// Each session has its OWN bridge (port, token, worktree root). A session switch pushes the incoming config
-// and `rebindLanguageServices` tears every client down and reconnects, so intelligence follows the worktree.
+// Each session has its OWN worktree root + slot. A session switch pushes the incoming config and
+// `rebindLanguageServices` tears every client down and reconnects, so intelligence follows the worktree.
 
 import * as monaco from "monaco-editor";
 import { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction } from "vscode-languageclient";
-import { WebSocketMessageReader, WebSocketMessageWriter, toSocket } from "vscode-ws-jsonrpc";
 import { log } from "../bridge";
 import { notify } from "../notify/notify";
+import { openLspChannel } from "./lsp-bridge-transport";
 
 /** One language server the host offers: bridge selector id, the languages it serves, and its defaults. */
 export interface WeavieLspServer {
@@ -19,10 +20,9 @@ export interface WeavieLspServer {
   settings: Record<string, unknown> | null;
 }
 
-/** LSP bridge discovery the C# host injects (loopback WS endpoint + per-session token + workspace). */
+/** LSP discovery the C# host injects: the session's slot (frames are tagged with it), worktree root, + catalog. */
 export interface WeavieLspConfig {
-  url: string;
-  token: string;
+  slot: string;
   workspace: string;
   servers: WeavieLspServer[];
 }
@@ -36,15 +36,17 @@ declare global {
 
 // Server ids with a live (or connecting) client, so we don't double-start one.
 const started = new Set<string>();
-// Server id → teardown (dispose the client + close its socket). A session switch tears every client down.
+// Server id → teardown (dispose the client + close its bridge channel). A session switch tears every client down.
 const clients = new Map<string, () => void>();
-// The active session's bridge config, read live (not captured) so lazy starts after a switch use the new
-// bridge. Undefined until the host injects/pushes one.
+// The active session's config, read live (not captured) so lazy starts after a switch use the new session's
+// slot/root. Undefined until the host injects/pushes one.
 let activeConfig: WeavieLspConfig | undefined;
 let serverByLanguage = new Map<string, WeavieLspServer>();
 let modelHooksInstalled = false;
 // Bumped on every rebind; a connect() captures its generation and stands down if a switch superseded it.
 let generation = 0;
+// Monotonic per-page channel id, so even a fast stop/start on one server can't confuse stale frames.
+let channelSeq = 0;
 
 function indexServers(config: WeavieLspConfig): void {
   serverByLanguage = new Map();
@@ -124,29 +126,16 @@ function describeError(err: unknown): string {
 }
 
 function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0): void {
-  const url = `${config.url}/${server.id}?token=${encodeURIComponent(config.token)}`;
-  let webSocket: WebSocket;
-  try {
-    webSocket = new WebSocket(url);
-  } catch (err) {
-    // A malformed bridge URL throws synchronously here — before any of this attempt's recovery machinery
-    // exists. Surface it and drop the started mark, so the language server isn't silently disabled for the
-    // whole session (a later model-open can retry).
-    started.delete(server.id);
-    clients.delete(server.id);
-    log("error", `lsp: ${server.id} couldn't open a connection: ${describeError(err)}`);
-    notify("error", `${server.id} language intelligence couldn't start: ${describeError(err)}`);
-    return;
-  }
+  const channelId = `lsp${++channelSeq}`;
   const gen = generation;
   let openedAt = 0;
-  // Set on intentional teardown (session switch): the supervised reconnect stands down and a late onopen closes.
+  // Set on intentional teardown (session switch): the supervised reconnect stands down and a late exit is ignored.
   let torn = false;
-  // Set once this attempt's outcome is decided, so a failed start, a closed reader, and a ws error together
-  // schedule at most one reconnect.
+  // Set once this attempt's outcome is decided, so a failed start and a server exit schedule at most one reconnect.
   let handled = false;
   let client: MonacoLanguageClient | undefined;
-  let startPromise: Promise<void> | undefined;
+  // `channel` and `startPromise` are const, assigned further down; the teardown closures here forward-reference
+  // them, which is safe because nothing calls these closures until this synchronous body has finished.
 
   const disposeClient = (): void => {
     const c = client;
@@ -205,87 +194,68 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
     }, delayMs);
   };
 
-  // One funnel for every failure path — a failed initialize, a dropped connection, a pre-open ws error — so
-  // recovery (and the warn/give-up toasts) runs exactly once per attempt.
+  // One funnel for every failure path — a failed initialize or a server exit/failure-to-start — so recovery (and
+  // the warn/give-up toasts) runs exactly once per attempt.
   const fail = (reason: string): void => {
     if (handled) {
       return;
     }
     handled = true;
     disposeClient();
-    try {
-      webSocket.close();
-    } catch {
-      // already closing/closed
-    }
+    channel?.dispose();
     superviseReconnect(reason);
   };
 
   const teardown = (): void => {
     torn = true;
     disposeClient();
-    try {
-      webSocket.close();
-    } catch {
-      // already closing/closed — nothing to do
-    }
+    channel?.dispose();
   };
   clients.set(server.id, teardown);
 
-  webSocket.onopen = (): void => {
+  // Open the bridge channel: the host spawns the server on lsp-start; its exit or failure-to-start arrives via
+  // onExit (carrying the host-side reason), routed through the same supervised reconnect as a dropped link. No
+  // socket handshake, so the channel is usable immediately — the client sends `initialize` once start() listens.
+  const channel = openLspChannel(config.slot, server.id, channelId, (code, reason) => {
     if (torn || gen !== generation) {
-      // A switch landed between opening the socket and it connecting — drop this stale connection.
-      try {
-        webSocket.close();
-      } catch {
-        // already closing
-      }
       return;
     }
-    openedAt = Date.now();
-    const socket = toSocket(webSocket);
-    const reader = new WebSocketMessageReader(socket);
-    const writer = new WebSocketMessageWriter(socket);
-    const settings = server.settings ?? {};
-    client = new MonacoLanguageClient({
-      name: `Weavie ${server.id} language client`,
-      clientOptions: {
-        documentSelector: server.languageIds,
-        workspaceFolder: {
-          uri: monaco.Uri.file(config.workspace),
-          name: "weavie",
-          index: 0,
-        },
-        // Feed the server its defaults both ways — initializationOptions and workspace/configuration answers
-        // (some servers gate features on config, e.g. gopls semantic tokens). No VSCode config service (§18).
-        initializationOptions: settings,
-        middleware: {
-          workspace: {
-            configuration: (params) => params.items.map(() => settings),
-          },
-        },
-        // The client itself stays passive on errors; recovery is the host-supervised reconnect below.
-        errorHandler: {
-          error: () => ({ action: ErrorAction.Continue }),
-          closed: () => ({ action: CloseAction.DoNotRestart }),
+    fail(reason ?? `server exited (code ${code})`);
+  });
+  openedAt = Date.now();
+
+  const settings = server.settings ?? {};
+  client = new MonacoLanguageClient({
+    name: `Weavie ${server.id} language client`,
+    clientOptions: {
+      documentSelector: server.languageIds,
+      workspaceFolder: {
+        uri: monaco.Uri.file(config.workspace),
+        name: "weavie",
+        index: 0,
+      },
+      // Feed the server its defaults both ways — initializationOptions and workspace/configuration answers
+      // (some servers gate features on config, e.g. gopls semantic tokens). No VSCode config service (§18).
+      initializationOptions: settings,
+      middleware: {
+        workspace: {
+          configuration: (params) => params.items.map(() => settings),
         },
       },
-      messageTransports: { reader, writer },
-    });
+      // The client itself stays passive on errors; recovery is the host-supervised reconnect above.
+      errorHandler: {
+        error: () => ({ action: ErrorAction.Continue }),
+        closed: () => ({ action: CloseAction.DoNotRestart }),
+      },
+    },
+    messageTransports: { reader: channel.reader, writer: channel.writer },
+  });
 
-    // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
-    // through the same reconnect/give-up path as a dropped connection instead of leaking an unhandled rejection.
-    startPromise = client.start();
-    startPromise.then(
-      () => log("info", `lsp: ${server.id} client started`),
-      (err: unknown) => fail(`initialize failed: ${describeError(err)}`),
-    );
-    reader.onClose(() => fail("connection closed"));
-  };
-
-  webSocket.onerror = (): void => {
-    if (openedAt === 0) {
-      fail("websocket error (is the server installed on PATH?)");
-    }
-  };
+  // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
+  // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.
+  const startPromise = client.start();
+  void startPromise.then(
+    () => log("info", `lsp: ${server.id} client started`),
+    (err: unknown) => fail(`initialize failed: ${describeError(err)}`),
+  );
 }

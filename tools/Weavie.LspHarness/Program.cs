@@ -1,13 +1,13 @@
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Lsp;
-using Weavie.Core.Mcp;
+using Weavie.Hosting;
 using Weavie.LspHarness;
 
-// Dev harness (not shipped): proves the LSP bridge end-to-end against a real language server. It stands up the
-// host-side LspBridgeServer, connects a loopback WebSocket LSP client (standing in for monaco-languageclient),
-// and verifies that diagnostics, semantic tokens, hover, and completion are live on a real source file —
-// all without the WebView, so the server/transport half is deterministically CI-checkable.
+// Dev harness (not shipped): proves the LSP bridge end-to-end against a real language server. It drives a real
+// LspController over a fake IHostBridge (the same path the WebView takes — lsp-start/lsp-data/lsp-stop, no
+// socket), with an in-process LSP client standing in for monaco-languageclient, and verifies that diagnostics,
+// semantic tokens, hover, and completion are live on a real source file — deterministically CI-checkable.
 //   WEAVIE_LSP_SERVER     selector / language id (default "typescript")
 //   WEAVIE_LSP_WORKSPACE  workspace dir (default a fresh temp dir with a tsconfig + sample.ts)
 
@@ -52,18 +52,6 @@ string rootUri = new Uri(workspace + Path.DirectorySeparatorChar).AbsoluteUri;
 string fileUri = new Uri(samplePath).AbsoluteUri;
 Console.WriteLine($"[lsp-harness] workspace: {workspace}");
 
-string token = IdeLockFile.NewAuthToken();
-// allowedOrigin: null — the native client sends no Origin header; the token is the gate.
-await using var bridge = new LspBridgeServer(token, workspace!, allowedOrigin: null, resolveDescriptor: null);
-bool watchBroadcast = false;
-bridge.Log += line => {
-	Console.WriteLine($"[bridge] {line}");
-	if (line.Contains("didChangeWatchedFiles", StringComparison.Ordinal)) {
-		watchBroadcast = true;
-	}
-};
-int port = bridge.Start();
-
 var results = new Results();
 // Generous: csharp-ls runs a design-time MSBuild load and gopls indexes the module on first open.
 using var overall = new CancellationTokenSource(TimeSpan.FromSeconds(150));
@@ -71,9 +59,42 @@ var ct = overall.Token;
 
 bool debug = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("WEAVIE_LSP_DEBUG"));
 var defaultSettings = string.IsNullOrEmpty(descriptor.DefaultSettingsJson) ? null : JsonNode.Parse(descriptor.DefaultSettingsJson);
-await using var client = new LspTestClient([workspace!], line => Console.WriteLine($"[client] {line}"), debug, defaultSettings?.DeepClone());
-await client.ConnectAsync(new Uri($"ws://127.0.0.1:{port}/{descriptor.Id}?token={token}"), ct);
-Console.WriteLine($"[lsp-harness] connected ws://127.0.0.1:{port}/{descriptor.Id}");
+
+// Drive the production LspController over a fake bridge: lsp-data frames it posts are fed straight into the
+// in-process client; an lsp-exit means the server died or failed to start.
+const string slot = "harness";
+const string channel = "harness-1";
+LspTestClient? client = null;
+var bridge = new HarnessBridge(json => {
+	using var doc = JsonDocument.Parse(json);
+	var root = doc.RootElement;
+	string type = root.TryGetProperty("type", out var t) ? t.GetString() ?? string.Empty : string.Empty;
+	if (type == "lsp-data" && root.TryGetProperty("payload", out var payload)) {
+		client?.Deliver(System.Text.Encoding.UTF8.GetBytes(payload.GetRawText()));
+	} else if (type == "lsp-exit") {
+		Console.WriteLine($"[bridge] lsp-exit: {(root.TryGetProperty("reason", out var r) ? r.GetString() : null)} (code {(root.TryGetProperty("code", out var c) ? c.GetInt32() : 0)})");
+	}
+});
+await using var controller = new LspController(
+	bridge, workspace!, new LspServerLauncher(), LanguageServerCatalog.Resolve, line => Console.WriteLine($"[lsp] {line}"));
+
+// The workspace watcher lives on the host session in production; stand up an equivalent so the file-watch →
+// didChangeWatchedFiles path (§9) is exercised the same way.
+bool watchBroadcast = false;
+using var watcher = new WorkspaceWatcher(workspace!, LanguageServerCatalog.WatchedExtensions, batch => {
+	controller.NotifyWatchedFileChanges(batch);
+	if (batch.Count > 0) {
+		watchBroadcast = true;
+	}
+}, line => Console.WriteLine($"[watch] {line}"), 250);
+watcher.Start();
+
+await using var clientHandle = client = new LspTestClient(
+	[workspace!], line => Console.WriteLine($"[client] {line}"), debug, defaultSettings?.DeepClone(),
+	frame => controller.Data(channel, frame));
+client.Start();
+controller.Start(slot, descriptor.Id, channel);
+Console.WriteLine($"[lsp-harness] started {descriptor.Id} over the in-process bridge (channel {channel})");
 
 // 1. initialize → inspect server capabilities.
 var initResult = await client.RequestAsync("initialize", InitializeParams(rootUri, defaultSettings?.DeepClone()), ct);
@@ -264,6 +285,14 @@ internal partial class Program {
 	];
 }
 
+// A do-nothing IHostBridge that hands every host→web message to a callback — lets the harness watch the
+// controller's lsp-data/lsp-exit without a WebView. Inbound (web→host) is driven directly via the controller.
+internal sealed class HarnessBridge(Action<string> onPost) : IHostBridge {
+	public event Action<string>? MessageReceived { add { } remove { } }
+
+	public void PostToWeb(string json) => onPost(json);
+}
+
 internal sealed class Results {
 	public bool SemanticTokensProvider;
 	public int LegendTokenTypeCount;
@@ -282,7 +311,7 @@ internal sealed class Results {
 
 	public void Print() {
 		Console.WriteLine();
-		Console.WriteLine("=== LSP BRIDGE HARNESS SUMMARY (real server via WS↔stdio bridge) ===");
+		Console.WriteLine("=== LSP BRIDGE HARNESS SUMMARY (real server via the in-process bridge) ===");
 		Console.WriteLine($"  semanticTokensProvider : {SemanticTokensProvider} (legend types: {LegendTokenTypeCount})");
 		Console.WriteLine($"  hoverProvider          : {HoverProvider}");
 		Console.WriteLine($"  completionProvider     : {CompletionProvider}");

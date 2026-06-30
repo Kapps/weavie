@@ -51,13 +51,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
 
 	// Multi-session state: _session is the active backend, _primarySession the never-unloadable own checkout,
-	// _sessions the rail's slots, _worktrees backs worktree-per-session, _pageOrigin pins later sessions' LSP origin.
+	// _sessions the rail's slots, _worktrees backs worktree-per-session.
 	private HostSession? _session;
 	private HostSession? _primarySession;
 	private SessionManager? _sessions;
 	private WorktreeManager? _worktrees;
 	private ShellWorktreeProvisioner? _worktreeProvisioner;
-	private string _pageOrigin = string.Empty;
 	// StartAsync is idempotent: the Windows shell kicks it off early to overlap the slow WebView2 environment
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
@@ -154,8 +153,6 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	private async Task StartCoreAsync(string pageOrigin) {
-		_pageOrigin = pageOrigin;
-
 		// GUI hosts serve over app:// and may launch (Finder, a desktop entry) with a minimal environment; import
 		// the login-shell environment so spawned children (LSP servers, git) resolve as from a terminal.
 		if (pageOrigin.StartsWith("app://", StringComparison.Ordinal)) {
@@ -164,8 +161,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 		_bridge.MessageReceived += OnWebMessage;
 
-		// The primary session: the workspace's own checkout. Built once pageOrigin is known so its LSP
-		// WebSocket origin is pinned correctly. CreateSession wires its handlers + gated push subscriptions.
+		// The primary session: the workspace's own checkout. Built after the login-shell env import so its language
+		// servers + git resolve from PATH. CreateSession wires its handlers + gated push subscriptions.
 		_primarySession = CreateSession(WorkspaceRoot);
 		_session = _primarySession;
 		// The active session drives the page's single editor: unmute its editor output (sessions start muted).

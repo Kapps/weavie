@@ -81,7 +81,7 @@ public sealed partial class HostCore {
 			// surfaces changes as they land — no status-driven re-push or auto-open arming needed here.
 			_ui.Post(PushSessionList);
 		};
-		session.Lsp.FileChanges += changes => {
+		session.FileChanges += changes => {
 			if (IsActiveSession(session)) {
 				PushWatcherChangesToWeb(changes);
 			}
@@ -347,7 +347,7 @@ public sealed partial class HostCore {
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
 	private HostSession CreateSession(string cwd) {
 		var session = new HostSession(
-			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id), _pageOrigin,
+			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client

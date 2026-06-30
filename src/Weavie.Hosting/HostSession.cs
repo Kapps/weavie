@@ -24,12 +24,20 @@ namespace Weavie.Hosting;
 /// </summary>
 public sealed class HostSession : IAsyncDisposable {
 	private readonly IHostBridge _bridge;
+	private readonly WorkspaceWatcher _watcher;
+	// The server catalog advertised to the page (ids + language ids + default settings) — identical for every
+	// session, so serialized once; LspConfigJson adds the per-session slot + worktree root.
+	private static readonly string LspServersCatalogJson = JsonSerializer.Serialize(
+		LanguageServerCatalog.All.Select(d => new {
+			id = d.Id,
+			languageIds = d.LanguageIds,
+			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
+		}));
 
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
-	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP bridge.
-	/// <paramref name="pageOrigin"/> pins the LSP WebSocket's allowed origin; <paramref name="id"/> is this
-	/// session's identity within its workspace.
+	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP multiplexer.
+	/// <paramref name="id"/> is this session's identity within its workspace.
 	/// </summary>
 	public HostSession(
 		IHostBridge bridge,
@@ -37,7 +45,6 @@ public sealed class HostSession : IAsyncDisposable {
 		LayoutStore layout,
 		string workspaceRoot,
 		string scratchDir,
-		string pageOrigin,
 		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
@@ -149,23 +156,17 @@ public sealed class HostSession : IAsyncDisposable {
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{Ide.Port}; registry on 127.0.0.1:{Ide.RegistryPort}; workspace {workspaceRoot}; lock {Ide.LockFilePath}");
 		Console.Out.Flush();
 
-		// LSP bridge: a loopback WS↔stdio proxy that spawns PATH-resolved language servers and pipes them to
-		// monaco-languageclient. Port + per-session token + workspace flow to the page via LspConfigJson; mirrors
-		// the IDE-MCP posture (bind 127.0.0.1, require the token on the WS upgrade, origin pinned to the app).
-		string lspToken = IdeLockFile.NewAuthToken();
-		Lsp = new LspBridgeServer(lspToken, workspaceRoot, allowedOrigin: pageOrigin, resolveDescriptor: null);
-		Lsp.Log += Tagged("[lsp]");
-		int lspPort = Lsp.Start();
-		// Advertise the catalog so the page lazily starts a client per language and feeds each server its default
-		// settings as initializationOptions + workspace/configuration (e.g. gopls needs {"semanticTokens":true}).
-		var servers = LanguageServerCatalog.All.Select(d => new {
-			id = d.Id,
-			languageIds = d.LanguageIds,
-			settings = string.IsNullOrEmpty(d.DefaultSettingsJson) ? null : JsonNode.Parse(d.DefaultSettingsJson),
-		});
-		LspConfigJson = JsonSerializer.Serialize(new { url = $"ws://127.0.0.1:{lspPort}", token = lspToken, workspace = workspaceRoot, servers });
-		Console.WriteLine($"[weavie] LSP bridge on 127.0.0.1:{lspPort}; workspace {workspaceRoot}");
-		Console.Out.Flush();
+		// LSP: language servers spawned on demand and multiplexed over the SAME web bridge as the terminal — each
+		// monaco-languageclient gets a (slot, channel) the host routes to its server's stdio. No socket/port/token of
+		// its own, so language intelligence inherits the backend's transport (in-process, WebSocket, or a future
+		// TLS-proxied one) and reaches remote sessions. The catalog is advertised in LspConfigJson so the page lazily
+		// starts a client per language and feeds each server its defaults (e.g. gopls needs {"semanticTokens":true}).
+		Lsp = new LspController(bridge, workspaceRoot, new LspServerLauncher(), LanguageServerCatalog.Resolve, Tagged("[lsp]"));
+		// Watch the worktree for on-disk edits (Claude's, or external): fan each debounced batch to the editor's
+		// file:// provider (FileChanges) AND to the live language servers (didChangeWatchedFiles). Owned here, not by
+		// the LSP layer, so it runs even with zero servers connected. Started eagerly.
+		_watcher = new WorkspaceWatcher(workspaceRoot, LanguageServerCatalog.WatchedExtensions, OnWatchedChanges, Tagged("[lsp]"), debounceMs: 250);
+		_watcher.Start();
 	}
 
 	/// <summary>This session's identity within its workspace.</summary>
@@ -232,11 +233,27 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>The live status of this session's Claude (Starting/Working/NeedsInput/Idle/Error), for the rail.</summary>
 	public SessionStatusMachine Status { get; }
 
-	/// <summary>The LSP bridge server rooted at this session's cwd.</summary>
-	public LspBridgeServer Lsp { get; }
+	/// <summary>The LSP multiplexer rooted at this session's cwd, riding the web bridge.</summary>
+	public LspController Lsp { get; }
 
-	/// <summary>The <c>window.__WEAVIE_LSP__</c> discovery payload the core injects before navigation.</summary>
-	public string LspConfigJson { get; }
+	/// <summary>
+	/// Raised with each debounced batch of on-disk changes under the worktree (forwarded to the editor's
+	/// <c>file://</c> provider). Fires whether or not any language server is connected. Invoked off the UI thread.
+	/// </summary>
+	public event Action<IReadOnlyList<WatchedFileChange>>? FileChanges;
+
+	/// <summary>
+	/// The rail slot this session is bound to (empty until bound). The page tags its <c>lsp-*</c> frames with it so
+	/// the host routes them to this session, and it is carried in <see cref="LspConfigJson"/> for the page to read.
+	/// </summary>
+	public string SlotId { get; private set; } = string.Empty;
+
+	/// <summary>
+	/// The <c>window.__WEAVIE_LSP__</c> / <c>lsp-config</c> discovery payload: the session's slot (frames are tagged
+	/// with it), its worktree root, and the server catalog. No URL/token — LSP rides the bridge, not its own socket.
+	/// </summary>
+	public string LspConfigJson =>
+		$"{{\"slot\":\"{JsonEncodedText.Encode(SlotId)}\",\"workspace\":\"{JsonEncodedText.Encode(WorkspaceRoot)}\",\"servers\":{LspServersCatalogJson}}}";
 
 	/// <summary>
 	/// Lists <paramref name="requestedPath"/> within the session root and pushes a <c>dir-listing</c> reply to the
@@ -303,8 +320,16 @@ public sealed class HostSession : IAsyncDisposable {
 	/// message names its session and the page routes it to that session's own xterm.
 	/// </summary>
 	public void BindTerminalsToSlot(string slotId) {
+		SlotId = slotId;
 		Claude.SlotId = slotId;
 		Shell.SlotId = slotId;
+	}
+
+	// Fan a debounced watcher batch to the editor's file:// provider (so VSCode reloads externally-edited models)
+	// and to this session's language servers (so their diagnostics/types don't go stale after an on-disk edit).
+	private void OnWatchedChanges(IReadOnlyList<WatchedFileChange> changes) {
+		FileChanges?.Invoke(changes);
+		Lsp.NotifyWatchedFileChanges(changes);
 	}
 
 	/// <summary>
@@ -329,6 +354,7 @@ public sealed class HostSession : IAsyncDisposable {
 			Claude.Dispose();
 			Shell.Dispose();
 		}).ConfigureAwait(false);
+		_watcher.Dispose();
 		await Ide.DisposeAsync().ConfigureAwait(false);
 		await Lsp.DisposeAsync().ConfigureAwait(false);
 	}

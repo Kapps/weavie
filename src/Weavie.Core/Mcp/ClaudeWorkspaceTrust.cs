@@ -71,18 +71,22 @@ public static class ClaudeWorkspaceTrust {
 		}
 
 		project["hasTrustDialogAccepted"] = true;
-		string json = root.ToJsonString(new JsonSerializerOptions { WriteIndented = true });
+		return WriteAtomic(configFilePath, root);
+	}
+
+	private static bool IsTrue(JsonNode? node) => node is JsonValue value && value.TryGetValue(out bool flag) && flag;
+
+	// Atomic replace so a concurrent reader (the user's other claude) never sees a half-written config; the temp
+	// inherits owner-only perms (the file holds an OAuth token), preserved across the rename. Creates a missing
+	// config dir (a custom CLAUDE_CONFIG_DIR may not exist yet), never chmod-ing an existing one (it can be home).
+	private static bool WriteAtomic(string configFilePath, JsonObject root) {
 		try {
-			// Create a missing config dir (a custom CLAUDE_CONFIG_DIR may not exist yet) so the first session's write
-			// lands instead of no-op-warning; never chmod an existing dir (it can be the user's home).
 			if (Path.GetDirectoryName(configFilePath) is { Length: > 0 } directory) {
 				Directory.CreateDirectory(directory);
 			}
 
-			// Atomic replace so a concurrent reader (the user's other claude) never sees a half-written config; the
-			// temp inherits owner-only perms (the file holds an OAuth token), preserved across the rename.
 			string temp = configFilePath + ".weavie.tmp";
-			SecureFile.WriteAllText(temp, json);
+			SecureFile.WriteAllText(temp, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
 			File.Move(temp, configFilePath, overwrite: true);
 			return true;
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -90,5 +94,37 @@ public static class ClaudeWorkspaceTrust {
 		}
 	}
 
-	private static bool IsTrue(JsonNode? node) => node is JsonValue value && value.TryGetValue(out bool flag) && flag;
+	/// <summary>Removes <paramref name="workspacePath"/>'s entry from the default Claude config (see the path overload).</summary>
+	public static bool Remove(string workspacePath) => Remove(ConfigFilePath, workspacePath);
+
+	/// <summary>
+	/// Drops <c>projects[workspacePath]</c> so a deleted Weavie worktree leaves no trust entry behind. Returns
+	/// whether a write was made; best-effort and idempotent (no write when the entry is already absent, the config
+	/// is missing, or it can't be parsed).
+	/// </summary>
+	public static bool Remove(string configFilePath, string workspacePath) {
+		ArgumentException.ThrowIfNullOrEmpty(configFilePath);
+		ArgumentException.ThrowIfNullOrEmpty(workspacePath);
+
+		if (!File.Exists(configFilePath)) {
+			return false;
+		}
+
+		JsonObject root;
+		try {
+			if (JsonNode.Parse(File.ReadAllText(configFilePath)) is not JsonObject parsed) {
+				return false;
+			}
+
+			root = parsed;
+		} catch (Exception ex) when (ex is JsonException or IOException or UnauthorizedAccessException) {
+			return false;
+		}
+
+		if (root["projects"] is not JsonObject projects || !projects.Remove(workspacePath)) {
+			return false;
+		}
+
+		return WriteAtomic(configFilePath, root);
+	}
 }

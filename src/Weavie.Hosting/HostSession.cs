@@ -105,14 +105,6 @@ public sealed class HostSession : IAsyncDisposable {
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
 		ObservedMode = new ObservedPermissionMode();
 
-		// Pre-accept Claude's workspace-trust dialog for this root before its claude launches: a freshly-created
-		// worktree is untrusted, and that blocking dialog disrupts the ws:// handshake to the IDE + registry servers
-		// (no openDiff, no mcp__weavie__* tools) — the asymmetry that left a secondary session without the Weavie MCP
-		// integration the primary checkout kept. On failure claude falls back to its own dialog, so say so loudly.
-		if (!ClaudeWorkspaceTrust.EnsureTrusted(workspaceRoot)) {
-			Notify("warn", "Couldn't pre-trust this workspace for Claude; its built-in tools (diff view) may not connect until you accept Claude's trust prompt.");
-		}
-
 		// IDE-MCP: start the loopback server + lock file, render openDiff to Monaco, and inject the discovery env so
 		// this session's claude connects to us. The same store backs the settings MCP tools (settings-by-talking).
 		Ide = new IdeIntegration(
@@ -348,9 +340,6 @@ public sealed class HostSession : IAsyncDisposable {
 		string path = Scratch.CreateNew();
 		FileOpener.Open(path, 1, preview: false, scratch: true);
 	}
-
-	private void Notify(string level, string message) =>
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "notify", level, message }));
 
 	private static Action<string> Tagged(string tag) => line => {
 		Console.WriteLine($"{tag} {line}");

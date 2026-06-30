@@ -6,8 +6,8 @@ import { sessionWorktrees } from "../harness/git-workspace";
 // Regression guard for the worktree workspace-trust write. A freshly-created worktree is an UNTRUSTED
 // directory for the embedded claude, so its blocking first-run trust dialog disrupts the ws:// handshake to
 // Weavie's IDE + registry servers — leaving a secondary session without openDiff / the mcp__weavie__* tools the
-// primary checkout kept. HostSession now pre-accepts that dialog (ClaudeWorkspaceTrust.EnsureTrusted) for every
-// session root before launching claude. The decisive, deterministic proof is the on-disk write: after forking a
+// primary checkout kept. HostCore now pre-accepts that dialog (ClaudeWorkspaceTrust.EnsureTrusted) for each
+// Weavie-created worktree before launching claude. The decisive, deterministic proof is the on-disk write: after forking a
 // worktree session, $CLAUDE_CONFIG_DIR/.claude.json must record projects[<worktree>].hasTrustDialogAccepted.
 
 function trustedProjects(configDir: string): Record<string, { hasTrustDialogAccepted?: boolean }> {

@@ -100,4 +100,24 @@ public sealed class ClaudeWorkspaceTrustTests : IDisposable {
 		Assert.False(ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo"));
 		Assert.Equal("[1,2,3]", File.ReadAllText(_config));
 	}
+
+	// A deleted worktree leaves no entry behind, and other projects are untouched.
+	[Fact]
+	public void RemoveDropsTheProjectEntry_LeavingOthers() {
+		ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo");
+		ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/keep");
+
+		Assert.True(ClaudeWorkspaceTrust.Remove(_config, "/work/repo"));
+
+		var projects = (JsonObject)JsonNode.Parse(File.ReadAllText(_config))!["projects"]!;
+		Assert.Null(projects["/work/repo"]);
+		Assert.NotNull(projects["/work/keep"]);
+	}
+
+	[Fact]
+	public void RemoveIsIdempotent_WhenEntryAbsent() {
+		ClaudeWorkspaceTrust.EnsureTrusted(_config, "/work/repo");
+
+		Assert.False(ClaudeWorkspaceTrust.Remove(_config, "/never/added"));
+	}
 }

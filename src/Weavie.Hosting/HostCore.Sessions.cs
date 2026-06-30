@@ -5,6 +5,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Git;
+using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
@@ -346,6 +347,15 @@ public sealed partial class HostCore {
 
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
 	private HostSession CreateSession(string cwd) {
+		// Pre-accept Claude's workspace-trust dialog for a Weavie-created worktree before its claude launches: a
+		// fresh worktree is untrusted, and that blocking dialog severs the ws:// handshake to the IDE + registry
+		// servers (no openDiff, no mcp__weavie__* tools). Scoped to worktrees Weavie owns — never the user's own
+		// checkout (WorkspaceRoot), which keeps Claude's normal trust flow. On failure claude falls back to its
+		// own dialog, so say so loudly.
+		if (WorkspaceId.ForPath(cwd) != WorkspaceId.ForPath(WorkspaceRoot) && !ClaudeWorkspaceTrust.EnsureTrusted(cwd)) {
+			Notify("warn", "Couldn't pre-trust this worktree for Claude; its built-in tools (diff view) may not connect until you accept Claude's trust prompt.");
+		}
+
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id),
 			Guid.NewGuid().ToString("n")[..8],
@@ -562,6 +572,8 @@ public sealed partial class HostCore {
 				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
 				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
 				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
+				// Drop the trust entry CreateSession added, so a deleted worktree leaves nothing behind in Claude's config.
+				ClaudeWorkspaceTrust.Remove(worktreePath);
 				_sessions?.Remove(target);
 				PushSessionList();
 				result.SetResult(CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept."));

@@ -211,4 +211,42 @@ test.describe("multi-file review walk", () => {
     // ← / → file buttons render for a multi-file review.
     await expect(page.locator(".weavie-inline-file")).toHaveCount(2);
   });
+
+  // Keeping the last bright hunk of a file fades it but the file stays in the review set (faded band), so the
+  // host's re-emit won't advance — Keep must step to the next file itself, or the walk strands on a file with
+  // nothing left to review.
+  test("keeping the last change in a file advances to the next file", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2); // two bright pending hunks
+
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → fades; caret lands on hunk 2
+    await expect(page.locator(ADDED)).toHaveCount(1);
+
+    await page.keyboard.press("ControlOrMeta+Enter"); // keep the last bright hunk → advance to the next file
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
+      timeout: 15_000,
+    });
+  });
+
+  // Same strand on revert: once a hunk is kept (faded band present), reverting the file's last bright hunk
+  // leaves acceptedBaseline != current, so the host's re-emit won't advance — revert must step on itself.
+  test("reverting the last pending change after a keep advances to the next file", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → fades; caret lands on hunk 2
+    await expect(page.locator(ACCEPTED)).toHaveCount(1); // a faded band now exists
+    await expect(page.locator(ADDED)).toHaveCount(1); // one bright hunk remains
+
+    await page.keyboard.press("ControlOrMeta+Backspace"); // revert the last bright hunk → advance to next file
+    await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt", {
+      timeout: 15_000,
+    });
+  });
 });

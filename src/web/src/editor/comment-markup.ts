@@ -1,6 +1,8 @@
 // Pure text → renderable model for comment-prose.ts: finds the comment blocks worth rendering (multi-line runs
-// + doc comments), strips markers, and parses each line into inline runs (text + `code` chips), preserving the
-// author's line breaks. No DOM or Monaco here — a deterministic, side-effect-free transform.
+// + doc comments), strips markers, and parses each line into inline runs (text + `code` chips + Markdown
+// emphasis), preserving the author's line breaks. No DOM or Monaco here — a deterministic, side-effect-free transform.
+
+import MarkdownIt from "markdown-it";
 
 /** A language's comment delimiters. `line` prefixes are matched longest-first so `///` wins over `//`. */
 export interface CommentSyntax {
@@ -22,8 +24,11 @@ export interface CommentBlock {
   content: string[];
 }
 
-/** One inline run inside a rendered comment line: plain text or an inline-code chip. */
-export type Inline = { text: string } | { code: string };
+/** A run of plain comment text, optionally carrying Markdown emphasis (bold / italic / strikethrough). */
+export type TextRun = { text: string; strong?: boolean; em?: boolean; strike?: boolean };
+
+/** One inline run inside a rendered comment line: text (optionally emphasised) or an inline-code chip. */
+export type Inline = TextRun | { code: string };
 
 // Comment syntax per Monaco language id; the default ("//" + "/* */") covers the C-family + JS/TS/CSS/Go/Rust.
 // An unknown language falls back to the default, which is harmless.
@@ -236,21 +241,42 @@ function parseXmlDocLine(line: string): Inline[] {
   return runs.length > 0 ? runs : [{ text: "" }];
 }
 
-// Split a line into inline runs, turning `backtick` spans into code chips. Odd-index parts are code, except a
-// trailing odd part from an unterminated span, where the backtick is kept literal.
+// markdown-it's inline tokenizer, with block parsing irrelevant (we only call parseInline) and links/images/raw
+// HTML left literal so only emphasis, `code`, and ~~strike~~ are lifted. CommonMark emphasis rules matter here:
+// an intraword `_` (a `snake_case` identifier) is never treated as italics, which a naive split would botch.
+const inlineMd = new MarkdownIt({ html: false, linkify: false }).disable([
+  "link",
+  "image",
+  "autolink",
+  "html_inline",
+  "entity",
+]);
+
+// Split a line into inline runs: `backtick` spans become code chips and Markdown emphasis becomes marked text
+// runs. We read only each token's raw `.content` (never its HTML), so nothing here can reach innerHTML.
 function parseInline(text: string): Inline[] {
-  const parts = text.split("`");
   const runs: Inline[] = [];
-  for (let k = 0; k < parts.length; k++) {
-    const part = parts[k]!;
-    const isCode = k % 2 === 1 && k < parts.length - 1;
-    if (isCode) {
-      runs.push({ code: part });
-    } else if (k % 2 === 1) {
-      // Unterminated span: keep the literal backtick so no text is lost.
-      runs.push({ text: `\`${part}` });
-    } else if (part.length > 0) {
-      runs.push({ text: part });
+  let strong = 0;
+  let em = 0;
+  let strike = 0;
+  for (const token of inlineMd.parseInline(text, {})[0]?.children ?? []) {
+    if (token.type === "code_inline") {
+      runs.push({ code: token.content });
+      continue;
+    }
+    if (token.type.endsWith("_open") || token.type.endsWith("_close")) {
+      const delta = token.type.endsWith("_open") ? 1 : -1;
+      if (token.type.startsWith("strong")) strong += delta;
+      else if (token.type.startsWith("em")) em += delta;
+      else if (token.type.startsWith("s_")) strike += delta;
+      continue;
+    }
+    if (token.content !== "") {
+      const run: TextRun = { text: token.content };
+      if (strong > 0) run.strong = true;
+      if (em > 0) run.em = true;
+      if (strike > 0) run.strike = true;
+      runs.push(run);
     }
   }
   return runs.length > 0 ? runs : [{ text: "" }];
@@ -258,7 +284,7 @@ function parseInline(text: string): Inline[] {
 
 /**
  * Parses marker-stripped `content` line-for-line into inline runs (text + `code` chips), preserving line
- * breaks. `xmlDoc` uses `parseXmlDocLine`; otherwise `parseInline` splits on `` `backtick` `` spans.
+ * breaks. `xmlDoc` uses `parseXmlDocLine`; otherwise `parseInline` lifts `` `backtick` `` spans and Markdown emphasis.
  */
 export function parseCommentLines(content: string[], xmlDoc: boolean): Inline[][] {
   return content.map((line) => (xmlDoc ? parseXmlDocLine(line) : parseInline(line)));

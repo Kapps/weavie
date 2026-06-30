@@ -93,11 +93,11 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	[Fact]
 	public async Task Bridge_websocket_upgrade_succeeds_with_a_foreign_origin_when_token_gated() {
 		// In remote mode the token is the gate and the real client is cross-origin by design (the app at
-		// https://weavie.app, the runner's picker page on another port), so a foreign Origin + correct token must
+		// https://weavie.dev, the runner's picker page on another port), so a foreign Origin + correct token must
 		// connect. The same-origin (CSWSH) check applies to the local no-token mode only. Regression: the
 		// hardening applied it unconditionally and 403'd every remote agent's bridge. See remote-sessions.md.
 		using var socket = new ClientWebSocket();
-		socket.Options.SetRequestHeader("Origin", "https://weavie.app");
+		socket.Options.SetRequestHeader("Origin", "https://weavie.dev");
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?token={Tokens.Correct}"), cts.Token);
 		Assert.Equal(WebSocketState.Open, socket.State);

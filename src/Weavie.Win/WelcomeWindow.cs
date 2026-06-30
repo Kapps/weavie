@@ -13,7 +13,7 @@ namespace Weavie.Win;
 /// </summary>
 internal sealed class WelcomeWindow : Form, IWebSurface {
 	// Synthetic host for the virtual-host mapping; mirrors WorkspaceWindow / the macOS app:// scheme.
-	private const string AppHost = "weavie.app";
+	private const string AppHost = "weavie.dev";
 
 	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage.
 	private const string BridgeShim =
@@ -128,7 +128,7 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 			_bridge, this, $"https://{AppHost}/welcome.html", () => _app.Recents.Items,
 			() => _app.OpenFolderInteractive(this), OpenRecent);
 
-		// Always the bundled wwwroot over https://weavie.app/; the empty state never probes for a Vite dev server.
+		// Always the bundled wwwroot over https://weavie.dev/; the empty state never probes for a Vite dev server.
 		await _controller.ShowAsync();
 	}
 

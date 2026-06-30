@@ -216,9 +216,13 @@ The shared currency everywhere is `{ url, token }` + the existing bridge. Only *
   tool surfaces are reachable only from the worker's own box, never over the network.
 - **CORS `*` on the runner is safe** because auth is a bearer token, not an ambient cookie — a malicious
   origin can't set the `Authorization` header without already knowing the token.
-- **Hardening (deferred):** TLS (today relies on Tailscale/WireGuard for on-wire encryption); moving the
-  WS token from a `?token=` query to a `Sec-WebSocket-Protocol` subprotocol and the document token to a
-  cookie (so it never sits in URLs/history); constant-time compare on the loopback MCP/LSP tokens.
+- **TLS (built).** `--tls tailscale` (turnkey: the runner runs `tailscale serve`, terminating with the node's
+  trusted `*.ts.net` cert) or `--tls proxy` (bring your own terminator) fronts the loopback endpoints so the app
+  reaches them as `wss://`; an exposed bind without TLS now **fails closed**. See
+  [tls-on-the-runner.md](tls-on-the-runner.md).
+- **Hardening (deferred):** moving the WS token from a `?token=` query to a `Sec-WebSocket-Protocol` subprotocol
+  and the document token to a cookie (so it never sits in URLs/history, now that the wire is encrypted);
+  constant-time compare on the loopback MCP/LSP tokens.
 
 ## Reconnection: attach, resume, durability
 
@@ -319,8 +323,9 @@ shell) stays imperfect by design; the polished path is the live switch.
 
 ## Deferred
 
-- **LSP over the bridge.** Today the LSP bridge is a separate loopback WS not surfaced to a remote
-  browser; tunnel it over (or alongside) the authed bridge so remote editing gets language features.
+- **LSP over the bridge (built).** LSP JSON-RPC now rides the one authed bridge (tagged by slot + channel like
+  the terminal), so remote editing gets language features and inherits `wss://` for free. See
+  [lsp-over-bridge.md](lsp-over-bridge.md) and [tls-on-the-runner.md](tls-on-the-runner.md).
 - **Container isolation.** A second pair of `ProcessSupervisor` `start`/`stop` delegates (run a
   container running headless instead of a local process); the control plane and frontend are unchanged.
 - **Native-shell verification.** The multi-backend logic lives entirely in the shared web, so the native

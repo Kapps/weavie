@@ -18,7 +18,7 @@ loopback-only with a per-session token, so it is not merely mis-addressed but un
 in a remote session worked except language intelligence, which silently resolved against the wrong machine.
 
 This is the loopback half of the same **mixed-content** constraint that gates the whole remote feature: a page
-at the secure origin `https://weavie.app` may only open an insecure socket to loopback or to a TLS origin.
+at the secure origin `https://weavie.dev` may only open an insecure socket to loopback or to a TLS origin.
 
 ## The design
 
@@ -146,10 +146,16 @@ for free — it carries no scheme or port of its own. The web already derives `w
 (`pageUrlToBridgeWs`, `resolveBridgeWsUrl`), so when the bridge upgrades to `wss://`, LSP rides it transparently
 with no LSP-side change. Solve the bridge's reachability once and language intelligence inherits it.
 
+**Now built** — `--tls tailscale` (or `--tls proxy`) terminates TLS in front of that one loopback bridge, so a
+remote session reaches the app as `wss://` and LSP comes along for free. See
+[tls-on-the-runner.md](tls-on-the-runner.md).
+
 ## Status
 
 Built on branch `worktree-lsp-over-bridge`. Host + web compile; the `Weavie.LspHarness` dev tool was retargeted
 from the loopback server to the new in-process bridge path (a fake `IHostBridge` driving a real `LspController`),
-so it still proves diagnostics/semantic-tokens/hover/completion against real servers. Remaining: the HoL and
-native-large-message spikes above, and a remote end-to-end run confirming language intelligence now resolves in a
-remote session.
+so it still proves diagnostics/semantic-tokens/hover/completion against real servers. TLS on the runner and the
+reconnection resync (the offline write-rejection + missed `didChangeWatchedFiles`, closed by re-pushing
+`lsp-config` on every `ready`) are now built — see [tls-on-the-runner.md](tls-on-the-runner.md). Remaining: the
+HoL and native-large-message spikes above, and the remote end-to-end run confirming language intelligence
+resolves over `wss://` in a remote session.

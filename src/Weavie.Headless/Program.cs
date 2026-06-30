@@ -17,7 +17,7 @@ if (listen is null) {
 string bind = listen.BindAddress;
 
 // Remote mode token-gates every request, so the bridge's legitimate client is cross-origin by design (the
-// app at https://weavie.app, the runner's picker page on another port). The CSWSH same-origin check below is
+// app at https://weavie.dev, the runner's picker page on another port). The CSWSH same-origin check below is
 // therefore the LOCAL no-token mode's only bridge defense and applies only there.
 bool tokenGated = listen is ListenMode.Remote;
 

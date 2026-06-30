@@ -10,12 +10,18 @@ namespace Weavie.Runner;
 /// </summary>
 public sealed class HeadlessLauncher {
 	private readonly RunnerOptions _options;
+	private readonly string _workerBind;
 	private readonly Action<SupervisorLogEntry>? _log;
 
-	/// <summary>Creates a launcher that spawns the headless build named by <paramref name="options"/>.</summary>
-	public HeadlessLauncher(RunnerOptions options, Action<SupervisorLogEntry>? log) {
+	/// <summary>
+	/// Creates a launcher that spawns the headless build named by <paramref name="options"/>, binding each worker
+	/// to <paramref name="workerBind"/> (the <see cref="ITlsFront"/>'s worker interface — loopback when fronted).
+	/// </summary>
+	public HeadlessLauncher(RunnerOptions options, string workerBind, Action<SupervisorLogEntry>? log) {
 		ArgumentNullException.ThrowIfNull(options);
+		ArgumentNullException.ThrowIfNull(workerBind);
 		_options = options;
+		_workerBind = workerBind;
 		_log = log;
 	}
 
@@ -75,7 +81,7 @@ public sealed class HeadlessLauncher {
 		info.ArgumentList.Add("--port");
 		info.ArgumentList.Add(backend.Port.ToString());
 		info.ArgumentList.Add("--bind");
-		info.ArgumentList.Add(_options.WorkerBind);
+		info.ArgumentList.Add(_workerBind);
 		info.ArgumentList.Add("--workspace");
 		info.ArgumentList.Add(backend.WorkspaceRoot);
 		info.ArgumentList.Add("--token");

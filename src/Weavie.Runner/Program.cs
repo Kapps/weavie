@@ -10,17 +10,29 @@ if (!Directory.Exists(Path.Combine(options.WorkspaceRoot, ".git"))) {
 	Console.WriteLine($"[weavie-runner] note: {options.WorkspaceRoot} is not a git repo — New Session (worktrees) needs git.");
 }
 
-var launcher = new HeadlessLauncher(options, entry =>
+// The TLS front owns where the endpoints bind and how /backend's URL is built. Tailscale mode sets up
+// `tailscale serve` here, so creation can fail loudly (and exit) when the daemon can't be driven.
+ITlsFront builtFront;
+try {
+	builtFront = TlsFronts.Create(options, new TailscaleCli(), line => Log($"[tls] {line}"));
+} catch (InvalidOperationException ex) {
+	Console.Error.WriteLine($"[weavie-runner] TLS setup failed: {ex.Message}");
+	return 1;
+}
+
+await using var front = builtFront;
+
+var launcher = new HeadlessLauncher(options, front.WorkerBindAddress, entry =>
 	Log($"[{entry.Name}] {entry.Level.ToString().ToLowerInvariant()}: {entry.Message}"));
 await using var backends = new BackendManager(options, launcher);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
-builder.WebHost.UseUrls($"http://{options.Bind}:{options.Port}");
+builder.WebHost.UseUrls($"http://{front.ControlBindAddress}:{options.Port}");
 var app = builder.Build();
 
 // The token-gated control plane makes a permissive CORS origin acceptable; answer the preflight and echo
-// the headers. (TLS + tighter origins are hardening — see docs/specs/remote-sessions.md.)
+// the headers. (TLS termination is the front's job — see docs/specs/tls-on-the-runner.md.)
 app.Use(async (context, next) => {
 	context.Response.Headers.AccessControlAllowOrigin = "*";
 	context.Response.Headers.AccessControlAllowHeaders = "Authorization, Content-Type";
@@ -33,15 +45,14 @@ app.Use(async (context, next) => {
 	await next().ConfigureAwait(false);
 });
 
-ControlApi.Map(app, backends, options);
+ControlApi.Map(app, backends, options, front);
 
 // Start the workspace backend eagerly so the first connection is ready.
 var backend = backends.Ensure();
 
-string shown = options.Bind is "0.0.0.0" or "::" ? "127.0.0.1" : options.Bind;
 Console.WriteLine($"[weavie-runner] workspace: {options.WorkspaceRoot}");
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");
-Console.WriteLine($"[weavie-runner] control plane: http://{shown}:{options.Port}/?token={options.RunnerToken}");
+Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl}");
 Console.WriteLine($"[weavie-runner] runner token: {options.RunnerToken}");
 Console.Out.Flush();
 

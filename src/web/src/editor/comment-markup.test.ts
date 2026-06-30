@@ -118,6 +118,10 @@ describe("parseCommentLines — Markdown emphasis", () => {
   it("does not emphasise an asterisk used as multiplication", () => {
     expect(parseCommentLines(["n = a * b * c"], false)).toEqual([[{ text: "n = a * b * c" }]]);
   });
+
+  it("renders a backslash-escaped marker as the literal character", () => {
+    expect(parseCommentLines(["\\*not bold\\*"], false)).toEqual([[{ text: "*not bold*" }]]);
+  });
 });
 
 describe("parseCommentLines — XML doc", () => {

@@ -29,18 +29,16 @@
     <!-- Deterministic, clean output -->
     <Deterministic>true</Deterministic>
 
-    <!-- Build identity: SemVer + build metadata, e.g. 0.1.0+247.a36131b (CI run) or 0.1.0+dev.a36131b (local).
-         Surfaced read-only as the title-bar build badge. The metadata is stamped by the StampBuildNumber target;
-         the SDK's own SourceRevisionId append is disabled so the format stays exactly as composed there. -->
+    <!-- Build identity (SemVer + build metadata), e.g. 0.1.0+247.a36131b in CI or 0.1.0+dev.a36131b locally,
+         surfaced read-only as the title-bar badge. SDK SourceRevisionId append is off so the stamped format wins. -->
     <VersionPrefix>0.1.0</VersionPrefix>
     <BuildLabel Condition="'$(BuildLabel)' == '' and '$(GITHUB_RUN_NUMBER)' != ''">$(GITHUB_RUN_NUMBER)</BuildLabel>
     <BuildLabel Condition="'$(BuildLabel)' == ''">dev</BuildLabel>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
-  <!-- Compose InformationalVersion = {VersionPrefix}+{BuildLabel}.{short-sha}. The short sha is the working
-       tree's HEAD; when git is unavailable (e.g. a source archive) the version honestly drops the sha rather
-       than inventing one — the badge then reads e.g. 0.1.0+dev, which is the true state, not a hidden failure. -->
+  <!-- InformationalVersion = {VersionPrefix}+{BuildLabel}.{short-sha}; when git is unavailable (e.g. a source
+       archive) it honestly drops the sha (badge reads 0.1.0+dev) rather than inventing one — true state, no fallback. -->
   <Target Name="StampBuildNumber" BeforeTargets="GenerateAssemblyInfo;GetAssemblyVersion"
           Condition="'$(InformationalVersion)' == ''">
     <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short HEAD"

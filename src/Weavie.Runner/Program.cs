@@ -10,6 +10,11 @@ if (!Directory.Exists(Path.Combine(options.WorkspaceRoot, ".git"))) {
 	Console.WriteLine($"[weavie-runner] note: {options.WorkspaceRoot} is not a git repo — New Session (worktrees) needs git.");
 }
 
+// Print identity before anything that can block (the tailscale front shells out), so a stall is always visible.
+Console.WriteLine($"[weavie-runner] workspace: {options.WorkspaceRoot}");
+Console.WriteLine($"[weavie-runner] tls: {options.Tls.ToString().ToLowerInvariant()}");
+Console.Out.Flush();
+
 // The TLS front owns where the endpoints bind and how /backend's URL is built. Tailscale mode sets up
 // `tailscale serve` here, so creation can fail loudly (and exit) when the daemon can't be driven.
 ITlsFront builtFront;
@@ -50,7 +55,6 @@ ControlApi.Map(app, backends, options, front);
 // Start the workspace backend eagerly so the first connection is ready.
 var backend = backends.Ensure();
 
-Console.WriteLine($"[weavie-runner] workspace: {options.WorkspaceRoot}");
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");
 Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl}");
 Console.WriteLine($"[weavie-runner] runner token: {options.RunnerToken}");

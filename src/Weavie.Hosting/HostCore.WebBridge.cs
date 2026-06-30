@@ -994,7 +994,8 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {Weavie.Core.WeaviePaths.PreviousCrashFile}.");
+		// Keyed so two windows handling `ready` at once collapse to a single toast (matches the malformed-settings notice).
+		Notify("error", $"Weavie exited unexpectedly last session. A crash report was saved to {Weavie.Core.WeaviePaths.PreviousCrashFile}.", "prior-crash");
 	}
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>

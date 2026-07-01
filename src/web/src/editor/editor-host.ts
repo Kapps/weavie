@@ -597,7 +597,11 @@ export async function createEditorHost(
       return;
     }
     const entry = session.open.find((open) => open.path === session.active);
-    if (entry === undefined) {
+    // A web/source overlay tab has no Monaco model — never read its URL/target as a file. App renders the
+    // iframe/shadow-root over the (released) editor; showFile'ing the URL would read it as a path, which on
+    // Windows is a malformed read that surfaces a persistent "Unable to read file" toast rather than a swallowed
+    // FileNotFound. Mirrors applyActive's web/source guard for the rebind/restore path.
+    if (entry === undefined || entry.kind === "web" || entry.kind === "source") {
       return;
     }
     await showFile(monaco.Uri.file(canonicalFsPath(entry.path)), {

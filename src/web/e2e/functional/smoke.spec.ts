@@ -7,6 +7,10 @@ test("app boots and launches the stubbed claude backend", async ({ weavie, page 
   await expect(page.locator(".layout-root")).toBeVisible();
   await expect(page.locator(".pane-slot").first()).toBeVisible();
 
+  // Editor init succeeded: "editor host ready" logs only when createEditorHost completes (a failed init logs
+  // "editor init failed"). Guards the init-order race the splash-gone gate misses; no file open ⇒ no DOM node to assert.
+  await expect.poll(() => weavie.log(), { timeout: 40_000 }).toContain("editor host ready");
+
   // The supervisor's start line names the resolved claude binary — our fake wrapper (.sh on POSIX, .cmd on
   // Windows), not the real CLI.
   await expect.poll(() => weavie.log(), { timeout: 20_000 }).toContain("fake-claude.");

@@ -24,7 +24,8 @@ public sealed partial class HostCore {
 		var dismissals = new SuggestionDismissals(new LocalFileSystem(), WeaviePaths.WorkspaceSuggestionsFile(Id));
 		dismissals.Log += Log;
 		_suggestions = new SuggestionService(
-			_suggestionRegistry, _settings, new LocalFileSystem(), WorkspaceRoot, dismissals, PushSuggestions);
+			_suggestionRegistry, _settings, new LocalFileSystem(), WorkspaceRoot, dismissals,
+			TimeSpan.FromMilliseconds(500), PushSuggestions);
 	}
 
 	// Fan the active suggestion set out to every client, like the session list.

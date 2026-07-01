@@ -11,7 +11,6 @@ import {
   onMount,
 } from "solid-js";
 import {
-  type SessionStatusName,
   type TermSession,
   activeBackendId,
   activeBackendOffline,
@@ -27,9 +26,11 @@ import {
 } from "./bridge";
 import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
+import { EditorFooter } from "./chrome/EditorFooter";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
+import { PaneFooter } from "./chrome/PaneFooter";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -44,7 +45,6 @@ import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 // status survive HMR.
 import {
   type RailSession,
-  claudeStatus,
   demoteSession,
   isPromoted,
   promoteSession,
@@ -58,6 +58,7 @@ import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { formatKey, installKeybindings } from "./commands/keybindings";
+import { installMouseNav } from "./commands/mouse-nav";
 import { dispatchCommand, findCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
@@ -110,15 +111,6 @@ const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
-
-// Human-readable tooltip for each Claude status, shown on the pane-head status dot.
-const STATUS_LABEL: Record<SessionStatusName, string> = {
-  starting: "Claude is starting",
-  working: "Claude is working",
-  needsInput: "Claude needs your input",
-  idle: "Claude is idle",
-  error: "Claude crashed",
-};
 
 // Maps a terminal pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === "terminal:claude" ? "claude" : "shell");
@@ -503,6 +495,7 @@ export default function App(): JSX.Element {
               </Suspense>
             </Show>
           </div>
+          <EditorFooter />
         </div>
       );
     }
@@ -527,12 +520,6 @@ export default function App(): JSX.Element {
           }}
         >
           <span class="pane-label">{paneTitle()}</span>
-          <Show when={kind === "terminal:claude" && claudeStatus() !== undefined}>
-            <span
-              class={`session-status status-${claudeStatus()}`}
-              title={STATUS_LABEL[claudeStatus() as SessionStatusName]}
-            />
-          </Show>
           <Show when={showPaneHints()}>
             <span class="pane-shortcut">
               {CTRL_LABEL}
@@ -581,6 +568,7 @@ export default function App(): JSX.Element {
             }}
           </For>
         </div>
+        <PaneFooter claude={kind === "terminal:claude"} />
       </div>
     );
   };
@@ -763,6 +751,10 @@ export default function App(): JSX.Element {
       ),
       registerCommand(CommandIds.togglePinTab, (args) => editor.tabs.togglePin(tabPath(args))),
       registerCommand(CommandIds.reopenClosed, () => editor.tabs.reopenClosed()),
+      // Back / forward through visited editor locations (Alt+Left/Right + the back/forward mouse buttons). Each
+      // returns whether it stepped, so the chord falls through to the editor when there's no history that way.
+      registerCommand(CommandIds.navBack, () => editor.nav.back()),
+      registerCommand(CommandIds.navForward, () => editor.nav.forward()),
       // Copy the target tab's name / repo-relative / absolute path to the clipboard (the tab menu's Copy
       // submenu; palette / Claude act on the active tab). Decline when there's no target so the chord/row
       // falls through rather than copying nothing.
@@ -850,6 +842,11 @@ export default function App(): JSX.Element {
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
+    // The back / forward mouse buttons drive the navigation history (and we cancel the browser's own nav).
+    const offMouseNav = installMouseNav(
+      () => void dispatchCommand(CommandIds.navBack),
+      () => void dispatchCommand(CommandIds.navForward),
+    );
 
     // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
     // off it in the command catalog — Ctrl+V there falls through to xterm's native paste instead. Session-static.
@@ -876,6 +873,7 @@ export default function App(): JSX.Element {
       offEditorOptions();
       offKeybindings();
       offDoubleShift();
+      offMouseNav();
       for (const off of offCommands) {
         off();
       }

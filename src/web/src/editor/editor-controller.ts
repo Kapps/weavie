@@ -9,6 +9,7 @@ import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
+import { type NavHistory, createNavHistory } from "./nav-history";
 import {
   type ActivateResult,
   activateTab,
@@ -102,6 +103,14 @@ export interface TabActions {
   reopenClosed(): boolean;
 }
 
+/** Back/forward navigation through visited editor locations, exposed to the Go Back / Go Forward commands. */
+export interface NavActions {
+  /** Go to the previous location; false when there's nothing behind (so the keybinding falls through). */
+  back(): boolean;
+  /** Go to the next location; false when there's nothing ahead. */
+  forward(): boolean;
+}
+
 export interface EditorController {
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
@@ -137,6 +146,7 @@ export interface EditorController {
   parkedReviewCount(): number;
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
+  readonly nav: NavActions;
   dispose(): void;
 }
 
@@ -182,22 +192,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     | undefined;
 
   // Translate "active tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
-  const applyActive = (result: ActivateResult): void => {
+  // Resolves once the (async) model swap has settled — nav history awaits this to know when a back/forward step
+  // has landed, so don't drop the return value: mid-swap the editor still reports the old file (see nav-history).
+  const applyActive = (result: ActivateResult): Promise<void> => {
     deps.onCurrentFileChanged(result.path);
     // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
     // shadow-root render over it) and never read the path as a file.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
     if (activeKind === "web" || activeKind === "source") {
-      return;
+      return Promise.resolve();
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
     // review model; re-showing the working copy would drop the diff. resolveReview → endReview restores it.
     if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
-      return;
+      return Promise.resolve();
     }
     // If the file can't be read, the editor never swaps its model — close this tab rather than leave it active
     // over a stale/blank pane, and fall back to a surviving neighbor (or clear).
-    void host?.show(result.path, result.placement).then((ok) => {
+    return (host?.show(result.path, result.placement) ?? Promise.resolve(false)).then((ok) => {
       if (!ok) {
         rollbackFailedOpen(result.path);
       }
@@ -223,25 +235,52 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       pendingOpen = { path, line, preview, scratch };
       return;
     }
-    applyActive(openTab(path, { line, preview, scratch }));
+    void applyActive(openTab(path, { line, preview, scratch }));
+  };
+
+  // Browser-style back/forward over visited editor locations. navigateTo reuses the open/activate path
+  // (openTab activates an already-open tab or opens it, then applyActive reveals the line) and returns its
+  // settle promise, so nav history can suppress records until the swap lands.
+  const navHistory: NavHistory = createNavHistory((loc) =>
+    host === undefined ? Promise.resolve() : applyActive(openTab(loc.path, { line: loc.line })),
+  );
+
+  // Record where the editor settles (active file + cursor line) as a navigation point, debounced like the
+  // view-state snapshot so only the resting position is logged — not the brief top-of-file the editor sits at
+  // mid-swap before a reveal. Only real file models: overlay (web/source) tabs and the transient review model
+  // aren't navigable locations.
+  let navTimer: ReturnType<typeof setTimeout> | undefined;
+  const recordNavLocation = (): void => {
+    const model = host?.editor.getModel();
+    const position = host?.editor.getPosition();
+    if (model == null || position == null || model.uri.scheme !== "file") {
+      return;
+    }
+    navHistory.record({ path: model.uri.fsPath, line: position.lineNumber });
+  };
+  const scheduleRecordNav = (): void => {
+    if (navTimer !== undefined) {
+      clearTimeout(navTimer);
+    }
+    navTimer = setTimeout(recordNavLocation, 150);
   };
 
   // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
   const openWebTab = (url: string): void => {
-    applyActive(openTab(url, { kind: "web" }));
+    void applyActive(openTab(url, { kind: "web" }));
   };
 
   // Open a fetched source doc (Notion) as a source tab, keyed by its target. No Monaco model — App overlays the
   // SourceView shadow-root render over the editor host when this tab is active; SourceView reads the html by target.
   const openSourceTab = (target: string): void => {
-    applyActive(openTab(target, { kind: "source" }));
+    void applyActive(openTab(target, { kind: "source" }));
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
   const applyOrClear = (next: ActivateResult | null): void => {
     if (next !== null) {
-      applyActive(next);
+      void applyActive(next);
     } else {
       host?.clear();
       deps.onCurrentFileChanged(null);
@@ -392,7 +431,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const result = activateTab(target.path);
     if (result !== null) {
-      applyActive(result);
+      void applyActive(result);
     }
     return true;
   };
@@ -418,7 +457,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     activate: (path) => {
       const result = activateTab(path);
       if (result !== null) {
-        applyActive(result);
+        void applyActive(result);
       }
     },
     close: (path) => {
@@ -527,7 +566,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         };
         contentSubs = [
           created.editor.onDidChangeModelContent(() => syncContent()),
-          created.editor.onDidChangeModel(() => syncContent()),
+          created.editor.onDidChangeModel(() => {
+            syncContent();
+            scheduleRecordNav();
+          }),
+          // A cursor jump (or a model swap's reveal) records a navigation point for back/forward.
+          created.editor.onDidChangeCursorPosition(() => scheduleRecordNav()),
         ];
         syncContent();
         // Suspended over a model with a live inline diff so a collapsed comment never hides a changed line.
@@ -723,7 +767,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         setReviewActive(true);
         // Make the reviewed file active so the strip + title name it; activeReview is set first, so
         // applyActive's guard keeps the transient review model showing.
-        applyActive(openTab(message.path));
+        void applyActive(openTab(message.path));
         if (reviewUri !== undefined) {
           inlineDiff?.setByUri(reviewUri, {
             original: message.original,
@@ -771,7 +815,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (message.reopen) {
           const result = convertScratch(message.scratchPath, message.savedPath);
           if (result !== null) {
-            applyActive(result);
+            void applyActive(result);
           }
         } else {
           const wasActive = activePath() === message.scratchPath;
@@ -1042,8 +1086,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       redoReview: () => inlineDiff?.redoReview() ?? false,
     },
     tabs,
+    nav: {
+      back: () => navHistory.back(),
+      forward: () => navHistory.forward(),
+    },
     dispose: () => {
       window.clearTimeout(initTimer);
+      if (navTimer !== undefined) {
+        clearTimeout(navTimer);
+      }
       for (const sub of contentSubs) {
         sub.dispose();
       }

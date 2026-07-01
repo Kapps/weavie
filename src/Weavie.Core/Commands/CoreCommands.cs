@@ -122,6 +122,12 @@ public static class CoreCommands {
 	/// <summary>Reopens the most recently closed editor tab; bound to <c>Ctrl+Shift+T</c>.</summary>
 	public const string ReopenClosed = "weavie.editor.reopenClosed";
 
+	/// <summary>Goes back to the previous editor location in the navigation history; bound to <c>Alt+Left</c> and the back mouse button.</summary>
+	public const string NavigateBack = "weavie.navigation.back";
+
+	/// <summary>Goes forward to the next editor location in the navigation history; bound to <c>Alt+Right</c> and the forward mouse button.</summary>
+	public const string NavigateForward = "weavie.navigation.forward";
+
 	/// <summary>Copies an editor tab's file name to the clipboard (the active tab, or <c>path</c>).</summary>
 	public const string CopyTabName = "weavie.editor.copyName";
 
@@ -657,6 +663,33 @@ public static class CoreCommands {
 			Description = "Reopen the most recently closed editor tab.",
 			Aliases = ["reopen closed editor", "reopen closed tab", "reopen tab", "restore closed tab", "undo close tab"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+t" }],
+		});
+
+		// Back / forward through visited editor locations — a browser/IDE-style navigation history. Web-handled.
+		// The traditional bindings: the back/forward mouse buttons (a gesture, handled outside the chord resolver)
+		// plus Alt+Left / Alt+Right. Each chord carries a per-binding `!terminalFocused` guard so a focused
+		// terminal keeps its Alt+arrow word-nav; the handlers DECLINE (key falls through) when there's no history
+		// to step to in that direction.
+		registry.Register(new CommandDefinition {
+			Id = NavigateBack,
+			Title = "Go Back",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Go back to the previous editor location (file + line) in the navigation history. "
+				+ "Also driven by the back mouse button.",
+			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = NavigateForward,
+			Title = "Go Forward",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Go forward to the next editor location (file + line) in the navigation history. "
+				+ "Also driven by the forward mouse button.",
+			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" }],
 		});
 
 		// Copy an editor tab's name / repo-relative / absolute path to the clipboard — the tab menu's Copy

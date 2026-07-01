@@ -12,7 +12,6 @@ namespace Weavie.Core.Suggestions;
 public sealed class SuggestionService {
 	private const int MaxDepth = 2;       // scan the root + 2 levels of subdirectories
 	private const int MaxDirs = 256;      // hard ceiling on directories visited (a non-manifest repo's "no card")
-	private static readonly TimeSpan ProbeTimeout = TimeSpan.FromMilliseconds(500);
 
 	private static readonly HashSet<string> SkipDirs = new(StringComparer.OrdinalIgnoreCase) {
 		".git", "node_modules", "bin", "obj", "target", "dist",
@@ -30,19 +29,24 @@ public sealed class SuggestionService {
 	private readonly string _workspaceRoot;
 	private readonly SuggestionDismissals _dismissals;
 	private readonly Action<IReadOnlyList<SuggestionDefinition>> _push;
+	private readonly TimeSpan _probeTimeout;
 	private readonly Lock _gate = new();
 	private readonly HashSet<string> _snoozed = new(StringComparer.Ordinal);
 
 	private bool _hasManifest;
 	private IReadOnlyList<SuggestionDefinition> _current = [];
 
-	/// <summary>Creates the service and kicks off the off-the-hot-path manifest probe.</summary>
+	/// <summary>
+	/// Creates the service and kicks off the off-the-hot-path manifest probe. <paramref name="probeTimeout"/>
+	/// bounds that probe, failing open (card shown) if the scan doesn't finish in time.
+	/// </summary>
 	public SuggestionService(
 		SuggestionRegistry registry,
 		SettingsStore settings,
 		IFileSystem fileSystem,
 		string workspaceRoot,
 		SuggestionDismissals dismissals,
+		TimeSpan probeTimeout,
 		Action<IReadOnlyList<SuggestionDefinition>> push) {
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentNullException.ThrowIfNull(settings);
@@ -55,6 +59,7 @@ public sealed class SuggestionService {
 		_fileSystem = fileSystem;
 		_workspaceRoot = workspaceRoot;
 		_dismissals = dismissals;
+		_probeTimeout = probeTimeout;
 		_push = push;
 		_ = RunProbeAsync();
 	}
@@ -106,7 +111,7 @@ public sealed class SuggestionService {
 
 	private async Task RunProbeAsync() {
 		var scan = Task.Run(() => HasManifest(_workspaceRoot));
-		var winner = await Task.WhenAny(scan, Task.Delay(ProbeTimeout)).ConfigureAwait(false);
+		var winner = await Task.WhenAny(scan, Task.Delay(_probeTimeout)).ConfigureAwait(false);
 
 		// Fail open: only a completed scan that found nothing yields false. A timeout (a tree too slow or large to
 		// finish in time) or a fault shows the dismissible card — such a repo almost certainly has dependencies.

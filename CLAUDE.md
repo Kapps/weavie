@@ -61,9 +61,12 @@ delegates so it works for both PTY children and `System.Diagnostics.Process`. Tr
 Multiple agents may work this branch and working tree at the same time. Files can change under you
 mid-task, and a build or test can fail on code you didn't touch (another agent's half-saved work).
 
-- Treat failures **outside your own change set** as someone else's in-progress work: don't fix,
-  revert, or investigate them, and don't retry in a tight loop. Wait, then re-run.
-- Only act on failures in files you actually changed.
+- A **transient local failure** from another agent's half-saved work (a file mid-edit in the shared
+  working tree) is not yours to chase: don't revert it or retry in a tight loop — wait, then re-run.
+- But **once a failure is real and reproducible — especially any red CI check on your PR — you own
+  it. Always fix errors and CI failures; never wave one off as "not my problem" or "pre-existing"
+  because it's outside your change set.** A green pipeline is the bar for done, whoever introduced
+  the break. If a fix is genuinely outside your scope or ambiguous, say so and ask — don't ignore it.
 
 ## Custom agents
 

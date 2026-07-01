@@ -12,18 +12,7 @@ namespace Weavie.Core.Mcp;
 /// </summary>
 public static class IdeLockFile {
 	/// <summary>Directory holding the lock files: <c>$CLAUDE_CONFIG_DIR/ide</c>, else <c>~/.claude/ide</c>.</summary>
-	public static string DirectoryPath {
-		get {
-			string? configDir = Environment.GetEnvironmentVariable("CLAUDE_CONFIG_DIR");
-			if (string.IsNullOrEmpty(configDir)) {
-				configDir = Path.Combine(
-					Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
-					".claude");
-			}
-
-			return Path.Combine(configDir, "ide");
-		}
-	}
+	public static string DirectoryPath => Path.Combine(ClaudeConfigPaths.ConfigDirectory, "ide");
 
 	/// <summary>Returns the lock file path for a given port: <c>&lt;DirectoryPath&gt;/&lt;port&gt;.lock</c>.</summary>
 	public static string PathForPort(int port) => Path.Combine(DirectoryPath, $"{port}.lock");

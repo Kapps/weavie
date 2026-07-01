@@ -121,7 +121,9 @@ async function doInit(): Promise<void> {
 
   // No container → services/editor mode (no workbench). The file-service override backs `file://` with an
   // empty in-memory layer that installHostFileProvider() fronts. No autosave exists in this mode, so weavie's
-  // debounced save() is the sole writer.
+  // debounced save() is the sole writer. This must run before any standalone `monaco.*` use — touching monaco
+  // auto-initializes the services without these overrides, after which this call throws "already initialized".
+  // Every monaco-touching entry point (the editor host, the LSP client) funnels through initEditorServices first.
   await initialize({
     ...getThemeServiceOverride(),
     ...getTextmateServiceOverride(),

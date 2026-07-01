@@ -123,8 +123,9 @@ export async function createEditorHost(
   }
 
   // Lazy per-language LSP via the bridge (no-op without bridge config); a client connects the first time a
-  // document of its language is open.
-  startLanguageServices();
+  // document of its language is open. Fire-and-forget: services are already up here (we just awaited them), so
+  // its internal initEditorServices() await resolves at once.
+  void startLanguageServices();
 
   // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
   // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.

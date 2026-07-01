@@ -10,6 +10,7 @@ import * as monaco from "monaco-editor";
 import { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction } from "vscode-languageclient";
 import { log } from "../bridge";
+import { initEditorServices } from "../editor/vscode-services";
 import { notify } from "../notify/notify";
 import { openLspChannel } from "./lsp-bridge-transport";
 
@@ -79,11 +80,15 @@ function startForOpenModels(): void {
  * Wires lazy, per-language LSP for the session loaded at launch. No-op without injected bridge config
  * (plain-browser dev) — the editor still works, just without language intelligence.
  */
-export function startLanguageServices(): void {
+export async function startLanguageServices(): Promise<void> {
   const config = window.__WEAVIE_LSP__;
   if (config === undefined) {
     return;
   }
+  // The editor's VSCode services must be initialized (with our overrides) before any monaco.editor.* call below —
+  // touching monaco auto-initializes the standalone services, which then makes the editor host's initialize()
+  // throw "Services are already initialized". initEditorServices() is idempotent, so this just enforces order.
+  await initEditorServices();
   activeConfig = config;
   indexServers(config);
   if (!modelHooksInstalled) {
@@ -100,7 +105,9 @@ export function startLanguageServices(): void {
  * Rebind language services to a different session's bridge on a session switch: tear every (previous-bridge)
  * client down and reconnect against the incoming session's bridge, lazily for the open documents.
  */
-export function rebindLanguageServices(config: WeavieLspConfig): void {
+export async function rebindLanguageServices(config: WeavieLspConfig): Promise<void> {
+  // Same init-order guard as startLanguageServices (see there): our init must precede any monaco.editor touch.
+  await initEditorServices();
   generation += 1;
   for (const teardown of clients.values()) {
     teardown();

@@ -126,8 +126,11 @@ public sealed class SuggestionServiceTests : IDisposable {
 	[Fact]
 	public async Task SlowScan_TimesOut_FailsOpen() {
 		// A scan too slow to finish in time fails open: the dismissible card shows rather than vanishing silently.
-		// A short probe timeout deterministically loses to SlowFileSystem's 1500ms directory read.
-		var harness = await StartAsync(new SlowFileSystem(), "/repo", EmptySettings(),
+		// SlowFileSystem blocks its directory read until disposed, so the probe's timeout ALWAYS wins the race —
+		// a fixed Sleep can lose to a Task.Delay whose continuation is starved under parallel-test threadpool load,
+		// letting the (empty-fs) scan win and flip the result to "no manifest" (the historical flake).
+		using var fs = new SlowFileSystem();
+		var harness = await StartAsync(fs, "/repo", EmptySettings(),
 			new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"), TimeSpan.FromMilliseconds(200));
 
 		Assert.Contains(WorktreeId, harness.ActiveIds());
@@ -188,9 +191,11 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 	private sealed record Harness(SuggestionService Service, Func<IReadOnlyList<string>> ActiveIds, SuggestionDismissals Dismissals);
 
-	// Blocks the directory walk past the probe's wall-clock timeout, to exercise the fail-open path.
-	private sealed class SlowFileSystem : IFileSystem {
+	// Blocks the directory walk until disposed, so the probe's timeout deterministically wins the WhenAny race
+	// (no wall-clock dependency that a starved Task.Delay could lose), exercising the fail-open path.
+	private sealed class SlowFileSystem : IFileSystem, IDisposable {
 		private readonly InMemoryFileSystem _inner = new();
+		private readonly ManualResetEventSlim _release = new(false);
 
 		public bool FileExists(string path) => _inner.FileExists(path);
 		public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
@@ -201,8 +206,10 @@ public sealed class SuggestionServiceTests : IDisposable {
 		public void DeleteFile(string path) => _inner.DeleteFile(path);
 
 		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) {
-			Thread.Sleep(1500); // outlast the 500ms probe timeout
+			_release.Wait(); // the scan can never finish before the probe times out, so fail-open is deterministic
 			return _inner.EnumerateDirectory(path);
 		}
+
+		public void Dispose() => _release.Set();
 	}
 }

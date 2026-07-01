@@ -53,7 +53,10 @@ test.describe("remote bridge transport", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await page.goto(`${host.url}/`, { waitUntil: "domcontentloaded" });
-    await page.waitForTimeout(1500);
+    // The shell renders right after main.tsx posts its module-load `ready` (render() follows that line), so a
+    // visible layout-root is the deterministic proof the page booted and had its chance to send — by which point
+    // the absent-bridge "none" transport must have swallowed every send. No fixed sleep.
+    await expect(page.locator(".layout-root")).toBeVisible();
 
     expect(host.received).toHaveLength(0);
     expect(pageErrors, `unexpected page errors: ${pageErrors.join("; ")}`).toHaveLength(0);

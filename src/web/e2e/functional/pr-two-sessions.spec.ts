@@ -1,5 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { collectChangedFiles } from "../harness/navigator";
 
 // SCENARIO 2: two PR sessions open at once (#101: feature.ts + hello.ts; #102: widget.ts + notes.txt). Each
 // session must show ITS OWN changed files / merge-base diff — never the other PR's. _prReviews is keyed by
@@ -23,46 +24,24 @@ async function openPrByNumber(
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 20_000 });
 }
 
-// Collect the navigator's changed-file set by walking ALL files with ArrowRight and recording each label.
-async function navigatorFiles(page: import("@playwright/test").Page): Promise<Set<string>> {
-  const label = page.locator(".weavie-inline-stack-name");
-  await page.locator(".monaco-editor").first().click();
-  const seen = new Set<string>();
-  for (let i = 0; i < 6; i++) {
-    const name = (await label.textContent())?.trim();
-    // Only real file names — during a session-switch rebind the stack label transiently reads the parked
-    // cue ("Review changes") before it binds to the incoming session's diff; a filename always has an extension.
-    if (name && /\.\w+$/.test(name)) {
-      seen.add(name);
-    }
-    await page.keyboard.press("ControlOrMeta+ArrowRight");
-    await page.waitForTimeout(450);
-  }
-  return seen;
-}
-
 test("S2: two PR sessions each show only their own changed files", async ({ page }) => {
   // Open PR #101 (second chip), then PR #102 (third chip). Both are now live sessions on the rail.
   await openPrByNumber(page, 101, 2);
   await openPrByNumber(page, 102, 3);
 
   // The active session is #102 — its navigator must show widget.ts / notes.txt and NOT #101's files.
-  const filesOn102 = await navigatorFiles(page);
+  const filesOn102 = await collectChangedFiles(page);
   expect([...filesOn102].sort()).toEqual(["notes.txt", "widget.ts"]);
-  expect(filesOn102.has("feature.ts")).toBe(false);
-  expect(filesOn102.has("hello.ts")).toBe(false);
 
   // Switch back to the #101 session (second chip) — its navigator must show feature.ts / hello.ts only.
   await page.locator(chips).nth(1).click();
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 15_000 });
-  const filesOn101 = await navigatorFiles(page);
+  const filesOn101 = await collectChangedFiles(page);
   expect([...filesOn101].sort()).toEqual(["feature.ts", "hello.ts"]);
-  expect(filesOn101.has("widget.ts")).toBe(false);
-  expect(filesOn101.has("notes.txt")).toBe(false);
 
   // Switch to #102 again — still only its own files (no leak accumulated across switches).
   await page.locator(chips).nth(2).click();
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 15_000 });
-  const filesOn102Again = await navigatorFiles(page);
+  const filesOn102Again = await collectChangedFiles(page);
   expect([...filesOn102Again].sort()).toEqual(["notes.txt", "widget.ts"]);
 });

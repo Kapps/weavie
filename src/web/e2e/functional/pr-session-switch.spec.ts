@@ -1,5 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { walkToChangedFile } from "../harness/navigator";
 
 // Probes the PR-review surface across SESSION SWITCHES (the suspected bug nest). The prScenario fixture stubs
 // one PR (#101: feature.ts added + hello.ts modified) over a local "origin", with a seeded comment on hello.ts.
@@ -8,7 +9,6 @@ test.use({ prScenario: true });
 const toolbar = ".weavie-inline-toolbar";
 const added = ".weavie-inline-added";
 const chips = ".session-chip";
-const stackName = ".weavie-inline-stack-name";
 
 async function openPr101(page: import("@playwright/test").Page): Promise<void> {
   await runCommand(page, "Open Pull Request");
@@ -49,13 +49,7 @@ test("S4: replying to a PR comment after a round-trip switch still posts and ref
   await openPr101(page);
 
   // Walk to hello.ts (the commented file).
-  const label = page.locator(stackName);
-  await page.locator(".monaco-editor").first().click();
-  for (let i = 0; i < 3 && (await label.textContent())?.trim() !== "hello.ts"; i++) {
-    await page.keyboard.press("ControlOrMeta+ArrowRight");
-    await page.waitForTimeout(400);
-  }
-  await expect(label).toHaveText("hello.ts");
+  await walkToChangedFile(page, "hello.ts");
   await expect(
     page.locator(".weavie-pr-comment-body", { hasText: "Why change this greeting?" }),
   ).toBeVisible({ timeout: 10_000 });
@@ -67,12 +61,7 @@ test("S4: replying to a PR comment after a round-trip switch still posts and ref
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 10_000 });
 
   // Re-open hello.ts diff (navigator may have re-armed on feature.ts).
-  await page.locator(".monaco-editor").first().click();
-  for (let i = 0; i < 3 && (await label.textContent())?.trim() !== "hello.ts"; i++) {
-    await page.keyboard.press("ControlOrMeta+ArrowRight");
-    await page.waitForTimeout(400);
-  }
-  await expect(label).toHaveText("hello.ts");
+  await walkToChangedFile(page, "hello.ts");
 
   // Reply in the thread → it must round-trip through the (correct) PR's comment store.
   const thread = page.locator(".weavie-pr-thread").first();
@@ -100,8 +89,16 @@ test("S3: a stale pr-diff cannot render onto a non-PR session after a quick swit
   // The non-PR session must show NO PR diff surface — no toolbar, no bright added band leaking over it.
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator(added)).toHaveCount(0, { timeout: 10_000 });
-  // Give any in-flight pr-diff time to arrive and (wrongly) render.
-  await page.waitForTimeout(1500);
+
+  // Anchor the "stale reply never lands" check on a real later event instead of a fixed delay: open a file on
+  // the primary session and wait for its content to render. That round-trip is slower than the git diff the
+  // pre-switch get-pr-diff awaited, so by the time it paints the stale reply has already had its chance — and
+  // the surface must still be absent (the reply was dropped, not painted).
+  await page.locator(".tb-omnibar-input").click();
+  await page.locator(".tb-omnibar-input").fill("notes.txt");
+  await expect(page.locator(".tb-omnibar-row", { hasText: "notes.txt" }).first()).toBeVisible();
+  await page.locator(".tb-omnibar-input").press("Enter");
+  await expect(page.locator(".monaco-editor .view-lines")).toContainText("just plain text");
   await expect(page.locator(toolbar)).toHaveCount(0);
   await expect(page.locator(added)).toHaveCount(0);
 });

@@ -1,5 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { walkToChangedFile } from "../harness/navigator";
 
 // The Open-PR journey end to end against a stubbed PR provider + a local "origin" with a base/head diff
 // (prScenario): pick the PR, check out its branch as a session, and walk its base→head diff in the inline-diff
@@ -61,13 +62,7 @@ test("a PR's review comments render, reply, and add", async ({ page }) => {
   await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
 
   // Walk to hello.ts (the commented file; the navigator auto-opens feature.ts first).
-  const label = page.locator(".weavie-inline-stack-name");
-  await page.locator(".monaco-editor").first().click();
-  for (let i = 0; i < 3 && (await label.textContent())?.trim() !== "hello.ts"; i++) {
-    await page.keyboard.press("ControlOrMeta+ArrowRight");
-    await page.waitForTimeout(400);
-  }
-  await expect(label).toHaveText("hello.ts");
+  await walkToChangedFile(page, "hello.ts");
 
   // The seeded review comment shows in a thread on the diff.
   await expect(

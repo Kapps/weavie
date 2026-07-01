@@ -1,60 +1,90 @@
-# Notion SourceView (rich-HTML rendering)
+# Notion SourceView (markdown-API rendering)
 
 **Status:** implemented. Builds on [notion-source-auth.md](notion-source-auth.md) (connect + fetch) and the
-design in [web-and-source-tabs.md](web-and-source-tabs.md). Replaces the markdown `.md` interim with a real
-HTML rendering of a fetched Notion page in an open, themed shadow root.
+design in [web-and-source-tabs.md](web-and-source-tabs.md). Renders a fetched Notion page in an open, themed
+shadow root from Notion's **markdown API** — one fetch, one markdown projection, rendered to HTML web-side.
 
 ## What ships
 
-`SourceDoc` now carries **`Html`** (the rich display projection) alongside **`Text`** (markdown — Claude's
-reading channel) and `Title`. One fetch produces both from the same block tree.
+`SourceDoc` is **`(Title, Markdown)`**: a single (enhanced) markdown string that is both the rendered display
+surface and Claude's reading channel. No separate HTML projection — the host produces markdown, the web renders it.
 
-- **Core** maps the Notion block tree → semantic HTML (`NotionHtmlMapper` + `NotionHtmlMapper.Blocks.cs`),
-  inline runs → escaped HTML (`NotionRichText`), with all API text/urls escaped at the source (`HtmlEscape`).
-  `NotionSource` fetches the tree **recursively** (each `has_children` block's descendants attached, paged in
-  full) so nested lists, toggles, and columns render.
-- **Host** posts `source-doc { id, target, title, text, html }`; the scratch-`.md` interim (`OpenSourceDoc`) is
-  removed.
-- **Web** renders `html` in an **open shadow root** (`SourceView`) overlaying Monaco like `PreviewPane`, on a
-  `kind:"source"` tab (the existing web-tab plumbing, keyed by `target`). DOMPurify sanitizes as defense in
-  depth; the shadow stylesheet owns the look and reads the app's theme custom properties (which pierce the
-  boundary, so it follows dark/light live). Links are intercepted (http(s) → open externally; web tabs deferred).
+- **Core** (`NotionSource`) fetches a page in **two flat calls** (`Notion-Version: 2026-03-11`): `GET /v1/pages/{id}`
+  for the title and `GET /v1/pages/{id}/markdown` for the body (`{ markdown, truncated, unknown_block_ids }`). When
+  Notion truncated the page or returned unreadable blocks, `ParseMarkdown` **prepends a visible blockquote notice**
+  to the markdown — so the loss shows in the rendered view *and* in Claude's channel, never a silent log.
+- **Host** posts `source-loading { target, title }` the moment a fetch starts (the tab opens with a titled spinner,
+  `GuessSourceTitle` from the URL slug), then `source-doc { target, title, markdown }` on success or
+  `source-error { target, message }` on failure (the reason lands in the open tab, not a missable toast).
+- **Web** renders the markdown in an **open shadow root** (`SourceView`) overlaying Monaco like `PreviewPane`, on a
+  `kind:"source"` tab keyed by `target`. `renderNotionMarkdown` first runs `normalizeNotionMarkdown` (Notion emits
+  ONE block per line, single-`\n` separated, tab-nested — *not* CommonMark; this isolates each block with blank
+  lines, drops `<empty-block/>`, recurses into container tags dedenting their children, keeps code fences / tables
+  / lists intact), then `markdown-it` (`html:true`), then a DOM walk (`notion-transform.ts` helpers) that maps
+  Notion's enhanced-markdown extensions onto the `.wv-*` classes `source-styles.ts` defines; `DOMPurify` sanitizes
+  as the last boundary. The shadow stylesheet reads the app's theme custom properties (which pierce the boundary,
+  so it follows dark/light live). Code reuses the Markdown preview's `highlightFence`/`hydrateMermaid`; links are
+  intercepted (http(s) → host resolver).
 
 ```mermaid
 flowchart LR
-  N["Notion API"] --> S["NotionSource\n(recursive fetch → block tree)"]
-  S --> MD["NotionBlockMapper → text (Claude)"]
-  S --> HT["NotionHtmlMapper → html (display)"]
-  HT --> doc["source-doc { html }"]
-  doc --> store["source-store (by target)"]
-  store --> SV["SourceView\n(open shadow root, themed)"]
-  SV -. "links: http(s) → open-url" .- host["host"]
+  N["Notion API"] -->|"GET /pages/{id} (title)"| S
+  N -->|"GET /pages/{id}/markdown"| S["NotionSource (2 flat calls)"]
+  S -->|"SourceDoc(Title, Markdown)\n+ truncation notice"| H["HostCore"]
+  H -->|"source-doc { markdown }"| store["source-store (by target)"]
+  store --> R["renderNotionMarkdown\nmarkdown-it → transform → sanitize"]
+  R --> SV["SourceView (open shadow root, themed)"]
+  SV -. "links: http(s) → open-target" .- H
 ```
 
-## Coverage (v1)
+## Loading, errors & connect-on-open
 
-- **Inline:** bold, italic, strikethrough, underline, inline code, links (safe-url-gated), text/background color
-  (fixed class allowlist — never an inline style).
-- **Blocks:** paragraph, heading 1–3, bulleted/numbered lists (**nested**), to-dos (disabled checkbox), quote,
-  callout (icon + color), code (`<pre><code class="language-…">`), divider, image (`<figure>`; signed-URL
-  snapshot accepted), toggle (`<details>`), table (header row), columns (flex). Bookmark/embed/video/file/pdf →
-  a link **card**, never an inline live frame. Unknown blocks degrade to their text, else are omitted (no
-  placeholder).
+The open resolver (`HostCore.OpenTargetForWeb`) matches a URL host-side and routes it three ways:
 
-## Escaping / sanitization contract
+- **Claimed + connected** → fetch (spinner via `source-loading`, then `source-doc` / `source-error`). No frozen
+  window during a slow fetch, and a failure shows in the tab rather than a missable toast. The catch is broad on
+  purpose: the eager spinner must always resolve (a non-JSON 200 throws `JsonException` deep in the parse).
+- **Claimed + not connected** → the connect prompt, with the opened URL **stashed** (`_pendingSourceTarget`) and
+  fetched automatically once `SaveSourceTokenAsync` validates the token — connecting from a click lands on the page.
+- **Unclaimed** → `open-web` (an iframe tab).
 
-`HtmlEscape` is the single source of truth: `Text`/`Attribute` entity-escape all API-derived content; `SafeUrl`
-allows only `http`/`https`/`mailto` (a `javascript:`/`data:`/`vbscript:`/unparseable url is dropped — link text
-kept, image/card omitted). Color/background map through a fixed allowlist, so the only class the stylesheet keys
-on is un-spoofable. `DOMPurify` re-sanitizes web-side as defense in depth. Asserted directly in
-`NotionHtmlMapperTests` (script/quote escaping, unsafe-url dropping, color spoofing).
+`NotionSource.ClaimsUrl` claims `notion.so` / `*.notion.so` / `*.notion.site` **and** `app.notion.com` (the in-app
+page host) — but not the rest of `notion.com` (marketing/help), which opens as a normal web tab.
 
-## Deferred
+## Enhanced-markdown coverage (v1)
 
-- **Code syntax highlighting** — code renders as styled `<pre><code class="language-…">`; token highlighting (the
-  shared hljs pass, inside the shadow root) is a fast follow.
-- **Image host proxy** for expiring signed URLs (a source is a manual-refresh snapshot, so direct `<img>` is
-  consistent); **per-doc icon**; **full `SourceTab` union + persisted back/forward + restore-by-refetch**; **web
-  tabs as the link target** (http(s) currently opens externally); **find-in-source / selection→Claude /
-  Claude-reads-doc registry resource** (the open shadow root makes them possible — `text` is produced but latent);
-  equation/synced_block/child_page/database; markdown nesting for the `text` channel (top-level only for now).
+Notion's markdown carries HTML extensions; `renderNotionMarkdown` maps each to semantic HTML + `.wv-*` classes:
+
+- **Inline:** bold/italic/strike/code (standard markdown); `<span color="…">` / `…_bg` → `.wv-color-*` / `.wv-bg-*`;
+  `<span underline="true">` → `.wv-underline`; links (sanitized).
+- **Block color:** a trailing `{color="…"}` on a block → the matching `.wv-*` class (the marker is stripped).
+- **Blocks:** headings, lists, quotes, dividers, code fences (`<pre><code class="language-…">`, highlighted after
+  mount), images (`![]()`); `<callout>` → `.wv-callout` (icon + color); `<details>` toggles and toggle **headings**
+  (`# H {toggle="true"}`, whose deeper-indented children the normalizer wraps into a collapsible `<details>`);
+  `<columns>/<column>` → flex; `<table>` (honors `header-row`, per-cell/row color); `<page>`/`<database>` and
+  non-image media (`<file>/<pdf>/<audio>/<video>`) → a link **card**; `<mention-*>` → a link or its text;
+  `<synced_block>` unwrapped; `<table_of_contents>` / `<empty-block>` dropped.
+- **Page header:** the fetched title + last-edited time (from the page JSON) render as a header above the body
+  (`SourceView.headerNode`) — the markdown body itself carries no title.
+- **Toggling:** `SourceView` drives `<details>` open/closed on a summary click itself (the embedded WebView doesn't
+  fire the native summary-toggle for a shadow-tree `<details>`); `preventDefault` avoids a double-toggle.
+
+## Sanitization contract
+
+`renderNotionMarkdown` emits only standard tags (every custom tag is mapped before sanitize), so `source-html.ts`'s
+`DOMPurify` allowlist stays small and is the **last** boundary before the shadow root. Self-closing custom tags are
+normalized first (`normalizeSelfClosing`) so the HTML parser doesn't swallow siblings. The pure helpers
+(`notionColorClass`, `parseTrailingAttrs`, `normalizeSelfClosing`) are unit-tested; the DOM walk is covered by the
+`source-routing` e2e (callout + color render, toggle expands on click).
+
+## Deferred / known v1 gaps
+
+- **Page properties / path / icon** — only the title + last-edited time head the page today; a database page's
+  property table, the parent path/breadcrumb, and the page icon are a later slice.
+- **To-dos** render as literal `- [ ]` / `- [x]` (no checkbox — `markdown-it` has no task-list rule by default).
+- **Equations** (`$…$`, `$$…$$`) render as literal LaTeX text (KaTeX is a fast-follow).
+- **Nested lists** are re-indented (2 spaces/level) for markdown-it; deep/ordered nesting may need tuning against
+  real pages. **Per-column table color** (`<colgroup><col color>`) is dropped.
+- **Image host proxy** for expiring signed URLs; **per-doc icon**; **persisted back/forward + restore-by-refetch**;
+  **web tabs as the link target**; **find-in-source / selection→Claude / Claude-reads-doc registry resource** (the
+  markdown is produced but latent).

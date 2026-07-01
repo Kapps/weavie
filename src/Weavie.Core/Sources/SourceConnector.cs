@@ -36,6 +36,21 @@ public sealed class SourceConnector : ISourceConnector {
 	public bool Matches(string target) => _sources.Any(s => s.Match(target));
 
 	/// <inheritdoc/>
+	public bool IsConnected(string target) {
+		if (_sources.FirstOrDefault(s => s.Match(target)) is not { } source) {
+			return false;
+		}
+
+		try {
+			return !string.IsNullOrWhiteSpace(ReadToken(source.Id));
+		} catch (InvalidOperationException) {
+			// A present-but-unreadable/malformed token file: report not-connected so the open resolver routes the user
+			// to (re)connect — which overwrites the bad file — rather than throwing out of the synchronous open path.
+			return false;
+		}
+	}
+
+	/// <inheritdoc/>
 	public string SetupUrlFor(string sourceId) => Source(sourceId).SetupUrl;
 
 	/// <summary>

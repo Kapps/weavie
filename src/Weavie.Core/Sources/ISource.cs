@@ -1,15 +1,15 @@
 namespace Weavie.Core.Sources;
 
 /// <summary>
-/// A read-only third-party document projection from one fetch: <paramref name="Title"/> for the tab,
-/// <paramref name="Html"/> the rich display projection rendered in the shadow-root SourceView, and
-/// <paramref name="Text"/> a clean markdown projection (Claude's reading channel). The per-document icon lands
-/// with a later slice.
+/// A read-only third-party document projection from one fetch: <paramref name="Title"/> for the tab + page header,
+/// <paramref name="Markdown"/> the document's content as (enhanced) markdown — the single source for both the
+/// shadow-root SourceView (rendered to HTML web-side) and Claude's reading channel — and <paramref name="EditedTime"/>
+/// the last-edited time for the header. The per-document icon + properties land with a later slice.
 /// </summary>
 /// <param name="Title">The document's title.</param>
-/// <param name="Text">A markdown projection of the document's content (for Claude).</param>
-/// <param name="Html">A semantic-HTML projection of the document's content (for display), escaped at the source.</param>
-public sealed record SourceDoc(string Title, string Text, string Html);
+/// <param name="Markdown">The document's content as markdown (rendered for display; also Claude's channel).</param>
+/// <param name="EditedTime">The document's last-edited time (ISO 8601), or empty when unknown.</param>
+public sealed record SourceDoc(string Title, string Markdown, string EditedTime);
 
 /// <summary>
 /// A registered source plugin: it matches a target (URL/id), validates the user's access token, and fetches a

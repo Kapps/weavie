@@ -8,6 +8,10 @@ export const SOURCE_STYLES = `
   background: var(--bg, #000000);
   color: var(--fg, #cdd5dc);
   font-family: var(--ui-font, system-ui, sans-serif);
+  /* Crisp grayscale AA, matching the editor/terminal — without it the WebView's default subpixel
+     smoothing renders this prose noticeably heavier/fuzzier than the rest of the app. */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
   font-size: 15px;
   min-height: 100%;
@@ -15,6 +19,10 @@ export const SOURCE_STYLES = `
   box-sizing: border-box;
 }
 .wv-source > :first-child { margin-top: 0; }
+.wv-source .wv-header { margin-bottom: 1.6rem; }
+.wv-source .wv-title { font-size: 2.4em; font-weight: 800; line-height: 1.15; margin: 0 0 0.15em; }
+.wv-source .wv-meta { color: var(--dim, #6f7884); font-size: 0.85em; }
+.wv-source .wv-content > :first-child { margin-top: 0; }
 .wv-source h1 { font-size: 1.9em; font-weight: 700; margin: 1.4em 0 0.4em; line-height: 1.2; }
 .wv-source h2 { font-size: 1.5em; font-weight: 600; margin: 1.3em 0 0.3em; }
 .wv-source h3 { font-size: 1.2em; font-weight: 600; margin: 1.2em 0 0.3em; }
@@ -46,15 +54,16 @@ export const SOURCE_STYLES = `
 .wv-source .wv-callout .wv-icon { flex: none; font-size: 1.1em; line-height: 1.4; }
 .wv-source .wv-callout-body > :first-child { margin-top: 0; }
 .wv-source .wv-callout-body > :last-child { margin-bottom: 0; }
-.wv-source img.wv-icon { width: 1.2em; height: 1.2em; object-fit: contain; }
-.wv-source figure { margin: 1em 0; }
-.wv-source figure img { max-width: 100%; height: auto; border-radius: 6px; display: block; }
-.wv-source figcaption { color: var(--dim, #6f7884); font-size: 0.85em; margin-top: 0.4em; }
+.wv-source img { max-width: 100%; height: auto; border-radius: 6px; }
 .wv-source details {
   margin: 0.5em 0; padding: 0.2em 0 0.2em 0.2em; border-left: 2px solid var(--border, #191c21);
 }
 .wv-source summary { cursor: pointer; font-weight: 500; }
 .wv-source details > :not(summary) { margin-left: 1.2em; }
+/* A toggleable heading reads as a heading with a disclosure marker — the heading sits inline, no toggle-block border. */
+.wv-source .wv-toggle-heading { border-left: none; padding-left: 0; }
+.wv-source summary > h1, .wv-source summary > h2, .wv-source summary > h3, .wv-source summary > h4 { display: inline; margin: 0; }
+.wv-source .wv-underline { text-decoration: underline; }
 .wv-source table { border-collapse: collapse; margin: 0.9em 0; width: 100%; font-size: 0.92em; }
 .wv-source th, .wv-source td { border: 1px solid var(--border, #191c21); padding: 0.4em 0.7em; text-align: left; }
 .wv-source th { background: color-mix(in srgb, var(--fg, #cdd5dc) 8%, transparent); font-weight: 600; }
@@ -68,12 +77,25 @@ export const SOURCE_STYLES = `
 .wv-source .mermaid-rendered { margin: 1em 0; text-align: center; }
 .wv-source .mermaid-rendered svg { max-width: 100%; height: auto; }
 .wv-source .mermaid-error { color: var(--bad, #e07a7a); white-space: pre-wrap; }
-.wv-color-gray { color: #9b9b9b; } .wv-color-brown { color: #ba856f; } .wv-color-orange { color: #e0883d; }
-.wv-color-yellow { color: #dfab01; } .wv-color-green { color: #4dab9a; } .wv-color-blue { color: #529cca; }
-.wv-color-purple { color: #9a6dd7; } .wv-color-pink { color: #e255a1; } .wv-color-red { color: #e0584b; }
-.wv-bg-gray { background: rgba(155,155,155,0.24); } .wv-bg-brown { background: rgba(186,133,111,0.24); }
-.wv-bg-orange { background: rgba(224,136,61,0.24); } .wv-bg-yellow { background: rgba(223,171,1,0.24); }
-.wv-bg-green { background: rgba(77,171,154,0.24); } .wv-bg-blue { background: rgba(82,156,202,0.24); }
-.wv-bg-purple { background: rgba(154,109,215,0.24); } .wv-bg-pink { background: rgba(226,85,161,0.24); }
-.wv-bg-red { background: rgba(224,88,75,0.24); }
+/* Scoped under .wv-source so a bg tint out-specifies .wv-source .wv-callout's neutral background (and wins by
+   source order); these also color inline <span color> text and {color=…} blocks. */
+.wv-source .wv-color-gray { color: #9b9b9b; } .wv-source .wv-color-brown { color: #ba856f; } .wv-source .wv-color-orange { color: #e0883d; }
+.wv-source .wv-color-yellow { color: #dfab01; } .wv-source .wv-color-green { color: #4dab9a; } .wv-source .wv-color-blue { color: #529cca; }
+.wv-source .wv-color-purple { color: #9a6dd7; } .wv-source .wv-color-pink { color: #e255a1; } .wv-source .wv-color-red { color: #e0584b; }
+.wv-source .wv-bg-gray { background: rgba(155,155,155,0.24); } .wv-source .wv-bg-brown { background: rgba(186,133,111,0.24); }
+.wv-source .wv-bg-orange { background: rgba(224,136,61,0.24); } .wv-source .wv-bg-yellow { background: rgba(223,171,1,0.24); }
+.wv-source .wv-bg-green { background: rgba(77,171,154,0.24); } .wv-source .wv-bg-blue { background: rgba(82,156,202,0.24); }
+.wv-source .wv-bg-purple { background: rgba(154,109,215,0.24); } .wv-source .wv-bg-pink { background: rgba(226,85,161,0.24); }
+.wv-source .wv-bg-red { background: rgba(224,88,75,0.24); }
+.wv-status {
+  display: flex; align-items: center; justify-content: center; gap: 0.6em;
+  min-height: 60vh; color: var(--dim, #6f7884);
+}
+.wv-status.wv-error { color: var(--bad, #e07a7a); white-space: pre-wrap; text-align: center; }
+.wv-spinner {
+  width: 1.1em; height: 1.1em; border-radius: 50%; flex: none;
+  border: 2px solid color-mix(in srgb, var(--fg, #cdd5dc) 22%, transparent);
+  border-top-color: var(--accent, #54c6a4); animation: wv-spin 0.7s linear infinite;
+}
+@keyframes wv-spin { to { transform: rotate(360deg); } }
 `;

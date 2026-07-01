@@ -38,9 +38,9 @@ export interface LaunchOptions {
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
-  // A canned Notion doc ({ title, text, html }); when set, the host's source connector is stubbed
+  // A canned Notion doc ({ title, markdown, editedTime? }); when set, the host's source connector is stubbed
   // (WEAVIE_FAKE_NOTION) so a notion.so/notion.site open-target fetches + renders it deterministically.
-  notionDoc?: { title: string; text: string; html: string };
+  notionDoc?: { title: string; markdown: string; editedTime?: string };
 }
 
 // Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve

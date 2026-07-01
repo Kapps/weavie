@@ -12,7 +12,7 @@ type WeavieOptions = {
   prScenario: boolean;
   // Set via test.use to stub the source connector with a canned Notion doc (WEAVIE_FAKE_NOTION), so a
   // notion.so open-target fetches + renders it deterministically. Null in normal use.
-  notionDoc: { title: string; text: string; html: string } | null;
+  notionDoc: { title: string; markdown: string; editedTime?: string } | null;
 };
 
 type WeavieFixtures = {

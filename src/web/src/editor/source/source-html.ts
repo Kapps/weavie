@@ -1,9 +1,9 @@
 import DOMPurify from "dompurify";
 
-// Defense-in-depth sanitize for source HTML before it reaches the shadow root. The Core mapper already escapes all
-// Notion text/urls, but this is the same belt-and-suspenders innerHTML boundary the Markdown preview uses. The
-// allowlist must permit the rich structure the mapper emits (details/summary, aside, figure, a disabled checkbox,
-// table parts, the class attribute) or DOMPurify would strip it.
+// Defense-in-depth sanitize for source HTML before it reaches the shadow root — the same belt-and-suspenders
+// innerHTML boundary the Markdown preview uses, the last gate after `renderNotionMarkdown`. The allowlist must
+// permit the structure that renderer emits (headings, details/summary, aside, table parts, img, the class
+// attribute) — every Notion custom tag is already mapped to these standard tags before this runs.
 const CONFIG = {
   ALLOWED_TAGS: [
     "p",
@@ -12,6 +12,9 @@ const CONFIG = {
     "h1",
     "h2",
     "h3",
+    "h4",
+    "h5",
+    "h6",
     "strong",
     "em",
     "s",
@@ -28,16 +31,15 @@ const CONFIG = {
     "div",
     "details",
     "summary",
-    "figure",
-    "figcaption",
     "img",
-    "input",
     "table",
+    "thead",
+    "tbody",
     "tr",
     "td",
     "th",
   ],
-  ALLOWED_ATTR: ["href", "src", "alt", "class", "type", "checked", "disabled"],
+  ALLOWED_ATTR: ["href", "src", "alt", "class"],
 };
 
 /** Sanitizes mapper-produced source HTML for injection into the SourceView shadow root. */

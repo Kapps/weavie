@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, Code, Eye, FileText, Globe, Pin, X } from "lucide-solid";
+import { ChevronLeft, ChevronRight, Code, Eye, Globe, Pin, X } from "lucide-solid";
 import {
   For,
   type JSX,
@@ -18,6 +18,7 @@ import type { TabActions } from "./editor-controller";
 import { basename, canonicalFsPath } from "./fs-path";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
+import { NotionIcon } from "./source/NotionIcon";
 import { sourceDoc } from "./source/source-store";
 import { isPreviewMode } from "./view-mode-store";
 
@@ -223,7 +224,7 @@ export function TabStrip(props: {
                     <Globe size={13} class="editor-tab-icon" />
                   </Show>
                   <Show when={view.kind === "source"}>
-                    <FileText size={13} class="editor-tab-icon" />
+                    <NotionIcon size={13} class="editor-tab-icon" />
                   </Show>
                   <span class="editor-tab-label">{tabLabel(view)}</span>
                   <Show when={view.dirty}>

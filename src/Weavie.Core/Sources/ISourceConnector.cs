@@ -10,6 +10,10 @@ public interface ISourceConnector {
 	/// web hands a URL to the host rather than re-implementing each source's <see cref="ISource.Match"/>.</summary>
 	bool Matches(string target);
 
+	/// <summary>True when the source that claims <paramref name="target"/> already has a saved token, so a fetch can run
+	/// without first sending the user through connect. False routes an opened source URL to the connect prompt, not a blank tab.</summary>
+	bool IsConnected(string target);
+
 	/// <summary>Where the user creates an access token for <paramref name="sourceId"/> (opened in the browser on connect).</summary>
 	string SetupUrlFor(string sourceId);
 

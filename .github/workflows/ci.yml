@@ -136,6 +136,8 @@ jobs:
             tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
             tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj \
             tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
+            tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj \
+            tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj \
             tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
             tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj \
             tools/Weavie.LspHarness/Weavie.LspHarness.csproj; do
@@ -175,6 +177,17 @@ jobs:
         run: |
           dotnet build tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj -c Debug
           dotnet build src/Weavie.Runner/Weavie.Runner.csproj -c Debug
+
+      # Remote-path tests: the runner's control-plane option parsing (TLS fail-closed), the black-box auth
+      # matrix over a real Weavie.Runner + Weavie.Headless, and the headless bridge. Linux-only like the other
+      # .NET tests. Runs after the headless + runner builds above so their assets are restored (Runner.Tests
+      # pulls in Weavie.Headless), and boots the same real host the remote e2e already exercises.
+      - name: Test (remote / runner / headless)
+        if: matrix.name == 'linux'
+        run: |
+          dotnet test tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj -c Debug
+          dotnet test tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj -c Debug
+          dotnet test tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj -c Debug
 
       # Cache the downloaded browser binaries (~120MB) keyed on the lockfile + OS, so the install below is
       # a no-op download on a hit. Linux still (re)installs the OS-level apt deps every run (--with-deps),

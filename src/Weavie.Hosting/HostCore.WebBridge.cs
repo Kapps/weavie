@@ -1074,10 +1074,13 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// Any handler exception becomes a Failure the caller receives — a tokened invoke-command whose reply
+		// never posts strands the web promise forever (the in-process native transport never disconnects to
+		// fail it). This method is the reply guarantee, so it catches everything rather than a known subset.
 		CommandResult result;
 		try {
 			result = await _session.Commands.InvokeAsync(id, argsJson, CancellationToken.None).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is UnknownCommandException or InvalidOperationException) {
+		} catch (Exception ex) {
 			result = CommandResult.Failure(ex.Message);
 		}
 

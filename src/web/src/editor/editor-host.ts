@@ -68,6 +68,11 @@ export interface EditorHost {
    * next (a per-hunk revert's guard) sees current content. No-op when not dirty.
    */
   flush(path: string): Promise<void>;
+  /**
+   * Flushes every dirty working copy to the current backend and resolves once all saves land. Called before a
+   * cross-backend switch so unsaved edits persist on their own host rather than routing to the one switched to.
+   */
+  flushDirty(): Promise<void>;
   /** Clears the editor to an empty pane (the last tab was closed). */
   clear(): void;
   /**
@@ -257,6 +262,14 @@ export async function createEditorHost(
     holdingSince.delete(key);
   };
 
+  // Surface a failed working-copy save to both the dev log and the user-facing toast (onSaveError).
+  const reportSaveError = (key: string, error: unknown): void => {
+    const name = key.split("/").pop() ?? key;
+    const message = `Couldn't save ${name}: ${String(error)}`;
+    log("error", message);
+    onSaveError?.(message);
+  };
+
   const flushSave = (key: string): void => {
     const timer = saveTimers.get(key);
     if (timer !== undefined) {
@@ -287,12 +300,7 @@ export async function createEditorHost(
     savedHadErrors.set(key, errored);
     void textFileService
       .save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true })
-      .catch((error: unknown) => {
-        const name = key.split("/").pop() ?? key;
-        const message = `Couldn't save ${name}: ${String(error)}`;
-        log("error", message);
-        onSaveError?.(message);
-      });
+      .catch((error: unknown) => reportSaveError(key, error));
   };
 
   // Release a held flush as soon as a file's errors clear, rather than waiting for the next keystroke or the
@@ -476,6 +484,28 @@ export async function createEditorHost(
     editor.setModel(null);
   };
 
+  // Flush every dirty working copy to the current backend and resolve once all saves land. Called before a
+  // cross-backend switch so the outgoing session's unsaved edits persist on their own (still-active) host:
+  // fs-writes route to the active backend, so flipping first would send them to the wrong one (rejected as
+  // out-of-worktree, edit lost). Individual save failures surface as toasts and don't block the others.
+  const flushDirty = async (): Promise<void> => {
+    const saves: Promise<void>[] = [];
+    for (const key of [...refs.keys()]) {
+      cancelPendingSave(key);
+      const uri = monaco.Uri.parse(key);
+      if (!textFileService.isDirty(uri)) {
+        continue;
+      }
+      saves.push(
+        textFileService.save(uri, { ignoreModifiedSince: true, ignoreErrorHandler: true }).then(
+          () => undefined,
+          (error: unknown) => reportSaveError(key, error),
+        ),
+      );
+    }
+    await Promise.all(saves);
+  };
+
   // Route the editor service's file-opens (go-to-def / peek / references) through the tab store as a preview
   // open, then reveal the target range, so navigating reuses the one preview slot instead of piling up tabs.
   setOpenEditorSink((uri, selection) => {
@@ -624,6 +654,7 @@ export async function createEditorHost(
     contentOf,
     cancelSave,
     flush,
+    flushDirty,
     clear,
     rebindSession,
     beginReview,

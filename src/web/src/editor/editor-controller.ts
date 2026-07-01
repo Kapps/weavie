@@ -131,6 +131,11 @@ export interface EditorController {
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
   save(): boolean;
+  /**
+   * Flushes every dirty working copy to the active backend and resolves once they land — called before a
+   * cross-backend session switch so edits persist on their own host. Resolves immediately when unmounted.
+   */
+  flushDirty(): Promise<void>;
   /** Update the post-turn review set driving the inline toolbar's ← / → file walk; empty when nothing to review. */
   setReviewFiles(files: ReviewFile[]): void;
   /** Arm a PR's base→head diff review (number + changed files) on the same navigator, in read-only "pr" mode. */
@@ -1041,6 +1046,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     newFile,
     save,
+    flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     setReviewFiles: (files) => {
       reviewKind = "turn";
       reviewFiles = files;

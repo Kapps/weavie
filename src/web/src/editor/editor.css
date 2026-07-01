@@ -346,32 +346,33 @@
   color: var(--accent);
 }
 
-/* Recent-files control: a fixed icon button at the right of the tab strip (mirrors the preview toggle), with a
-   dropdown of recent files portaled below it. */
-.editor-recent {
+/* Recent-files control in the editor status bar (bottom-right): a compact button that opens the recent-files
+   dropdown (portaled, positioned upward in RecentFilesButton). */
+.footer-recent {
   flex: 0 0 auto;
   display: inline-flex;
 }
 
-.editor-recent-toggle {
+.footer-recent-toggle {
   display: inline-flex;
   align-items: center;
-  padding: 0 0.6em;
+  gap: 5px;
+  padding: 0;
   border: none;
-  border-left: 1px solid var(--border);
-  background: var(--bar);
+  background: transparent;
   color: var(--dim);
+  font: inherit;
   cursor: pointer;
 }
 
-.editor-recent-toggle:hover,
-.editor-recent-toggle[aria-expanded="true"] {
+.footer-recent-toggle:hover,
+.footer-recent-toggle[aria-expanded="true"] {
   color: var(--fg);
 }
 
-.editor-recent-toggle:focus-visible {
+.footer-recent-toggle:focus-visible {
   outline: 2px solid var(--accent);
-  outline-offset: -2px;
+  outline-offset: -1px;
 }
 
 /* The dropdown panel (portaled to <body>, positioned in RecentFilesButton). Matches the context menu's chrome. */

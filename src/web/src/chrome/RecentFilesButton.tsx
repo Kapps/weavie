@@ -49,17 +49,18 @@ export function RecentFilesButton(props: { onOpen: (path: string) => void }): JS
   };
 
   return (
-    <div class="editor-recent">
+    <div class="footer-recent">
       <button
         type="button"
-        class="editor-recent-toggle"
+        class="footer-recent-toggle"
         title={title()}
         aria-haspopup="menu"
         aria-expanded={open()}
         onMouseDown={(event) => event.preventDefault()}
         onClick={() => setOpen((v) => !v)}
       >
-        <History size={14} />
+        <History size={13} />
+        <span>Recent</span>
       </button>
       <Show when={open()}>
         <RecentFilesMenu onChoose={choose} onClose={() => setOpen(false)} />
@@ -92,8 +93,8 @@ function RecentFilesMenu(props: {
     list[(start + step + list.length) % list.length]?.focus();
   };
 
-  // Anchor under the toggle, right-aligned to it, clamped into the viewport (the toggle sits at the strip's
-  // right edge, so the panel grows leftward).
+  // Anchor to the toggle, right-aligned and opening UPWARD (the toggle sits in the bottom status bar, so the
+  // panel grows up and leftward), clamped into the viewport.
   const place = (toggle: Element): void => {
     if (panelEl === undefined) {
       return;
@@ -106,13 +107,13 @@ function RecentFilesMenu(props: {
       Math.min(anchor.right - width, window.innerWidth - width - margin),
     );
     panelEl.style.left = `${left}px`;
-    panelEl.style.top = `${anchor.bottom + 2}px`;
+    panelEl.style.top = `${Math.max(margin, anchor.top - panelEl.offsetHeight - 2)}px`;
   };
 
   const onPointerDown = (event: PointerEvent): void => {
     const target = event.target as HTMLElement;
     // A click on the toggle is handled by its own onClick (which closes); ignore it here so the two don't race.
-    if (!target.closest(".recent-menu") && !target.closest(".editor-recent-toggle")) {
+    if (!target.closest(".recent-menu") && !target.closest(".footer-recent-toggle")) {
       props.onClose();
     }
   };
@@ -123,7 +124,7 @@ function RecentFilesMenu(props: {
   };
 
   onMount(() => {
-    const toggle = document.querySelector(".editor-recent-toggle");
+    const toggle = document.querySelector(".footer-recent-toggle");
     queueMicrotask(() => {
       if (toggle !== null) {
         place(toggle);

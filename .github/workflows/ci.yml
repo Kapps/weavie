@@ -3,9 +3,8 @@
 # The repo is public, so standard GitHub-hosted runners (including macOS) are free with no
 # per-minute billing — hence the full Linux + macOS + Windows matrix on every push/PR. Each job
 # builds the shell that only compiles on that OS (Weavie.Win needs Windows, Weavie.Mac needs the
-# macOS workload), which transitively covers Weavie.Core and Weavie.Hosting. The .NET unit/hosting
-# tests run once (on Linux); the web e2e — a real headless host + browser — runs on every OS, since
-# the host is platform-specific and the whole point is to catch OS-specific regressions in our code.
+# macOS workload), which transitively covers Weavie.Core and Weavie.Hosting. The Linux job also
+# runs the test suite.
 #
 # Builds are Debug: the goal is to verify compilation (the zero-warning gate runs at build time via
 # TreatWarningsAsErrors + EnforceCodeStyleInBuild), and Debug skips the macOS Release trimming pass.
@@ -29,10 +28,6 @@ jobs:
   test:
     name: test (${{ matrix.name }})
     runs-on: ${{ matrix.os }}
-    # Pin the Playwright browser dir to one OS-agnostic path so the cache + install + run agree on every OS
-    # (the per-OS defaults live in different places: ~/.cache, ~/Library/Caches, %LOCALAPPDATA%).
-    env:
-      PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
     strategy:
       fail-fast: false
       matrix:
@@ -153,11 +148,12 @@ jobs:
         if: matrix.name == 'linux'
         run: dotnet test tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj -c Debug
 
-      # Headless host (browser-connectable Weavie): the host the web e2e drives on every OS. Building it
-      # copies the web app built above into its wwwroot. The e2e then drives the bridge transport against
+      # Headless host (browser-connectable Weavie): built and exercised on Linux, where it runs. Building it
+      # copies the web app built above into its wwwroot. The web e2e then drives the bridge transport against
       # a mock host (bridge.spec) AND the real Weavie.Headless over a WebSocket (headless-host.spec) — the
-      # only place the host↔web path is verified, since the native shells can't run headless.
+      # only place the host↔web path is verified, since the native shells can't run headless in CI.
       - name: Build headless host
+        if: matrix.name == 'linux'
         run: dotnet build src/Weavie.Headless/Weavie.Headless.csproj -c Debug
 
       # The full-stack functional + remote journeys need the fake claude (stubs the CLI at the process
@@ -165,33 +161,32 @@ jobs:
       # Playwright projects skip; with them, they run against a real host. See
       # docs/specs/integration-testing-strategy.md.
       - name: Build integration-test helpers
+        if: matrix.name == 'linux'
         run: |
           dotnet build tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj -c Debug
           dotnet build src/Weavie.Runner/Weavie.Runner.csproj -c Debug
 
-      # Cache the downloaded browser binaries (~120MB) keyed on the lockfile + OS, so the install below is
-      # a no-op download on a hit. Linux still (re)installs the OS-level apt deps every run (--with-deps),
-      # which a cache of the browser dir does not preserve; macOS/Windows need no such system deps.
+      # Cache the downloaded browser binaries (~120MB) keyed on the lockfile, so the install below is a
+      # no-op download on a hit. We still run the install with --with-deps regardless: it skips the
+      # download when the binary is already present but always (re)installs the OS-level apt
+      # dependencies, which a cache of ~/.cache/ms-playwright does not preserve.
       - name: Cache Playwright browsers
+        if: matrix.name == 'linux'
         uses: actions/cache@v4
         with:
-          path: ${{ github.workspace }}/.pw-browsers
+          path: ~/.cache/ms-playwright
           key: playwright-${{ runner.os }}-${{ hashFiles('src/web/pnpm-lock.yaml') }}
           restore-keys: playwright-${{ runner.os }}-
 
-      - name: Install Playwright Chromium (Linux)
-        if: runner.os == 'Linux'
+      - name: Install Playwright Chromium
+        if: matrix.name == 'linux'
         working-directory: src/web
         run: pnpm exec playwright install --with-deps chromium
-
-      - name: Install Playwright Chromium (macOS / Windows)
-        if: runner.os != 'Linux'
-        working-directory: src/web
-        run: pnpm exec playwright install chromium
 
       # Runs every Playwright project: the bridge specs (chromium), the full-stack functional journeys
       # against a real Weavie.Headless with a stubbed claude (headless), and the transport-sensitive
       # subset against Weavie.Runner (remote). See docs/specs/integration-testing-strategy.md.
       - name: Web e2e (bridge + functional + remote)
+        if: matrix.name == 'linux'
         working-directory: src/web
         run: pnpm run e2e

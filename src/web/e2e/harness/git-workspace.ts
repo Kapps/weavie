@@ -1,7 +1,16 @@
 import { execFileSync } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+
+// Canonicalize a fresh temp dir. On macOS os.tmpdir() is under /var, a symlink to /private/var, and the
+// kernel resolves a process's cwd — so the fake claude's Directory.GetCurrentDirectory() (which backs
+// {{WORKSPACE}}) yields /private/var while the host holds the unresolved /var string, and change-tracking
+// path checks (IsWithinWorkspace) miss. Resolving at the source makes every layer agree; idempotent on
+// Linux/Windows (no symlink), so it leaves those unaffected.
+async function makeTempDir(prefix: string): Promise<string> {
+  return realpath(await mkdtemp(join(tmpdir(), prefix)));
+}
 
 // Seed files every journey can rely on: a markdown doc (preview), a TypeScript file (syntax highlight +
 // edit/persist + LSP), and a plain-text file. Kept tiny and deterministic.
@@ -22,7 +31,7 @@ const SEED: Record<string, string> = {
 // A throwaway git repo so HostCore can create sessions/worktrees off HEAD. Returns the path; call
 // removeWorkspace when done.
 export async function createGitWorkspace(): Promise<string> {
-  const dir = await mkdtemp(join(tmpdir(), "weavie-e2e-ws-"));
+  const dir = await makeTempDir("weavie-e2e-ws-");
   for (const [name, content] of Object.entries(SEED)) {
     await writeFile(join(dir, name), content);
   }
@@ -74,8 +83,8 @@ export async function createPrWorkspace(): Promise<{
 }> {
   // No dot in the bare dir name: it becomes a git config subsection (url.<path>.insteadOf), where a dot would
   // be misparsed as a key separator.
-  const bare = await mkdtemp(join(tmpdir(), "weavie-e2e-origin"));
-  const dir = await mkdtemp(join(tmpdir(), "weavie-e2e-ws-"));
+  const bare = await makeTempDir("weavie-e2e-origin");
+  const dir = await makeTempDir("weavie-e2e-ws-");
   const originUrl = "https://github.com/acme/demo.git";
   const headRef = "pr-branch";
   const g = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, stdio: "ignore" });

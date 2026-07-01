@@ -1,6 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -169,7 +169,10 @@ export interface FakeScaffold {
 }
 
 export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold> {
-  const home = await mkdtemp(join(tmpdir(), "weavie-e2e-home-"));
+  // Resolve the real path: on macOS os.tmpdir() is under the /var → /private/var symlink, and worktrees live
+  // under WEAVIE_ROOT (=home/.weavie), so an unresolved home would desync a forked session's cwd (which the
+  // kernel resolves) from the host's stored path. Idempotent on Linux/Windows.
+  const home = await realpath(await mkdtemp(join(tmpdir(), "weavie-e2e-home-")));
   const pr = options.pr ? await createPrWorkspace() : null;
   const workspace = pr?.dir ?? (await createGitWorkspace());
   const wrapper = await writeFakeClaudeWrapper(home);

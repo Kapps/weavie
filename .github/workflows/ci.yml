@@ -122,20 +122,25 @@ jobs:
       - name: Verify .NET formatting
         run: dotnet format ${{ matrix.project }} --verify-no-changes --no-restore
 
-      # The shells above transitively cover Core + Hosting, but the test projects, in-repo analyzers,
-      # the runner, the headless host, and the dev tools build only off the matrix. Verify their
-      # formatting on Linux (the one OS that restores them all). Each format restores its own project.
+      # `dotnet format` only checks a project's own documents, not its referenced projects — so the shell
+      # builds above verify Core + Hosting compilation but NOT their formatting. Format every non-shell
+      # project here (Core, Hosting, the test projects, analyzers, runner, headless, dev tools) on Linux
+      # (the one OS that restores them all) so no assembly's formatting goes ungated. Each restores itself.
       - name: Verify .NET formatting (off-matrix projects)
         if: matrix.name == 'linux'
         run: |
           set -e
           for proj in \
+            src/Weavie.Core/Weavie.Core.csproj \
+            src/Weavie.Hosting/Weavie.Hosting.csproj \
             src/Weavie.Headless/Weavie.Headless.csproj \
             src/Weavie.Runner/Weavie.Runner.csproj \
             src/Weavie.Analyzers/Weavie.Analyzers.csproj \
             tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj \
             tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj \
             tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj \
+            tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj \
+            tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj \
             tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj \
             tools/Weavie.IdeHarness/Weavie.IdeHarness.csproj \
             tools/Weavie.LspHarness/Weavie.LspHarness.csproj; do
@@ -175,6 +180,17 @@ jobs:
         run: |
           dotnet build tools/Weavie.FakeClaude/Weavie.FakeClaude.csproj -c Debug
           dotnet build src/Weavie.Runner/Weavie.Runner.csproj -c Debug
+
+      # Remote-path tests: the runner's control-plane option parsing (TLS fail-closed), the black-box auth
+      # matrix over a real Weavie.Runner + Weavie.Headless, and the headless bridge. Linux-only like the other
+      # .NET tests. Runs after the headless + runner builds above so their assets are restored (Runner.Tests
+      # pulls in Weavie.Headless), and boots the same real host the remote e2e already exercises.
+      - name: Test (remote / runner / headless)
+        if: matrix.name == 'linux'
+        run: |
+          dotnet test tests/Weavie.Runner.Tests/Weavie.Runner.Tests.csproj -c Debug
+          dotnet test tests/Weavie.Remote.Tests/Weavie.Remote.Tests.csproj -c Debug
+          dotnet test tests/Weavie.Headless.Tests/Weavie.Headless.Tests.csproj -c Debug
 
       # Cache the downloaded browser binaries (~120MB) keyed on the lockfile + OS, so the install below is
       # a no-op download on a hit. Linux still (re)installs the OS-level apt deps every run (--with-deps),

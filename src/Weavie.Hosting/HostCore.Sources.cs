@@ -42,7 +42,9 @@ public sealed partial class HostCore {
 	private void PromptConnectNotion() {
 		_ui.Post(() => _platform.OpenExternalUrl(_sources.SetupUrlFor(NotionSource.SourceId)));
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "prompt-source-token", sourceId = NotionSource.SourceId, label = "Notion",
+			type = "prompt-source-token",
+			sourceId = NotionSource.SourceId,
+			label = "Notion",
 		}));
 	}
 
@@ -86,7 +88,9 @@ public sealed partial class HostCore {
 	/// </summary>
 	private async Task FetchSourceForWebAsync(string target) {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-loading", target, title = GuessSourceTitle(target),
+			type = "source-loading",
+			target,
+			title = GuessSourceTitle(target),
 		}));
 		SourceDoc doc;
 		try {
@@ -96,13 +100,19 @@ public sealed partial class HostCore {
 			// 200 (proxy / captive-portal / incident HTML) throws JsonException deeper in, and this is fire-and-forget,
 			// so anything uncaught would leave the tab spinning forever. Surfaced loudly in the tab, never swallowed.
 			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "source-error", target, message = ex.Message,
+				type = "source-error",
+				target,
+				message = ex.Message,
 			}));
 			return;
 		}
 
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc", target, title = doc.Title, markdown = doc.Markdown, editedTime = doc.EditedTime,
+			type = "source-doc",
+			target,
+			title = doc.Title,
+			markdown = doc.Markdown,
+			editedTime = doc.EditedTime,
 		}));
 	}
 

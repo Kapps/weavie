@@ -329,6 +329,9 @@ export type WebBoundMessage =
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
+  // Host pushes the active session's git branch + dirty flag for the terminal-column footer (active-backend
+  // gated like the page's other state). `branch` is null when the workspace isn't a git repo / HEAD is detached.
+  | { type: "git-status"; branch: string | null; dirty: boolean }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
   // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.

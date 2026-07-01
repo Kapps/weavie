@@ -14,6 +14,7 @@ import {
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { setDirtyPath } from "./dirty-store";
+import { setEditorStatus } from "./editor-status-store";
 import { canonicalFsPath } from "./fs-path";
 import { createEditor, monaco } from "./monaco-setup";
 import { captureViewState, editorOwner, editorSession, openTab, promote } from "./session-store";
@@ -161,11 +162,38 @@ export async function createEditorHost(
     }
     emitTimer = setTimeout(emitActiveEditor, 150);
   };
+
+  // Drive the editor status footer (cursor/selection/language/EOL). Written synchronously — the footer wants
+  // immediate cursor feedback, unlike the debounced host emit above. Null when no real file model is showing.
+  const updateStatus = (): void => {
+    const model = editor.getModel();
+    const position = editor.getPosition();
+    if (model === null || !isUserFileModel(model) || position === null) {
+      setEditorStatus(null);
+      return;
+    }
+    let selectionCount = 0;
+    for (const sel of editor.getSelections() ?? []) {
+      selectionCount += model.getValueInRange(sel).length;
+    }
+    setEditorStatus({
+      line: position.lineNumber,
+      column: position.column,
+      selectionCount,
+      languageId: model.getLanguageId(),
+      eol: model.getEndOfLineSequence() === monaco.editor.EndOfLineSequence.CRLF ? "CRLF" : "LF",
+    });
+  };
+
   // Every subscription is collected so dispose() tears them all down — including listeners on models that
   // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
   const disposables: monaco.IDisposable[] = [
     editor.onDidChangeModel(scheduleEmitActiveEditor),
     editor.onDidChangeCursorSelection(scheduleEmitActiveEditor),
+    // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
+    editor.onDidChangeCursorSelection(updateStatus),
+    editor.onDidChangeModel(updateStatus),
+    editor.onDidChangeModelLanguage(updateStatus),
   ];
 
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error

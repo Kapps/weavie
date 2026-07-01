@@ -155,5 +155,23 @@ export const remoteActivity = createMemo<boolean>(() =>
   merged().some((s) => !s.isLocal && (s.status === "working" || s.status === "needsInput")),
 );
 
-/** The active session's Claude status for the pane-head dot, or undefined until the first push. */
+/** The active session's Claude status for the pane footer, or undefined until the first push. */
 export const claudeStatus = status;
+
+/** Full tooltip for each Claude status (the footer segment's `title`). */
+export const STATUS_LABEL: Record<SessionStatusName, string> = {
+  starting: "Claude is starting",
+  working: "Claude is working",
+  needsInput: "Claude needs your input",
+  idle: "Claude is idle",
+  error: "Claude crashed",
+};
+
+/** Compact label for each Claude status (the footer segment's visible text). */
+export const STATUS_SHORT: Record<SessionStatusName, string> = {
+  starting: "Starting",
+  working: "Working",
+  needsInput: "Needs input",
+  idle: "Idle",
+  error: "Crashed",
+};

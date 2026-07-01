@@ -8,9 +8,14 @@ namespace Weavie.Hosting;
 // Core (SourceConnector); this only bridges them to the page. The full shadow-root SourceView, tab-kind routing,
 // and web tabs are later phases (see docs/specs/web-and-source-tabs.md).
 public sealed partial class HostCore {
+	// A source URL the user opened before connecting: stashed when the open resolver routes to connect, then opened
+	// once SaveSourceTokenAsync validates the token — so connecting from a click lands on the page they asked for.
+	private string? _pendingSourceTarget;
+
 	/// <summary>
 	/// The open resolver: the page hands every opened URL here, and the host — which owns the sources and their
-	/// <see cref="ISource.Match"/> — decides. A URL a source claims is fetched + rendered natively; anything else is
+	/// <see cref="ISource.Match"/> — decides. A claimed URL is fetched + rendered natively when its source is
+	/// connected, else it routes to the connect prompt (remembered, so it opens once connected); anything else is
 	/// sent back as <c>open-web</c> for a web (iframe) tab. Keeping the match host-side means the web never
 	/// re-implements a source's predicate.
 	/// </summary>
@@ -19,10 +24,13 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		if (_sources.Matches(url)) {
+		if (!_sources.Matches(url)) {
+			_bridge.PostToWeb($"{{\"type\":\"open-web\",\"url\":{JsonString(url)}}}");
+		} else if (_sources.IsConnected(url)) {
 			_ = FetchSourceForWebAsync(url);
 		} else {
-			_bridge.PostToWeb($"{{\"type\":\"open-web\",\"url\":{JsonString(url)}}}");
+			_pendingSourceTarget = url;
+			PromptConnectNotion();
 		}
 	}
 
@@ -55,6 +63,10 @@ public sealed partial class HostCore {
 			string where = string.IsNullOrWhiteSpace(workspace) ? "your Notion workspace" : $"Notion workspace “{workspace}”";
 			Notify("info", $"Connected to {where}.");
 			PostTokenResult(id, ok: true, string.Empty);
+			// A URL opened before connecting (the resolver stashed it): now that we're connected, open it.
+			if (Interlocked.Exchange(ref _pendingSourceTarget, null) is { } pending) {
+				_ = FetchSourceForWebAsync(pending);
+			}
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException) {
 			// Surface inline in the still-open dialog (not a toast), so the user can correct the token without
 			// restarting. TaskCanceledException covers HttpClient's own request timeout — without it a stalled Notion
@@ -68,20 +80,45 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
-	/// <c>source-doc</c> (keyed by <paramref name="target"/>) carrying the rich <c>html</c> the SourceView renders
-	/// plus the <c>text</c> (Claude's channel). A missing token or fetch failure toasts.
+	/// <c>source-doc</c> (keyed by <paramref name="target"/>) carrying the <c>markdown</c> the SourceView renders to
+	/// HTML (and Claude reads). <c>source-loading</c> is posted first so the tab opens with a spinner while the fetch
+	/// runs; a fetch failure posts <c>source-error</c> into that same tab.
 	/// </summary>
 	private async Task FetchSourceForWebAsync(string target) {
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "source-loading", target, title = GuessSourceTitle(target),
+		}));
 		SourceDoc doc;
 		try {
 			doc = await _sources.FetchAsync(target, CancellationToken.None).ConfigureAwait(false);
-		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Notify("error", $"Couldn't open that source: {ex.Message}");
+		} catch (Exception ex) {
+			// The spinner is already up, so EVERY failure must resolve it — not just the http/cancel set: a non-JSON
+			// 200 (proxy / captive-portal / incident HTML) throws JsonException deeper in, and this is fire-and-forget,
+			// so anything uncaught would leave the tab spinning forever. Surfaced loudly in the tab, never swallowed.
+			_bridge.PostToWeb(JsonSerializer.Serialize(new {
+				type = "source-error", target, message = ex.Message,
+			}));
 			return;
 		}
 
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc", target, title = doc.Title, text = doc.Text, html = doc.Html,
+			type = "source-doc", target, title = doc.Title, markdown = doc.Markdown, editedTime = doc.EditedTime,
 		}));
+	}
+
+	// A best-effort tab label from a source URL's slug, shown while the real title loads: the last path segment with
+	// a trailing 32-hex id stripped and dashes spaced (…/Test-Page-38e5…0055 → "Test Page"); "Notion" when there's none.
+	private static string GuessSourceTitle(string url) {
+		if (!Uri.TryCreate(url, UriKind.Absolute, out var uri)) {
+			return "Notion";
+		}
+
+		string[] segments = uri.AbsolutePath.Split('/', StringSplitOptions.RemoveEmptyEntries);
+		string slug = (segments.Length > 0 ? segments[^1] : string.Empty).Split('?', '#')[0];
+		int dash = slug.LastIndexOf('-');
+		string tail = dash >= 0 ? slug[(dash + 1)..] : string.Empty;
+		string name = dash > 0 && tail.Length == 32 && tail.All(Uri.IsHexDigit) ? slug[..dash] : slug;
+		name = name.Replace('-', ' ').Trim();
+		return name.Length > 0 ? name : "Notion";
 	}
 }

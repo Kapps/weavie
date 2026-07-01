@@ -16,17 +16,21 @@ internal sealed class FakeNotionSource : ISourceConnector {
 		_doc = doc;
 	}
 
-	/// <summary>Reads a <c>{ "title": …, "text": …, "html": … }</c> file into a connector that serves it as the fetched doc.</summary>
+	/// <summary>Reads a <c>{ "title": …, "markdown": …, "editedTime": … }</c> file into a connector that serves it as the fetched doc.</summary>
 	public static FakeNotionSource FromFile(string path) {
 		using var doc = JsonDocument.Parse(File.ReadAllText(path));
 		var root = doc.RootElement;
-		return new FakeNotionSource(new SourceDoc(Str(root, "title"), Str(root, "text"), Str(root, "html")));
+		return new FakeNotionSource(new SourceDoc(Str(root, "title"), Str(root, "markdown"), Str(root, "editedTime")));
 	}
 
 	private static string Str(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 
 	public bool Matches(string target) => NotionSource.ClaimsUrl(target);
+
+	// The demo connector always serves its canned doc, so it's always "connected" — an opened Notion URL fetches
+	// straight through (the connect-prompt path is exercised by the connect-notion command, not open-target).
+	public bool IsConnected(string target) => true;
 
 	public string SetupUrlFor(string sourceId) => "https://app.notion.com/developers/tokens";
 

@@ -74,7 +74,12 @@ import { canPreview } from "./editor/preview/preview-registry";
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
-import { setSourceDoc, sourceDoc } from "./editor/source/source-store";
+import {
+  setSourceDoc,
+  setSourceError,
+  setSourceLoading,
+  sourceDoc,
+} from "./editor/source/source-store";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
 import type { DirListings } from "./files/FileBrowser";
 import { LayoutView } from "./layout/LayoutView";
@@ -488,10 +493,11 @@ export default function App(): JSX.Element {
             <Show when={activeWebUrl() !== null}>
               <WebTabPane url={() => activeWebUrl() as string} />
             </Show>
-            {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco. */}
+            {/* A source tab: render the fetched Notion doc as rich HTML in a shadow root over Monaco (or its
+                loading spinner / fetch error while it resolves). */}
             <Show when={activeSourceTarget() !== null}>
               <Suspense>
-                <SourceView html={() => sourceDoc(activeSourceTarget() as string)?.html ?? ""} />
+                <SourceView doc={() => sourceDoc(activeSourceTarget() as string)} />
               </Suspense>
             </Show>
           </div>
@@ -660,10 +666,23 @@ export default function App(): JSX.Element {
       } else if (message.type === "prompt-source-token") {
         // The host opened the source's token page in the browser; show the dialog to paste the token.
         setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
-      } else if (message.type === "source-doc") {
-        // A fetched source doc: store its rich html by target, then open/focus its source tab to render it.
-        setSourceDoc(message.target, { title: message.title, html: message.html });
+      } else if (message.type === "source-loading") {
+        // The fetch started: open the source tab now (with a title + spinner) so the window isn't frozen while a
+        // slow Notion fetch runs; source-doc / source-error fill it in.
+        setSourceLoading(message.target, message.title);
         editor.openSourceTab(message.target);
+      } else if (message.type === "source-doc") {
+        // The fetch resolved: update the entry (status → ready) and the already-open tab's SourceView renders the
+        // markdown. source-loading already opened the tab, so don't re-activate here — that would yank focus back
+        // if the user switched tabs during the load.
+        setSourceDoc(message.target, {
+          title: message.title,
+          markdown: message.markdown,
+          editedTime: message.editedTime,
+        });
+      } else if (message.type === "source-error") {
+        // The fetch failed: swap the open tab's spinner for the reason (no toast — the error lives in the tab).
+        setSourceError(message.target, message.message);
       } else if (message.type === "open-web") {
         // The host's resolver decided this URL isn't a source — open it as a web (iframe) tab.
         editor.openWebTab(message.url);

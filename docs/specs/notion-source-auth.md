@@ -86,19 +86,20 @@ native interop can't be built or tested on the CI host.
 
 Per [integration-testing-strategy.md](integration-testing-strategy.md), no test hits real Notion:
 
-- **Pure units** — `NotionBlockMapper`, `ExtractPageId`, `ParseTitle`, `ParseWorkspaceName`; `SourceConnector`'s
-  no-network paths (setup URL, empty/unknown token, unconnected/unmatched fetch).
+- **Pure units** — `ParseMarkdown` (+ its truncation notice), `ExtractPageId`, `ParseTitle`, `ParseWorkspaceName`;
+  `SourceConnector`'s no-network paths (setup URL, empty/unknown token, unconnected/unmatched fetch).
 - **Full stack** (`HostCoreSourcesTests`) — `connect-notion` opens the token page and pushes `prompt-source-token`;
   `set-source-token` validates against a stubbed `GET /v1/users/me`, saves on success (asserts the token file is
   written + an ok `source-token-result`) and toasts the workspace; a 401 replies an inline-error `source-token-result`
   and asserts the token is **not** saved;
-  `source-fetch` serves canned page/blocks JSON and asserts the `source-doc` reply; not-connected toasts "Connect …".
+  `source-fetch` serves canned page + `/markdown` JSON and asserts the `source-doc` reply; opening an unconnected
+  source URL routes to the connect prompt (not a toast), and a fetch failure posts `source-error` into the tab.
 - **Headless capture** — `FakeNotionSource` (wired by `WEAVIE_FAKE_NOTION`, the `WEAVIE_FAKE_PRS` analogue)
   "connects" without a real call and serves a canned doc, so a capture shows the connect → open-doc journey.
 
 ## Deferred
 
 The whole `SourceView` UI (tab-kind union, routing resolver, open-shadow-root renderer + theming, link
-interception, find-in-source, selection→Claude); `SourceDoc.Html`/`Icon`; `web` tabs; the registry-MCP surface
+interception, find-in-source, selection→Claude); the per-doc `Icon`; `web` tabs; the registry-MCP surface
 for sources; an OAuth "Sign in with Notion" path (needs a token-broker); OS-keychain token storage. See the
 parent spec's *Deferred* table.

@@ -14,6 +14,7 @@ public sealed class NotionParsingTests {
 	[InlineData("1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d")]
 	[InlineData("1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d", "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d")]
 	[InlineData("https://www.notion.so/team/Page-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d?pvs=4", "1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d")]
+	[InlineData("https://app.notion.com/p/Test-Page-38e539cbda7b80009371d99b7e333055", "38e539cb-da7b-8000-9371-d99b7e333055")]
 	public void ExtractPageId_HandlesUrlsSlugsAndBareIds(string target, string expected) =>
 		Assert.Equal(expected, NotionSource.ExtractPageId(target));
 
@@ -24,7 +25,10 @@ public sealed class NotionParsingTests {
 	[Theory]
 	[InlineData("https://www.notion.so/My-Page-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", true)]
 	[InlineData("https://acme.notion.site/Public-Page", true)]
+	[InlineData("https://app.notion.com/p/Test-Page-38e539cbda7b80009371d99b7e333055", true)]
+	[InlineData("https://www.notion.com/product", false)] // marketing host, not a page host — opens as a web tab
 	[InlineData("https://github.com/owner/repo", false)]
+	[InlineData("https://notnotion.com/page", false)]
 	[InlineData("/local/path", false)]
 	public void Match_ClaimsNotionHostsOnly(string target, bool expected) =>
 		Assert.Equal(expected, new NotionSource(new HttpClient()).Match(target));
@@ -41,6 +45,15 @@ public sealed class NotionParsingTests {
 	public void ParseTitle_EmptyWhenNoTitleProperty() =>
 		Assert.Equal(string.Empty, NotionSource.ParseTitle("""{ "properties": { "Status": { "type": "select" } } }"""));
 
+	[Fact]
+	public void ParseEditedTime_ReadsLastEditedTime() =>
+		Assert.Equal("2026-06-30T06:15:48.000Z",
+			NotionSource.ParseEditedTime("""{ "last_edited_time": "2026-06-30T06:15:48.000Z" }"""));
+
+	[Fact]
+	public void ParseEditedTime_EmptyWhenAbsent() =>
+		Assert.Equal(string.Empty, NotionSource.ParseEditedTime("""{ "object": "page" }"""));
+
 	[Theory]
 	[InlineData("""{ "bot": { "workspace_name": "Acme" }, "name": "Weavie bot" }""", "Acme")]
 	[InlineData("""{ "name": "Just a name" }""", "Just a name")]
@@ -49,31 +62,27 @@ public sealed class NotionParsingTests {
 		Assert.Equal(expected, NotionSource.ParseWorkspaceName(json));
 
 	[Fact]
-	public void ToMarkdown_MapsTheCommonBlocks() {
-		const string json = """
-		{ "results": [
-			{ "type": "heading_1", "heading_1": { "rich_text": [ { "plain_text": "Title" } ] } },
-			{ "type": "paragraph", "paragraph": { "rich_text": [ { "plain_text": "Hello world" } ] } },
-			{ "type": "bulleted_list_item", "bulleted_list_item": { "rich_text": [ { "plain_text": "one" } ] } },
-			{ "type": "to_do", "to_do": { "checked": true, "rich_text": [ { "plain_text": "done" } ] } },
-			{ "type": "code", "code": { "language": "python", "rich_text": [ { "plain_text": "print(1)" } ] } },
-			{ "type": "divider", "divider": {} }
-		] }
-		""";
-		string markdown = NotionBlockMapper.ToMarkdown(json);
+	public void ParseMarkdown_ReturnsTheMarkdownBodyVerbatim() =>
 		Assert.Equal(
-			"# Title\n\nHello world\n\n- one\n\n- [x] done\n\n```python\nprint(1)\n```\n\n---",
-			markdown);
+			"# Title\n\nHello **world**",
+			NotionSource.ParseMarkdown("""{ "markdown": "# Title\n\nHello **world**", "truncated": false, "unknown_block_ids": [] }"""));
+
+	[Fact]
+	public void ParseMarkdown_PrependsNoticeWhenTruncated() {
+		string result = NotionSource.ParseMarkdown("""{ "markdown": "# Big page", "truncated": true, "unknown_block_ids": [] }""");
+		Assert.StartsWith("> **Note:** This page is incomplete", result);
+		Assert.Contains("per-page block limit", result);
+		Assert.EndsWith("# Big page", result); // the body still follows the notice
 	}
 
 	[Fact]
-	public void ToMarkdown_SkipsEmptyBlocksAndHandlesNoResults() {
-		Assert.Equal(string.Empty, NotionBlockMapper.ToMarkdown("""{ "object": "list" }"""));
-		Assert.Equal("kept", NotionBlockMapper.ToMarkdown("""
-		{ "results": [
-			{ "type": "paragraph", "paragraph": { "rich_text": [] } },
-			{ "type": "paragraph", "paragraph": { "rich_text": [ { "plain_text": "kept" } ] } }
-		] }
-		"""));
+	public void ParseMarkdown_PrependsNoticeWhenBlocksUnreadable() {
+		string result = NotionSource.ParseMarkdown("""{ "markdown": "body", "truncated": false, "unknown_block_ids": ["a", "b"] }""");
+		Assert.StartsWith("> **Note:** This page is incomplete", result);
+		Assert.Contains("2 block(s) couldn't be read", result);
 	}
+
+	[Fact]
+	public void ParseMarkdown_NoNoticeWhenWhole() =>
+		Assert.Equal("body", NotionSource.ParseMarkdown("""{ "markdown": "body", "truncated": false, "unknown_block_ids": [] }"""));
 }

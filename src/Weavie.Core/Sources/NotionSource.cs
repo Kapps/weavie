@@ -2,22 +2,21 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace Weavie.Core.Sources;
 
 /// <summary>
 /// The Notion <see cref="ISource"/>: a thin <see cref="HttpClient"/> client over the Notion API, authenticated by
-/// a user-supplied personal access token. <see cref="Match"/> claims <c>notion.so</c>/<c>notion.site</c> URLs;
-/// <see cref="ValidateAsync"/> checks the token via <c>GET /v1/users/me</c>; <see cref="FetchAsync"/> reads a page
-/// (title) and its child blocks (body) and maps them to a <see cref="SourceDoc"/>. Mirrors
-/// <c>GitHubReviewProvider</c> (injectable client, static pure parsers).
+/// a user-supplied personal access token. <see cref="Match"/> claims <c>notion.so</c>/<c>notion.site</c>/<c>app.notion.com</c> URLs;
+/// <see cref="ValidateAsync"/> checks the token via <c>GET /v1/users/me</c>; <see cref="FetchAsync"/> reads a page's
+/// title (<c>GET /v1/pages/{id}</c>) and its content as (enhanced) markdown (<c>GET /v1/pages/{id}/markdown</c>) into a
+/// <see cref="SourceDoc"/>. Mirrors <c>GitHubReviewProvider</c> (injectable client, static pure parsers).
 /// </summary>
 public sealed class NotionSource : ISource {
 	/// <summary>The Notion source id — the credential key and routing tag.</summary>
 	public const string SourceId = "notion";
 
-	private const string ApiVersion = "2022-06-28";
+	private const string ApiVersion = "2026-03-11";
 
 	private readonly HttpClient _http;
 
@@ -36,13 +35,15 @@ public sealed class NotionSource : ISource {
 	/// <inheritdoc/>
 	public bool Match(string target) => ClaimsUrl(target);
 
-	/// <summary>True when <paramref name="target"/> is a <c>notion.so</c>/<c>notion.site</c> http(s) URL. Static so the headless fake shares one rule.</summary>
+	/// <summary>True when <paramref name="target"/> is a <c>notion.so</c>/<c>notion.site</c> or <c>app.notion.com</c> http(s)
+	/// URL — the hosts that serve pages (the rest of <c>notion.com</c> is marketing/help). Static so the headless fake shares one rule.</summary>
 	public static bool ClaimsUrl(string target) =>
 		Uri.TryCreate(target, UriKind.Absolute, out var uri)
 		&& (uri.Scheme == Uri.UriSchemeHttp || uri.Scheme == Uri.UriSchemeHttps)
 		&& (uri.Host.Equals("notion.so", StringComparison.OrdinalIgnoreCase)
 			|| uri.Host.EndsWith(".notion.so", StringComparison.OrdinalIgnoreCase)
-			|| uri.Host.EndsWith(".notion.site", StringComparison.OrdinalIgnoreCase));
+			|| uri.Host.EndsWith(".notion.site", StringComparison.OrdinalIgnoreCase)
+			|| uri.Host.Equals("app.notion.com", StringComparison.OrdinalIgnoreCase));
 
 	/// <inheritdoc/>
 	public async Task<string> ValidateAsync(string accessToken, CancellationToken ct = default) {
@@ -66,46 +67,48 @@ public sealed class NotionSource : ISource {
 		ArgumentException.ThrowIfNullOrEmpty(target);
 		ArgumentException.ThrowIfNullOrEmpty(accessToken);
 		string id = ExtractPageId(target);
-		string title = ParseTitle(await GetAsync($"https://api.notion.com/v1/pages/{id}", accessToken, ct).ConfigureAwait(false));
-		string tree = await FetchBlockTreeAsync(id, accessToken, ct).ConfigureAwait(false);
-		// One fetched tree → markdown (Claude's channel) + HTML (the rendered surface).
-		return new SourceDoc(title, NotionBlockMapper.ToMarkdown(tree), NotionHtmlMapper.ToHtml(tree));
+		string pageJson = await GetAsync($"https://api.notion.com/v1/pages/{id}", accessToken, ct).ConfigureAwait(false);
+		string body = await GetAsync($"https://api.notion.com/v1/pages/{id}/markdown", accessToken, ct).ConfigureAwait(false);
+		// The markdown is both the rendered surface (web-side) and Claude's reading channel — one projection.
+		return new SourceDoc(ParseTitle(pageJson), ParseMarkdown(body), ParseEditedTime(pageJson));
 	}
 
-	// The page's full block tree as a `{ "results": [...] }` JSON string, with each has_children block's descendants
-	// attached as a `children` array, so the mappers walk one self-contained tree (no fetch callbacks).
-	private async Task<string> FetchBlockTreeAsync(string blockId, string accessToken, CancellationToken ct) {
-		var root = new JsonObject { ["results"] = await FetchChildrenAsync(blockId, accessToken, ct).ConfigureAwait(false) };
-		return root.ToJsonString();
+	/// <summary>Reads a page's <c>last_edited_time</c> (ISO 8601) from its <c>GET /v1/pages/{id}</c> JSON, or empty. Pure, for tests.</summary>
+	public static string ParseEditedTime(string pageJson) {
+		ArgumentNullException.ThrowIfNull(pageJson);
+		using var doc = JsonDocument.Parse(pageJson);
+		return SourceJson.String(doc.RootElement, "last_edited_time");
 	}
 
-	// All children of a block, paged in full (no cap — page until has_more is false), each has_children block
-	// recursively populated. This is the nesting that makes toggles / columns / nested lists render.
-	private async Task<JsonArray> FetchChildrenAsync(string blockId, string accessToken, CancellationToken ct) {
-		var array = new JsonArray();
-		string? cursor = null;
-		do {
-			string url = $"https://api.notion.com/v1/blocks/{blockId}/children?page_size=100"
-				+ (cursor is null ? string.Empty : $"&start_cursor={Uri.EscapeDataString(cursor)}");
-			using var doc = JsonDocument.Parse(await GetAsync(url, accessToken, ct).ConfigureAwait(false));
-			var root = doc.RootElement;
-			if (root.TryGetProperty("results", out var results) && results.ValueKind == JsonValueKind.Array) {
-				foreach (var block in results.EnumerateArray()) {
-					var node = JsonNode.Parse(block.GetRawText())!.AsObject();
-					if (block.TryGetProperty("has_children", out var hc) && hc.ValueKind == JsonValueKind.True
-						&& SourceJson.String(block, "id") is { Length: > 0 } childId) {
-						node["children"] = await FetchChildrenAsync(childId, accessToken, ct).ConfigureAwait(false);
-					}
+	/// <summary>
+	/// Reads a <c>GET /v1/pages/{id}/markdown</c> response (<c>{ markdown, truncated, unknown_block_ids }</c>),
+	/// prepending a visible notice when Notion truncated the page or returned unreadable blocks — so the loss shows
+	/// in the rendered view and in Claude's channel, never a silent log. Pure, for tests.
+	/// </summary>
+	public static string ParseMarkdown(string responseJson) {
+		ArgumentNullException.ThrowIfNull(responseJson);
+		using var doc = JsonDocument.Parse(responseJson);
+		var root = doc.RootElement;
+		string markdown = SourceJson.String(root, "markdown");
+		bool truncated = root.TryGetProperty("truncated", out var t) && t.ValueKind == JsonValueKind.True;
+		int unknown = root.TryGetProperty("unknown_block_ids", out var u) && u.ValueKind == JsonValueKind.Array ? u.GetArrayLength() : 0;
+		return IncompleteNotice(truncated, unknown) is { } notice ? $"{notice}\n\n{markdown}" : markdown;
+	}
 
-					array.Add(node);
-				}
-			}
+	// A blockquote prepended to the markdown when content was lost; null when the page came back whole.
+	private static string? IncompleteNotice(bool truncated, int unknownBlocks) {
+		List<string> reasons = [];
+		if (truncated) {
+			reasons.Add("it's over Notion's per-page block limit");
+		}
 
-			cursor = root.TryGetProperty("has_more", out var more) && more.ValueKind == JsonValueKind.True
-				? SourceJson.String(root, "next_cursor") : null;
-		} while (!string.IsNullOrEmpty(cursor));
+		if (unknownBlocks > 0) {
+			reasons.Add($"{unknownBlocks} block(s) couldn't be read");
+		}
 
-		return array;
+		return reasons.Count == 0
+			? null
+			: $"> **Note:** This page is incomplete — {string.Join(" and ", reasons)}. Open it in Notion for the full content.";
 	}
 
 	private async Task<string> GetAsync(string url, string accessToken, CancellationToken ct) {

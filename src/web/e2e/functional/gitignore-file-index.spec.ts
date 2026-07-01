@@ -1,5 +1,4 @@
-import { execFileSync } from "node:child_process";
-import { writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 
@@ -14,7 +13,7 @@ test("Go-to-File omits gitignored files but keeps tracked + untracked ones", asy
   const ws = weavie.workspace;
   // Ignore a folder via the working-tree .gitignore (read live by `git ls-files --exclude-standard`).
   writeFileSync(join(ws, ".gitignore"), "ignored-zone/\n");
-  execFileSync("mkdir", ["-p", join(ws, "ignored-zone")]);
+  mkdirSync(join(ws, "ignored-zone"), { recursive: true });
   writeFileSync(join(ws, "ignored-zone", "secret-zqx139.txt"), "must not appear\n");
   // An untracked, NOT-ignored file in a normal area — proves new files still open (the --others arm).
   writeFileSync(join(ws, "tracked-probe-zqx139.ts"), "export const x = 1;\n");

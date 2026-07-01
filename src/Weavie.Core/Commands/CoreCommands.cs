@@ -143,6 +143,9 @@ public static class CoreCommands {
 	/// <summary>Saves the active editor; a scratch buffer prompts for a name. Bound to <c>$mod+s</c>.</summary>
 	public const string SaveFile = "weavie.editor.save";
 
+	/// <summary>Opens the recent-files dropdown in the editor tab bar; bound to <c>$mod+e</c>.</summary>
+	public const string OpenRecentFiles = "weavie.editor.recentFiles";
+
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
@@ -755,6 +758,19 @@ public static class CoreCommands {
 			Aliases = ["save", "save file", "save as", "save editor"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+s" }],
 			When = "editorFocused",
+		});
+
+		// Recent files: a dropdown in the editor tab bar listing frecency-ranked recently-opened files. Web-handled
+		// (the dropdown lives in the tab strip). $mod+e is VS Code's quick-open-recent chord and is otherwise free;
+		// the per-binding !terminalFocused guard leaves Ctrl+E as the shell's readline "end of line".
+		registry.Register(new CommandDefinition {
+			Id = OpenRecentFiles,
+			Title = "Open Recent File",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Open the recent-files dropdown in the editor tab bar to reopen a recently-used file.",
+			Aliases = ["recent files", "open recent", "recently opened", "reopen recent file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+e", When = "!terminalFocused" }],
 		});
 
 		// Toggle the active file between Source (Monaco) and a rendered Preview (Markdown today). Gated to

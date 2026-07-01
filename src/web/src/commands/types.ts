@@ -91,6 +91,7 @@ export const CommandIds = {
   copyTabPath: "weavie.editor.copyPath",
   newFile: "weavie.editor.newFile",
   saveFile: "weavie.editor.save",
+  openRecentFiles: "weavie.editor.recentFiles",
   toggleEditorPreview: "weavie.editor.togglePreview",
   openFolder: "weavie.workspace.openFolder",
   openUrl: "weavie.workspace.openUrl",

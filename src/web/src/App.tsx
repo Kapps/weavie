@@ -31,6 +31,7 @@ import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import { PaneFooter } from "./chrome/PaneFooter";
+import { RecentFilesButton } from "./chrome/RecentFilesButton";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -442,13 +443,16 @@ export default function App(): JSX.Element {
             activePath={activePath}
             actions={editor.tabs}
             trailing={
-              // Pane-switch badge: its own cell at the right of the tab bar (no longer floating over the tabs).
-              <Show when={showPaneHints()}>
-                <span class="pane-shortcut">
-                  {CTRL_LABEL}
-                  {numberOf("editor")}
-                </span>
-              </Show>
+              <>
+                {/* Recent-files dropdown, then the pane-switch badge: fixed cells at the right of the tab bar. */}
+                <RecentFilesButton onOpen={(path) => editor.openFile(path, 1)} />
+                <Show when={showPaneHints()}>
+                  <span class="pane-shortcut">
+                    {CTRL_LABEL}
+                    {numberOf("editor")}
+                  </span>
+                </Show>
+              </>
             }
           />
           <div class="editor-pane">

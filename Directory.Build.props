@@ -28,6 +28,13 @@
 
     <!-- Deterministic, clean output -->
     <Deterministic>true</Deterministic>
+
+    <!-- Build identity: fixed SemVer major.minor with the CI build number as the incremental patch (e.g. 0.1.247).
+         Local builds have no build number, so the patch is 0. Shown read-only as the title-bar badge. -->
+    <BuildNumber Condition="'$(BuildNumber)' == '' and '$(GITHUB_RUN_NUMBER)' != ''">$(GITHUB_RUN_NUMBER)</BuildNumber>
+    <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+    <VersionPrefix>0.1.$(BuildNumber)</VersionPrefix>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
 
   <!--

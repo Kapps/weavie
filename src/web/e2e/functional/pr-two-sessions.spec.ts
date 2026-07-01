@@ -30,7 +30,9 @@ async function navigatorFiles(page: import("@playwright/test").Page): Promise<Se
   const seen = new Set<string>();
   for (let i = 0; i < 6; i++) {
     const name = (await label.textContent())?.trim();
-    if (name) {
+    // Only real file names — during a session-switch rebind the stack label transiently reads the parked
+    // cue ("Review changes") before it binds to the incoming session's diff; a filename always has an extension.
+    if (name && /\.\w+$/.test(name)) {
       seen.add(name);
     }
     await page.keyboard.press("ControlOrMeta+ArrowRight");

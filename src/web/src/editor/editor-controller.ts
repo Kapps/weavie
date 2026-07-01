@@ -192,29 +192,26 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     | undefined;
 
   // Translate "active tab changed" → "swap the editor's model": the tab store owns the set, the host owns Monaco.
-  // Resolves once the editor has settled on the file, so a back/forward navigation can await the move.
-  const applyActive = (result: ActivateResult): Promise<boolean> => {
+  const applyActive = (result: ActivateResult): void => {
     deps.onCurrentFileChanged(result.path);
     // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
     // shadow-root render over it) and never read the path as a file.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
     if (activeKind === "web" || activeKind === "source") {
-      return Promise.resolve(true);
+      return;
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
     // review model; re-showing the working copy would drop the diff. resolveReview → endReview restores it.
     if (activeReview !== undefined && samePath(activeReview.path, result.path)) {
-      return Promise.resolve(true);
+      return;
     }
     // If the file can't be read, the editor never swaps its model — close this tab rather than leave it active
     // over a stale/blank pane, and fall back to a surviving neighbor (or clear).
-    const shown = host?.show(result.path, result.placement) ?? Promise.resolve(false);
-    void shown.then((ok) => {
+    void host?.show(result.path, result.placement).then((ok) => {
       if (!ok) {
         rollbackFailedOpen(result.path);
       }
     });
-    return shown;
   };
 
   // Drop a tab whose open failed (no working copy to release) and, if it was active, switch to its neighbor. A
@@ -236,14 +233,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       pendingOpen = { path, line, preview, scratch };
       return;
     }
-    void applyActive(openTab(path, { line, preview, scratch }));
+    applyActive(openTab(path, { line, preview, scratch }));
   };
 
   // Browser-style back/forward over visited editor locations. navigateTo reuses the open/activate path
   // (openTab activates an already-open tab or opens it, then applyActive reveals the line).
   const navHistory: NavHistory = createNavHistory((loc) => {
     if (host !== undefined) {
-      void applyActive(openTab(loc.path, { line: loc.line }));
+      applyActive(openTab(loc.path, { line: loc.line }));
     }
   });
 
@@ -270,19 +267,19 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
   // editor host when this tab is active. Independent of the editor chunk, so it works before Monaco is up.
   const openWebTab = (url: string): void => {
-    void applyActive(openTab(url, { kind: "web" }));
+    applyActive(openTab(url, { kind: "web" }));
   };
 
   // Open a fetched source doc (Notion) as a source tab, keyed by its target. No Monaco model — App overlays the
   // SourceView shadow-root render over the editor host when this tab is active; SourceView reads the html by target.
   const openSourceTab = (target: string): void => {
-    void applyActive(openTab(target, { kind: "source" }));
+    applyActive(openTab(target, { kind: "source" }));
   };
 
   // Switch the editor off a closing tab before its working copy is released, else clear to an empty pane.
   const applyOrClear = (next: ActivateResult | null): void => {
     if (next !== null) {
-      void applyActive(next);
+      applyActive(next);
     } else {
       host?.clear();
       deps.onCurrentFileChanged(null);
@@ -433,7 +430,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const result = activateTab(target.path);
     if (result !== null) {
-      void applyActive(result);
+      applyActive(result);
     }
     return true;
   };
@@ -459,7 +456,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     activate: (path) => {
       const result = activateTab(path);
       if (result !== null) {
-        void applyActive(result);
+        applyActive(result);
       }
     },
     close: (path) => {
@@ -769,7 +766,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         setReviewActive(true);
         // Make the reviewed file active so the strip + title name it; activeReview is set first, so
         // applyActive's guard keeps the transient review model showing.
-        void applyActive(openTab(message.path));
+        applyActive(openTab(message.path));
         if (reviewUri !== undefined) {
           inlineDiff?.setByUri(reviewUri, {
             original: message.original,
@@ -817,7 +814,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (message.reopen) {
           const result = convertScratch(message.scratchPath, message.savedPath);
           if (result !== null) {
-            void applyActive(result);
+            applyActive(result);
           }
         } else {
           const wasActive = activePath() === message.scratchPath;

@@ -100,8 +100,7 @@ public sealed class HostCoreSourcesTests {
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("Body **text**", doc.GetProperty("markdown").GetString()); // the single render + Claude channel
 		Assert.Equal("2026-06-30T06:15:48.000Z", doc.GetProperty("editedTime").GetString()); // read from the page JSON
-		// A source-loading was posted first (so the tab opens with a spinner during the fetch), titled from the slug.
-		var loading = host.Bridge.LastOfType("source-loading")!.Value;
+		var loading = host.Bridge.LastOfType("source-loading")!.Value; // posted first, so the tab opens with a spinner during the fetch, titled from the slug
 		Assert.Equal("Spec", loading.GetProperty("title").GetString());
 	}
 

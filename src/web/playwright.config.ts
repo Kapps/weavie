@@ -14,10 +14,17 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
-  workers: "75%",
+  // Each functional test spawns a real dotnet host (+ fake-claude + browser). Linux CI runners handle 75%
+  // concurrency fine; the hosted macOS/Windows runners are slower and oversubscribed, so N parallel hosts
+  // starve each other and the full fake→hook→MCP→render round-trip blows the assertion timeouts. Serialize
+  // there so each test gets the whole box — the suite passes on the same hardware, just not 3-up.
+  workers: process.platform === "linux" ? "75%" : 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 1 : 0,
   reporter: "list",
+  // A weavie e2e assertion often waits on a full-stack round-trip (host + fake-claude + hook bridge + MCP +
+  // render), not a DOM tick, so the 5s Playwright default is too tight on a cold pipeline / slow runner.
+  expect: { timeout: 15_000 },
   use: {
     headless: true,
     trace: "retain-on-failure",

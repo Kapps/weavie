@@ -1,6 +1,7 @@
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
@@ -34,6 +35,9 @@ internal sealed class AppController : ApplicationContext {
 	public AppController() {
 		// Dark chrome for any WinForms ToolStrip/context menu rendered process-wide.
 		AppMenu.UseDarkChrome();
+
+		// Tee the console into the in-app log viewer first, so every store's construction log below is captured too.
+		LogBuffer = LogBuffer.InstallConsoleCapture();
 
 		// User settings from ~/.weavie/settings.toml; the change hub windows react to (e.g. a shell change reopens
 		// the shell pane).
@@ -146,6 +150,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global session-rail UI state (rail-state.json), shared across windows.</summary>
 	public RailStateStore RailState { get; }
+
+	/// <summary>App-global captured console output (stdout/stderr), backing the in-app log viewer; one buffer per process.</summary>
+	public LogBuffer LogBuffer { get; }
 
 	/// <summary>
 	/// Opens <paramref name="root"/> as a workspace: focuses the existing window if already open, else opens a new

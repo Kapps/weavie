@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { type NavHistory, type NavLocation, createNavHistory } from "./nav-history";
 
+// Drains microtasks + timers so the in-flight guard (released in navigateTo's .finally) clears between a
+// step and the next user action — mirroring a real back/forward whose async model swap has landed.
+const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve));
+
 let nav: NavHistory;
 let visited: NavLocation[];
 
@@ -8,6 +12,7 @@ beforeEach(() => {
   visited = [];
   nav = createNavHistory((loc) => {
     visited.push(loc);
+    return Promise.resolve();
   });
 });
 
@@ -18,15 +23,17 @@ describe("createNavHistory", () => {
     expect(visited).toEqual([]);
   });
 
-  it("steps back and forward through recorded jumps", () => {
+  it("steps back and forward through recorded jumps", async () => {
     nav.record({ path: "/a.ts", line: 1 });
     nav.record({ path: "/b.ts", line: 1 });
     nav.record({ path: "/c.ts", line: 1 });
 
     expect(nav.back()).toBe(true);
     expect(visited.at(-1)).toEqual({ path: "/b.ts", line: 1 });
+    await settle();
     expect(nav.back()).toBe(true);
     expect(visited.at(-1)).toEqual({ path: "/a.ts", line: 1 });
+    await settle();
     expect(nav.back()).toBe(false); // at the oldest entry
 
     expect(nav.forward()).toBe(true);
@@ -43,12 +50,13 @@ describe("createNavHistory", () => {
     expect(visited.at(-1)).toEqual({ path: "/a.ts", line: 8 }); // returns to the latest small-move position
   });
 
-  it("drops forward history when a fresh jump follows a back step", () => {
+  it("drops forward history when a fresh jump follows a back step", async () => {
     nav.record({ path: "/a.ts", line: 1 });
     nav.record({ path: "/b.ts", line: 1 });
     nav.record({ path: "/c.ts", line: 1 });
 
     expect(nav.back()).toBe(true); // → b
+    await settle(); // the step's swap lands; the guard clears
     nav.record({ path: "/d.ts", line: 1 }); // new jump from b truncates c
     expect(nav.forward()).toBe(false); // nothing ahead of d
 
@@ -56,14 +64,27 @@ describe("createNavHistory", () => {
     expect(visited.at(-1)).toEqual({ path: "/b.ts", line: 1 });
   });
 
-  it("coalesces the settle that follows a step, preserving the other side's history", () => {
+  it("suppresses a settle-record fired mid-swap, so a step never truncates the far side", async () => {
+    // Model the real async model swap: navigateTo resolves only when we release it, and a debounced
+    // settle-record fires *during* the swap while the editor still reports the previous file.
+    let releaseSwap: (() => void) | undefined;
+    visited = [];
+    nav = createNavHistory((loc) => {
+      visited.push(loc);
+      return new Promise<void>((resolve) => {
+        releaseSwap = resolve;
+      });
+    });
     nav.record({ path: "/a.ts", line: 1 });
-    nav.record({ path: "/b.ts", line: 1 });
+    nav.record({ path: "/b.ts", line: 1 }); // [a, b], at b
 
-    expect(nav.back()).toBe(true); // navigate to a
-    nav.record({ path: "/a.ts", line: 1 }); // the cursor settle the nav itself triggers — coalesces in place
+    expect(nav.back()).toBe(true); // step to a; the swap is in flight
+    nav.record({ path: "/b.ts", line: 1 }); // mid-swap settle still reports b — must be ignored
+    releaseSwap?.();
+    await settle();
 
-    expect(nav.forward()).toBe(true); // forward to b survived (history wasn't truncated)
+    // Without the in-flight guard this record would truncate the forward stack and Forward would be dead.
+    expect(nav.forward()).toBe(true);
     expect(visited.at(-1)).toEqual({ path: "/b.ts", line: 1 });
   });
 

@@ -28,16 +28,23 @@ const JUMP_LINES = 10;
 const LIMIT = 50;
 
 /**
- * Creates the navigation history. `navigateTo` drives the editor to a recorded location; the (debounced)
- * settle that follows re-records that same location, which coalesces back into the current entry — so a
- * back/forward step never grows the history or drops the entries on the other side of it.
+ * Creates the navigation history. `navigateTo` drives the editor to a recorded location and resolves once the
+ * (async) model swap has landed. Records are suppressed for the whole span of that swap: mid-swap the editor
+ * still reports the *previous* file, so an un-guarded settle-record would look like a fresh jump and truncate
+ * the forward history — so this promise being awaited is load-bearing, not decorative.
  */
-export function createNavHistory(navigateTo: (loc: NavLocation) => void): NavHistory {
+export function createNavHistory(navigateTo: (loc: NavLocation) => Promise<void>): NavHistory {
   const entries: NavLocation[] = [];
   // Index of the current location in `entries`; -1 until the first record.
   let index = -1;
+  // >0 while a back()/forward() step's async model swap is in flight, so a settle-record that fires before the
+  // swap lands (reporting the old location) doesn't truncate the history we're stepping through.
+  let navigating = 0;
 
   const record = (loc: NavLocation): void => {
+    if (navigating > 0) {
+      return;
+    }
     const current = entries[index];
     if (
       current !== undefined &&
@@ -63,7 +70,10 @@ export function createNavHistory(navigateTo: (loc: NavLocation) => void): NavHis
       return false;
     }
     index = target;
-    navigateTo(loc);
+    navigating += 1;
+    void navigateTo(loc).finally(() => {
+      navigating -= 1;
+    });
     return true;
   };
 

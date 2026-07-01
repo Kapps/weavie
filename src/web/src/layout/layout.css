@@ -277,3 +277,53 @@
   position: absolute;
   inset: 0;
 }
+
+/* Per-pane status footer: a thin info strip pinned to the bottom of the editor / terminal surfaces. Fixed
+   height (flex 0 0 auto, like .pane-head) so it subtracts a constant from the pane body and never fights the
+   focus-accordion sizing of the panes above it. */
+.pane-footer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 9px;
+  background: var(--bar);
+  border-top: 1px solid var(--border);
+  color: var(--dim);
+  font-size: 11px;
+  line-height: 17px;
+  user-select: none;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.footer-seg {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex: 0 0 auto;
+}
+
+/* Pushes the trailing segments (language/EOL, Claude status) to the right edge. */
+.footer-spacer {
+  flex: 1 1 auto;
+}
+
+.footer-accent {
+  color: var(--accent);
+}
+
+.footer-glyph {
+  color: var(--accent);
+}
+
+/* The branch name may be long; let its segment shrink and ellipsize rather than push the bar wider. */
+.footer-branch {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.footer-branch-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

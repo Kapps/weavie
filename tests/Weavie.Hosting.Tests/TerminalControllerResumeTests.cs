@@ -65,6 +65,36 @@ public sealed class TerminalControllerResumeTests {
 	}
 
 	[Fact]
+	public void ResumeWhoseTranscriptIsMissing_LaunchesFreshUnderSameId() {
+		// The reported bug: a prior run marked the session resumable, but Claude no longer has its transcript under
+		// this cwd (cleared, or filed under a different directory). The launch must NOT --resume a doomed id — it
+		// re-creates it under --session-id instead of greeting the user with "No conversation found".
+		using var h = new Harness();
+		string id = h.SessionId;
+		h.Store.Adopt(h.Workspace, id);
+		h.Controller.ClaudeTranscripts = new ClaudeTranscripts(new InMemoryFileSystem(), "/claude/projects");
+
+		h.Controller.OnReady(80, 24);
+
+		Assert.Equal(["--session-id", id], h.Launcher.LastClaudeSessionArguments);
+	}
+
+	[Fact]
+	public void ResumeWhoseTranscriptExists_LaunchesWithResume() {
+		using var h = new Harness();
+		string id = h.SessionId;
+		h.Store.Adopt(h.Workspace, id);
+		var fs = new InMemoryFileSystem();
+		var transcripts = new ClaudeTranscripts(fs, "/claude/projects");
+		fs.WriteAllText(transcripts.TranscriptPath(h.Workspace, id), "{}"); // Claude has the conversation
+		h.Controller.ClaudeTranscripts = transcripts;
+
+		h.Controller.OnReady(80, 24);
+
+		Assert.Equal(["--resume", id], h.Launcher.LastClaudeSessionArguments);
+	}
+
+	[Fact]
 	public void ClearHook_AbandonsTheTrackedSession() {
 		using var h = new Harness();
 		string id = h.SessionId;

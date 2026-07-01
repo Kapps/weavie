@@ -118,6 +118,13 @@ public sealed class TerminalController : IDisposable {
 	public ClaudeSessionStore? ClaudeSessions { get; set; }
 
 	/// <summary>
+	/// Locator for Claude's on-disk transcripts, wired alongside <see cref="ClaudeSessions"/> (claude session only),
+	/// so a <c>--resume</c> is only launched when its conversation actually exists — otherwise the id is re-created
+	/// fresh instead of resuming into "No conversation found". Null disables the check (the launch resumes as before).
+	/// </summary>
+	public IClaudeTranscripts? ClaudeTranscripts { get; set; }
+
+	/// <summary>
 	/// Raised on every supervisor transition for this session's process, so a per-session status indicator can map
 	/// it (crash/crash-loop → Error, post-crash restart → Starting). Fires on the supervisor's thread; don't block.
 	/// </summary>
@@ -320,7 +327,15 @@ public sealed class TerminalController : IDisposable {
 			return null;
 		}
 
-		return store.Resolve(Workspace);
+		var launch = store.Resolve(Workspace);
+		// A resume only works if Claude still holds the transcript for this id under this cwd. When it doesn't
+		// (the conversation was cleared, or filed under a different directory), create it fresh under the same id
+		// rather than launch a doomed --resume that greets the user with "No conversation found".
+		if (launch.Resume && ClaudeTranscripts is { } transcripts && !transcripts.Exists(Workspace, launch.SessionId)) {
+			return launch with { Resume = false };
+		}
+
+		return launch;
 	}
 
 	/// <summary>Tears down the current PTY child and its optional log; the supervisor calls this on stop/dispose.</summary>

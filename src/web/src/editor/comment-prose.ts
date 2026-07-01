@@ -86,7 +86,8 @@ function blockInMode(block: CommentBlock, mode: CommentProseMode): boolean {
 }
 
 // Build the prose DOM for a block: one `white-space: pre` node with line-height pinned to the editor's, source
-// lines separated by real newlines, inline `code` lifted to chips, indented to `indentPx`. Pre + matched
+// lines separated by real newlines, inline `code` lifted to chips and Markdown emphasis to styled spans,
+// indented to `indentPx`. Pre + matched
 // line-height makes the node's height deterministically `lines.length × lineHeight` (the raw footprint), no measurement.
 function buildProseNode(
   editor: monaco.editor.IStandaloneCodeEditor,
@@ -112,6 +113,13 @@ function buildProseNode(
         code.className = "weavie-comment-code";
         code.textContent = run.code;
         node.appendChild(code);
+      } else if (run.strong || run.em || run.strike) {
+        const span = document.createElement("span");
+        if (run.strong) span.classList.add("weavie-comment-strong");
+        if (run.em) span.classList.add("weavie-comment-em");
+        if (run.strike) span.classList.add("weavie-comment-strike");
+        span.textContent = run.text;
+        node.appendChild(span);
       } else {
         node.appendChild(document.createTextNode(run.text));
       }

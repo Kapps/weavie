@@ -75,6 +75,8 @@ public sealed partial class HostCore {
 		session.Status.Changed += status => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
+				// A turn settling may have changed files / the branch — refresh the footer's git status.
+				PushGitStatus();
 			}
 
 			// The review set is pushed live on every edit (Changes.Changed), so the page's parked navigator
@@ -426,6 +428,8 @@ public sealed partial class HostCore {
 		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree).
 		PushLspConfigToWeb(session);
 		PostSessionStatus(session.Status.Status);
+		// Push the incoming session's worktree branch to the footer (its worktree may be on a different branch).
+		PushGitStatus();
 		// Catch the page up on the incoming session's inline turn-review: its muted-while-background diffs (and
 		// the ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
 		// session's walk would linger. Pushed after the status so the web's auto-arm sees the idle state.

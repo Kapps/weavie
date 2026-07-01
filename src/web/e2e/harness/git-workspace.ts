@@ -30,6 +30,9 @@ export async function createGitWorkspace(): Promise<string> {
   git("init", "-q", "-b", "main");
   git("config", "user.email", "e2e@example.com");
   git("config", "user.name", "Weavie E2E");
+  // Keep line endings LF regardless of the runner's global git config (GitHub's Windows image defaults
+  // core.autocrlf=true), so seeded/worktree content matches the LF the specs assert on across every OS.
+  git("config", "core.autocrlf", "false");
   git("add", "-A");
   git("commit", "-q", "-m", "seed");
   return dir;
@@ -84,6 +87,7 @@ export async function createPrWorkspace(): Promise<{
   g(dir, "init", "-q", "-b", "main");
   g(dir, "config", "user.email", "e2e@example.com");
   g(dir, "config", "user.name", "Weavie E2E");
+  g(dir, "config", "core.autocrlf", "false"); // LF regardless of the runner's global config (see createGitWorkspace)
   // origin's stored URL is a github.com one (so RepoRef parses owner/repo), rewritten to the local bare repo for
   // every transport — no network, fully deterministic.
   g(dir, "remote", "add", "origin", originUrl);

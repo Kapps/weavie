@@ -84,6 +84,8 @@ export const CommandIds = {
   closeTabsToRight: "weavie.editor.closeToRight",
   togglePinTab: "weavie.editor.togglePin",
   reopenClosed: "weavie.editor.reopenClosed",
+  navBack: "weavie.navigation.back",
+  navForward: "weavie.navigation.forward",
   copyTabName: "weavie.editor.copyName",
   copyTabRelativePath: "weavie.editor.copyRelativePath",
   copyTabPath: "weavie.editor.copyPath",

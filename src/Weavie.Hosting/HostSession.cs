@@ -84,6 +84,8 @@ public sealed class HostSession : IAsyncDisposable {
 			Workspace = workspaceRoot,
 			// Resume this session's worktree's previous Claude conversation across launches (gated by the setting).
 			ClaudeSessions = claudeSessions,
+			// Only --resume when Claude still has the transcript, so a dead/relocated id cold-starts instead of looping.
+			ClaudeTranscripts = new ClaudeTranscripts(fileSystem, Weavie.Core.ClaudeConfigPaths.ProjectsDirectory),
 		};
 		Shell = new TerminalController(bridge, "shell", settings, ptyLauncher) { Workspace = workspaceRoot };
 		// The session's gate for editor-mutating page messages: a muted (non-active) session holds its editor work

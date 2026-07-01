@@ -78,11 +78,49 @@ describe("parseCommentLines — inline backticks", () => {
   });
 
   it("keeps a literal backtick for an unterminated span", () => {
-    expect(parseCommentLines(["a `b"], false)).toEqual([[{ text: "a " }, { text: "`b" }]]);
+    expect(parseCommentLines(["a `b"], false)).toEqual([[{ text: "a `b" }]]);
   });
 
   it("represents an empty line as a single empty text run", () => {
     expect(parseCommentLines([""], false)).toEqual([[{ text: "" }]]);
+  });
+});
+
+describe("parseCommentLines — Markdown emphasis", () => {
+  it("marks *italic* / _italic_ as em runs", () => {
+    expect(parseCommentLines(["a *b* and _c_"], false)).toEqual([
+      [{ text: "a " }, { text: "b", em: true }, { text: " and " }, { text: "c", em: true }],
+    ]);
+  });
+
+  it("marks **bold** / __bold__ as strong runs", () => {
+    expect(parseCommentLines(["**b** __c__"], false)).toEqual([
+      [{ text: "b", strong: true }, { text: " " }, { text: "c", strong: true }],
+    ]);
+  });
+
+  it("marks ~~struck~~ text as a strike run", () => {
+    expect(parseCommentLines(["~~gone~~"], false)).toEqual([[{ text: "gone", strike: true }]]);
+  });
+
+  it("combines nested emphasis (***bold italic***)", () => {
+    expect(parseCommentLines(["***x***"], false)).toEqual([
+      [{ text: "x", strong: true, em: true }],
+    ]);
+  });
+
+  it("leaves an intraword underscore (snake_case) as plain text", () => {
+    expect(parseCommentLines(["call my_func_name now"], false)).toEqual([
+      [{ text: "call my_func_name now" }],
+    ]);
+  });
+
+  it("does not emphasise an asterisk used as multiplication", () => {
+    expect(parseCommentLines(["n = a * b * c"], false)).toEqual([[{ text: "n = a * b * c" }]]);
+  });
+
+  it("renders a backslash-escaped marker as the literal character", () => {
+    expect(parseCommentLines(["\\*not bold\\*"], false)).toEqual([[{ text: "*not bold*" }]]);
   });
 });
 

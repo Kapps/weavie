@@ -163,8 +163,8 @@ export async function createEditorHost(
     emitTimer = setTimeout(emitActiveEditor, 150);
   };
 
-  // Drive the editor status footer (cursor/selection/language/EOL). Written synchronously — the footer wants
-  // immediate cursor feedback, unlike the debounced host emit above. Null when no real file model is showing.
+  // Drive the editor status footer (cursor/selection/EOL). Written synchronously — the footer wants immediate
+  // cursor feedback, unlike the debounced host emit above. Null when no real file model is showing.
   const updateStatus = (): void => {
     const model = editor.getModel();
     const position = editor.getPosition();
@@ -180,7 +180,6 @@ export async function createEditorHost(
       line: position.lineNumber,
       column: position.column,
       selectionCount,
-      languageId: model.getLanguageId(),
       eol: model.getEndOfLineSequence() === monaco.editor.EndOfLineSequence.CRLF ? "CRLF" : "LF",
     });
   };
@@ -193,7 +192,6 @@ export async function createEditorHost(
     // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
-    editor.onDidChangeModelLanguage(updateStatus),
   ];
 
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error

@@ -34,14 +34,7 @@ export function EditorFooter(props: {
         <span class="footer-seg footer-accent">Unsaved</span>
       </Show>
       <Show when={editorStatus()}>
-        {(status) => (
-          <>
-            <span class="footer-seg">{status().eol}</span>
-            <Show when={status().languageId !== "plaintext"}>
-              <span class="footer-seg">{status().languageId}</span>
-            </Show>
-          </>
-        )}
+        {(status) => <span class="footer-seg">{status().eol}</span>}
       </Show>
       <RecentFilesButton onOpen={props.onOpenRecent} root={props.root} />
     </div>

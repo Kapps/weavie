@@ -52,62 +52,62 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "switch-session": {
-				string switchId = root.GetStringOrEmpty("id");
-				if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
-					SwitchToSlot(target);
+					string switchId = root.GetStringOrEmpty("id");
+					if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
+						SwitchToSlot(target);
+					}
+
+					break;
 				}
 
-				break;
-			}
-
 			case "new-session": {
-				string? branch = root.GetStringOrNull("branch");
-				// "existing" ⇒ check out the named branch into a new worktree rather than creating a new branch.
-				bool existing = root.GetBoolOrFalse("existing");
-				// Normalize the page's base ("head"/"main") to "current"/"main"; ignored for an existing-branch checkout.
-				string? baseSpec = root.GetStringOrNull("base");
-				string? resolvedBase = baseSpec is null
-					? null
-					: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
-				_ = CreateSessionFromWebAsync(branch, resolvedBase, existing);
-				break;
-			}
+					string? branch = root.GetStringOrNull("branch");
+					// "existing" ⇒ check out the named branch into a new worktree rather than creating a new branch.
+					bool existing = root.GetBoolOrFalse("existing");
+					// Normalize the page's base ("head"/"main") to "current"/"main"; ignored for an existing-branch checkout.
+					string? baseSpec = root.GetStringOrNull("base");
+					string? resolvedBase = baseSpec is null
+						? null
+						: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
+					_ = CreateSessionFromWebAsync(branch, resolvedBase, existing);
+					break;
+				}
 
 			case "dismiss-suggestion":
 				DismissSuggestion(root.GetStringOrEmpty("id"), root.GetBoolOrFalse("forever"));
 				break;
 
 			case "list-branches": {
-				_ = ListBranchesForWebAsync(root.GetStringOrEmpty("id"));
-				break;
-			}
+					_ = ListBranchesForWebAsync(root.GetStringOrEmpty("id"));
+					break;
+				}
 
 			case "list-prs": {
-				_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("query"));
-				break;
-			}
+					_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("query"));
+					break;
+				}
 
 			case "open-pr": {
-				_ = OpenPullRequestFromWebAsync(
-					JsonInt(root, "number"),
-					root.GetStringOrEmpty("owner"),
-					root.GetStringOrEmpty("repo"));
-				break;
-			}
+					_ = OpenPullRequestFromWebAsync(
+						JsonInt(root, "number"),
+						root.GetStringOrEmpty("owner"),
+						root.GetStringOrEmpty("repo"));
+					break;
+				}
 
 			case "resolve-pr": {
-				_ = GetPullRequestForWebAsync(
-					root.GetStringOrEmpty("id"),
-					JsonInt(root, "number"),
-					root.GetStringOrEmpty("owner"),
-					root.GetStringOrEmpty("repo"));
-				break;
-			}
+					_ = GetPullRequestForWebAsync(
+						root.GetStringOrEmpty("id"),
+						JsonInt(root, "number"),
+						root.GetStringOrEmpty("owner"),
+						root.GetStringOrEmpty("repo"));
+					break;
+				}
 
 			case "get-pr-diff": {
-				_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
-				break;
-			}
+					_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
+					break;
+				}
 
 			case "connect-notion":
 				PromptConnectNotion();
@@ -121,15 +121,15 @@ public sealed partial class HostCore {
 				break;
 
 			case "add-pr-comment": {
-				_ = AddPrCommentFromWebAsync(
-					JsonInt(root, "number"),
-					root.GetStringOrEmpty("path"),
-					JsonInt(root, "line"),
-					root.GetStringOrEmpty("side"),
-					root.TryGetProperty("inReplyTo", out var irt) && irt.ValueKind == JsonValueKind.Number ? irt.GetInt64() : 0,
-					root.GetStringOrEmpty("body"));
-				break;
-			}
+					_ = AddPrCommentFromWebAsync(
+						JsonInt(root, "number"),
+						root.GetStringOrEmpty("path"),
+						JsonInt(root, "line"),
+						root.GetStringOrEmpty("side"),
+						root.TryGetProperty("inReplyTo", out var irt) && irt.ValueKind == JsonValueKind.Number ? irt.GetInt64() : 0,
+						root.GetStringOrEmpty("body"));
+					break;
+				}
 
 			case "diff-resolved":
 				string diffId = root.GetProperty("id").GetString() ?? string.Empty;
@@ -348,16 +348,16 @@ public sealed partial class HostCore {
 				_session?.Scratch.Delete(root.GetStringOrEmpty("path"));
 				break;
 			case "add-remote-agent": {
-				// The web validated the runner (it owns the connection); persist the agent here so it survives
-				// restart. The store's Changed re-pushes the registry to every window's page.
-				var agent = new RemoteAgent(
-					root.GetStringOrEmpty("name"), root.GetStringOrEmpty("url"), root.GetStringOrEmpty("token"));
-				if (!string.IsNullOrEmpty(agent.Name)) {
-					_remoteAgents.Add(agent);
-				}
+					// The web validated the runner (it owns the connection); persist the agent here so it survives
+					// restart. The store's Changed re-pushes the registry to every window's page.
+					var agent = new RemoteAgent(
+						root.GetStringOrEmpty("name"), root.GetStringOrEmpty("url"), root.GetStringOrEmpty("token"));
+					if (!string.IsNullOrEmpty(agent.Name)) {
+						_remoteAgents.Add(agent);
+					}
 
-				break;
-			}
+					break;
+				}
 
 			case "remove-remote-agent":
 				_remoteAgents.Remove(root.GetStringOrEmpty("name"));

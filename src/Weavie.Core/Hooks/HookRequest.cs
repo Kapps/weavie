@@ -87,7 +87,7 @@ public sealed record HookRequest {
 	private static HookEventKind MapEvent(string? name) => name switch {
 		"PreToolUse" => HookEventKind.PreToolUse,
 		"PostToolUse" => HookEventKind.PostToolUse,
-			"PermissionRequest" => HookEventKind.PermissionRequest,
+		"PermissionRequest" => HookEventKind.PermissionRequest,
 		"UserPromptSubmit" => HookEventKind.UserPromptSubmit,
 		"Stop" => HookEventKind.Stop,
 		"Notification" => HookEventKind.Notification,

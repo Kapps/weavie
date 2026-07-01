@@ -122,14 +122,17 @@ jobs:
       - name: Verify .NET formatting
         run: dotnet format ${{ matrix.project }} --verify-no-changes --no-restore
 
-      # The shells above transitively cover Core + Hosting, but the test projects, in-repo analyzers,
-      # the runner, the headless host, and the dev tools build only off the matrix. Verify their
-      # formatting on Linux (the one OS that restores them all). Each format restores its own project.
+      # `dotnet format` only checks a project's own documents, not its referenced projects — so the shell
+      # builds above verify Core + Hosting compilation but NOT their formatting. Format every non-shell
+      # project here (Core, Hosting, the test projects, analyzers, runner, headless, dev tools) on Linux
+      # (the one OS that restores them all) so no assembly's formatting goes ungated. Each restores itself.
       - name: Verify .NET formatting (off-matrix projects)
         if: matrix.name == 'linux'
         run: |
           set -e
           for proj in \
+            src/Weavie.Core/Weavie.Core.csproj \
+            src/Weavie.Hosting/Weavie.Hosting.csproj \
             src/Weavie.Headless/Weavie.Headless.csproj \
             src/Weavie.Runner/Weavie.Runner.csproj \
             src/Weavie.Analyzers/Weavie.Analyzers.csproj \

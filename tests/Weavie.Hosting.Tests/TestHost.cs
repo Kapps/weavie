@@ -2,6 +2,7 @@ using System.Diagnostics;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
@@ -107,6 +108,8 @@ internal sealed class TestHost : IAsyncDisposable {
 			PullRequests = new Weavie.Core.Review.StaticPullRequestProvider([], []),
 			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
+			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).
+			LogBuffer = new LogBuffer(LogBuffer.DefaultCapacity),
 		};
 	}
 

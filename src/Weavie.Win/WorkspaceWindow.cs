@@ -97,6 +97,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			PullRequests = github,
 			ReviewComments = github,
 			Sources = Weavie.Core.Sources.SourceConnector.CreateDefault(),
+			LogBuffer = _app.LogBuffer,
 		}, workspaceRoot);
 		// On the page's `ready`, push the native window state (maximize glyph + blur dim) the core can't know.
 		_core.Ready += OnPageReady;

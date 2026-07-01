@@ -370,6 +370,11 @@ public sealed partial class HostCore {
 				// The page's promoted-remote-session set changed; persist the full set it sent.
 				_railState.SetPromoted(StringArray(root, "promoted"));
 				break;
+			case "log":
+				// A web-side log() (e.g. an editor-init failure): route it into the captured console stream, tagged,
+				// so it lands in the in-app log viewer as a readable line rather than raw JSON.
+				Log($"[web:{root.GetStringOrEmpty("level")}] {root.GetStringOrEmpty("message")}");
+				break;
 			default:
 				Log($"[weavie] {json}");
 				break;

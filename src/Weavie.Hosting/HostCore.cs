@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
@@ -37,6 +38,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly RemoteAgentStore _remoteAgents;
 	// App-global session-rail UI state (last-used backend + promoted remote sessions); same push pattern.
 	private readonly RailStateStore _railState;
+	// App-global captured console output (stdout/stderr teed into a bounded ring), served by the in-app log viewer.
+	private readonly LogBuffer _logBuffer;
 	// Lists open PRs for the Open-PR flow (GitHub by default; a static stub under the headless harness).
 	private readonly Weavie.Core.Review.IPullRequestProvider _pullRequests;
 	// Loads/posts a PR's review comments (same GitHub client, or the harness stub).
@@ -97,6 +100,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_claudeSessions = services.ClaudeSessions;
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
+		_logBuffer = services.LogBuffer;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
 		_sources = services.Sources;

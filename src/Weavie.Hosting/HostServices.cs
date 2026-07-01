@@ -1,6 +1,7 @@
 using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
@@ -65,11 +66,16 @@ public sealed record HostServices {
 	/// </summary>
 	public required ISourceConnector Sources { get; init; }
 
+	/// <summary>The process's captured console output (stdout/stderr teed into a bounded ring), backing the in-app log viewer.</summary>
+	public required LogBuffer LogBuffer { get; init; }
+
 	/// <summary>
 	/// Builds the standard single-process store set — settings + keybindings watched live, console logging
 	/// wired — for hosts that own exactly one workspace per process (Mac/Linux/Headless).
 	/// </summary>
 	public static HostServices CreateDefault() {
+		// Install the console tee first so every store's construction log below lands in the in-app log viewer too.
+		var logBuffer = LogBuffer.InstallConsoleCapture();
 		var settings = CoreSettings.CreateStore(filePath: null, enableWatcher: true);
 		settings.Log += Log;
 		var registry = CoreCommands.CreateRegistry();
@@ -97,6 +103,7 @@ public sealed record HostServices {
 			PullRequests = github,
 			ReviewComments = github,
 			Sources = SourceConnector.CreateDefault(),
+			LogBuffer = logBuffer,
 		};
 	}
 

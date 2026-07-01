@@ -185,6 +185,9 @@ public static class CoreCommands {
 	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
 	public const string ConnectNotion = "weavie.source.connectNotion";
 
+	/// <summary>Opens Weavie's captured console output (host stdout/stderr) in a read-only tab, and returns the recent tail to Claude. Diagnostic; palette + Claude, no default keybinding.</summary>
+	public const string ViewLogs = "weavie.view.logs";
+
 	/// <summary>Builds a registry pre-loaded with the built-in commands.</summary>
 	public static CommandRegistry CreateRegistry() {
 		var registry = new CommandRegistry();
@@ -895,6 +898,19 @@ public static class CoreCommands {
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
 				+ "it for you.",
 			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
+		});
+
+		// In-app log viewer (Core-handled in HostCore.Logs.cs): opens the captured console output as a read-only
+		// tab and, when Claude runs it, returns the recent tail. Diagnostic — palette + Claude, no keybinding.
+		registry.Register(new CommandDefinition {
+			Id = ViewLogs,
+			Title = "View Logs",
+			RunsIn = CommandLocation.Core,
+			Category = "View",
+			Description = "Open Weavie's captured console output (the host's stdout/stderr) in a read-only tab — the "
+				+ "diagnostics log. When Claude runs it, the most recent lines come back too, so it can see errors that "
+				+ "would otherwise only appear in the terminal Weavie was launched from.",
+			Aliases = ["view logs", "show logs", "open logs", "diagnostics", "stdout", "console output", "log viewer"],
 		});
 
 		// Multi-session + worktree commands: Core-handled new/fork/close wired per host via

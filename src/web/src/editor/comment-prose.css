@@ -42,6 +42,20 @@
   background: var(--bar, rgba(127, 127, 127, 0.08));
 }
 
+/* Markdown emphasis lifted from the comment source (see comment-markup.ts). The prose is already italic, so a
+   second slant wouldn't read — emphasis instead surfaces through a brighter foreground (the base is the dim
+   comment hue), with **strong** also carrying weight and ~~strike~~ a line-through. */
+.weavie-comment-prose .weavie-comment-strong {
+  font-weight: 600;
+  color: var(--fg, #c9d1d9);
+}
+.weavie-comment-prose .weavie-comment-em {
+  color: var(--fg, #c9d1d9);
+}
+.weavie-comment-prose .weavie-comment-strike {
+  text-decoration: line-through;
+}
+
 /* Inline code chips: a small pill that lifts `bake` / `go run` style spans out of the prose. Monospace + a
    faint fill + border so they read as code without shouting. Inline (not inline-block) and with no vertical
    padding contribution to the line box, so a chip never makes its line taller than --prose-line. */

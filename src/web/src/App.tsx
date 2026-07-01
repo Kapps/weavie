@@ -501,7 +501,10 @@ export default function App(): JSX.Element {
               </Suspense>
             </Show>
           </div>
-          <EditorFooter />
+          <EditorFooter
+            onOpenRecent={(path) => editor.openFile(path, 1)}
+            root={() => indexRoot() ?? ""}
+          />
         </div>
       );
     }

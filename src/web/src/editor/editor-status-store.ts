@@ -8,7 +8,6 @@ export interface EditorStatus {
   column: number;
   /** Selected character count across all selections; 0 when nothing is selected. */
   selectionCount: number;
-  languageId: string;
   eol: "LF" | "CRLF";
 }
 

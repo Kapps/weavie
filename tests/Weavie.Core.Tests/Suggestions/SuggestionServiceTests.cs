@@ -126,7 +126,9 @@ public sealed class SuggestionServiceTests : IDisposable {
 	[Fact]
 	public async Task SlowScan_TimesOut_FailsOpen() {
 		// A scan too slow to finish in time fails open: the dismissible card shows rather than vanishing silently.
-		var harness = await StartAsync(new SlowFileSystem(), "/repo", EmptySettings());
+		// A short probe timeout deterministically loses to SlowFileSystem's 1500ms directory read.
+		var harness = await StartAsync(new SlowFileSystem(), "/repo", EmptySettings(),
+			new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"), TimeSpan.FromMilliseconds(200));
 
 		Assert.Contains(WorktreeId, harness.ActiveIds());
 	}
@@ -149,10 +151,19 @@ public sealed class SuggestionServiceTests : IDisposable {
 		return new SettingsStore(CoreSettings.CreateRegistry(), path, enableWatcher: false);
 	}
 
+	// Generous probe timeout for the fast in-memory fs: the scan always wins the race, so the manifest result is
+	// deterministic under any test-runner load. A short timeout can lose to threadpool starvation under parallel
+	// test load and fail open (the suggestion appears), flaking the "not relevant" cases.
+	private static readonly TimeSpan FastProbe = TimeSpan.FromSeconds(30);
+
 	private static Task<Harness> StartAsync(IFileSystem fs, string root, SettingsStore settings) =>
 		StartAsync(fs, root, settings, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"));
 
-	private static async Task<Harness> StartAsync(IFileSystem fs, string root, SettingsStore settings, SuggestionDismissals dismissals) {
+	private static Task<Harness> StartAsync(IFileSystem fs, string root, SettingsStore settings, SuggestionDismissals dismissals) =>
+		StartAsync(fs, root, settings, dismissals, FastProbe);
+
+	private static async Task<Harness> StartAsync(
+		IFileSystem fs, string root, SettingsStore settings, SuggestionDismissals dismissals, TimeSpan probeTimeout) {
 		var pushes = new List<IReadOnlyList<SuggestionDefinition>>();
 		var first = new TaskCompletionSource();
 		var gate = new Lock();
@@ -164,7 +175,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 			first.TrySetResult();
 		}
 
-		var service = new SuggestionService(CoreSuggestions.CreateRegistry(), settings, fs, root, dismissals, Push);
+		var service = new SuggestionService(CoreSuggestions.CreateRegistry(), settings, fs, root, dismissals, probeTimeout, Push);
 		await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		IReadOnlyList<string> ActiveIds() {
 			lock (gate) {

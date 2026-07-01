@@ -96,6 +96,13 @@ jobs:
         working-directory: src/web
         run: pnpm run lint
 
+      # Web unit tests (vitest). Pure frontend logic (jsdom), platform-independent — run once on Linux like
+      # Biome; the browser-driven cross-OS coverage is the Playwright e2e below.
+      - name: Test web app (vitest)
+        if: matrix.name == 'linux'
+        working-directory: src/web
+        run: pnpm run test
+
       # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
       - name: Restore macOS workload
         if: matrix.name == 'macos'

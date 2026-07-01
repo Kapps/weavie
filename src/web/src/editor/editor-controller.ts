@@ -9,6 +9,7 @@ import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
+import { type NavHistory, createNavHistory } from "./nav-history";
 import {
   type ActivateResult,
   activateTab,
@@ -102,6 +103,14 @@ export interface TabActions {
   reopenClosed(): boolean;
 }
 
+/** Back/forward navigation through visited editor locations, exposed to the Go Back / Go Forward commands. */
+export interface NavActions {
+  /** Go to the previous location; false when there's nothing behind (so the keybinding falls through). */
+  back(): boolean;
+  /** Go to the next location; false when there's nothing ahead. */
+  forward(): boolean;
+}
+
 export interface EditorController {
   /** Loads the editor chunk and brings up the editor in `container`; fades the splash when settled. */
   start(container: HTMLElement): void;
@@ -137,6 +146,7 @@ export interface EditorController {
   parkedReviewCount(): number;
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
+  readonly nav: NavActions;
   dispose(): void;
 }
 
@@ -224,6 +234,34 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     applyActive(openTab(path, { line, preview, scratch }));
+  };
+
+  // Browser-style back/forward over visited editor locations. navigateTo reuses the open/activate path
+  // (openTab activates an already-open tab or opens it, then applyActive reveals the line).
+  const navHistory: NavHistory = createNavHistory((loc) => {
+    if (host !== undefined) {
+      applyActive(openTab(loc.path, { line: loc.line }));
+    }
+  });
+
+  // Record where the editor settles (active file + cursor line) as a navigation point, debounced like the
+  // view-state snapshot so only the resting position is logged — not the brief top-of-file the editor sits at
+  // mid-swap before a reveal. Only real file models: overlay (web/source) tabs and the transient review model
+  // aren't navigable locations.
+  let navTimer: ReturnType<typeof setTimeout> | undefined;
+  const recordNavLocation = (): void => {
+    const model = host?.editor.getModel();
+    const position = host?.editor.getPosition();
+    if (model == null || position == null || model.uri.scheme !== "file") {
+      return;
+    }
+    navHistory.record({ path: model.uri.fsPath, line: position.lineNumber });
+  };
+  const scheduleRecordNav = (): void => {
+    if (navTimer !== undefined) {
+      clearTimeout(navTimer);
+    }
+    navTimer = setTimeout(recordNavLocation, 150);
   };
 
   // Open an http(s) URL as a web (iframe) tab. No Monaco model / working copy — App renders an iframe over the
@@ -527,7 +565,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         };
         contentSubs = [
           created.editor.onDidChangeModelContent(() => syncContent()),
-          created.editor.onDidChangeModel(() => syncContent()),
+          created.editor.onDidChangeModel(() => {
+            syncContent();
+            scheduleRecordNav();
+          }),
+          // A cursor jump (or a model swap's reveal) records a navigation point for back/forward.
+          created.editor.onDidChangeCursorPosition(() => scheduleRecordNav()),
         ];
         syncContent();
         // Suspended over a model with a live inline diff so a collapsed comment never hides a changed line.
@@ -1042,8 +1085,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       redoReview: () => inlineDiff?.redoReview() ?? false,
     },
     tabs,
+    nav: {
+      back: () => navHistory.back(),
+      forward: () => navHistory.forward(),
+    },
     dispose: () => {
       window.clearTimeout(initTimer);
+      if (navTimer !== undefined) {
+        clearTimeout(navTimer);
+      }
       for (const sub of contentSubs) {
         sub.dispose();
       }

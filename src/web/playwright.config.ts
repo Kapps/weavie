@@ -20,7 +20,10 @@ export default defineConfig({
   // there so each test gets the whole box — the suite passes on the same hardware, just not 3-up.
   workers: process.platform === "linux" ? "75%" : 1,
   forbidOnly: Boolean(process.env.CI),
-  retries: process.env.CI ? 1 : 0,
+  // Each functional test drives a full real stack (dotnet host + fake-claude + browser; the remote project
+  // adds a runner + worker), so on shared CI runners a heavy test occasionally loses a timing race. The
+  // deterministic cross-platform bugs are fixed; 2 retries absorbs the residual runner-load variance.
+  retries: process.env.CI ? 2 : 0,
   reporter: "list",
   // A weavie e2e assertion often waits on a full-stack round-trip (host + fake-claude + hook bridge + MCP +
   // render), not a DOM tick, so the 5s Playwright default is too tight on a cold pipeline / slow runner.

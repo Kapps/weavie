@@ -25,6 +25,10 @@ async function openPrByNumber(
 }
 
 test("S2: two PR sessions each show only their own changed files", async ({ page }) => {
+  // Heavyweight: provisions two real PR worktrees (each a fake-claude + merge-base git diff) and walks their
+  // navigators. On the slow, serialized hosted Windows/macOS runners the legitimate work outlasts the 30s
+  // default even with no contention, so give it the room — this marks the test slow, it does not retry it.
+  test.slow();
   // Open PR #101 (second chip), then PR #102 (third chip). Both are now live sessions on the rail.
   await openPrByNumber(page, 101, 2);
   await openPrByNumber(page, 102, 3);

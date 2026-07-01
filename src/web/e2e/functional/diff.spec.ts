@@ -58,8 +58,10 @@ test.describe("change navigation", () => {
 
     const next = page.locator(".weavie-inline-nav").nth(1); // ↓ next change
     await next.click();
+    // The caret jump to the first change is async (host round-trip → editor reveal), so poll until it lands
+    // rather than sampling once — a single read races the jump on a slow runner and sees the caret still at 0.
+    await expect.poll(caretTop).toBeGreaterThan(0);
     const firstChange = await caretTop();
-    expect(firstChange).toBeGreaterThan(0);
 
     await next.click();
     await expect.poll(caretTop).toBeGreaterThan(firstChange); // advanced to the second hunk

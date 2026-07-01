@@ -14,19 +14,25 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "./e2e",
   fullyParallel: true,
-  // Each functional test spawns a real dotnet host (+ fake-claude + browser). Linux CI runners handle 75%
-  // concurrency fine; the hosted macOS/Windows runners are slower and oversubscribed, so N parallel hosts
-  // starve each other and the full fake→hook→MCP→render round-trip blows the assertion timeouts. Serialize
-  // there so each test gets the whole box — the suite passes on the same hardware, just not 3-up.
-  workers: process.platform === "linux" ? "75%" : 1,
+  // Each functional test spawns a real dotnet host (+ fake-claude + browser); the remote project adds a
+  // Weavie.Runner + a worker, so a single remote test is ~3 dotnet processes. `workers` is GLOBAL across
+  // projects, so it bounds how many of these heavy stacks run at once. Playwright's default heuristic is 50%
+  // of cores precisely because a worker that spawns child processes needs the other cores for them: at 50%
+  // on a 4-core runner, each of the 2 workers gets ~2 cores for its host/worker/browser. 75% oversubscribed
+  // that — three heavy stacks fighting over four cores starved each other and the fake→hook→MCP→render
+  // round-trip missed its assertion budget (the root cause behind retries). The hosted macOS/Windows runners
+  // are slower and oversubscribed, so serialize there (each test gets the whole box). Trade-off: 50% on Linux
+  // is ~4.3m vs ~3.5m at 75%, but it's deterministic with no retries instead of masking the contention.
+  workers: process.platform === "linux" ? "50%" : 1,
   forbidOnly: Boolean(process.env.CI),
-  // Each functional test drives a full real stack (dotnet host + fake-claude + browser; the remote project
-  // adds a runner + worker), so on shared CI runners a heavy test occasionally loses a timing race. The
-  // deterministic cross-platform bugs are fixed; 2 retries absorbs the residual runner-load variance.
-  retries: process.env.CI ? 2 : 0,
+  // No retries: the flakiness was runner-resource contention (fixed by right-sizing `workers` above), not a
+  // real defect, so a green run must stand on its own rather than being rescued by a re-run.
+  retries: 0,
   reporter: "list",
   // A weavie e2e assertion often waits on a full-stack round-trip (host + fake-claude + hook bridge + MCP +
-  // render), not a DOM tick, so the 5s Playwright default is too tight on a cold pipeline / slow runner.
+  // render), not a DOM tick, so the 5s Playwright default is too tight even uncontended (a whole test runs
+  // 2-6s cold). This ceiling is for that genuine pipeline latency, not to paper over contention — with peak
+  // concurrency capped above, tests land far inside it.
   expect: { timeout: 15_000 },
   use: {
     headless: true,

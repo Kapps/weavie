@@ -216,6 +216,13 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// Fire-and-forget: this diff can finish after a rapid session switch has moved off the PR. The web applies
+		// pr-changes last-writer-wins with no guard, so a stale result would clobber the now-active session's
+		// file list — or, landing out of order, re-park its navigator. Drop it unless this PR is still active.
+		if (_session is not { } active || !string.Equals(active.WorkspaceRoot, review.Worktree, StringComparison.Ordinal)) {
+			return;
+		}
+
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "pr-changes",
 			number = review.Number,

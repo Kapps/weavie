@@ -20,7 +20,8 @@ test("undo and redo work in the editor and aren't hijacked by diff keybindings",
   await page.keyboard.press("ControlOrMeta+z");
   await expect(viewLines).not.toContainText("UNDOMARKER");
 
-  await page.keyboard.press("ControlOrMeta+y");
+  // Redo is platform-specific in Monaco: Ctrl+Y on Windows/Linux, Cmd+Shift+Z on macOS (Cmd+Y is not redo).
+  await page.keyboard.press(process.platform === "darwin" ? "Meta+Shift+z" : "Control+y");
   await expect(viewLines).toContainText("UNDOMARKER");
 });
 

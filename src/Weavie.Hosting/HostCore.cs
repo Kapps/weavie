@@ -224,7 +224,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
 
-	/// <summary>The app's build identity (SemVer + build metadata, e.g. <c>0.1.0+247.a36131b</c>), stamped at build time.</summary>
+	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
 	private static string BuildNumber =>
 		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");

@@ -76,7 +76,7 @@ public static class ShellProtocol {
 	/// <param name="titleBar">Title-bar mode (<c>custom</c>), or null for native chrome.</param>
 	/// <param name="workspaceLabel">The window's workspace label (folder leaf name).</param>
 	/// <param name="recents">Recent workspace paths (absolute); the web derives leaf names for display.</param>
-	/// <param name="buildNumber">The app's build identity (SemVer + build metadata), shown read-only in the title bar.</param>
+	/// <param name="buildNumber">The app's build identity (SemVer with the build number as patch), shown read-only in the title bar.</param>
 	public static string BuildConfigScript(
 		string platform,
 		string? titleBar,

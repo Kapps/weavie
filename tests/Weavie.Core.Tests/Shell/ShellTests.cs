@@ -12,21 +12,19 @@ public sealed class ShellProtocolTests {
 
 	[Fact]
 	public void BuildConfigScript_AssignsGlobalWithFields() {
-		string script = ShellProtocol.BuildConfigScript("win", "custom", "weavie", [@"C:\a", @"C:\b"], "0.1.0+dev.abc1234");
+		string script = ShellProtocol.BuildConfigScript("win", "custom", "weavie", [@"C:\a", @"C:\b"], "0.1.247");
 
 		Assert.StartsWith("window.__WEAVIE_SHELL__ = ", script);
 		Assert.EndsWith(";", script);
 		Assert.Contains("\"platform\":\"win\"", script);
 		Assert.Contains("\"titleBar\":\"custom\"", script);
 		Assert.Contains("\"workspaceLabel\":\"weavie\"", script);
-
-		var config = Parse(script["window.__WEAVIE_SHELL__ = ".Length..^1]);
-		Assert.Equal("0.1.0+dev.abc1234", config.GetProperty("buildNumber").GetString());
+		Assert.Contains("\"buildNumber\":\"0.1.247\"", script);
 	}
 
 	[Fact]
 	public void BuildConfigScript_NullTitleBar_SerializesNull() {
-		string script = ShellProtocol.BuildConfigScript("mac", null, "proj", [], "0.1.0+dev.abc1234");
+		string script = ShellProtocol.BuildConfigScript("mac", null, "proj", [], "0.1.247");
 
 		Assert.Contains("\"titleBar\":null", script);
 	}

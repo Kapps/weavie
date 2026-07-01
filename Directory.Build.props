@@ -29,27 +29,13 @@
     <!-- Deterministic, clean output -->
     <Deterministic>true</Deterministic>
 
-    <!-- Build identity (SemVer + build metadata), e.g. 0.1.0+247.a36131b in CI or 0.1.0+dev.a36131b locally,
-         surfaced read-only as the title-bar badge. SDK SourceRevisionId append is off so the stamped format wins. -->
-    <VersionPrefix>0.1.0</VersionPrefix>
-    <BuildLabel Condition="'$(BuildLabel)' == '' and '$(GITHUB_RUN_NUMBER)' != ''">$(GITHUB_RUN_NUMBER)</BuildLabel>
-    <BuildLabel Condition="'$(BuildLabel)' == ''">dev</BuildLabel>
+    <!-- Build identity: fixed SemVer major.minor with the CI build number as the incremental patch (e.g. 0.1.247).
+         Local builds have no build number, so the patch is 0. Shown read-only as the title-bar badge. -->
+    <BuildNumber Condition="'$(BuildNumber)' == '' and '$(GITHUB_RUN_NUMBER)' != ''">$(GITHUB_RUN_NUMBER)</BuildNumber>
+    <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
+    <VersionPrefix>0.1.$(BuildNumber)</VersionPrefix>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
   </PropertyGroup>
-
-  <!-- InformationalVersion = {VersionPrefix}+{BuildLabel}.{short-sha}; when git is unavailable (e.g. a source
-       archive) it honestly drops the sha (badge reads 0.1.0+dev) rather than inventing one — true state, no fallback. -->
-  <Target Name="StampBuildNumber" BeforeTargets="GenerateAssemblyInfo;GetAssemblyVersion"
-          Condition="'$(InformationalVersion)' == ''">
-    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short HEAD"
-          ConsoleToMSBuild="true" ContinueOnError="true" StandardOutputImportance="low">
-      <Output TaskParameter="ConsoleOutput" PropertyName="GitShortSha" />
-    </Exec>
-    <PropertyGroup>
-      <InformationalVersion Condition="'$(GitShortSha)' != ''">$(VersionPrefix)+$(BuildLabel).$(GitShortSha)</InformationalVersion>
-      <InformationalVersion Condition="'$(GitShortSha)' == ''">$(VersionPrefix)+$(BuildLabel)</InformationalVersion>
-    </PropertyGroup>
-  </Target>
 
   <!--
     In-repo analyzers apply to every production project (no holes). WV0001 bans optional/

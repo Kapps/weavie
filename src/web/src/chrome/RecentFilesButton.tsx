@@ -4,17 +4,17 @@ import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { canonicalFsPath } from "../editor/fs-path";
+import { basename, canonicalFsPath } from "../editor/fs-path";
 import { recentFiles } from "./recent-files-store";
 
 // The most recent files to list; the frecency ranking already floats the useful ones to the top.
 const MAX_ROWS = 12;
 
-// Splits an absolute path into its file name and immediate parent folder (the recognizable "name — folder"
-// pair), tolerating either separator so a Windows path renders the same as a POSIX one.
+// An absolute path's file name plus its immediate parent folder (the recognizable "name — folder" pair). The
+// name comes from `basename`; the parent is the segment before it, tolerating either separator.
 function nameAndParent(path: string): { name: string; parent: string } {
   const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
-  return { name: parts[parts.length - 1] ?? path, parent: parts[parts.length - 2] ?? "" };
+  return { name: basename(path), parent: parts[parts.length - 2] ?? "" };
 }
 
 /**

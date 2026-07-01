@@ -27,6 +27,10 @@ async function openPrByNumber(
 test("S2-race: rapid PR->PR->PR switching never leaves the wrong PR's files on screen", async ({
   page,
 }) => {
+  // Heavyweight: two real PR worktrees plus a rapid switch storm that settles a fire-and-forget git diff. On
+  // the slow, serialized hosted Windows/macOS runners the legitimate work outlasts the 30s default even with
+  // no contention, so give it the room — this marks the test slow, it does not retry it.
+  test.slow();
   await openPrByNumber(page, 101, 2); // chip[1]
   await openPrByNumber(page, 102, 3); // chip[2]
 

@@ -1,7 +1,6 @@
 import { type JSX, Show } from "solid-js";
-import { dirtyPaths } from "../editor/dirty-store";
+import { isDirtyPath } from "../editor/dirty-store";
 import { editorStatus } from "../editor/editor-status-store";
-import { canonicalFsPath } from "../editor/fs-path";
 import { activePath } from "../editor/session-store";
 import { RecentFilesButton } from "./RecentFilesButton";
 
@@ -14,10 +13,9 @@ export function EditorFooter(props: {
   onOpenRecent: (path: string) => void;
   root: () => string;
 }): JSX.Element {
-  // Mirror the tab strip's dirty test (dirty-store is keyed by canonical fs-path).
   const isDirty = (): boolean => {
     const path = activePath();
-    return path !== null && dirtyPaths().has(canonicalFsPath(path));
+    return path !== null && isDirtyPath(path);
   };
   return (
     <div class="pane-footer">

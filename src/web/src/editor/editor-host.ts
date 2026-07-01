@@ -15,7 +15,7 @@ import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
-import { canonicalFsPath } from "./fs-path";
+import { canonicalFsPath, uriHostPath } from "./fs-path";
 import { createEditor, monaco } from "./monaco-setup";
 import { captureViewState, editorOwner, editorSession, openTab, promote } from "./session-store";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
@@ -485,7 +485,8 @@ export async function createEditorHost(
     if (uri.scheme !== "file") {
       return;
     }
-    openTab(uri.fsPath, { preview: true });
+    // uriHostPath, not fsPath: the tab path is persisted host-side, so it must be host-native, not client-OS.
+    openTab(uriHostPath(uri), { preview: true });
     void showFile(uri, selection !== undefined ? { selection } : { line: 1 });
   });
 

@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { basename, canonicalFsPath, normalizePath, repoRelativePath, samePath } from "./fs-path";
+import {
+  basename,
+  canonicalFsPath,
+  normalizePath,
+  repoRelativePath,
+  samePath,
+  uriHostPath,
+} from "./fs-path";
 
 describe("canonicalFsPath", () => {
   it("lowercases an uppercase drive letter, leaving the rest untouched", () => {
@@ -15,6 +22,35 @@ describe("canonicalFsPath", () => {
   it("only touches the leading drive colon, not a later colon", () => {
     // A line:col-looking suffix has its own colon that must survive.
     expect(canonicalFsPath("C:/a/b:42")).toBe("c:/a/b:42");
+  });
+});
+
+describe("uriHostPath", () => {
+  it("passes a POSIX path through untouched, whatever the client OS", () => {
+    // The regression: .fsPath on a Windows browser turns this into \home\user\a.ts, which a Linux host
+    // can't resolve. uriHostPath must be client-platform-independent.
+    expect(uriHostPath({ authority: "", path: "/home/user/a.ts" })).toBe("/home/user/a.ts");
+  });
+
+  it("renders a drive path without the URI's leading slash, lowercasing the drive", () => {
+    expect(uriHostPath({ authority: "", path: "/C:/Users/foo.ts" })).toBe("c:/Users/foo.ts");
+    expect(uriHostPath({ authority: "", path: "/c:/users/foo.ts" })).toBe("c:/users/foo.ts");
+  });
+
+  it("renders a drive root as c:/ (a bare c: would be drive-relative on Windows)", () => {
+    expect(uriHostPath({ authority: "", path: "/C:" })).toBe("c:/");
+  });
+
+  it("keeps a UNC authority", () => {
+    expect(uriHostPath({ authority: "server", path: "/share/foo.ts" })).toBe(
+      "//server/share/foo.ts",
+    );
+  });
+
+  it("preserves a literal backslash in a POSIX filename", () => {
+    expect(uriHostPath({ authority: "", path: "/home/user/weird\\name.ts" })).toBe(
+      "/home/user/weird\\name.ts",
+    );
   });
 });
 

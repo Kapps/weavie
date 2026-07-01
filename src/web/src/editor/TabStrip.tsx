@@ -13,9 +13,9 @@ import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../ch
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { dirtyPaths } from "./dirty-store";
+import { isDirtyPath } from "./dirty-store";
 import type { TabActions } from "./editor-controller";
-import { basename, canonicalFsPath } from "./fs-path";
+import { basename } from "./fs-path";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
 import { NotionIcon } from "./source/NotionIcon";
@@ -74,14 +74,13 @@ export function TabStrip(props: {
     });
   const views = createMemo<TabView[]>(
     () => {
-      const dirty = dirtyPaths();
       return props.tabs().map((tab) => ({
         path: tab.path,
         ...(tab.kind !== undefined ? { kind: tab.kind } : {}),
         preview: tab.preview === true,
         pinned: tab.pinned === true,
-        // A web tab is never dirty (its path is a URL, not a file path to canonicalize).
-        dirty: tab.kind !== "web" && dirty.has(canonicalFsPath(tab.path)),
+        // A web tab is never dirty (its path is a URL, not a file path).
+        dirty: tab.kind !== "web" && isDirtyPath(tab.path),
       }));
     },
     [],

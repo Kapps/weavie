@@ -18,7 +18,7 @@ import {
   registerFileSystemOverlay,
 } from "@codingame/monaco-vscode-files-service-override";
 import { type WebBoundMessage, onHostMessage, postToHost } from "../bridge";
-import { canonicalFsPath } from "./fs-path";
+import { canonicalFsPath, uriHostPath } from "./fs-path";
 
 // A correlated request can't wedge a model resolve forever: if the host never replies (a dropped message, a
 // host fault) the promise rejects after this, surfacing the failure rather than hanging the editor.
@@ -95,7 +95,9 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   }
 
   async stat(resource: URI): Promise<IStat> {
-    const result = await request({ type: "fs-stat", path: resource.fsPath });
+    // uriHostPath, never resource.fsPath: fsPath renders in the browser's OS convention, which mangles the
+    // remote host's path when the two differ (a Windows browser backslashes a Linux host's path).
+    const result = await request({ type: "fs-stat", path: uriHostPath(resource) });
     if (result.type !== "fs-stat-result" || !result.ok || !result.exists) {
       throw FileSystemProviderError.create(
         `Unable to resolve nonexistent file '${resource.toString()}'`,
@@ -111,7 +113,7 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   }
 
   async readFile(resource: URI): Promise<Uint8Array> {
-    const result = await request({ type: "fs-read", path: resource.fsPath });
+    const result = await request({ type: "fs-read", path: uriHostPath(resource) });
     if (result.type === "fs-read-result" && result.ok && result.content !== undefined) {
       return encoder.encode(result.content);
     }
@@ -135,7 +137,7 @@ class HostFileProvider implements IFileSystemProviderWithFileReadWriteCapability
   async writeFile(resource: URI, content: Uint8Array): Promise<void> {
     const result = await request({
       type: "fs-write",
-      path: resource.fsPath,
+      path: uriHostPath(resource),
       content: decoder.decode(content),
     });
     if (result.type !== "fs-write-result" || !result.ok) {

@@ -7,7 +7,7 @@ import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
-import { samePath } from "./fs-path";
+import { samePath, uriHostPath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
 import { type NavHistory, createNavHistory } from "./nav-history";
 import {
@@ -256,7 +256,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     if (model == null || position == null || model.uri.scheme !== "file") {
       return;
     }
-    navHistory.record({ path: model.uri.fsPath, line: position.lineNumber });
+    // uriHostPath, not fsPath: a back-navigation re-opens this path as a tab, which must stay host-native.
+    navHistory.record({ path: uriHostPath(model.uri), line: position.lineNumber });
   };
   const scheduleRecordNav = (): void => {
     if (navTimer !== undefined) {
@@ -586,7 +587,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Reflect whatever file the editor ended up showing (replayed pending-open or hot-reload restore).
         const model = created.editor.getModel();
         if (model !== null && model.uri.scheme === "file") {
-          deps.onCurrentFileChanged(model.uri.fsPath);
+          deps.onCurrentFileChanged(uriHostPath(model.uri));
         }
         postToHost({ type: "monaco-ready" });
         mark("editor-ready");

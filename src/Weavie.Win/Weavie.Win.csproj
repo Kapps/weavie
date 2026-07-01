@@ -2,6 +2,8 @@
 
   <PropertyGroup>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <!-- Allow restore/build of this Windows-only TFM from non-Windows hosts (e.g. `dotnet restore` on Linux/CI). -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <OutputType>WinExe</OutputType>
     <!-- The exe / Explorer / default taskbar icon. The same .ico is embedded below for Form.Icon. -->
     <ApplicationIcon>weavie.ico</ApplicationIcon>

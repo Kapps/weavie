@@ -1,5 +1,6 @@
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, X } from "lucide-solid";
 import { For, type JSX, Show, createEffect, createSignal, onMount } from "solid-js";
+import { normalizePath, samePath } from "../editor/fs-path";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
 export interface DirEntry {
@@ -11,10 +12,10 @@ export interface DirEntry {
 // Directory listings keyed by absolute directory path, filled in lazily as folders are expanded.
 export type DirListings = Record<string, DirEntry[]>;
 
-// Paths from the host use the platform separator (backslash on Windows); accept either when testing
-// ancestry so "reveal to current file" works regardless of how paths were spelled.
+// Compare by normalized identity (see fs-path.ts): the host lists native paths while currentFile arrives in
+// uriHostPath spelling, so a separator/case-sensitive match would never hit on Windows.
 function isAncestorPath(dir: string, file: string | null): boolean {
-  return file !== null && (file.startsWith(`${dir}\\`) || file.startsWith(`${dir}/`));
+  return file !== null && normalizePath(file).startsWith(`${normalizePath(dir)}/`);
 }
 
 function leafName(path: string): string {
@@ -56,7 +57,10 @@ function Node(props: {
     <div class="browser-node">
       <button
         type="button"
-        classList={{ "browser-row": true, active: props.currentFile === props.entry.path }}
+        classList={{
+          "browser-row": true,
+          active: props.currentFile !== null && samePath(props.currentFile, props.entry.path),
+        }}
         title={props.entry.path}
         onClick={onClick}
       >

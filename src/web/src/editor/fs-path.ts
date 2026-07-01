@@ -5,6 +5,21 @@ export function canonicalFsPath(path: string): string {
   return path.replace(/^([A-Za-z]):/, (_match, drive: string) => `${drive.toLowerCase()}:`);
 }
 
+/// The host-native path of a `file://` URI. Never use `.fsPath` for this: it renders in the *browser's* OS
+/// convention (backslashes whenever the client is Windows), mangling a POSIX host's path in a remote session.
+/// Drive paths render as `c:/…` (.NET accepts `/` on Windows), UNC keeps its authority, POSIX passes through.
+export function uriHostPath(uri: { authority: string; path: string }): string {
+  if (uri.authority.length > 0 && uri.path.length > 1) {
+    return `//${uri.authority}${uri.path}`;
+  }
+  if (/^\/[A-Za-z]:/.test(uri.path)) {
+    const stripped = uri.path.charAt(1).toLowerCase() + uri.path.slice(2);
+    // A bare `c:` is drive-relative (CWD-resolved) on Windows; the URI means the drive root, so say so.
+    return stripped.length === 2 ? `${stripped}/` : stripped;
+  }
+  return uri.path;
+}
+
 // A looser identity key for "same file?" comparison only — never to open, read, display, or persist. Folds
 // the WSL `/mnt/<drive>/` mount onto `<drive>:`, unifies separators, drops a trailing slash, and lowercases.
 export function normalizePath(path: string): string {

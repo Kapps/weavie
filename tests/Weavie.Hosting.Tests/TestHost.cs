@@ -16,8 +16,8 @@ namespace Weavie.Hosting.Tests;
 /// PTYs, so tests can drive web messages end-to-end and assert on what the host posts back. This exercises the
 /// genuine session-routing paths (fs by path, the editor-session owner guard, LSP rebind on switch) rather than
 /// a reimplementation of them. Requires <c>git</c> on PATH, like <c>WorktreeIntegrationTests</c>. Stores are
-/// isolated to a temp dir (no watchers, no real ~/.weavie config); the IDE's own port-scoped lock/internals
-/// files still land in the real Weavie dirs and are cleaned on dispose (lock) or harmlessly overwritten.
+/// isolated to a temp dir (no watchers, no real ~/.weavie config); <c>CLAUDE_CONFIG_DIR</c> is redirected to a
+/// throwaway dir so the IDE lock files and the session-trust write never touch the developer's real Claude config.
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
 	private readonly string _tempRoot;
@@ -47,8 +47,20 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The primary checkout (a git repo) this host is rooted at.</summary>
 	public string RepoRoot { get; }
 
+	// Redirect Claude's config dir to a throwaway location once, so session startup's workspace-trust write
+	// (ClaudeWorkspaceTrust) and the IDE lock files land in temp instead of the developer's real ~/.claude(.json).
+	private static readonly string IsolatedClaudeConfigDir = IsolateClaudeConfig();
+
+	private static string IsolateClaudeConfig() {
+		string dir = Path.Combine(Path.GetTempPath(), "weavie-host-it-claude-" + Guid.NewGuid().ToString("n"));
+		Directory.CreateDirectory(dir);
+		Environment.SetEnvironmentVariable("CLAUDE_CONFIG_DIR", dir);
+		return dir;
+	}
+
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
 	public static async Task<TestHost> StartAsync() {
+		_ = IsolatedClaudeConfigDir; // force the one-time config-dir isolation before any session starts
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);

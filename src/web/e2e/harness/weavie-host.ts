@@ -26,6 +26,8 @@ export function headlessBuilt(): boolean {
 export interface WeavieHost {
   readonly url: string;
   readonly workspace: string;
+  /** The isolated CLAUDE_CONFIG_DIR (holds .claude.json with the per-session workspace-trust write). */
+  readonly claudeConfigDir: string;
   /** Everything the host has written to stdout so far (status lines). */
   log(): string;
   /** The fake claude's markers (its MCP/hook activity), or "" when no script ran. */
@@ -163,6 +165,7 @@ export async function waitForHttp(
 export interface FakeScaffold {
   home: string;
   workspace: string;
+  claudeConfigDir: string;
   env: NodeJS.ProcessEnv;
   fakeLog: () => string;
   cleanup: () => Promise<void>;
@@ -205,6 +208,7 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
   return {
     home,
     workspace,
+    claudeConfigDir: join(home, ".claude"),
     env,
     fakeLog: () => (existsSync(fakeLogPath) ? readFileSync(fakeLogPath, "utf8") : ""),
     cleanup: () =>
@@ -248,6 +252,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   return {
     url,
     workspace: fake.workspace,
+    claudeConfigDir: fake.claudeConfigDir,
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {

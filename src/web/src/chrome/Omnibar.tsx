@@ -22,29 +22,19 @@ import { formatKey } from "../commands/keybindings";
 import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import type { CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
-import { type FileRow, type ScoredFile, createFileFinder, rankFiles } from "./file-search";
+import {
+  type FileRow,
+  type ScoredFile,
+  createFileFinder,
+  rankFiles,
+  splitPath,
+} from "./file-search";
 import { highlightSlice } from "./highlight";
 import { omnibarRequest } from "./omnibar-controller";
 import { recentFiles } from "./recent-files-store";
 
 // Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
 const VIEW_CAP = 300;
-
-function splitPath(abs: string, root: string): FileRow {
-  let rel = abs;
-  if (root.length > 0 && abs.toLowerCase().startsWith(root.toLowerCase())) {
-    rel = abs.slice(root.length).replace(/^[\\/]+/, "");
-  }
-  const norm = rel.replace(/\\/g, "/");
-  const slash = norm.lastIndexOf("/");
-  return {
-    abs,
-    rel: norm,
-    leaf: slash >= 0 ? norm.slice(slash + 1) : norm,
-    dir: slash >= 0 ? norm.slice(0, slash) : "",
-    leafStart: slash >= 0 ? slash + 1 : 0,
-  };
-}
 
 // A node in the client-side file tree. `key` (the dir's relative path) is the expansion-state key.
 interface TreeNode {

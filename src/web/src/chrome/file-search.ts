@@ -34,6 +34,24 @@ export function createFileFinder(rows: readonly FileRow[]): FileFinder {
   return { entries: rows.map((row) => ({ row, lower: row.rel.toLowerCase() })) };
 }
 
+/// Splits an absolute path into a {@link FileRow} for display + fuzzy ranking, made repo-relative when it sits
+/// under `root` (else the absolute path is used as-is). `leafStart` maps match positions onto the leaf/dir spans.
+export function splitPath(abs: string, root: string): FileRow {
+  let rel = abs;
+  if (root.length > 0 && abs.toLowerCase().startsWith(root.toLowerCase())) {
+    rel = abs.slice(root.length).replace(/^[\\/]+/, "");
+  }
+  const norm = rel.replace(/\\/g, "/");
+  const slash = norm.lastIndexOf("/");
+  return {
+    abs,
+    rel: norm,
+    leaf: slash >= 0 ? norm.slice(slash + 1) : norm,
+    dir: slash >= 0 ? norm.slice(0, slash) : "",
+    leafStart: slash >= 0 ? slash + 1 : 0,
+  };
+}
+
 // Above this many pre-filter survivors, only the best `RESCORE_CAP` are precision-scored. A query that narrows
 // to at or under the cap is scored exactly as if the whole index were scored; only ultra-broad queries (which
 // match more files than anyone scrolls and that you narrow by typing more) fall back to the heuristic cut.

@@ -1,28 +1,27 @@
 import { History } from "lucide-solid";
-import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { For, type JSX, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
-import { basename, canonicalFsPath } from "../editor/fs-path";
+import { canonicalFsPath } from "../editor/fs-path";
+import { type FileRow, createFileFinder, rankFiles, splitPath } from "./file-search";
 import { recentFiles } from "./recent-files-store";
 
-// The most recent files to list; the frecency ranking already floats the useful ones to the top.
+// How many rows the dropdown shows at once. The host remembers many more (top 50, frecency-ranked); the search
+// box filters across all of them, so a long history stays reachable without a long list.
 const MAX_ROWS = 12;
 
-// An absolute path's file name plus its immediate parent folder (the recognizable "name — folder" pair). The
-// name comes from `basename`; the parent is the segment before it, tolerating either separator.
-function nameAndParent(path: string): { name: string; parent: string } {
-  const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
-  return { name: basename(path), parent: parts[parts.length - 2] ?? "" };
-}
-
 /**
- * The editor tab bar's recent-files control: an icon button that toggles a dropdown of frecency-ranked recent
- * files. The same dropdown is opened by the `openRecentFiles` command (its keybinding / the palette / Claude),
- * so the button advertises that shortcut in its tooltip. Selecting a row opens the file via `onOpen`.
+ * The editor status bar's recent-files control: a "Recent" button that toggles a dropdown of frecency-ranked
+ * recent files with a search box that filters them the same way the omnibar does. The same dropdown is opened by
+ * the `openRecentFiles` command (keybinding / palette / Claude), so the button advertises its shortcut. `onOpen`
+ * opens the chosen file; `root` is the active worktree root, used to render/rank paths repo-relative.
  */
-export function RecentFilesButton(props: { onOpen: (path: string) => void }): JSX.Element {
+export function RecentFilesButton(props: {
+  onOpen: (path: string) => void;
+  root: () => string;
+}): JSX.Element {
   const [open, setOpen] = createSignal(false);
 
   // The verb plus the live shortcut from the command catalog (never hardcoded — it's user-overridable).
@@ -63,38 +62,70 @@ export function RecentFilesButton(props: { onOpen: (path: string) => void }): JS
         <span>Recent</span>
       </button>
       <Show when={open()}>
-        <RecentFilesMenu onChoose={choose} onClose={() => setOpen(false)} />
+        <RecentFilesMenu root={props.root} onChoose={choose} onClose={() => setOpen(false)} />
       </Show>
     </div>
   );
 }
 
-// The dropdown panel: portaled to <body> so it escapes the tab bar's clipping, anchored under the toggle, with
-// arrow-key roaming and outside-click / Escape / blur dismissal (mirroring ContextMenu's interaction model).
+// The dropdown: a search box over the recent-files list (filtered by the omnibar's rankFiles) plus the results.
+// Portaled to <body>, anchored above the status bar, dismissed on outside-click / Escape / blur.
 function RecentFilesMenu(props: {
+  root: () => string;
   onChoose: (path: string) => void;
   onClose: () => void;
 }): JSX.Element {
   let panelEl: HTMLDivElement | undefined;
-  const files = (): readonly string[] => recentFiles().slice(0, MAX_ROWS);
+  let inputEl: HTMLInputElement | undefined;
+  const [query, setQuery] = createSignal("");
+  const [selected, setSelected] = createSignal(0);
 
-  const rows = (): HTMLButtonElement[] =>
-    panelEl ? [...panelEl.querySelectorAll<HTMLButtonElement>(".recent-row")] : [];
-
-  const onKeyDown = (event: KeyboardEvent): void => {
-    if (event.key !== "ArrowDown" && event.key !== "ArrowUp") {
-      return;
+  // Empty query → the recent list in frecency order; a query → the omnibar's fuzzy ranking over the same set.
+  const results = createMemo<FileRow[]>(() => {
+    const rows = recentFiles().map((abs) => splitPath(abs, props.root()));
+    const q = query().trim();
+    if (q.length === 0) {
+      return rows.slice(0, MAX_ROWS);
     }
-    event.preventDefault();
-    const list = rows();
-    const current = list.indexOf(document.activeElement as HTMLButtonElement);
-    const step = event.key === "ArrowDown" ? 1 : -1;
-    const start = current < 0 ? (step === 1 ? -1 : 0) : current;
-    list[(start + step + list.length) % list.length]?.focus();
+    return rankFiles(createFileFinder(rows), q, recentFiles())
+      .slice(0, MAX_ROWS)
+      .map((s) => s.row);
+  });
+
+  // Keep the highlighted row in range as the results change, and scrolled into view.
+  const clampedIndex = createMemo(() => Math.min(selected(), Math.max(0, results().length - 1)));
+  const scrollSelectedIntoView = (): void => {
+    queueMicrotask(() =>
+      panelEl
+        ?.querySelectorAll<HTMLElement>(".recent-row")
+        [clampedIndex()]?.scrollIntoView({ block: "nearest" }),
+    );
   };
 
-  // Anchor to the toggle, right-aligned and opening UPWARD (the toggle sits in the bottom status bar, so the
-  // panel grows up and leftward), clamped into the viewport.
+  const onKeyDown = (event: KeyboardEvent): void => {
+    const count = results().length;
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      if (count > 0) {
+        const step = event.key === "ArrowDown" ? 1 : -1;
+        setSelected((clampedIndex() + step + count) % count);
+        scrollSelectedIntoView();
+      }
+    } else if (event.key === "Enter") {
+      event.preventDefault();
+      const row = results()[clampedIndex()];
+      if (row !== undefined) {
+        props.onChoose(row.abs);
+      }
+    } else if (event.key === "Escape") {
+      event.preventDefault();
+      props.onClose();
+    }
+  };
+
+  // Anchor to the toggle, right-aligned and opening UPWARD (the toggle is in the bottom status bar): pin the
+  // panel's bottom just above the toggle so it grows up as the result list changes, and cap its height to the
+  // space above so it scrolls rather than spilling off-screen.
   const place = (toggle: Element): void => {
     if (panelEl === undefined) {
       return;
@@ -107,7 +138,8 @@ function RecentFilesMenu(props: {
       Math.min(anchor.right - width, window.innerWidth - width - margin),
     );
     panelEl.style.left = `${left}px`;
-    panelEl.style.top = `${Math.max(margin, anchor.top - panelEl.offsetHeight - 2)}px`;
+    panelEl.style.bottom = `${window.innerHeight - anchor.top + 2}px`;
+    panelEl.style.maxHeight = `${anchor.top - margin - 2}px`;
   };
 
   const onPointerDown = (event: PointerEvent): void => {
@@ -117,7 +149,8 @@ function RecentFilesMenu(props: {
       props.onClose();
     }
   };
-  const onEscape = (event: KeyboardEvent): void => {
+  // Escape is handled on the input while it holds focus; this backstops a Tab that moved focus onto a row.
+  const onWindowKeyDown = (event: KeyboardEvent): void => {
     if (event.key === "Escape") {
       props.onClose();
     }
@@ -129,45 +162,63 @@ function RecentFilesMenu(props: {
       if (toggle !== null) {
         place(toggle);
       }
-      rows()[0]?.focus();
+      inputEl?.focus();
     });
     window.addEventListener("pointerdown", onPointerDown);
-    window.addEventListener("keydown", onEscape);
+    window.addEventListener("keydown", onWindowKeyDown);
     window.addEventListener("blur", props.onClose);
     onCleanup(() => {
       window.removeEventListener("pointerdown", onPointerDown);
-      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("keydown", onWindowKeyDown);
       window.removeEventListener("blur", props.onClose);
     });
   });
 
   return (
     <Portal>
-      <div class="recent-menu" ref={panelEl} onKeyDown={onKeyDown}>
-        <div class="recent-menu-header">Recent files</div>
-        <Show
-          when={files().length > 0}
-          fallback={<div class="recent-empty">No recent files yet.</div>}
-        >
-          <For each={files()}>
-            {(path) => {
-              const { name, parent } = nameAndParent(path);
-              return (
+      <div class="recent-menu" ref={panelEl}>
+        <input
+          class="recent-search"
+          ref={inputEl}
+          type="text"
+          placeholder="Search recent files…"
+          value={query()}
+          spellcheck={false}
+          autocomplete="off"
+          onInput={(event) => {
+            setQuery(event.currentTarget.value);
+            setSelected(0);
+          }}
+          onKeyDown={onKeyDown}
+        />
+        <div class="recent-list">
+          <Show
+            when={results().length > 0}
+            fallback={
+              <div class="recent-empty">
+                {recentFiles().length === 0 ? "No recent files yet." : "No matching files."}
+              </div>
+            }
+          >
+            <For each={results()}>
+              {(row, index) => (
                 <button
                   type="button"
                   class="recent-row"
-                  title={path}
-                  onClick={() => props.onChoose(path)}
+                  classList={{ selected: index() === clampedIndex() }}
+                  title={row.abs}
+                  onMouseMove={() => setSelected(index())}
+                  onClick={() => props.onChoose(row.abs)}
                 >
-                  <span class="recent-name">{name}</span>
-                  <Show when={parent.length > 0}>
-                    <span class="recent-dir">{parent}</span>
+                  <span class="recent-name">{row.leaf}</span>
+                  <Show when={row.dir.length > 0}>
+                    <span class="recent-dir">{row.dir}</span>
                   </Show>
                 </button>
-              );
-            }}
-          </For>
-        </Show>
+              )}
+            </For>
+          </Show>
+        </div>
       </div>
     </Portal>
   );

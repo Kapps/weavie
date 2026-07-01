@@ -10,7 +10,10 @@ import { RecentFilesButton } from "./RecentFilesButton";
  * the left/centre (only when a file is in view), and the recent-files control anchored bottom-right. The bar is
  * always present so Recent Files stays reachable even with no file open.
  */
-export function EditorFooter(props: { onOpenRecent: (path: string) => void }): JSX.Element {
+export function EditorFooter(props: {
+  onOpenRecent: (path: string) => void;
+  root: () => string;
+}): JSX.Element {
   // Mirror the tab strip's dirty test (dirty-store is keyed by canonical fs-path).
   const isDirty = (): boolean => {
     const path = activePath();
@@ -40,7 +43,7 @@ export function EditorFooter(props: { onOpenRecent: (path: string) => void }): J
           </>
         )}
       </Show>
-      <RecentFilesButton onOpen={props.onOpenRecent} />
+      <RecentFilesButton onOpen={props.onOpenRecent} root={props.root} />
     </div>
   );
 }

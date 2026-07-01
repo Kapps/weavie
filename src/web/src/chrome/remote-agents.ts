@@ -5,7 +5,7 @@ import {
   disconnectBackend,
   log,
   onSessionMessage,
-  postToBackend,
+  postToLocalHost,
 } from "../bridge";
 import { notify } from "../notify/notify";
 
@@ -43,7 +43,7 @@ export function agentHue(name: string): number {
  */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
   await connectAgent(agent);
-  postToBackend("local", {
+  postToLocalHost({
     type: "add-remote-agent",
     name: agent.name,
     url: agent.url,
@@ -57,7 +57,7 @@ export async function addAgent(agent: RemoteAgent): Promise<void> {
  */
 export function removeAgent(name: string): void {
   disconnectBackend(agentBackendId(name));
-  postToBackend("local", { type: "remove-remote-agent", name });
+  postToLocalHost({ type: "remove-remote-agent", name });
   notify("info", `Disconnected remote agent "${name}".`);
 }
 

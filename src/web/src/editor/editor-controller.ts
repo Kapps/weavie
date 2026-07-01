@@ -2,7 +2,15 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import { createSignal } from "solid-js";
-import { type WebBoundMessage, isBrowserHostedShell, log, postToHost } from "../bridge";
+import {
+  LOCAL_BACKEND_ID,
+  type WebBoundMessage,
+  activeBackendId,
+  isBrowserHostedShell,
+  log,
+  postToBackend,
+  postToHost,
+} from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { CommentProse } from "./comment-prose";
@@ -997,15 +1005,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const entry = openTabs().find((tab) => tab.path === path);
     if (entry?.scratch === true) {
-      // A browser-served host (headless / remote) has no native Save-As dialog — prompt in-app for a name and
-      // send it for the host to resolve under the workspace. Native hosts use their OS dialog (save-scratch-as).
-      if (isBrowserHostedShell()) {
+      // Only the native shell bound to its own local backend has a native Save-As dialog (save-scratch-as);
+      // otherwise prompt in-app for a name and send it for the host to resolve under the workspace.
+      if (isBrowserHostedShell() || activeBackendId() !== LOCAL_BACKEND_ID) {
+        // Pin the backend now: the scratch lives on it, and the user can switch while the prompt is open.
+        const backend = activeBackendId();
         void deps.promptScratchName(basename(path)).then((name) => {
           if (name === null) {
             return;
           }
           host?.cancelSave(path);
-          postToHost({
+          postToBackend(backend, {
             type: "save-scratch-named",
             path,
             content: host?.contentOf(path) ?? "",

@@ -1,12 +1,19 @@
 import type { ILink, Terminal } from "@xterm/xterm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-// terminal-links posts reveal-file / open-url to the host; capture those instead of touching the bridge.
+// terminal-links posts reveal-file to the ACTIVE backend and open-url to the LOCAL host (or window.open in a
+// browser shell); capture each channel separately so the routing itself is pinned.
 const posted = vi.hoisted(() => [] as unknown[]);
+const postedLocal = vi.hoisted(() => [] as unknown[]);
+const browserShell = vi.hoisted(() => ({ value: false }));
 vi.mock("../bridge", () => ({
   postToHost: (m: unknown) => {
     posted.push(m);
   },
+  postToLocalHost: (m: unknown) => {
+    postedLocal.push(m);
+  },
+  isBrowserHostedShell: () => browserShell.value,
 }));
 
 const { wireTerminalLinks } = await import("./terminal-links");
@@ -49,6 +56,8 @@ function fakeTerminal(line: string): {
 
 beforeEach(() => {
   posted.length = 0;
+  postedLocal.length = 0;
+  browserShell.value = false;
 });
 
 describe("auto-link provider", () => {
@@ -68,12 +77,24 @@ describe("auto-link provider", () => {
     expect(posted).toContainEqual({ type: "reveal-file", path: "C:\\src\\foo.ts", line: 7 });
   });
 
-  it("links a bare URL and posts open-url", () => {
+  it("links a bare URL and posts open-url to the LOCAL host (the browser is the user's, not the backend's)", () => {
     const { provide } = fakeTerminal("visit https://example.com/x?y=1 today");
     const links = provide();
     expect(links[0]?.text).toBe("https://example.com/x?y=1");
     links[0]?.activate({} as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "open-url", url: "https://example.com/x?y=1" });
+    expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/x?y=1" });
+    expect(posted).toEqual([]);
+  });
+
+  it("opens a URL via window.open in a browser-served shell (its headless host has no browser)", () => {
+    browserShell.value = true;
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+    const { provide } = fakeTerminal("visit https://example.com/ today");
+    provide()[0]?.activate({} as MouseEvent, "https://example.com/");
+    expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener");
+    expect(postedLocal).toEqual([]);
+    vi.unstubAllGlobals();
   });
 
   it("does not double-link a URL that ends in a .ext:line-looking path", () => {
@@ -95,13 +116,14 @@ describe("OSC 8 link handler", () => {
     expect(posted).toContainEqual({ type: "reveal-file", path: "/home/user/a.ts", line: 12 });
   });
 
-  it("opens an http(s) URI in the browser", () => {
+  it("opens an http(s) URI via the LOCAL host", () => {
     fakeTerminal("").activateOsc("https://example.com/");
-    expect(posted).toContainEqual({ type: "open-url", url: "https://example.com/" });
+    expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/" });
   });
 
   it("ignores an unparseable URI without posting", () => {
     fakeTerminal("").activateOsc("not a uri");
     expect(posted).toEqual([]);
+    expect(postedLocal).toEqual([]);
   });
 });

@@ -1,5 +1,5 @@
 import { createSignal } from "solid-js";
-import { onSessionMessage, postToBackend } from "../bridge";
+import { onSessionMessage, postToLocalHost } from "../bridge";
 
 // App-global session-rail UI state, persisted host-side in ~/.weavie/rail-state.json (not localStorage): the
 // backend a session was last created on, and which remote sessions are promoted into the rail. Setters update
@@ -46,7 +46,7 @@ export const lastLocation = lastLocationSig;
 /** Remember the backend a session was just created on (or an agent just added), for the next prompt. */
 export function setLastLocation(backendId: string): void {
   setLastLocationSig(backendId);
-  postToBackend("local", { type: "set-last-location", location: backendId });
+  postToLocalHost({ type: "set-last-location", location: backendId });
 }
 
 /** The promoted-session keys (reactive), for the rail's working-set filter. */
@@ -89,5 +89,5 @@ export function demoteSession(backendId: string, id: string): void {
 }
 
 function pushPromoted(): void {
-  postToBackend("local", { type: "set-promoted", promoted: [...promotedSig()] });
+  postToLocalHost({ type: "set-promoted", promoted: [...promotedSig()] });
 }

@@ -141,9 +141,10 @@ Core as a `SessionStatus` on the session, and pushed to the web. The web rail on
 | Source signal | Status |
 |---|---|
 | spawning, before first hook | `Starting` |
-| `UserPromptSubmit` → `PreToolUse`/`PostToolUse`, no `Stop` yet | `Working` |
-| **`Notification` hook** (permission / idle-input prompt) | `NeedsInput` |
-| `Stop` (turn ended) | `Idle` (calm; fades to neutral) |
+| `UserPromptSubmit` → `PreToolUse`/`PostToolUse` (any tool, matcher `*`), no `Stop` yet | `Working` |
+| `PermissionRequest` the gate passes through (a dialog is about to show), or a permission `Notification` | `NeedsInput` |
+| the prompt resolves: an answering keystroke into the claude pane (no hook fires at approval), confirmed by the tool's `PostToolUse`; an auto-answer arrives as the gate's decision | `Working` |
+| `Stop` (turn ended), or the idle "waiting for input" notice while `Working` (interrupted turn — no `Stop`) | `Idle` (calm; fades to neutral) |
 | ProcessSupervisor crash / crash-loop breaker tripped | `Error` |
 
 Two concrete prerequisites this exposes:

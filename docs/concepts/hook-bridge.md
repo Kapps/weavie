@@ -73,7 +73,7 @@ Two invariants keep it safe:
 - `HookRequest` — parses the stdin JSON (event, tool, raw `tool_input`, session, cwd).
 - `HookDecision` / `HookPolicy` — the verdict + its stdout JSON serialization (`hookSpecificOutput` permission
   block and/or top-level `systemMessage`); `Decide(request, allowAllTools)` is the gate seam — `PassThrough`
-  unless `claude.allowAllTools` is on, when a non-edit `PermissionRequest` returns `Allow` (PreToolUse stays edit-scoped, for change tracking). `IdeIntegration` attaches
+  unless `claude.allowAllTools` is on, when a non-edit `PermissionRequest` returns `Allow`. `IdeIntegration` attaches
   the edit jump-link `systemMessage`, and an `ObservedPermissionMode` subscribes to the same stream.
 - `HookBridgeServer` — the in-process pipe listener; raises `Observed`, replies with the decision.
 - `HookRelayClient` — the relay logic, linked into the standalone `Weavie.HookRelay` exe: stdin → pipe → stdout, fail-open.

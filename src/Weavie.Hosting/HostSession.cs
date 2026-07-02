@@ -150,10 +150,15 @@ public sealed class HostSession : IAsyncDisposable {
 		// cold-starts), and the next real message adopts the id claude settled on. The controller owns the policy.
 		Ide.HookBridge.Observed += Claude.ObserveHook;
 
-		// Per-session Claude status (the rail/pane indicator): the hook stream drives the live states and the
-		// claude supervisor drives crash/crash-loop → Error. Observe runs on the hook accept-loop thread.
+		// Per-session Claude status (the rail/pane indicator): the hook stream drives the live states, the gate's
+		// decisions tell an about-to-show permission dialog (NeedsInput) from an auto-answered one, and the
+		// claude supervisor drives crash/crash-loop → Error. All observers run on the hook accept-loop thread.
 		Status = new SessionStatusMachine();
 		Ide.HookBridge.Observed += Status.Observe;
+		Ide.HookBridge.Decided += Status.ObserveDecision;
+		// The claude pane's input stream resolves an answered permission prompt (no hook fires at approval;
+		// the tool only reports back at PostToolUse — minutes later for a long build).
+		Claude.InputWritten += Status.ObserveUserInput;
 		Claude.SupervisorChanged += Status.ObserveSupervisor;
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{Ide.Port}; registry on 127.0.0.1:{Ide.RegistryPort}; workspace {workspaceRoot}; lock {Ide.LockFilePath}");
 		Console.Out.Flush();

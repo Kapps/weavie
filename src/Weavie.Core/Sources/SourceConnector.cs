@@ -33,7 +33,7 @@ public sealed class SourceConnector : ISourceConnector {
 	}
 
 	/// <inheritdoc/>
-	public bool Matches(string target) => _sources.Any(s => s.Match(target));
+	public string? IdFor(string target) => _sources.FirstOrDefault(s => s.Match(target))?.Id;
 
 	/// <inheritdoc/>
 	public bool IsConnected(string target) {

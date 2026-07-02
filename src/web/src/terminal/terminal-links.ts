@@ -4,11 +4,17 @@
 import type { ILink, Terminal } from "@xterm/xterm";
 import { isBrowserHostedShell, postToHost, postToLocalHost } from "../bridge";
 
-// A path with an extension followed by :line (optionally :col), e.g. src/foo.ts:42 or C:\src\foo.ts:42.
-// An optional Windows drive prefix (C:\…) is matched explicitly so its colon isn't mistaken for the :line.
-const FILE_LINE = /(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/])?[\w.\\/-]+\.[A-Za-z0-9]+:\d+(?::\d+)?/g;
-// A bare http(s) URL (stops at whitespace and common trailing delimiters).
-const URL_RE = /https?:\/\/[^\s"'<>()]+/g;
+// A path with an extension, e.g. src/foo.ts or C:\src\foo.ts. An optional Windows drive prefix (C:\…)
+// is matched explicitly so its colon isn't mistaken for a :line suffix.
+const PATH = String.raw`(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/])?[\w.\\/-]+\.[A-Za-z0-9]+`;
+// A path followed by :line (optionally :col), e.g. src/foo.ts:42:3.
+const FILE_LINE = new RegExp(String.raw`${PATH}:\d+(?::\d+)?`, "g");
+// A bare http(s) URL (stops at whitespace and common delimiters; the final char must not be sentence
+// punctuation, so "see https://host/pr/186." links without the trailing dot).
+const URL_RE = /https?:\/\/[^\s"'<>()]*[^\s"'<>().,;:!?]/g;
+// A path (:line optional) in a tool-call wrapper, e.g. Edit(src/foo.ts) — the form Claude Code prints
+// for file tools, where the parens anchor a path that has no :line.
+const TOOL_PATH = new RegExp(String.raw`(?<=[A-Za-z]\()${PATH}(?::\d+(?::\d+)?)?(?=\))`, "g");
 
 function revealFile(matchText: string): void {
   // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
@@ -93,6 +99,7 @@ export function wireTerminalLinks(term: Terminal): void {
       const claimed: Array<[number, number]> = [];
       collect(text, URL_RE, lineNumber, openUrl, links, claimed);
       collect(text, FILE_LINE, lineNumber, revealFile, links, claimed);
+      collect(text, TOOL_PATH, lineNumber, revealFile, links, claimed);
       callback(links.length > 0 ? links : undefined);
     },
   });

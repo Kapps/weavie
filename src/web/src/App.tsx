@@ -687,7 +687,7 @@ export default function App(): JSX.Element {
       } else if (message.type === "source-loading") {
         // The fetch started: open the source tab now (with a title + spinner) so the window isn't frozen while a
         // slow Notion fetch runs; source-doc / source-error fill it in.
-        setSourceLoading(message.target, message.title);
+        setSourceLoading(message.target, message.title, message.sourceId);
         editor.openSourceTab(message.target);
       } else if (message.type === "source-doc") {
         // The fetch resolved: update the entry (status → ready) and the already-open tab's SourceView renders the
@@ -695,6 +695,7 @@ export default function App(): JSX.Element {
         // if the user switched tabs during the load.
         setSourceDoc(message.target, {
           title: message.title,
+          sourceId: message.sourceId,
           markdown: message.markdown,
           html: message.html,
           editedTime: message.editedTime,

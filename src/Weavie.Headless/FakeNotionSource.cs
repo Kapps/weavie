@@ -26,7 +26,7 @@ internal sealed class FakeNotionSource : ISourceConnector {
 	private static string Str(JsonElement element, string name) =>
 		element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() ?? string.Empty : string.Empty;
 
-	public bool Matches(string target) => NotionSource.ClaimsUrl(target);
+	public string? IdFor(string target) => NotionSource.ClaimsUrl(target) ? NotionSource.SourceId : null;
 
 	// The demo connector always serves its canned doc, so it's always "connected" — an opened Notion URL fetches
 	// straight through (the connect-prompt path is exercised by the connect-notion command, not open-target).

@@ -681,6 +681,7 @@ export default function App(): JSX.Element {
         setSourceDoc(message.target, {
           title: message.title,
           markdown: message.markdown,
+          html: message.html,
           editedTime: message.editedTime,
         });
       } else if (message.type === "source-error") {

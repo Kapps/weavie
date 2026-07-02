@@ -6,7 +6,10 @@ import { createSignal } from "solid-js";
 // how web tabs hold only their URL.
 export interface SourceDocEntry {
   title: string;
-  markdown: string;
+  // Exactly one body is set when ready: `markdown` (Notion — rendered to HTML by SourceView) or pre-rendered
+  // `html` from the host (the log viewer), which SourceView sanitizes and injects as-is.
+  markdown?: string | undefined;
+  html?: string | undefined;
   // The page's last-edited time (ISO 8601), or "" when unknown — shown in the SourceView header.
   editedTime: string;
   status: "loading" | "ready" | "error";
@@ -19,13 +22,18 @@ const [docs, setDocs] = createSignal<Record<string, SourceDocEntry>>({});
 export function setSourceLoading(target: string, title: string): void {
   setDocs((prev) => ({
     ...prev,
-    [target]: { title, markdown: "", editedTime: "", status: "loading" },
+    [target]: { title, editedTime: "", status: "loading" },
   }));
 }
 
 export function setSourceDoc(
   target: string,
-  doc: { title: string; markdown: string; editedTime: string },
+  doc: {
+    title: string;
+    markdown?: string | undefined;
+    html?: string | undefined;
+    editedTime: string;
+  },
 ): void {
   setDocs((prev) => ({ ...prev, [target]: { ...doc, status: "ready" } }));
 }
@@ -36,7 +44,6 @@ export function setSourceError(target: string, message: string): void {
     // Keep the loading entry's guessed title so the tab keeps its label through the failure.
     [target]: {
       title: prev[target]?.title ?? "Notion",
-      markdown: "",
       editedTime: "",
       status: "error",
       message,

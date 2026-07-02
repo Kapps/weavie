@@ -45,7 +45,17 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
     body.append(headerNode(entry.title, entry.editedTime));
     const content = document.createElement("div");
     content.className = "wv-content";
-    content.innerHTML = sanitizeSourceHtml(renderNotionMarkdown(entry.markdown));
+    // A ready doc carries exactly one body: host-rendered `html` (the log viewer, injected as-is) or `markdown`
+    // (Notion, rendered here). Neither means a broken source-doc — say so rather than render a blank page.
+    const html =
+      entry.html ??
+      (entry.markdown === undefined ? undefined : renderNotionMarkdown(entry.markdown));
+    if (html === undefined) {
+      body.append(statusNode("error", "The source arrived without content."));
+      root.replaceChildren(style, body);
+      return;
+    }
+    content.innerHTML = sanitizeSourceHtml(html);
     body.append(content);
     highlightCode(content);
     root.replaceChildren(style, body);

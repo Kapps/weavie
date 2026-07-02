@@ -15,15 +15,18 @@ public sealed partial class HostCore {
 	// How many of the most-recent lines the command hands back to Claude; the human tab shows the full buffer.
 	private const int LogTailForClaude = 500;
 
+	private const string LogsTitle = "Weavie Logs";
+
 	private CommandResult ShowLogs() {
 		var (lines, dropped) = _logBuffer.Snapshot();
 		string full = string.Join('\n', lines);
 
-		// Human tab: the full buffer as a read-only source doc (SourceView re-sanitizes the html via DOMPurify). No
-		// `text` — the web renders only `html`, and Claude's plaintext channel is the DataJson tail below, so
-		// sending the whole buffer again as text would just be dead weight on the bridge.
+		// Human tab: the web opens a source tab only on `source-loading`, so post it first; the `source-doc` then
+		// fills the tab with the full buffer as pre-rendered `html` (SourceView re-sanitizes it via DOMPurify).
+		// Claude's plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-loading", target = LogsTarget, title = LogsTitle }));
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc", target = LogsTarget, title = "Weavie Logs", html = LogsHtml(full, dropped),
+			type = "source-doc", target = LogsTarget, title = LogsTitle, html = LogsHtml(full, dropped), editedTime = "",
 		}));
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.

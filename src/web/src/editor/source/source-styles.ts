@@ -87,6 +87,8 @@ export const SOURCE_STYLES = `
 .wv-source .wv-bg-green { background: rgba(77,171,154,0.24); } .wv-source .wv-bg-blue { background: rgba(82,156,202,0.24); }
 .wv-source .wv-bg-purple { background: rgba(154,109,215,0.24); } .wv-source .wv-bg-pink { background: rgba(226,85,161,0.24); }
 .wv-source .wv-bg-red { background: rgba(224,88,75,0.24); }
+/* The log viewer's dropped-lines marker (host-rendered html; see HostCore.Logs.cs). */
+.wv-source .wv-logs-note { color: var(--dim, #6f7884); margin: 0.4em 0; }
 .wv-status {
   display: flex; align-items: center; justify-content: center; gap: 0.6em;
   min-height: 60vh; color: var(--dim, #6f7884);

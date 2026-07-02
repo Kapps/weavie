@@ -20,7 +20,7 @@ public sealed class HostCoreSourcesTests {
 
 		host.Send(Msg(new { type = "open-target", url = "https://example.com/page" }));
 
-		var web = await WaitForAsync(() => host.Bridge.LastOfType("open-web"));
+		var web = await Wait.ForAsync(() => host.Bridge.LastOfType("open-web"));
 		Assert.Equal("https://example.com/page", web.GetProperty("url").GetString());
 		Assert.Null(host.Bridge.LastOfType("source-doc")); // not a source — never fetched
 	}
@@ -31,7 +31,7 @@ public sealed class HostCoreSourcesTests {
 
 		host.Send(Msg(new { type = "connect-notion" }));
 
-		var prompt = await WaitForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
+		var prompt = await Wait.ForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
 		Assert.Equal("notion", prompt.GetProperty("sourceId").GetString());
 		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
 	}
@@ -43,10 +43,10 @@ public sealed class HostCoreSourcesTests {
 
 		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "ntn_secret" }));
 
-		var toast = await WaitForAsync(() => Notify(host, "info"));
+		var toast = await Wait.ForAsync(() => Notify(host, "info"));
 		Assert.Contains("Acme", toast.GetProperty("message").GetString());
 		// The dialog gets an ok result (so it closes), and the validated token was persisted to the source's file.
-		var result = await WaitForAsync(() => host.Bridge.LastOfType("source-token-result"));
+		var result = await Wait.ForAsync(() => host.Bridge.LastOfType("source-token-result"));
 		Assert.True(result.GetProperty("ok").GetBoolean());
 		string tokenFile = Path.Combine(host.SourcesDir, "notion.json");
 		Assert.True(File.Exists(tokenFile));
@@ -63,7 +63,7 @@ public sealed class HostCoreSourcesTests {
 		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "bad" }));
 
 		// The rejection comes back as an inline result (not a toast), so the dialog stays open for a correction.
-		var result = await WaitForAsync(() => host.Bridge.LastOfType("source-token-result"));
+		var result = await Wait.ForAsync(() => host.Bridge.LastOfType("source-token-result"));
 		Assert.False(result.GetProperty("ok").GetBoolean());
 		Assert.Contains("rejected", result.GetProperty("error").GetString(), StringComparison.OrdinalIgnoreCase);
 		Assert.False(File.Exists(Path.Combine(host.SourcesDir, "notion.json"))); // an invalid token is never saved
@@ -77,7 +77,7 @@ public sealed class HostCoreSourcesTests {
 
 		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "ntn_x" }));
 
-		var result = await WaitForAsync(() => host.Bridge.LastOfType("source-token-result"));
+		var result = await Wait.ForAsync(() => host.Bridge.LastOfType("source-token-result"));
 		Assert.False(result.GetProperty("ok").GetBoolean());
 		Assert.False(File.Exists(Path.Combine(host.SourcesDir, "notion.json")));
 	}
@@ -95,7 +95,7 @@ public sealed class HostCoreSourcesTests {
 
 		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
 
-		var doc = await WaitForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", doc.GetProperty("target").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("Body **text**", doc.GetProperty("markdown").GetString()); // the single render + Claude channel
@@ -111,7 +111,7 @@ public sealed class HostCoreSourcesTests {
 		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
 
 		// Not connected: instead of a blank tab or an easy-to-miss error toast, the user is sent to connect.
-		var prompt = await WaitForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
+		var prompt = await Wait.ForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
 		Assert.Equal("notion", prompt.GetProperty("sourceId").GetString());
 		Assert.Equal("https://app.notion.com/developers/tokens", host.Platform.LastOpenedUrl);
 		Assert.Null(host.Bridge.LastOfType("source-doc")); // nothing fetched without a token
@@ -129,10 +129,10 @@ public sealed class HostCoreSourcesTests {
 
 		// Open before connecting → routed to connect; then pasting a valid token opens the remembered page.
 		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
-		await WaitForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
+		await Wait.ForAsync(() => host.Bridge.LastOfType("prompt-source-token"));
 		host.Send(Msg(new { type = "set-source-token", id = "r1", sourceId = "notion", token = "ntn_secret" }));
 
-		var doc = await WaitForAsync(() => host.Bridge.LastOfType("source-doc"));
+		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", doc.GetProperty("target").GetString());
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 	}
@@ -146,7 +146,7 @@ public sealed class HostCoreSourcesTests {
 		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
 
 		// The failure surfaces in the already-open tab (source-error keyed by target), not as a toast.
-		var error = await WaitForAsync(() => host.Bridge.LastOfType("source-error"));
+		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-error"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", error.GetProperty("target").GetString());
 		Assert.NotEmpty(error.GetProperty("message").GetString()!);
 		Assert.Null(host.Bridge.LastOfType("source-doc"));
@@ -162,7 +162,7 @@ public sealed class HostCoreSourcesTests {
 
 		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
 
-		var error = await WaitForAsync(() => host.Bridge.LastOfType("source-error"));
+		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-error"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", error.GetProperty("target").GetString());
 		Assert.Null(host.Bridge.LastOfType("source-doc"));
 	}
@@ -176,15 +176,4 @@ public sealed class HostCoreSourcesTests {
 	private static JsonElement? Notify(TestHost host, string level) =>
 		host.Bridge.LastOfType("notify") is { } n && n.GetProperty("level").GetString() == level ? n : null;
 
-	private static async Task<JsonElement> WaitForAsync(Func<JsonElement?> selector) {
-		for (int i = 0; i < 200; i++) {
-			if (selector() is { } value) {
-				return value;
-			}
-
-			await Task.Delay(25);
-		}
-
-		throw new TimeoutException("Condition was not met within the timeout.");
-	}
 }

@@ -26,7 +26,7 @@ flowchart LR
   end
   Cmd["weavie.view.logs"] --> Show["HostCore.ShowLogs()"]
   Ring --> Show
-  Show -->|source-doc html| Tab["about:logs source tab"]
+  Show -->|source-loading + source-doc html| Tab["about:logs source tab"]
   Show -->|CommandResult.DataJson tail| Claude["Claude (runCommand)"]
 ```
 
@@ -50,9 +50,11 @@ tests build `HostServices` inline and inject a fresh `new LogBuffer(...)`, never
 
 `HostCore.ShowLogs()` (`HostCore.Logs.cs`) snapshots the buffer and:
 
-1. Posts `source-doc` (`target: "about:logs"`, `title: "Weavie Logs"`, `html`) — the full buffer as an escaped
-   `<pre>` (via `WebUtility.HtmlEncode`; `SourceView` re-sanitizes with DOMPurify), prefixed with a dropped-lines
-   marker when the ring evicted earlier output.
+1. Posts `source-loading` (`target: "about:logs"`) — the only message the web opens a source tab on — then
+   `source-doc` (same target, `title: "Weavie Logs"`, `html`) — the full buffer as an escaped `<pre>` (via
+   `WebUtility.HtmlEncode`; `SourceView` re-sanitizes with DOMPurify), prefixed with a dropped-lines marker when
+   the ring evicted earlier output. `html` is the source-doc body for host-rendered docs; Notion docs send
+   `markdown` instead.
 2. Returns `CommandResult.Success(message, dataJson)` where `dataJson` is `{ log, shown, omitted }` — the last
    `LogTailForClaude` (500) lines, with `omitted = dropped + (buffered − shown)` so Claude sees when more exists.
 

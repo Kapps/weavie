@@ -48,6 +48,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The primary checkout (a git repo) this host is rooted at.</summary>
 	public string RepoRoot { get; }
 
+	/// <summary>The isolated ring behind <c>weavie.view.logs</c> — append lines to exercise the log viewer.</summary>
+	public LogBuffer LogBuffer => _services.LogBuffer;
+
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
 	public static async Task<TestHost> StartAsync() {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));

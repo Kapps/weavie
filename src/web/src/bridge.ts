@@ -348,10 +348,17 @@ export type WebBoundMessage =
   // A source fetch started (keyed by `target`): open the source tab immediately with `title` and a spinner, so a
   // slow Notion fetch shows progress instead of a frozen window. `source-doc`/`source-error` follow.
   | { type: "source-loading"; target: string; title: string }
-  // A fetched source doc (Notion), keyed by `target`: `markdown` is the page's enhanced markdown — the SourceView
-  // renders it to HTML and it's also Claude's channel; `editedTime` (ISO, may be "") heads the rendered page.
-  // Opens/feeds a kind:"source" tab. See notion-source-view.md.
-  | { type: "source-doc"; target: string; title: string; markdown: string; editedTime: string }
+  // A fetched source doc keyed by `target`, carrying exactly one body: `markdown` (a Notion page — SourceView
+  // renders it to HTML) or pre-rendered `html` (the host's log viewer; SourceView re-sanitizes it). `editedTime`
+  // (ISO, may be "") heads the rendered page. Feeds the kind:"source" tab source-loading opened.
+  | {
+      type: "source-doc";
+      target: string;
+      title: string;
+      markdown?: string;
+      html?: string;
+      editedTime: string;
+    }
   // A source fetch failed (keyed by `target`): the open tab swaps its spinner for the error reason.
   | { type: "source-error"; target: string; message: string }
   // The host's open resolver decided the URL isn't a source — open it as a web (iframe) tab.

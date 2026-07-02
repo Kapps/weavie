@@ -679,8 +679,18 @@ export default function App(): JSX.Element {
         addToast(message.level, message.message, message.key);
       } else if (message.type === "focus-pane") {
         // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
-        // xterms persist across switches, so focusing the slot is valid even mid-respawn.
-        focusPane(message.kind);
+        // xterms persist across switches, so focusing the slot is valid even mid-respawn. Never steal from
+        // an overlay input the user is typing in (the omnibar/palette, a session/PR prompt, a dialog): on a
+        // slow switch this push arrives late, and yanking focus closes the palette under them mid-word. The
+        // xterm helper textarea doesn't count — switching focus away FROM a terminal is the intended path.
+        const active = document.activeElement;
+        const typingInOverlay =
+          active instanceof HTMLElement &&
+          !active.classList.contains("xterm-helper-textarea") &&
+          (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+        if (!typingInOverlay) {
+          focusPane(message.kind);
+        }
       } else if (message.type === "turn-changes") {
         // The review set: feed the editor's ← / → file walk + the parked navigator, which surfaces the review
         // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an

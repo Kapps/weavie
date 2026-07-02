@@ -51,6 +51,16 @@ export async function collectChangedFiles(page: Page): Promise<Set<string>> {
   return seen;
 }
 
+// Wait until the navigator has bound the INCOMING PR's diff after a session switch — its stack label shows
+// one of that PR's files (the pr-changes rebind auto-opens the first). The toolbar alone is not a settle
+// signal: right after the switch the OUTGOING session's toolbar is still on screen until the incoming
+// pr-changes lands, and walking then collects the wrong PR's files.
+export async function awaitNavigatorOn(page: Page, files: string[]): Promise<void> {
+  await expect
+    .poll(async () => files.includes(await currentFile(page)), { timeout: 15_000 })
+    .toBe(true);
+}
+
 // Walk the navigator forward until `target` is in view, then assert it arrived. Replaces the per-step
 // fixed-delay loops the PR specs used to reach a specific changed file.
 export async function walkToChangedFile(page: Page, target: string): Promise<void> {

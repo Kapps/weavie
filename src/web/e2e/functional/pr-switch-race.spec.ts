@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { collectChangedFiles } from "../harness/navigator";
+import { awaitNavigatorOn, collectChangedFiles } from "../harness/navigator";
 
 // Race probe: PushActivePrChanges() fires PushPrChangesAsync() fire-and-forget (awaits a git diff), and a rapid
 // PR->PR->PR switch could let a stale pr-changes for the wrong PR land on the now-active PR session. The active
@@ -40,10 +40,11 @@ test("S2-race: rapid PR->PR->PR switching never leaves the wrong PR's files on s
     await page.locator(chips).nth(2).click();
     await page.locator(chips).nth(1).click();
   }
-  // We end on #101 (chip[1]). Its toolbar being live is the settle signal — any in-flight pr-changes for the
-  // other PR has lost the race by the time we read the navigator below.
+  // We end on #101 (chip[1]). The settle signal is the navigator binding one of #101's files — the toolbar
+  // alone can still be the outgoing PR's until the final pr-changes lands.
   await expect(page.locator(chips).nth(1)).toHaveClass(/\bactive\b/);
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 15_000 });
+  await awaitNavigatorOn(page, ["feature.ts", "hello.ts"]);
 
   // The settled navigator on #101 must contain ONLY #101's files (exact set ⇒ no leak from #102).
   expect([...(await collectChangedFiles(page))].sort()).toEqual(["feature.ts", "hello.ts"]);

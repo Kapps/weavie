@@ -149,6 +149,9 @@ public static class CoreCommands {
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
+	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
+	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
+
 	/// <summary>Increases the global font size; bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
 	public const string IncreaseFontSize = "weavie.font.increase";
 
@@ -187,6 +190,15 @@ public static class CoreCommands {
 
 	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
 	public const string ConnectNotion = "weavie.source.connectNotion";
+
+	/// <summary>Opens the focused block of a Notion source tab for in-place editing (web-handled, source-edit.ts).</summary>
+	public const string SourceEditBlock = "weavie.source.editBlock";
+
+	/// <summary>Saves the in-progress Notion block edit back to the page (web-handled, source-edit.ts).</summary>
+	public const string SourceCommitEdit = "weavie.source.commitEdit";
+
+	/// <summary>Cancels the in-progress Notion block edit, restoring the rendered block (web-handled, source-edit.ts).</summary>
+	public const string SourceCancelEdit = "weavie.source.cancelEdit";
 
 	/// <summary>Opens Weavie's captured console output (host stdout/stderr) in a read-only tab, and returns the recent tail to Claude. Diagnostic; palette + Claude, no default keybinding.</summary>
 	public const string ViewLogs = "weavie.view.logs";
@@ -791,6 +803,22 @@ public static class CoreCommands {
 			When = "editorFocused",
 		});
 
+		// Zoom a preview embed (image / Mermaid diagram) into a full-window lightbox. The handler DECLINES
+		// when the active view has no embeds, so in the Monaco editor the chord falls through (it's redo on
+		// some platforms).
+		registry.Register(new CommandDefinition {
+			Id = ZoomEmbed,
+			Title = "Zoom Embed",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Open the current preview's image or Mermaid diagram in a full-window lightbox; run "
+				+ "again (or use the arrow keys) to step through the other embeds. Does nothing when no preview "
+				+ "with an embed is showing.",
+			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
+		});
+
 		// Font zoom (handlers wired in Core by FontCommands): adjust the global font.size setting, which the web
 		// applies live to both the editor and terminal. The familiar browser-zoom chords; a matched binding
 		// preventDefaults, so the chord changes the app font instead of the page zoom.
@@ -914,6 +942,42 @@ public static class CoreCommands {
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
 				+ "it for you.",
 			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
+		});
+
+		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline
+		// editor; Enter / Escape while editing save / cancel. Gated by the source-view context keys, so the plain
+		// chords stay free everywhere else. See docs/specs/notion-writes.md.
+		registry.Register(new CommandDefinition {
+			Id = SourceEditBlock,
+			Title = "Edit Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Edit the focused block of the open Notion page in place; saving writes the change back to Notion.",
+			Aliases = ["edit block", "edit notion block", "edit source block", "edit notion page"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			When = "sourceBlockFocused && !sourceEditing",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceCommitEdit,
+			Title = "Save Block Edit",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Save the in-progress Notion block edit back to the page.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			When = "sourceEditing",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceCancelEdit,
+			Title = "Cancel Block Edit",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Cancel the in-progress Notion block edit, restoring the rendered block.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
+			When = "sourceEditing",
+			ShowInPalette = false,
 		});
 
 		// In-app log viewer (Core-handled in HostCore.Logs.cs): opens the captured console output as a read-only

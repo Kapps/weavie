@@ -245,6 +245,9 @@ public sealed partial class HostCore {
 	/// </summary>
 	private async Task SendPrDiffAsync(int number, string absolutePath) {
 		if (ActivePrReview() is not { } review || review.Number != number) {
+			// Stale request (the session moved on) — dropping is correct, but log it: an unanswered get-pr-diff
+			// strands the web's navigator mid-step, and this is the only trace of why.
+			Log($"[weavie] pr #{number}: dropped get-pr-diff for {Path.GetFileName(absolutePath)} (active pr: {ActivePrReview()?.Number.ToString() ?? "none"})");
 			return;
 		}
 

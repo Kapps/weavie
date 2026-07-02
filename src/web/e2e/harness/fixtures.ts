@@ -12,8 +12,15 @@ type WeavieOptions = {
   // Set via test.use to boot the Open-PR scenario: a base+head git workspace and a stubbed PR provider.
   prScenario: boolean;
   // Set via test.use to stub the source connector with a canned Notion doc (WEAVIE_FAKE_NOTION), so a
-  // notion.so open-target fetches + renders it deterministically. Null in normal use.
-  notionDoc: { title: string; markdown: string; editedTime?: string } | null;
+  // notion.so open-target fetches + renders it deterministically. `truncated` shows the incomplete banner;
+  // `rejectEdits` makes every source-save-edit conflict (the stale-edit UX). Null in normal use.
+  notionDoc: {
+    title: string;
+    markdown: string;
+    editedTime?: string;
+    truncated?: boolean;
+    rejectEdits?: boolean;
+  } | null;
 };
 
 type WeavieFixtures = {

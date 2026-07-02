@@ -16,6 +16,7 @@ import { startLanguageServices } from "../lsp/lsp-client";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
+import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { captureViewState, editorOwner, editorSession, openTab, promote } from "./session-store";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
@@ -629,8 +630,14 @@ export async function createEditorHost(
     // A web/source overlay tab has no Monaco model — never read its URL/target as a file. App renders the
     // iframe/shadow-root over the (released) editor; showFile'ing the URL would read it as a path, which on
     // Windows is a malformed read that surfaces a persistent "Unable to read file" toast rather than a swallowed
-    // FileNotFound. Mirrors applyActive's web/source guard for the rebind/restore path.
-    if (entry === undefined || entry.kind === "web" || entry.kind === "source") {
+    // FileNotFound. Mirrors applyActive's web/source guard for the rebind/restore path — including its media
+    // guard: a media file tab restores into the MediaPane overlay, never a text working copy.
+    if (
+      entry === undefined ||
+      entry.kind === "web" ||
+      entry.kind === "source" ||
+      mediaTypeOf(entry.path) !== null
+    ) {
       return;
     }
     await showFile(monaco.Uri.file(canonicalFsPath(entry.path)), {

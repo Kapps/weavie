@@ -147,6 +147,9 @@ export type HostBoundMessage =
   // Hand an opened URL to the host's open resolver: the host matches it to a source (fetch + render) or replies
   // open-web for a web (iframe) tab. The match (ISource.Match) lives host-side. See docs/specs/notion-source-view.md.
   | { type: "open-target"; url: string }
+  // Save one block edit to the source document: an exact-match old/new pair diffed against the verbatim fetched
+  // markdown (notion-edit.ts). Answered by a refreshed source-doc, or source-edit-error. See docs/specs/notion-writes.md.
+  | { type: "source-save-edit"; target: string; oldStr: string; newStr: string }
   | { type: "list-branches"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
@@ -196,6 +199,8 @@ export type HostBoundMessage =
   // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
   | { type: "fs-stat"; id: string; path: string }
   | { type: "fs-read"; id: string; path: string }
+  // Raw bytes (base64) for the media pane's image/video render — same confinement + correlation as fs-read.
+  | { type: "fs-read-bytes"; id: string; path: string }
   | { type: "fs-write"; id: string; path: string; content: string }
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
@@ -351,7 +356,8 @@ export type WebBoundMessage =
   | { type: "source-loading"; target: string; title: string; sourceId: string }
   // A fetched source doc keyed by `target`, carrying exactly one body: `markdown` (a Notion page — SourceView
   // renders it to HTML) or pre-rendered `html` (the host's log viewer; SourceView re-sanitizes it). `editedTime`
-  // (ISO, may be "") heads the rendered page. Feeds the kind:"source" tab source-loading opened.
+  // (ISO, may be "") heads the rendered page. `truncated`/`unknownBlocks` flag content the source couldn't return
+  // (rendered as a banner; absent from html-bodied docs). Feeds the kind:"source" tab source-loading opened.
   | {
       type: "source-doc";
       target: string;
@@ -360,9 +366,14 @@ export type WebBoundMessage =
       html?: string;
       editedTime: string;
       sourceId: string;
+      truncated?: boolean;
+      unknownBlocks?: number;
     }
   // A source fetch failed (keyed by `target`): the open tab swaps its spinner for the error reason.
   | { type: "source-error"; target: string; message: string }
+  // A source-save-edit failed (keyed by `target`): shown inline at the edited block. `stale` means the page
+  // changed in Notion since the fetch (the exact-match op missed), so the block offers a re-fetch.
+  | { type: "source-edit-error"; target: string; message: string; stale: boolean }
   // The host's open resolver decided the URL isn't a source — open it as a web (iframe) tab.
   | { type: "open-web"; url: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
@@ -377,12 +388,12 @@ export type WebBoundMessage =
   | { type: "close-diff"; id: string }
   // Reply to clipboard-read (terminal paste), correlated by `id`: the OS clipboard's text ("" when empty).
   | { type: "clipboard-content"; id: string; text: string }
-  // Host delivers a file to load + reveal in Monaco. `preview` ⇒ reusable preview tab, else persistent.
-  // `scratch` marks an untitled buffer (New File / restored). `content` is ignored — the working copy reads disk.
+  // Host delivers a file to load + reveal (a Monaco working copy, or the media pane for images/video).
+  // `preview` ⇒ reusable preview tab, else persistent. `scratch` marks an untitled buffer (New File /
+  // restored). No content rides along — the web reads disk through the fs provider.
   | {
       type: "open-file";
       path: string;
-      content: string;
       line: number;
       preview?: boolean;
       scratch?: boolean;
@@ -424,6 +435,17 @@ export type WebBoundMessage =
       id: string;
       ok: boolean;
       content?: string;
+      mtimeMs?: number;
+      size?: number;
+      code?: string;
+      error?: string;
+    }
+  // Reply to fs-read-bytes, correlated by `id`: the file's raw bytes as base64 (or code:"FileNotFound" / error).
+  | {
+      type: "fs-read-bytes-result";
+      id: string;
+      ok: boolean;
+      dataB64?: string;
       mtimeMs?: number;
       size?: number;
       code?: string;
@@ -990,6 +1012,11 @@ onHostMessage((message) => {
 // the web never re-implements a source's predicate.
 export function openTarget(url: string): void {
   postToHost({ type: "open-target", url });
+}
+
+/** Saves one block edit to a source document (see the source-save-edit message). */
+export function saveSourceEdit(target: string, oldStr: string, newStr: string): void {
+  postToHost({ type: "source-save-edit", target, oldStr, newStr });
 }
 
 export function submitSourceToken(

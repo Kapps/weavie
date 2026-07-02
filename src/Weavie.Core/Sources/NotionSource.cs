@@ -70,7 +70,62 @@ public sealed class NotionSource : ISource {
 		string pageJson = await GetAsync($"https://api.notion.com/v1/pages/{id}", accessToken, ct).ConfigureAwait(false);
 		string body = await GetAsync($"https://api.notion.com/v1/pages/{id}/markdown", accessToken, ct).ConfigureAwait(false);
 		// The markdown is both the rendered surface (web-side) and Claude's reading channel — one projection.
-		return new SourceDoc(ParseTitle(pageJson), ParseMarkdown(body), ParseEditedTime(pageJson));
+		var markdown = ParseMarkdown(body);
+		return new SourceDoc(ParseTitle(pageJson), markdown.Markdown, ParseEditedTime(pageJson), markdown.Truncated, markdown.UnknownBlocks);
+	}
+
+	/// <inheritdoc/>
+	public async Task<SourceDoc> UpdateAsync(string target, string accessToken, string oldStr, string newStr, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(target);
+		ArgumentException.ThrowIfNullOrEmpty(accessToken);
+		ArgumentException.ThrowIfNullOrEmpty(oldStr);
+		ArgumentException.ThrowIfNullOrEmpty(newStr);
+		string id = ExtractPageId(target);
+		using var request = BuildRequest(HttpMethod.Patch, $"https://api.notion.com/v1/pages/{id}/markdown", accessToken);
+		// Targeted exact-match ops ONLY — never replace_content (it would destroy <unknown/> blocks and truncated
+		// tails) and never allow_deleting_content / replace_all_matches (their absence is the safety rail).
+		request.Content = new StringContent(
+			JsonSerializer.Serialize(new { update_content = new[] { new { old_str = oldStr, new_str = newStr } } }),
+			Encoding.UTF8,
+			"application/json");
+		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
+		string payload = await response.Content.ReadAsStringAsync(ct).ConfigureAwait(false);
+		if (response.StatusCode == HttpStatusCode.BadRequest && ValidationErrorMessage(payload) is { } conflict) {
+			throw new SourceConflictException(conflict);
+		}
+
+		if (!response.IsSuccessStatusCode) {
+			throw new InvalidOperationException($"Notion API returned {(int)response.StatusCode} updating the page.");
+		}
+
+		// The PATCH response returns the full updated page markdown — refresh the doc from it (title/editedTime
+		// come from the same page GET the fetch path uses). Past this point the edit IS applied, so a refresh
+		// failure must say so — reporting it as a failed save would invite a retry that then conflicts.
+		var markdown = ParseMarkdown(payload);
+		string pageJson;
+		try {
+			pageJson = await GetAsync($"https://api.notion.com/v1/pages/{id}", accessToken, ct).ConfigureAwait(false);
+		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
+			throw new InvalidOperationException($"The edit was saved, but refreshing the page failed — re-open it to see the result. ({ex.Message})", ex);
+		}
+
+		return new SourceDoc(ParseTitle(pageJson), markdown.Markdown, ParseEditedTime(pageJson), markdown.Truncated, markdown.UnknownBlocks);
+	}
+
+	// A 400 whose body carries code "validation_error" means the op's old_str no longer matches the page exactly
+	// once — it changed in Notion since the fetch. Returns the API's reason, or null for any other 400 body.
+	private static string? ValidationErrorMessage(string payload) {
+		try {
+			using var doc = JsonDocument.Parse(payload);
+			if (SourceJson.String(doc.RootElement, "code") != "validation_error") {
+				return null;
+			}
+
+			string message = SourceJson.String(doc.RootElement, "message");
+			return message.Length > 0 ? message : "The page changed in Notion since it was fetched.";
+		} catch (JsonException) {
+			return null;
+		}
 	}
 
 	/// <summary>Reads a page's <c>last_edited_time</c> (ISO 8601) from its <c>GET /v1/pages/{id}</c> JSON, or empty. Pure, for tests.</summary>
@@ -81,34 +136,27 @@ public sealed class NotionSource : ISource {
 	}
 
 	/// <summary>
-	/// Reads a <c>GET /v1/pages/{id}/markdown</c> response (<c>{ markdown, truncated, unknown_block_ids }</c>),
-	/// prepending a visible notice when Notion truncated the page or returned unreadable blocks — so the loss shows
-	/// in the rendered view and in Claude's channel, never a silent log. Pure, for tests.
+	/// A parsed <c>GET /v1/pages/{id}/markdown</c> response: the page's markdown verbatim plus the loss flags
+	/// (page truncated / unreadable blocks) the web renders as a banner.
 	/// </summary>
-	public static string ParseMarkdown(string responseJson) {
+	/// <param name="Markdown">The page's (enhanced) markdown, byte-for-byte as Notion returned it.</param>
+	/// <param name="Truncated">True when Notion cut the page off at its per-page block limit.</param>
+	/// <param name="UnknownBlocks">How many blocks Notion couldn't read (0 when whole).</param>
+	public sealed record MarkdownBody(string Markdown, bool Truncated, int UnknownBlocks);
+
+	/// <summary>
+	/// Reads a <c>GET /v1/pages/{id}/markdown</c> response (<c>{ markdown, truncated, unknown_block_ids }</c>) into a
+	/// <see cref="MarkdownBody"/>. The markdown stays verbatim — the loss flags travel beside it (the web shows a
+	/// banner) so the write path can diff edits against exactly what Notion returned. Pure, for tests.
+	/// </summary>
+	public static MarkdownBody ParseMarkdown(string responseJson) {
 		ArgumentNullException.ThrowIfNull(responseJson);
 		using var doc = JsonDocument.Parse(responseJson);
 		var root = doc.RootElement;
 		string markdown = SourceJson.String(root, "markdown");
 		bool truncated = root.TryGetProperty("truncated", out var t) && t.ValueKind == JsonValueKind.True;
 		int unknown = root.TryGetProperty("unknown_block_ids", out var u) && u.ValueKind == JsonValueKind.Array ? u.GetArrayLength() : 0;
-		return IncompleteNotice(truncated, unknown) is { } notice ? $"{notice}\n\n{markdown}" : markdown;
-	}
-
-	// A blockquote prepended to the markdown when content was lost; null when the page came back whole.
-	private static string? IncompleteNotice(bool truncated, int unknownBlocks) {
-		List<string> reasons = [];
-		if (truncated) {
-			reasons.Add("it's over Notion's per-page block limit");
-		}
-
-		if (unknownBlocks > 0) {
-			reasons.Add($"{unknownBlocks} block(s) couldn't be read");
-		}
-
-		return reasons.Count == 0
-			? null
-			: $"> **Note:** This page is incomplete — {string.Join(" and ", reasons)}. Open it in Notion for the full content.";
+		return new MarkdownBody(markdown, truncated, unknown);
 	}
 
 	private async Task<string> GetAsync(string url, string accessToken, CancellationToken ct) {

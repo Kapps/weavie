@@ -1,6 +1,7 @@
 import MarkdownIt from "markdown-it";
 import { describe, expect, test } from "vitest";
 import {
+  installLineStamps,
   normalizeNotionMarkdown,
   normalizeSelfClosing,
   notionColorClass,
@@ -68,6 +69,10 @@ describe("normalizeSelfClosing", () => {
     expect(normalizeSelfClosing("<table_of_contents/>")).toBe(
       "<table_of_contents></table_of_contents>",
     );
+    // The markdown API's stand-in for embeds/bookmarks/link previews; left self-closing it would swallow siblings.
+    expect(normalizeSelfClosing('<unknown url="https://notion.so/b" alt="embed"/>')).toBe(
+      '<unknown url="https://notion.so/b" alt="embed"></unknown>',
+    );
   });
   test("leaves paired custom tags alone", () => {
     expect(normalizeSelfClosing('<mention-user url="u">Name</mention-user>')).toBe(
@@ -117,19 +122,22 @@ describe("normalizeNotionMarkdown", () => {
       "</callout>",
       "</details>",
     ].join("\n\n");
-    expect(normalizeNotionMarkdown(input)).toBe(expected);
+    expect(normalizeNotionMarkdown(input).text).toBe(expected);
   });
 
   test("keeps a fenced code block intact (never blank-line-splits its lines)", () => {
     const input = ["Intro", "```ts", "const x = 1;", "", "const y = 2;", "```", "Outro"].join("\n");
-    expect(normalizeNotionMarkdown(input)).toBe(
+    expect(normalizeNotionMarkdown(input).text).toBe(
       "Intro\n\n```ts\nconst x = 1;\n\nconst y = 2;\n```\n\nOutro",
     );
   });
 
   test("keeps a list tight and re-indents nested items as spaces", () => {
     const input = ["- one", "\t- sub", "- two"].join("\n");
-    expect(normalizeNotionMarkdown(input)).toBe("- one\n  - sub\n- two");
+    expect(normalizeNotionMarkdown(input)).toEqual({
+      text: "- one\n  - sub\n- two",
+      lineMap: [0, 1, 2],
+    });
   });
 
   test("keeps a toggle's <summary> attached to <details> so the native toggle works", () => {
@@ -140,15 +148,16 @@ describe("normalizeNotionMarkdown", () => {
       "</details>",
     ].join("\n");
     // <summary> stays on the open tag (no blank line) — a blank line would let markdown-it wrap it in a <p>.
-    expect(normalizeNotionMarkdown(input)).toBe(
-      "<details>\n<summary>Toggle title</summary>\n\nHidden body.\n\n</details>",
-    );
+    expect(normalizeNotionMarkdown(input)).toEqual({
+      text: "<details>\n<summary>Toggle title</summary>\n\nHidden body.\n\n</details>",
+      lineMap: [0, 1, -1, 2, -1, 3],
+    });
   });
 
   test('a {toggle="true"} heading becomes a <details> wrapping its indented children', () => {
     const input = ['## Section {toggle="true"}', "\tChild line.", "After (dedented)."].join("\n");
     // The heading is the <summary>; its deeper-indented child is the body; the dedented line after is a sibling.
-    expect(normalizeNotionMarkdown(input)).toBe(
+    expect(normalizeNotionMarkdown(input).text).toBe(
       [
         '<details class="wv-toggle-heading">',
         "<summary>",
@@ -172,11 +181,77 @@ describe("normalizeNotionMarkdown", () => {
       "### Heading",
       "Body para.",
     ].join("\n");
-    const html = md.render(normalizeNotionMarkdown(input));
+    const html = md.render(normalizeNotionMarkdown(input).text);
     expect(html).toContain("<h3>Heading</h3>"); // parsed as a heading, not literal `### Heading`
     expect(html).toContain("<p>Body para.</p>");
     expect(html).toContain('<callout icon="💡" color="green_bg">');
     expect(html).toContain("<p>Inside callout.</p>");
     expect(html).not.toContain("### Heading"); // not swallowed into a raw HTML block
+  });
+
+  test("every mapped output line is its original line, dedented — the edit path's core invariant", () => {
+    const original = [
+      "<empty-block/>",
+      "Intro line.",
+      '<callout icon="💡" color="green_bg">',
+      "\tCallout child",
+      "</callout>",
+      '## Toggle {toggle="true"}',
+      "\tToggle child",
+      "- one",
+      "\t- sub",
+      "```ts",
+      "const x = 1;",
+      "```",
+      "> A quote",
+    ];
+    const { text, lineMap } = normalizeNotionMarkdown(original.join("\n"));
+    const out = text.split("\n");
+    expect(lineMap).toHaveLength(out.length);
+    for (const [n, orig] of lineMap.entries()) {
+      if (orig >= 0) {
+        // List items are re-indented (tabs → 2 spaces/level); everything else is the original minus leading tabs.
+        expect(out[n]?.trim()).toBe(original[orig]?.trim());
+      }
+    }
+    // The mapped lines land where the edit path needs them: containers' children and toggle-heading children
+    // resolve to their own original lines; synthesized wrapper lines stay -1.
+    expect(lineMap[out.indexOf("Callout child")]).toBe(3);
+    expect(lineMap[out.indexOf('## Toggle {toggle="true"}')]).toBe(5);
+    expect(lineMap[out.indexOf("Toggle child")]).toBe(6);
+    expect(lineMap[out.indexOf("<summary>")]).toBe(-1);
+    expect(lineMap[out.indexOf("> A quote")]).toBe(12);
+  });
+});
+
+describe("installLineStamps", () => {
+  const md = new MarkdownIt({ html: true });
+  installLineStamps(md);
+
+  test("stamps blocks with the original line via the lineMap env", () => {
+    const { text, lineMap } = normalizeNotionMarkdown(
+      ["First para", "## Heading", "- item", "> quote"].join("\n"),
+    );
+    const html = md.render(text, { lineMap });
+    expect(html).toContain('<p data-wv-line="0">First para</p>');
+    expect(html).toContain('<h2 data-wv-line="1">Heading</h2>');
+    expect(html).toContain('<li data-wv-line="2">item</li>');
+    expect(html).toContain('<blockquote data-wv-line="3">');
+  });
+
+  test("leaves synthesized lines and fences unstamped", () => {
+    const { text, lineMap } = normalizeNotionMarkdown(
+      ['## T {toggle="true"}', "\tChild", "```ts", "code", "```"].join("\n"),
+    );
+    const html = md.render(text, { lineMap });
+    expect(html).toContain("<summary>"); // the synthesized wrapper carries no stamp
+    expect(html).not.toContain("<summary data-wv-line");
+    expect(html).toContain('<p data-wv-line="1">Child</p>');
+    expect(html).toContain("<pre>"); // fences are v1 read-only — never stamped
+    expect(html).not.toContain("<pre data-wv-line");
+  });
+
+  test("renders unstamped without the env — the log viewer's plain render path", () => {
+    expect(md.render("Hello")).toBe("<p>Hello</p>\n");
   });
 });

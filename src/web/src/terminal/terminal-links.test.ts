@@ -97,6 +97,49 @@ describe("auto-link provider", () => {
     vi.unstubAllGlobals();
   });
 
+  it("leaves trailing sentence punctuation out of a URL", () => {
+    const { provide } = fakeTerminal(
+      "PR is up: https://github.com/Kapps/weavie/pull/186. Let me check CI",
+    );
+    const links = provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("https://github.com/Kapps/weavie/pull/186");
+  });
+
+  it("links a bare path (no :line) inside a tool-call wrapper like Edit(...)", () => {
+    const { provide } = fakeTerminal("⏺ Edit(src/web/src/terminal/terminal-links.ts)");
+    const links = provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("src/web/src/terminal/terminal-links.ts");
+    links[0]?.activate({} as MouseEvent, links[0].text);
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "src/web/src/terminal/terminal-links.ts",
+      line: 1,
+    });
+  });
+
+  it("links a tool-call path with a :line once, at that line", () => {
+    const { provide } = fakeTerminal("⏺ Read(src/foo.ts:42)");
+    const links = provide();
+    expect(links).toHaveLength(1);
+    links[0]?.activate({} as MouseEvent, links[0].text);
+    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
+  });
+
+  it("links a URL inside a tool-call wrapper as a URL, not a reveal-file", () => {
+    const { provide } = fakeTerminal("⏺ WebFetch(https://example.com/page.html)");
+    const links = provide();
+    expect(links).toHaveLength(1);
+    links[0]?.activate({} as MouseEvent, links[0].text);
+    expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/page.html" });
+    expect(posted).toEqual([]);
+  });
+
+  it("does not link tool-call args that aren't file paths", () => {
+    expect(fakeTerminal("⏺ Bash(git status)").provide()).toEqual([]);
+  });
+
   it("does not double-link a URL that ends in a .ext:line-looking path", () => {
     // URLs are claimed first, so the file:line scanner must skip the span already inside the URL.
     const { provide } = fakeTerminal("https://host/app.js:10");

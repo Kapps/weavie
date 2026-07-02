@@ -41,6 +41,9 @@ public interface IFileSystem {
 	/// <summary>Reads the whole file as UTF-8 text. Throws if it does not exist.</summary>
 	string ReadAllText(string path);
 
+	/// <summary>Reads the whole file as raw bytes. Throws if it does not exist.</summary>
+	byte[] ReadAllBytes(string path);
+
 	/// <summary>Writes UTF-8 text, creating parent directories as needed, overwriting any existing file.</summary>
 	void WriteAllText(string path, string contents);
 

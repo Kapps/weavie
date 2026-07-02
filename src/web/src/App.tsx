@@ -70,11 +70,21 @@ import { TabStrip } from "./editor/TabStrip";
 import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
 import { basename, repoRelativePath } from "./editor/fs-path";
+import MediaPane from "./editor/media/MediaPane";
+import { mediaTypeOf } from "./editor/media/media-types";
+import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
+import {
+  closeEmbedZoom,
+  stepEmbedZoom,
+  zoomActiveEmbed,
+  zoomedEmbed,
+} from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   setSourceDoc,
   setSourceError,
@@ -189,7 +199,7 @@ export default function App(): JSX.Element {
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
-  const { toasts, addToast, dismissToast, isLeaving } = createToasts();
+  const { toasts, addToast, dismissToast, isLeaving, pauseToast, resumeToast } = createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
@@ -296,6 +306,17 @@ export default function App(): JSX.Element {
     return path !== null && canPreview(path) && isPreviewMode(path) && !editor.reviewActive()
       ? path
       : null;
+  });
+
+  // The active tab's path when it's a media (image/video) FILE tab and not under inline review — drives the
+  // MediaPane overlay; null otherwise. The file-kind check keeps a web tab whose URL ends in .png out.
+  const activeMediaPath = createMemo<string | null>(() => {
+    const path = activePath();
+    if (path === null || mediaTypeOf(path) === null || editor.reviewActive()) {
+      return null;
+    }
+    const kind = openTabs().find((tab) => tab.path === path)?.kind;
+    return kind === undefined || kind === "file" ? path : null;
   });
 
   // The active tab's URL when it's a web (iframe) tab — drives the web overlay; null otherwise.
@@ -506,6 +527,10 @@ export default function App(): JSX.Element {
                 <PreviewPane content={() => editor.activeContent()} />
               </Suspense>
             </Show>
+            {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
+            <Show when={activeMediaPath() !== null}>
+              <MediaPane path={() => activeMediaPath() as string} />
+            </Show>
             {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
             <Show when={activeWebUrl() !== null}>
               <WebTabPane url={() => activeWebUrl() as string} />
@@ -514,7 +539,10 @@ export default function App(): JSX.Element {
                 loading spinner / fetch error while it resolves). */}
             <Show when={activeSourceTarget() !== null}>
               <Suspense>
-                <SourceView doc={() => sourceDoc(activeSourceTarget() as string)} />
+                <SourceView
+                  doc={() => sourceDoc(activeSourceTarget() as string)}
+                  target={() => activeSourceTarget() as string}
+                />
               </Suspense>
             </Show>
           </div>
@@ -708,10 +736,22 @@ export default function App(): JSX.Element {
           markdown: message.markdown,
           html: message.html,
           editedTime: message.editedTime,
+          truncated: message.truncated ?? false,
+          unknownBlocks: message.unknownBlocks ?? 0,
         });
       } else if (message.type === "source-error") {
         // The fetch failed: swap the open tab's spinner for the reason (no toast — the error lives in the tab).
         setSourceError(message.target, message.message);
+      } else if (message.type === "source-edit-error") {
+        // A block save failed: surfaced inline at the edited block (stale ⇒ the page changed, offer a re-fetch).
+        // If the user left the edit behind (switched tabs) before the failure landed, toast it — a failed write
+        // must reach them wherever they are, never vanish with the discarded draft.
+        const shown =
+          activeSourceEditor()?.showSaveError(message.target, message.message, message.stale) ??
+          false;
+        if (!shown) {
+          addToast("error", `Notion edit failed: ${message.message}`);
+        }
       } else if (message.type === "open-web") {
         // The host's resolver decided this URL isn't a source — open it as a web (iframe) tab.
         editor.openWebTab(message.url);
@@ -765,6 +805,15 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       // Find in Files (Ctrl+Shift+F / palette): open the content-search panel (it focuses its input on mount).
       registerCommand(CommandIds.findInFiles, () => setSearchOpen(true)),
+
+      // Notion block editing (source-edit.ts): the handlers return false when no source block/edit is live, so
+      // the plain Enter/Escape chords fall through everywhere else.
+      registerCommand(
+        CommandIds.sourceEditBlock,
+        () => activeSourceEditor()?.editFocusedBlock() ?? false,
+      ),
+      registerCommand(CommandIds.sourceCommitEdit, () => activeSourceEditor()?.commit() ?? false),
+      registerCommand(CommandIds.sourceCancelEdit, () => activeSourceEditor()?.cancel() ?? false),
       // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so
       // an unmatched keybinding (no active diff) falls through to the editor.
       registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),
@@ -830,6 +879,7 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
+      registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
       // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {
         postToLocalHost({ type: "menu-action", action: "open-folder" });
@@ -1127,7 +1177,13 @@ export default function App(): JSX.Element {
           <SearchPanel onClose={() => setSearchOpen(false)} />
         </Suspense>
       </Show>
-      <Toasts toasts={toasts()} onDismiss={dismissToast} isLeaving={isLeaving} />
+      <Toasts
+        toasts={toasts()}
+        onDismiss={dismissToast}
+        isLeaving={isLeaving}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
       <Suggestions
         items={suggestions()}
         onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}
@@ -1174,6 +1230,11 @@ export default function App(): JSX.Element {
             onConfirm={confirmDeleteSession}
             onCancel={() => setDeleteReq(null)}
           />
+        )}
+      </Show>
+      <Show when={zoomedEmbed()}>
+        {(state) => (
+          <EmbedLightbox state={state()} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
         )}
       </Show>
     </div>

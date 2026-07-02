@@ -29,14 +29,11 @@ never a re-fetch offer that can't help.
 Notion emits **one block per line** (single-`\n`, tab-nested). The editable unit is one original markdown line;
 every mapping, edit, and op is "original line index N".
 
-- **Line map** — `normalizeNotionMarkdown` (`notion-transform.ts`) returns `NormalizedDoc { text, lineMap }`:
-  normalized line → original line, `-1` for synthesized lines (blank separators, toggle-heading wrappers).
-  `installLineStamps` (a markdown-it core rule, `lineMap` passed as render env) stamps `data-wv-line` — the
-  *original* line index — onto paragraph/heading/list-item/blockquote tokens via `token.map`.
-- **Editable marking** — the DOM walk (`notion-markdown.ts` `markEditableBlocks`) drops a stamp whose ancestor
-  carries the same line (the blockquote owns its inner `<p>`) and marks stamped `p/h1–h6/li/blockquote` outside
-  `table`/`pre` as `.wv-editable` (sanitizer allowlist carries `data-wv-line` through). Everything else —
-  tables, fences, cards, mentions, column wrappers — renders with no affordance.
+- **Line stamps** — `notion-parse.ts` builds the block tree directly from the fetched lines, so every node
+  natively carries its original line index; no line map or normalization exists to drift. `notion-render.ts`
+  stamps `data-wv-line` + `.wv-editable` on exactly the leaf text kinds (`p/h1–h6/li/blockquote`) — by
+  construction, never by DOM inspection. Everything else — tables, fences, cards, mentions, column wrappers —
+  renders with no affordance (sanitizer allowlist carries `data-wv-line` through).
 - **Edit ops** (`notion-edit.ts`, pure) — `blockSource` slices a line byte-exactly into
   `tabs + display + attrsRaw`; the editor shows only `display` (inline marks and `##`/`- `/`> ` prefixes are
   visible and editable; nesting tabs and `{color=…}` attrs re-attach verbatim on commit). `buildUpdateOp`
@@ -82,9 +79,10 @@ toggle heading still toggles (its heading edits from the keyboard).
 
 Per [integration-testing-strategy.md](integration-testing-strategy.md), nothing hits real Notion:
 
-- **Pure units** — `notion-transform`: `lineMap` invariants across containers, toggle headings, lists, fences;
-  stamp rule output. `notion-edit`: byte-exact reconstruction (incl. literal `{note}` braces), context
-  expansion over duplicated lines/regions/document edges, refusals.
+- **Pure units** — `notion-parse`/`notion-render`: tree shape + line indices across containers, toggle headings,
+  lists, fences; the corpus seam invariant that every emitted `data-wv-line` round-trips through `blockSource`
+  to its verbatim fetched line. `notion-edit`: byte-exact reconstruction (incl. literal `{note}` braces),
+  context expansion over duplicated lines/regions/document edges, refusals.
 - **Full stack** (`HostCoreSourcesTests`, stubbed HttpClient) — the PATCH's URL/auth/exact body (proving no
   `allow_deleting_content`/`replace_all_matches`) and the refreshed `source-doc`; `validation_error` →
   `stale:true` and no doc; a 500 still resolves (`stale:false`); truncated fetch → clean markdown + flags.

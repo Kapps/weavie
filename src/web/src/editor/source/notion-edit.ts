@@ -3,7 +3,7 @@
 // here works on the VERBATIM fetched markdown — never the normalized render text — so untouched formatting can't
 // be rewritten. See docs/specs/notion-writes.md.
 
-import { parseTrailingAttrs } from "./notion-transform";
+import { parseTrailingAttrs } from "./notion-attrs";
 
 /**
  * A block line sliced for the inline editor: `line === tabs + display + attrsRaw`, byte-exact. The editor shows

@@ -38,9 +38,24 @@ const CONFIG = {
     "tr",
     "td",
     "th",
+    "input",
+    "nav",
   ],
-  // data-wv-line is the renderer's block → original-markdown-line stamp; the edit path resolves clicks through it.
-  ALLOWED_ATTR: ["href", "src", "alt", "class", "data-wv-line"],
+  // data-wv-line is the renderer's block → original-markdown-line stamp; the edit path resolves clicks through
+  // it. id anchors headings for the ToC (DOMPurify's SANITIZE_DOM keeps ids clobber-safe); type/checked/disabled
+  // are the read-only to-do checkbox; start numbers a list resuming mid-sequence.
+  ALLOWED_ATTR: [
+    "href",
+    "src",
+    "alt",
+    "class",
+    "data-wv-line",
+    "id",
+    "type",
+    "checked",
+    "disabled",
+    "start",
+  ],
 };
 
 /** Sanitizes mapper-produced source HTML for injection into the SourceView shadow root. */

@@ -249,7 +249,7 @@ export class SourceEditController {
 
     if (el.tagName === "LI") {
       const inline = [...el.childNodes].filter(
-        (n) => !(n instanceof HTMLElement && (n.tagName === "UL" || n.tagName === "OL")),
+        (n) => !(n instanceof HTMLElement && n.classList.contains("wv-children")),
       );
       for (const node of inline) {
         node.remove();

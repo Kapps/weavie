@@ -106,6 +106,11 @@ export default function SourceView(props: {
     if (anchor !== undefined) {
       event.preventDefault();
       const href = anchor.getAttribute("href") ?? "";
+      // A ToC link: shadow roots don't do fragment navigation natively, so scroll to the heading ourselves.
+      if (href.startsWith("#")) {
+        root?.getElementById(href.slice(1))?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
       if (/^https?:/i.test(href)) {
         // The host resolves it: a Notion link renders natively in another source tab, else it opens as a web tab.
         openTarget(href);

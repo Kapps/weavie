@@ -6,6 +6,9 @@ import { createSignal } from "solid-js";
 // how web tabs hold only their URL.
 export interface SourceDocEntry {
   title: string;
+  // The producing source's stable id, stamped by the host on source-loading/source-doc (e.g. "notion", "logs")
+  // — the tab icon keys off it (source-icons.tsx).
+  sourceId: string;
   // Exactly one body is set when ready: `markdown` (Notion — rendered to HTML by SourceView) or pre-rendered
   // `html` from the host (the log viewer), which SourceView sanitizes and injects as-is.
   markdown?: string | undefined;
@@ -19,10 +22,10 @@ export interface SourceDocEntry {
 
 const [docs, setDocs] = createSignal<Record<string, SourceDocEntry>>({});
 
-export function setSourceLoading(target: string, title: string): void {
+export function setSourceLoading(target: string, title: string, sourceId: string): void {
   setDocs((prev) => ({
     ...prev,
-    [target]: { title, editedTime: "", status: "loading" },
+    [target]: { title, sourceId, editedTime: "", status: "loading" },
   }));
 }
 
@@ -30,6 +33,7 @@ export function setSourceDoc(
   target: string,
   doc: {
     title: string;
+    sourceId: string;
     markdown?: string | undefined;
     html?: string | undefined;
     editedTime: string;
@@ -41,9 +45,10 @@ export function setSourceDoc(
 export function setSourceError(target: string, message: string): void {
   setDocs((prev) => ({
     ...prev,
-    // Keep the loading entry's guessed title so the tab keeps its label through the failure.
+    // Keep the loading entry's guessed title + source id so the tab keeps its label and icon through the failure.
     [target]: {
       title: prev[target]?.title ?? "Notion",
+      sourceId: prev[target]?.sourceId ?? "",
       editedTime: "",
       status: "error",
       message,

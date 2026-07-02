@@ -346,8 +346,9 @@ export type WebBoundMessage =
   // dialog shows `error` inline so the user can correct the token in place.
   | { type: "source-token-result"; id: string; ok: boolean; error: string }
   // A source fetch started (keyed by `target`): open the source tab immediately with `title` and a spinner, so a
-  // slow Notion fetch shows progress instead of a frozen window. `source-doc`/`source-error` follow.
-  | { type: "source-loading"; target: string; title: string }
+  // slow Notion fetch shows progress instead of a frozen window. `sourceId` is the producing source's stable id
+  // (ISource.Id, or the log viewer's "logs") — the tab icon keys off it. `source-doc`/`source-error` follow.
+  | { type: "source-loading"; target: string; title: string; sourceId: string }
   // A fetched source doc keyed by `target`, carrying exactly one body: `markdown` (a Notion page — SourceView
   // renders it to HTML) or pre-rendered `html` (the host's log viewer; SourceView re-sanitizes it). `editedTime`
   // (ISO, may be "") heads the rendered page. Feeds the kind:"source" tab source-loading opened.
@@ -358,6 +359,7 @@ export type WebBoundMessage =
       markdown?: string;
       html?: string;
       editedTime: string;
+      sourceId: string;
     }
   // A source fetch failed (keyed by `target`): the open tab swaps its spinner for the error reason.
   | { type: "source-error"; target: string; message: string }

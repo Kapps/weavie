@@ -21,6 +21,7 @@ public sealed class HostCoreLogsTests {
 		Assert.Equal("about:logs", doc.GetProperty("target").GetString());
 		Assert.Equal("Weavie Logs", doc.GetProperty("title").GetString());
 		Assert.Equal("", doc.GetProperty("editedTime").GetString());
+		Assert.Equal("logs", doc.GetProperty("sourceId").GetString()); // keys the tab icon web-side
 		string html = doc.GetProperty("html").GetString()!;
 		Assert.Contains("boot ok &lt;tag&gt; &amp; done", html); // log text is HTML-encoded inside the <pre>
 		Assert.StartsWith("<pre>", html); // nothing dropped → no marker ahead of the log body

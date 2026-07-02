@@ -26,6 +26,8 @@ const SCOPE = ".weavie-inline-scope";
 const ADDED = ".weavie-inline-added"; // one decoration per BRIGHT (pending) changed line → one per single-line hunk
 const ACCEPTED = ".weavie-inline-accepted"; // one decoration per FADED (kept-but-uncommitted) line
 const UNDO = ".weavie-inline-accepted-undo"; // the inline ↶ undo beside a faded hunk
+const KEEP = ".weavie-inline-pending-keep"; // the inline ✓ keep beside a bright pending hunk
+const REVERT = ".weavie-inline-pending-revert"; // the inline ✕ revert beside a bright pending hunk
 const HIST_UNDO = ".weavie-inline-hist"; // the toolbar's ↶ Undo (first) / ↷ Redo history buttons
 const TOOLBAR = ".weavie-inline-toolbar";
 
@@ -86,6 +88,38 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+});
+
+test.describe("applied review — inline ✓ keep / ✕ revert on pending hunks", () => {
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+
+  test("every pending hunk carries its own keep/revert; clicking ✓ keep fades just that hunk", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await expect(page.locator(KEEP)).toHaveCount(2); // one ✓ keep / ✕ revert pair per pending hunk
+    await expect(page.locator(REVERT)).toHaveCount(2);
+
+    // Click the first hunk's ✓ keep: it fades (with its ↶ undo), the other stays pending with its buttons.
+    await page.locator(KEEP).first().click();
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+    await expect(page.locator(UNDO)).toHaveCount(1);
+    await expect(page.locator(KEEP)).toHaveCount(1);
+  });
+
+  test("clicking ✕ revert rewrites disk for just that hunk", async ({ page, weavie }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(REVERT)).toHaveCount(2);
+
+    // Revert the first hunk (the greet() line): its baseline returns to disk, the other hunk is untouched.
+    await page.locator(REVERT).first().click();
+    await expect.poll(() => read(weavie.workspace, "hello.ts")).toContain("Hello, ${name}");
+    expect(read(weavie.workspace, "hello.ts")).toContain("console.warn");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect(page.locator(REVERT)).toHaveCount(1);
   });
 });
 

@@ -512,7 +512,9 @@ export type WebBoundMessage =
   // Host pushes the window's chrome state so the title bar updates its maximize glyph and blur dim.
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
-  | { type: "file-index"; root: string; files: string[] }
+  // `pending` = a session switch invalidated the index and the new worktree's walk is still running: files is
+  // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
+  | { type: "file-index"; root: string; files: string[]; pending?: boolean }
   // Host answers find-in-files with the content-search matches, echoing the `query` so the page can drop a
   // stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
   // `error` ⇒ the git search failed (e.g. git unavailable); the panel shows it rather than "No results".

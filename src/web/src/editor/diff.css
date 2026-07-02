@@ -151,9 +151,11 @@
   opacity: 0.7;
 }
 
-/* The inline "✓ accepted · ↶ undo" tag hugging a faded hunk's first line (a Monaco content widget). Sans-serif so
-   it reads as chrome, not code; pointer-events on so the button is clickable over the editor. */
-.weavie-inline-accepted-tag {
+/* The inline per-hunk tags hugging a hunk's first line (Monaco content widgets): "✓ accepted · ↶ undo" on a
+   faded hunk, "✓ keep · ✕ revert" on a bright pending one. Sans-serif so they read as chrome, not code;
+   pointer-events on so the buttons are clickable over the editor. */
+.weavie-inline-accepted-tag,
+.weavie-inline-pending-tag {
   display: inline-flex;
   align-items: center;
   gap: 8px;
@@ -170,7 +172,9 @@
   opacity: 0.85;
 }
 
-.weavie-inline-accepted-undo {
+.weavie-inline-accepted-undo,
+.weavie-inline-pending-keep,
+.weavie-inline-pending-revert {
   font: inherit;
   padding: 1px 7px;
   border: 1px solid var(--border);
@@ -182,6 +186,23 @@
 
 .weavie-inline-accepted-undo:hover {
   border-color: var(--accent);
+}
+
+/* Keep/revert take the diff's own green/red so the pair reads accept vs reject at a glance. */
+.weavie-inline-pending-keep {
+  color: #2ea043;
+}
+
+.weavie-inline-pending-keep:hover {
+  border-color: #2ea043;
+}
+
+.weavie-inline-pending-revert {
+  color: #d25a5a;
+}
+
+.weavie-inline-pending-revert:hover {
+  border-color: #d25a5a;
 }
 
 /* Floating action bar for the inline diff: a DOM child of the editor, pinned bottom-center so it clears

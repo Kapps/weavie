@@ -49,7 +49,7 @@ export function parseTrailingAttrs(text: string): TrailingAttrs {
 
 // Notion's self-closing custom tags. The HTML parser ignores the "/" on an unknown element, so left as-is a
 // `<empty-block/>` would swallow its following siblings as children — rewrite them to explicit empty pairs first.
-const SELF_CLOSING = /<(empty-block|table_of_contents|mention-[a-z-]+)([^>]*?)\/>/g;
+const SELF_CLOSING = /<(empty-block|table_of_contents|unknown|mention-[a-z-]+)([^>]*?)\/>/g;
 
 /** Rewrites Notion's self-closing custom tags (`<empty-block/>`, `<mention-date …/>`) to `<tag …></tag>` pairs. */
 export function normalizeSelfClosing(html: string): string {

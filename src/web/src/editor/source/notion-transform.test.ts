@@ -68,6 +68,10 @@ describe("normalizeSelfClosing", () => {
     expect(normalizeSelfClosing("<table_of_contents/>")).toBe(
       "<table_of_contents></table_of_contents>",
     );
+    // The markdown API's stand-in for embeds/bookmarks/link previews; left self-closing it would swallow siblings.
+    expect(normalizeSelfClosing('<unknown url="https://notion.so/b" alt="embed"/>')).toBe(
+      '<unknown url="https://notion.so/b" alt="embed"></unknown>',
+    );
   });
   test("leaves paired custom tags alone", () => {
     expect(normalizeSelfClosing('<mention-user url="u">Name</mention-user>')).toBe(

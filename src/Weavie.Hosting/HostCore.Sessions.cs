@@ -78,6 +78,18 @@ public sealed partial class HostCore {
 				PushDeletionToWeb(path);
 			}
 		});
+		// A new prompt committed the faded accepted band: re-push the trimmed review set, each committed file's
+		// diff (its faded hunks vanish inline), and the now-cleared undo history.
+		session.Changes.AcceptedCommitted += paths => _ui.Post(() => {
+			if (IsActiveSession(session)) {
+				PushTurnChangesToWeb();
+				foreach (string path in paths) {
+					PushTurnDiffToWeb(path);
+				}
+
+				PushReviewHistoryToWeb();
+			}
+		});
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);

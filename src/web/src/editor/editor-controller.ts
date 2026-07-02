@@ -2,7 +2,15 @@
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
 import { createSignal } from "solid-js";
-import { type WebBoundMessage, isBrowserHostedShell, log, postToHost } from "../bridge";
+import {
+  LOCAL_BACKEND_ID,
+  type WebBoundMessage,
+  activeBackendId,
+  isBrowserHostedShell,
+  log,
+  postToBackend,
+  postToHost,
+} from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { CommentProse } from "./comment-prose";
@@ -131,6 +139,11 @@ export interface EditorController {
   newFile(): void;
   /** Save the active editor: a scratch buffer prompts for a name; a real file is already autosaved. */
   save(): boolean;
+  /**
+   * Flushes every dirty working copy to the active backend and resolves once they land — called before a
+   * cross-backend session switch so edits persist on their own host. Resolves immediately when unmounted.
+   */
+  flushDirty(): Promise<void>;
   /** Update the post-turn review set driving the inline toolbar's ← / → file walk; empty when nothing to review. */
   setReviewFiles(files: ReviewFile[]): void;
   /** Arm a PR's base→head diff review (number + changed files) on the same navigator, in read-only "pr" mode. */
@@ -997,15 +1010,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
     const entry = openTabs().find((tab) => tab.path === path);
     if (entry?.scratch === true) {
-      // A browser-served host (headless / remote) has no native Save-As dialog — prompt in-app for a name and
-      // send it for the host to resolve under the workspace. Native hosts use their OS dialog (save-scratch-as).
-      if (isBrowserHostedShell()) {
+      // Only the native shell bound to its own local backend has a native Save-As dialog (save-scratch-as);
+      // otherwise prompt in-app for a name and send it for the host to resolve under the workspace.
+      if (isBrowserHostedShell() || activeBackendId() !== LOCAL_BACKEND_ID) {
+        // Pin the backend now: the scratch lives on it, and the user can switch while the prompt is open.
+        const backend = activeBackendId();
         void deps.promptScratchName(basename(path)).then((name) => {
           if (name === null) {
             return;
           }
           host?.cancelSave(path);
-          postToHost({
+          postToBackend(backend, {
             type: "save-scratch-named",
             path,
             content: host?.contentOf(path) ?? "",
@@ -1042,6 +1057,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     },
     newFile,
     save,
+    flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     setReviewFiles: (files) => {
       reviewKind = "turn";
       reviewFiles = files;

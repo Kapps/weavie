@@ -26,14 +26,19 @@ public sealed partial class HostCore {
 		// Claude's plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-loading", target = LogsTarget, title = LogsTitle }));
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-doc", target = LogsTarget, title = LogsTitle, html = LogsHtml(full, dropped), editedTime = "",
+			type = "source-doc",
+			target = LogsTarget,
+			title = "Weavie Logs",
+			html = LogsHtml(full, dropped),
 		}));
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.
 		int shown = Math.Min(lines.Count, LogTailForClaude);
 		int omitted = dropped + (lines.Count - shown);
 		string dataJson = JsonSerializer.Serialize(new {
-			log = string.Join('\n', lines.Skip(lines.Count - shown)), shown, omitted,
+			log = string.Join('\n', lines.Skip(lines.Count - shown)),
+			shown,
+			omitted,
 		});
 		string omittedNote = omitted > 0 ? $", {omitted} earlier omitted" : string.Empty;
 		return CommandResult.Success($"Opened the Weavie logs ({shown} most-recent line(s){omittedNote}).", dataJson);

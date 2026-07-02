@@ -559,7 +559,8 @@ const sessionListeners = new Set<SessionMessageHandler>();
 // The id of the backend whose traffic drives the page. "local" is the default backend (the native shell's
 // in-process host, or the same-origin headless WebSocket); remotes are added via connectBackend.
 const [activeBackend, setActiveBackend] = createSignal("local");
-const LOCAL_BACKEND_ID = "local";
+/** The default backend's id — the machine the user is at (the native shell, or the same-origin headless host). */
+export const LOCAL_BACKEND_ID = "local";
 
 // The live link state of a backend's transport: opening for the first time, connected, or dropped and
 // retrying. The native in-process backend has no entry and is treated as always online. Drives the
@@ -671,8 +672,11 @@ function deliverFromHost(raw: string, backendId: string): void {
     }
     return;
   }
-  if (backendId !== activeBackend()) {
-    return; // a background backend never paints the page
+  // Local-machine pushes (the OS clipboard reply, the native window state) route from the local backend
+  // only, whichever backend drives the page; everything else is gated to the active backend.
+  const localMachinePush = parsed.type === "clipboard-content" || parsed.type === "window-state";
+  if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
+    return;
   }
   for (const listener of listeners) {
     listener(parsed);
@@ -953,6 +957,14 @@ export function postToHost(message: HostBoundMessage): void {
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */
 export function postToBackend(backendId: string, message: HostBoundMessage): void {
   backends.get(backendId)?.transport.send(JSON.stringify(message));
+}
+
+/**
+ * Send to the local backend — the machine the user is at. Local-machine concerns (the OS clipboard, opening
+ * a browser, the native window frame) go here, never to a remote backend that happens to drive the page.
+ */
+export function postToLocalHost(message: HostBoundMessage): void {
+  postToBackend(LOCAL_BACKEND_ID, message);
 }
 
 export function log(level: "info" | "warn" | "error", message: string): void {

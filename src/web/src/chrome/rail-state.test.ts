@@ -1,17 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 type SessionMsg = { type: string; [k: string]: unknown };
-const posted = vi.hoisted(
-  () => [] as Array<{ backendId: string; message: Record<string, unknown> }>,
-);
+const posted = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 const sessionHandlers = vi.hoisted(() => [] as Array<(m: SessionMsg, backendId: string) => void>);
 vi.mock("../bridge", () => ({
   onSessionMessage: (h: (m: SessionMsg, backendId: string) => void) => {
     sessionHandlers.push(h);
     return () => {};
   },
-  postToBackend: (backendId: string, message: Record<string, unknown>) => {
-    posted.push({ backendId, message });
+  postToLocalHost: (message: Record<string, unknown>) => {
+    posted.push(message);
   },
 }));
 
@@ -49,10 +47,7 @@ describe("promote / demote", () => {
   it("promotes a remote session and pushes the new set to local", () => {
     rail.promoteSession("remote:a", "s1");
     expect(rail.isPromoted("remote:a", "s1")).toBe(true);
-    expect(posted).toContainEqual({
-      backendId: "local",
-      message: { type: "set-promoted", promoted: ["remote:a s1"] },
-    });
+    expect(posted).toContainEqual({ type: "set-promoted", promoted: ["remote:a s1"] });
   });
 
   it("is idempotent: re-promoting pushes nothing new", () => {
@@ -67,10 +62,7 @@ describe("promote / demote", () => {
     posted.length = 0;
     rail.demoteSession("remote:a", "s1");
     expect(rail.isPromoted("remote:a", "s1")).toBe(false);
-    expect(posted).toContainEqual({
-      backendId: "local",
-      message: { type: "set-promoted", promoted: [] },
-    });
+    expect(posted).toContainEqual({ type: "set-promoted", promoted: [] });
   });
 
   it("demoting a non-promoted session is a no-op", () => {
@@ -83,10 +75,7 @@ describe("setLastLocation", () => {
   it("updates the signal and tells the local backend", () => {
     rail.setLastLocation("remote:z");
     expect(rail.lastLocation()).toBe("remote:z");
-    expect(posted).toContainEqual({
-      backendId: "local",
-      message: { type: "set-last-location", location: "remote:z" },
-    });
+    expect(posted).toContainEqual({ type: "set-last-location", location: "remote:z" });
   });
 });
 

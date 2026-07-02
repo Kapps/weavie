@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const calls = vi.hoisted(() => ({
   connect: [] as Array<[string, string, string]>,
   disconnect: [] as string[],
-  posted: [] as Array<{ backendId: string; message: Record<string, unknown> }>,
+  posted: [] as Array<Record<string, unknown>>,
 }));
 vi.mock("../bridge", () => ({
   connectBackend: (id: string, name: string, ws: string) => calls.connect.push([id, name, ws]),
@@ -11,8 +11,7 @@ vi.mock("../bridge", () => ({
   connectedBackends: () => [],
   log: () => {},
   onSessionMessage: () => () => {},
-  postToBackend: (backendId: string, message: Record<string, unknown>) =>
-    calls.posted.push({ backendId, message }),
+  postToLocalHost: (message: Record<string, unknown>) => calls.posted.push(message),
 }));
 
 const agents = await import("./remote-agents");
@@ -60,8 +59,10 @@ describe("addAgent", () => {
     // Bridge WS derived from the worker page URL, carrying the token.
     expect(calls.connect[0]?.[2]).toBe("wss://host:9/weavie-bridge?token=abc");
     expect(calls.posted).toContainEqual({
-      backendId: "local",
-      message: { type: "add-remote-agent", name: "bob", url: "https://runner:8800/", token: "t" },
+      type: "add-remote-agent",
+      name: "bob",
+      url: "https://runner:8800/",
+      token: "t",
     });
   });
 
@@ -95,9 +96,6 @@ describe("removeAgent", () => {
   it("disconnects the backend and asks the host to forget it", () => {
     agents.removeAgent("bob");
     expect(calls.disconnect).toContain("remote:bob");
-    expect(calls.posted).toContainEqual({
-      backendId: "local",
-      message: { type: "remove-remote-agent", name: "bob" },
-    });
+    expect(calls.posted).toContainEqual({ type: "remove-remote-agent", name: "bob" });
   });
 });

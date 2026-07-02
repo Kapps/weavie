@@ -109,7 +109,7 @@ public static class EditorSettings {
 			["none", "boundary", "selection", "trailing", "all"], "none"));
 		registry.Register(Toggle(ScrollBeyondLastLine, "Allow scrolling past the last line of the file.",
 			["scroll beyond last line", "scroll past end"], true));
-		
+
 		// Common preferences (defaults = Monaco's).
 		registry.Register(Choice(WordWrap, "Wrap long lines so they stay within the viewport.",
 			["word wrap", "line wrap", "wrap lines"], ["off", "on", "wordWrapColumn", "bounded"], "off"));

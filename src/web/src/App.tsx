@@ -22,6 +22,7 @@ import {
   openTarget,
   postToBackend,
   postToHost,
+  postToLocalHost,
   setActiveBackendId,
 } from "./bridge";
 import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
@@ -313,15 +314,29 @@ export default function App(): JSX.Element {
     return openTabs().find((tab) => tab.path === path)?.kind === "source" ? path : null;
   });
 
+  // Bind the page to `backendId`, then run `then` (which posts the session command). When crossing to a
+  // different backend, first persist the outgoing session's unsaved edits on their own (still-active) host:
+  // fs-writes route to the active backend, so flipping before the flush lands them on the wrong one — rejected
+  // as out-of-worktree, the edit lost. Same-backend binds run synchronously.
+  const bindBackend = (backendId: string, then: () => void): void => {
+    if (backendId === activeBackendId()) {
+      then();
+      return;
+    }
+    void editor.flushDirty().finally(() => {
+      setActiveBackendId(backendId);
+      then();
+    });
+  };
+
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
   // isn't lost; the host processes both messages in order on the still-active session.
   const switchToSession = (session: RailSession): void => {
     flushEditorSession();
     // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
-    if (session.backendId !== activeBackendId()) {
-      setActiveBackendId(session.backendId);
-    }
-    postToBackend(session.backendId, { type: "switch-session", id: session.id });
+    bindBackend(session.backendId, () =>
+      postToBackend(session.backendId, { type: "switch-session", id: session.id }),
+    );
   };
 
   // The active backend's human name for the reconnecting banner ("the host" for the local headless link).
@@ -805,9 +820,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
-      // Open Folder (reuses the host's native picker via the existing menu-action) + Open URL (opens a web tab).
+      // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {
-        postToHost({ type: "menu-action", action: "open-folder" });
+        postToLocalHost({ type: "menu-action", action: "open-folder" });
       }),
       registerCommand(CommandIds.openUrl, () => setUrlPromptOpen(true)),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
@@ -915,9 +930,9 @@ export default function App(): JSX.Element {
           files={fileIndex()}
           root={indexRoot()}
           currentFile={currentFile()}
-          onWindowControl={(action) => postToHost({ type: "window-control", action })}
+          onWindowControl={(action) => postToLocalHost({ type: "window-control", action })}
           onMenuAction={(action, path) =>
-            postToHost(
+            postToLocalHost(
               path === undefined
                 ? { type: "menu-action", action }
                 : { type: "menu-action", action, path },
@@ -990,16 +1005,18 @@ export default function App(): JSX.Element {
             promoteNextSessionOn(location);
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
             // term-ready) wires the panes to it; then create the session there.
-            setActiveBackendId(location);
-            postToBackend(location, { type: "new-session", branch, base });
+            bindBackend(location, () =>
+              postToBackend(location, { type: "new-session", branch, base }),
+            );
           }}
           onCheckout={(branch, location) => {
             setNewSessionOpen(false);
             setLastLocation(location);
             promoteNextSessionOn(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
-            setActiveBackendId(location);
-            postToBackend(location, { type: "new-session", branch, existing: true });
+            bindBackend(location, () =>
+              postToBackend(location, { type: "new-session", branch, existing: true }),
+            );
           }}
           onCancel={() => setNewSessionOpen(false)}
           onAddRemote={() => {
@@ -1023,13 +1040,14 @@ export default function App(): JSX.Element {
             // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
             // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
             promoteNextSessionOn(location);
-            setActiveBackendId(location);
-            postToBackend(location, {
-              type: "open-pr",
-              number: target.number,
-              owner: target.owner,
-              repo: target.repo,
-            });
+            bindBackend(location, () =>
+              postToBackend(location, {
+                type: "open-pr",
+                number: target.number,
+                owner: target.owner,
+                repo: target.repo,
+              }),
+            );
           }}
           onCancel={() => setOpenPrOpen(false)}
         />

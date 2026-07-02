@@ -94,18 +94,26 @@ public static class LayoutReconciler {
 		notes.Add($"injected new default pane '{pane.Kind}'");
 		return pane.DefaultAnchor switch {
 			PaneAnchor.FarRight => new SplitNode {
-				Dir = SplitDirection.Row, Weights = [1 - InjectWeight, InjectWeight], Children = [root, leaf],
+				Dir = SplitDirection.Row,
+				Weights = [1 - InjectWeight, InjectWeight],
+				Children = [root, leaf],
 			},
 			PaneAnchor.Top => new SplitNode {
-				Dir = SplitDirection.Column, Weights = [InjectWeight, 1 - InjectWeight], Children = [leaf, root],
+				Dir = SplitDirection.Column,
+				Weights = [InjectWeight, 1 - InjectWeight],
+				Children = [leaf, root],
 			},
 			PaneAnchor.Bottom => new SplitNode {
-				Dir = SplitDirection.Column, Weights = [1 - InjectWeight, InjectWeight], Children = [root, leaf],
+				Dir = SplitDirection.Column,
+				Weights = [1 - InjectWeight, InjectWeight],
+				Children = [root, leaf],
 			},
 			// FarLeft / LeftTop / LeftBottom land on the left; Main only seeds an empty tree, so with a
 			// non-empty tree it falls through to the same left placement.
 			_ => new SplitNode {
-				Dir = SplitDirection.Row, Weights = [InjectWeight, 1 - InjectWeight], Children = [leaf, root],
+				Dir = SplitDirection.Row,
+				Weights = [InjectWeight, 1 - InjectWeight],
+				Children = [leaf, root],
 			},
 		};
 	}

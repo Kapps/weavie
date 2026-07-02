@@ -7,7 +7,7 @@
 // to the terminal's native paste event (see TerminalView), the only clipboard read a browser permits.
 
 import type { Terminal } from "@xterm/xterm";
-import { isBrowserHostedShell, onHostMessage, postToHost } from "../bridge";
+import { isBrowserHostedShell, onHostMessage, postToLocalHost } from "../bridge";
 import { writeClipboard } from "../clipboard";
 import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
@@ -56,7 +56,8 @@ onHostMessage((message) => {
 
 function readClipboard(): Promise<string> {
   // Native WebView only — a browser tab never reaches here (its paste declines to the native paste event). The
-  // host owns the OS clipboard and answers clipboard-read; the timeout only guards a dropped bridge.
+  // LOCAL host owns the OS clipboard and answers clipboard-read (a remote backend has none); the timeout only
+  // guards a dropped bridge.
   const id = `clip${++readSeq}`;
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
@@ -68,7 +69,7 @@ function readClipboard(): Promise<string> {
       pendingReads.delete(id);
       resolve(text);
     });
-    postToHost({ type: "clipboard-read", id });
+    postToLocalHost({ type: "clipboard-read", id });
   });
 }
 

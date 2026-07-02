@@ -41,8 +41,7 @@ string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
 await using var core = new HostCore(new HeadlessPlatform(bridge), services, workspace);
-// The page connects to this loopback origin; the LSP/MCP servers pin it as their allowed origin.
-await core.StartAsync($"http://127.0.0.1:{port}").ConfigureAwait(false);
+await core.StartAsync().ConfigureAwait(false);
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); // We print our own status; Kestrel request logging is noise here.

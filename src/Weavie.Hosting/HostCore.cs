@@ -148,28 +148,25 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// Builds the workspace's live backend: the primary session, the session set (pre-existing worktrees
 	/// reconciled into dormant chips), the title-bar controller + global hotkeys where supported, and the store
 	/// reactions. Idempotent — the shell may kick it off early (to overlap WebView2 bring-up) and the web launcher
-	/// awaits it again; both join one run. Call after the bridge is attached and <paramref name="pageOrigin"/> is resolved.
+	/// awaits it again; both join one run. Call after the bridge is attached.
 	/// </summary>
-	public Task StartAsync(string pageOrigin) {
-		ArgumentException.ThrowIfNullOrEmpty(pageOrigin);
+	public Task StartAsync() {
 		lock (_startGate) {
-			return _startTask ??= StartCoreAsync(pageOrigin);
+			return _startTask ??= StartCoreAsync();
 		}
 	}
 
-	private async Task StartCoreAsync(string pageOrigin) {
+	private async Task StartCoreAsync() {
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
 		CrashReporter.Install(line => Log($"[crash] {line}"));
 
-		// GUI hosts serve over app:// and may launch (Finder, a desktop entry) through launchd with a minimal
-		// environment AND a stingy open-file limit (256). Raise the descriptor limit so a second session can't
-		// exhaust it mid-switch, and import the login-shell environment so spawned children (LSP servers, git)
-		// resolve as from a terminal — both giving a GUI launch the headroom a terminal launch already has.
-		if (pageOrigin.StartsWith("app://", StringComparison.Ordinal)) {
-			PosixFileLimit.RaiseToHardLimit(line => Log($"[fd] {line}"));
-			await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
-		}
+		// Any launch context can carry a truncated environment and a stingy open-file limit — a Finder .app or
+		// desktop entry via launchd, a headless host under a supervisor. Raise the descriptor limit so a second
+		// session can't exhaust it mid-switch, and import the login-shell environment so spawned children (LSP
+		// servers, git) resolve as from a terminal. Both no-op on Windows and when nothing needs raising.
+		PosixFileLimit.RaiseToHardLimit(line => Log($"[fd] {line}"));
+		await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
 
 		_bridge.MessageReceived += OnWebMessage;
 

@@ -514,6 +514,12 @@ public sealed class SettingsStore : IDisposable {
 			return Path.GetFullPath(expanded);
 		}
 
+		// A drive-letter path on a Unix host: Path.IsPathRooted is OS-local, and GetFullPath would resolve
+		// it against the workspace dir — keep it verbatim.
+		if (expanded.Length >= 3 && char.IsAsciiLetter(expanded[0]) && expanded[1] == ':' && expanded[2] is '\\' or '/') {
+			return expanded;
+		}
+
 		string baseDir = string.Equals(key, WorkspaceKey, StringComparison.Ordinal)
 			? home
 			: ResolveWorkspaceDirLocked(home);

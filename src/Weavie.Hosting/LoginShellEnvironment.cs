@@ -4,9 +4,10 @@ using System.Text;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Imports the user's login-shell environment into this process. A GUI launch (a macOS <c>.app</c> from Finder,
-/// a Linux desktop entry) inherits a minimal environment, so children Weavie spawns directly (LSP servers,
-/// <c>git</c>) would otherwise miss <c>PATH</c> entries, <c>DOTNET_ROOT</c>, and the like a terminal launch has.
+/// Imports the user's login-shell environment into this process. A non-terminal launch (a macOS <c>.app</c> from
+/// Finder, a Linux desktop entry, a headless host under a supervisor) inherits a minimal environment, so children
+/// Weavie spawns directly (LSP servers, <c>git</c>) would otherwise miss <c>PATH</c> entries, <c>DOTNET_ROOT</c>,
+/// and the like a terminal launch has.
 /// </summary>
 public static class LoginShellEnvironment {
 	private const string Begin = "__WEAVIE_ENV_BEGIN__";
@@ -17,9 +18,11 @@ public static class LoginShellEnvironment {
 
 	private static bool _imported;
 
+	/// <summary>Marks the import as already done, so a test host never spawns the developer's real shell.</summary>
+	internal static void MarkImported() => _imported = true;
+
 	/// <summary>
 	/// Imports the login-shell environment on the first call (macOS/Linux); a no-op on Windows and on later calls.
-	/// The caller restricts this to the GUI hosts that may have a truncated environment.
 	/// </summary>
 	/// <param name="log">Sink for a one-line note of what was imported, or why the probe was skipped.</param>
 	public static async Task ImportOnceAsync(Action<string> log) {
@@ -61,8 +64,9 @@ public static class LoginShellEnvironment {
 		psi.ArgumentList.Add("-c");
 		psi.ArgumentList.Add($"printf %s '{Begin}'; /usr/bin/env -0; printf %s '{End}'");
 
+		Process? process = null;
 		try {
-			using var process = Process.Start(psi);
+			process = Process.Start(psi);
 			if (process is null) {
 				return null;
 			}
@@ -74,11 +78,17 @@ public static class LoginShellEnvironment {
 			await process.WaitForExitAsync(cts.Token).ConfigureAwait(false);
 			return ExtractFenced(await stdout.ConfigureAwait(false));
 		} catch (OperationCanceledException) {
+			if (process is { HasExited: false }) {
+				process.Kill(entireProcessTree: true);
+			}
+
 			log("login-shell environment probe timed out; keeping inherited environment");
 			return null;
 		} catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException) {
 			log($"login-shell environment probe failed: {ex.Message}; keeping inherited environment");
 			return null;
+		} finally {
+			process?.Dispose();
 		}
 	}
 

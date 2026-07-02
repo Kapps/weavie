@@ -153,14 +153,10 @@ jobs:
             echo "::endgroup::"
           done
 
-      # Tests run once, on Linux. The single excluded test passes only on Windows: SettingKind.Path
-      # normalization keys on Path.IsPathRooted, so a "C:\..." path isn't rooted on Unix and resolves
-      # against $HOME — a pre-existing, platform-specific test outside this workflow's scope.
+      # Tests run once, on Linux.
       - name: Test
         if: matrix.name == 'linux'
-        run: >
-          dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
-          --filter "FullyQualifiedName!=Weavie.Core.Tests.SettingsStoreTests.Set_PathKind_WritesLiteralStringForWindowsPath"
+        run: dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj -c Debug
 
       # Hosting/session-routing tests: unit (the editor channel + diff presenter) plus end-to-end integration
       # over a real HostCore on a temp git repo (the same construction path the headless e2e already exercises

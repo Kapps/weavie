@@ -28,7 +28,7 @@ public sealed class WebAppLauncher {
 
 		// No ConfigureAwait juggling: the surface marshals each call to its own UI thread, so this flow is
 		// thread-agnostic and the awaits can stay off the captured context.
-		await _core.StartAsync(origin).ConfigureAwait(false);
+		await _core.StartAsync().ConfigureAwait(false);
 		await _surface.InjectStartupScriptAsync(_core.BuildBootstrap()).ConfigureAwait(false);
 		_surface.Navigate($"{origin}/index.html{_indexQuery}");
 	}

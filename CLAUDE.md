@@ -67,6 +67,9 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
   it. Always fix errors and CI failures; never wave one off as "not my problem" or "pre-existing"
   because it's outside your change set.** A green pipeline is the bar for done, whoever introduced
   the break. If a fix is genuinely outside your scope or ambiguous, say so and ask — don't ignore it.
+- **Never accept a flaky test and hide it — that's a silent fallback.** A skip, a quarantine, a
+  retry loop, a loosened assertion, or "re-ran it and it passed" all bury the defect. When you find
+  a flake, root-cause it and fix it.
 
 ## Custom agents
 

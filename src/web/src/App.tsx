@@ -622,7 +622,9 @@ export default function App(): JSX.Element {
             }}
           </For>
         </div>
-        <PaneFooter claude={kind === "terminal:claude"} />
+        {/* One status footer for both terminal panes, on the bottom (shell) pane; it carries the Claude
+            session status too, so the Claude pane stays chrome-free below its TUI. */}
+        {kind === "terminal:shell" && <PaneFooter />}
       </div>
     );
   };

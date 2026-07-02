@@ -4,10 +4,10 @@ import { gitStatus } from "./git-status-store";
 import { STATUS_LABEL, STATUS_SHORT, claudeStatus } from "./session-store";
 
 /**
- * A terminal pane's status footer: the workspace git branch (shown for both panes) plus, for the Claude pane,
- * its live session status promoted from the header dot to a labelled segment.
+ * The shell pane's status footer, serving both terminal panes: the workspace git branch plus the Claude
+ * session's live status promoted from the header dot to a labelled segment.
  */
-export function PaneFooter(props: { claude: boolean }): JSX.Element {
+export function PaneFooter(): JSX.Element {
   const status = (): SessionStatusName | undefined => claudeStatus();
   return (
     <div class="pane-footer">
@@ -25,7 +25,7 @@ export function PaneFooter(props: { claude: boolean }): JSX.Element {
         )}
       </Show>
       <span class="footer-spacer" />
-      <Show when={props.claude && status() !== undefined}>
+      <Show when={status() !== undefined}>
         <span class="footer-seg" title={STATUS_LABEL[status() as SessionStatusName]}>
           <span class={`session-status status-${status()}`} />
           {STATUS_SHORT[status() as SessionStatusName]}

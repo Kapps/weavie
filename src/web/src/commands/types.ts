@@ -93,6 +93,7 @@ export const CommandIds = {
   saveFile: "weavie.editor.save",
   openRecentFiles: "weavie.editor.recentFiles",
   toggleEditorPreview: "weavie.editor.togglePreview",
+  zoomEmbed: "weavie.editor.zoomEmbed",
   openFolder: "weavie.workspace.openFolder",
   openUrl: "weavie.workspace.openUrl",
   newSessionPrompt: "weavie.session.newPrompt",

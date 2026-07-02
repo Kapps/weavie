@@ -12,13 +12,25 @@ async function makeTempDir(prefix: string): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));
 }
 
-// Seed files every journey can rely on: a markdown doc (preview), a TypeScript file (syntax highlight +
-// edit/persist + LSP), and a plain-text file. Kept tiny and deterministic.
+/**
+ * A small inline 200×80 PNG so seeded/injected images render with no network. It must be data:image/png
+ * (or gif/jpeg/webp): markdown-it's validateLink rejects every other data: URI (data:image/svg+xml never
+ * renders); DOMPurify then also allows data: on <img src>. Wide enough that the image's hover point (its
+ * center) stays clear of the embed-zoom corner magnifier.
+ */
+export const ZOOM_IMAGE_SRC =
+  "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMgAAABQCAIAAADTD63nAAAAqElEQVR42u3SMQ0AAAgEsVeFOmQiiAELjE2q4HKpHngXCTAWxsJYYCyMhbHAWBgLY4GxMBbGAmNhLIwFxsJYGAuMhbEwFhgLY2EsMBbGwlhgLIyFscBYGAtjgbEwFsYCY2EsjAXGwlgYC4yFsTAWGAtjYSwwFsbCWGAsjIWxwFgYC2OBsTAWxgJjYSyMBcbCWBgLjIWxMBYYC2NhLDAWxsJYYCyMhbHgLARVPJITwkh1AAAAAElFTkSuQmCC";
+
+// Seed files every journey can rely on: a markdown doc (preview), one with image + diagram embeds
+// (embed-zoom — seeded rather than typed, so no spec races a multi-hundred-char data URI through Monaco),
+// a TypeScript file (syntax highlight + edit/persist + LSP), and a plain-text file. Kept tiny and
+// deterministic.
 const SEED: Record<string, string> = {
   "README.md":
     "# Sample project\n\nHello **world** — this is _markdown_.\n\n" +
     "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n" +
     "```ts\nconst answer: number = 42;\n```\n",
+  "zoom.md": `# Zoomables\n\n![block](${ZOOM_IMAGE_SRC})\n\n\`\`\`mermaid\ngraph LR\n  A[One] --> B[Two]\n\`\`\`\n`,
   "hello.ts":
     "export function greet(name: string): string {\n" +
     "  return `Hello, ${name}!`;\n" +

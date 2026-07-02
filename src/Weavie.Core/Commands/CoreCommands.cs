@@ -149,6 +149,9 @@ public static class CoreCommands {
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
+	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
+	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
+
 	/// <summary>Increases the global font size; bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
 	public const string IncreaseFontSize = "weavie.font.increase";
 
@@ -798,6 +801,22 @@ public static class CoreCommands {
 				+ "(Markdown today). Does nothing for file types without a preview.",
 			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "show preview", "source view"],
 			When = "editorFocused",
+		});
+
+		// Zoom a preview embed (image / Mermaid diagram) into a full-window lightbox. The handler DECLINES
+		// when the active view has no embeds, so in the Monaco editor the chord falls through (it's redo on
+		// some platforms).
+		registry.Register(new CommandDefinition {
+			Id = ZoomEmbed,
+			Title = "Zoom Embed",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Open the current preview's image or Mermaid diagram in a full-window lightbox; run "
+				+ "again (or use the arrow keys) to step through the other embeds. Does nothing when no preview "
+				+ "with an embed is showing.",
+			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
 		});
 
 		// Font zoom (handlers wired in Core by FontCommands): adjust the global font.size setting, which the web

@@ -229,6 +229,35 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
+	public async Task<string?> ResolveCommitAsync(string repositoryDirectory, string reference, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(reference);
+		// The trust-boundary check for a web-supplied ref: never let it be read as an option. (--end-of-options
+		// would also cover it, but rejecting here keeps the guarantee independent of the git version.)
+		if (reference.StartsWith('-')) {
+			return null;
+		}
+
+		// ^{commit} peels tags to commits, so any commit-ish resolves to what a diff can use.
+		var result = await RunAsync(repositoryDirectory, ["rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"], ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
+			return null;
+		}
+
+		string sha = result.StdOut.Trim();
+		return sha.Length == 0 ? null : sha;
+	}
+
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(baseRef);
+		// No second ref ⇒ diff against the working tree, so uncommitted edits are included (unlike DiffRefsAsync).
+		var result = await RunCheckedAsync(repositoryDirectory, ["diff", "--numstat", "--no-renames", baseRef, "--"], ct).ConfigureAwait(false);
+		return ParseNumstat(result.StdOut);
+	}
+
+	/// <inheritdoc/>
 	public async Task<IReadOnlyList<DiffFileChange>> DiffRefsAsync(string repositoryDirectory, string fromRef, string toRef, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(fromRef);

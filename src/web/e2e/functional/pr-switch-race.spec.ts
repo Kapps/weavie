@@ -2,7 +2,7 @@ import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitNavigatorOn, collectChangedFiles } from "../harness/navigator";
 
-// Race probe: PushActivePrChanges() fires PushPrChangesAsync() fire-and-forget (awaits a git diff), and a rapid
+// Race probe: PushActiveReviewChanges() fires PushReviewChangesAsync() fire-and-forget (awaits a git diff), and a rapid
 // PR->PR->PR switch could let a stale pr-changes for the wrong PR land on the now-active PR session. The active
 // session resolves the review, so the settled navigator must carry only the active PR's files.
 test.use({ prScenario: true });

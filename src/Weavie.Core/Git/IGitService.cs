@@ -93,6 +93,19 @@ public interface IGitService {
 	Task<string?> MergeBaseAsync(string repositoryDirectory, string a, string b, CancellationToken ct = default);
 
 	/// <summary>
+	/// Resolves <paramref name="reference"/> (a branch, tag, commit, or expression like <c>HEAD^</c>) to a full
+	/// commit SHA (<c>git rev-parse --verify &lt;ref&gt;^{commit}</c>), or <c>null</c> when it names no commit here.
+	/// Safe for web-supplied input: a name that could read as an option resolves to <c>null</c>, never reaches git.
+	/// </summary>
+	Task<string?> ResolveCommitAsync(string repositoryDirectory, string reference, CancellationToken ct = default);
+
+	/// <summary>
+	/// The files that differ between <paramref name="baseRef"/> and the working tree — tracked files only, like
+	/// <c>git diff &lt;base&gt;</c> — with added/removed line counts. The changed-file list for a "diff against" review.
+	/// </summary>
+	Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default);
+
+	/// <summary>
 	/// The files changed between <paramref name="fromRef"/> and <paramref name="toRef"/> (<c>git diff --numstat</c>),
 	/// each with its added/removed line counts — the changed-file list for a PR's diff walk.
 	/// </summary>

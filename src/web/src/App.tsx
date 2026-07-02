@@ -27,6 +27,7 @@ import {
 } from "./bridge";
 import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
+import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
@@ -179,6 +180,7 @@ export default function App(): JSX.Element {
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
+  const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   // The connect-a-source token dialog (host pushed prompt-source-token), or null when closed.
   const [sourceTokenPrompt, setSourceTokenPrompt] = createSignal<{
     sourceId: string;
@@ -701,7 +703,7 @@ export default function App(): JSX.Element {
       } else if (message.type === "pr-changes") {
         // A PR session armed (or switched to): feed its changed files into the same ← / → walk + parked
         // navigator, in read-only PR mode, so the diff navigator surfaces over the editor.
-        editor.setPrReview(message.number, message.files);
+        editor.setPrReview(message.number, message.label, message.files);
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
         // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
@@ -901,6 +903,25 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
+      // Diff Against… (Ctrl+Shift+D / palette): review the working tree against a ref. A 'ref' arg (Claude /
+      // a keybinding) skips the prompt; the helpers are the same flow with their ref fixed.
+      registerCommand(CommandIds.diffAgainst, (args) => {
+        const ref = (args as { ref?: unknown } | undefined)?.ref;
+        if (typeof ref === "string" && ref.trim().length > 0) {
+          postToHost({ type: "diff-against", ref: ref.trim() });
+        } else {
+          setDiffAgainstOpen(true);
+        }
+        return true;
+      }),
+      registerCommand(CommandIds.diffAgainstParent, () => {
+        postToHost({ type: "diff-against", ref: "HEAD^" });
+        return true;
+      }),
+      registerCommand(CommandIds.diffAgainstHead, () => {
+        postToHost({ type: "diff-against", ref: "HEAD" });
+        return true;
+      }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
       // still cycles tabs): cycle the rail, wrapping. stepSession returns false with <2 sessions so the chord
       // falls through.
@@ -1124,6 +1145,15 @@ export default function App(): JSX.Element {
             );
           }}
           onCancel={() => setOpenPrOpen(false)}
+        />
+      </Show>
+      <Show when={diffAgainstOpen()}>
+        <DiffAgainstPrompt
+          onPick={(ref) => {
+            setDiffAgainstOpen(false);
+            postToHost({ type: "diff-against", ref });
+          }}
+          onCancel={() => setDiffAgainstOpen(false)}
         />
       </Show>
       <Show when={sourceTokenPrompt()}>

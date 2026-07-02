@@ -440,8 +440,9 @@ public sealed partial class HostCore {
 		// the ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
 		// session's walk would linger. Pushed after the status so the web's auto-arm sees the idle state.
 		PushIncomingReviewState();
-		// If the incoming session is a PR review, re-push its changed-file list so the diff navigator follows it.
-		PushActivePrChanges();
+		// If the incoming session has an armed review (a PR or a "diff against"), re-push its changed-file list
+		// so the diff navigator follows it.
+		PushActiveReviewChanges();
 		// The rail push carries the new active flag, flipping the page to this session's (already-live) terminal
 		// panes. Pushed before focus so the target pane is shown first.
 		PushSessionList();

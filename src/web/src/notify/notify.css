@@ -19,6 +19,9 @@
 }
 
 .toast {
+  --toast-accent: var(--accent);
+  position: relative;
+  overflow: hidden; /* clip the drain fill to the rounded corners */
   display: flex;
   align-items: flex-start;
   gap: 10px;
@@ -26,7 +29,7 @@
   background: var(--bar);
   color: var(--fg);
   border: 1px solid var(--border);
-  border-left: 3px solid var(--accent);
+  border-left: 3px solid var(--toast-accent);
   border-radius: 6px;
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.45);
   pointer-events: auto;
@@ -34,6 +37,31 @@
      dismissing one doesn't snap the rest of the stack up. */
   animation: toast-in 180ms ease;
   transition: opacity 200ms ease, transform 200ms ease;
+}
+
+/* Timed (auto-dismissing) toasts show time remaining as a faint fill draining toward the left;
+   hovering pauses it, in step with the paused dismiss timer (Toasts.tsx sets --toast-duration). */
+.toast-timed::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: color-mix(in srgb, var(--toast-accent) 12%, transparent);
+  transform-origin: left;
+  animation: toast-drain var(--toast-duration) linear forwards;
+  pointer-events: none;
+}
+
+.toast-timed:hover::before {
+  animation-play-state: paused;
+}
+
+@keyframes toast-drain {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
 }
 
 .toast.leaving {
@@ -64,11 +92,11 @@
 }
 
 .toast-error {
-  border-left-color: #f48771;
+  --toast-accent: #f48771;
 }
 
 .toast-warn {
-  border-left-color: #cca700;
+  --toast-accent: #cca700;
 }
 
 .toast-msg {

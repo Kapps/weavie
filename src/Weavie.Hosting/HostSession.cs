@@ -103,6 +103,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// (e.g. its own ~/.claude config) is never tracked and so never pushed as an unopenable diff.
 		Changes = new SessionChangeTracker(
 			fileSystem,
+			workspaceRoot,
 			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
 		// Mirrors Claude's own edit mode (default/acceptEdits/plan), observed off the hook stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.

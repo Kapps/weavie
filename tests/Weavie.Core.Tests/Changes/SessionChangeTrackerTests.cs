@@ -11,7 +11,7 @@ public sealed class SessionChangeTrackerTests {
 	// Scope every tracker under test to the "/w" worktree (the path every fixture file lives under), so an edit
 	// outside it is dropped — exercising the same scoping the host wires from the worktree + scratch roots.
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
 
 	private static HookRequest Edit(HookEventKind evt, string path, string? cwd = null) => new() {
 		Event = evt,
@@ -210,6 +210,39 @@ public sealed class SessionChangeTrackerTests {
 		tracker.Observe(post);
 
 		Assert.Equal("src/a.txt:2", tracker.EditLocationFor(post));
+	}
+
+	[Fact]
+	public void EditLocationFor_CwdDriftedIntoSubdir_StillWorkspaceRootRelative() {
+		// Claude cd'd into src/ before editing: the jump link must stay relative to the workspace root (what
+		// reveal-file resolves against), never to the drifted cwd — a cwd-relative "a.txt:2" wouldn't open.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/src/a.txt", "one\ntwo\n");
+		var tracker = Tracker(fileSystem);
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "/w/src/a.txt", cwd: "/w/src"));
+		fileSystem.WriteAllText("/w/src/a.txt", "one\nTWO\n");
+		var post = Edit(HookEventKind.PostToolUse, "/w/src/a.txt", cwd: "/w/src");
+		tracker.Observe(post);
+
+		Assert.Equal("src/a.txt:2", tracker.EditLocationFor(post));
+	}
+
+	[Fact]
+	public void Observe_RelativeFilePathWithoutCwd_ResolvesAgainstWorkspaceRoot() {
+		// A model-supplied relative file_path on an event with no cwd still lands on the real file.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/src/a.txt", "one\n");
+		var tracker = Tracker(fileSystem);
+
+		tracker.Observe(Edit(HookEventKind.PreToolUse, "src/a.txt"));
+		fileSystem.WriteAllText("/w/src/a.txt", "ONE\n");
+		var post = Edit(HookEventKind.PostToolUse, "src/a.txt");
+		tracker.Observe(post);
+
+		var change = Assert.Single(tracker.Changes());
+		Assert.Equal("/w/src/a.txt", change.Path);
+		Assert.Equal("src/a.txt:1", tracker.EditLocationFor(post));
 	}
 
 	[Fact]

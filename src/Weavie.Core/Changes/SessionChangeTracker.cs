@@ -16,6 +16,7 @@ namespace Weavie.Core.Changes;
 /// </summary>
 public sealed partial class SessionChangeTracker {
 	private readonly IFileSystem _fileSystem;
+	private readonly string _workspaceRoot;
 	private readonly Func<string, bool> _isInScope;
 	private readonly object _gate = new();
 	private readonly Dictionary<string, string> _baseline = new(StringComparer.Ordinal);
@@ -35,13 +36,19 @@ public sealed partial class SessionChangeTracker {
 
 	/// <summary>Creates a tracker that reads file content through <paramref name="fileSystem"/>.</summary>
 	/// <param name="fileSystem">The session filesystem the tracker reads changed-file content through.</param>
+	/// <param name="workspaceRoot">
+	/// The session's worktree root — the root <c>reveal-file</c> resolves relative paths against, so every
+	/// <see cref="EditLocationFor"/> jump link is relative to it (never to Claude's drifting cwd).
+	/// </param>
 	/// <param name="isInScope">
 	/// Predicate over an absolute path: only edits it accepts are tracked. See the type remarks.
 	/// </param>
-	public SessionChangeTracker(IFileSystem fileSystem, Func<string, bool> isInScope) {
+	public SessionChangeTracker(IFileSystem fileSystem, string workspaceRoot, Func<string, bool> isInScope) {
 		ArgumentNullException.ThrowIfNull(fileSystem);
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(isInScope);
 		_fileSystem = fileSystem;
+		_workspaceRoot = workspaceRoot;
 		_isInScope = isInScope;
 	}
 
@@ -376,9 +383,11 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
-	/// A workspace-relative <c>path:line</c> jump target for the first line a just-recorded edit changed, with
-	/// <c>/</c> separators so it's clickable on every platform. <see langword="null"/> for non-edit/non-PostToolUse
-	/// events, notebooks, and no-op edits. Call after <see cref="Observe"/> folds in the PostToolUse event.
+	/// A workspace-root-relative <c>path:line</c> jump target for the first line a just-recorded edit changed,
+	/// with <c>/</c> separators so it's clickable on every platform. Always the full path from the workspace
+	/// root — computed here, never echoed from the model or Claude's cwd — so <c>reveal-file</c> can resolve it.
+	/// <see langword="null"/> for non-edit/non-PostToolUse events, notebooks, and no-op edits. Call after
+	/// <see cref="Observe"/> folds in the PostToolUse event.
 	/// </summary>
 	/// <param name="request">The observed hook event (only PostToolUse edits yield a location).</param>
 	public string? EditLocationFor(HookRequest request) {
@@ -403,7 +412,7 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		int? line = LineDiff.FirstChangedLine(before, after);
-		return line is null ? null : $"{Relativize(path, request.Cwd)}:{line}";
+		return line is null ? null : $"{Relativize(path)}:{line}";
 	}
 
 	/// <summary>The files whose current content differs from their session baseline.</summary>
@@ -499,7 +508,7 @@ public sealed partial class SessionChangeTracker {
 		return true;
 	}
 
-	private static string? ExtractEditPath(HookRequest request) {
+	private string? ExtractEditPath(HookRequest request) {
 		string? key = request.ToolName switch {
 			"Edit" or "Write" or "MultiEdit" => "file_path",
 			"NotebookEdit" => "notebook_path",
@@ -524,17 +533,16 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	private static string Resolve(string path, string? cwd) =>
-		Path.IsPathRooted(path) || string.IsNullOrEmpty(cwd) ? path : Path.GetFullPath(path, cwd);
+	// A relative tool-input path resolves against the tool's cwd (where Claude ran it), falling back to the
+	// workspace root when the event carries none — so a model-supplied partial path still lands on a real file.
+	private string Resolve(string path, string? cwd) =>
+		Path.IsPathRooted(path) ? path : Path.GetFullPath(path, string.IsNullOrEmpty(cwd) ? _workspaceRoot : cwd);
 
-	// Path relative to cwd with '/' separators so the terminal's (forward-slash-only) file:line link detection
-	// catches it on Windows too. Falls back to the absolute path on a "../" escape or unknown cwd.
-	private static string Relativize(string absolutePath, string? cwd) {
-		if (string.IsNullOrEmpty(cwd)) {
-			return absolutePath.Replace('\\', '/');
-		}
-
-		string relative = Path.GetRelativePath(cwd, absolutePath);
+	// Path relative to the WORKSPACE ROOT (never Claude's cwd, which drifts with `cd`) with '/' separators, so
+	// the jump link matches what reveal-file resolves against and stays clickable on Windows too. Falls back to
+	// the absolute path when the file lives outside the workspace (e.g. the scratch dir).
+	private string Relativize(string absolutePath) {
+		string relative = Path.GetRelativePath(_workspaceRoot, absolutePath);
 		bool escapes = relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative);
 		return (escapes ? absolutePath : relative).Replace('\\', '/');
 	}

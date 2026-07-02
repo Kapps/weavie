@@ -70,6 +70,8 @@ import { TabStrip } from "./editor/TabStrip";
 import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
 import { basename, repoRelativePath } from "./editor/fs-path";
+import MediaPane from "./editor/media/MediaPane";
+import { mediaTypeOf } from "./editor/media/media-types";
 import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
 import {
   closeEmbedZoom,
@@ -303,6 +305,17 @@ export default function App(): JSX.Element {
       : null;
   });
 
+  // The active tab's path when it's a media (image/video) FILE tab and not under inline review — drives the
+  // MediaPane overlay; null otherwise. The file-kind check keeps a web tab whose URL ends in .png out.
+  const activeMediaPath = createMemo<string | null>(() => {
+    const path = activePath();
+    if (path === null || mediaTypeOf(path) === null || editor.reviewActive()) {
+      return null;
+    }
+    const kind = openTabs().find((tab) => tab.path === path)?.kind;
+    return kind === undefined || kind === "file" ? path : null;
+  });
+
   // The active tab's URL when it's a web (iframe) tab — drives the web overlay; null otherwise.
   const activeWebUrl = createMemo<string | null>(() => {
     const path = activePath();
@@ -510,6 +523,10 @@ export default function App(): JSX.Element {
               <Suspense>
                 <PreviewPane content={() => editor.activeContent()} />
               </Suspense>
+            </Show>
+            {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
+            <Show when={activeMediaPath() !== null}>
+              <MediaPane path={() => activeMediaPath() as string} />
             </Show>
             {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
             <Show when={activeWebUrl() !== null}>

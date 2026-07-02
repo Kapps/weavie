@@ -5,9 +5,9 @@ using Weavie.Core.Editor;
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Loads a file and pushes its contents to Monaco to reveal at a line. Shared by clickable terminal file:line
-/// links and the MCP <c>openFile</c> tool; relative paths resolve against the workspace. The read goes through
-/// the session's <see cref="FileProviderService"/>, the one validated reader, so an open is confined to the
+/// Pushes a file open to the web to reveal at a line. Shared by clickable terminal file:line links and the
+/// MCP <c>openFile</c> tool; relative paths resolve against the workspace. The gate goes through the
+/// session's <see cref="FileProviderService"/>, the one validated reader, so an open is confined to the
 /// worktree (+ scratch) by normalized path. (The opened repo is trusted: an in-tree symlink that resolves
 /// outside is still followed — confinement is by path string, not by the link target.)
 /// </summary>
@@ -28,15 +28,16 @@ public sealed class FileOpener {
 	public string Workspace { get; set; }
 
 	/// <summary>
-	/// Reads the file and pushes an <c>open-file</c> so Monaco loads it and reveals the 1-based line (logs and
-	/// returns if missing). <paramref name="preview"/> opens a reusable preview tab; <paramref name="scratch"/>
-	/// marks an untitled buffer shown as "Untitled-N".
+	/// Pushes an <c>open-file</c> so the web opens the file (Monaco working copy, or the media pane for
+	/// images/video) and reveals the 1-based line (logs and returns if missing). No content rides along —
+	/// the web reads disk through the fs provider. <paramref name="preview"/> opens a reusable preview tab;
+	/// <paramref name="scratch"/> marks an untitled buffer shown as "Untitled-N".
 	/// </summary>
 	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
-		// Validated read: null for a path outside the worktree (+ scratch), missing, or unreadable, so a
-		// reveal-file / openFile is confined to the worktree by path (an in-tree symlink is followed — the repo is trusted).
-		if (_files.ReadIfAllowed(resolved) is not { } content) {
+		// Validated gate: refused for a path outside the worktree (+ scratch) or missing, so a reveal-file /
+		// openFile is confined to the worktree by path (an in-tree symlink is followed — the repo is trusted).
+		if (!_files.CanRead(resolved)) {
 			Console.Error.WriteLine($"[weavie] reveal-file: refused or not found: {resolved}");
 			return;
 		}
@@ -46,7 +47,6 @@ public sealed class FileOpener {
 			writer.WriteStartObject();
 			writer.WriteString("type", "open-file");
 			writer.WriteString("path", resolved);
-			writer.WriteString("content", content);
 			writer.WriteNumber("line", Math.Max(1, line));
 			writer.WriteBoolean("preview", preview);
 			writer.WriteBoolean("scratch", scratch);

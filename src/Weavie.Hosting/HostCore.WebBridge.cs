@@ -214,6 +214,15 @@ public sealed partial class HostCore {
 				}
 
 				break;
+			case "fs-read-bytes":
+				// Raw bytes (base64) for the media pane — same path-routing + confinement as fs-read.
+				if (ResolveFsSession(FsPath(root)) is { } readBytesSession) {
+					_bridge.PostToWeb(readBytesSession.FileProvider.ReadBytes(FsId(root), FsPath(root)));
+				} else {
+					_bridge.PostToWeb(FileProviderProtocol.ReadBytesNotFound(FsId(root)));
+				}
+
+				break;
 			case "fs-write":
 				// Data safety on a switch: the web flushes the outgoing session's working copies as fs-writes during
 				// rebind, which can land after _session flipped — routing by path saves them on the owning session.

@@ -26,6 +26,8 @@ export function headlessBuilt(): boolean {
 export interface WeavieHost {
   readonly url: string;
   readonly workspace: string;
+  /** The isolated HOME the host runs under (WEAVIE_ROOT lives at `<home>/.weavie`). */
+  readonly home: string;
   /** Everything the host has written to stdout so far (status lines). */
   log(): string;
   /** The fake claude's markers (its MCP/hook activity), or "" when no script ran. */
@@ -248,6 +250,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   return {
     url,
     workspace: fake.workspace,
+    home: fake.home,
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {

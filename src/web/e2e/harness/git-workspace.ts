@@ -12,6 +12,17 @@ async function makeTempDir(prefix: string): Promise<string> {
   return realpath(await mkdtemp(join(tmpdir(), prefix)));
 }
 
+// Valid 8×8 solid-color PNGs (signature + IHDR + zlib IDAT + IEND, CRC-correct), for the media-pane
+// journeys: PIXEL_RED seeds pixel.png; PIXEL_BLUE overwrites it to drive the fs-change refresh.
+export const PIXEL_RED = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC",
+  "base64",
+);
+export const PIXEL_BLUE = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEElEQVR4nGNgYPiPAw0pCQCpcD/BFMrqcwAAAABJRU5ErkJggg==",
+  "base64",
+);
+
 /**
  * A small inline 200×80 PNG so seeded/injected images render with no network. It must be data:image/png
  * (or gif/jpeg/webp): markdown-it's validateLink rejects every other data: URI (data:image/svg+xml never
@@ -23,9 +34,9 @@ export const ZOOM_IMAGE_SRC =
 
 // Seed files every journey can rely on: a markdown doc (preview), one with image + diagram embeds
 // (embed-zoom — seeded rather than typed, so no spec races a multi-hundred-char data URI through Monaco),
-// a TypeScript file (syntax highlight + edit/persist + LSP), and a plain-text file. Kept tiny and
-// deterministic.
-const SEED: Record<string, string> = {
+// a TypeScript file (syntax highlight + edit/persist + LSP), a plain-text file, and media files (the
+// image/video pane). Kept tiny and deterministic.
+const SEED: Record<string, string | Buffer> = {
   "README.md":
     "# Sample project\n\nHello **world** — this is _markdown_.\n\n" +
     "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n" +
@@ -38,6 +49,9 @@ const SEED: Record<string, string> = {
     'const message = greet("weavie");\n' +
     "console.log(message);\n",
   "notes.txt": "just plain text\n",
+  "pixel.png": PIXEL_RED,
+  // Not a decodable video — enough to drive the media pane's byte pipeline; decode is the browser's job.
+  "clip.webm": Buffer.from("not-a-real-webm"),
 };
 
 // A throwaway git repo so HostCore can create sessions/worktrees off HEAD. Returns the path; call

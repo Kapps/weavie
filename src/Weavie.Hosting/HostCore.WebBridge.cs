@@ -309,6 +309,13 @@ public sealed partial class HostCore {
 					PushLspConfigToWeb(lspSession);
 				}
 
+				// Terminal output posted while the link was down never reached the page: re-sync every loaded
+				// session's panes (replay the shell's log, nudge claude's TUI) — see TerminalController.ResyncPane.
+				foreach (var slot in _sessions?.Slots ?? []) {
+					slot.Session?.Claude.ResyncPane();
+					slot.Session?.Shell.ResyncPane();
+				}
+
 				_suggestions?.PushCurrent();
 				// A prior run that died on an unhandled exception left a crash report; surface it once, now that
 				// the page can render the toast, so a silent hard exit doesn't go unnoticed.

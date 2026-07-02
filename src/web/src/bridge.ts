@@ -734,6 +734,10 @@ const nativeTransport: BridgeTransport = {
   dispose(): void {},
 };
 
+// The `ready` announcement that makes a host (re-)push its state — sent on every remote (re)connect and on a
+// local reconnect (main.tsx sends the local backend's initial one).
+const READY_HELLO = JSON.stringify({ type: "ready" });
+
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
 // before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
 // Inbound frames go through the shared `deliverFromHost`, indistinguishable from a native host.
@@ -742,6 +746,8 @@ class WebSocketTransport implements BridgeTransport {
   private readonly outbox: string[] = [];
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
+  private hasOpened = false;
   // Set once the backend is deliberately disconnected; stops the close→reconnect loop for good.
   private disposed = false;
   // Mirrors the published phase so a drop can decide its one-shot toast without a reactive read.
@@ -806,7 +812,12 @@ class WebSocketTransport implements BridgeTransport {
       setBackendPhase(this.backendId, "online");
       if (this.hello !== undefined) {
         socket.send(this.hello);
+      } else if (this.hasOpened) {
+        // The local backend's initial `ready` came from main.tsx; the host re-pushes state (and re-syncs
+        // terminals) only on `ready`, so a reconnect re-announces it here (remotes' `hello` already does).
+        socket.send(READY_HELLO);
       }
+      this.hasOpened = true;
       const pending = this.outbox.splice(0, this.outbox.length);
       for (const message of pending) {
         socket.send(message);
@@ -935,7 +946,7 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, wsUrl, name, JSON.stringify({ type: "ready" }));
+  const transport = new WebSocketTransport(id, wsUrl, name, READY_HELLO);
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }

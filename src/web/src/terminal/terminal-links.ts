@@ -2,7 +2,7 @@
 // bare file:line references and URLs in the output. The browser-open + file-reveal both round-trip the host.
 
 import type { ILink, Terminal } from "@xterm/xterm";
-import { postToHost } from "../bridge";
+import { isBrowserHostedShell, postToHost, postToLocalHost } from "../bridge";
 
 // A path with an extension followed by :line (optionally :col), e.g. src/foo.ts:42 or C:\src\foo.ts:42.
 // An optional Windows drive prefix (C:\…) is matched explicitly so its colon isn't mistaken for the :line.
@@ -20,7 +20,13 @@ function revealFile(matchText: string): void {
 }
 
 function openUrl(url: string): void {
-  postToHost({ type: "open-url", url });
+  // The browser lives on the user's machine: a served tab opens the (caller-checked, host-revalidated http(s))
+  // URL itself under the click's user gesture; a native shell asks the LOCAL host, never a remote backend.
+  if (isBrowserHostedShell()) {
+    window.open(url, "_blank", "noopener");
+    return;
+  }
+  postToLocalHost({ type: "open-url", url });
 }
 
 // Pushes an xterm ILink for each regex match on one buffer line. `skip` excludes matches that fall inside an

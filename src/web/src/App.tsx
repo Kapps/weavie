@@ -22,6 +22,7 @@ import {
   openTarget,
   postToBackend,
   postToHost,
+  postToLocalHost,
   setActiveBackendId,
 } from "./bridge";
 import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
@@ -818,9 +819,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
-      // Open Folder (reuses the host's native picker via the existing menu-action) + Open URL (opens a web tab).
+      // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {
-        postToHost({ type: "menu-action", action: "open-folder" });
+        postToLocalHost({ type: "menu-action", action: "open-folder" });
       }),
       registerCommand(CommandIds.openUrl, () => setUrlPromptOpen(true)),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
@@ -928,9 +929,9 @@ export default function App(): JSX.Element {
           files={fileIndex()}
           root={indexRoot()}
           currentFile={currentFile()}
-          onWindowControl={(action) => postToHost({ type: "window-control", action })}
+          onWindowControl={(action) => postToLocalHost({ type: "window-control", action })}
           onMenuAction={(action, path) =>
-            postToHost(
+            postToLocalHost(
               path === undefined
                 ? { type: "menu-action", action }
                 : { type: "menu-action", action, path },

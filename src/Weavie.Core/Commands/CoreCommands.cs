@@ -684,10 +684,11 @@ public static class CoreCommands {
 		});
 
 		// Back / forward through visited editor locations — a browser/IDE-style navigation history. Web-handled.
-		// The traditional bindings: the back/forward mouse buttons (a gesture, handled outside the chord resolver)
-		// plus Alt+Left / Alt+Right. Each chord carries a per-binding `!terminalFocused` guard so a focused
-		// terminal keeps its Alt+arrow word-nav; the handlers DECLINE (key falls through) when there's no history
-		// to step to in that direction.
+		// The traditional bindings: the back/forward mouse buttons (the MouseBack / MouseForward key tokens,
+		// resolved by the web's mousedown resolver) plus Alt+Left / Alt+Right. The Alt chords carry a per-binding
+		// `!terminalFocused` guard so a focused terminal keeps its Alt+arrow word-nav; the mouse buttons conflict
+		// with nothing, so they bind unguarded. The handlers DECLINE (the event falls through) when there's no
+		// history to step to in that direction.
 		registry.Register(new CommandDefinition {
 			Id = NavigateBack,
 			Title = "Go Back",
@@ -696,7 +697,10 @@ public static class CoreCommands {
 			Description = "Go back to the previous editor location (file + line) in the navigation history. "
 				+ "Also driven by the back mouse button.",
 			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" }],
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" },
+				new CommandKeybinding { Key = "MouseBack" },
+			],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -707,7 +711,10 @@ public static class CoreCommands {
 			Description = "Go forward to the next editor location (file + line) in the navigation history. "
 				+ "Also driven by the forward mouse button.",
 			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" }],
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" },
+				new CommandKeybinding { Key = "MouseForward" },
+			],
 		});
 
 		// Copy an editor tab's name / repo-relative / absolute path to the clipboard — the tab menu's Copy

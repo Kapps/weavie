@@ -57,6 +57,15 @@ describe("renderInline", () => {
     expect(renderInline('<span color="chartreuse">x</span>')).toBe("x");
   });
 
+  test("inline images render; a bare ! stays literal", () => {
+    expect(renderInline("A picture: ![pic](https://e.com/i.png)")).toBe(
+      'A picture: <img src="https://e.com/i.png" alt="pic">',
+    );
+    expect(renderInline("Hello! [link](https://e.com)")).toBe(
+      'Hello! <a href="https://e.com">link</a>',
+    );
+  });
+
   test("<br> becomes a line break", () => {
     expect(renderInline("Line 1<br>Line 2<br/>Line 3")).toBe("Line 1<br>Line 2<br>Line 3");
   });

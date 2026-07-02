@@ -119,7 +119,9 @@ public sealed class NotionSource : ISource {
 	// Notion reports every 400 as code "validation_error"; only the op-level failures — an old_str that is not
 	// found or matches more than once (the page changed since the fetch) — are stale-page conflicts, and both
 	// name "old_str" in the message. Anything else (a malformed body, a non-page id, a synced page) is a request
-	// error, not a conflict — a "re-fetch" offer would be a dead end. Returns the conflict reason, or null.
+	// error, not a conflict — a "re-fetch" offer would be a dead end. Message sniffing is best-effort: a
+	// request-shape error whose message names an old_str field path would still read as stale. Returns the
+	// conflict reason, or null.
 	private static string? ValidationErrorMessage(string payload) {
 		try {
 			using var doc = JsonDocument.Parse(payload);

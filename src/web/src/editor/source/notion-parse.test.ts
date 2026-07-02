@@ -122,6 +122,16 @@ describe("parseNotion", () => {
     ]);
   });
 
+  test("a card's attrs come from its opening tag — caption text can't hijack them", () => {
+    const blocks = parseNotion('<page url="https://a">see url="https://b" for more</page>');
+    expect(blocks).toMatchObject([{ kind: "card", url: "https://a" }]);
+  });
+
+  test("a longer fence carries shorter fences as content", () => {
+    const blocks = parseNotion(["````md", "```js", "code", "```", "````"].join("\n"));
+    expect(blocks).toEqual([{ kind: "fence", line: 0, lang: "md", code: "```js\ncode\n```" }]);
+  });
+
   test("an unclosed container consumes the rest instead of vanishing", () => {
     const blocks = parseNotion(["<callout>", "\tOrphan"].join("\n"));
     expect(blocks).toMatchObject([{ kind: "callout", children: [{ kind: "paragraph" }] }]);

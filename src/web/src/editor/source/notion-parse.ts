@@ -53,8 +53,9 @@ function parseBlocks(lines: Line[], depth: number): NotionBlock[] {
       continue;
     }
 
-    // A fenced code block: its lines are code, consumed to the closing fence verbatim.
-    const fence = trimmed.startsWith("```") ? "```" : trimmed.startsWith("~~~") ? "~~~" : null;
+    // A fenced code block: its lines are code, consumed to the closing fence verbatim. The close run must be
+    // at least as long as the open run, so a ````-fence can carry ``` inside.
+    const fence = /^(```+|~~~+)/.exec(trimmed)?.[1] ?? null;
     if (fence !== null) {
       let j = i + 1;
       while (j < lines.length && !(lines[j]?.text ?? "").trim().startsWith(fence)) {
@@ -170,9 +171,10 @@ function parseBlocks(lines: Line[], depth: number): NotionBlock[] {
     }
 
     // Single-line leaf tags: page/database refs, non-image media, <unknown/> placeholders, the ToC marker.
+    // Attrs parse from the OPENING TAG only — a caption containing `key="value"` text must not hijack them.
     const leaf = LEAF_TAG.exec(trimmed);
     if (leaf !== null) {
-      const attrs = parseTagAttrs(trimmed);
+      const attrs = parseTagAttrs(leaf[2] ?? "");
       out.push({
         kind: "card",
         line: line.idx,

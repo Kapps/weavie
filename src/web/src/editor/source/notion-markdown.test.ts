@@ -4,6 +4,7 @@ import KITCHEN_SINK from "./corpus/kitchen-sink.md?raw";
 import REAL_PAGE from "./corpus/real-page.md?raw";
 import { blockSource } from "./notion-edit";
 import { renderNotionMarkdown } from "./notion-markdown";
+import { SOURCE_ALLOWED_TAGS } from "./source-html";
 
 // The golden corpus: full fixture pages (see corpus/README.md) rendered and snapshotted. A snapshot diff is the
 // review surface for any renderer change; grow the corpus from real GET /pages/{id}/markdown responses.
@@ -21,44 +22,8 @@ describe("golden corpus", () => {
   }
 });
 
-// The tags the sanitizer (source-html.ts) allows — the renderer must never emit outside this set, or DOMPurify
-// silently drops content. Kept literally in sync with ALLOWED_TAGS.
-const ALLOWED_TAGS = new Set([
-  "p",
-  "br",
-  "hr",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "strong",
-  "em",
-  "s",
-  "u",
-  "code",
-  "pre",
-  "span",
-  "a",
-  "ul",
-  "ol",
-  "li",
-  "blockquote",
-  "aside",
-  "div",
-  "details",
-  "summary",
-  "img",
-  "table",
-  "thead",
-  "tbody",
-  "tr",
-  "td",
-  "th",
-  "input",
-  "nav",
-]);
+// The sanitizer's real allowlist — the renderer must never emit outside it, or DOMPurify silently drops content.
+const ALLOWED_TAGS = new Set(SOURCE_ALLOWED_TAGS);
 
 describe("seam invariants", () => {
   test("every emitted tag is on the sanitizer allowlist", () => {

@@ -7,6 +7,9 @@ import { notionColorClass, parseTagAttrs } from "./notion-attrs";
 
 const ESCAPABLE = new Set(["\\", "*", "~", "`", "$", "[", "]", "<", ">", "{", "}", "|", "^"]);
 
+// `[label](url)` — shared by links and (behind `!`) inline images; the url stops at the first `)`.
+const LINK = /^\[((?:\\.|[^\]\\])*)\]\(([^)]*)\)/;
+
 /** Renders one block's inline source text to HTML (the caller sanitizes the assembled document). */
 export function renderInline(text: string): string {
   let out = "";
@@ -54,9 +57,18 @@ export function renderInline(text: string): string {
         out += escapeHtml(c);
         i++;
       }
+    } else if (c === "!" && text[i + 1] === "[") {
+      const image = LINK.exec(text.slice(i + 1));
+      if (image !== null) {
+        out += `<img src="${escapeHtml(image[2] ?? "")}" alt="${escapeHtml(image[1] ?? "")}">`;
+        i += image[0].length + 1;
+      } else {
+        out += escapeHtml(c);
+        i++;
+      }
     } else if (c === "[") {
       // A citation `[^URL]` has no `](`, so it falls through and renders as literal text (v1 parity).
-      const link = /^\[((?:\\.|[^\]\\])*)\]\(([^)]*)\)/.exec(text.slice(i));
+      const link = LINK.exec(text.slice(i));
       if (link !== null) {
         out += `<a href="${escapeHtml(link[2] ?? "")}">${renderInline(link[1] ?? "")}</a>`;
         i += link[0].length;

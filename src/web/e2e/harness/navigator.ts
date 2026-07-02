@@ -23,15 +23,28 @@ async function settledFile(page: Page): Promise<string> {
 
 // Step the navigator to the next changed file (Ctrl/Cmd+→) and resolve once the label has advanced to a
 // different filename. Returns the file now in view. The editor must already hold focus so the chord lands.
+// The chord is re-sent when the label hasn't moved: a press that lands while a switch's message train is
+// still applying can be consumed by a transient state (like a user, press again once it settles); a
+// navigator that's genuinely dead still fails loudly after the attempts run out.
 async function stepToNextFile(page: Page, from: string): Promise<string> {
-  await page.keyboard.press("ControlOrMeta+ArrowRight");
-  await expect
-    .poll(async () => {
-      const name = await currentFile(page);
-      return isFileName(name) && name !== from;
-    })
-    .toBe(true);
-  return currentFile(page);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await page.keyboard.press("ControlOrMeta+ArrowRight");
+    try {
+      await expect
+        .poll(
+          async () => {
+            const name = await currentFile(page);
+            return isFileName(name) && name !== from;
+          },
+          { timeout: 2_000 },
+        )
+        .toBe(true);
+      return currentFile(page);
+    } catch {
+      // Label unchanged — the press was eaten mid-churn; re-arm it.
+    }
+  }
+  throw new Error(`navigator never advanced past ${from}`);
 }
 
 // The set of changed files the navigator cycles through, gathered by walking → until it loops back to the

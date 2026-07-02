@@ -30,8 +30,9 @@ confirmed merged** — never before, and never with unshipped work.
 - Every failing check on this PR is yours to fix, even if it looks pre-existing (repo rule: a green
   pipeline is the bar for done). Read the failure with `gh run view <run-id> --log-failed`, fix it,
   commit, push (the new push cancels the stale run), and return to step 3.
-- Suspected infra flake: re-run once with `gh run rerun <run-id> --failed`; if it fails again,
-  treat it as real.
+- A flaky test is never accepted (repo rule: hiding one is a silent fallback). Re-running with
+  `gh run rerun <run-id> --failed` only diagnoses — whether or not the retry passes, root-cause
+  the flake and fix it before merging.
 
 ## 5. Merge
 

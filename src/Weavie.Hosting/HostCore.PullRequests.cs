@@ -216,24 +216,27 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// Fire-and-forget: this diff can finish after a rapid session switch has moved off the PR. The web applies
-		// pr-changes last-writer-wins with no guard, so a stale result would clobber the now-active session's
-		// file list — or, landing out of order, re-park its navigator. Drop it unless this PR is still active.
-		if (_session is not { } active || !string.Equals(active.WorkspaceRoot, review.Worktree, StringComparison.Ordinal)) {
-			return;
-		}
+		// Fire-and-forget: this diff can finish after a rapid session switch has moved off the PR, and the web
+		// applies pr-changes last-writer-wins with no guard. Guard and post ON the UI thread — where switches run
+		// and in-order with their message train — so a stale diff can never check active, get preempted by a
+		// switch, and still land after the incoming session's pushes.
+		_ui.Post(() => {
+			if (_session is not { } active || !string.Equals(active.WorkspaceRoot, review.Worktree, StringComparison.Ordinal)) {
+				return;
+			}
 
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "pr-changes",
-			number = review.Number,
-			files = changes.Select(c => new {
-				path = Path.GetFullPath(Path.Combine(review.Worktree, c.Path)),
-				name = Path.GetFileName(c.Path),
-				added = c.Added,
-				removed = c.Removed,
-				line = 1,
-			}),
-		}));
+			_bridge.PostToWeb(JsonSerializer.Serialize(new {
+				type = "pr-changes",
+				number = review.Number,
+				files = changes.Select(c => new {
+					path = Path.GetFullPath(Path.Combine(review.Worktree, c.Path)),
+					name = Path.GetFileName(c.Path),
+					added = c.Added,
+					removed = c.Removed,
+					line = 1,
+				}),
+			}));
+		});
 	}
 
 	/// <summary>
@@ -263,25 +266,33 @@ public sealed partial class HostCore {
 			current = string.Empty;
 		}
 
-		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "pr-diff",
-			number,
-			path = absolutePath,
-			name = Path.GetFileName(absolutePath),
-			baseline,
-			current,
-			comments = review.Comments
-				.Where(c => string.Equals(c.Path, relative, StringComparison.Ordinal))
-				.Select(c => new {
-					id = c.Id,
-					line = c.Line,
-					side = c.Side,
-					author = c.Author,
-					body = c.Body,
-					createdAt = c.CreatedAt,
-					inReplyTo = c.InReplyTo,
-				}),
-		}));
+		// Guard + post on the UI thread: a switch that landed while the git show / file read ran above means this
+		// diff belongs to a session no longer on screen — drop it rather than render it over the wrong session.
+		_ui.Post(() => {
+			if (ActivePrReview() is not { } stillActive || stillActive.Number != number) {
+				return;
+			}
+
+			_bridge.PostToWeb(JsonSerializer.Serialize(new {
+				type = "pr-diff",
+				number,
+				path = absolutePath,
+				name = Path.GetFileName(absolutePath),
+				baseline,
+				current,
+				comments = review.Comments
+					.Where(c => string.Equals(c.Path, relative, StringComparison.Ordinal))
+					.Select(c => new {
+						id = c.Id,
+						line = c.Line,
+						side = c.Side,
+						author = c.Author,
+						body = c.Body,
+						createdAt = c.CreatedAt,
+						inReplyTo = c.InReplyTo,
+					}),
+			}));
+		});
 	}
 
 	/// <summary>

@@ -17,7 +17,7 @@ public sealed class McpDiffPresenterTests {
 		channel.Activate(); // active so the show-diff is posted and the test can read its id
 		var fs = new InMemoryFileSystem();
 		var files = new FileProviderService(fs, "/ws", "/scratch");
-		return (new McpDiffPresenter(channel, files, new FileOpener(channel, files, "/ws")), bridge);
+		return (new McpDiffPresenter(channel, files, new FileOpener(channel, files, bridge, "/ws")), bridge);
 	}
 
 	private static string DiffId(FakeHostBridge bridge) {

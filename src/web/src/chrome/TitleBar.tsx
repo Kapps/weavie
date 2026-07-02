@@ -13,6 +13,7 @@ export function TitleBar(props: {
   maximized: boolean;
   focused: boolean;
   files: string[];
+  filesPending: boolean;
   root: string | null;
   currentFile: string | null;
   onWindowControl: (action: WindowControlAction) => void;
@@ -42,6 +43,7 @@ export function TitleBar(props: {
       <div class="tb-center">
         <Omnibar
           files={props.files}
+          filesPending={props.filesPending}
           root={props.root}
           currentFile={props.currentFile}
           workspaceLabel={label()}

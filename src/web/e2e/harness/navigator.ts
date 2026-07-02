@@ -23,15 +23,28 @@ async function settledFile(page: Page): Promise<string> {
 
 // Step the navigator to the next changed file (Ctrl/Cmd+→) and resolve once the label has advanced to a
 // different filename. Returns the file now in view. The editor must already hold focus so the chord lands.
+// The chord is re-sent when the label hasn't moved: a press that lands while a switch's message train is
+// still applying can be consumed by a transient state (like a user, press again once it settles); a
+// navigator that's genuinely dead still fails loudly after the attempts run out.
 async function stepToNextFile(page: Page, from: string): Promise<string> {
-  await page.keyboard.press("ControlOrMeta+ArrowRight");
-  await expect
-    .poll(async () => {
-      const name = await currentFile(page);
-      return isFileName(name) && name !== from;
-    })
-    .toBe(true);
-  return currentFile(page);
+  for (let attempt = 0; attempt < 8; attempt++) {
+    await page.keyboard.press("ControlOrMeta+ArrowRight");
+    try {
+      await expect
+        .poll(
+          async () => {
+            const name = await currentFile(page);
+            return isFileName(name) && name !== from;
+          },
+          { timeout: 2_000 },
+        )
+        .toBe(true);
+      return currentFile(page);
+    } catch {
+      // Label unchanged — the press was eaten mid-churn; re-arm it.
+    }
+  }
+  throw new Error(`navigator never advanced past ${from}`);
 }
 
 // The set of changed files the navigator cycles through, gathered by walking → until it loops back to the
@@ -49,6 +62,16 @@ export async function collectChangedFiles(page: Page): Promise<Set<string>> {
     seen.add(current);
   }
   return seen;
+}
+
+// Wait until the navigator has bound the INCOMING PR's diff after a session switch — its stack label shows
+// one of that PR's files (the pr-changes rebind auto-opens the first). The toolbar alone is not a settle
+// signal: right after the switch the OUTGOING session's toolbar is still on screen until the incoming
+// pr-changes lands, and walking then collects the wrong PR's files.
+export async function awaitNavigatorOn(page: Page, files: string[]): Promise<void> {
+  await expect
+    .poll(async () => files.includes(await currentFile(page)), { timeout: 15_000 })
+    .toBe(true);
 }
 
 // Walk the navigator forward until `target` is in view, then assert it arrived. Replaces the per-step

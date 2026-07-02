@@ -24,6 +24,7 @@ test("markdown preview renders edited content as HTML", async ({ page }) => {
   await expect(preview.locator("pre.hljs .hljs-keyword").first()).toBeVisible();
   // ...and the ```mermaid fence was rendered to an SVG by the async hydrate pass. mermaid is a lazily
   // code-split chunk (fetched only on hydrate), so allow past the 5s default for a loaded CI runner to pull
-  // it — Playwright keeps polling, so this still fails if the SVG never appears.
-  await expect(preview.locator(".mermaid-rendered svg")).toBeVisible({ timeout: 15_000 });
+  // it — Playwright keeps polling, so this still fails if the SVG never appears. `> svg` is the diagram
+  // itself; the wrapper also carries the embed-zoom magnifier button (its own svg).
+  await expect(preview.locator(".mermaid-rendered > svg")).toBeVisible({ timeout: 15_000 });
 });

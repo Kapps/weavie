@@ -1,7 +1,9 @@
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
 import { openTarget } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
-import { hydrateMermaid } from "../preview/diagrams";
+import { installEmbedZoomAndMermaid } from "../preview/embed-zoom";
+// The embed-zoom magnifier styles, injected into the shadow root alongside the highlight theme.
+import EMBED_ZOOM_CSS from "../preview/embed-zoom.css?raw";
 import { highlightFence } from "../preview/highlight";
 // The same hljs token theme the Markdown preview uses, injected into the shadow root so highlighted code is colored.
 import HIGHLIGHT_CSS from "../preview/preview-highlight.css?raw";
@@ -28,7 +30,7 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
     generation += 1;
     const gen = generation;
     const style = document.createElement("style");
-    style.textContent = SOURCE_STYLES + HIGHLIGHT_CSS;
+    style.textContent = SOURCE_STYLES + HIGHLIGHT_CSS + EMBED_ZOOM_CSS;
     const body = document.createElement("div");
     body.className = "wv-source";
     const entry = props.doc();
@@ -59,7 +61,7 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
     body.append(content);
     highlightCode(content);
     root.replaceChildren(style, body);
-    void hydrateMermaid(content, () => gen === generation);
+    installEmbedZoomAndMermaid(content, () => gen === generation);
   };
 
   // Re-render on doc change (loading → ready/error, or a new doc) and on theme switch: mermaid bakes the theme into
@@ -74,6 +76,11 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
   const onClick = (event: MouseEvent): void => {
     // Nodes live inside the shadow tree, so event.target is retargeted to the host — inspect the composed path.
     const path = event.composedPath();
+    // The embed-zoom magnifier: its own listener opens the lightbox; skip the anchor handling so a
+    // zoomable image inside a link doesn't also navigate.
+    if (path.some((node) => node instanceof Element && node.classList.contains("embed-zoom-btn"))) {
+      return;
+    }
     // A link: preventDefault stops the default <a> navigation tearing down the whole app.
     const anchor = path.find(
       (node): node is HTMLAnchorElement => node instanceof HTMLAnchorElement,

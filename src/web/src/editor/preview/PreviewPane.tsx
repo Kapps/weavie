@@ -1,6 +1,6 @@
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
 import { onPreviewThemeChanged } from "../../theme/controller";
-import { hydrateMermaid } from "./diagrams";
+import { installEmbedZoomAndMermaid } from "./embed-zoom";
 import { renderMarkdown } from "./preview-markdown";
 
 // Rendered-Markdown overlay shown over the (still-mounted) Monaco host when the active file is in Preview
@@ -19,7 +19,7 @@ export default function PreviewPane(props: { content: () => string }): JSX.Eleme
     generation += 1;
     const gen = generation;
     body.replaceChildren(renderMarkdown(props.content()));
-    void hydrateMermaid(body, () => gen === generation);
+    installEmbedZoomAndMermaid(body, () => gen === generation);
   };
 
   createEffect(render);

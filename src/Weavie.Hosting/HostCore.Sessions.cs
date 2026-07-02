@@ -36,6 +36,10 @@ public sealed partial class HostCore {
 			_ui.Post(() => session.Claude.Restart());
 			return Task.FromResult(CommandResult.Success("Restarted Claude."));
 		});
+		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
+		// running shell jobs); fails cleanly when no update is pending.
+		session.Commands.RegisterHandler(CoreCommands.RestartForUpdate, (_, _) =>
+			Task.FromResult(RestartNowForUpdate()));
 		session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
@@ -80,6 +84,11 @@ public sealed partial class HostCore {
 				PostSessionStatus(status);
 				// A turn settling may have changed files / the branch — refresh the footer's git status.
 				PushGitStatus();
+			}
+
+			// A pending update drain re-checks its gate the moment any session settles (or starts working).
+			if (Draining) {
+				EvaluateDrain();
 			}
 
 			// The review set is pushed live on every edit (Changes.Changed), so the page's parked navigator

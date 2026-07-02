@@ -481,6 +481,19 @@ export type WebBoundMessage =
   // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"
   // info clearing the lingering "settings malformed" error).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string; key?: string }
+  // Update drain state (docs/specs/runner-auto-update.md): what's holding a pending update restart
+  // (re-pushed on every change, and on `ready` for a tab that connected mid-drain)…
+  | {
+      type: "update-pending";
+      holds: { session: string; reason: "working" | "needs-input" | "shell-job" }[];
+    }
+  // …and the moment the restart commits: input is frozen host-side and the worker is about to exit;
+  // the page shows the blocking "Updating…" overlay until the new worker is back.
+  | { type: "update-restarting" }
+  // The worker's build identity, pushed first on every `ready` cycle. A tab that reconnected to a
+  // worker updated under it sees a different build than its boot-time __WEAVIE_SHELL__.buildNumber
+  // and reloads itself to pick up the matching assets.
+  | { type: "host-info"; buildNumber: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";

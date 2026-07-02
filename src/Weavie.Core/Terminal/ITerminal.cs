@@ -61,6 +61,13 @@ public interface ITerminal : IDisposable {
 	/// <summary>Whether the child process is currently running.</summary>
 	bool IsRunning { get; }
 
+	/// <summary>
+	/// Whether the PTY's foreground process group differs from the child itself — a job (build, dev
+	/// server) is running in the pane. POSIX job-control signal; Windows ConPTY has none and always
+	/// reports false. Used by the update drain gate (docs/specs/runner-auto-update.md).
+	/// </summary>
+	bool HasForegroundJob { get; }
+
 	/// <summary>Launches the child described by <paramref name="startInfo"/> in a fresh PTY.</summary>
 	void Start(TerminalStartInfo startInfo);
 

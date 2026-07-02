@@ -1,0 +1,42 @@
+# Shared toolchain for every publish job: .NET SDK, pnpm/Node, the NuGet cache, and the web UI
+# build (each shell embeds wwwroot; Weavie.Mac hard-errors without it).
+name: publish setup
+description: .NET + pnpm/Node toolchain, NuGet cache, and the web UI build every publish needs.
+
+runs:
+  using: composite
+  steps:
+    - name: Set up .NET
+      uses: actions/setup-dotnet@v4
+      with:
+        # Latest 10.0 SDK — see ci.yml: global.json pins "10.0.0", which setup-dotnet 404s on.
+        dotnet-version: '10.0.x'
+
+    - name: Set up pnpm
+      uses: pnpm/action-setup@v4
+      with:
+        # Keep in sync with the packageManager field in src/web/package.json.
+        version: 11.8.0
+
+    - name: Set up Node
+      uses: actions/setup-node@v4
+      with:
+        # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
+        # crashes setup-node's pnpm cache probe. Keep this at 22+.
+        node-version: 22
+        cache: pnpm
+        cache-dependency-path: src/web/pnpm-lock.yaml
+
+    - name: Cache NuGet packages
+      uses: actions/cache@v4
+      with:
+        path: ~/.nuget/packages
+        key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
+        restore-keys: nuget-${{ runner.os }}-
+
+    - name: Build web app
+      shell: bash
+      working-directory: src/web
+      run: |
+        pnpm install --frozen-lockfile
+        pnpm run build

@@ -38,6 +38,7 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import { TitleBar } from "./chrome/TitleBar";
+import { UpdateOverlay } from "./chrome/UpdateOverlay";
 import { UrlPrompt } from "./chrome/UrlPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
@@ -55,6 +56,12 @@ import {
   sessions,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
+import {
+  type UpdateHold,
+  surfacePostUpdateNotice,
+  updateHolds,
+  updateRestarting,
+} from "./chrome/update-store";
 import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
@@ -199,6 +206,8 @@ export default function App(): JSX.Element {
   const { toasts, addToast, dismissToast, isLeaving, pauseToast, resumeToast } = createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
+  // Now that toasts render, surface "updated to build N" if this page load followed an update reload.
+  surfacePostUpdateNotice();
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
   // close routes through this guard (confirmDiscard below).
   const [confirmReq, setConfirmReq] = createSignal<{
@@ -619,12 +628,19 @@ export default function App(): JSX.Element {
     }
     setFullscreen((on) => !on);
   };
-  // The Toggle Fullscreen Pane shortcut, read live from the catalog so the fullscreen badge advertises the
-  // real (user-overridable) binding instead of a hardcoded one.
-  const fullscreenKeyHint = (): string => {
-    const keys = findCommand(CommandIds.toggleFullscreenPane)?.keys ?? [];
+  // A command's effective shortcut as a label suffix (" (Ctrl+…)"), read live from the catalog so
+  // buttons advertise the real (user-overridable) binding; empty when unbound.
+  const keyHint = (commandId: string): string => {
+    const keys = findCommand(commandId)?.keys ?? [];
     return keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
   };
+  const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
+  const updateHoldText = (hold: UpdateHold): string =>
+    hold.reason === "working"
+      ? `${hold.session}: Claude is working`
+      : hold.reason === "needs-input"
+        ? `${hold.session}: Claude awaits input`
+        : `${hold.session}: shell job running`;
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
@@ -1002,6 +1018,23 @@ export default function App(): JSX.Element {
               </span>
             </output>
           </Show>
+          <Show when={!updateRestarting() && updateHolds()} keyed>
+            {(holds) => (
+              <output class="update-banner">
+                <span>
+                  Update pending — waiting on {holds.map(updateHoldText).join(", ")}. Background
+                  shell jobs will be terminated at restart.
+                </span>
+                <button
+                  type="button"
+                  title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
+                  onClick={() => void dispatchCommand(CommandIds.restartForUpdate)}
+                >
+                  Restart Now{keyHint(CommandIds.restartForUpdate)}
+                </button>
+              </output>
+            )}
+          </Show>
         </div>
       </div>
       <Show when={newSessionOpen()}>
@@ -1135,6 +1168,9 @@ export default function App(): JSX.Element {
         items={suggestions()}
         onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}
       />
+      <Show when={updateRestarting()}>
+        <UpdateOverlay />
+      </Show>
       <Show when={contextMenu()}>
         {(m) => <ContextMenu menu={m()} onClose={() => setContextMenu(null)} />}
       </Show>

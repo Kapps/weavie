@@ -27,9 +27,21 @@ try {
 
 await using var front = builtFront;
 
-var launcher = new HeadlessLauncher(options, front.WorkerBindAddress, entry =>
+// Auto-update: workers spawn from the managed layout's resolved `current` version once one is staged;
+// until then (and always, with the flag off) they spawn the co-located build the options resolved.
+var versions = options.AutoUpdate ? VersionStore.Open(line => Log($"[update] {line}")) : null;
+Func<string> workerPath = versions is { } store
+	? () => store.ActiveWorkerPath() ?? options.HeadlessPath
+	: () => options.HeadlessPath;
+
+var launcher = new HeadlessLauncher(workerPath, front.WorkerBindAddress, entry =>
 	Log($"[{entry.Name}] {entry.Level.ToString().ToLowerInvariant()}: {entry.Message}"));
-await using var backends = new BackendManager(options, launcher);
+await using var backends = new BackendManager(options, launcher, front.WorkerBindAddress);
+
+using var updater = versions is { } activeStore
+	? new UpdatePoller(options, activeStore, backends, line => Log($"[update] {line}"))
+	: null;
+Func<UpdateStatus> updateStatus = updater is { } poller ? poller.Snapshot : UpdatePoller.Disabled;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders();
@@ -50,10 +62,14 @@ app.Use(async (context, next) => {
 	await next().ConfigureAwait(false);
 });
 
-ControlApi.Map(app, backends, options, front);
+ControlApi.Map(app, backends, options, front, updateStatus);
 
 // Start the workspace backend eagerly so the first connection is ready.
 var backend = backends.Ensure();
+
+// After Ensure: the poller's boot reconcile (a runner that died mid-update) must see the spawned
+// worker to drain/confirm/roll it back.
+updater?.Start();
 
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");
 Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl}");

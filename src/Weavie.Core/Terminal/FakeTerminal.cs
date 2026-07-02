@@ -17,6 +17,9 @@ public sealed class FakeTerminal : ITerminal {
 	/// <inheritdoc/>
 	public bool IsRunning { get; private set; }
 
+	/// <summary>Test-scriptable foreground-job signal; false unless a test sets it.</summary>
+	public bool HasForegroundJob { get; set; }
+
 	/// <summary>The most recent <see cref="TerminalStartInfo"/> passed to <see cref="Start"/>, for assertions.</summary>
 	public TerminalStartInfo? LastStartInfo { get; private set; }
 

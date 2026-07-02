@@ -528,7 +528,8 @@ public sealed partial class SessionChangeTracker {
 
 			string raw = value.GetString() ?? string.Empty;
 			return string.IsNullOrEmpty(raw) ? null : Resolve(raw, request.Cwd);
-		} catch (JsonException) {
+		} catch (Exception ex) when (ex is JsonException or ArgumentException) {
+			// ToolInputJson is untrusted model output: malformed JSON or a malformed path is "not a trackable edit".
 			return null;
 		}
 	}
@@ -538,9 +539,8 @@ public sealed partial class SessionChangeTracker {
 	private string Resolve(string path, string? cwd) =>
 		Path.IsPathRooted(path) ? path : Path.GetFullPath(path, string.IsNullOrEmpty(cwd) ? _workspaceRoot : cwd);
 
-	// Path relative to the WORKSPACE ROOT (never Claude's cwd, which drifts with `cd`) with '/' separators, so
-	// the jump link matches what reveal-file resolves against and stays clickable on Windows too. Falls back to
-	// the absolute path when the file lives outside the workspace (e.g. the scratch dir).
+	// Path relative to the workspace root (never Claude's cwd, which drifts with `cd`) with '/' separators, so
+	// the jump link matches what reveal-file resolves against; absolute for files outside it (e.g. scratch).
 	private string Relativize(string absolutePath) {
 		string relative = Path.GetRelativePath(_workspaceRoot, absolutePath);
 		bool escapes = relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative);

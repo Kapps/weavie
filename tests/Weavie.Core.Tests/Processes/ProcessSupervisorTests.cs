@@ -174,6 +174,33 @@ public sealed class ProcessSupervisorTests {
 	}
 
 	[Fact]
+	public async Task StopThenStart_ClearsCrashHistory() {
+		// The update rollback path relies on this: Stop() → Start() onto the known-good build must not
+		// inherit the bad build's crashes, or the breaker would insta-trip on the rollback.
+		using var h = new Harness(Opts(RestartPolicy.OnFailure, initialMs: 10, maxRestarts: 2));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+
+		// Use up both permitted restarts inside the crash-loop window.
+		h.Sup.NotifyExited(1);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
+		Assert.True(await h.WaitStartAsync());
+		h.Sup.NotifyExited(1);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
+		Assert.True(await h.WaitStartAsync());
+
+		h.Sup.Stop();
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+
+		// With history cleared, a crash restarts instead of tripping the breaker.
+		h.Sup.NotifyExited(1);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
+		Assert.True(await h.WaitStartAsync());
+		Assert.NotEqual(SupervisorState.Failed, h.Sup.State);
+	}
+
+	[Fact]
 	public async Task Stop_StopsInstance_AndSuppressesRestart() {
 		using var h = new Harness(Opts(RestartPolicy.OnFailure));
 		h.Sup.Start();

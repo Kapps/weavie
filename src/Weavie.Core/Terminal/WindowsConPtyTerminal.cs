@@ -35,6 +35,10 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 	public bool IsRunning => _running;
 
 	/// <inheritdoc/>
+	// ConPTY has no POSIX job control; the drain gate's job probe reads no signal on Windows.
+	public bool HasForegroundJob => false;
+
+	/// <inheritdoc/>
 	public void Start(TerminalStartInfo startInfo) {
 		ArgumentNullException.ThrowIfNull(startInfo);
 

@@ -43,7 +43,12 @@ public sealed partial class HostCore {
 	private void Dispatch(string type, JsonElement root, string json) {
 		switch (type) {
 			case "term-input":
-				TerminalFor(root)?.Write(Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty));
+				// Frozen from the moment an update restart commits: a keystroke forwarded now could start a
+				// turn the restart would silently discard (see HostCore.Drain.cs).
+				if (!_drainInputFrozen) {
+					TerminalFor(root)?.Write(Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty));
+				}
+
 				break;
 			case "term-resize":
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
@@ -295,6 +300,9 @@ public sealed partial class HostCore {
 			case "ready":
 				// The page's bridge listener is live; push the persisted state to restore it. Must go on `ready`, not
 				// init — PostToWeb before navigation no-ops (window.__weavieReceive doesn't exist yet).
+				// Build identity first: a tab reconnecting to a worker updated under it compares this against its
+				// boot-time __WEAVIE_SHELL__.buildNumber and reloads itself to pick up the matching assets.
+				_bridge.PostToWeb($"{{\"type\":\"host-info\",\"buildNumber\":{JsonString(BuildNumber)}}}");
 				PushLayoutToWeb();
 				PushEditorSessionToWeb();
 				PushRecentFilesToWeb();
@@ -317,6 +325,8 @@ public sealed partial class HostCore {
 				}
 
 				_suggestions?.PushCurrent();
+				// A tab that (re)connects mid-drain must learn the pending/restarting update state it missed.
+				PushDrainStateToWeb();
 				// A prior run that died on an unhandled exception left a crash report; surface it once, now that
 				// the page can render the toast, so a silent hard exit doesn't go unnoticed.
 				SurfacePriorCrash();

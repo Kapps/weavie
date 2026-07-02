@@ -57,6 +57,62 @@
   }
 }
 
+/* Update-pending pill (below the reconnect banner's spot): names what holds the pending update; the
+   button is the user's explicit restart-now — it kills running shell jobs and is never automatic. */
+.update-banner {
+  position: absolute;
+  top: 3em;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 0.75em;
+  max-width: min(80%, 46em);
+  padding: 0.45em 0.85em;
+  border: 1px solid var(--busy);
+  border-radius: 6px;
+  background: var(--bar);
+  color: var(--fg);
+  font-size: 0.85em;
+  box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+}
+.update-banner button {
+  flex: 0 0 auto;
+  padding: 0.25em 0.7em;
+  border: 1px solid var(--busy);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+}
+.update-banner button:hover {
+  background: color-mix(in srgb, var(--busy) 20%, transparent);
+}
+
+/* Full-UI blocker from the update-restart commit until the new worker is back; above toasts (80). */
+.update-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 90;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg) 60%, transparent);
+  backdrop-filter: blur(3px);
+}
+.update-overlay-card {
+  display: flex;
+  align-items: center;
+  gap: 0.65em;
+  padding: 0.9em 1.4em;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bar);
+  color: var(--fg);
+  outline: none;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 55%);
+}
+
 /* "You are fullscreen" badge + exit affordance: a small floating button at the top-right of the pane area
    while a pane is fullscreened, advertising the toggle shortcut so the way back is always discoverable. */
 .fullscreen-exit {

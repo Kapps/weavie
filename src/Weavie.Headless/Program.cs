@@ -120,6 +120,23 @@ app.Map("/weavie-bridge", async context => {
 	await bridge.ServeAsync(socket, context.RequestAborted).ConfigureAwait(false);
 });
 
+// The runner's update control plane, REMOTE MODE ONLY: there the default-deny middleware token-gates
+// it, and the runner is its only legitimate caller. Local no-token mode must not map a state-changing
+// endpoint any web page could POST to cross-origin (a drive-by drain would exit the app). Status
+// reports this worker's identity + drain state (the runner's post-restart confirm probe); drain begins
+// the gated exit — the worker exits 0 at the first quiet moment and the runner respawns it from the
+// staged version. See docs/specs/runner-auto-update.md.
+if (tokenGated) {
+	app.MapGet("/control/status", () => Results.Json(new {
+		buildNumber = HostCore.BuildNumber,
+		draining = core.Draining,
+	}));
+	app.MapPost("/control/drain", () => {
+		core.BeginDrain(app.Lifetime.StopApplication);
+		return Results.Accepted();
+	});
+}
+
 string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
 string tokenSuffix = listen is ListenMode.Remote shown ? $"/?token={shown.Token}" : string.Empty;
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");

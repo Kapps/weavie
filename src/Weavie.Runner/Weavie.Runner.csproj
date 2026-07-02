@@ -15,6 +15,11 @@
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
+  <!-- The runner's own spawn-contract generation, read back at runtime for the manifest check. -->
+  <ItemGroup>
+    <AssemblyMetadata Include="SpawnContract" Value="$(SpawnContractVersion)" />
+  </ItemGroup>
+
   <!-- White-box unit tests reach this runner's internal types (ControlApi, PickerPage, …). -->
   <ItemGroup>
     <InternalsVisibleTo Include="Weavie.Runner.Tests" />
@@ -54,6 +59,14 @@
     </PropertyGroup>
     <Message Importance="high" Text="weavie: publishing Weavie.Headless worker -> $(_WorkerOut)" />
     <Exec Command="dotnet publish &quot;$(_WorkerProj)&quot; -c $(Configuration) $(_WorkerRid) $(_WorkerSelfContained) -o &quot;$(_WorkerOut)&quot; --nologo" />
+  </Target>
+
+  <!-- The bundle manifest the auto-updater reads before applying a downloaded build.
+       See docs/specs/runner-auto-update.md. -->
+  <Target Name="WriteBundleManifest" AfterTargets="StageHeadlessWorker">
+    <WriteLinesToFile File="$([MSBuild]::NormalizePath('$(MSBuildProjectDirectory)', '$(PublishDir)', 'manifest.json'))"
+                      Lines="{ &quot;buildNumber&quot;: $(BuildNumber), &quot;spawnContract&quot;: $(SpawnContractVersion) }"
+                      Overwrite="true" />
   </Target>
 
 </Project>

@@ -32,6 +32,9 @@ public static class CoreCommands {
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
 	public const string RestartClaude = "weavie.claude.restart";
 
+	/// <summary>Applies a pending update now instead of waiting for the drain gate (kills running shell jobs).</summary>
+	public const string RestartForUpdate = "weavie.update.restartNow";
+
 	/// <summary>Copies the focused terminal's selection to the OS clipboard; bound to <c>Ctrl+Shift+C</c> / <c>⌘C</c>.</summary>
 	public const string TerminalCopy = "weavie.terminal.copy";
 
@@ -328,6 +331,17 @@ public static class CoreCommands {
 			Category = "Claude",
 			Description = "Restart the Claude pane in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart claude", "reopen claude", "relaunch claude", "claude crashed"],
+		});
+
+		// No default keybinding: only meaningful while an update is pending (the update indicator's
+		// button is the primary affordance; the handler fails cleanly otherwise).
+		registry.Register(new CommandDefinition {
+			Id = RestartForUpdate,
+			Title = "Restart Now for Update",
+			RunsIn = CommandLocation.Core,
+			Category = "Update",
+			Description = "Apply the pending update immediately instead of waiting for sessions to go idle — running shell jobs are killed.",
+			Aliases = ["restart for update", "apply update", "update now", "restart now"],
 		});
 
 		// Terminal copy/paste are web-handled (they act on the live xterm selection) but write/read the OS

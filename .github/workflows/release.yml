@@ -10,12 +10,19 @@
 # and the result is uploaded as a build artifact. The remote control plane (Weavie.Runner) ships too:
 # publishing it stages the Weavie.Headless worker beside it, so that one artifact is the complete
 # runner + headless deploy. Triggered manually or by pushing a v* tag.
+#
+# Green main additionally republishes the runner bundle as the rolling `main-latest` prerelease
+# (the main-latest job) — the update feed `weavie-runner --auto-update` polls. See
+# docs/specs/runner-auto-update.md.
 name: release
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
+  workflow_run:
+    workflows: [ci]
+    types: [completed]
 
 permissions:
   contents: read
@@ -23,6 +30,8 @@ permissions:
 jobs:
   publish:
     name: publish (${{ matrix.name }})
+    # workflow_run (green main) feeds only the main-latest job below.
+    if: github.event_name != 'workflow_run'
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -60,41 +69,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up .NET
-        uses: actions/setup-dotnet@v4
-        with:
-          # Latest 10.0 SDK — see ci.yml: global.json pins "10.0.0", which setup-dotnet 404s on.
-          dotnet-version: '10.0.x'
-
-      - name: Set up pnpm
-        uses: pnpm/action-setup@v4
-        with:
-          # Keep in sync with the packageManager field in src/web/package.json.
-          version: 11.8.0
-
-      - name: Set up Node
-        uses: actions/setup-node@v4
-        with:
-          # pnpm 11.x requires Node >= 22.13 (it loads the built-in node:sqlite module), so Node 20
-          # crashes setup-node's pnpm cache probe. Keep this at 22+.
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: src/web/pnpm-lock.yaml
-
-      - name: Cache NuGet packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nuget/packages
-          key: nuget-${{ runner.os }}-${{ hashFiles('**/Directory.Packages.props', '**/*.csproj') }}
-          restore-keys: nuget-${{ runner.os }}-
-
-      # The web UI every shell embeds. Build it first so wwwroot exists (Weavie.Mac hard-errors
-      # without it); the Release publish below also bundles it next to the binary.
-      - name: Build web app
-        working-directory: src/web
-        run: |
-          pnpm install --frozen-lockfile
-          pnpm run build
+      - name: Set up toolchain and build web app
+        uses: ./.github/actions/publish-setup
 
       - name: Restore macOS workload
         if: matrix.name == 'osx-arm64'
@@ -157,3 +133,60 @@ jobs:
           name: weavie-${{ matrix.name }}
           path: artifacts/${{ matrix.name }}
           if-no-files-found: error
+
+  # Rolling prerelease consumed by `weavie-runner --auto-update`: every green-main CI run
+  # republishes the complete runner+worker bundle as the `main-latest` prerelease, packaged as the
+  # managed layout (versions/<build>/ + current symlink) so extracting the tarball IS an install.
+  # manifest.json (buildNumber + spawnContract) is written by the publish itself. See
+  # docs/specs/runner-auto-update.md.
+  main-latest:
+    name: main-latest prerelease
+    # Only a PUSH-triggered ci success qualifies: workflow_run also fires for fork-PR ci runs, and a
+    # fork branch named "main" must never reach a contents:write job (it could rewrite the release
+    # feed the auto-updater trusts). Push events can only originate from this repo.
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_branch == 'main'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    # Rapid main merges must not interleave the delete/recreate of the rolling release.
+    concurrency:
+      group: main-latest
+      cancel-in-progress: true
+    steps:
+      # Checkout of the base repo's main tip — never an event-supplied sha, so no untrusted code can
+      # reach this privileged build. The tip can be newer than the green commit that triggered us;
+      # that run's own ci success re-triggers this workflow, and the newest publish wins either way.
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+
+      - name: Set up toolchain and build web app
+        uses: ./.github/actions/publish-setup
+
+      - name: Publish runner bundle into the managed layout
+        run: >
+          dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
+          --self-contained -p:PublishReadyToRun=true
+          -o layout/versions/${{ github.run_number }}
+
+      # A tarball (not upload-artifact's zip) so executable bits and the current symlink survive.
+      - name: Package layout tarball
+        run: |
+          ln -s versions/${{ github.run_number }} layout/current
+          tar -C layout -czf weavie-runner-linux-x64.tar.gz versions current
+
+      - name: Publish rolling prerelease
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          built=$(git rev-parse HEAD)
+          gh release delete main-latest --cleanup-tag --yes || true
+          gh release create main-latest --prerelease \
+            --target "$built" \
+            --title "main latest (build ${{ github.run_number }})" \
+            --notes "Rolling prerelease of green main ($built), build ${{ github.run_number }}. Consumed by weavie-runner --auto-update; extract into ~/.weavie/runner and launch current/Weavie.Runner." \
+            weavie-runner-linux-x64.tar.gz

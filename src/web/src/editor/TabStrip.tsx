@@ -18,7 +18,7 @@ import type { TabActions } from "./editor-controller";
 import { basename } from "./fs-path";
 import { canPreview } from "./preview/preview-registry";
 import type { EditorSessionEntry } from "./session-types";
-import { NotionIcon } from "./source/NotionIcon";
+import { sourceTabIcon } from "./source/source-icons";
 import { sourceDoc } from "./source/source-store";
 import { isPreviewMode } from "./view-mode-store";
 
@@ -222,9 +222,7 @@ export function TabStrip(props: {
                   <Show when={view.kind === "web"}>
                     <Globe size={13} class="editor-tab-icon" />
                   </Show>
-                  <Show when={view.kind === "source"}>
-                    <NotionIcon size={13} class="editor-tab-icon" />
-                  </Show>
+                  <Show when={view.kind === "source"}>{sourceTabIcon(view.path)}</Show>
                   <span class="editor-tab-label">{tabLabel(view)}</span>
                   <Show when={view.dirty}>
                     <span class="editor-tab-dirty" aria-label="Unsaved changes">

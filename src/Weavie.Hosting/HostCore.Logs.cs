@@ -12,6 +12,8 @@ namespace Weavie.Hosting;
 public sealed partial class HostCore {
 	// The source-tab key for the diagnostics view; never fetched (the host fills its content directly).
 	private const string LogsTarget = "about:logs";
+	// The source identity stamped on the logs tab's messages — the web keys the tab icon off it (like ISource.Id).
+	private const string LogsSourceId = "logs";
 	// How many of the most-recent lines the command hands back to Claude; the human tab shows the full buffer.
 	private const int LogTailForClaude = 500;
 
@@ -24,13 +26,16 @@ public sealed partial class HostCore {
 		// Human tab: the web opens a source tab only on `source-loading`, so post it first; the `source-doc` then
 		// fills the tab with the full buffer as pre-rendered `html` (SourceView re-sanitizes it via DOMPurify).
 		// Claude's plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-loading", target = LogsTarget, title = LogsTitle }));
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "source-loading", target = LogsTarget, title = LogsTitle, sourceId = LogsSourceId,
+		}));
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "source-doc",
 			target = LogsTarget,
 			title = LogsTitle,
 			html = LogsHtml(full, dropped),
 			editedTime = "",
+			sourceId = LogsSourceId,
 		}));
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.

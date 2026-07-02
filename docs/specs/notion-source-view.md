@@ -13,8 +13,9 @@ surface and Claude's reading channel. No separate HTML projection — the host p
   for the title and `GET /v1/pages/{id}/markdown` for the body (`{ markdown, truncated, unknown_block_ids }`). When
   Notion truncated the page or returned unreadable blocks, `ParseMarkdown` **prepends a visible blockquote notice**
   to the markdown — so the loss shows in the rendered view *and* in Claude's channel, never a silent log.
-- **Host** posts `source-loading { target, title }` the moment a fetch starts (the tab opens with a titled spinner,
-  `GuessSourceTitle` from the URL slug), then `source-doc { target, title, markdown }` on success or
+- **Host** posts `source-loading { target, title, sourceId }` the moment a fetch starts (the tab opens with a
+  titled spinner, `GuessSourceTitle` from the URL slug; `sourceId` is the claiming source's `ISource.Id` — the
+  tab icon keys off it), then `source-doc { target, title, markdown, sourceId }` on success or
   `source-error { target, message }` on failure (the reason lands in the open tab, not a missable toast).
 - **Web** renders the markdown in an **open shadow root** (`SourceView`) overlaying Monaco like `PreviewPane`, on a
   `kind:"source"` tab keyed by `target`. `renderNotionMarkdown` first runs `normalizeNotionMarkdown` (Notion emits

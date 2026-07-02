@@ -50,7 +50,8 @@ tests build `HostServices` inline and inject a fresh `new LogBuffer(...)`, never
 
 `HostCore.ShowLogs()` (`HostCore.Logs.cs`) snapshots the buffer and:
 
-1. Posts `source-loading` (`target: "about:logs"`) — the only message the web opens a source tab on — then
+1. Posts `source-loading` (`target: "about:logs"`, `sourceId: "logs"` — keys the tab icon) — the only message
+   the web opens a source tab on — then
    `source-doc` (same target, `title: "Weavie Logs"`, `html`) — the full buffer as an escaped `<pre>` (via
    `WebUtility.HtmlEncode`; `SourceView` re-sanitizes with DOMPurify), prefixed with a dropped-lines marker when
    the ring evicted earlier output. `html` is the source-doc body for host-rendered docs; Notion docs send

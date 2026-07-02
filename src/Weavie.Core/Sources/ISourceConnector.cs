@@ -6,9 +6,10 @@ namespace Weavie.Core.Sources;
 /// analogue of <c>IPullRequestProvider</c> / <c>StaticPullRequestProvider</c>) for an offline connect/fetch journey.
 /// </summary>
 public interface ISourceConnector {
-	/// <summary>True when a registered source claims <paramref name="target"/> — the host-side open resolver, so the
-	/// web hands a URL to the host rather than re-implementing each source's <see cref="ISource.Match"/>.</summary>
-	bool Matches(string target);
+	/// <summary>The id of the registered source that claims <paramref name="target"/> (null when none does) — the
+	/// host-side open resolver and the identity stamped on source messages, so the web never re-implements
+	/// each source's <see cref="ISource.Match"/>.</summary>
+	string? IdFor(string target);
 
 	/// <summary>True when the source that claims <paramref name="target"/> already has a saved token, so a fetch can run
 	/// without first sending the user through connect. False routes an opened source URL to the connect prompt, not a blank tab.</summary>

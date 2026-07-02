@@ -189,7 +189,7 @@ export default function App(): JSX.Element {
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
-  const { toasts, addToast, dismissToast, isLeaving } = createToasts();
+  const { toasts, addToast, dismissToast, isLeaving, pauseToast, resumeToast } = createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
@@ -1116,7 +1116,13 @@ export default function App(): JSX.Element {
           <SearchPanel onClose={() => setSearchOpen(false)} />
         </Suspense>
       </Show>
-      <Toasts toasts={toasts()} onDismiss={dismissToast} isLeaving={isLeaving} />
+      <Toasts
+        toasts={toasts()}
+        onDismiss={dismissToast}
+        isLeaving={isLeaving}
+        onPause={pauseToast}
+        onResume={resumeToast}
+      />
       <Suggestions
         items={suggestions()}
         onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}

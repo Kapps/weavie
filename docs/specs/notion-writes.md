@@ -11,14 +11,18 @@ column editing.
 
 ## Why formatting can't be clobbered
 
-`PATCH /v1/pages/{id}/markdown` with `update_content: [{old_str, new_str}]` is an exact-match, must-match-once
-search-and-replace over the page's enhanced markdown — the same representation `GET …/markdown` returns, where
-*all* formatting is carried in-text (`<callout icon color>`, trailing `{color="…"}` attrs, `<span color>`).
+`PATCH /v1/pages/{id}/markdown` with body `{type: "update_content", update_content: {content_updates:
+[{old_str, new_str}]}}` is an exact-match, must-match-once search-and-replace over the page's enhanced
+markdown — the same representation `GET …/markdown` returns, where *all* formatting is carried in-text
+(`<callout icon color>`, trailing `{color="…"}` attrs, `<span color>`).
 Weavie never regenerates the page from the rendered view: ops are diffed against the **verbatim fetched
 markdown**, so untouched blocks are never rewritten. The write path never uses `replace_content` (it would
 destroy `<unknown/>` embeds and truncated tails) and never sends `allow_deleting_content` /
 `replace_all_matches` — their absence is the safety rail. A stale `old_str` (the page changed in Notion) fails
-server-side with `validation_error` — free optimistic concurrency, surfaced at the block as "re-fetch".
+server-side with `validation_error` naming `old_str` — free optimistic concurrency, surfaced at the block as
+"re-fetch". Every 400 carries code `validation_error`, so only messages naming `old_str` classify as stale;
+any other (a malformed body, a non-page id, a synced page) surfaces as a plain error with Notion's message —
+never a re-fetch offer that can't help.
 
 ## The block ↔ line model
 

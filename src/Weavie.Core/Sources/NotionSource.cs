@@ -85,7 +85,10 @@ public sealed class NotionSource : ISource {
 		// Targeted exact-match ops ONLY — never replace_content (it would destroy <unknown/> blocks and truncated
 		// tails) and never allow_deleting_content / replace_all_matches (their absence is the safety rail).
 		request.Content = new StringContent(
-			JsonSerializer.Serialize(new { update_content = new[] { new { old_str = oldStr, new_str = newStr } } }),
+			JsonSerializer.Serialize(new {
+				type = "update_content",
+				update_content = new { content_updates = new[] { new { old_str = oldStr, new_str = newStr } } },
+			}),
 			Encoding.UTF8,
 			"application/json");
 		using var response = await _http.SendAsync(request, ct).ConfigureAwait(false);
@@ -95,7 +98,8 @@ public sealed class NotionSource : ISource {
 		}
 
 		if (!response.IsSuccessStatusCode) {
-			throw new InvalidOperationException($"Notion API returned {(int)response.StatusCode} updating the page.");
+			string detail = ApiErrorMessage(payload) is { } m ? $": {m}" : ".";
+			throw new InvalidOperationException($"Notion API returned {(int)response.StatusCode} updating the page{detail}");
 		}
 
 		// The PATCH response returns the full updated page markdown — refresh the doc from it (title/editedTime
@@ -112,8 +116,10 @@ public sealed class NotionSource : ISource {
 		return new SourceDoc(ParseTitle(pageJson), markdown.Markdown, ParseEditedTime(pageJson), markdown.Truncated, markdown.UnknownBlocks);
 	}
 
-	// A 400 whose body carries code "validation_error" means the op's old_str no longer matches the page exactly
-	// once — it changed in Notion since the fetch. Returns the API's reason, or null for any other 400 body.
+	// Notion reports every 400 as code "validation_error"; only the op-level failures — an old_str that is not
+	// found or matches more than once (the page changed since the fetch) — are stale-page conflicts, and both
+	// name "old_str" in the message. Anything else (a malformed body, a non-page id, a synced page) is a request
+	// error, not a conflict — a "re-fetch" offer would be a dead end. Returns the conflict reason, or null.
 	private static string? ValidationErrorMessage(string payload) {
 		try {
 			using var doc = JsonDocument.Parse(payload);
@@ -122,7 +128,18 @@ public sealed class NotionSource : ISource {
 			}
 
 			string message = SourceJson.String(doc.RootElement, "message");
-			return message.Length > 0 ? message : "The page changed in Notion since it was fetched.";
+			return message.Contains("old_str", StringComparison.Ordinal) ? message : null;
+		} catch (JsonException) {
+			return null;
+		}
+	}
+
+	// The API error body's "message", so a failed update surfaces Notion's reason, not just a status code.
+	private static string? ApiErrorMessage(string payload) {
+		try {
+			using var doc = JsonDocument.Parse(payload);
+			string message = SourceJson.String(doc.RootElement, "message");
+			return message.Length > 0 ? message : null;
 		} catch (JsonException) {
 			return null;
 		}

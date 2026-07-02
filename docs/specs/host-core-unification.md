@@ -83,20 +83,27 @@ There is **no UI-thread marshal abstraction** anywhere. Each GUI host hand-rolls
 - Mac — `NSApplication.BeginInvokeOnMainThread` (async; sync `InvokeOnMainThread` in a few documented
   deadlock-sensitive spots)
 - Linux — `GtkMain.Invoke` (GLib idle source)
-- Headless — none (posts inline; the bridge serializes)
+- Headless — a dedicated serial pump (`SerialUiDispatcher`), its stand-in for a UI thread
 
 The recurring shape is identical across all GUI hosts:
 `_changes.Changed += () => MARSHAL(PushChangesToWeb)`, etc. — only the `MARSHAL` token differs. **A
-single injected `IUiDispatcher` collapses all of it.** Headless passes an inline dispatcher; that is
-exactly why Headless is already thin.
+single injected `IUiDispatcher` collapses all of it.**
 
 ```csharp
-// new, in Weavie.Hosting — the only seam that doesn't exist yet
+// in Weavie.Hosting
 public interface IUiDispatcher {
     void Post(Action action);   // fire-and-forget marshal onto the host's UI thread
 }
-// Win: BeginInvoke · Mac: BeginInvokeOnMainThread · Linux: GtkMain.Invoke · Headless: a => a()
+// Win: BeginInvoke · Mac: BeginInvokeOnMainThread · Linux: GtkMain.Invoke · Headless: SerialUiDispatcher
 ```
+
+**The dispatcher is also HostCore's concurrency model.** Session state (`_session`, the slot set) is
+only touched on the dispatcher: inbound bridge messages arrive on it (native WebView callbacks are
+UI-thread; the headless bridge posts each frame onto its serial pump), and any async work that ends in
+a session-scoped push (a PR diff, the file-index walk, git status, change-tracker events off hook/watcher
+threads) re-posts its **active-session guard together with the `PostToWeb`** via `_ui.Post`. Guarding
+off-dispatcher and posting directly is a race: the check can pass, a switch can land, and the stale
+message still arrives after the incoming session's message train.
 
 ## Target architecture
 

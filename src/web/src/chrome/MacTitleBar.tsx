@@ -5,6 +5,7 @@ import { Omnibar } from "./Omnibar";
 // so it carries no draggable region or window controls. Gated by the caller on titleBar === "mac".
 export function MacTitleBar(props: {
   files: string[];
+  filesPending: boolean;
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
@@ -22,6 +23,7 @@ export function MacTitleBar(props: {
       <div class="tb-center">
         <Omnibar
           files={props.files}
+          filesPending={props.filesPending}
           root={props.root}
           currentFile={props.currentFile}
           workspaceLabel={props.workspaceLabel}

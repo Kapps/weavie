@@ -287,7 +287,7 @@ public sealed partial class HostCore {
 				break;
 			case "request-file-index":
 				// Build the omnibar's quick-open index from the active session's worktree, so switching re-roots "Go to File".
-				PushFileIndexToWeb();
+				PushFileIndexToWeb(invalidate: false);
 				break;
 			case "find-in-files":
 				_ = SearchInFilesAsync(root.GetStringOrEmpty("query"));
@@ -512,20 +512,30 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Re-walks the active session's worktree and pushes its <c>file-index</c> so the omnibar's "Go to File" and
-	/// the file browser re-root to it. Runs off the UI thread; drops the result if the user switched again first,
-	/// so a slow walk from a stale session can't clobber the page's index.
+	/// the file browser re-root to it. When <paramref name="invalidate"/> (a session switch), a pending (empty)
+	/// index posts first, in order with the switch's message train, so the page drops the outgoing session's
+	/// files immediately — during the walk the omnibar must show nothing rather than offer a stale file whose
+	/// path routes into the wrong worktree. A same-root refresh (the omnibar's open) keeps the current index
+	/// usable while the walk runs. The walk runs off the UI thread; its result is guarded + posted back on it,
+	/// so a slow walk from a stale session can't clobber the page's index after a further switch.
 	/// </summary>
-	private void PushFileIndexToWeb() {
+	private void PushFileIndexToWeb(bool invalidate) {
 		if (_session is not { } session) {
 			return;
+		}
+
+		if (invalidate) {
+			_bridge.PostToWeb(ShellProtocol.BuildFileIndexPending(session.FileIndex.Root));
 		}
 
 		_ = Task.Run(async () => {
 			var files = await GitTrackedFilesAsync(session.FileIndex.Root).ConfigureAwait(false)
 				?? session.FileIndex.List();
-			if (ReferenceEquals(_session, session)) {
-				_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
-			}
+			_ui.Post(() => {
+				if (ReferenceEquals(_session, session)) {
+					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
+				}
+			});
 		});
 	}
 
@@ -561,9 +571,12 @@ public sealed partial class HostCore {
 			}
 		}
 
-		if (ReferenceEquals(_session, session)) {
-			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "find-in-files-results", query, matches, truncated, error }));
-		}
+		// Guard + post on the UI thread, so a slow grep can't check active, lose to a switch, and still post.
+		_ui.Post(() => {
+			if (ReferenceEquals(_session, session)) {
+				_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "find-in-files-results", query, matches, truncated, error }));
+			}
+		});
 	}
 
 	/// <summary>
@@ -1018,15 +1031,14 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>
-		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
+		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message));
 
 	/// <summary>
 	/// As <see cref="Notify(string,string)"/>, with a dedupe <paramref name="key"/>: a later toast carrying the
 	/// same key replaces the live one in place (e.g. a "reloaded" info clearing a lingering "malformed" error).
 	/// </summary>
 	public void Notify(string level, string message, string key) =>
-		_bridge.PostToWeb(
-			$"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)},\"key\":{JsonString(key)}}}");
+		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message, key));
 
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the

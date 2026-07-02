@@ -650,18 +650,20 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     );
   };
 
-  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false (so
-  // $mod+Left/Right keep word-nav) when there's no multi-file review or the active file isn't in it.
+  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
+  // (so $mod+Left/Right keep word-nav) when there's no multi-file review. An active file that fell OUT of the
+  // set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the first
+  // file — a nav key pressed at a live review toolbar must never silently no-op.
   const stepReviewFile = (delta: number): boolean => {
     if (reviewFiles.length < 2) {
       return false;
     }
     const current = activePath();
     const idx = current === null ? -1 : reviewFiles.findIndex((f) => samePath(f.path, current));
-    if (idx === -1) {
-      return false;
-    }
-    const next = reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
+    const next =
+      idx === -1
+        ? reviewFiles[0]
+        : reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
     if (next === undefined) {
       return false;
     }

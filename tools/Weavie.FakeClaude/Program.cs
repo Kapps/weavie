@@ -72,8 +72,13 @@ static async Task RunScriptAsync(string scriptPath, string? mcpConfigPath) {
 						var conn = ide
 							? (ideMcp ??= await ConnectIdeAsync(() => nextId++).ConfigureAwait(false))
 							: (mcp ??= await ConnectMcpAsync(mcpConfigPath, () => nextId++).ConfigureAwait(false));
-						await CallToolAsync(conn, nextId++, step.GetProperty("tool").GetString()!,
-							step.TryGetProperty("args", out var a) ? a.GetRawText() : "{}").ConfigureAwait(false);
+						string tool = step.GetProperty("tool").GetString()!;
+						string argsJson = step.TryGetProperty("args", out var a) ? a.GetRawText() : "{}";
+						string reply = await CallToolAsync(conn, nextId++, tool, argsJson).ConfigureAwait(false);
+						if (tool == "openDiff") {
+							ApplyKeptDiff(argsJson, reply);
+						}
+
 						break;
 					}
 				default:
@@ -162,22 +167,60 @@ static async Task HandshakeAsync(ClientWebSocket ws, string url, Func<int> nextI
 	Emit($"{label} connected");
 }
 
-static async Task CallToolAsync(ClientWebSocket ws, int id, string tool, string argsJson) {
+// Sends one tools/call and reads frames until ITS response (matching id) arrives — the server also pushes
+// notifications (e.g. selection_changed) on the same socket, which must be skipped, not mistaken for the
+// reply. Real claude does the same demultiplexing; misreading a notification ends the script early, closes
+// the socket while the real reply is pending, and never applies a kept diff.
+static async Task<string> CallToolAsync(ClientWebSocket ws, int id, string tool, string argsJson) {
 	await SendAsync(ws, $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"tools/call\",\"params\":{{\"name\":\"{tool}\",\"arguments\":{argsJson}}}}}").ConfigureAwait(false);
-	string reply = await ReceiveAsync(ws).ConfigureAwait(false);
-	Emit($"{tool} -> {reply}");
+	while (true) {
+		string reply = await ReceiveAsync(ws).ConfigureAwait(false);
+		using var parsed = JsonDocument.Parse(reply);
+		if (parsed.RootElement.TryGetProperty("id", out var replyId)
+			&& replyId.ValueKind == JsonValueKind.Number && replyId.GetInt32() == id) {
+			Emit($"{tool} -> {reply}");
+			return reply;
+		}
+
+		Emit($"{tool} (skipped notification) {reply}");
+	}
+}
+
+// Mirrors real claude's side of the openDiff contract: a FILE_SAVED reply means the user kept the proposal
+// and CLAUDE writes the final contents (the second content item) to disk — the IDE never writes. Without
+// this, "keep" leaves the file untouched and the editor waits forever for a write that never comes.
+static void ApplyKeptDiff(string argsJson, string reply) {
+	using var args = JsonDocument.Parse(argsJson);
+	using var parsed = JsonDocument.Parse(reply);
+	if (!parsed.RootElement.TryGetProperty("result", out var result)
+		|| !result.TryGetProperty("content", out var content)
+		|| content.ValueKind != JsonValueKind.Array || content.GetArrayLength() < 2) {
+		return;
+	}
+
+	var items = content.EnumerateArray().ToArray();
+	if (items[0].GetProperty("text").GetString() != "FILE_SAVED") {
+		return; // rejected — nothing to write
+	}
+
+	string path = args.RootElement.GetProperty("new_file_path").GetString()!;
+	File.WriteAllText(path, items[1].GetProperty("text").GetString());
+	Emit($"openDiff KEEP wrote {path}");
 }
 
 static async Task SendAsync(ClientWebSocket ws, string json) =>
 	await ws.SendAsync(Encoding.UTF8.GetBytes(json), WebSocketMessageType.Text, true, CancellationToken.None).ConfigureAwait(false);
 
+// No receive deadline: an openDiff reply legitimately waits on the user's Keep/Reject, which under a loaded
+// test runner can take arbitrarily long — a cap here turns a slow click into a fake-claude crash (and a
+// supervisor restart that replays the script mid-test). A reply that truly never comes fails the driving
+// test on its own assertion, and teardown kills this process.
 static async Task<string> ReceiveAsync(ClientWebSocket ws) {
 	byte[] buffer = new byte[64 * 1024];
-	using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
 	using var ms = new MemoryStream();
 	WebSocketReceiveResult result;
 	do {
-		result = await ws.ReceiveAsync(buffer, cts.Token).ConfigureAwait(false);
+		result = await ws.ReceiveAsync(buffer, CancellationToken.None).ConfigureAwait(false);
 		ms.Write(buffer, 0, result.Count);
 	}
 	while (!result.EndOfMessage);

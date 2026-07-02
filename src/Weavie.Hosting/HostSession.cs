@@ -10,6 +10,7 @@ using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
+using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
@@ -91,7 +92,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// The session's gate for editor-mutating page messages: a muted (non-active) session holds its editor work
 		// instead of writing into the page's single, foreground-bound editor. Starts muted (HostCore activates it).
 		EditorChannel = new SessionEditorChannel(bridge);
-		FileOpener = new FileOpener(EditorChannel, FileProvider, workspaceRoot);
+		FileOpener = new FileOpener(EditorChannel, FileProvider, bridge, workspaceRoot);
 		DiffPresenter = new McpDiffPresenter(EditorChannel, FileProvider, FileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// this session's claude what the user is looking at.
@@ -274,11 +275,8 @@ public sealed class HostSession : IAsyncDisposable {
 			// Surface the failure instead of letting it throw past the reply (which would hang the browser on
 			// a folder that never fills); the page still gets an (empty) listing so its spinner resolves.
 			entries = [];
-			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "notify",
-				level = "error",
-				message = $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}",
-			}));
+			_bridge.PostToWeb(ShellProtocol.BuildNotify(
+				"error", $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}"));
 		}
 
 		string json = JsonSerializer.Serialize(new {

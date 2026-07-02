@@ -97,6 +97,24 @@ public static class ShellProtocol {
 		return $"window.__WEAVIE_SHELL__ = {json};";
 	}
 
+	/// <summary>Builds the <c>notify</c> message (a user-facing toast in the page).</summary>
+	public static string BuildNotify(string level, string message) {
+		ArgumentException.ThrowIfNullOrEmpty(level);
+		ArgumentNullException.ThrowIfNull(message);
+		return JsonSerializer.Serialize(new { type = "notify", level, message });
+	}
+
+	/// <summary>
+	/// As <see cref="BuildNotify(string,string)"/>, with a dedupe <paramref name="key"/>: a later toast carrying
+	/// the same key replaces the live one in place.
+	/// </summary>
+	public static string BuildNotify(string level, string message, string key) {
+		ArgumentException.ThrowIfNullOrEmpty(level);
+		ArgumentNullException.ThrowIfNull(message);
+		ArgumentException.ThrowIfNullOrEmpty(key);
+		return JsonSerializer.Serialize(new { type = "notify", level, message, key });
+	}
+
 	/// <summary>Builds the <c>window-state</c> message (maximize glyph + blur dim) the host pushes on focus/size changes.</summary>
 	public static string BuildWindowState(bool maximized, bool focused) =>
 		JsonSerializer.Serialize(new { type = "window-state", maximized, focused });
@@ -106,6 +124,16 @@ public static class ShellProtocol {
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		ArgumentNullException.ThrowIfNull(files);
 		return JsonSerializer.Serialize(new { type = "file-index", root, files });
+	}
+
+	/// <summary>
+	/// Builds the pending <c>file-index</c> (new root, no files yet, <c>pending</c> set) a session switch pushes
+	/// in-order with its message train: the page drops the outgoing session's index at once — offering a stale
+	/// file would route a wrong-worktree path — and shows the walk as loading until the real index lands.
+	/// </summary>
+	public static string BuildFileIndexPending(string root) {
+		ArgumentException.ThrowIfNullOrEmpty(root);
+		return JsonSerializer.Serialize(new { type = "file-index", root, files = Array.Empty<string>(), pending = true });
 	}
 
 	/// <summary>Builds the <c>recent-files</c> push (frecency-ranked absolute paths) for the omnibar's Recent section.</summary>

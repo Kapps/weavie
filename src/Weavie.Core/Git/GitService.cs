@@ -254,7 +254,24 @@ public sealed class GitService : IGitService {
 		ArgumentException.ThrowIfNullOrEmpty(baseRef);
 		// No second ref ⇒ diff against the working tree, so uncommitted edits are included (unlike DiffRefsAsync).
 		var result = await RunCheckedAsync(repositoryDirectory, ["diff", "--numstat", "--no-renames", baseRef, "--"], ct).ConfigureAwait(false);
-		return ParseNumstat(result.StdOut);
+		var changes = new List<DiffFileChange>(ParseNumstat(result.StdOut));
+		// `git diff` skips untracked files, but to a user a brand-new file IS an uncommitted change — surface
+		// each (gitignore honored) as all-added rather than silently absent from the review.
+		var untracked = await RunCheckedAsync(repositoryDirectory, ["ls-files", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
+		foreach (string path in untracked.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
+			changes.Add(new DiffFileChange { Path = path, Added = CountLines(Path.Combine(repositoryDirectory, path)), Removed = 0 });
+		}
+
+		return [.. changes.OrderBy(c => c.Path, StringComparer.Ordinal)];
+	}
+
+	// The added-line count for an untracked file (display-only, mirroring numstat); 0 when it vanished mid-read.
+	private static int CountLines(string absolutePath) {
+		try {
+			return File.ReadLines(absolutePath).Count();
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			return 0;
+		}
 	}
 
 	/// <inheritdoc/>

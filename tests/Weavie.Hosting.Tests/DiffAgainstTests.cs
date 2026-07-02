@@ -41,7 +41,6 @@ public sealed class DiffAgainstTests {
 		Git(host.RepoRoot, "add", "-A");
 		Git(host.RepoRoot, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "second");
 		File.WriteAllText(Path.Combine(host.RepoRoot, "extra.txt"), "new\n");
-		Git(host.RepoRoot, "add", "extra.txt"); // untracked files aren't in `git diff <ref>`; stage to include it
 
 		host.Send("""{"type":"diff-against","ref":"HEAD^"}""");
 
@@ -50,7 +49,43 @@ public sealed class DiffAgainstTests {
 		var names = changes.GetProperty("files").EnumerateArray()
 			.Select(f => f.GetProperty("name").GetString()).ToList();
 		Assert.Contains("readme.txt", names); // the last commit's change
-		Assert.Contains("extra.txt", names);  // the uncommitted (staged) addition
+		Assert.Contains("extra.txt", names);  // the uncommitted, still-untracked addition
+	}
+
+	[Fact]
+	public async Task DiffAgainstHead_SurfacesAnUntrackedFile_AsAllAdded() {
+		await using var host = await TestHost.StartAsync();
+		File.WriteAllText(Path.Combine(host.RepoRoot, "brand-new.txt"), "one\ntwo\n");
+
+		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+
+		// A brand-new file IS an uncommitted change — never "No changes against 'HEAD'."
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+		var file = Assert.Single(changes.GetProperty("files").EnumerateArray());
+		Assert.Equal("brand-new.txt", file.GetProperty("name").GetString());
+		Assert.Equal(2, file.GetProperty("added").GetInt32());
+	}
+
+	[Fact]
+	public async Task GetPrDiff_ForAPathOutsideTheReviewWorktree_IsDropped() {
+		await using var host = await TestHost.StartAsync();
+		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
+		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+
+		// Local reviews all carry number 0, so the number can't disambiguate — a request whose path escapes
+		// the active review's worktree (a switch-race leftover) must be dropped, never resolved against it.
+		string foreign = Path.Combine(Path.GetTempPath(), "weavie-foreign-" + Guid.NewGuid().ToString("n") + ".txt");
+		File.WriteAllText(foreign, "elsewhere\n");
+		try {
+			host.Bridge.Clear();
+			host.Send($$"""{"type":"get-pr-diff","number":0,"path":{{JsonSerializer.Serialize(foreign)}}}""");
+
+			await Task.Delay(300);
+			Assert.Null(host.Bridge.LastOfType("pr-diff"));
+		} finally {
+			File.Delete(foreign);
+		}
 	}
 
 	[Fact]

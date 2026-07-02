@@ -81,6 +81,12 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// A drained local review (its diff emptied since it was armed) unarms rather than re-posting an empty
+		// walk on every future switch; a PR stays armed (its identity and comments outlive an equal tree).
+		if (changes.Count == 0 && review.PrNumber == 0) {
+			_diffReviews.TryRemove(review.Worktree, out _);
+		}
+
 		PostReviewChanges(review, changes);
 	}
 
@@ -114,14 +120,18 @@ public sealed partial class HostCore {
 	/// merge-base, current = the worktree file) plus any comments anchored in it, so the inline-diff renders it.
 	/// </summary>
 	private async Task SendReviewDiffAsync(int number, string absolutePath) {
-		if (ActiveReview() is not { } review || review.PrNumber != number) {
+		// Every local ref diff carries number 0, so the number alone can't tell reviews apart — the file must
+		// also belong to the active review's worktree, or a request that straddled a session switch would
+		// resolve a foreign session's file against this review's merge-base.
+		string relative;
+		if (ActiveReview() is not { } review || review.PrNumber != number
+			|| (relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/')).StartsWith("..", StringComparison.Ordinal)
+			|| Path.IsPathRooted(relative)) {
 			// Stale request (the session moved on) — dropping is correct, but log it: an unanswered get-pr-diff
 			// strands the web's navigator mid-step, and this is the only trace of why.
 			Log($"[weavie] review: dropped get-pr-diff #{number} for {Path.GetFileName(absolutePath)} (active: {ActiveReview()?.Label ?? "none"})");
 			return;
 		}
-
-		string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
 		string baseline;
 		try {
 			baseline = await new GitService().ShowFileAtRefAsync(review.Worktree, review.MergeBase, relative, CancellationToken.None).ConfigureAwait(false);
@@ -136,10 +146,11 @@ public sealed partial class HostCore {
 			current = string.Empty;
 		}
 
-		// Guard + post on the UI thread: a switch that landed while the git show / file read ran above means this
-		// diff belongs to a session no longer on screen — drop it rather than render it over the wrong session.
+		// Guard + post on the UI thread: a switch (or a re-arm against a different ref) that landed while the
+		// git show / file read ran above means this diff belongs to a review no longer on screen — drop it
+		// rather than render it over the wrong one. Reference identity, since local reviews share number 0.
 		_ui.Post(() => {
-			if (ActiveReview() is not { } stillActive || stillActive.PrNumber != number) {
+			if (!ReferenceEquals(ActiveReview(), review)) {
 				return;
 			}
 

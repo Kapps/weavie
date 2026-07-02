@@ -1079,6 +1079,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       updateParkedReview();
     },
     setPrReview: (number, label, files) => {
+      // A retracted review ("diff against" found no changes): clear the walk and its markers — but only when
+      // a review diff is what's bound, so it can never clobber a live post-turn walk.
+      if (files.length === 0) {
+        if (reviewKind === "pr") {
+          reviewFiles = [];
+          updateParkedReview();
+          inlineDiff?.clearAll();
+        }
+        return;
+      }
       // Binding a review surfaces its diff immediately (open the first changed file — unlike post-turn review,
       // which never auto-moves the editor); a duplicate push for the review already bound (every switch onto
       // its session fires a fire-and-forget diff) updates the file list quietly instead of re-yanking the
@@ -1089,11 +1099,6 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       prLabel = label;
       reviewFiles = files;
       updateParkedReview();
-      if (files.length === 0) {
-        // A retracted review ("diff against" found no changes): drop the previous walk's markers too.
-        inlineDiff?.clearAll();
-        return;
-      }
       const first = files[0];
       if (!alreadyBound && first !== undefined) {
         openReviewFile(first);

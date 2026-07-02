@@ -100,8 +100,9 @@ public interface IGitService {
 	Task<string?> ResolveCommitAsync(string repositoryDirectory, string reference, CancellationToken ct = default);
 
 	/// <summary>
-	/// The files that differ between <paramref name="baseRef"/> and the working tree — tracked files only, like
-	/// <c>git diff &lt;base&gt;</c> — with added/removed line counts. The changed-file list for a "diff against" review.
+	/// The files that differ between <paramref name="baseRef"/> and the working tree — <c>git diff &lt;base&gt;</c>
+	/// plus untracked-but-not-ignored files (all-added) — with added/removed line counts, path-ordered. The
+	/// changed-file list for a "diff against" review.
 	/// </summary>
 	Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default);
 

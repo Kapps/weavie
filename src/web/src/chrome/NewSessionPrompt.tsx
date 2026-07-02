@@ -1,6 +1,7 @@
-import { For, type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { For, type JSX, Show, createEffect, createSignal } from "solid-js";
 import { Portal } from "solid-js/web";
 import { connectedBackends, requestBranches } from "../bridge";
+import { BranchTypeahead, branchSuggestions } from "./BranchTypeahead";
 
 // Prompt for a new worktree session: pick the location (local or a remote agent), then name the branch via a
 // typeahead over the backend's branches — type a new name to create (Enter = off HEAD, Shift+Enter = off
@@ -18,7 +19,6 @@ export function NewSessionPrompt(props: {
   const [branch, setBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
   const [loadingBranches, setLoadingBranches] = createSignal(false);
-  const [highlight, setHighlight] = createSignal(-1);
 
   // If the picked location disconnects while the prompt is open, fall back to local so a create/checkout
   // can't silently post into a dead backend (postToBackend would no-op).
@@ -47,16 +47,6 @@ export function NewSessionPrompt(props: {
     connectedBackends().find((b) => b.id === backendId() && !b.isLocal)?.name ?? "";
 
   const trimmed = (): string => branch().trim();
-  // Existing branches containing the typed text (case-insensitive), minus an exact full match; capped.
-  const suggestions = (): string[] => {
-    const q = trimmed().toLowerCase();
-    if (q.length === 0) {
-      return [];
-    }
-    return branches()
-      .filter((b) => b.toLowerCase().includes(q) && b !== trimmed())
-      .slice(0, 8);
-  };
   const matchedExisting = (): boolean => branches().includes(trimmed());
 
   const create = (base: "head" | "main"): void => {
@@ -69,36 +59,6 @@ export function NewSessionPrompt(props: {
       props.onCheckout(name, backendId());
     }
   };
-
-  const onKeyDown = (event: KeyboardEvent): void => {
-    const list = suggestions();
-    if (event.key === "ArrowDown" && list.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((h) => (h + 1) % list.length);
-    } else if (event.key === "ArrowUp" && list.length > 0) {
-      event.preventDefault();
-      event.stopPropagation();
-      setHighlight((h) => (h <= 0 ? list.length - 1 : h - 1));
-    } else if (event.key === "Enter") {
-      event.preventDefault();
-      event.stopPropagation();
-      const picked = highlight() >= 0 && highlight() < list.length ? list[highlight()] : undefined;
-      if (picked !== undefined) {
-        checkout(picked); // arrowed to an existing branch → check it out
-      } else if (matchedExisting()) {
-        checkout(trimmed()); // typed an existing branch's full name → check it out
-      } else {
-        create(event.shiftKey ? "main" : "head"); // a new branch name → create it
-      }
-    } else if (event.key === "Escape") {
-      event.preventDefault();
-      event.stopPropagation();
-      props.onCancel();
-    }
-  };
-  onMount(() => window.addEventListener("keydown", onKeyDown, { capture: true }));
-  onCleanup(() => window.removeEventListener("keydown", onKeyDown, { capture: true }));
 
   return (
     <Portal>
@@ -156,61 +116,31 @@ export function NewSessionPrompt(props: {
             </Show>
           </div>
           <div class="session-prompt-field">
-            <input
-              class="session-prompt-input"
-              type="text"
+            <BranchTypeahead
+              idPrefix="session-branch"
               placeholder="branch name"
-              role="combobox"
-              aria-label="Branch name"
-              aria-autocomplete="list"
-              aria-expanded={suggestions().length > 0}
-              aria-controls={suggestions().length > 0 ? "session-branch-suggestions" : undefined}
-              aria-activedescendant={
-                highlight() >= 0 ? `session-branch-opt-${highlight()}` : undefined
-              }
-              spellcheck={false}
-              autocomplete="off"
+              ariaLabel="Branch name"
+              branches={branches()}
               value={branch()}
-              onInput={(event) => {
-                setBranch(event.currentTarget.value);
-                setHighlight(-1);
+              setValue={setBranch}
+              onSubmit={(text, shiftKey, viaPick) => {
+                if (viaPick || branches().includes(text)) {
+                  checkout(text); // an existing branch (picked or typed in full) → check it out
+                } else {
+                  create(shiftKey ? "main" : "head"); // a new branch name → create it
+                }
               }}
-              ref={(el) => {
-                queueMicrotask(() => el.focus());
-              }}
+              onCancel={() => props.onCancel()}
             />
-            <Show when={suggestions().length > 0}>
-              <div
-                class="session-prompt-suggestions"
-                id="session-branch-suggestions"
-                role="listbox"
-                aria-label="Matching branches"
-              >
-                <For each={suggestions()}>
-                  {(name, i) => (
-                    <div
-                      class="session-prompt-suggestion"
-                      role="option"
-                      tabindex={-1}
-                      id={`session-branch-opt-${i()}`}
-                      aria-selected={i() === highlight()}
-                      classList={{ active: i() === highlight() }}
-                      // pointerdown (not click) so picking a suggestion isn't lost to the input's blur, and
-                      // preventDefault keeps focus in the field.
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        checkout(name);
-                      }}
-                    >
-                      {name}
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
             {/* While branches load, say so — otherwise a typed name that matches an existing branch looks
                 like a new branch (no suggestion yet), and a hung backend looks identical to an empty repo. */}
-            <Show when={loadingBranches() && trimmed().length > 0 && suggestions().length === 0}>
+            <Show
+              when={
+                loadingBranches() &&
+                trimmed().length > 0 &&
+                branchSuggestions(branches(), branch()).length === 0
+              }
+            >
               <div class="session-prompt-hint">Loading branches…</div>
             </Show>
           </div>

@@ -23,10 +23,10 @@ host message: `diff-against { ref }`.
 - **Base = `merge-base(ref, HEAD)`** — so diffing against a branch shows only *this side's* changes since
   the fork point (exactly what a PR shows), and a ref that's an ancestor (HEAD, HEAD^, an old commit) diffs
   from itself. A ref *ahead* of HEAD therefore shows nothing of the other side — never a reversed diff.
-- **Current = the working tree** — the changed-file list is `git diff --numstat <base>`
-  (`IGitService.DiffWorktreeAsync`), and each file's diff pairs the file at the base
-  (`ShowFileAtRefAsync`) with the file on disk, so uncommitted edits are part of the review. Like
-  `git diff <ref>`, untracked files aren't included until staged.
+- **Current = the working tree** — the changed-file list is `git diff --numstat <base>` **plus
+  untracked-but-not-ignored files** as all-added entries (`IGitService.DiffWorktreeAsync`); a brand-new
+  file is an uncommitted change to the user, so it is never silently absent. Each file's diff pairs the
+  file at the base (`ShowFileAtRefAsync`; empty when absent there) with the file on disk.
 - **Read-only** — the base is committed history, so there is no keep/revert (nothing was auto-applied) and
   no commenting (no forge behind a local ref). The navigator's walk (`←`/`→` files, `↑`/`↓` hunks) is
   unchanged.

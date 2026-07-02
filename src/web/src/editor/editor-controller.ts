@@ -1064,15 +1064,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       updateParkedReview();
     },
     setPrReview: (number, files) => {
+      // Binding a PR surfaces its diff immediately (open the first changed file — unlike post-turn review,
+      // which never auto-moves the editor); a duplicate push for the PR already in review (every switch onto
+      // its session fires a fire-and-forget diff) updates the file list quietly instead of re-yanking the
+      // walk. A genuine (re)bind still jumps: any switch flips reviewKind to "turn" before this lands.
+      const alreadyBound = reviewKind === "pr" && prNumber === number;
       reviewKind = "pr";
       prNumber = number;
       reviewFiles = files;
       updateParkedReview();
-      // Opening a PR is an explicit request to review it, so surface the diff immediately: open the first changed
-      // file on its diff (which also mounts the editor so the navigator can render). The ← / → walk takes it from
-      // there. (Unlike post-turn review, which never auto-moves the editor.)
       const first = files[0];
-      if (first !== undefined) {
+      if (!alreadyBound && first !== undefined) {
         openReviewFile(first);
       }
     },

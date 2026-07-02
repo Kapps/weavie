@@ -33,6 +33,10 @@ jobs:
     # (the per-OS defaults live in different places: ~/.cache, ~/Library/Caches, %LOCALAPPDATA%).
     env:
       PLAYWRIGHT_BROWSERS_PATH: ${{ github.workspace }}/.pw-browsers
+      # The vite production build (7.7k modules incl. the 7 MB vscode-services chunk) peaks past the
+      # old-space ceiling Node derives from the hosted runners' RAM (~2 GB on the macOS image), which
+      # OOM-kills `vite build`. This provisions real capacity for a legitimately large build.
+      NODE_OPTIONS: --max-old-space-size=4096
     strategy:
       fail-fast: false
       matrix:

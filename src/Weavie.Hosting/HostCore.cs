@@ -236,7 +236,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
-	private static string BuildNumber =>
+	public static string BuildNumber =>
 		typeof(HostCore).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
 		?? throw new InvalidOperationException("Weavie.Hosting has no AssemblyInformationalVersion — the build-stamp target did not run.");
 
@@ -406,6 +406,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 
 		_hotkeys?.Dispose(); // unregisters the OS global hotkeys
+		_drainTick?.Cancel(); // ends a pending update drain's re-sample loop
 
 		// Fail any web command still awaiting an ack so a runCommand in flight at close doesn't hang.
 		foreach (var pending in _pendingWebCommands.Values) {

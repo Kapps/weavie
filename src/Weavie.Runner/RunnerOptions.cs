@@ -59,6 +59,15 @@ public sealed record RunnerOptions {
 	public required string RunnerToken { get; init; }
 
 	/// <summary>
+	/// Whether the runner polls green-main release bundles and drain-swaps the worker onto them
+	/// (<c>--auto-update</c>). Off by default; the runner itself only changes version on restart either way.
+	/// </summary>
+	public bool AutoUpdate { get; init; }
+
+	/// <summary>GitHub token for the update poll/download (<c>--github-token</c>); public repos work anonymously.</summary>
+	public string? GitHubToken { get; init; }
+
+	/// <summary>
 	/// Builds the options from args + environment, generating a token when none is supplied. Returns
 	/// <c>(null, error)</c> when the worker binary can't be located or an unsafe combination is requested, so the
 	/// runner fails loudly at startup instead of exposing an unencrypted endpoint or crash-looping a dead path.
@@ -116,6 +125,10 @@ public sealed record RunnerOptions {
 		string? token = Arg(args, "--token") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_TOKEN");
 		string runnerToken = string.IsNullOrEmpty(token) ? NewToken() : token;
 
+		bool autoUpdate = Flag(args, "--auto-update", "WEAVIE_RUNNER_AUTO_UPDATE");
+		string? gitHubToken = Arg(args, "--github-token") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_GITHUB_TOKEN");
+		gitHubToken = string.IsNullOrEmpty(gitHubToken) ? null : gitHubToken;
+
 		return (new RunnerOptions {
 			WorkspaceRoot = root,
 			HeadlessPath = headlessPath,
@@ -128,6 +141,8 @@ public sealed record RunnerOptions {
 			WorkerHttpsPort = workerHttps,
 			ControlHttpsPort = controlHttps,
 			RunnerToken = runnerToken,
+			AutoUpdate = autoUpdate,
+			GitHubToken = gitHubToken,
 		}, null);
 	}
 
@@ -164,6 +179,11 @@ public sealed record RunnerOptions {
 
 		return int.TryParse(raw, out int parsed) ? (parsed, null) : (null, $"{name} '{raw}' is not a valid port number.");
 	}
+
+	// A value-less switch: present in argv, or its env var set to 1/true.
+	private static bool Flag(string[] args, string name, string envVar) =>
+		args.Contains(name, StringComparer.Ordinal)
+		|| Environment.GetEnvironmentVariable(envVar) is "1" or "true";
 
 	private static string? Arg(string[] args, string name) {
 		for (int i = 0; i < args.Length - 1; i++) {

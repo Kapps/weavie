@@ -106,6 +106,7 @@ export const CommandIds = {
   deleteSessionPrompt: "weavie.session.deletePrompt",
   disconnectRemoteAgent: "weavie.session.disconnectRemote",
   removeFromRail: "weavie.session.removeFromRail",
+  restartForUpdate: "weavie.update.restartNow",
 } as const;
 
 declare global {

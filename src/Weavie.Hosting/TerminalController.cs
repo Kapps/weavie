@@ -381,6 +381,18 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
+	/// <summary>
+	/// Whether a job (build, dev server) is running in this pane — the PTY's foreground process group
+	/// differs from the child shell. False when nothing runs. Feeds the update drain gate.
+	/// </summary>
+	public bool HasForegroundJob {
+		get {
+			lock (_gate) {
+				return _terminal is { HasForegroundJob: true };
+			}
+		}
+	}
+
 	/// <summary>Resizes the PTY to the given column/row count (and remembers them for restarts).</summary>
 	public void Resize(int columns, int rows) {
 		lock (_gate) {

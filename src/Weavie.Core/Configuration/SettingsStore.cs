@@ -510,6 +510,12 @@ public sealed class SettingsStore : IDisposable {
 			expanded = Path.Combine(home, expanded[2..]);
 		}
 
+		// A Windows drive-rooted path isn't rooted on POSIX; resolving it against a Linux base dir would
+		// mangle it. The settings file crosses machines (a remote runner reads a laptop's), so pass it through.
+		if (!OperatingSystem.IsWindows() && IsWindowsDriveRooted(expanded)) {
+			return expanded;
+		}
+
 		if (Path.IsPathRooted(expanded)) {
 			return Path.GetFullPath(expanded);
 		}
@@ -519,6 +525,9 @@ public sealed class SettingsStore : IDisposable {
 			: ResolveWorkspaceDirLocked(home);
 		return Path.GetFullPath(Path.Combine(baseDir, expanded));
 	}
+
+	private static bool IsWindowsDriveRooted(string path) =>
+		path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
 
 	private string ResolveWorkspaceDirLocked(string fallback) {
 		if (_registry.TryGet(WorkspaceKey, out var workspace) && ResolveLocked(workspace).Value is string dir) {

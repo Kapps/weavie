@@ -9,18 +9,27 @@ namespace Weavie.Runner;
 /// sessions live inside the worker's shared <c>HostCore</c>, so the manager provisions + auths the backend,
 /// not individual sessions. See docs/specs/remote-sessions.md.
 /// </summary>
-public sealed class BackendManager : IAsyncDisposable {
+public sealed partial class BackendManager : IAsyncDisposable {
 	private readonly RunnerOptions _options;
 	private readonly HeadlessLauncher _launcher;
+	// The address workers listen on (loopback), doubling as the host the update flow's control
+	// requests (drain / status) connect to.
+	private readonly string _workerHost;
+	private readonly HttpClient _http = new();
 	private readonly object _gate = new();
 	private WorkspaceBackend? _backend;
 
-	/// <summary>Creates a manager that provisions workers per <paramref name="options"/>.</summary>
-	public BackendManager(RunnerOptions options, HeadlessLauncher launcher) {
+	/// <summary>
+	/// Creates a manager that provisions workers per <paramref name="options"/>, reaching each worker's
+	/// control endpoints at <paramref name="workerHost"/> (the bind address the launcher spawns them on).
+	/// </summary>
+	public BackendManager(RunnerOptions options, HeadlessLauncher launcher, string workerHost) {
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(launcher);
+		ArgumentException.ThrowIfNullOrEmpty(workerHost);
 		_options = options;
 		_launcher = launcher;
+		_workerHost = workerHost;
 	}
 
 	/// <summary>The current backend, or <c>null</c> before the first <see cref="Ensure"/> call.</summary>
@@ -38,6 +47,12 @@ public sealed class BackendManager : IAsyncDisposable {
 	/// </summary>
 	public WorkspaceBackend Ensure() {
 		lock (_gate) {
+			// Mid-update the swap/rollback owns the lifecycle: re-provisioning here would mint a new
+			// token/port and orphan every reconnecting tab, so hand back the backend as-is.
+			if (_backend is not null && _updating) {
+				return _backend;
+			}
+
 			if (_backend is { Supervisor.State: not SupervisorState.Failed }) {
 				return _backend;
 			}
@@ -64,6 +79,7 @@ public sealed class BackendManager : IAsyncDisposable {
 			_backend = null;
 		}
 
+		_http.Dispose();
 		return ValueTask.CompletedTask;
 	}
 

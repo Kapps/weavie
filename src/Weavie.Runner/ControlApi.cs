@@ -9,7 +9,8 @@ namespace Weavie.Runner;
 /// <c>url</c> is built against the request's own host. See docs/specs/remote-sessions.md.
 /// </summary>
 internal static class ControlApi {
-	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options, ITlsFront front) {
+	public static void Map(WebApplication app, BackendManager backends, RunnerOptions options, ITlsFront front, Func<UpdateStatus> updateStatus) {
+		ArgumentNullException.ThrowIfNull(updateStatus);
 		// The one auth gate, registered first so it covers every endpoint. Unauthorized → 401 with a
 		// constant hint body, never derived from the request.
 		app.Use(async (context, next) => {
@@ -26,13 +27,15 @@ internal static class ControlApi {
 		app.MapGet("/", (HttpContext ctx) =>
 			Results.Content(PickerPage.Html(QueryToken(ctx) ?? string.Empty), "text/html; charset=utf-8"));
 
-		// Ensure the workspace backend is running and return its connect URL + status.
+		// Ensure the workspace backend is running and return its connect URL + status (+ the updater's state,
+		// which the picker page renders — runner staleness and a rollback must be visible where the user is).
 		app.MapGet("/backend", (HttpContext ctx) => {
 			var backend = backends.Ensure();
 			return Results.Json(new {
 				url = front.WorkerPageUrl(HostOf(ctx), backend),
 				status = backend.Status,
 				workspace = backend.WorkspaceRoot,
+				update = updateStatus(),
 			});
 		});
 	}

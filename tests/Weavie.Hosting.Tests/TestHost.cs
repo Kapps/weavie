@@ -167,12 +167,15 @@ internal sealed class TestPlatform : IHostPlatform {
 	public TestPlatform(IHostBridge bridge) {
 		Bridge = bridge;
 		Dispatcher = new InlineUiDispatcher();
-		PtyLauncher = new NoopPtyLauncher();
+		NoopLauncher = new NoopPtyLauncher();
 	}
+
+	/// <summary>The typed launcher, so tests can reach the terminals it handed out.</summary>
+	public NoopPtyLauncher NoopLauncher { get; }
 
 	public IHostBridge Bridge { get; }
 	public IUiDispatcher Dispatcher { get; }
-	public IPtyLauncher PtyLauncher { get; }
+	public IPtyLauncher PtyLauncher => NoopLauncher;
 	public string ChromePlatform => "web";
 	public string? TitleBar => null;
 	public IReadOnlyList<string> Recents => [];
@@ -202,7 +205,14 @@ internal sealed class TestPlatform : IHostPlatform {
 
 /// <summary>A launcher whose terminals never spawn — sessions construct fine, but no real claude/shell runs.</summary>
 internal sealed class NoopPtyLauncher : IPtyLauncher {
-	public ITerminal CreateTerminal() => new NoopTerminal();
+	/// <summary>Every terminal handed out, in creation order — lets a test script one (e.g. its foreground-job flag).</summary>
+	public List<NoopTerminal> Created { get; } = [];
+
+	public ITerminal CreateTerminal() {
+		var terminal = new NoopTerminal();
+		Created.Add(terminal);
+		return terminal;
+	}
 
 	public PtyLaunch Resolve(PtyLaunchRequest request) => new() {
 		Command = "noop",
@@ -219,14 +229,18 @@ internal sealed class NoopTerminal : ITerminal {
 
 	public bool IsRunning => false;
 
+	/// <summary>Test-scriptable foreground-job flag (the drain gate's shell probe).</summary>
+	public bool HasForegroundJob { get; set; }
+
+	/// <summary>How many input writes reached this terminal (asserts the drain input freeze).</summary>
+	public int WriteCount { get; private set; }
+
 	public void Start(TerminalStartInfo startInfo) {
 		_ = Output;
 		_ = Exited;
 	}
 
-	public void Write(byte[] data) {
-		// no child to write to
-	}
+	public void Write(byte[] data) => WriteCount++;
 
 	public void Resize(int columns, int rows) {
 		// no PTY to resize

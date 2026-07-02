@@ -116,6 +116,11 @@ internal static partial class NativeMethods {
 	internal static partial int weavie_pty_spawn(
 		string path, IntPtr argv, IntPtr envp, string? cwd, ushort rows, ushort cols, out int master, out int pid);
 
+	// Foreground process group of the pty (glibc/libSystem implement this as ioctl(TIOCGPGRP), which
+	// works on the master fd). Compared against the child's pgid for the drain gate's job probe.
+	[LibraryImport("libc", SetLastError = true)]
+	internal static partial int tcgetpgrp(int fd);
+
 	[LibraryImport("libc", SetLastError = true)]
 	internal static partial int waitpid(int pid, out int status, int options);
 

@@ -485,6 +485,33 @@
   border: 0;
 }
 
+/* Media-tab surface: an image/video render covering the (kept-mounted) Monaco host, same layer as the
+   Web/Preview overlays (see media/MediaPane.tsx). */
+.editor-media {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: auto;
+  background: var(--bg);
+}
+
+.editor-media-content {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+/* The pane's loud non-media states: loading, too-large, read failure, deletion. */
+.editor-media-notice {
+  padding: 1em;
+  color: var(--dim);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* Source-tab surface: the SourceView shadow-root render covering the (kept-mounted) Monaco host, same layer as the
    Web/Preview overlays (see SourceView.tsx). The shadow root owns its own styles; this just positions + scrolls it. */
 .editor-source {

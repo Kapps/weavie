@@ -1,0 +1,41 @@
+/* Hover-revealed magnifier on preview embeds (installEmbedZoom in embed-zoom.ts). Class-only selectors:
+   the Markdown preview imports this normally while SourceView injects it ?raw into its shadow root. */
+
+.embed-zoom {
+  position: relative;
+}
+
+/* The wrapper around a bare <img>; inline-block so it hugs the image the button pins to. */
+span.embed-zoom {
+  display: inline-block;
+  max-width: 100%;
+}
+
+.embed-zoom-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  display: flex;
+  padding: 5px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bar);
+  color: var(--fg);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.embed-zoom:hover .embed-zoom-btn,
+.embed-zoom-btn:focus-visible {
+  opacity: 0.85;
+}
+
+.embed-zoom-btn:hover {
+  opacity: 1;
+}
+
+.embed-zoom-btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}

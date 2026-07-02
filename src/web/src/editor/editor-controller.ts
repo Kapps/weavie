@@ -17,6 +17,7 @@ import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath, uriHostPath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
+import { mediaTypeOf } from "./media/media-types";
 import { type NavHistory, createNavHistory } from "./nav-history";
 import {
   type ActivateResult,
@@ -210,9 +211,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const applyActive = (result: ActivateResult): Promise<void> => {
     deps.onCurrentFileChanged(result.path);
     // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
-    // shadow-root render over it) and never read the path as a file.
+    // shadow-root render over it) and never read the path as a file. Same for a media (image/video) file tab —
+    // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
-    if (activeKind === "web" || activeKind === "source") {
+    if (activeKind === "web" || activeKind === "source" || mediaTypeOf(result.path) !== null) {
       return Promise.resolve();
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
@@ -648,18 +650,20 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     );
   };
 
-  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false (so
-  // $mod+Left/Right keep word-nav) when there's no multi-file review or the active file isn't in it.
+  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
+  // (so $mod+Left/Right keep word-nav) when there's no multi-file review. An active file that fell OUT of the
+  // set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the first
+  // file — a nav key pressed at a live review toolbar must never silently no-op.
   const stepReviewFile = (delta: number): boolean => {
     if (reviewFiles.length < 2) {
       return false;
     }
     const current = activePath();
     const idx = current === null ? -1 : reviewFiles.findIndex((f) => samePath(f.path, current));
-    if (idx === -1) {
-      return false;
-    }
-    const next = reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
+    const next =
+      idx === -1
+        ? reviewFiles[0]
+        : reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
     if (next === undefined) {
       return false;
     }
@@ -1064,15 +1068,17 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       updateParkedReview();
     },
     setPrReview: (number, files) => {
+      // Binding a PR surfaces its diff immediately (open the first changed file — unlike post-turn review,
+      // which never auto-moves the editor); a duplicate push for the PR already in review (every switch onto
+      // its session fires a fire-and-forget diff) updates the file list quietly instead of re-yanking the
+      // walk. A genuine (re)bind still jumps: any switch flips reviewKind to "turn" before this lands.
+      const alreadyBound = reviewKind === "pr" && prNumber === number;
       reviewKind = "pr";
       prNumber = number;
       reviewFiles = files;
       updateParkedReview();
-      // Opening a PR is an explicit request to review it, so surface the diff immediately: open the first changed
-      // file on its diff (which also mounts the editor so the navigator can render). The ← / → walk takes it from
-      // there. (Unlike post-turn review, which never auto-moves the editor.)
       const first = files[0];
-      if (first !== undefined) {
+      if (!alreadyBound && first !== undefined) {
         openReviewFile(first);
       }
     },

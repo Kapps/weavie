@@ -39,7 +39,8 @@ const CONFIG = {
     "td",
     "th",
   ],
-  ALLOWED_ATTR: ["href", "src", "alt", "class"],
+  // data-wv-line is the renderer's block → original-markdown-line stamp; the edit path resolves clicks through it.
+  ALLOWED_ATTR: ["href", "src", "alt", "class", "data-wv-line"],
 };
 
 /** Sanitizes mapper-produced source HTML for injection into the SourceView shadow root. */

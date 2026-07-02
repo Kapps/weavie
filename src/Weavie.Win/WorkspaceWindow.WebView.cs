@@ -29,14 +29,11 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		string userDataFolder = WeaviePaths.Internal("webview2");
 		Directory.CreateDirectory(userDataFolder);
 
-		// Start the WebView2 runtime (its browser process spins up out-of-process) and, in Release, overlap the
-		// backend bring-up (sessions + git) with it rather than waiting — the two largest serial startup costs are
-		// independent. StartAsync is idempotent, so the web launcher below joins this same run. Debug stays serial:
-		// it navigates a dev-server origin, not https://weavie.dev, so we mustn't pre-pin the wrong page origin.
+		// Start the WebView2 runtime (its browser process spins up out-of-process) and overlap the backend
+		// bring-up (sessions + git) with it rather than waiting — the two largest serial startup costs are
+		// independent. StartAsync is idempotent, so the web launcher below joins this same run.
 		var environmentTask = CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
-#if !DEBUG
-		_ = _core.StartAsync($"https://{AppHost}");
-#endif
+		_ = _core.StartAsync();
 		var environment = await environmentTask;
 		await _webView.EnsureCoreWebView2Async(environment);
 		var core = _webView.CoreWebView2;

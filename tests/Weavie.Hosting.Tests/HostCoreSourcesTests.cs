@@ -100,6 +100,7 @@ public sealed class HostCoreSourcesTests {
 		Assert.Equal("Spec", doc.GetProperty("title").GetString());
 		Assert.Equal("Body **text**", doc.GetProperty("markdown").GetString()); // the single render + Claude channel
 		Assert.Equal("2026-06-30T06:15:48.000Z", doc.GetProperty("editedTime").GetString()); // read from the page JSON
+		Assert.Equal("notion", doc.GetProperty("sourceId").GetString()); // keys the tab icon web-side
 		var loading = host.Bridge.LastOfType("source-loading")!.Value; // posted first, so the tab opens with a spinner during the fetch, titled from the slug
 		Assert.Equal("Spec", loading.GetProperty("title").GetString());
 	}
@@ -164,6 +165,105 @@ public sealed class HostCoreSourcesTests {
 
 		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-error"));
 		Assert.Equal("https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d", error.GetProperty("target").GetString());
+		Assert.Null(host.Bridge.LastOfType("source-doc"));
+	}
+
+	[Fact]
+	public async Task SourceFetch_TruncatedPage_FlagsTheDocAndKeepsTheMarkdownVerbatim() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		host.SourceHttp.Responder = request => request.RequestUri!.AbsoluteUri switch {
+			var u when u.Contains("/markdown") => (HttpStatusCode.OK, """{ "markdown": "# Big page", "truncated": true, "unknown_block_ids": ["a"] }"""),
+			var u when u.Contains("/pages/") => (HttpStatusCode.OK, """{ "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Big" } ] } } }"""),
+			_ => (HttpStatusCode.NotFound, "{}"),
+		};
+
+		host.Send(Msg(new { type = "open-target", url = "https://www.notion.so/Big-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d" }));
+
+		// The loss travels as flags beside the markdown (the web renders a banner), never inside it — the markdown
+		// must stay the verbatim fetched text the edit path diffs against.
+		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		Assert.Equal("# Big page", doc.GetProperty("markdown").GetString());
+		Assert.True(doc.GetProperty("truncated").GetBoolean());
+		Assert.Equal(1, doc.GetProperty("unknownBlocks").GetInt32());
+	}
+
+	[Fact]
+	public async Task SaveSourceEdit_PatchesTheExactOpAndPushesTheRefreshedDoc() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		string? patchBody = null;
+		HttpRequestMessage? patch = null;
+		host.SourceHttp.Responder = request => {
+			if (request.Method == HttpMethod.Patch) {
+				patch = request;
+				patchBody = request.Content!.ReadAsStringAsync().Result; // read while the request is still alive
+				return (HttpStatusCode.OK, """{ "markdown": "Hello edited\nWorld", "truncated": false, "unknown_block_ids": [] }""");
+			}
+
+			return (HttpStatusCode.OK, """{ "last_edited_time": "2026-07-02T10:00:00.000Z", "properties": { "Name": { "type": "title", "title": [ { "plain_text": "Spec" } ] } } }""");
+		};
+
+		host.Send(Msg(new {
+			type = "source-save-edit",
+			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			oldStr = "Hello\n",
+			newStr = "Hello edited\n",
+		}));
+
+		// The refreshed doc comes from the PATCH response's markdown, keeping the store in sync with Notion.
+		var doc = await Wait.ForAsync(() => host.Bridge.LastOfType("source-doc"));
+		Assert.Equal("Hello edited\nWorld", doc.GetProperty("markdown").GetString());
+		Assert.Equal("Spec", doc.GetProperty("title").GetString());
+		Assert.Equal("notion", doc.GetProperty("sourceId").GetString());
+		// The PATCH itself: the markdown endpoint, authenticated, and EXACTLY one update_content op — no
+		// replace_content, no allow_deleting_content, no replace_all_matches (their absence is the safety rail).
+		Assert.NotNull(patch);
+		Assert.EndsWith("/v1/pages/1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d/markdown", patch!.RequestUri!.AbsoluteUri);
+		Assert.Equal("Bearer", patch.Headers.Authorization!.Scheme);
+		Assert.Equal("ntn_secret", patch.Headers.Authorization.Parameter);
+		Assert.Equal("""{"update_content":[{"old_str":"Hello\n","new_str":"Hello edited\n"}]}""", patchBody);
+		Assert.Null(host.Bridge.LastOfType("source-edit-error"));
+	}
+
+	[Fact]
+	public async Task SaveSourceEdit_ValidationError_PostsAStaleEditError() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		host.SourceHttp.Responder = _ =>
+			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "old_str did not match" }""");
+
+		host.Send(Msg(new {
+			type = "source-save-edit",
+			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			oldStr = "gone\n",
+			newStr = "new\n",
+		}));
+
+		// The page changed in Notion since the fetch: stale:true so the block offers a re-fetch; no doc is pushed.
+		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
+		Assert.True(error.GetProperty("stale").GetBoolean());
+		Assert.Contains("did not match", error.GetProperty("message").GetString());
+		Assert.Null(host.Bridge.LastOfType("source-doc"));
+	}
+
+	[Fact]
+	public async Task SaveSourceEdit_ServerFailure_StillResolvesTheSavingState() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		host.SourceHttp.Responder = _ => (HttpStatusCode.InternalServerError, "{}");
+
+		host.Send(Msg(new {
+			type = "source-save-edit",
+			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			oldStr = "a\n",
+			newStr = "b\n",
+		}));
+
+		// Fire-and-forget like the fetch: every failure must resolve the block's saving state, never leave it stuck.
+		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
+		Assert.False(error.GetProperty("stale").GetBoolean());
+		Assert.NotEmpty(error.GetProperty("message").GetString()!);
 		Assert.Null(host.Bridge.LastOfType("source-doc"));
 	}
 

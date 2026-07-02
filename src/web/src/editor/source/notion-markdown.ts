@@ -1,5 +1,6 @@
 import MarkdownIt from "markdown-it";
 import {
+  installLineStamps,
   normalizeNotionMarkdown,
   normalizeSelfClosing,
   notionColorClass,
@@ -17,19 +18,43 @@ md.set({
   highlight: (code, lang) =>
     lang === "mermaid" ? `<pre class="mermaid-pending">${md.utils.escapeHtml(code)}</pre>` : "",
 });
+// Blocks carry data-wv-line — the original markdown line that produced them — so a click can resolve back to the
+// verbatim fetched line for the edit path.
+installLineStamps(md);
 
 /** Renders Notion enhanced-markdown to display HTML for the SourceView shadow root (the caller sanitizes it). */
 export function renderNotionMarkdown(markdown: string): string {
   // normalizeNotionMarkdown turns Notion's one-block-per-line, tab-nested format into blank-line-separated
   // CommonMark first; without it markdown-it swallows whole regions as raw HTML blocks (see notion-transform).
+  const normalized = normalizeNotionMarkdown(markdown);
   const doc = new DOMParser().parseFromString(
-    normalizeSelfClosing(md.render(normalizeNotionMarkdown(markdown))),
+    normalizeSelfClosing(md.render(normalized.text, { lineMap: normalized.lineMap })),
     "text/html",
   );
   rewriteInlineSpans(doc.body);
   rewriteCustomTags(doc.body);
   applyBlockColors(doc.body);
+  markEditableBlocks(doc.body);
   return doc.body.innerHTML;
+}
+
+// Marks the blocks the click-to-edit path can open: leaf text blocks that carry an original-line stamp. An element
+// whose ancestor carries the same line loses its stamp (the blockquote owns its inner <p> — one block, one line);
+// tables and code fences are v1 read-only, so their blocks keep the stamp but never the affordance.
+function markEditableBlocks(root: HTMLElement): void {
+  for (const el of [...root.querySelectorAll<HTMLElement>("[data-wv-line]")]) {
+    const line = el.getAttribute("data-wv-line");
+    if (el.parentElement?.closest(`[data-wv-line="${line}"]`) != null) {
+      el.removeAttribute("data-wv-line");
+      continue;
+    }
+    if (
+      el.matches("p, h1, h2, h3, h4, h5, h6, li, blockquote") &&
+      el.closest("table, pre") === null
+    ) {
+      el.classList.add("wv-editable");
+    }
+  }
 }
 
 // `<span color="blue">` / `<span underline="true">` → our color/underline classes (the raw attributes wouldn't style).
@@ -64,7 +89,8 @@ function rewriteCustomTags(root: HTMLElement): void {
       tag === "file" ||
       tag === "pdf" ||
       tag === "audio" ||
-      tag === "video"
+      tag === "video" ||
+      tag === "unknown"
     ) {
       toCard(el);
     } else if (tag.startsWith("mention-")) {
@@ -119,7 +145,8 @@ function replaceCallout(el: Element): void {
   el.replaceWith(aside);
 }
 
-// Page/database refs and non-image media render as a link "card" (never a live embed), mirroring the prior design.
+// Page/database refs, non-image media, and <unknown> placeholders (the markdown API's stand-in for embeds,
+// bookmarks, link previews, …) render as a link "card" (never a live embed), mirroring the prior design.
 function toCard(el: Element): void {
   const a = el.ownerDocument.createElement("a");
   a.className = "wv-card";
@@ -127,7 +154,9 @@ function toCard(el: Element): void {
   if (href !== null) {
     a.setAttribute("href", href);
   }
-  const text = (el.textContent ?? "").trim();
+  // An <unknown> has no body; its `alt` names the block type it stands in for (e.g. "embed", "link_preview").
+  const alt = (el.getAttribute("alt") ?? "").replace(/_/g, " ").trim();
+  const text = (el.textContent ?? "").trim() || alt;
   a.textContent = text.length > 0 ? text : (href ?? "");
   el.replaceWith(a);
 }

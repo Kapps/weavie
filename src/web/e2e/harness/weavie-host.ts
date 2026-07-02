@@ -26,6 +26,8 @@ export function headlessBuilt(): boolean {
 export interface WeavieHost {
   readonly url: string;
   readonly workspace: string;
+  /** The isolated HOME the host runs under (WEAVIE_ROOT lives at `<home>/.weavie`). */
+  readonly home: string;
   /** Everything the host has written to stdout so far (status lines). */
   log(): string;
   /** The fake claude's markers (its MCP/hook activity), or "" when no script ran. */
@@ -38,9 +40,15 @@ export interface LaunchOptions {
   // When true, the workspace is a PR scenario (base + head branches off a local "origin") and the host's PR
   // provider is stubbed (WEAVIE_FAKE_PRS) with the canned PR pointing at the head branch — the Open-PR journey.
   pr?: boolean;
-  // A canned Notion doc ({ title, markdown, editedTime? }); when set, the host's source connector is stubbed
-  // (WEAVIE_FAKE_NOTION) so a notion.so/notion.site open-target fetches + renders it deterministically.
-  notionDoc?: { title: string; markdown: string; editedTime?: string };
+  // A canned Notion doc; when set, the host's source connector is stubbed (WEAVIE_FAKE_NOTION) so a
+  // notion.so/notion.site open-target fetches + renders it deterministically (see the fixtures option).
+  notionDoc?: {
+    title: string;
+    markdown: string;
+    editedTime?: string;
+    truncated?: boolean;
+    rejectEdits?: boolean;
+  };
 }
 
 // Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve
@@ -248,6 +256,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   return {
     url,
     workspace: fake.workspace,
+    home: fake.home,
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {

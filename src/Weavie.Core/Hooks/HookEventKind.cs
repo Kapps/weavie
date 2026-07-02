@@ -2,10 +2,16 @@ namespace Weavie.Core.Hooks;
 
 /// <summary>Which Claude Code hook event a <see cref="HookRequest"/> carries.</summary>
 public enum HookEventKind {
-	/// <summary>Fired before a tool runs; Weavie observes it to snapshot the pre-edit baseline for change tracking.</summary>
+	/// <summary>
+	/// Fired before any tool runs (matcher <c>*</c>): change tracking snapshots the pre-edit baseline (edit
+	/// tools only) and the session status flips to Working.
+	/// </summary>
 	PreToolUse,
 
-	/// <summary>Fired after a tool ran; carries the result. Weavie's "it actually happened" record.</summary>
+	/// <summary>
+	/// Fired after any tool ran (matcher <c>*</c>); carries the result. Weavie's "it actually happened" record,
+	/// and the signal that an approved permission prompt resolved (status back to Working).
+	/// </summary>
 	PostToolUse,
 
 	/// <summary>

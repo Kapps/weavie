@@ -6,9 +6,10 @@ namespace Weavie.Core.Sources;
 /// analogue of <c>IPullRequestProvider</c> / <c>StaticPullRequestProvider</c>) for an offline connect/fetch journey.
 /// </summary>
 public interface ISourceConnector {
-	/// <summary>True when a registered source claims <paramref name="target"/> — the host-side open resolver, so the
-	/// web hands a URL to the host rather than re-implementing each source's <see cref="ISource.Match"/>.</summary>
-	bool Matches(string target);
+	/// <summary>The id of the registered source that claims <paramref name="target"/> (null when none does) — the
+	/// host-side open resolver and the identity stamped on source messages, so the web never re-implements
+	/// each source's <see cref="ISource.Match"/>.</summary>
+	string? IdFor(string target);
 
 	/// <summary>True when the source that claims <paramref name="target"/> already has a saved token, so a fetch can run
 	/// without first sending the user through connect. False routes an opened source URL to the connect prompt, not a blank tab.</summary>
@@ -26,4 +27,12 @@ public interface ISourceConnector {
 
 	/// <summary>Fetches <paramref name="target"/> via the source that matches it, using its saved token.</summary>
 	Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default);
+
+	/// <summary>
+	/// Applies one exact-match content edit (<paramref name="oldStr"/> → <paramref name="newStr"/>, diffed web-side
+	/// against the verbatim fetched markdown) to <paramref name="target"/> via the source that matches it, and
+	/// returns the refreshed <see cref="SourceDoc"/>. Throws <see cref="SourceConflictException"/> when the
+	/// document changed since it was fetched.
+	/// </summary>
+	Task<SourceDoc> UpdateAsync(string target, string oldStr, string newStr, CancellationToken ct = default);
 }

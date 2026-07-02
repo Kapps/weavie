@@ -10,6 +10,7 @@ using Weavie.Core.Layout;
 using Weavie.Core.Lsp;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
+using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 
@@ -91,7 +92,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// The session's gate for editor-mutating page messages: a muted (non-active) session holds its editor work
 		// instead of writing into the page's single, foreground-bound editor. Starts muted (HostCore activates it).
 		EditorChannel = new SessionEditorChannel(bridge);
-		FileOpener = new FileOpener(EditorChannel, FileProvider, workspaceRoot);
+		FileOpener = new FileOpener(EditorChannel, FileProvider, bridge, workspaceRoot);
 		DiffPresenter = new McpDiffPresenter(EditorChannel, FileProvider, FileOpener);
 		// Tracks the editor's active file + selection (fed by the page) so the IDE-MCP server can tell
 		// this session's claude what the user is looking at.
@@ -102,6 +103,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// (e.g. its own ~/.claude config) is never tracked and so never pushed as an unopenable diff.
 		Changes = new SessionChangeTracker(
 			fileSystem,
+			workspaceRoot,
 			path => BufferStore.IsWithinWorkspace(workspaceRoot, path) || BufferStore.IsWithinWorkspace(scratchDir, path));
 		// Mirrors Claude's own edit mode (default/acceptEdits/plan), observed off the hook stream — Weavie
 		// reflects it, never sets it. Drives the openDiff auto-keep + the post-turn review gating.
@@ -150,10 +152,15 @@ public sealed class HostSession : IAsyncDisposable {
 		// cold-starts), and the next real message adopts the id claude settled on. The controller owns the policy.
 		Ide.HookBridge.Observed += Claude.ObserveHook;
 
-		// Per-session Claude status (the rail/pane indicator): the hook stream drives the live states and the
-		// claude supervisor drives crash/crash-loop → Error. Observe runs on the hook accept-loop thread.
+		// Per-session Claude status (the rail/pane indicator): the hook stream drives the live states, the gate's
+		// decisions tell an about-to-show permission dialog (NeedsInput) from an auto-answered one, and the
+		// claude supervisor drives crash/crash-loop → Error. All observers run on the hook accept-loop thread.
 		Status = new SessionStatusMachine();
 		Ide.HookBridge.Observed += Status.Observe;
+		Ide.HookBridge.Decided += Status.ObserveDecision;
+		// The claude pane's input stream resolves an answered permission prompt (no hook fires at approval;
+		// the tool only reports back at PostToolUse — minutes later for a long build).
+		Claude.InputWritten += Status.ObserveUserInput;
 		Claude.SupervisorChanged += Status.ObserveSupervisor;
 		Console.WriteLine($"[weavie] IDE-MCP on 127.0.0.1:{Ide.Port}; registry on 127.0.0.1:{Ide.RegistryPort}; workspace {workspaceRoot}; lock {Ide.LockFilePath}");
 		Console.Out.Flush();
@@ -269,11 +276,8 @@ public sealed class HostSession : IAsyncDisposable {
 			// Surface the failure instead of letting it throw past the reply (which would hang the browser on
 			// a folder that never fills); the page still gets an (empty) listing so its spinner resolves.
 			entries = [];
-			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "notify",
-				level = "error",
-				message = $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}",
-			}));
+			_bridge.PostToWeb(ShellProtocol.BuildNotify(
+				"error", $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}"));
 		}
 
 		string json = JsonSerializer.Serialize(new {

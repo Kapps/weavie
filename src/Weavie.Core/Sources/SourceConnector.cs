@@ -33,7 +33,7 @@ public sealed class SourceConnector : ISourceConnector {
 	}
 
 	/// <inheritdoc/>
-	public bool Matches(string target) => _sources.Any(s => s.Match(target));
+	public string? IdFor(string target) => _sources.FirstOrDefault(s => s.Match(target))?.Id;
 
 	/// <inheritdoc/>
 	public bool IsConnected(string target) {
@@ -70,6 +70,19 @@ public sealed class SourceConnector : ISourceConnector {
 	/// source matches or the source isn't connected yet (the host turns that into a "connect first" prompt).
 	/// </summary>
 	public async Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default) {
+		var (source, token) = ConnectedSource(target);
+		return await source.FetchAsync(target, token, ct).ConfigureAwait(false);
+	}
+
+	/// <inheritdoc/>
+	public async Task<SourceDoc> UpdateAsync(string target, string oldStr, string newStr, CancellationToken ct = default) {
+		var (source, token) = ConnectedSource(target);
+		return await source.UpdateAsync(target, token, oldStr, newStr, ct).ConfigureAwait(false);
+	}
+
+	// The source claiming `target` plus its saved token; throws when nothing matches or it isn't connected yet
+	// (the host turns that into a "connect first" prompt).
+	private (ISource Source, string Token) ConnectedSource(string target) {
 		var source = _sources.FirstOrDefault(s => s.Match(target))
 			?? throw new InvalidOperationException($"No connected source can open '{target}'.");
 		string? token = ReadToken(source.Id);
@@ -77,7 +90,7 @@ public sealed class SourceConnector : ISourceConnector {
 			throw new InvalidOperationException($"Connect {source.Id} first — there's no token for it.");
 		}
 
-		return await source.FetchAsync(target, token, ct).ConfigureAwait(false);
+		return (source, token);
 	}
 
 	private ISource Source(string sourceId) =>

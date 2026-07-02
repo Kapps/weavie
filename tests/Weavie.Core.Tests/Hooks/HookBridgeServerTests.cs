@@ -30,6 +30,24 @@ public sealed class HookBridgeServerTests {
 	}
 
 	[Fact]
+	public async Task Decided_CarriesTheRequestAndTheDecision() {
+		// The status machine consumes (request, decision) pairs to tell a pass-through PermissionRequest (a
+		// dialog is about to show) from an auto-answered one — the pair must be raised for every request.
+		string pipe = UniquePipe();
+		await using var server = new HookBridgeServer(pipe, _ => HookDecision.Allow("bypass"));
+		var decided = new TaskCompletionSource<(HookRequest, HookDecision)>(TaskCreationOptions.RunContinuationsAsynchronously);
+		server.Decided += (request, decision) => decided.TrySetResult((request, decision));
+		server.Start();
+
+		string payload = """{"hook_event_name":"PermissionRequest","tool_name":"Bash","tool_input":{"command":"echo hi"}}""";
+		await ExchangeAsync(pipe, Encoding.UTF8.GetBytes(payload));
+
+		(var request, var decision) = await WithTimeoutAsync(decided.Task);
+		Assert.Equal(HookEventKind.PermissionRequest, request.Event);
+		Assert.Equal(HookDecisionKind.Allow, decision.Kind);
+	}
+
+	[Fact]
 	public async Task BypassDecider_ReturnsAllowDecision() {
 		string pipe = UniquePipe();
 		await using var server = new HookBridgeServer(pipe, _ => HookDecision.Allow("bypass"));

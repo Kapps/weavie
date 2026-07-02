@@ -107,6 +107,9 @@ function ancestorKeys(rel: string): string[] {
 // command palette when the query leads with ">". Focusing it asks the host for the file index.
 export function Omnibar(props: {
   files: string[];
+  // A session switch invalidated the index and the new worktree's walk is still running — the empty list
+  // means "loading", not "this worktree has no files".
+  filesPending: boolean;
   root: string | null;
   currentFile: string | null;
   workspaceLabel: string;
@@ -561,7 +564,11 @@ export function Omnibar(props: {
               fallback={
                 <Show
                   when={view().length > 0}
-                  fallback={<div class="tb-omnibar-empty">No matching files</div>}
+                  fallback={
+                    <div class="tb-omnibar-empty">
+                      {props.filesPending ? "Loading files…" : "No matching files"}
+                    </div>
+                  }
                 >
                   <div
                     class="tb-omnibar-list"
@@ -612,7 +619,11 @@ export function Omnibar(props: {
             >
               <Show
                 when={visibleRows().length > 0}
-                fallback={<div class="tb-omnibar-empty">No files</div>}
+                fallback={
+                  <div class="tb-omnibar-empty">
+                    {props.filesPending ? "Loading files…" : "No files"}
+                  </div>
+                }
               >
                 <div
                   class="tb-omnibar-list"

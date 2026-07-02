@@ -8,8 +8,8 @@ namespace Weavie.Hosting.Tests;
 /// <summary>
 /// <see cref="FileOpener"/> pushes a file to the editor through the session's <see cref="SessionEditorChannel"/>,
 /// so a background session's <c>openFile</c> is held (not posted into the foreground) and a missing file is a
-/// skipped no-op rather than an error. Reads go through the validated <see cref="FileProviderService"/>, so an
-/// out-of-workspace path is refused, not revealed.
+/// skipped no-op rather than an error. The gate goes through the validated <see cref="FileProviderService"/>,
+/// so an out-of-workspace path is refused, not revealed. No content rides on the push — the web reads disk.
 /// </summary>
 public sealed class FileOpenerTests {
 	// A real worktree root is always fully rooted; "/ws" is drive-relative on Windows, where Path.GetFullPath
@@ -22,11 +22,11 @@ public sealed class FileOpenerTests {
 		var channel = new SessionEditorChannel(bridge);
 		var fs = new InMemoryFileSystem();
 		var files = new FileProviderService(fs, Workspace, Scratch);
-		return (new FileOpener(channel, files, Workspace), channel, bridge, fs);
+		return (new FileOpener(channel, files, bridge, Workspace), channel, bridge, fs);
 	}
 
 	[Fact]
-	public void Active_PostsOpenFileWithContent() {
+	public void Active_PostsOpenFileWithoutContent() {
 		var (opener, channel, bridge, fs) = New();
 		string path = Path.Combine(Workspace, "a.cs");
 		fs.WriteAllText(path, "hello");
@@ -37,7 +37,7 @@ public sealed class FileOpenerTests {
 		var msg = bridge.LastOfType("open-file");
 		Assert.True(msg.HasValue);
 		Assert.Equal(path, msg!.Value.GetProperty("path").GetString());
-		Assert.Equal("hello", msg.Value.GetProperty("content").GetString());
+		Assert.False(msg.Value.TryGetProperty("content", out _)); // the working copy reads disk — nothing rides along
 		Assert.Equal(3, msg.Value.GetProperty("line").GetInt32());
 	}
 
@@ -92,13 +92,14 @@ public sealed class FileOpenerTests {
 	}
 
 	[Fact]
-	public void MissingFile_IsSkipped() {
+	public void MissingFile_ToastsAWarningInsteadOfOpening() {
 		var (opener, channel, bridge, _) = New();
 		channel.Activate();
 
 		opener.Open(Path.Combine(Workspace, "ghost.cs"), line: 1, preview: false, scratch: false);
 
-		Assert.Empty(bridge.Posted); // not found → no open-file, no crash
+		Assert.Null(bridge.LastOfType("open-file")); // not found → no open-file, no crash
+		Assert.Contains("ghost.cs", bridge.LastOfType("notify")!.Value.GetProperty("message").GetString()); // …but the user hears why
 	}
 
 	[Fact]
@@ -109,6 +110,7 @@ public sealed class FileOpenerTests {
 
 		opener.Open("/etc/secret.txt", line: 1, preview: false, scratch: false);
 
-		Assert.Empty(bridge.Posted); // containment refuses it before any read → never revealed in the editor
+		Assert.Null(bridge.LastOfType("open-file")); // containment refuses it before any read → never revealed in the editor
+		Assert.NotNull(bridge.LastOfType("notify")); // refused loudly, not silently ignored
 	}
 }

@@ -28,12 +28,13 @@ public sealed partial class HostCore {
 				// Not a git repo, or git unavailable — the footer shows no branch (the honest "unknown" state).
 			}
 
-			// A switch landed while we were reading: drop this result so one worktree's branch can't paint under another.
-			if (!ReferenceEquals(_session, session)) {
-				return;
-			}
-
-			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "git-status", branch, dirty }));
+			// Guard + post on the UI thread: a switch that landed while we were reading means this is another
+			// worktree's branch — drop it, and never let it check active, get preempted, and still paint late.
+			_ui.Post(() => {
+				if (ReferenceEquals(_session, session)) {
+					_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "git-status", branch, dirty }));
+				}
+			});
 		});
 	}
 }

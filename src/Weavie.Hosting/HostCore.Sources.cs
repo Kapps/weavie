@@ -8,9 +8,12 @@ namespace Weavie.Hosting;
 // Core (SourceConnector); this only bridges them to the page. The full shadow-root SourceView, tab-kind routing,
 // and web tabs are later phases (see docs/specs/web-and-source-tabs.md).
 public sealed partial class HostCore {
-	// A source URL the user opened before connecting: stashed when the open resolver routes to connect, then opened
-	// once SaveSourceTokenAsync validates the token — so connecting from a click lands on the page they asked for.
-	private string? _pendingSourceTarget;
+	// A source URL the user opened before connecting (with its already-resolved source id): stashed when the open
+	// resolver routes to connect, then opened once SaveSourceTokenAsync validates the token — so connecting from a
+	// click lands on the page they asked for.
+	private PendingSource? _pendingSource;
+
+	private sealed record PendingSource(string Target, string SourceId);
 
 	/// <summary>
 	/// The open resolver: the page hands every opened URL here, and the host — which owns the sources and their
@@ -24,12 +27,12 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		if (!_sources.Matches(url)) {
+		if (_sources.IdFor(url) is not { } sourceId) {
 			_bridge.PostToWeb($"{{\"type\":\"open-web\",\"url\":{JsonString(url)}}}");
 		} else if (_sources.IsConnected(url)) {
-			_ = FetchSourceForWebAsync(url);
+			_ = FetchSourceForWebAsync(url, sourceId);
 		} else {
-			_pendingSourceTarget = url;
+			_pendingSource = new PendingSource(url, sourceId);
 			PromptConnectNotion();
 		}
 	}
@@ -66,8 +69,8 @@ public sealed partial class HostCore {
 			Notify("info", $"Connected to {where}.");
 			PostTokenResult(id, ok: true, string.Empty);
 			// A URL opened before connecting (the resolver stashed it): now that we're connected, open it.
-			if (Interlocked.Exchange(ref _pendingSourceTarget, null) is { } pending) {
-				_ = FetchSourceForWebAsync(pending);
+			if (Interlocked.Exchange(ref _pendingSource, null) is { } pending) {
+				_ = FetchSourceForWebAsync(pending.Target, pending.SourceId);
 			}
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException or IOException or UnauthorizedAccessException) {
 			// Surface inline in the still-open dialog (not a toast), so the user can correct the token without
@@ -82,15 +85,17 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Fetches a source <paramref name="target"/> (the matching source must be connected) and posts the host→web
-	/// <c>source-doc</c> (keyed by <paramref name="target"/>) carrying the <c>markdown</c> the SourceView renders to
-	/// HTML (and Claude reads). <c>source-loading</c> is posted first so the tab opens with a spinner while the fetch
-	/// runs; a fetch failure posts <c>source-error</c> into that same tab.
+	/// <c>source-doc</c> (keyed by <paramref name="target"/>, stamped with <paramref name="sourceId"/> — the web
+	/// keys the tab icon off it) carrying the <c>markdown</c> the SourceView renders to HTML (and Claude reads).
+	/// <c>source-loading</c> is posted first so the tab opens with a spinner while the fetch runs; a fetch failure
+	/// posts <c>source-error</c> into that same tab.
 	/// </summary>
-	private async Task FetchSourceForWebAsync(string target) {
+	private async Task FetchSourceForWebAsync(string target, string sourceId) {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "source-loading",
 			target,
 			title = GuessSourceTitle(target),
+			sourceId,
 		}));
 		SourceDoc doc;
 		try {
@@ -107,14 +112,45 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		PostSourceDoc(target, sourceId, doc);
+	}
+
+	// The one host→web projection of a fetched/updated SourceDoc — fetch and save both land here, so the web's
+	// store always sees the same shape (including the loss flags its banner renders).
+	private void PostSourceDoc(string target, string sourceId, SourceDoc doc) =>
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "source-doc",
 			target,
 			title = doc.Title,
 			markdown = doc.Markdown,
 			editedTime = doc.EditedTime,
+			sourceId,
+			truncated = doc.Truncated,
+			unknownBlocks = doc.UnknownBlocks,
 		}));
+
+	/// <summary>
+	/// Applies one block edit (the <c>source-save-edit</c> message: an exact-match old/new pair the web diffed
+	/// against the verbatim fetched markdown) and re-posts the refreshed <c>source-doc</c> from the update's
+	/// response. A conflict — the page changed in Notion since the fetch — posts <c>source-edit-error</c> with
+	/// <c>stale:true</c> so the block offers a re-fetch; any other failure posts <c>stale:false</c>. This is
+	/// fire-and-forget like the fetch: every outcome must resolve the block's saving state, never leave it stuck.
+	/// </summary>
+	private async Task SaveSourceEditAsync(string target, string oldStr, string newStr) {
+		try {
+			var doc = await _sources.UpdateAsync(target, oldStr, newStr, CancellationToken.None).ConfigureAwait(false);
+			// UpdateAsync just matched a source for this target, so a missing id is a real invariant break.
+			string sourceId = _sources.IdFor(target) ?? throw new InvalidOperationException($"No source claims '{target}'.");
+			PostSourceDoc(target, sourceId, doc);
+		} catch (SourceConflictException ex) {
+			PostSourceEditError(target, ex.Message, stale: true);
+		} catch (Exception ex) {
+			PostSourceEditError(target, ex.Message, stale: false);
+		}
 	}
+
+	private void PostSourceEditError(string target, string message, bool stale) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-edit-error", target, message, stale }));
 
 	// A best-effort tab label from a source URL's slug, shown while the real title loads: the last path segment with
 	// a trailing 32-hex id stripped and dashes spaced (…/Test-Page-38e5…0055 → "Test Page"); "Notion" when there's none.

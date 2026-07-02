@@ -23,6 +23,8 @@ const NOTION_DOC = {
     "</details>",
     '## Section {toggle="true"}',
     "\tInside the toggle heading.",
+    '<unknown url="https://www.notion.so/embed-block-id" alt="embed"/>',
+    "After the embed placeholder.",
     "```typescript",
     "const x: number = 1;",
     "```",
@@ -87,6 +89,13 @@ test("enhanced markdown renders (callout + color) and the toggle expands on clic
   await expect(headingBody).toBeHidden();
   await source.locator("summary", { hasText: "Section" }).click();
   await expect(headingBody).toBeVisible();
+
+  // An <unknown> placeholder (the markdown API's stand-in for embed/bookmark/link-preview blocks) renders as a
+  // link card to the block in Notion — and doesn't swallow the content after it as children.
+  const card = source.locator(".wv-card", { hasText: "embed" });
+  await expect(card).toBeVisible();
+  await expect(card).toHaveAttribute("href", "https://www.notion.so/embed-block-id");
+  await expect(source.locator("p", { hasText: "After the embed placeholder" })).toBeVisible();
 });
 
 test("a non-Notion URL routes through the host to a web (iframe) tab", async ({ page }) => {

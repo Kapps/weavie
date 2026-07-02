@@ -29,6 +29,13 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 	/// <summary>Raised for every observed hook event (off the UI thread). The change-recording feed.</summary>
 	public event Action<HookRequest>? Observed;
 
+	/// <summary>
+	/// Raised after <see cref="Observed"/> with the decision the bridge replied (off the UI thread). Lets the
+	/// session status tell a PermissionRequest that passes through (a dialog is about to appear — NeedsInput)
+	/// from one the gate auto-answered (the turn keeps running).
+	/// </summary>
+	public event Action<HookRequest, HookDecision>? Decided;
+
 	/// <summary>Diagnostic log lines (pipe errors, observer faults).</summary>
 	public event Action<string>? Log;
 
@@ -88,7 +95,9 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 			var request = HookRequest.Parse(Encoding.UTF8.GetString(requestBytes));
 			if (request is not null) {
 				RaiseObserved(request);
-				string? json = _decide(request).ToHookOutputJson(request.Event);
+				var decision = _decide(request);
+				RaiseDecided(request, decision);
+				string? json = decision.ToHookOutputJson(request.Event);
 				if (json is not null) {
 					response = Encoding.UTF8.GetBytes(json);
 				}
@@ -103,6 +112,14 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 			Observed?.Invoke(request);
 		} catch (Exception ex) {
 			Log?.Invoke($"hook observer threw: {ex.Message}");
+		}
+	}
+
+	private void RaiseDecided(HookRequest request, HookDecision decision) {
+		try {
+			Decided?.Invoke(request, decision);
+		} catch (Exception ex) {
+			Log?.Invoke($"hook decision observer threw: {ex.Message}");
 		}
 	}
 

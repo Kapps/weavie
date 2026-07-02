@@ -63,23 +63,26 @@ public sealed partial class HostCore {
 		FontCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, this);
 
-		session.Changes.Changed += () => {
+		// Change/status events fire on hook-pipe and watcher threads; the guard AND the push run posted on the
+		// UI thread — where switches run and in-order with their message train — so a stale event can't check
+		// active, lose to a switch, and still land after the incoming session's pushes.
+		session.Changes.Changed += () => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PushTurnChangesToWeb();
 			}
-		};
-		session.Changes.FileChanged += path => {
+		});
+		session.Changes.FileChanged += path => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PushRefreshToWeb(path);
 				PushTurnDiffToWeb(path);
 			}
-		};
-		session.Changes.FileDeleted += path => {
+		});
+		session.Changes.FileDeleted += path => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PushDeletionToWeb(path);
 			}
-		};
-		session.Status.Changed += status => {
+		});
+		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
 				// A turn settling may have changed files / the branch — refresh the footer's git status.
@@ -93,13 +96,13 @@ public sealed partial class HostCore {
 
 			// The review set is pushed live on every edit (Changes.Changed), so the page's parked navigator
 			// surfaces changes as they land — no status-driven re-push or auto-open arming needed here.
-			_ui.Post(PushSessionList);
-		};
-		session.FileChanges += changes => {
+			PushSessionList();
+		});
+		session.FileChanges += changes => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PushWatcherChangesToWeb(changes);
 			}
-		};
+		});
 	}
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
@@ -436,7 +439,7 @@ public sealed partial class HostCore {
 		// openDiff, files Claude opened) replays onto the rebound editor instead of being wiped by the rebind.
 		session.SetEditorOutputActive(true);
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
-		PushFileIndexToWeb();
+		PushFileIndexToWeb(invalidate: true);
 		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree).
 		PushLspConfigToWeb(session);
 		PostSessionStatus(session.Status.Status);
@@ -508,30 +511,22 @@ public sealed partial class HostCore {
 	}
 
 	/// <inheritdoc/>
-	public Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct) {
+	public async Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct) {
 		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
 		if (target is null) {
-			return Task.FromResult(CommandResult.Failure("No such session."));
+			return CommandResult.Failure("No such session.");
 		}
 
 		if (target.IsPrimary) {
-			return Task.FromResult(CommandResult.Failure("The primary session can't be unloaded; close the window instead."));
+			return CommandResult.Failure("The primary session can't be unloaded; close the window instead.");
 		}
 
 		if (!target.Loaded) {
-			return Task.FromResult(CommandResult.Success("That session is already unloaded."));
+			return CommandResult.Success("That session is already unloaded.");
 		}
 
-		var result = new TaskCompletionSource<CommandResult>();
-		_ui.Post(async () => {
-			try {
-				await UnloadSlotAsync(target).ConfigureAwait(false);
-				result.SetResult(CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload)."));
-			} catch (Exception ex) {
-				result.SetException(ex);
-			}
-		});
-		return result.Task;
+		await RunOnUiAsync(() => UnloadSlotAsync(target)).ConfigureAwait(false);
+		return CommandResult.Success("Unloaded the session (its worktree is kept; click the chip to reload).");
 	}
 
 	/// <inheritdoc/>
@@ -552,49 +547,70 @@ public sealed partial class HostCore {
 		string worktreePath = target.WorktreePath;
 		string label = target.Label;
 
-		var result = new TaskCompletionSource<CommandResult>();
-		_ui.Post(async () => {
-			try {
-				// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
-				// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
-				// (no .git) — nothing left to lose, and git can't answer git status there.
-				if (!force && IsLiveWorktree(worktreePath)
-					&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
-					result.SetResult(CommandResult.Failure(
-						$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
-					return;
-				}
+		return DeleteWorktreeSessionAsync(target, worktrees, worktreePath, label, force, ct);
+	}
 
-				// Tear the live backend down first so no process holds the worktree dir, then remove the worktree
-				// (keeping the branch). Past the dirty guard the deletion runs under CancellationToken.None, NOT
-				// `ct`: when Claude deletes its own session, UnloadSlotAsync disposes the IDE-MCP server handling
-				// this call, cancelling `ct` — which would crash git mid-delete and orphan the worktree.
-				if (target.Loaded) {
-					await UnloadSlotAsync(target).ConfigureAwait(false);
-				}
+	private async Task<CommandResult> DeleteWorktreeSessionAsync(
+		SessionSlot target, WorktreeManager worktrees, string worktreePath, string label, bool force, CancellationToken ct) {
+		try {
+			// Check for uncommitted work BEFORE tearing anything down, so a blocked delete leaves the session
+			// untouched rather than unloading it as a side effect. Skip when the worktree is gone/half-removed
+			// (no .git) — nothing left to lose, and git can't answer git status there. A read-only git probe,
+			// so it needs no UI-thread marshaling.
+			if (!force && IsLiveWorktree(worktreePath)
+				&& await new GitService().HasUncommittedChangesAsync(worktreePath, ct).ConfigureAwait(false)) {
+				return CommandResult.Failure(
+					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
+			}
 
-				// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
-				// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
-				// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
-				await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
-				await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
+			// Tear the live backend down first so no process holds the worktree dir, then remove the worktree
+			// (keeping the branch). The unload starts on the UI thread — it switches the active session and
+			// mutates the slot — and this method awaits its teardown from off it. Past the dirty guard the
+			// deletion runs under CancellationToken.None, NOT `ct`: when Claude deletes its own session,
+			// UnloadSlotAsync disposes the IDE-MCP server handling this call, cancelling `ct` — which would
+			// crash git mid-delete and orphan the worktree.
+			if (target.Loaded) {
+				await RunOnUiAsync(() => UnloadSlotAsync(target)).ConfigureAwait(false);
+			}
+
+			// Settle before removal: Windows can lag on releasing the unloaded children's handles, and external
+			// scanners may briefly hold a lock. A short pause lets git's one-shot remove succeed instead of
+			// partial-failing and orphaning the directory (git deletes its own record mid-failure, unrecoverable).
+			await Task.Delay(TimeSpan.FromSeconds(1), CancellationToken.None).ConfigureAwait(false);
+			await worktrees.RemoveAsync(worktreePath, deleteBranch: false, force, CancellationToken.None).ConfigureAwait(false);
+			// Back on the UI thread for the slot-set mutation + rail push (the awaits above left it), so the
+			// removal can't interleave with a concurrent switch reading the slot set.
+			_ui.Post(() => {
 				_sessions?.Remove(target);
 				PushSessionList();
-				result.SetResult(CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept."));
-			} catch (WorktreeDirtyException) {
-				result.SetResult(CommandResult.Failure(
-					$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway."));
-			} catch (WorktreeOrphanException ex) {
-				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
-			} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
-				result.SetResult(CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}"));
+			});
+			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
+		} catch (WorktreeDirtyException) {
+			return CommandResult.Failure(
+				$"Session '{label}' has uncommitted changes; deleting would discard them. Re-run with force to delete anyway.");
+		} catch (WorktreeOrphanException ex) {
+			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
+		} catch (Exception ex) when (ex is GitException or IOException or UnauthorizedAccessException) {
+			return CommandResult.Failure($"Couldn't delete session '{label}': {ex.Message}");
+		}
+	}
+
+	/// <summary>
+	/// Starts <paramref name="work"/> on the UI thread and returns its completion, so a caller already off the
+	/// dispatcher can run session-mutating work (a switch, a slot detach) serialized with switches, then await
+	/// its async tail (e.g. a backend teardown) from off it.
+	/// </summary>
+	private Task RunOnUiAsync(Func<Task> work) {
+		var completion = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		_ui.Post(async () => {
+			try {
+				await work().ConfigureAwait(false);
+				completion.SetResult();
 			} catch (Exception ex) {
-				// Posted as async-void onto the UI thread: an escaping exception crashes the app instead of
-				// failing the command, so funnel anything unexpected back to the awaiting caller.
-				result.SetException(ex);
+				completion.SetException(ex);
 			}
 		});
-		return result.Task;
+		return completion.Task;
 	}
 
 	/// <inheritdoc/>
@@ -638,9 +654,11 @@ public sealed partial class HostCore {
 			SwitchToSlot(primary);
 		}
 
+		// Detach and push the rail BEFORE the teardown: the chip fades the moment the session is dormant, not
+		// after process teardown finishes (Windows can take many seconds to release the children's handles).
 		slot.Session = null;
-		await session.DisposeAsync().ConfigureAwait(false);
 		PushSessionList();
+		await session.DisposeAsync().ConfigureAwait(false);
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);

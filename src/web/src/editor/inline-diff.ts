@@ -129,7 +129,7 @@ export interface InlineDiff {
   clearAll(): void;
   /** Whether a diff is registered for an exact model URI string (so other features can suspend over it). */
   hasDiffForUri(uri: string): boolean;
-  // The nav/action methods return whether they acted, so an unmatched keybinding falls through to the editor.
+  // The nav/action methods return whether they handled the key, so an unmatched keybinding falls through to the editor.
   /** Jump to the next change hunk in the active diff. */
   nextChange(): boolean;
   /** Jump to the previous change hunk in the active diff. */
@@ -242,9 +242,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // The currently-rendered diff's options + hunks; the nav/action methods all operate on these.
   let currentOptions: InlineDiffOptions | undefined;
   let currentHunks: Hunk[] = [];
-  // Monaco content widgets for the faded band's inline ↶ undo affordances (one per accepted hunk), removed on
-  // every re-render. The faded band is a visual overlay only — it never feeds the ↑/↓ nav or Keep/Revert.
-  let acceptedWidgets: monaco.editor.IContentWidget[] = [];
+  // Monaco content widgets for the per-hunk inline affordances — ✓ keep / ✕ revert beside each bright pending
+  // hunk, ↶ undo beside each faded accepted one — removed on every re-render.
+  let hunkWidgets: monaco.editor.IContentWidget[] = [];
   // Which scope the Keep / Revert buttons act on; sticky across file switches, reset only on clearAll.
   let currentScope: ReviewScope = "change";
   // Live-updated applied-toolbar bits: the `file i/N · change j/M` subtitle + change dots, plus the scope
@@ -284,10 +284,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       });
       zoneIds = [];
     }
-    for (const widget of acceptedWidgets) {
+    for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
     }
-    acceptedWidgets = [];
+    hunkWidgets = [];
     toolbarNode?.remove();
     toolbarNode = undefined;
     counterNode = undefined;
@@ -454,15 +454,32 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     });
   };
 
-  // A Monaco content widget hugging a faded hunk's first line: a "✓ accepted" tag + an inline ↶ undo that
-  // un-keeps just that hunk (posts onUnkeepHunk). Anchored EXACT at the line's end so it sits beside the code.
+  // A content widget hugging a hunk's first line, anchored EXACT at the line's end so it sits beside the code.
+  const anchoredWidget = (
+    id: string,
+    model: monaco.editor.ITextModel,
+    anchorLine: number,
+    dom: HTMLElement,
+  ): monaco.editor.IContentWidget => {
+    const line = Math.min(model.getLineCount(), Math.max(1, anchorLine));
+    return {
+      getId: () => `${id}.${line}`,
+      getDomNode: () => dom,
+      getPosition: () => ({
+        position: { lineNumber: line, column: model.getLineMaxColumn(line) },
+        preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
+      }),
+    };
+  };
+
+  // The faded hunk's widget: a "✓ accepted" tag + an inline ↶ undo that un-keeps just that hunk (posts
+  // onUnkeepHunk).
   const buildUndoWidget = (
     hunk: AcceptedHunk,
     index: number,
     model: monaco.editor.ITextModel,
     onUnkeep: (hunk: HunkUnkeep) => void,
   ): monaco.editor.IContentWidget => {
-    const line = Math.min(model.getLineCount(), Math.max(1, hunk.anchorLine));
     const dom = document.createElement("div");
     dom.className = "weavie-inline-accepted-tag";
     const kept = document.createElement("span");
@@ -482,14 +499,33 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         }),
     );
     dom.append(kept, undo);
-    return {
-      getId: () => `weavie.accepted.${index}.${line}`,
-      getDomNode: () => dom,
-      getPosition: () => ({
-        position: { lineNumber: line, column: model.getLineMaxColumn(line) },
-        preference: [monaco.editor.ContentWidgetPositionPreference.EXACT],
-      }),
-    };
+    return anchoredWidget(`weavie.accepted.${index}`, model, hunk.anchorLine, dom);
+  };
+
+  // The pending-band counterpart: ✓ keep / ✕ revert beside a bright hunk's first line — the mouse path to the
+  // same per-hunk actions the keyboard chords and toolbar drive.
+  const buildPendingWidget = (
+    hunk: Hunk,
+    index: number,
+    model: monaco.editor.ITextModel,
+  ): monaco.editor.IContentWidget => {
+    const dom = document.createElement("div");
+    dom.className = "weavie-inline-pending-tag";
+    dom.append(
+      makeButton(
+        "weavie-inline-pending-keep",
+        "✓ keep",
+        withShortcut("Keep this change", CommandIds.acceptChange),
+        () => keepHunkNow(hunk),
+      ),
+      makeButton(
+        "weavie-inline-pending-revert",
+        "✕ revert",
+        withShortcut("Revert this change", CommandIds.rejectChange),
+        () => revertHunkNow(hunk),
+      ),
+    );
+    return anchoredWidget(`weavie.pending.${index}`, model, hunk.anchorLine, dom);
   };
 
   const makeButton = (
@@ -568,68 +604,77 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
   };
 
-  // Per-hunk Keep: advance the host's review baseline over the current hunk (no disk write; same coordinates +
-  // guard as a revert) so it drops from the pending diff for good. Keeping doesn't move the live model, so the
-  // remaining hunks' anchors hold — reveal the next one now; the host re-emits the diff without the kept hunk.
-  // False outside applied mode.
-  const keepHunk = (): boolean => {
-    const options = currentOptions;
-    if (options?.mode !== "applied" || options.onKeepHunk === undefined) {
-      return false;
-    }
-    const hunk = hunkAtCursor();
-    const model = editor.getModel();
-    if (hunk === undefined || model === null) {
-      return false;
-    }
-    const guardText = model
+  // A hunk's live-model text plus its keep/revert coordinates — the payload (with concurrency guard) both post.
+  const hunkPayload = (model: monaco.editor.ITextModel, hunk: Hunk): HunkRevert => ({
+    baselineStart: hunk.baselineStart,
+    baselineEndExclusive: hunk.baselineEndExclusive,
+    currentStart: hunk.currentStart,
+    currentEndExclusive: hunk.currentEndExclusive,
+    guardText: model
       .getLinesContent()
       .slice(hunk.currentStart - 1, hunk.currentEndExclusive - 1)
-      .join("\n");
+      .join("\n"),
+  });
+
+  // Keep one specific hunk: advance the host's review baseline over it (no disk write; same coordinates + guard
+  // as a revert) so it drops from the pending diff for good. Keeping doesn't move the live model, so the
+  // remaining hunks' anchors hold — reveal the next one now; the host re-emits the diff without the kept hunk.
+  // Shared by the cursor chord/toolbar path and the per-hunk inline ✓ keep button.
+  const keepHunkNow = (hunk: Hunk): void => {
+    const options = currentOptions;
+    const model = editor.getModel();
+    if (options?.mode !== "applied" || options.onKeepHunk === undefined || model === null) {
+      return;
+    }
     const remaining = currentHunks.filter((h) => h !== hunk);
     const target = remaining.find((h) => h.anchorLine > hunk.anchorLine) ?? remaining[0];
-    options.onKeepHunk({
-      baselineStart: hunk.baselineStart,
-      baselineEndExclusive: hunk.baselineEndExclusive,
-      currentStart: hunk.currentStart,
-      currentEndExclusive: hunk.currentEndExclusive,
-      guardText,
-    });
+    options.onKeepHunk(hunkPayload(model, hunk));
     if (target !== undefined) {
       reveal(target.anchorLine);
     }
     advanceIfExhausted(hunk, true); // keeping always leaves the hunk faded, so the re-emit never advances
-    return true;
   };
 
-  // Per-hunk Revert: undo the current hunk on disk (host splices baseline lines back; web sends coordinates +
-  // a guard). The host re-emits the file's diff, re-rendering without the reverted hunk. False outside applied.
-  const revertHunk = (): boolean => {
+  // Revert one specific hunk on disk (host splices baseline lines back; web sends coordinates + a guard). The
+  // host re-emits the file's diff, re-rendering without the reverted hunk. Shared like keepHunkNow.
+  const revertHunkNow = (hunk: Hunk): void => {
     const options = currentOptions;
-    if (options?.mode !== "applied" || options.onRevertHunk === undefined) {
-      return false;
-    }
-    const hunk = hunkAtCursor();
     const model = editor.getModel();
-    if (hunk === undefined || model === null) {
-      return false;
+    if (options?.mode !== "applied" || options.onRevertHunk === undefined || model === null) {
+      return;
     }
-    const guardText = model
-      .getLinesContent()
-      .slice(hunk.currentStart - 1, hunk.currentEndExclusive - 1)
-      .join("\n");
     // A faded band means kept hunks already exist; reverting the last bright hunk then leaves the file lingering
     // with acceptedBaseline != current, so the re-emit won't advance and we must. Without one the file clears
     // (acceptedBaseline == current) and the controller advances on its own.
     const fadedRemains = hasFadedBand(options);
-    options.onRevertHunk({
-      baselineStart: hunk.baselineStart,
-      baselineEndExclusive: hunk.baselineEndExclusive,
-      currentStart: hunk.currentStart,
-      currentEndExclusive: hunk.currentEndExclusive,
-      guardText,
-    });
+    options.onRevertHunk(hunkPayload(model, hunk));
     advanceIfExhausted(hunk, fadedRemains);
+  };
+
+  // Per-hunk Keep at the cursor; false (the key falls through) outside applied mode.
+  const keepHunk = (): boolean => {
+    if (currentOptions?.mode !== "applied" || currentOptions.onKeepHunk === undefined) {
+      return false;
+    }
+    const hunk = hunkAtCursor();
+    if (hunk !== undefined) {
+      keepHunkNow(hunk);
+    }
+    // Fully-kept file at "change 0/0": the toolbar is up, so consume the key — never fall through
+    // and let Monaco type into the file under review.
+    return true;
+  };
+
+  // Per-hunk Revert at the cursor; false outside applied mode.
+  const revertHunk = (): boolean => {
+    if (currentOptions?.mode !== "applied" || currentOptions.onRevertHunk === undefined) {
+      return false;
+    }
+    const hunk = hunkAtCursor();
+    if (hunk !== undefined) {
+      revertHunkNow(hunk);
+    }
+    // Same as keepHunk: at "change 0/0" consume the key rather than fall through to the editor.
     return true;
   };
 
@@ -1205,12 +1250,24 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       toolbarNode = buildToolbar(options);
       editorDom.appendChild(toolbarNode);
     }
+    // The inline ✓ keep / ✕ revert widgets on each bright pending hunk (applied review only).
+    if (
+      options.mode === "applied" &&
+      options.onKeepHunk !== undefined &&
+      options.onRevertHunk !== undefined
+    ) {
+      hunks.forEach((hunk, index) => {
+        const widget = buildPendingWidget(hunk, index, model);
+        hunkWidgets.push(widget);
+        editor.addContentWidget(widget);
+      });
+    }
     // The inline ↶ undo widgets (faded band only); no-op when there's no accepted band or no un-keep handler.
     if (options.onUnkeepHunk !== undefined) {
       const onUnkeep = options.onUnkeepHunk;
       acceptedHunks.forEach((hunk, index) => {
         const widget = buildUndoWidget(hunk, index, model, onUnkeep);
-        acceptedWidgets.push(widget);
+        hunkWidgets.push(widget);
         editor.addContentWidget(widget);
       });
     }

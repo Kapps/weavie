@@ -95,8 +95,9 @@ src/Weavie.Win | Mac | Linux/ // each host: construct ObservedPermissionMode, pa
 ## Open questions / follow-ups
 
 - **Widen the hook matcher (DONE).** The permission gate is the `PermissionRequest` hook with a `*` matcher,
-  so `allowAllTools` covers every prompting tool. `PreToolUse`/`PostToolUse` are kept separate and edit-scoped
-  for change tracking, so the gate's broad matcher never touches the tracking events.
+  so `allowAllTools` covers every prompting tool. `PreToolUse`/`PostToolUse` also match `*` — the session
+  status needs every tool start/finish (an approved permission prompt is only observable as the gated tool's
+  `PostToolUse`) — and change tracking filters to the edit tools by tool name.
 - **Per-tool permission.** Grow `claude.allowAllTools` (bool) into a per-tool allow/deny/ask map — the
   fine-grained version of the tool axis. Edits still defer to the mode unless explicitly overridden.
 - **UI mode indicator.** Surface the observed edit mode (and the `allowAllTools` state) in the chrome so both

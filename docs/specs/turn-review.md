@@ -231,11 +231,13 @@ starts. Only the *unreviewed* debt accumulates across turns; keep-proof does not
 
 **Inline ↶ undo (un-keep).** Each faded hunk carries an inline **↶ undo** beside it (and `Ctrl+Shift+Enter`
 un-keeps the most-recent keep via the [history](#undoredo)). It posts `unkeep-hunk { path, acceptedStart,
-acceptedEndExclusive, reviewStart, reviewEndExclusive, guardText }` — the inverse of `keep-hunk`, operating
-on the `accepted anchor → review baseline` span (both Core-internal, no disk). Core splices the accepted
-anchor's lines back into the review baseline over `[reviewStart, reviewEndExclusive)`, so the hunk returns
-to the bright band; `guardText` is the review-baseline text the web saw, and a mismatch (a concurrent keep
-moved it) aborts with a re-emit. It deliberately does **not** touch the LIFO undo history, so it composes
+acceptedEndExclusive, reviewStart, reviewEndExclusive, acceptedGuardText, guardText }` — the inverse of
+`keep-hunk`, operating on the `accepted anchor → review baseline` span (both Core-internal, no disk). Core
+splices the accepted anchor's lines back into the review baseline over `[reviewStart, reviewEndExclusive)`,
+so the hunk returns to the bright band. Both sides carry the text the web rendered as a guard: a mismatch on
+`guardText` (a concurrent keep moved the review baseline) or on `acceptedGuardText` (a turn boundary
+committed the anchor while the click was in flight) aborts with a re-emit — the splice can only ever restore
+exactly the lines the user saw. It deliberately does **not** touch the LIFO undo history, so it composes
 with `Ctrl+Shift+Enter` without disturbing the stack (a stale stack entry just declines via its own guard).
 
 **Rendering (web).** The bright band is the existing `diff(review baseline, model)` pass, untouched — so
@@ -331,7 +333,7 @@ Built in `ChangeMessages.cs` so both hosts emit identical payloads.
 |---|---|---|
 | `get-turn-diff` | the walk opens a file | `{ path }` → host replies `turn-diff` |
 | `keep-hunk` | user keeps a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` → host advances `_reviewBaseline` over it (no disk write; the hunk goes faded; reuses `SessionChangeTracker.KeepHunk`) |
-| `unkeep-hunk` | user un-keeps a faded hunk (inline ↶ undo) | `{ path, acceptedStart, acceptedEndExclusive, reviewStart, reviewEndExclusive, guardText }` → host splices the accepted anchor's lines back into `_reviewBaseline` (no disk write; the hunk goes bright; `SessionChangeTracker.UnkeepHunk`) |
+| `unkeep-hunk` | user un-keeps a faded hunk (inline ↶ undo) | `{ path, acceptedStart, acceptedEndExclusive, reviewStart, reviewEndExclusive, acceptedGuardText, guardText }` → host splices the accepted anchor's lines back into `_reviewBaseline` (no disk write; the hunk goes bright; `SessionChangeTracker.UnkeepHunk`). Both sides are guarded: a moved review baseline OR a moved anchor (a turn boundary committed it mid-flight) aborts. |
 | `reject-hunk` | user reverts a hunk | `{ path, baselineStart, baselineEndExclusive, currentStart, currentEndExclusive, guardText }` |
 | `keep-file` | user keeps a whole file | `{ path }` → host advances its baseline to current (reuses `SessionChangeTracker.KeepFile`) |
 | `revert-file` | user reverts a whole file | `{ path }` → host restores it to baseline (reuses `SessionChangeTracker.RevertFile`) |

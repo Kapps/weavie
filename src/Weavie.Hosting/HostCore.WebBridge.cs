@@ -943,8 +943,9 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Un-keeps a single faded (accepted) hunk: Core splices its accepted-anchor lines back into the review
 	/// baseline, returning it to the bright pending band. The inverse of <see cref="KeepHunk"/>; the web sends the
-	/// accepted-anchor + review-baseline ranges and a <c>guardText</c> snapshot of the review baseline (a guard
-	/// mismatch — a concurrent keep moved it — re-emits a fresh diff without un-keeping). No disk write.
+	/// accepted-anchor + review-baseline ranges and both sides' guard snapshots (a mismatch — a concurrent keep
+	/// moved the baseline, or a turn boundary committed the anchor — re-emits a fresh diff without un-keeping).
+	/// No disk write.
 	/// </summary>
 	private void UnkeepHunk(JsonElement root) {
 		if (_session is not { } session) {
@@ -958,9 +959,10 @@ public sealed partial class HostCore {
 
 		var acceptedRange = new LineRange(JsonInt(root, "acceptedStart"), JsonInt(root, "acceptedEndExclusive"));
 		var reviewRange = new LineRange(JsonInt(root, "reviewStart"), JsonInt(root, "reviewEndExclusive"));
+		string acceptedGuardText = root.GetStringOrEmpty("acceptedGuardText");
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, guardText)) {
+		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText)) {
 			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
 			return;

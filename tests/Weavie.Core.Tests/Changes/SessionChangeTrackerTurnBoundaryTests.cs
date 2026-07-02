@@ -12,7 +12,7 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class SessionChangeTrackerTurnBoundaryTests {
 	private static SessionChangeTracker Tracker(IFileSystem fileSystem) =>
-		new(fileSystem, path => path.StartsWith("/w", StringComparison.Ordinal));
+		new(fileSystem, "/w", path => path.StartsWith("/w", StringComparison.Ordinal));
 
 	private static readonly HookRequest NewPrompt = new() {
 		Event = HookEventKind.UserPromptSubmit,
@@ -79,6 +79,23 @@ public sealed class SessionChangeTrackerTurnBoundaryTests {
 		tracker.Observe(NewPrompt);
 
 		Assert.Equal(["/w/a.txt"], committed);
+	}
+
+	[Fact]
+	public void NewPrompt_StaleUnkeepAfterCommit_IsRejected() {
+		// The inline ↶ undo races the boundary: the web renders a faded hunk, the user clicks undo, and the commit
+		// lands first. The unkeep's coordinates now address the POST-commit anchor, so splicing them would write
+		// lines the user never saw — the accepted-side guard must abort it.
+		var (_, tracker) = Edited("a\nb\nc\nd\ne\n", "n1\nn2\na\nb\nc\nD\ne\n"); // insert n1,n2 at top; d→D
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(1, 1), new LineRange(1, 3), "n1\nn2"));
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(6, 7), new LineRange(6, 7), "D"));
+
+		tracker.Observe(NewPrompt); // anchor commits to n1\nn2\na\nb\nc\nD\ne
+
+		// Stale unkeep of the second faded hunk, rendered pre-commit: acceptedRange [4,5) ("d" then, "b" now),
+		// reviewRange [6,7) ("D" — still matches). Without the accepted guard this spliced "b" over "D".
+		Assert.False(tracker.UnkeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(6, 7), "d", "D"));
+		Assert.Equal("n1\nn2\na\nb\nc\nD\ne\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // baseline uncorrupted
 	}
 
 	[Fact]

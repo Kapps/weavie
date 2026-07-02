@@ -72,7 +72,7 @@ public sealed class TurnKeepTests {
 		host.Bridge.Clear();
 		// The faded band is the accepted→review insertion: accepted range [2,2) (empty), review range [2,3) ("world").
 		host.Send($$"""
-			{"type":"unkeep-hunk","path":{{JsonSerializer.Serialize(path)}},"acceptedStart":2,"acceptedEndExclusive":2,"reviewStart":2,"reviewEndExclusive":3,"guardText":"world"}
+			{"type":"unkeep-hunk","path":{{JsonSerializer.Serialize(path)}},"acceptedStart":2,"acceptedEndExclusive":2,"reviewStart":2,"reviewEndExclusive":3,"acceptedGuardText":"","guardText":"world"}
 			""");
 
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — un-keep only moves the band

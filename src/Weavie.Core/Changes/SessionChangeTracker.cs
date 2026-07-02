@@ -126,10 +126,8 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	// Turn-start commit: every file's accepted anchor advances to its review baseline, collapsing the faded
-	// accepted band (AcceptTurn's stance, scoped to the kept-but-uncommitted span — the review baseline holds, so
-	// pending hunks stay). Committed hunks are locked in, so the undo history clears — a stale keep/revert
-	// snapshot would otherwise restore an old anchor and resurrect them. A no-op when nothing was kept.
+	// Turn-start commit: each accepted anchor advances to its review baseline (faded band collapses, pending stays).
+	// The history clears too — undoing a stale keep/revert would restore an old anchor, resurrecting committed hunks.
 	private void CommitAccepted() {
 		List<string>? committed = null;
 		lock (_gate) {
@@ -381,15 +379,19 @@ public sealed partial class SessionChangeTracker {
 	/// over that hunk, so it returns to the bright pending band. The inverse of <see cref="KeepHunk"/> — but it
 	/// operates on the accepted-anchor→review-baseline span (both Core-internal) and touches neither disk nor the
 	/// undo history, so it composes safely with the LIFO keep/revert stack (a stale stack entry just declines via
-	/// its own guard). <paramref name="guardText"/> is the review-baseline text the web diffed; a mismatch (a
-	/// concurrent keep moved the baseline) aborts with <see langword="false"/>.
+	/// its own guard). Both sides are guarded: <paramref name="guardText"/> is the review-baseline text the web
+	/// diffed, <paramref name="acceptedGuardText"/> the accepted-anchor text it would splice back — a mismatch on
+	/// either (a concurrent keep moved the baseline, or a turn boundary committed the anchor) aborts with
+	/// <see langword="false"/>, so the splice can only ever restore exactly the lines the user saw.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	/// <param name="acceptedRange">The hunk's range in the accepted anchor — the source of the restored lines (1-based, end-exclusive).</param>
 	/// <param name="reviewRange">The hunk's range in the review baseline — where the accepted lines are spliced back (1-based, end-exclusive).</param>
+	/// <param name="acceptedGuardText">The exact accepted-anchor text of <paramref name="acceptedRange"/> as the web sees it.</param>
 	/// <param name="guardText">The exact review-baseline text of <paramref name="reviewRange"/> as the web sees it.</param>
-	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string guardText) {
+	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string acceptedGuardText, string guardText) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(acceptedGuardText);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
 			var reviewLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
@@ -399,7 +401,8 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			var acceptedLines = SplitLines(_acceptedAnchor.GetValueOrDefault(path, string.Empty));
-			if (!TryGetSlice(acceptedLines, acceptedRange, out var replacement)) {
+			if (!TryGetSlice(acceptedLines, acceptedRange, out var replacement)
+				|| !string.Equals(string.Join("\n", replacement), acceptedGuardText, StringComparison.Ordinal)) {
 				return false;
 			}
 

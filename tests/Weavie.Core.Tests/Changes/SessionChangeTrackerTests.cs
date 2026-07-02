@@ -521,7 +521,7 @@ public sealed class SessionChangeTrackerTests {
 
 		// Un-keep it (the faded band is accepted→review = line 4: d→D). The accepted anchor's "d" splices back
 		// into the review baseline over the "D", re-pending the hunk. Disk is never touched.
-		Assert.True(tracker.UnkeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "D"));
+		Assert.True(tracker.UnkeepHunk("/w/a.txt", new LineRange(4, 5), new LineRange(4, 5), "d", "D"));
 
 		var change = tracker.GetTurn("/w/a.txt");
 		Assert.NotNull(change);
@@ -542,7 +542,7 @@ public sealed class SessionChangeTrackerTests {
 		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B")); // review baseline = a\nB\n
 
 		// A concurrent keep moved the review baseline after the web diffed it: the guard ("X" != "B") aborts.
-		Assert.False(tracker.UnkeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "X"));
+		Assert.False(tracker.UnkeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "b", "X"));
 		Assert.Equal("a\nB\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // review baseline never reverted
 	}
 
@@ -560,7 +560,7 @@ public sealed class SessionChangeTrackerTests {
 
 		// Faded band: accepted range [2,2) (empty), review range [2,3) ("B"). Un-keep splices the anchor's nothing
 		// over "B" → review baseline back to a\nc\n.
-		Assert.True(tracker.UnkeepHunk("/w/a.txt", new LineRange(2, 2), new LineRange(2, 3), "B"));
+		Assert.True(tracker.UnkeepHunk("/w/a.txt", new LineRange(2, 2), new LineRange(2, 3), "", "B"));
 		Assert.Equal("a\nc\n", tracker.GetTurn("/w/a.txt")!.BaselineText);
 	}
 

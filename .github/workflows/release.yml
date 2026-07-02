@@ -141,8 +141,12 @@ jobs:
   # docs/specs/runner-auto-update.md.
   main-latest:
     name: main-latest prerelease
+    # Only a PUSH-triggered ci success qualifies: workflow_run also fires for fork-PR ci runs, and a
+    # fork branch named "main" must never reach a contents:write job (it could rewrite the release
+    # feed the auto-updater trusts). Push events can only originate from this repo.
     if: >-
       github.event_name == 'workflow_run' &&
+      github.event.workflow_run.event == 'push' &&
       github.event.workflow_run.conclusion == 'success' &&
       github.event.workflow_run.head_branch == 'main'
     runs-on: ubuntu-latest
@@ -153,9 +157,12 @@ jobs:
       group: main-latest
       cancel-in-progress: true
     steps:
+      # Checkout of the base repo's main tip — never an event-supplied sha, so no untrusted code can
+      # reach this privileged build. The tip can be newer than the green commit that triggered us;
+      # that run's own ci success re-triggers this workflow, and the newest publish wins either way.
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: main
 
       - name: Set up toolchain and build web app
         uses: ./.github/actions/publish-setup
@@ -176,9 +183,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          built=$(git rev-parse HEAD)
           gh release delete main-latest --cleanup-tag --yes || true
           gh release create main-latest --prerelease \
-            --target ${{ github.event.workflow_run.head_sha }} \
+            --target "$built" \
             --title "main latest (build ${{ github.run_number }})" \
-            --notes "Rolling prerelease of green main (${{ github.event.workflow_run.head_sha }}), build ${{ github.run_number }}. Consumed by weavie-runner --auto-update; extract into ~/.weavie/runner and launch current/Weavie.Runner." \
+            --notes "Rolling prerelease of green main ($built), build ${{ github.run_number }}. Consumed by weavie-runner --auto-update; extract into ~/.weavie/runner and launch current/Weavie.Runner." \
             weavie-runner-linux-x64.tar.gz

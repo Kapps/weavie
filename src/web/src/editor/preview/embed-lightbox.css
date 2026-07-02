@@ -1,0 +1,66 @@
+/* Full-app embed lightbox (EmbedLightbox.tsx): fixed over the whole viewport at the modal layer (70,
+   matching .modal-backdrop) so it covers every pane — terminal included — while toasts (80) stay above. */
+.embed-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 70;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.75);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  /* Portaled to <body>, outside the .app font scope — re-assert the UI font (see confirm-dialog.css). */
+  font: 12px / 1.5 var(--ui-font);
+}
+
+.embed-lightbox-body {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 94vw;
+  height: 88vh;
+  /* A wheel-zoomed embed scales past the frame; clip it so the hint row below stays readable. */
+  overflow: hidden;
+}
+
+/* The transformed layer: wheel zoom + drag pan apply here as translate/scale (EmbedLightbox.tsx). */
+.embed-lightbox-zoom {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  height: 100%;
+}
+
+.embed-lightbox-body.zoomed {
+  cursor: grab;
+}
+
+.embed-lightbox-body.panning {
+  cursor: grabbing;
+}
+
+/* A raster image keeps its aspect and natural resolution cap; a Mermaid clone (inline size caps stripped
+   by zoomClone) is vector, so it scales to fill. */
+.embed-lightbox-body img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.embed-lightbox-body .mermaid-rendered {
+  width: 100%;
+  height: 100%;
+}
+
+.embed-lightbox-body .mermaid-rendered svg {
+  width: 100%;
+  height: 100%;
+}
+
+.embed-lightbox-count {
+  color: rgba(255, 255, 255, 0.85);
+}

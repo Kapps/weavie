@@ -70,6 +70,13 @@ import { TabStrip } from "./editor/TabStrip";
 import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
 import { basename, repoRelativePath } from "./editor/fs-path";
+import { EmbedLightbox } from "./editor/preview/EmbedLightbox";
+import {
+  closeEmbedZoom,
+  stepEmbedZoom,
+  zoomActiveEmbed,
+  zoomedEmbed,
+} from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
@@ -821,6 +828,7 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
+      registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
       // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {
         postToLocalHost({ type: "menu-action", action: "open-folder" });
@@ -1169,6 +1177,11 @@ export default function App(): JSX.Element {
             onConfirm={confirmDeleteSession}
             onCancel={() => setDeleteReq(null)}
           />
+        )}
+      </Show>
+      <Show when={zoomedEmbed()}>
+        {(state) => (
+          <EmbedLightbox state={state()} onStep={stepEmbedZoom} onClose={closeEmbedZoom} />
         )}
       </Show>
     </div>

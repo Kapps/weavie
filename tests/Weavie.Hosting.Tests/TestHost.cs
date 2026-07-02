@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using Weavie.Core;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
@@ -62,6 +61,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "initial");
 
 		EnsureRelayBinary();
+		// Keep tests hermetic: never spawn the developer's real login shell or import its rc-file environment.
+		LoginShellEnvironment.MarkImported();
 
 		var sourceHttp = new StubHttpMessageHandler();
 		string sourcesDir = Path.Combine(tempRoot, "sources");
@@ -69,7 +70,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge);
 		var core = new HostCore(platform, services, repo);
-		await core.StartAsync("http://127.0.0.1:65111").ConfigureAwait(false);
+		await core.StartAsync().ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		bridge.Receive("""{"type":"ready"}""");
 		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);

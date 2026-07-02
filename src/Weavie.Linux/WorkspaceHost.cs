@@ -84,7 +84,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 
 		// Synchronous before gtk_main (or on the main loop when opened from welcome): StartAsync does I/O (git) but
 		// touches nothing GTK-affine.
-		_core.StartAsync("app://app").GetAwaiter().GetResult();
+		_core.StartAsync().GetAwaiter().GetResult();
 
 		// Drop any welcome injection (its window.__WEAVIE_WELCOME__) so it can't leak into the workspace page, then
 		// inject the bootstrap globals before navigation so the app mounts at the user's settings with no flash.

@@ -8,7 +8,7 @@ namespace Weavie.Hosting;
 /// terminal launch inherits the shell's far higher <c>ulimit -n</c>. Each Weavie session opens many descriptors
 /// (two PTYs, the IDE-MCP + registry sockets and their connections, the hook pipe, language-server stdio, log
 /// files), so a second session can exhaust 256 and abort the process mid-switch. Raising the soft limit at
-/// startup gives a GUI launch the same headroom a terminal launch already has.
+/// startup gives every launch context the same headroom a terminal launch already has.
 /// </summary>
 public static class PosixFileLimit {
 	// RLIMIT_NOFILE differs by kernel: 8 on macOS/BSD, 7 on Linux.

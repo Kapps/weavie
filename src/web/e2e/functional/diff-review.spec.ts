@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -88,6 +88,38 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+});
+
+test.describe("applied review — a new turn commits the faded accepted band", () => {
+  // The fake pauses after its edits until the test signals (waitFile), then submits a new prompt — the
+  // UserPromptSubmit hook is the turn-start boundary that implicitly commits whatever was kept.
+  const SIGNAL = ".weavie-e2e-turn-signal";
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        { op: "waitFile", path: `{{WORKSPACE}}/${SIGNAL}` },
+        { op: "hook", request: { hook_event_name: "UserPromptSubmit" } },
+      ],
+    },
+  });
+
+  test("kept hunks disappear from the diff at the next prompt; pending ones stay", async ({
+    page,
+    weavie,
+  }) => {
+    await openFile(page, "hello.ts");
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → faded, hunk 2 still bright
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+    await expect(page.locator(ADDED)).toHaveCount(1);
+
+    // Signal the fake to submit its next prompt: the turn boundary commits the kept hunk out of the view.
+    writeFileSync(join(weavie.workspace, SIGNAL), "");
+    await expect(page.locator(ACCEPTED)).toHaveCount(0); // the faded band is gone — committed
+    await expect(page.locator(UNDO)).toHaveCount(0); // and its inline ↶ undo with it
+    await expect(page.locator(ADDED)).toHaveCount(1); // the unreviewed hunk still accumulates
   });
 });
 

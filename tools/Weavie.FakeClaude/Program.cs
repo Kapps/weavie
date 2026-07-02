@@ -58,6 +58,18 @@ static async Task RunScriptAsync(string scriptPath, string? mcpConfigPath) {
 				case "sleep":
 					await Task.Delay(step.GetProperty("ms").GetInt32()).ConfigureAwait(false);
 					break;
+				case "waitFile": {
+						// Blocks until the test creates the named signal file, so a script can sequence a step after a
+						// user action deterministically. No deadline for the same reason as ReceiveAsync: the driving
+						// test fails on its own assertion, and teardown kills this process.
+						string path = step.GetProperty("path").GetString()!;
+						while (!File.Exists(path)) {
+							await Task.Delay(50).ConfigureAwait(false);
+						}
+
+						Emit($"waitFile -> {path}");
+						break;
+					}
 				case "edit":
 					await File.WriteAllTextAsync(step.GetProperty("path").GetString()!, step.GetProperty("content").GetString()).ConfigureAwait(false);
 					Emit($"edit -> {step.GetProperty("path").GetString()}");

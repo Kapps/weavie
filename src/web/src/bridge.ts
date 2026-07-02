@@ -239,7 +239,8 @@ export type HostBoundMessage =
   | { type: "keep-file"; path: string }
   // Inline review: UN-KEEP one faded (accepted) hunk — Core splices the accepted-anchor lines back into the review
   // baseline so it returns to the bright pending band (no disk write). `accepted*` is the range in the accepted
-  // anchor (the restored lines); `review*` the range in the review baseline (splice target + `guardText` check).
+  // anchor (the restored lines); `review*` the range in the review baseline (the splice target). Both sides carry
+  // the rendered text as a guard (`acceptedGuardText` / `guardText`); the host aborts if either moved.
   | {
       type: "unkeep-hunk";
       path: string;
@@ -247,6 +248,7 @@ export type HostBoundMessage =
       acceptedEndExclusive: number;
       reviewStart: number;
       reviewEndExclusive: number;
+      acceptedGuardText: string;
       guardText: string;
     }
   // Review undo/redo. `kind` "keep" undoes the last keep, "revert" the last revert (the type-split chords);

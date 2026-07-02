@@ -45,15 +45,18 @@ export interface HunkRevert {
 }
 
 /**
- * Coordinates + concurrency guard for un-keeping one faded (accepted) hunk. `accepted*` is its range in the
- * accepted anchor (the lines spliced back); `review*` its range in the review baseline (the splice target);
- * `guardText` is the review-baseline text the web sees — the host aborts if Core's review baseline moved.
+ * Coordinates + concurrency guards for un-keeping one faded (accepted) hunk. `accepted*` is its range in the
+ * accepted anchor (the lines spliced back); `review*` its range in the review baseline (the splice target).
+ * Both sides are guarded with the text the web rendered — `guardText` (review baseline) and
+ * `acceptedGuardText` (accepted anchor) — so the host aborts if either moved (a concurrent keep, or a turn
+ * boundary committing the anchor) instead of splicing lines the user never saw.
  */
 export interface HunkUnkeep {
   acceptedStart: number;
   acceptedEndExclusive: number;
   reviewStart: number;
   reviewEndExclusive: number;
+  acceptedGuardText: string;
   guardText: string;
 }
 
@@ -495,6 +498,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
           acceptedEndExclusive: hunk.acceptedEndExclusive,
           reviewStart: hunk.reviewStart,
           reviewEndExclusive: hunk.reviewEndExclusive,
+          acceptedGuardText: hunk.acceptedGuardText,
           guardText: hunk.guardText,
         }),
     );
@@ -1220,6 +1224,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
           acceptedEndExclusive: change.original.endLineNumberExclusive,
           reviewStart,
           reviewEndExclusive,
+          acceptedGuardText: accepted
+            .slice(change.original.startLineNumber - 1, change.original.endLineNumberExclusive - 1)
+            .join("\n"),
           guardText: original.slice(reviewStart - 1, reviewEndExclusive - 1).join("\n"),
         });
       }

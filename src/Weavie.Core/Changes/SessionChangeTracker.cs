@@ -24,9 +24,9 @@ public sealed partial class SessionChangeTracker {
 	// Each file's last-reviewed content; advanced only on keep-all (AcceptTurn) or a per-hunk revert, not on a
 	// turn boundary, so the review set accumulates everything unacknowledged across turns (docs/specs/turn-review.md).
 	private readonly Dictionary<string, string> _reviewBaseline = new(StringComparer.Ordinal);
-	// Each file's content at the last keep-all (the commit point), advanced ONLY by AcceptTurn. The faded
-	// "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays visible-but-
-	// faded with an inline undo until keep-all clears it. See docs/specs/turn-review.md (Phase 2).
+	// Each file's content at the last commit point — keep-all (AcceptTurn) or a turn boundary (CommitAccepted).
+	// The faded "accepted" band is acceptedAnchor→reviewBaseline (kept-but-uncommitted): a kept hunk stays
+	// visible-but-faded with an inline undo until a commit clears it. See docs/specs/turn-review.md (Phase 2).
 	private readonly Dictionary<string, string> _acceptedAnchor = new(StringComparer.Ordinal);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly Dictionary<string, string> _preEdit = new(StringComparer.Ordinal);
@@ -68,12 +68,25 @@ public sealed partial class SessionChangeTracker {
 	public event Action<string>? FileDeleted;
 
 	/// <summary>
+	/// Raised with the paths whose faded accepted band was just committed at a turn boundary (see
+	/// <see cref="Observe"/>), so the host can re-push the trimmed review set, each path's diff, and the
+	/// (now cleared) undo history.
+	/// </summary>
+	public event Action<IReadOnlyList<string>>? AcceptedCommitted;
+
+	/// <summary>
 	/// Folds a hook event into the change set: PreToolUse snapshots the baseline, PostToolUse records the new
 	/// content and reconciles disk deletions (<see cref="ReconcileDeletions"/>) so a mid-turn rm leaves the review
-	/// set. Out-of-scope edits are dropped; turn boundaries are ignored so the review baseline never resets.
+	/// set. Out-of-scope edits are dropped. A new prompt (UserPromptSubmit) commits the faded accepted band —
+	/// kept hunks leave the diff view — but never resets the review baseline, so pending changes accumulate.
 	/// </summary>
 	public void Observe(HookRequest request) {
 		ArgumentNullException.ThrowIfNull(request);
+
+		if (request.Event == HookEventKind.UserPromptSubmit) {
+			CommitAccepted();
+			return;
+		}
 
 		// Reconcile deletions before recording this tool's edit, so a Bash rm/mv drops the vanished file first.
 		if (request.Event == HookEventKind.PostToolUse) {
@@ -111,6 +124,29 @@ public sealed partial class SessionChangeTracker {
 			_undoStack.Clear();
 			_redoStack.Clear();
 		}
+	}
+
+	// Turn-start commit: each accepted anchor advances to its review baseline (faded band collapses, pending stays).
+	// The history clears too — undoing a stale keep/revert would restore an old anchor, resurrecting committed hunks.
+	private void CommitAccepted() {
+		List<string>? committed = null;
+		lock (_gate) {
+			foreach (var (path, baseline) in _reviewBaseline) {
+				if (!string.Equals(_acceptedAnchor.GetValueOrDefault(path, baseline), baseline, StringComparison.Ordinal)) {
+					_acceptedAnchor[path] = baseline;
+					(committed ??= []).Add(path);
+				}
+			}
+
+			if (committed is null) {
+				return;
+			}
+
+			_undoStack.Clear();
+			_redoStack.Clear();
+		}
+
+		AcceptedCommitted?.Invoke(committed);
 	}
 
 	/// <summary>Snapshots <paramref name="path"/>'s current content as its session + review baseline, once.</summary>
@@ -343,15 +379,19 @@ public sealed partial class SessionChangeTracker {
 	/// over that hunk, so it returns to the bright pending band. The inverse of <see cref="KeepHunk"/> — but it
 	/// operates on the accepted-anchor→review-baseline span (both Core-internal) and touches neither disk nor the
 	/// undo history, so it composes safely with the LIFO keep/revert stack (a stale stack entry just declines via
-	/// its own guard). <paramref name="guardText"/> is the review-baseline text the web diffed; a mismatch (a
-	/// concurrent keep moved the baseline) aborts with <see langword="false"/>.
+	/// its own guard). Both sides are guarded: <paramref name="guardText"/> is the review-baseline text the web
+	/// diffed, <paramref name="acceptedGuardText"/> the accepted-anchor text it would splice back — a mismatch on
+	/// either (a concurrent keep moved the baseline, or a turn boundary committed the anchor) aborts with
+	/// <see langword="false"/>, so the splice can only ever restore exactly the lines the user saw.
 	/// </summary>
 	/// <param name="path">Absolute file path.</param>
 	/// <param name="acceptedRange">The hunk's range in the accepted anchor — the source of the restored lines (1-based, end-exclusive).</param>
 	/// <param name="reviewRange">The hunk's range in the review baseline — where the accepted lines are spliced back (1-based, end-exclusive).</param>
+	/// <param name="acceptedGuardText">The exact accepted-anchor text of <paramref name="acceptedRange"/> as the web sees it.</param>
 	/// <param name="guardText">The exact review-baseline text of <paramref name="reviewRange"/> as the web sees it.</param>
-	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string guardText) {
+	public bool UnkeepHunk(string path, LineRange acceptedRange, LineRange reviewRange, string acceptedGuardText, string guardText) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(acceptedGuardText);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
 			var reviewLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
@@ -361,7 +401,8 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			var acceptedLines = SplitLines(_acceptedAnchor.GetValueOrDefault(path, string.Empty));
-			if (!TryGetSlice(acceptedLines, acceptedRange, out var replacement)) {
+			if (!TryGetSlice(acceptedLines, acceptedRange, out var replacement)
+				|| !string.Equals(string.Join("\n", replacement), acceptedGuardText, StringComparison.Ordinal)) {
 				return false;
 			}
 

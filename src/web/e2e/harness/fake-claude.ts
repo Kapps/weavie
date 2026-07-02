@@ -36,11 +36,14 @@ export async function writeFakeClaudeWrapper(dir: string): Promise<string> {
 }
 
 // A fake-claude script: an ordered list of steps the fake runs on launch (print/sleep/edit/hook/mcp).
+// `waitFile` blocks until the test creates the named signal file, so a step can follow a user action
+// deterministically (e.g. a turn-boundary hook after the test keeps a hunk).
 export type FakeStep =
   | { op: "print"; text: string }
   | { op: "sleep"; ms: number }
   | { op: "edit"; path: string; content: string }
   | { op: "hook"; request: Record<string, unknown> }
+  | { op: "waitFile"; path: string }
   | { op: "mcp"; tool: string; args?: Record<string, unknown>; server?: "ide" };
 
 export async function writeFakeScript(dir: string, steps: FakeStep[]): Promise<string> {

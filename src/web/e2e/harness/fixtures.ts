@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { test as base, expect } from "@playwright/test";
 import { fakeClaudeBuilt } from "./fake-claude";
 import { type WeavieHost, headlessBuilt, launchHeadless } from "./weavie-host";
@@ -53,6 +54,19 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       // is the "app is interactive" signal — not a fixed sleep.
       await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
       await use(host);
+      // On failure, attach the host's captured stdout/stderr and the fake-claude log: a host crash is
+      // invisible in the browser trace (the page just shows "Lost connection"), so the .NET exception that
+      // killed it must ride the test artifacts. See issue #197.
+      if (testInfo.status !== testInfo.expectedStatus) {
+        for (const [name, content] of [
+          ["weavie-host.log", host.log()],
+          ["fake-claude.log", host.fakeLog()],
+        ] as const) {
+          const path = testInfo.outputPath(name);
+          await writeFile(path, content);
+          await testInfo.attach(name, { path, contentType: "text/plain" });
+        }
+      }
       await host.stop();
     },
     { auto: true },

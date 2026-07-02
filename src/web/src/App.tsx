@@ -245,6 +245,8 @@ export default function App(): JSX.Element {
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
   const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
+  // True between a switch's index invalidation (pending file-index) and the new worktree's walked index.
+  const [indexPending, setIndexPending] = createSignal(false);
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
@@ -675,12 +677,19 @@ export default function App(): JSX.Element {
         setWindowFocused(message.focused);
       } else if (message.type === "file-index") {
         // A switch re-pushes the index rooted at the new worktree. On a root change, drop the cached listings
-        // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree.
+        // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree. A
+        // `pending` push is the walk's in-train start signal: on a root CHANGE the old session's files vanish
+        // NOW (picking one would route a wrong-worktree path) and the omnibar shows loading until the walked
+        // index arrives; a same-root pending (an omnibar-open refresh) keeps the still-valid current index.
+        if (message.pending === true && message.root === indexRoot()) {
+          return;
+        }
         if (message.root !== indexRoot()) {
           setDirListings({});
         }
         setIndexRoot(message.root);
         setFileIndex(message.files);
+        setIndexPending(message.pending === true);
       } else if (message.type === "prompt-source-token") {
         // The host opened the source's token page in the browser; show the dialog to paste the token.
         setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
@@ -929,6 +938,7 @@ export default function App(): JSX.Element {
           maximized={maximized()}
           focused={windowFocused()}
           files={fileIndex()}
+          filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           onWindowControl={(action) => postToLocalHost({ type: "window-control", action })}
@@ -950,6 +960,7 @@ export default function App(): JSX.Element {
       <Show when={MAC_TITLEBAR}>
         <MacTitleBar
           files={fileIndex()}
+          filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}

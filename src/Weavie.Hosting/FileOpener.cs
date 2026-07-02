@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Editor;
+using Weavie.Core.Shell;
 
 namespace Weavie.Hosting;
 
@@ -14,13 +15,16 @@ namespace Weavie.Hosting;
 public sealed class FileOpener {
 	private readonly SessionEditorChannel _channel;
 	private readonly FileProviderService _files;
+	private readonly IHostBridge _bridge;
 
-	/// <summary>Pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground), reading through <paramref name="files"/> (the validated, workspace-confined reader); relative paths resolve against <paramref name="workspace"/>.</summary>
-	public FileOpener(SessionEditorChannel channel, FileProviderService files, string workspace) {
+	/// <summary>Pushes files to Monaco through the session's editor <paramref name="channel"/> (so a muted session's opens are held, not posted into the foreground), reading through <paramref name="files"/> (the validated, workspace-confined reader); relative paths resolve against <paramref name="workspace"/>. A refused open toasts through <paramref name="bridge"/>.</summary>
+	public FileOpener(SessionEditorChannel channel, FileProviderService files, IHostBridge bridge, string workspace) {
 		ArgumentNullException.ThrowIfNull(channel);
 		ArgumentNullException.ThrowIfNull(files);
+		ArgumentNullException.ThrowIfNull(bridge);
 		_channel = channel;
 		_files = files;
+		_bridge = bridge;
 		Workspace = workspace;
 	}
 
@@ -35,9 +39,13 @@ public sealed class FileOpener {
 	public void Open(string path, int line, bool preview, bool scratch) {
 		string resolved = Path.IsPathRooted(path) ? path : Path.GetFullPath(Path.Combine(Workspace, path));
 		// Validated read: null for a path outside the worktree (+ scratch), missing, or unreadable, so a
-		// reveal-file / openFile is confined to the worktree by path (an in-tree symlink is followed — the repo is trusted).
+		// reveal-file / openFile is confined to the worktree by path (an in-tree symlink is followed — the repo is
+		// trusted). A refusal toasts — the user clicked something (an omnibar row, a terminal link) and a silent
+		// drop reads as the app ignoring them.
 		if (_files.ReadIfAllowed(resolved) is not { } content) {
 			Console.Error.WriteLine($"[weavie] reveal-file: refused or not found: {resolved}");
+			_bridge.PostToWeb(ShellProtocol.BuildNotify(
+				"warn", $"Couldn't open {Path.GetFileName(resolved)} — it's missing, unreadable, or outside this session's worktree."));
 			return;
 		}
 

@@ -22,7 +22,7 @@ public sealed class FileOpenerTests {
 		var channel = new SessionEditorChannel(bridge);
 		var fs = new InMemoryFileSystem();
 		var files = new FileProviderService(fs, Workspace, Scratch);
-		return (new FileOpener(channel, files, Workspace), channel, bridge, fs);
+		return (new FileOpener(channel, files, bridge, Workspace), channel, bridge, fs);
 	}
 
 	[Fact]
@@ -92,13 +92,14 @@ public sealed class FileOpenerTests {
 	}
 
 	[Fact]
-	public void MissingFile_IsSkipped() {
+	public void MissingFile_ToastsAWarningInsteadOfOpening() {
 		var (opener, channel, bridge, _) = New();
 		channel.Activate();
 
 		opener.Open(Path.Combine(Workspace, "ghost.cs"), line: 1, preview: false, scratch: false);
 
-		Assert.Empty(bridge.Posted); // not found → no open-file, no crash
+		Assert.Null(bridge.LastOfType("open-file")); // not found → no open-file, no crash
+		Assert.Contains("ghost.cs", bridge.LastOfType("notify")!.Value.GetProperty("message").GetString()); // …but the user hears why
 	}
 
 	[Fact]
@@ -109,6 +110,7 @@ public sealed class FileOpenerTests {
 
 		opener.Open("/etc/secret.txt", line: 1, preview: false, scratch: false);
 
-		Assert.Empty(bridge.Posted); // containment refuses it before any read → never revealed in the editor
+		Assert.Null(bridge.LastOfType("open-file")); // containment refuses it before any read → never revealed in the editor
+		Assert.NotNull(bridge.LastOfType("notify")); // refused loudly, not silently ignored
 	}
 }

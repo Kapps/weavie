@@ -22,6 +22,35 @@ export const SOURCE_STYLES = `
 .wv-source .wv-header { margin-bottom: 1.6rem; }
 .wv-source .wv-title { font-size: 2.4em; font-weight: 800; line-height: 1.15; margin: 0 0 0.15em; }
 .wv-source .wv-meta { color: var(--dim, #6f7884); font-size: 0.85em; }
+.wv-source .wv-incomplete {
+  color: var(--dim, #6f7884); font-size: 0.9em; margin: 0 0 1.2em;
+  border: 1px solid var(--border, #191c21); border-radius: 8px; padding: 0.5em 0.8em;
+  background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
+}
+/* Click-to-edit affordances (source-edit.ts): a subtle hover/focus tint on editable blocks, and the inline
+   block editor that swaps in — same type metrics as the prose so the swap doesn't jump the layout. */
+.wv-source .wv-editable { border-radius: 4px; cursor: text; }
+.wv-source .wv-editable:hover,
+.wv-source .wv-editable:focus-visible {
+  background: color-mix(in srgb, var(--accent, #54c6a4) 8%, transparent);
+  outline: none;
+}
+.wv-source .wv-editor-box { margin: 0.5em 0; }
+.wv-source .wv-block-editor {
+  display: block; width: 100%; box-sizing: border-box; resize: none; overflow: hidden;
+  font: inherit; line-height: inherit; color: inherit;
+  background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
+  border: 1px solid var(--accent, #54c6a4); border-radius: 4px; padding: 0.25em 0.4em;
+}
+.wv-source .wv-block-editor:focus { outline: none; }
+.wv-source .wv-saving .wv-block-editor { opacity: 0.6; }
+.wv-source .wv-edit-hint { color: var(--dim, #6f7884); font-size: 0.78em; margin-top: 0.25em; }
+.wv-source .wv-edit-error { color: var(--bad, #e07a7a); font-size: 0.85em; margin-top: 0.35em; }
+.wv-source .wv-edit-refetch {
+  display: block; margin-top: 0.3em; font: inherit; font-size: 0.95em; cursor: pointer;
+  color: var(--accent, #54c6a4); background: none; border: 1px solid var(--border, #191c21);
+  border-radius: 4px; padding: 0.15em 0.6em;
+}
 .wv-source .wv-content > :first-child { margin-top: 0; }
 .wv-source h1 { font-size: 1.9em; font-weight: 700; margin: 1.4em 0 0.4em; line-height: 1.2; }
 .wv-source h2 { font-size: 1.5em; font-weight: 600; margin: 1.3em 0 0.3em; }

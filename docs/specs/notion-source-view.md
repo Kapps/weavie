@@ -3,6 +3,7 @@
 **Status:** implemented. Builds on [notion-source-auth.md](notion-source-auth.md) (connect + fetch) and the
 design in [web-and-source-tabs.md](web-and-source-tabs.md). Renders a fetched Notion page in an open, themed
 shadow root from Notion's **markdown API** — one fetch, one markdown projection, rendered to HTML web-side.
+Click-to-edit write-back builds on this render: [notion-writes.md](notion-writes.md).
 
 ## What ships
 
@@ -10,13 +11,14 @@ shadow root from Notion's **markdown API** — one fetch, one markdown projectio
 surface and Claude's reading channel. No separate HTML projection — the host produces markdown, the web renders it.
 
 - **Core** (`NotionSource`) fetches a page in **two flat calls** (`Notion-Version: 2026-03-11`): `GET /v1/pages/{id}`
-  for the title and `GET /v1/pages/{id}/markdown` for the body (`{ markdown, truncated, unknown_block_ids }`). When
-  Notion truncated the page or returned unreadable blocks, `ParseMarkdown` **prepends a visible blockquote notice**
-  to the markdown — so the loss shows in the rendered view *and* in Claude's channel, never a silent log.
+  for the title and `GET /v1/pages/{id}/markdown` for the body (`{ markdown, truncated, unknown_block_ids }`). The
+  markdown stays **byte-for-byte as Notion returned it** — the write path diffs edits against it
+  ([notion-writes.md](notion-writes.md)) — so truncation / unreadable-block loss travels as flags on `SourceDoc`
+  (`Truncated`, `UnknownBlocks`) and renders web-side as a visible banner (`.wv-incomplete`), never a silent log.
 - **Host** posts `source-loading { target, title, sourceId }` the moment a fetch starts (the tab opens with a
   titled spinner, `GuessSourceTitle` from the URL slug; `sourceId` is the claiming source's `ISource.Id` — the
-  tab icon keys off it), then `source-doc { target, title, markdown, sourceId }` on success or
-  `source-error { target, message }` on failure (the reason lands in the open tab, not a missable toast).
+  tab icon keys off it), then `source-doc { target, title, markdown, sourceId, truncated, unknownBlocks }` on
+  success or `source-error { target, message }` on failure (the reason lands in the open tab, not a missable toast).
 - **Web** renders the markdown in an **open shadow root** (`SourceView`) overlaying Monaco like `PreviewPane`, on a
   `kind:"source"` tab keyed by `target`. `renderNotionMarkdown` first runs `normalizeNotionMarkdown` (Notion emits
   ONE block per line, single-`\n` separated, tab-nested — *not* CommonMark; this isolates each block with blank

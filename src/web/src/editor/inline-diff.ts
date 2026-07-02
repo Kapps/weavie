@@ -110,6 +110,8 @@ export interface InlineDiffOptions {
   fileLabel?: string;
   fileIndex?: number;
   fileCount?: number;
+  /** PR mode: names the review in the toolbar subtitle — "PR #12" or "vs main" ("diff against"). */
+  reviewLabel?: string;
   /** PR mode: review comments anchored to this file's lines, rendered as threads below their line. */
   comments?: ReviewCommentInfo[];
   /** PR mode: post a new comment on `line` (the current side). */
@@ -172,6 +174,8 @@ export interface InlineDiff {
 /** The parked-navigator summary: how many files are pending review, and how to step into the first change. */
 export interface ParkedReview {
   fileCount: number;
+  /** Names the review in the parked subtitle ("PR #12", "vs main"); absent for the post-turn set. */
+  label?: string;
   stepIn: () => void;
 }
 
@@ -811,11 +815,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const total = currentHunks.length;
     const hunk = hunkAtCursor();
     const idx = hunk === undefined ? -1 : currentHunks.indexOf(hunk);
+    const labelPart = options.reviewLabel === undefined ? "" : `${options.reviewLabel} · `;
     const filePart =
       options.fileCount !== undefined && options.fileCount > 1 && options.fileIndex !== undefined
         ? `file ${options.fileIndex}/${options.fileCount} · `
         : "";
-    counterNode.textContent = `${filePart}change ${idx < 0 ? 0 : idx + 1}/${total}`;
+    counterNode.textContent = `${labelPart}${filePart}change ${idx < 0 ? 0 : idx + 1}/${total}`;
     if (dotsNode === undefined) {
       return;
     }
@@ -1310,7 +1315,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     name.textContent = "Review changes";
     const sub = document.createElement("span");
     sub.className = "weavie-inline-stack-sub";
-    sub.textContent = `${parkedReview.fileCount} file${parkedReview.fileCount === 1 ? "" : "s"} · press ↓ to start`;
+    const parkedLabel = parkedReview.label === undefined ? "" : `${parkedReview.label} · `;
+    sub.textContent = `${parkedLabel}${parkedReview.fileCount} file${parkedReview.fileCount === 1 ? "" : "s"} · press ↓ to start`;
     stack.append(name, sub);
     bar.appendChild(stack);
     if (multiFile) {

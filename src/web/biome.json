@@ -42,7 +42,9 @@
     {
       "include": [
         "src/chrome/Omnibar.tsx",
+        "src/chrome/BranchTypeahead.tsx",
         "src/chrome/NewSessionPrompt.tsx",
+        "src/chrome/DiffAgainstPrompt.tsx",
         "src/chrome/DeleteSessionDialog.tsx",
         "src/chrome/OpenPrPrompt.tsx",
         "src/chrome/SourceTokenPrompt.tsx",

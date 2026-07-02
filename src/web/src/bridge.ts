@@ -163,6 +163,8 @@ export type HostBoundMessage =
   | { type: "resolve-pr"; id: string; number: number; owner: string; repo: string }
   // Ask the host for one PR file's base→head diff (answered by pr-diff).
   | { type: "get-pr-diff"; number: number; path: string }
+  // Arm a "diff against <ref>" review on the active session (answered by pr-changes; see diff-against.md).
+  | { type: "diff-against"; ref: string }
   // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
   | {
       type: "add-pr-comment";
@@ -550,11 +552,13 @@ export type WebBoundMessage =
   | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
   // Host answers resolve-pr with the single PR (or null when it doesn't exist / is a foreign repo), tagged by `id`.
   | { type: "pr-resolved"; id: string; pr: PullRequestInfo | null }
-  // PR review (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
-  // pr-diff is one file's base→head pair (baseline→current) rendered in the inline-diff "pr" mode.
+  // Review diff (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
+  // pr-diff is one file's base→current pair rendered in the inline-diff's read-only "pr" mode. Fed by an
+  // opened PR (number > 0) or a local "diff against <ref>" (number 0); `label` names the review in the UI.
   | {
       type: "pr-changes";
       number: number;
+      label: string;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
   | {

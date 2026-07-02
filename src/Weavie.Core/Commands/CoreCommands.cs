@@ -71,6 +71,15 @@ public static class CoreCommands {
 	/// <summary>Undoes the whole accumulated review set (acceptEdits/bypass mode); Keep-all is the cosmetic counterpart.</summary>
 	public const string UndoChange = "weavie.diff.undo";
 
+	/// <summary>Reviews the working tree's diff against a ref (arg <c>ref</c>, or a prompt); bound to <c>$mod+Shift+d</c>.</summary>
+	public const string DiffAgainst = "weavie.diff.against";
+
+	/// <summary>Reviews the working tree's diff against HEAD's parent — the last commit plus anything uncommitted.</summary>
+	public const string DiffAgainstParent = "weavie.diff.againstParent";
+
+	/// <summary>Reviews the working tree's uncommitted changes — its diff against HEAD.</summary>
+	public const string DiffAgainstHead = "weavie.diff.againstHead";
+
 	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
 	public const string ReviewOpen = "weavie.review.open";
 
@@ -496,6 +505,41 @@ public static class CoreCommands {
 			When = "diffActive",
 			Description = "Revert the whole accumulated review set on disk (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn", "undo all"],
+		});
+
+		// Diff Against: arm the read-only review navigator (the PR-review surface) with the working tree diffed
+		// against any ref, from its merge-base with HEAD. Web-handled: the bare command opens a ref prompt (or
+		// skips it when invoked with a 'ref' arg, e.g. by Claude); the helpers post their fixed ref directly.
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainst,
+			Title = "Diff Against…",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review the working tree's diff against a branch, tag, or commit in the inline-diff "
+				+ "navigator. Diffs from the ref's merge-base with HEAD, so against a branch it shows only this "
+				+ "side's changes. Pass 'ref' to skip the prompt.",
+			Aliases = ["diff against", "diff against branch", "compare against", "diff vs", "review diff against", "compare with branch"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+d" }],
+			ArgsSchemaJson = "{\"ref\":{\"type\":\"string\",\"description\":\"Branch, tag, or commit to diff against; omit to prompt\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainstParent,
+			Title = "Diff Against Parent",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review the working tree's diff against HEAD's parent commit — the last commit's changes "
+				+ "plus anything uncommitted.",
+			Aliases = ["diff against parent", "diff last commit", "review last commit", "show last commit"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainstHead,
+			Title = "Diff Against HEAD",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review the working tree's uncommitted changes (its diff against HEAD) in the inline-diff navigator.",
+			Aliases = ["diff against head", "uncommitted changes", "review uncommitted changes", "working tree diff", "diff working tree"],
 		});
 
 		// Post-turn review (acceptEdits/bypass): inline in the editor via the diff toolbar, a 2D navigator

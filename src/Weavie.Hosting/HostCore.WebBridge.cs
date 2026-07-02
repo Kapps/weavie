@@ -110,7 +110,12 @@ public sealed partial class HostCore {
 				}
 
 			case "get-pr-diff": {
-					_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
+					_ = SendReviewDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
+					break;
+				}
+
+			case "diff-against": {
+					_ = DiffAgainstFromWebAsync(root.GetStringOrEmpty("ref"));
 					break;
 				}
 

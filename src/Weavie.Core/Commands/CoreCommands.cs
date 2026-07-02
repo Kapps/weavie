@@ -188,6 +188,15 @@ public static class CoreCommands {
 	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
 	public const string ConnectNotion = "weavie.source.connectNotion";
 
+	/// <summary>Opens the focused block of a Notion source tab for in-place editing (web-handled, source-edit.ts).</summary>
+	public const string SourceEditBlock = "weavie.source.editBlock";
+
+	/// <summary>Saves the in-progress Notion block edit back to the page (web-handled, source-edit.ts).</summary>
+	public const string SourceCommitEdit = "weavie.source.commitEdit";
+
+	/// <summary>Cancels the in-progress Notion block edit, restoring the rendered block (web-handled, source-edit.ts).</summary>
+	public const string SourceCancelEdit = "weavie.source.cancelEdit";
+
 	/// <summary>Opens Weavie's captured console output (host stdout/stderr) in a read-only tab, and returns the recent tail to Claude. Diagnostic; palette + Claude, no default keybinding.</summary>
 	public const string ViewLogs = "weavie.view.logs";
 
@@ -914,6 +923,42 @@ public static class CoreCommands {
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
 				+ "it for you.",
 			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
+		});
+
+		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline
+		// editor; Enter / Escape while editing save / cancel. Gated by the source-view context keys, so the plain
+		// chords stay free everywhere else. See docs/specs/notion-writes.md.
+		registry.Register(new CommandDefinition {
+			Id = SourceEditBlock,
+			Title = "Edit Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Edit the focused block of the open Notion page in place; saving writes the change back to Notion.",
+			Aliases = ["edit block", "edit notion block", "edit source block", "edit notion page"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			When = "sourceBlockFocused && !sourceEditing",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceCommitEdit,
+			Title = "Save Block Edit",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Save the in-progress Notion block edit back to the page.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			When = "sourceEditing",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceCancelEdit,
+			Title = "Cancel Block Edit",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Cancel the in-progress Notion block edit, restoring the rendered block.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
+			When = "sourceEditing",
+			ShowInPalette = false,
 		});
 
 		// In-app log viewer (Core-handled in HostCore.Logs.cs): opens the captured console output as a read-only

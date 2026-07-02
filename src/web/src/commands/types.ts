@@ -106,6 +106,9 @@ export const CommandIds = {
   deleteSessionPrompt: "weavie.session.deletePrompt",
   disconnectRemoteAgent: "weavie.session.disconnectRemote",
   removeFromRail: "weavie.session.removeFromRail",
+  sourceEditBlock: "weavie.source.editBlock",
+  sourceCommitEdit: "weavie.source.commitEdit",
+  sourceCancelEdit: "weavie.source.cancelEdit",
 } as const;
 
 declare global {

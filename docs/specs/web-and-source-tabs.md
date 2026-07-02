@@ -28,10 +28,12 @@ they are not re-litigated:
   Weavie is the OAuth *client* for the API, so the blessed native-app flow applies. This sidesteps
   Google's embedded-webview block (`disallowed_useragent`, which blocks WKWebView **and** WebView2 alike)
   because consent happens in the user's real browser, where even "Sign in with Google" works.
-- **No API write-back / in-app editing of sources.** Editing through a REST API means rebuilding the
-  source's editor, with no realtime, against rate limits, with no conflict resolution — strictly worse
-  than the thing it clones, and true of every live SaaS doc (Sheets, Figma, Linear). Editing, if ever
-  wanted, is "open the real app" (a `web` tab) or a system-browser handoff — see *Deferred*.
+- **No full in-app editing of sources — targeted block edits only.** Rebuilding a source's *editor* over a
+  REST API (realtime, conflicts, fidelity chase) stays out, and that remains true of every live SaaS doc
+  (Sheets, Figma, Linear). What changed for Notion: its markdown API grew exact-match `update_content` ops,
+  which support **single-block, in-place edits** without any of that — the original "API-write is strictly
+  worse" verdict predated that endpoint. See [notion-writes.md](notion-writes.md); anything beyond a block
+  edit is still "open the real app".
 - **Render inline in an open shadow root, not a separate webview.** A separate webview would capture
   keyboard focus and hijack global shortcuts (the VS Code-webview problem). Inline rendering keeps one
   document, so capture-phase handlers keep `Ctrl+1` etc. host-owned; an **open** shadow root keeps the
@@ -249,7 +251,7 @@ Extends the [editor-tabs.md](editor-tabs.md) set; entries below are new or widen
 
 | Item | Decision |
 | --- | --- |
-| **Source editing / write-back** | Out. API-write is strictly worse than the real editor (no realtime, rate limits, conflicts, fidelity chase). If ever wanted, editing is "open the real app" (a `web` tab) or a system-browser handoff + re-fetch — **never** an API write path. |
+| **Source editing / write-back** | **Superseded** for single-block edits: Notion's markdown API added exact-match `update_content` ops, removing the objections (no editor rebuild, no fidelity chase, conflicts fail loudly) — shipped as click-to-edit, see [notion-writes.md](notion-writes.md). Full document editing stays out: that's "open the real app". |
 | **Live refresh** | Out. A source is a manual-refresh snapshot. No polling/webhooks in v1. |
 | **In-doc embeds** | A rich embed inside a source (YouTube, Figma) renders as a card/link that opens a `web` tab, not an inline live frame. |
 | **In-source keyboard nav** | Out. Only *global* shortcuts are guaranteed (capture-phase); navigating within a rendered doc is not a host feature in v1. |

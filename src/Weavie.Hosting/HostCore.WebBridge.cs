@@ -119,6 +119,9 @@ public sealed partial class HostCore {
 				// The open resolver: the host matches the URL to a source (render natively) or replies open-web.
 				OpenTargetForWeb(root.GetStringOrEmpty("url"));
 				break;
+			case "source-save-edit":
+				_ = SaveSourceEditAsync(root.GetStringOrEmpty("target"), root.GetStringOrEmpty("oldStr"), root.GetStringOrEmpty("newStr"));
+				break;
 
 			case "add-pr-comment": {
 					_ = AddPrCommentFromWebAsync(

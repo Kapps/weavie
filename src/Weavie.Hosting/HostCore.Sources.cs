@@ -112,6 +112,12 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		PostSourceDoc(target, sourceId, doc);
+	}
+
+	// The one host→web projection of a fetched/updated SourceDoc — fetch and save both land here, so the web's
+	// store always sees the same shape (including the loss flags its banner renders).
+	private void PostSourceDoc(string target, string sourceId, SourceDoc doc) =>
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "source-doc",
 			target,
@@ -119,8 +125,32 @@ public sealed partial class HostCore {
 			markdown = doc.Markdown,
 			editedTime = doc.EditedTime,
 			sourceId,
+			truncated = doc.Truncated,
+			unknownBlocks = doc.UnknownBlocks,
 		}));
+
+	/// <summary>
+	/// Applies one block edit (the <c>source-save-edit</c> message: an exact-match old/new pair the web diffed
+	/// against the verbatim fetched markdown) and re-posts the refreshed <c>source-doc</c> from the update's
+	/// response. A conflict — the page changed in Notion since the fetch — posts <c>source-edit-error</c> with
+	/// <c>stale:true</c> so the block offers a re-fetch; any other failure posts <c>stale:false</c>. This is
+	/// fire-and-forget like the fetch: every outcome must resolve the block's saving state, never leave it stuck.
+	/// </summary>
+	private async Task SaveSourceEditAsync(string target, string oldStr, string newStr) {
+		try {
+			var doc = await _sources.UpdateAsync(target, oldStr, newStr, CancellationToken.None).ConfigureAwait(false);
+			// UpdateAsync just matched a source for this target, so a missing id is a real invariant break.
+			string sourceId = _sources.IdFor(target) ?? throw new InvalidOperationException($"No source claims '{target}'.");
+			PostSourceDoc(target, sourceId, doc);
+		} catch (SourceConflictException ex) {
+			PostSourceEditError(target, ex.Message, stale: true);
+		} catch (Exception ex) {
+			PostSourceEditError(target, ex.Message, stale: false);
+		}
 	}
+
+	private void PostSourceEditError(string target, string message, bool stale) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "source-edit-error", target, message, stale }));
 
 	// A best-effort tab label from a source URL's slug, shown while the real title loads: the last path segment with
 	// a trailing 32-hex id stripped and dashes spaced (…/Test-Page-38e5…0055 → "Test Page"); "Notion" when there's none.

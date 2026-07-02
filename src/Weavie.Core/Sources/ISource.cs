@@ -9,7 +9,11 @@ namespace Weavie.Core.Sources;
 /// <param name="Title">The document's title.</param>
 /// <param name="Markdown">The document's content as markdown (rendered for display; also Claude's channel).</param>
 /// <param name="EditedTime">The document's last-edited time (ISO 8601), or empty when unknown.</param>
-public sealed record SourceDoc(string Title, string Markdown, string EditedTime);
+/// <param name="Truncated">True when the source cut the content off (e.g. Notion's per-page block limit) — the web
+/// renders the loss as a banner. Kept out of <paramref name="Markdown"/> so it stays the verbatim fetched text the
+/// write path diffs against.</param>
+/// <param name="UnknownBlocks">How many blocks the source couldn't read (0 when whole) — rendered with the banner.</param>
+public sealed record SourceDoc(string Title, string Markdown, string EditedTime, bool Truncated, int UnknownBlocks);
 
 /// <summary>
 /// A registered source plugin: it matches a target (URL/id), validates the user's access token, and fetches a
@@ -36,4 +40,12 @@ public interface ISource {
 
 	/// <summary>Fetches <paramref name="target"/> into a <see cref="SourceDoc"/>, authenticated by <paramref name="accessToken"/>.</summary>
 	Task<SourceDoc> FetchAsync(string target, string accessToken, CancellationToken ct = default);
+
+	/// <summary>
+	/// Applies one exact-match content edit to <paramref name="target"/> — <paramref name="oldStr"/> (which must
+	/// match the document exactly once) replaced by <paramref name="newStr"/>, both diffed against the verbatim
+	/// fetched markdown — and returns the refreshed <see cref="SourceDoc"/> from the update's response. Throws
+	/// <see cref="SourceConflictException"/> when the document changed since it was fetched (the match failed).
+	/// </summary>
+	Task<SourceDoc> UpdateAsync(string target, string accessToken, string oldStr, string newStr, CancellationToken ct = default);
 }

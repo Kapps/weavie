@@ -75,6 +75,7 @@ import { canPreview } from "./editor/preview/preview-registry";
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
 import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   setSourceDoc,
   setSourceError,
@@ -512,7 +513,10 @@ export default function App(): JSX.Element {
                 loading spinner / fetch error while it resolves). */}
             <Show when={activeSourceTarget() !== null}>
               <Suspense>
-                <SourceView doc={() => sourceDoc(activeSourceTarget() as string)} />
+                <SourceView
+                  doc={() => sourceDoc(activeSourceTarget() as string)}
+                  target={() => activeSourceTarget() as string}
+                />
               </Suspense>
             </Show>
           </div>
@@ -699,10 +703,22 @@ export default function App(): JSX.Element {
           markdown: message.markdown,
           html: message.html,
           editedTime: message.editedTime,
+          truncated: message.truncated ?? false,
+          unknownBlocks: message.unknownBlocks ?? 0,
         });
       } else if (message.type === "source-error") {
         // The fetch failed: swap the open tab's spinner for the reason (no toast — the error lives in the tab).
         setSourceError(message.target, message.message);
+      } else if (message.type === "source-edit-error") {
+        // A block save failed: surfaced inline at the edited block (stale ⇒ the page changed, offer a re-fetch).
+        // If the user left the edit behind (switched tabs) before the failure landed, toast it — a failed write
+        // must reach them wherever they are, never vanish with the discarded draft.
+        const shown =
+          activeSourceEditor()?.showSaveError(message.target, message.message, message.stale) ??
+          false;
+        if (!shown) {
+          addToast("error", `Notion edit failed: ${message.message}`);
+        }
       } else if (message.type === "open-web") {
         // The host's resolver decided this URL isn't a source — open it as a web (iframe) tab.
         editor.openWebTab(message.url);
@@ -756,6 +772,15 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       // Find in Files (Ctrl+Shift+F / palette): open the content-search panel (it focuses its input on mount).
       registerCommand(CommandIds.findInFiles, () => setSearchOpen(true)),
+
+      // Notion block editing (source-edit.ts): the handlers return false when no source block/edit is live, so
+      // the plain Enter/Escape chords fall through everywhere else.
+      registerCommand(
+        CommandIds.sourceEditBlock,
+        () => activeSourceEditor()?.editFocusedBlock() ?? false,
+      ),
+      registerCommand(CommandIds.sourceCommitEdit, () => activeSourceEditor()?.commit() ?? false),
+      registerCommand(CommandIds.sourceCancelEdit, () => activeSourceEditor()?.cancel() ?? false),
       // The floating diff toolbar buttons route through these same actions. Each returns whether it acted, so
       // an unmatched keybinding (no active diff) falls through to the editor.
       registerCommand(CommandIds.nextChange, () => editor.inline.nextChange()),

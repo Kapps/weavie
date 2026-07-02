@@ -218,3 +218,14 @@ jobs:
       - name: Web e2e (bridge + functional + remote)
         working-directory: src/web
         run: pnpm run e2e
+
+      # Playwright retains a trace + error context per failed test (retain-on-failure); upload them so a
+      # failure on a hosted runner is diagnosable instead of vanishing with the runner.
+      - name: Upload e2e failure traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-traces-${{ matrix.name }}
+          path: src/web/test-results/
+          if-no-files-found: ignore
+          retention-days: 14

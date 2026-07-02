@@ -28,8 +28,9 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "source-doc",
 			target = LogsTarget,
-			title = "Weavie Logs",
+			title = LogsTitle,
 			html = LogsHtml(full, dropped),
+			editedTime = "",
 		}));
 
 		// Claude channel: the most-recent tail, with the omitted count surfaced so a truncation is never silent.

@@ -27,7 +27,10 @@ public sealed partial class HostCore {
 		// fills the tab with the full buffer as pre-rendered `html` (SourceView re-sanitizes it via DOMPurify).
 		// Claude's plaintext channel is the DataJson tail below, so no `markdown` duplicate rides the bridge.
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
-			type = "source-loading", target = LogsTarget, title = LogsTitle, sourceId = LogsSourceId,
+			type = "source-loading",
+			target = LogsTarget,
+			title = LogsTitle,
+			sourceId = LogsSourceId,
 		}));
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "source-doc",

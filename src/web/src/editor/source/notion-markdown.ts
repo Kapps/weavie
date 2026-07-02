@@ -64,7 +64,8 @@ function rewriteCustomTags(root: HTMLElement): void {
       tag === "file" ||
       tag === "pdf" ||
       tag === "audio" ||
-      tag === "video"
+      tag === "video" ||
+      tag === "unknown"
     ) {
       toCard(el);
     } else if (tag.startsWith("mention-")) {
@@ -119,7 +120,8 @@ function replaceCallout(el: Element): void {
   el.replaceWith(aside);
 }
 
-// Page/database refs and non-image media render as a link "card" (never a live embed), mirroring the prior design.
+// Page/database refs, non-image media, and <unknown> placeholders (the markdown API's stand-in for embeds,
+// bookmarks, link previews, …) render as a link "card" (never a live embed), mirroring the prior design.
 function toCard(el: Element): void {
   const a = el.ownerDocument.createElement("a");
   a.className = "wv-card";
@@ -127,7 +129,9 @@ function toCard(el: Element): void {
   if (href !== null) {
     a.setAttribute("href", href);
   }
-  const text = (el.textContent ?? "").trim();
+  // An <unknown> has no body; its `alt` names the block type it stands in for (e.g. "embed", "link_preview").
+  const alt = (el.getAttribute("alt") ?? "").replace(/_/g, " ").trim();
+  const text = (el.textContent ?? "").trim() || alt;
   a.textContent = text.length > 0 ? text : (href ?? "");
   el.replaceWith(a);
 }

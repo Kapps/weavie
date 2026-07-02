@@ -62,9 +62,11 @@ Notion's markdown carries HTML extensions; `renderNotionMarkdown` maps each to s
 - **Blocks:** headings, lists, quotes, dividers, code fences (`<pre><code class="language-…">`, highlighted after
   mount), images (`![]()`); `<callout>` → `.wv-callout` (icon + color); `<details>` toggles and toggle **headings**
   (`# H {toggle="true"}`, whose deeper-indented children the normalizer wraps into a collapsible `<details>`);
-  `<columns>/<column>` → flex; `<table>` (honors `header-row`, per-cell/row color); `<page>`/`<database>` and
-  non-image media (`<file>/<pdf>/<audio>/<video>`) → a link **card**; `<mention-*>` → a link or its text;
-  `<synced_block>` unwrapped; `<table_of_contents>` / `<empty-block>` dropped.
+  `<columns>/<column>` → flex; `<table>` (honors `header-row`, per-cell/row color); `<page>`/`<database>`,
+  non-image media (`<file>/<pdf>/<audio>/<video>`), and `<unknown url alt/>` (the markdown API's placeholder for
+  the block types it can't render: embed, bookmark, link preview, breadcrumb, template — `alt` names the type) →
+  a link **card**; `<mention-*>` → a link or its text; `<synced_block>` unwrapped; `<table_of_contents>` /
+  `<empty-block>` dropped.
 - **Page header:** the fetched title + last-edited time (from the page JSON) render as a header above the body
   (`SourceView.headerNode`) — the markdown body itself carries no title.
 - **Toggling:** `SourceView` drives `<details>` open/closed on a summary click itself (the embedded WebView doesn't
@@ -82,8 +84,12 @@ normalized first (`normalizeSelfClosing`) so the HTML parser doesn't swallow sib
 
 - **Page properties / path / icon** — only the title + last-edited time head the page today; a database page's
   property table, the parent path/breadcrumb, and the page icon are a later slice.
+- **Embeds / bookmarks / link previews** arrive from the markdown API only as `<unknown/>` placeholders (the API
+  doesn't render them), so they show as a link card to the block in Notion — never the live embedded content.
+  Fetching the real block via the block-based API (`GET /v1/blocks/{id}`) is a later slice.
 - **To-dos** render as literal `- [ ]` / `- [x]` (no checkbox — `markdown-it` has no task-list rule by default).
 - **Equations** (`$…$`, `$$…$$`) render as literal LaTeX text (KaTeX is a fast-follow).
+- **Custom emoji** (`:name:`) and **citations** (`[^URL]`) render as literal text.
 - **Nested lists** are re-indented (2 spaces/level) for markdown-it; deep/ordered nesting may need tuning against
   real pages. **Per-column table color** (`<colgroup><col color>`) is dropped.
 - **Image host proxy** for expiring signed URLs; **per-doc icon**; **persisted back/forward + restore-by-refetch**;

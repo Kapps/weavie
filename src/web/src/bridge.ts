@@ -196,6 +196,8 @@ export type HostBoundMessage =
   // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
   | { type: "fs-stat"; id: string; path: string }
   | { type: "fs-read"; id: string; path: string }
+  // Raw bytes (base64) for the media pane's image/video render — same confinement + correlation as fs-read.
+  | { type: "fs-read-bytes"; id: string; path: string }
   | { type: "fs-write"; id: string; path: string; content: string }
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
@@ -377,12 +379,12 @@ export type WebBoundMessage =
   | { type: "close-diff"; id: string }
   // Reply to clipboard-read (terminal paste), correlated by `id`: the OS clipboard's text ("" when empty).
   | { type: "clipboard-content"; id: string; text: string }
-  // Host delivers a file to load + reveal in Monaco. `preview` ⇒ reusable preview tab, else persistent.
-  // `scratch` marks an untitled buffer (New File / restored). `content` is ignored — the working copy reads disk.
+  // Host delivers a file to load + reveal (a Monaco working copy, or the media pane for images/video).
+  // `preview` ⇒ reusable preview tab, else persistent. `scratch` marks an untitled buffer (New File /
+  // restored). No content rides along — the web reads disk through the fs provider.
   | {
       type: "open-file";
       path: string;
-      content: string;
       line: number;
       preview?: boolean;
       scratch?: boolean;
@@ -424,6 +426,17 @@ export type WebBoundMessage =
       id: string;
       ok: boolean;
       content?: string;
+      mtimeMs?: number;
+      size?: number;
+      code?: string;
+      error?: string;
+    }
+  // Reply to fs-read-bytes, correlated by `id`: the file's raw bytes as base64 (or code:"FileNotFound" / error).
+  | {
+      type: "fs-read-bytes-result";
+      id: string;
+      ok: boolean;
+      dataB64?: string;
       mtimeMs?: number;
       size?: number;
       code?: string;

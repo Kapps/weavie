@@ -50,6 +50,28 @@ public sealed class FileProviderService {
 		}
 	}
 
+	/// <summary>Answers <c>fs-read-bytes</c>: the file's raw bytes (base64), a clean FileNotFound, or a loud read error.</summary>
+	public string ReadBytes(string id, string path) {
+		if (!IsAllowed(path) || !_fileSystem.FileExists(path)) {
+			return FileProviderProtocol.ReadBytesNotFound(id);
+		}
+
+		try {
+			byte[] bytes = _fileSystem.ReadAllBytes(path);
+			_fileSystem.TryGetStat(path, out var stat);
+			return FileProviderProtocol.ReadBytesResult(id, bytes, stat);
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			return FileProviderProtocol.ReadBytesError(id, ex.Message);
+		}
+	}
+
+	/// <summary>
+	/// Whether an open of <paramref name="path"/> may proceed: inside an allowed root and present on disk.
+	/// The confinement gate <c>FileOpener</c> checks before pushing an <c>open-file</c> — the content itself
+	/// is read later by the working copy (or the media pane) through the fs-read messages above.
+	/// </summary>
+	public bool CanRead(string path) => IsAllowed(path) && _fileSystem.FileExists(path);
+
 	/// <summary>
 	/// Reads a file's text when it's inside an allowed root (the workspace or scratch), else <c>null</c> for an
 	/// out-of-workspace, missing, or unreadable path. The single validated read every host-side file *open*

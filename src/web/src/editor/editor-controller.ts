@@ -17,6 +17,7 @@ import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath, uriHostPath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
+import { mediaTypeOf } from "./media/media-types";
 import { type NavHistory, createNavHistory } from "./nav-history";
 import {
   type ActivateResult,
@@ -210,9 +211,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const applyActive = (result: ActivateResult): Promise<void> => {
     deps.onCurrentFileChanged(result.path);
     // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
-    // shadow-root render over it) and never read the path as a file.
+    // shadow-root render over it) and never read the path as a file. Same for a media (image/video) file tab —
+    // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
-    if (activeKind === "web" || activeKind === "source") {
+    if (activeKind === "web" || activeKind === "source" || mediaTypeOf(result.path) !== null) {
       return Promise.resolve();
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient

@@ -93,6 +93,9 @@ public sealed class InMemoryFileSystem : IFileSystem {
 	}
 
 	/// <inheritdoc/>
+	public byte[] ReadAllBytes(string path) => Encoding.UTF8.GetBytes(ReadAllText(path));
+
+	/// <inheritdoc/>
 	public void WriteAllText(string path, string contents) {
 		ArgumentNullException.ThrowIfNull(contents);
 		string normalized = Normalize(path);

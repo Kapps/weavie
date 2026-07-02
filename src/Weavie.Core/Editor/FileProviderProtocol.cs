@@ -77,6 +77,43 @@ public static class FileProviderProtocol {
 		});
 	}
 
+	/// <summary>Reply to <c>fs-read-bytes</c> with the file's raw bytes (base64) and post-read stat.</summary>
+	public static string ReadBytesResult(string id, byte[] bytes, FileStat stat) {
+		ArgumentException.ThrowIfNullOrEmpty(id);
+		ArgumentNullException.ThrowIfNull(bytes);
+		return Build(writer => {
+			writer.WriteString("type", "fs-read-bytes-result");
+			writer.WriteString("id", id);
+			writer.WriteBoolean("ok", true);
+			writer.WriteBase64String("dataB64", bytes);
+			writer.WriteNumber("mtimeMs", stat.MtimeMs);
+			writer.WriteNumber("size", stat.Size);
+		});
+	}
+
+	/// <summary>Reply to <c>fs-read-bytes</c> for a missing (or out-of-workspace) path: <c>code:"FileNotFound"</c>.</summary>
+	public static string ReadBytesNotFound(string id) {
+		ArgumentException.ThrowIfNullOrEmpty(id);
+		return Build(writer => {
+			writer.WriteString("type", "fs-read-bytes-result");
+			writer.WriteString("id", id);
+			writer.WriteBoolean("ok", false);
+			writer.WriteString("code", "FileNotFound");
+		});
+	}
+
+	/// <summary>Reply to <c>fs-read-bytes</c> for a genuine read failure, surfaced loudly by the requesting pane.</summary>
+	public static string ReadBytesError(string id, string error) {
+		ArgumentException.ThrowIfNullOrEmpty(id);
+		ArgumentNullException.ThrowIfNull(error);
+		return Build(writer => {
+			writer.WriteString("type", "fs-read-bytes-result");
+			writer.WriteString("id", id);
+			writer.WriteBoolean("ok", false);
+			writer.WriteString("error", error);
+		});
+	}
+
 	/// <summary>Reply to <c>fs-write</c> with the post-write stat so the provider updates its etag without re-statting.</summary>
 	public static string WriteResult(string id, FileStat stat) {
 		ArgumentException.ThrowIfNullOrEmpty(id);

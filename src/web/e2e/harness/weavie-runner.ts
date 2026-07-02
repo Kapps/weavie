@@ -97,6 +97,7 @@ export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> 
   return {
     url,
     workspace: fake.workspace,
+    home: fake.home,
     log: () => log,
     fakeLog: fake.fakeLog,
     async stop() {

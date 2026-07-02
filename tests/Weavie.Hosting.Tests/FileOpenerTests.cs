@@ -8,8 +8,8 @@ namespace Weavie.Hosting.Tests;
 /// <summary>
 /// <see cref="FileOpener"/> pushes a file to the editor through the session's <see cref="SessionEditorChannel"/>,
 /// so a background session's <c>openFile</c> is held (not posted into the foreground) and a missing file is a
-/// skipped no-op rather than an error. Reads go through the validated <see cref="FileProviderService"/>, so an
-/// out-of-workspace path is refused, not revealed.
+/// skipped no-op rather than an error. The gate goes through the validated <see cref="FileProviderService"/>,
+/// so an out-of-workspace path is refused, not revealed. No content rides on the push — the web reads disk.
 /// </summary>
 public sealed class FileOpenerTests {
 	// A real worktree root is always fully rooted; "/ws" is drive-relative on Windows, where Path.GetFullPath
@@ -26,7 +26,7 @@ public sealed class FileOpenerTests {
 	}
 
 	[Fact]
-	public void Active_PostsOpenFileWithContent() {
+	public void Active_PostsOpenFileWithoutContent() {
 		var (opener, channel, bridge, fs) = New();
 		string path = Path.Combine(Workspace, "a.cs");
 		fs.WriteAllText(path, "hello");
@@ -37,7 +37,7 @@ public sealed class FileOpenerTests {
 		var msg = bridge.LastOfType("open-file");
 		Assert.True(msg.HasValue);
 		Assert.Equal(path, msg!.Value.GetProperty("path").GetString());
-		Assert.Equal("hello", msg.Value.GetProperty("content").GetString());
+		Assert.False(msg.Value.TryGetProperty("content", out _)); // the working copy reads disk — nothing rides along
 		Assert.Equal(3, msg.Value.GetProperty("line").GetInt32());
 	}
 

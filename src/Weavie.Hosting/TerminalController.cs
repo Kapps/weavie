@@ -374,11 +374,20 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
+	/// <summary>
+	/// Raised (on the caller's thread) with each chunk written to the PTY via <see cref="Write"/> — the input
+	/// side of the pane. The session status uses the claude pane's stream to see a permission prompt being
+	/// answered, which no hook reports.
+	/// </summary>
+	public event Action<byte[]>? InputWritten;
+
 	/// <summary>Writes raw input bytes (keystrokes from xterm.js) to the PTY.</summary>
 	public void Write(byte[] data) {
 		lock (_gate) {
 			_terminal?.Write(data);
 		}
+
+		InputWritten?.Invoke(data);
 	}
 
 	/// <summary>Resizes the PTY to the given column/row count (and remembers them for restarts).</summary>

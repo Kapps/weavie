@@ -48,7 +48,8 @@
         "src/chrome/SourceTokenPrompt.tsx",
         "src/chrome/RegisterAgentModal.tsx",
         "src/chrome/UrlPrompt.tsx",
-        "src/editor/ConfirmDialog.tsx"
+        "src/editor/ConfirmDialog.tsx",
+        "src/editor/preview/EmbedLightbox.tsx"
       ],
       "linter": {
         "rules": {

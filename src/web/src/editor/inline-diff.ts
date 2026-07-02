@@ -129,7 +129,7 @@ export interface InlineDiff {
   clearAll(): void;
   /** Whether a diff is registered for an exact model URI string (so other features can suspend over it). */
   hasDiffForUri(uri: string): boolean;
-  // The nav/action methods return whether they acted, so an unmatched keybinding falls through to the editor.
+  // The nav/action methods return whether they handled the key, so an unmatched keybinding falls through to the editor.
   /** Jump to the next change hunk in the active diff. */
   nextChange(): boolean;
   /** Jump to the previous change hunk in the active diff. */
@@ -580,7 +580,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const hunk = hunkAtCursor();
     const model = editor.getModel();
     if (hunk === undefined || model === null) {
-      return false;
+      // Fully-kept file at "change 0/0": the toolbar is up, so consume the key — never fall through
+      // and let Monaco type into the file under review.
+      return true;
     }
     const guardText = model
       .getLinesContent()
@@ -612,7 +614,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const hunk = hunkAtCursor();
     const model = editor.getModel();
     if (hunk === undefined || model === null) {
-      return false;
+      // Same as keepHunk: at "change 0/0" consume the key rather than fall through to the editor.
+      return true;
     }
     const guardText = model
       .getLinesContent()

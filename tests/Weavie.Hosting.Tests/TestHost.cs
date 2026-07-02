@@ -51,7 +51,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	public LogBuffer LogBuffer => _services.LogBuffer;
 
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
-	public static async Task<TestHost> StartAsync() {
+	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
+
+	/// <summary>
+	/// As <see cref="StartAsync()"/>, with test-specific repo setup run BEFORE the host starts. Git commands
+	/// that write the index (add / commit / checkout) must happen here: once the host is live its own git
+	/// activity (status refresh) races a concurrent writer's <c>index.lock</c>.
+	/// </summary>
+	public static async Task<TestHost> StartAsync(Action<string> prepareRepo) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -59,6 +66,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
 		RunGit(repo, "add", "-A");
 		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "initial");
+		prepareRepo(repo);
 
 		EnsureRelayBinary();
 		// Keep tests hermetic: never spawn the developer's real login shell or import its rc-file environment.

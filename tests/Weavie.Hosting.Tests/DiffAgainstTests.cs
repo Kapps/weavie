@@ -36,10 +36,10 @@ public sealed class DiffAgainstTests {
 
 	[Fact]
 	public async Task DiffAgainstParent_ShowsTheLastCommitPlusUncommitted() {
-		await using var host = await TestHost.StartAsync();
-		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nagain\n");
-		Git(host.RepoRoot, "add", "-A");
-		Git(host.RepoRoot, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "second");
+		await using var host = await TestHost.StartAsync(repo => {
+			File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\nagain\n");
+			Commit(repo, "second");
+		});
 		File.WriteAllText(Path.Combine(host.RepoRoot, "extra.txt"), "new\n");
 
 		host.Send("""{"type":"diff-against","ref":"HEAD^"}""");
@@ -123,20 +123,25 @@ public sealed class DiffAgainstTests {
 
 	[Fact]
 	public async Task DiffAgainst_RefAheadOfHead_DiffsFromTheMergeBase_NotTheirSide() {
-		await using var host = await TestHost.StartAsync();
 		// A branch one commit AHEAD of main: merge-base(topic, HEAD) == HEAD, so with a clean tree there is
 		// nothing on THIS side to review — never a reversed diff of the branch's own changes.
-		Git(host.RepoRoot, "checkout", "-q", "-b", "topic");
-		File.WriteAllText(Path.Combine(host.RepoRoot, "topic.txt"), "theirs\n");
-		Git(host.RepoRoot, "add", "-A");
-		Git(host.RepoRoot, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "topic work");
-		Git(host.RepoRoot, "checkout", "-q", "main");
+		await using var host = await TestHost.StartAsync(repo => {
+			Git(repo, "checkout", "-q", "-b", "topic");
+			File.WriteAllText(Path.Combine(repo, "topic.txt"), "theirs\n");
+			Commit(repo, "topic work");
+			Git(repo, "checkout", "-q", "main");
+		});
 		host.Bridge.Clear();
 
 		host.Send("""{"type":"diff-against","ref":"topic"}""");
 
 		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
 		Assert.Contains("No changes against 'topic'", toast.GetProperty("message").GetString());
+	}
+
+	private static void Commit(string cwd, string message) {
+		Git(cwd, "add", "-A");
+		Git(cwd, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", message);
 	}
 
 	private static void Git(string cwd, params string[] args) {

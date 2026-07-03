@@ -236,6 +236,25 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await expect(page.locator(ACCEPTED)).toHaveCount(2);
     await expect(page.locator(UNDO)).toHaveCount(2);
   });
+
+  // A single-file review has no ← / → file axis, so "All files" reads as "All changes" — but it must still be
+  // offered, because keep-all is the only toolbar scope that commits the review and closes the navigator.
+  // Without it a one-file review could only ever be faded (kept-but-uncommitted), never dismissed.
+  test("with scope = All changes, one Keep commits the single-file review and closes the toolbar", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+
+    await page.locator(".weavie-inline-scope-btn").click();
+    await page.locator(".weavie-inline-scope-item", { hasText: "All changes" }).click();
+    await page.locator(".weavie-inline-accept").click();
+
+    // Committed: every marker (bright + faded) clears and the toolbar leaves — the review is fully closed.
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
 });
 
 test.describe("parked navigator — surfaces without moving the editor", () => {

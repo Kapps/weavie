@@ -18,6 +18,11 @@ function uriToPath(pathname: string): string {
   return /^\/[A-Za-z]:/.test(path) ? path.slice(1) : path;
 }
 
+// How long a hidden pane holds its WebGL context before releasing it. Long enough that a rapid switch
+// away-and-back (a PR-switch storm) reuses the live context instead of churning a fresh one each toggle —
+// browsers reclaim WebGL contexts lazily, so churn would pile up unfreed contexts and blow the cap.
+const HIDDEN_WEBGL_DISPOSE_MS = 2000;
+
 // xterm.js pane wired to one C# PTY over the bridge: PTY bytes -> term.write, keystrokes -> term-input,
 // layout -> term-resize. On mount it reports { term-ready } so the host launches this session's child sized
 // to match. Every message is tagged with `slot` (workspace session) AND `session` (pane) so the host routes
@@ -130,16 +135,28 @@ export function TerminalView(props: {
     };
 
     // Keep a WebGL context only for the visible pane (one per hidden session would exceed the context cap).
-    // On hide, drop the GPU context but keep the Terminal + scrollback alive so switching back is instant.
+    // Dropping it is DEFERRED (see HIDDEN_WEBGL_DISPOSE_MS) so a brief hide reuses the live context; the
+    // Terminal + scrollback stay alive either way, so switching back is instant.
+    let disposeWebglTimer: ReturnType<typeof setTimeout> | undefined;
+    const cancelWebglDispose = (): void => {
+      if (disposeWebglTimer !== undefined) {
+        clearTimeout(disposeWebglTimer);
+        disposeWebglTimer = undefined;
+      }
+    };
     createEffect(() => {
       if (props.active) {
+        cancelWebglDispose();
         if (webgl === null) {
           mountWebgl();
         }
         requestAnimationFrame(() => refit());
-      } else if (webgl !== null) {
-        webgl.dispose();
-        webgl = null;
+      } else if (webgl !== null && disposeWebglTimer === undefined) {
+        disposeWebglTimer = setTimeout(() => {
+          disposeWebglTimer = undefined;
+          webgl?.dispose();
+          webgl = null;
+        }, HIDDEN_WEBGL_DISPOSE_MS);
       }
     });
 
@@ -330,6 +347,7 @@ export function TerminalView(props: {
       if (window.__WEAVIE_TERMINALS__?.[termKey] === term) {
         delete window.__WEAVIE_TERMINALS__[termKey];
       }
+      cancelWebglDispose();
       webgl?.dispose();
       term.dispose();
     });

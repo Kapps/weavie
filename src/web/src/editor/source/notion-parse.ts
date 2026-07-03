@@ -40,6 +40,9 @@ const LEAF_TAG = /^<(page|database|audio|video|file|pdf)\b([^>]*)>(.*)<\/\1>$/;
 const UNKNOWN_TAG = /^<unknown\b([^>]*?)\/?>$/;
 const TOC_TAG = /^<table_of_contents\b([^>]*?)\/?>$/;
 const SUMMARY = /^<summary>(.*)<\/summary>$/;
+const TABLE_OPEN = /^<table[\s>]/;
+// A code fence's open/close run: ``` or ~~~ (or longer, so a ````-fence can carry ``` inside).
+const FENCE = /^(```+|~~~+)/;
 
 // Parses sibling blocks at `depth` (the tab level of this slice); recursion carries container/child nesting.
 function parseBlocks(lines: Line[], depth: number): NotionBlock[] {
@@ -53,67 +56,55 @@ function parseBlocks(lines: Line[], depth: number): NotionBlock[] {
       continue;
     }
 
-    // A fenced code block: its lines are code, consumed to the closing fence verbatim. The close run must be
-    // at least as long as the open run, so a ````-fence can carry ``` inside.
-    const fence = /^(```+|~~~+)/.exec(trimmed)?.[1] ?? null;
+    // A fenced code block: its lines are code, consumed to the closing fence verbatim.
+    const fence = FENCE.exec(trimmed)?.[1] ?? null;
     if (fence !== null) {
-      let j = i + 1;
-      while (j < lines.length && !(lines[j]?.text ?? "").trim().startsWith(fence)) {
-        j++;
-      }
+      const close = regionClose(lines, i);
       out.push({
         kind: "fence",
         line: line.idx,
         lang: trimmed.slice(fence.length).trim(),
         code: lines
-          .slice(i + 1, j)
+          .slice(i + 1, close)
           .map((l) => stripTabs(l.text, depth))
           .join("\n"),
       });
-      i = Math.min(j + 1, lines.length);
+      i = Math.min(close + 1, lines.length);
       continue;
     }
 
-    // A block equation: `$$ … $$` on its own lines (or a single `$$…$$` line).
-    if (
-      trimmed === "$$" ||
-      (trimmed.startsWith("$$") && trimmed.endsWith("$$") && trimmed.length > 4)
-    ) {
-      if (trimmed !== "$$") {
-        out.push({ kind: "equation", line: line.idx, tex: trimmed.slice(2, -2).trim() });
-        i++;
-        continue;
-      }
-      let j = i + 1;
-      while (j < lines.length && (lines[j]?.text ?? "").trim() !== "$$") {
-        j++;
-      }
+    // A single-line block equation `$$…$$`; the multi-line `$$ … $$` form falls to the region reader below.
+    if (trimmed.startsWith("$$") && trimmed.endsWith("$$") && trimmed.length > 4) {
+      out.push({ kind: "equation", line: line.idx, tex: trimmed.slice(2, -2).trim() });
+      i++;
+      continue;
+    }
+
+    // A multi-line block equation `$$ … $$`.
+    if (trimmed === "$$") {
+      const close = regionClose(lines, i);
       out.push({
         kind: "equation",
         line: line.idx,
         tex: lines
-          .slice(i + 1, j)
+          .slice(i + 1, close)
           .map((l) => stripTabs(l.text, depth))
           .join("\n"),
       });
-      i = Math.min(j + 1, lines.length);
+      i = Math.min(close + 1, lines.length);
       continue;
     }
 
     // A `<table>` region (Notion's table form): consumed whole, parsed by notion-table.
-    if (/^<table[\s>]/.test(trimmed)) {
-      let j = i;
-      while (j < lines.length && !(lines[j]?.text ?? "").trim().endsWith("</table>")) {
-        j++;
-      }
-      j = Math.min(j, lines.length - 1);
+    if (TABLE_OPEN.test(trimmed)) {
+      const close = regionClose(lines, i);
       out.push(
         parseTagTable(
-          lines.slice(i, j + 1).map((l) => l.text),
+          lines.slice(i, close + 1).map((l) => l.text),
           line.idx,
         ),
       );
-      i = j + 1;
+      i = Math.min(close + 1, lines.length);
       continue;
     }
 
@@ -214,7 +205,9 @@ function parseBlocks(lines: Line[], depth: number): NotionBlock[] {
       if (next.text.trim() !== "" && indentDepth(next.text) <= depth) {
         break;
       }
-      j++;
+      // A verbatim region (fence, equation, table) is delimited by its own syntax, not indentation — Notion even
+      // emits a nested table's rows unindented — so skip it whole rather than let its interior dedent-break here.
+      j = regionClose(lines, j) + 1;
     }
     const children = parseBlocks(lines.slice(i + 1, j), depth + 1);
     out.push(textBlock(trimmed, line.idx, children));
@@ -289,6 +282,32 @@ function stripTabs(text: string, depth: number): string {
     n++;
   }
   return text.slice(n);
+}
+
+// The line index closing the verbatim region opening at `start` — a fenced code block, a multi-line `$$` equation,
+// or a `<table>` — `lines.length` when it never closes, or `start` when the line opens no such region.
+function regionClose(lines: Line[], start: number): number {
+  const trimmed = (lines[start]?.text ?? "").trim();
+  const fence = FENCE.exec(trimmed)?.[1];
+  if (fence !== undefined) {
+    return scanFor(lines, start + 1, (t) => t.startsWith(fence));
+  }
+  if (trimmed === "$$") {
+    return scanFor(lines, start + 1, (t) => t === "$$");
+  }
+  if (TABLE_OPEN.test(trimmed)) {
+    return scanFor(lines, start, (t) => t.endsWith("</table>"));
+  }
+  return start;
+}
+
+// The first index at/after `from` whose trimmed line satisfies `hit`, or `lines.length` when none does.
+function scanFor(lines: Line[], from: number, hit: (trimmed: string) => boolean): number {
+  let j = from;
+  while (j < lines.length && !hit((lines[j]?.text ?? "").trim())) {
+    j++;
+  }
+  return j;
 }
 
 // The index of the `</tag>` closing the open tag at `openIdx` (nesting-aware); the last line when unclosed —

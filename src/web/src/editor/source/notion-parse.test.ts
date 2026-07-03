@@ -136,4 +136,43 @@ describe("parseNotion", () => {
     const blocks = parseNotion(["<callout>", "\tOrphan"].join("\n"));
     expect(blocks).toMatchObject([{ kind: "callout", children: [{ kind: "paragraph" }] }]);
   });
+
+  test("a nested table keeps its unindented <tr>/<td> rows (Notion indents only the <table> tags)", () => {
+    const blocks = parseNotion(
+      [
+        '## Testing {toggle="true"}',
+        "\t<table>",
+        "\t<colgroup>",
+        '\t<col width="100">',
+        "\t</colgroup>",
+        "<tr>", // Notion emits rows at column 0 even though the table is a toggle-heading child
+        "<td>A</td>",
+        "<td>c</td>",
+        "</tr>",
+        "\t</table>",
+      ].join("\n"),
+    );
+    expect(blocks).toMatchObject([
+      {
+        kind: "heading",
+        toggle: true,
+        children: [
+          {
+            kind: "table",
+            rows: [{ cells: [{ text: "A" }, { text: "c" }] }],
+          },
+        ],
+      },
+    ]);
+  });
+
+  test("a nested fence keeps a column-0 interior line (verbatim regions skip indentation, not just tables)", () => {
+    const blocks = parseNotion(
+      ["- item", "\t```py", "def f():", "\tpass", "\t```", "After"].join("\n"),
+    );
+    expect(blocks).toMatchObject([
+      { kind: "bulleted", children: [{ kind: "fence", lang: "py", code: "def f():\npass" }] },
+      { kind: "paragraph", text: "After" },
+    ]);
+  });
 });

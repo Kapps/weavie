@@ -45,6 +45,10 @@ public sealed class TerminalController : IDisposable {
 	// Shell-only: the directory the shell last reported via OSC 7, so a reopen relaunches there instead of the
 	// workspace root. Null until reported (or for the claude pane, which always runs in the IDE workspace).
 	private string? _reportedCwd;
+	// Per-launch latched terminal state (alt screen, mouse modes, bracketed paste, title…), replayed to a client
+	// that mounts onto the already-live child — the resize nudge redraws content but can't re-establish modes.
+	// Replaced with a fresh instance per launch in StartTerminal, which is also the reset on restart.
+	private TerminalModeTracker _modes = new();
 	// Serializes live term-output posts against a pending reset→replay (_resyncPending, set while a ResyncPane
 	// awaits its term-ready), so every output chunk reaches the page exactly once: via the replay when it was
 	// logged before the replay snapshot, live otherwise. Separate from _gate so keystrokes never wait on it.
@@ -150,20 +154,23 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Handles the page's <c>term-ready</c> for this pane (a session's xterm mounting). If the child isn't running
-	/// it launches it sized to the given columns/rows; if it's already live (a cold reattach), it nudges the PTY
-	/// size (one row shorter, then back) to force the running TUI to redraw into the pane, else it stays blank.
-	/// The start runs after the lock (the supervisor's start callback takes the gate) on the not-running branch.
+	/// it launches it sized to the given columns/rows. If it's already live (a cold reattach), the fresh xterm has
+	/// missed everything the child established at startup, so this replays the persisted scrollback (shell only),
+	/// then the latched terminal modes (alt screen, mouse tracking, bracketed paste, title — without which a
+	/// fullscreen TUI renders into the normal buffer and grows scrollback it never wanted), and only then nudges
+	/// the PTY size (one row shorter, then back) to make the TUI redraw — into the now-correct buffer. The redraw
+	/// bytes can't overtake the preamble: they only exist after the resize reaches the child and come back through
+	/// the PTY read thread. The start runs after the lock (the supervisor's start callback takes the gate).
 	/// </summary>
 	public void OnReady(int columns, int rows) {
 		bool start;
+		byte[] restore = [];
 		lock (_gate) {
 			_columns = columns;
 			_rows = rows;
-			if (_terminal is null) {
-				start = true;
-			} else {
-				start = false;
-				NudgeResize(_terminal);
+			start = _terminal is null;
+			if (!start) {
+				restore = _modes.BuildRestore();
 			}
 		}
 
@@ -182,6 +189,17 @@ public sealed class TerminalController : IDisposable {
 
 		if (start) {
 			_supervisor.Start();
+			return;
+		}
+
+		if (restore.Length > 0) {
+			_bridge.PostToWeb(TermOutputJson(restore));
+		}
+
+		lock (_gate) {
+			if (_terminal is not null) {
+				NudgeResize(_terminal);
+			}
 		}
 	}
 
@@ -308,6 +326,8 @@ public sealed class TerminalController : IDisposable {
 			// decided by ObserveHook, not here. Unmanaged launches (shell, or resume off) skip all this.
 			var managedLaunch = isClaude ? ResolveClaudeLaunch() : null;
 			_startupWatcher = managedLaunch is { } resolved ? new ClaudeStartupWatcher(resuming: resolved.Resume) : null;
+			var modes = new TerminalModeTracker();
+			_modes = modes;
 			var sessionArgs = managedLaunch is { } managed
 				? (IReadOnlyList<string>)[managed.Resume ? "--resume" : "--session-id", managed.SessionId]
 				: NoSessionArgs;
@@ -323,7 +343,9 @@ public sealed class TerminalController : IDisposable {
 			});
 
 			var terminal = _launcher.CreateTerminal();
-			terminal.Output += OnOutput;
+			// The tracker is captured per launch (not read from the field) so a late chunk from a dying child can
+			// never latch into the next launch's restore preamble.
+			terminal.Output += data => OnOutput(data, modes);
 			terminal.Exited += OnTerminalExited;
 			terminal.Start(new TerminalStartInfo {
 				Command = launch.Command,
@@ -465,9 +487,12 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
-	private void OnOutput(byte[] data) {
+	private void OnOutput(byte[] data, TerminalModeTracker modes) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
+		// Latch mode/title changes for the restore preamble a reattaching client gets (see OnReady). Independent
+		// of the resync suppression below: a suppressed chunk still changes the child's mode state.
+		modes.Feed(data);
 
 		// Confirm a managed claude launch came up (and self-heal on a failed resume), independent of the page.
 		ObserveClaudeStartup(data);

@@ -4,7 +4,7 @@ namespace Weavie.Runner.Tests;
 
 /// <summary>
 /// Covers <see cref="RunnerOptions.Resolve"/>: the <c>--tls</c> modes, the fail-closed rejection of an exposed
-/// bind without TLS, and the worker-port pinning secured modes rely on.
+/// bind without TLS, and the worker-port pinning secured modes rely on — plus <see cref="RunnerOptions.UnknownArgs"/>.
 /// </summary>
 public sealed class RunnerOptionsTests {
 	private static string[] Args(params string[] extra) =>
@@ -88,4 +88,13 @@ public sealed class RunnerOptionsTests {
 		Assert.NotNull(error);
 		Assert.Contains("not a valid port", error);
 	}
+
+	[Fact]
+	public void Recognized_args_report_no_unknowns() =>
+		Assert.Empty(RunnerOptions.UnknownArgs(Args("--tls", "tailscale", "--auto-update")));
+
+	// --autoupdate (one word) is not --auto-update; it must surface, not be silently dropped.
+	[Fact]
+	public void Misspelled_flag_surfaces_as_unknown() =>
+		Assert.Equal(new[] { "--autoupdate" }, RunnerOptions.UnknownArgs(Args("--autoupdate")));
 }

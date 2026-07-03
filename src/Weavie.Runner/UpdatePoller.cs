@@ -36,7 +36,8 @@ public sealed record UpdateStatus {
 /// </summary>
 public sealed class UpdatePoller : IDisposable {
 	private static readonly TimeSpan PollInterval = TimeSpan.FromMinutes(15);
-	private const string ReleaseApi = "https://api.github.com/repos/Kapps/weavie/releases/tags/main-latest";
+	private const string ReleaseTag = "main-latest";
+	private const string ReleaseApi = "https://api.github.com/repos/Kapps/weavie/releases/tags/" + ReleaseTag;
 	private const string AssetName = "weavie-runner-linux-x64.tar.gz";
 
 	private readonly VersionStore _store;
@@ -71,6 +72,7 @@ public sealed class UpdatePoller : IDisposable {
 
 	/// <summary>Starts the update loop: reconcile a boot mid-update, then poll now and every 15 minutes.</summary>
 	public void Start() => _ = Task.Run(async () => {
+		_log($"enabled — runner build {RunnerIdentity.BuildNumber}, polling {ReleaseTag} every {PollInterval.TotalMinutes:0}m");
 		// Staged ≠ confirmed at boot means a prior runner died mid-update: the worker Ensure() spawns is
 		// an unconfirmed build, so run the apply flow first — its confirm/rollback watches that spawn.
 		if (_store.StagedBuild is { } staged && staged != _store.ConfirmedGoodBuild) {

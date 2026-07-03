@@ -6,6 +6,12 @@ if (options is null) {
 	return 1;
 }
 
+// A typo'd flag (e.g. --autoupdate for --auto-update) would otherwise be dropped in silence, disabling a
+// feature the operator asked for. Warn, but keep running — an unknown arg isn't fatal.
+foreach (string unknown in RunnerOptions.UnknownArgs(args)) {
+	Console.WriteLine($"[weavie-runner] warning: unrecognized runner flag '{unknown}'");
+}
+
 if (!Directory.Exists(Path.Combine(options.WorkspaceRoot, ".git"))) {
 	Console.WriteLine($"[weavie-runner] note: {options.WorkspaceRoot} is not a git repo — New Session (worktrees) needs git.");
 }
@@ -69,7 +75,11 @@ var backend = backends.Ensure();
 
 // After Ensure: the poller's boot reconcile (a runner that died mid-update) must see the spawned
 // worker to drain/confirm/roll it back.
-updater?.Start();
+if (updater is { } activePoller) {
+	activePoller.Start();
+} else {
+	Log("[update] auto-update off — pass --auto-update to enable");
+}
 
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");
 Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl}");

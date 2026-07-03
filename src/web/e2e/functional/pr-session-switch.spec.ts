@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { navChord, walkToChangedFile } from "../harness/navigator";
 
 // Probes the PR-review surface across SESSION SWITCHES (the suspected bug nest). The prScenario fixture stubs
 // one PR (#101: feature.ts added + hello.ts modified) over a local "origin", with a seeded comment on hello.ts.
@@ -83,7 +83,7 @@ test("S3: a stale pr-diff cannot render onto a non-PR session after a quick swit
   // Trigger a fresh per-file diff request, then immediately switch to the non-PR primary before the host
   // can reply. Stepping the file walk issues get-pr-diff for the neighbour.
   await page.locator(".monaco-editor").first().click();
-  await page.keyboard.press("ControlOrMeta+ArrowRight");
+  await page.keyboard.press(navChord("ArrowRight"));
   await page.locator(chips).first().click();
 
   // The non-PR session must show NO PR diff surface — no toolbar, no bright added band leaking over it.

@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { navChord } from "../harness/navigator";
 import { appliedEdit } from "../harness/review";
 
 // The POST-TURN review surface (applied changes), keep/revert/undo/redo, the parked navigator, and the
@@ -35,7 +36,7 @@ const TOOLBAR = ".weavie-inline-toolbar";
 // keep/revert acts on a known hunk regardless of where the file opened.
 async function focusFirstHunk(page: import("@playwright/test").Page): Promise<void> {
   await expect(page.locator(SCOPE)).toBeVisible({ timeout: 15_000 });
-  await page.keyboard.press("ControlOrMeta+ArrowDown");
+  await page.keyboard.press(navChord("ArrowDown"));
 }
 
 test.describe("applied review — keep & undo", () => {
@@ -249,7 +250,7 @@ test.describe("parked navigator — surfaces without moving the editor", () => {
     await expect(page.locator(".weavie-inline-accept")).toBeDisabled(); // Keep is inert while parked
 
     // Step in — opens the first changed file at its first hunk; the live toolbar (scope picker) takes over.
-    await page.keyboard.press("ControlOrMeta+ArrowDown");
+    await page.keyboard.press(navChord("ArrowDown"));
     await expect(page.locator(SCOPE)).toBeVisible();
     await expect(page.locator(".monaco-editor .view-lines")).toContainText("Hi there");
   });

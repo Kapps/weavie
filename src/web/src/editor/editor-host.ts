@@ -190,6 +190,19 @@ export async function createEditorHost(
     });
   };
 
+  // Reflect the SETTLED active model onto the container as data-active-file — the only signal for WHICH file the
+  // editor is actually showing now. The tab's active state and the optimistic currentFile both flip before the
+  // async model swap (a host round-trip) lands, so neither can stand in for it. Drives e2e waits and doubles as
+  // a debugging aid; cleared for the review model, overlay tabs, and the empty pane (no file model).
+  const reflectActiveFile = (): void => {
+    const model = editor.getModel();
+    if (model !== null && isUserFileModel(model)) {
+      container.dataset.activeFile = model.uri.fsPath;
+    } else {
+      delete container.dataset.activeFile;
+    }
+  };
+
   // Every subscription is collected so dispose() tears them all down — including listeners on models that
   // outlive the widget, so a rebuilt host never stacks a second handler set on a surviving model.
   const disposables: monaco.IDisposable[] = [
@@ -198,6 +211,7 @@ export async function createEditorHost(
     // onDidChangeCursorSelection fires on every caret move too, so it covers both cursor and selection updates.
     editor.onDidChangeCursorSelection(updateStatus),
     editor.onDidChangeModel(updateStatus),
+    editor.onDidChangeModel(reflectActiveFile),
   ];
 
   // Mirror each working copy's dirty state into the dirty store so the tab strip shows an unsaved `*` (the error

@@ -71,7 +71,23 @@ export const SOURCE_STYLES = `
 .wv-source ul, .wv-source ol { margin: 0.5em 0; padding-left: 1.5em; }
 .wv-source li { margin: 0.2em 0; }
 .wv-source ul.wv-todos { list-style: none; padding-left: 0.2em; }
-.wv-source li.wv-todo { display: flex; align-items: baseline; gap: 0.5em; }
+.wv-source li.wv-todo { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0.5em; }
+.wv-source li.wv-todo input { flex: none; accent-color: var(--accent, #54c6a4); }
+.wv-source li.wv-todo .wv-children { flex-basis: 100%; }
+/* A block's tab-indented child blocks, nested under any parent kind. */
+.wv-source .wv-children { margin-left: 1.4em; }
+.wv-source .wv-equation {
+  margin: 0.9em 0; padding: 0.7em 1em; text-align: center; border-radius: 6px;
+  font-family: ui-monospace, monospace; font-size: 0.92em;
+  background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
+}
+.wv-source .wv-math { background: none; color: var(--accent, #54c6a4); }
+.wv-source .wv-toc { margin: 0.8em 0; }
+.wv-source .wv-toc ul { list-style: none; padding-left: 0; margin: 0; }
+.wv-source .wv-toc a { color: var(--dim, #6f7884); text-decoration: underline; text-underline-offset: 3px; }
+.wv-source .wv-toc a:hover { color: var(--accent, #54c6a4); }
+.wv-source .wv-toc-l2 { padding-left: 1.2em; }
+.wv-source .wv-toc-l3, .wv-source .wv-toc-l4, .wv-source .wv-toc-l5, .wv-source .wv-toc-l6 { padding-left: 2.4em; }
 .wv-source blockquote {
   margin: 0.8em 0; padding: 0.1em 0 0.1em 1em; border-left: 3px solid var(--dim, #6f7884); color: var(--fg, #cdd5dc);
 }

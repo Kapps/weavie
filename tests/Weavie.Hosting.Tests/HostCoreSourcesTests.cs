@@ -222,7 +222,7 @@ public sealed class HostCoreSourcesTests {
 		Assert.EndsWith("/v1/pages/1a2b3c4d-5e6f-7a8b-9c0d-1e2f3a4b5c6d/markdown", patch!.RequestUri!.AbsoluteUri);
 		Assert.Equal("Bearer", patch.Headers.Authorization!.Scheme);
 		Assert.Equal("ntn_secret", patch.Headers.Authorization.Parameter);
-		Assert.Equal("""{"update_content":[{"old_str":"Hello\n","new_str":"Hello edited\n"}]}""", patchBody);
+		Assert.Equal("""{"type":"update_content","update_content":{"content_updates":[{"old_str":"Hello\n","new_str":"Hello edited\n"}]}}""", patchBody);
 		Assert.Null(host.Bridge.LastOfType("source-edit-error"));
 	}
 
@@ -244,6 +244,28 @@ public sealed class HostCoreSourcesTests {
 		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
 		Assert.True(error.GetProperty("stale").GetBoolean());
 		Assert.Contains("did not match", error.GetProperty("message").GetString());
+		Assert.Null(host.Bridge.LastOfType("source-doc"));
+	}
+
+	[Fact]
+	public async Task SaveSourceEdit_RequestValidationError_IsNotReportedAsStale() {
+		await using var host = await TestHost.StartAsync();
+		WriteToken(host, "ntn_secret");
+		// A validation_error that isn't about the op's old_str (e.g. a malformed body) is a client bug, not a
+		// stale page — stale:true would offer a re-fetch that can never help. The API's reason must surface.
+		host.SourceHttp.Responder = _ =>
+			(HttpStatusCode.BadRequest, """{ "code": "validation_error", "message": "body.type should be defined, instead was `undefined`." }""");
+
+		host.Send(Msg(new {
+			type = "source-save-edit",
+			target = "https://www.notion.so/Spec-1a2b3c4d5e6f7a8b9c0d1e2f3a4b5c6d",
+			oldStr = "a\n",
+			newStr = "b\n",
+		}));
+
+		var error = await Wait.ForAsync(() => host.Bridge.LastOfType("source-edit-error"));
+		Assert.False(error.GetProperty("stale").GetBoolean());
+		Assert.Contains("body.type", error.GetProperty("message").GetString());
 		Assert.Null(host.Bridge.LastOfType("source-doc"));
 	}
 

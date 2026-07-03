@@ -119,6 +119,11 @@ test.describe("source docs", () => {
     const source = page.locator(".editor-source");
     await expect(source.locator("img")).toBeVisible({ timeout: 15_000 });
     await expect(source.locator(".mermaid-rendered > svg")).toBeVisible({ timeout: 15_000 });
+    // Node labels must be SVG <text>: HTML-in-<foreignObject> labels get stripped by the SVG-profile
+    // sanitize, which once shipped diagrams with every label silently deleted.
+    await expect(
+      source.locator(".mermaid-rendered svg text", { hasText: "A" }).first(),
+    ).toBeVisible();
     await expect(source.locator(".embed-zoom")).toHaveCount(2);
 
     await source.locator("span.embed-zoom img").hover();

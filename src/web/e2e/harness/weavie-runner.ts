@@ -39,8 +39,8 @@ async function resolveWorkerUrl(
   getLog: () => string,
 ): Promise<string> {
   const deadline = Date.now() + 40_000;
-  // One keep-alive socket for the whole poll: the control plane is already up, so without reuse every 200ms
-  // probe was a fresh established-then-closed loopback connection piling into Windows TIME_WAIT (#206).
+  // One keep-alive socket for the whole poll (see getOverAgent): the control plane is already up, so each
+  // 200ms probe would otherwise be a fresh TIME_WAIT connection.
   const agent = new Agent({ keepAlive: true, maxSockets: 1 });
   try {
     for (;;) {

@@ -1,11 +1,14 @@
 import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
 import { openTarget } from "../../bridge";
 import { onPreviewThemeChanged } from "../../theme/controller";
-import { hydrateMermaid } from "../preview/diagrams";
+import { installEmbedZoomAndMermaid } from "../preview/embed-zoom";
+// The embed-zoom magnifier styles, injected into the shadow root alongside the highlight theme.
+import EMBED_ZOOM_CSS from "../preview/embed-zoom.css?raw";
 import { highlightFence } from "../preview/highlight";
 // The same hljs token theme the Markdown preview uses, injected into the shadow root so highlighted code is colored.
 import HIGHLIGHT_CSS from "../preview/preview-highlight.css?raw";
 import { renderNotionMarkdown } from "./notion-markdown";
+import { SourceEditController } from "./source-edit";
 import { sanitizeSourceHtml } from "./source-html";
 import type { SourceDocEntry } from "./source-store";
 import { SOURCE_STYLES } from "./source-styles";
@@ -16,9 +19,14 @@ import { SOURCE_STYLES } from "./source-styles";
 // SVG, reusing the Markdown preview's highlightFence/hydrateMermaid. Links are intercepted (http(s) open in the OS
 // browser, web tabs deferred). Global shortcuts stay host-owned: this is inline (one document) and the only
 // listener here is a capture-phase click, never keydown.
-export default function SourceView(props: { doc: () => SourceDocEntry | undefined }): JSX.Element {
+export default function SourceView(props: {
+  doc: () => SourceDocEntry | undefined;
+  target: () => string;
+}): JSX.Element {
   let host!: HTMLDivElement;
   let root: ShadowRoot | undefined;
+  // Drives click-to-edit on the rendered blocks (source-edit.ts); adopted per render, torn down on unmount.
+  const edit = new SourceEditController();
   // Each render bumps the generation; the async mermaid pass re-checks it after every await so a diagram resolving
   // after a newer render (doc change / theme switch) is dropped instead of landing in stale DOM (mirrors PreviewPane).
   let generation = 0;
@@ -28,21 +36,27 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
     generation += 1;
     const gen = generation;
     const style = document.createElement("style");
-    style.textContent = SOURCE_STYLES + HIGHLIGHT_CSS;
+    style.textContent = SOURCE_STYLES + HIGHLIGHT_CSS + EMBED_ZOOM_CSS;
     const body = document.createElement("div");
     body.className = "wv-source";
     const entry = props.doc();
     if (entry === undefined || entry.status === "loading") {
+      edit.reset();
       body.append(statusNode("loading", "Loading…"));
       root.replaceChildren(style, body);
       return;
     }
     if (entry.status === "error") {
+      edit.reset();
       body.append(statusNode("error", entry.message ?? "Couldn't open that source."));
       root.replaceChildren(style, body);
       return;
     }
     body.append(headerNode(entry.title, entry.editedTime));
+    const banner = incompleteBanner(entry.truncated, entry.unknownBlocks);
+    if (banner !== undefined) {
+      body.append(banner);
+    }
     const content = document.createElement("div");
     content.className = "wv-content";
     // A ready doc carries exactly one body: host-rendered `html` (the log viewer, injected as-is) or `markdown`
@@ -59,7 +73,13 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
     body.append(content);
     highlightCode(content);
     root.replaceChildren(style, body);
-    void hydrateMermaid(content, () => gen === generation);
+    // Only markdown docs are editable (the log viewer's pre-rendered html has no source lines to write back).
+    if (entry.markdown !== undefined) {
+      edit.attach(content, props.target(), entry.markdown);
+    } else {
+      edit.reset();
+    }
+    installEmbedZoomAndMermaid(content, () => gen === generation);
   };
 
   // Re-render on doc change (loading → ready/error, or a new doc) and on theme switch: mermaid bakes the theme into
@@ -74,6 +94,11 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
   const onClick = (event: MouseEvent): void => {
     // Nodes live inside the shadow tree, so event.target is retargeted to the host — inspect the composed path.
     const path = event.composedPath();
+    // The embed-zoom magnifier: its own listener opens the lightbox; skip the anchor handling so a
+    // zoomable image inside a link doesn't also navigate.
+    if (path.some((node) => node instanceof Element && node.classList.contains("embed-zoom-btn"))) {
+      return;
+    }
     // A link: preventDefault stops the default <a> navigation tearing down the whole app.
     const anchor = path.find(
       (node): node is HTMLAnchorElement => node instanceof HTMLAnchorElement,
@@ -81,28 +106,50 @@ export default function SourceView(props: { doc: () => SourceDocEntry | undefine
     if (anchor !== undefined) {
       event.preventDefault();
       const href = anchor.getAttribute("href") ?? "";
+      // A ToC link: shadow roots don't do fragment navigation natively, so scroll to the heading ourselves,
+      // opening any collapsed toggle it sits in first (a closed <details> would swallow the jump).
+      if (href.startsWith("#")) {
+        const heading = root?.getElementById(href.slice(1));
+        for (let el = heading?.parentElement; el != null; el = el.parentElement) {
+          if (el instanceof HTMLDetailsElement) {
+            el.open = true;
+          }
+        }
+        heading?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
       if (/^https?:/i.test(href)) {
         // The host resolves it: a Notion link renders natively in another source tab, else it opens as a web tab.
         openTarget(href);
       }
       return;
     }
+    // The open block editor may live inside a <summary> (a toggle heading) — its clicks are the textarea's.
+    if (edit.ownsClick(path)) {
+      return;
+    }
     // A toggle: drive <details> open/closed ourselves. The embedded WebView doesn't fire the native summary-toggle
     // for a shadow-tree <details>, so we don't rely on its default action (preventDefault avoids a double-toggle).
+    // A click wins the toggle over editing (a toggle heading is still editable from the keyboard: Tab + Enter).
     const summary = path.find(
       (node): node is HTMLElement => node instanceof HTMLElement && node.tagName === "SUMMARY",
     );
     if (summary?.parentElement instanceof HTMLDetailsElement) {
       event.preventDefault();
       summary.parentElement.open = !summary.parentElement.open;
+      return;
     }
+    edit.handleClick(path);
   };
 
   onMount(() => {
     host.addEventListener("click", onClick, { capture: true });
     host.focus();
   });
-  onCleanup(() => host.removeEventListener("click", onClick, { capture: true }));
+  onCleanup(() => {
+    host.removeEventListener("click", onClick, { capture: true });
+    edit.reset();
+  });
 
   return <div class="editor-source" data-kind="editor" tabindex="0" ref={host} />;
 }
@@ -124,6 +171,25 @@ function headerNode(title: string, editedTime: string): HTMLElement {
     header.append(meta);
   }
   return header;
+}
+
+// A banner naming what the source couldn't return (page cut off / unreadable blocks), or undefined when whole.
+// Lives beside the rendered content — never inside the markdown, which must stay the verbatim fetched text.
+function incompleteBanner(truncated: boolean, unknownBlocks: number): HTMLElement | undefined {
+  const reasons: string[] = [];
+  if (truncated) {
+    reasons.push("it's over Notion's per-page block limit");
+  }
+  if (unknownBlocks > 0) {
+    reasons.push(`${unknownBlocks} block(s) couldn't be read`);
+  }
+  if (reasons.length === 0) {
+    return undefined;
+  }
+  const banner = document.createElement("div");
+  banner.className = "wv-incomplete";
+  banner.textContent = `This page is incomplete — ${reasons.join(" and ")}. Open it in Notion for the full content.`;
+  return banner;
 }
 
 // A short "2h ago"-style label from an ISO timestamp, falling back to a local date past a month; "" when absent/bad.

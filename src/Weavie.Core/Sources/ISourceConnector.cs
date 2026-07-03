@@ -27,4 +27,12 @@ public interface ISourceConnector {
 
 	/// <summary>Fetches <paramref name="target"/> via the source that matches it, using its saved token.</summary>
 	Task<SourceDoc> FetchAsync(string target, CancellationToken ct = default);
+
+	/// <summary>
+	/// Applies one exact-match content edit (<paramref name="oldStr"/> → <paramref name="newStr"/>, diffed web-side
+	/// against the verbatim fetched markdown) to <paramref name="target"/> via the source that matches it, and
+	/// returns the refreshed <see cref="SourceDoc"/>. Throws <see cref="SourceConflictException"/> when the
+	/// document changed since it was fetched.
+	/// </summary>
+	Task<SourceDoc> UpdateAsync(string target, string oldStr, string newStr, CancellationToken ct = default);
 }

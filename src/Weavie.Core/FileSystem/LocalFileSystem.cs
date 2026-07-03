@@ -63,6 +63,9 @@ public sealed class LocalFileSystem : IFileSystem {
 	public string ReadAllText(string path) => File.ReadAllText(path, Utf8NoBom);
 
 	/// <inheritdoc/>
+	public byte[] ReadAllBytes(string path) => File.ReadAllBytes(path);
+
+	/// <inheritdoc/>
 	public void WriteAllText(string path, string contents) {
 		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
 		if (!string.IsNullOrEmpty(directory)) {

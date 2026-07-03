@@ -25,6 +25,21 @@ public sealed class PosixPtyTerminal : ITerminal {
 	public bool IsRunning => _running;
 
 	/// <inheritdoc/>
+	// The child is spawned with SETSID, so its pgid equals its pid; any other foreground pgrp is a job.
+	public bool HasForegroundJob {
+		get {
+			lock (_gate) {
+				if (!_running || _masterFd < 0 || _pid <= 0) {
+					return false;
+				}
+
+				int foreground = tcgetpgrp(_masterFd);
+				return foreground > 0 && foreground != _pid;
+			}
+		}
+	}
+
+	/// <inheritdoc/>
 	public void Start(TerminalStartInfo startInfo) {
 		ArgumentNullException.ThrowIfNull(startInfo);
 		if (!Path.IsPathRooted(startInfo.Command)) {

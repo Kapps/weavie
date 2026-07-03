@@ -38,6 +38,8 @@ internal sealed class ScriptableTerminal : ITerminal {
 
 	public bool IsRunning { get; private set; }
 
+	public bool HasForegroundJob => false;
+
 	/// <summary>Every <see cref="Resize"/> call in order, so a test can assert the reattach nudge.</summary>
 	public IReadOnlyList<(int Columns, int Rows)> Resizes => _resizes;
 

@@ -13,11 +13,15 @@ intercepts:
    [../specs/permission-modes-and-change-tracking.md](../specs/permission-modes-and-change-tracking.md).
 
 The hook bridge also returns, on each landed edit (`PostToolUse` for `Edit`/`Write`/`MultiEdit`), a top-level
-`systemMessage` carrying a workspace-relative `path:line` of the first line that edit changed. Claude prints
+`systemMessage` carrying a `path:line` of the first line that edit changed. Claude prints
 it in the TUI, and the terminal pane already turns `path:line` tokens into Monaco reveals
-(`TerminalView.tsx`), so the user can click straight to the edit. The line is computed from the per-edit
-pre-state vs. post-edit content held by `SessionChangeTracker` (`EditLocationFor`), so it pinpoints *this*
-edit even on the 2nd+ edit of a file within a turn.
+(`TerminalView.tsx`), so the user can click straight to the edit. The path is always the **full
+workspace-root-relative path** (or absolute for a file outside the workspace, e.g. the scratch dir),
+computed by Weavie — relativized against the session's worktree root (the same root `reveal-file` resolves
+against), never against Claude's cwd (which drifts with `cd`) and never echoed from whatever partial path
+the model typed — so the link always opens. The line is computed from the
+per-edit pre-state vs. post-edit content held by `SessionChangeTracker` (`EditLocationFor`), so it pinpoints
+*this* edit even on the 2nd+ edit of a file within a turn.
 
 ## How it's wired
 
@@ -73,7 +77,7 @@ Two invariants keep it safe:
 - `HookRequest` — parses the stdin JSON (event, tool, raw `tool_input`, session, cwd).
 - `HookDecision` / `HookPolicy` — the verdict + its stdout JSON serialization (`hookSpecificOutput` permission
   block and/or top-level `systemMessage`); `Decide(request, allowAllTools)` is the gate seam — `PassThrough`
-  unless `claude.allowAllTools` is on, when a non-edit `PermissionRequest` returns `Allow` (PreToolUse stays edit-scoped, for change tracking). `IdeIntegration` attaches
+  unless `claude.allowAllTools` is on, when a non-edit `PermissionRequest` returns `Allow`. `IdeIntegration` attaches
   the edit jump-link `systemMessage`, and an `ObservedPermissionMode` subscribes to the same stream.
 - `HookBridgeServer` — the in-process pipe listener; raises `Observed`, replies with the decision.
 - `HookRelayClient` — the relay logic, linked into the standalone `Weavie.HookRelay` exe: stdin → pipe → stdout, fail-open.

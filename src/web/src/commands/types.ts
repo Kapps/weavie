@@ -66,6 +66,9 @@ export const CommandIds = {
   acceptChange: "weavie.diff.accept",
   rejectChange: "weavie.diff.reject",
   undoChange: "weavie.diff.undo",
+  diffAgainst: "weavie.diff.against",
+  diffAgainstParent: "weavie.diff.againstParent",
+  diffAgainstHead: "weavie.diff.againstHead",
   reviewOpen: "weavie.review.open",
   reviewNextFile: "weavie.review.nextFile",
   reviewPrevFile: "weavie.review.prevFile",
@@ -93,6 +96,7 @@ export const CommandIds = {
   saveFile: "weavie.editor.save",
   openRecentFiles: "weavie.editor.recentFiles",
   toggleEditorPreview: "weavie.editor.togglePreview",
+  zoomEmbed: "weavie.editor.zoomEmbed",
   openFolder: "weavie.workspace.openFolder",
   openUrl: "weavie.workspace.openUrl",
   newSessionPrompt: "weavie.session.newPrompt",
@@ -106,6 +110,10 @@ export const CommandIds = {
   deleteSessionPrompt: "weavie.session.deletePrompt",
   disconnectRemoteAgent: "weavie.session.disconnectRemote",
   removeFromRail: "weavie.session.removeFromRail",
+  restartForUpdate: "weavie.update.restartNow",
+  sourceEditBlock: "weavie.source.editBlock",
+  sourceCommitEdit: "weavie.source.commitEdit",
+  sourceCancelEdit: "weavie.source.cancelEdit",
 } as const;
 
 declare global {

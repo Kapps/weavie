@@ -47,6 +47,13 @@ export function basename(path: string): string {
   return parts.length > 0 ? (parts[parts.length - 1] as string) : path;
 }
 
+/** The file name's extension, lowercased, without the dot ("" when there is none). */
+export function extensionOf(path: string): string {
+  const name = basename(path);
+  const dot = name.lastIndexOf(".");
+  return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
+}
+
 /// Path of `path` relative to workspace `root`, keeping the original separators and casing (the prefix is
 /// matched case- and separator-insensitively). Returns the file name when they're the same path and the
 /// untouched `path` when it lies outside the root — a file with no place under the repo has no repo-relative

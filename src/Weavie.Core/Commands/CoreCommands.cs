@@ -32,6 +32,9 @@ public static class CoreCommands {
 	/// <summary>Restarts the Claude pane in place (recovers a crashed / crash-looped Claude).</summary>
 	public const string RestartClaude = "weavie.claude.restart";
 
+	/// <summary>Applies a pending update now instead of waiting for the drain gate (kills running shell jobs).</summary>
+	public const string RestartForUpdate = "weavie.update.restartNow";
+
 	/// <summary>Copies the focused terminal's selection to the OS clipboard; bound to <c>Ctrl+Shift+C</c> / <c>⌘C</c>.</summary>
 	public const string TerminalCopy = "weavie.terminal.copy";
 
@@ -67,6 +70,15 @@ public static class CoreCommands {
 
 	/// <summary>Undoes the whole accumulated review set (acceptEdits/bypass mode); Keep-all is the cosmetic counterpart.</summary>
 	public const string UndoChange = "weavie.diff.undo";
+
+	/// <summary>Reviews the working tree's diff against a ref (arg <c>ref</c>, or a prompt); bound to <c>$mod+Shift+d</c>.</summary>
+	public const string DiffAgainst = "weavie.diff.against";
+
+	/// <summary>Reviews the working tree's diff against HEAD's parent — the last commit plus anything uncommitted.</summary>
+	public const string DiffAgainstParent = "weavie.diff.againstParent";
+
+	/// <summary>Reviews the working tree's uncommitted changes — its diff against HEAD.</summary>
+	public const string DiffAgainstHead = "weavie.diff.againstHead";
 
 	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
 	public const string ReviewOpen = "weavie.review.open";
@@ -149,6 +161,9 @@ public static class CoreCommands {
 	/// <summary>Toggles the active file between Source (Monaco) and rendered Preview; no-op for types without a preview. Bound to <c>$mod+Shift+v</c>.</summary>
 	public const string ToggleEditorPreview = "weavie.editor.togglePreview";
 
+	/// <summary>Opens the active preview's first image/diagram in a full-window lightbox (or advances an open one); bound to <c>$mod+Shift+z</c>.</summary>
+	public const string ZoomEmbed = "weavie.editor.zoomEmbed";
+
 	/// <summary>Increases the global font size; bound to <c>Ctrl+=</c> / <c>⌘=</c>.</summary>
 	public const string IncreaseFontSize = "weavie.font.increase";
 
@@ -187,6 +202,15 @@ public static class CoreCommands {
 
 	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
 	public const string ConnectNotion = "weavie.source.connectNotion";
+
+	/// <summary>Opens the focused block of a Notion source tab for in-place editing (web-handled, source-edit.ts).</summary>
+	public const string SourceEditBlock = "weavie.source.editBlock";
+
+	/// <summary>Saves the in-progress Notion block edit back to the page (web-handled, source-edit.ts).</summary>
+	public const string SourceCommitEdit = "weavie.source.commitEdit";
+
+	/// <summary>Cancels the in-progress Notion block edit, restoring the rendered block (web-handled, source-edit.ts).</summary>
+	public const string SourceCancelEdit = "weavie.source.cancelEdit";
 
 	/// <summary>Opens Weavie's captured console output (host stdout/stderr) in a read-only tab, and returns the recent tail to Claude. Diagnostic; palette + Claude, no default keybinding.</summary>
 	public const string ViewLogs = "weavie.view.logs";
@@ -316,6 +340,17 @@ public static class CoreCommands {
 			Category = "Claude",
 			Description = "Restart the Claude pane in place — recovers it after a crash or once it has crashed repeatedly and stopped.",
 			Aliases = ["restart claude", "reopen claude", "relaunch claude", "claude crashed"],
+		});
+
+		// No default keybinding: only meaningful while an update is pending (the update indicator's
+		// button is the primary affordance; the handler fails cleanly otherwise).
+		registry.Register(new CommandDefinition {
+			Id = RestartForUpdate,
+			Title = "Restart Now for Update",
+			RunsIn = CommandLocation.Core,
+			Category = "Update",
+			Description = "Apply the pending update immediately instead of waiting for sessions to go idle — running shell jobs are killed.",
+			Aliases = ["restart for update", "apply update", "update now", "restart now"],
 		});
 
 		// Terminal copy/paste are web-handled (they act on the live xterm selection) but write/read the OS
@@ -470,6 +505,41 @@ public static class CoreCommands {
 			When = "diffActive",
 			Description = "Revert the whole accumulated review set on disk (acceptEdits/bypass mode).",
 			Aliases = ["undo change", "undo turn", "revert changes", "revert turn", "undo all"],
+		});
+
+		// Diff Against: arm the read-only review navigator (the PR-review surface) with the working tree diffed
+		// against any ref, from its merge-base with HEAD. Web-handled: the bare command opens a ref prompt (or
+		// skips it when invoked with a 'ref' arg, e.g. by Claude); the helpers post their fixed ref directly.
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainst,
+			Title = "Diff Against…",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review the working tree's diff against a branch, tag, or commit in the inline-diff "
+				+ "navigator. Diffs from the ref's merge-base with HEAD, so against a branch it shows only this "
+				+ "side's changes. Pass 'ref' to skip the prompt.",
+			Aliases = ["diff against", "diff against branch", "compare against", "diff vs", "review diff against", "compare with branch"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+d" }],
+			ArgsSchemaJson = "{\"ref\":{\"type\":\"string\",\"description\":\"Branch, tag, or commit to diff against; omit to prompt\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainstParent,
+			Title = "Diff Against Parent",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review the working tree's diff against HEAD's parent commit — the last commit's changes "
+				+ "plus anything uncommitted.",
+			Aliases = ["diff against parent", "diff last commit", "review last commit", "show last commit"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = DiffAgainstHead,
+			Title = "Diff Against HEAD",
+			RunsIn = CommandLocation.Web,
+			Category = "Diff",
+			Description = "Review the working tree's uncommitted changes (its diff against HEAD) in the inline-diff navigator.",
+			Aliases = ["diff against head", "uncommitted changes", "review uncommitted changes", "working tree diff", "diff working tree"],
 		});
 
 		// Post-turn review (acceptEdits/bypass): inline in the editor via the diff toolbar, a 2D navigator
@@ -672,10 +742,11 @@ public static class CoreCommands {
 		});
 
 		// Back / forward through visited editor locations — a browser/IDE-style navigation history. Web-handled.
-		// The traditional bindings: the back/forward mouse buttons (a gesture, handled outside the chord resolver)
-		// plus Alt+Left / Alt+Right. Each chord carries a per-binding `!terminalFocused` guard so a focused
-		// terminal keeps its Alt+arrow word-nav; the handlers DECLINE (key falls through) when there's no history
-		// to step to in that direction.
+		// The traditional bindings: the back/forward mouse buttons (the MouseBack / MouseForward key tokens,
+		// resolved by the web's mousedown resolver) plus Alt+Left / Alt+Right. The Alt chords carry a per-binding
+		// `!terminalFocused` guard so a focused terminal keeps its Alt+arrow word-nav; the mouse buttons conflict
+		// with nothing, so they bind unguarded. The handlers DECLINE (the event falls through) when there's no
+		// history to step to in that direction.
 		registry.Register(new CommandDefinition {
 			Id = NavigateBack,
 			Title = "Go Back",
@@ -684,7 +755,10 @@ public static class CoreCommands {
 			Description = "Go back to the previous editor location (file + line) in the navigation history. "
 				+ "Also driven by the back mouse button.",
 			Aliases = ["go back", "navigate back", "back", "previous location", "go to previous location"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" }],
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "alt+Left", When = "!terminalFocused" },
+				new CommandKeybinding { Key = "MouseBack" },
+			],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -695,7 +769,10 @@ public static class CoreCommands {
 			Description = "Go forward to the next editor location (file + line) in the navigation history. "
 				+ "Also driven by the forward mouse button.",
 			Aliases = ["go forward", "navigate forward", "forward", "next location", "go to next location"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" }],
+			DefaultKeybindings = [
+				new CommandKeybinding { Key = "alt+Right", When = "!terminalFocused" },
+				new CommandKeybinding { Key = "MouseForward" },
+			],
 		});
 
 		// Copy an editor tab's name / repo-relative / absolute path to the clipboard — the tab menu's Copy
@@ -789,6 +866,22 @@ public static class CoreCommands {
 				+ "(Markdown today). Does nothing for file types without a preview.",
 			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "show preview", "source view"],
 			When = "editorFocused",
+		});
+
+		// Zoom a preview embed (image / Mermaid diagram) into a full-window lightbox. The handler DECLINES
+		// when the active view has no embeds, so in the Monaco editor the chord falls through (it's redo on
+		// some platforms).
+		registry.Register(new CommandDefinition {
+			Id = ZoomEmbed,
+			Title = "Zoom Embed",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Open the current preview's image or Mermaid diagram in a full-window lightbox; run "
+				+ "again (or use the arrow keys) to step through the other embeds. Does nothing when no preview "
+				+ "with an embed is showing.",
+			Aliases = ["zoom embed", "zoom image", "zoom diagram", "enlarge image", "magnify", "lightbox"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+z" }],
 		});
 
 		// Font zoom (handlers wired in Core by FontCommands): adjust the global font.size setting, which the web
@@ -914,6 +1007,42 @@ public static class CoreCommands {
 				+ "page in your browser and a dialog to paste a personal access token — Weavie validates it and saves "
 				+ "it for you.",
 			Aliases = ["connect notion", "sign in to notion", "authorize notion", "link notion", "add notion"],
+		});
+
+		// In-place Notion block editing (web-handled in source-edit.ts): Enter on a focused block opens the inline
+		// editor; Enter / Escape while editing save / cancel. Gated by the source-view context keys, so the plain
+		// chords stay free everywhere else. See docs/specs/notion-writes.md.
+		registry.Register(new CommandDefinition {
+			Id = SourceEditBlock,
+			Title = "Edit Block",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Edit the focused block of the open Notion page in place; saving writes the change back to Notion.",
+			Aliases = ["edit block", "edit notion block", "edit source block", "edit notion page"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			When = "sourceBlockFocused && !sourceEditing",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceCommitEdit,
+			Title = "Save Block Edit",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Save the in-progress Notion block edit back to the page.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Enter" }],
+			When = "sourceEditing",
+			ShowInPalette = false,
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SourceCancelEdit,
+			Title = "Cancel Block Edit",
+			RunsIn = CommandLocation.Web,
+			Category = "Source",
+			Description = "Cancel the in-progress Notion block edit, restoring the rendered block.",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Escape" }],
+			When = "sourceEditing",
+			ShowInPalette = false,
 		});
 
 		// In-app log viewer (Core-handled in HostCore.Logs.cs): opens the captured console output as a read-only

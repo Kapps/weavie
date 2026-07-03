@@ -22,6 +22,14 @@ internal sealed class WebSocketHostBridge : IHostBridge {
 	private const int OutboxCapacity = 512;
 
 	private readonly ConcurrentDictionary<Connection, byte> _connections = new();
+	private readonly IUiDispatcher _dispatcher;
+
+	/// <summary>Raises inbound messages on <paramref name="dispatcher"/> — the same serialization native hosts get
+	/// from their UI-thread WebView callbacks, so a message handler never races posted session work.</summary>
+	public WebSocketHostBridge(IUiDispatcher dispatcher) {
+		ArgumentNullException.ThrowIfNull(dispatcher);
+		_dispatcher = dispatcher;
+	}
 
 	/// <inheritdoc/>
 	public event Action<string>? MessageReceived;
@@ -74,7 +82,7 @@ internal sealed class WebSocketHostBridge : IHostBridge {
 
 				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
 				message.SetLength(0);
-				MessageReceived?.Invoke(json);
+				_dispatcher.Post(() => MessageReceived?.Invoke(json));
 			}
 		} finally {
 			_connections.TryRemove(connection, out _);

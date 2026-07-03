@@ -28,6 +28,8 @@ internal static class PickerPage {
 		  .status { margin-top: 1rem; font-size: .8rem; color: #8b949e; }
 		  .status.running { color: #3fb950; }
 		  .status.failed { color: #f85149; }
+		  .update { margin-top: .4rem; font-size: .75rem; color: #8b949e; }
+		  .update.warn { color: #d29922; }
 		</style></head>
 		<body>
 		  <div class="card">
@@ -35,12 +37,23 @@ internal static class PickerPage {
 		    <div class="ws" id="ws">resolving workspace…</div>
 		    <a class="open" id="open" aria-disabled="true">Open Weavie</a>
 		    <div class="status" id="status">starting backend…</div>
+		    <div class="update" id="update"></div>
 		  </div>
 		  <script>
 		    const token = {{JsLiteral(token)}};
 		    const headers = { "Authorization": "Bearer " + token };
 		    const open = document.getElementById("open");
 		    const statusEl = document.getElementById("status");
+		    const updateEl = document.getElementById("update");
+		    function updateLine(u) {
+		      if (!u) { return ""; }
+		      let line = "runner " + u.runnerBuild + (u.enabled ? "" : " · auto-update off");
+		      if (u.enabled && u.staged != null) { line += " · staged build " + u.staged; }
+		      if (u.enabled && u.phase !== "idle") { line += " · " + u.phase + (u.detail ? ": " + u.detail : ""); }
+		      if (u.runnerBehind) { line += " · restart the runner to apply its own update"; }
+		      updateEl.className = "update" + (u.runnerBehind || u.phase === "needs-newer-runner" || u.phase === "error" ? " warn" : "");
+		      return line;
+		    }
 		    async function refresh() {
 		      try {
 		        const res = await fetch("/backend", { headers });
@@ -51,6 +64,7 @@ internal static class PickerPage {
 		        open.setAttribute("aria-disabled", b.status === "running" ? "false" : "true");
 		        statusEl.className = "status " + b.status;
 		        statusEl.textContent = "backend: " + b.status;
+		        updateEl.textContent = updateLine(b.update);
 		      } catch (e) { statusEl.textContent = "unreachable"; }
 		    }
 		    refresh();

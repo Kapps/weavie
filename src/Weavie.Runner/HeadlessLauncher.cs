@@ -9,18 +9,20 @@ namespace Weavie.Runner;
 /// demand. See docs/specs/remote-sessions.md.
 /// </summary>
 public sealed class HeadlessLauncher {
-	private readonly RunnerOptions _options;
+	private readonly Func<string> _workerPath;
 	private readonly string _workerBind;
 	private readonly Action<SupervisorLogEntry>? _log;
 
 	/// <summary>
-	/// Creates a launcher that spawns the headless build named by <paramref name="options"/>, binding each worker
-	/// to <paramref name="workerBind"/> (the <see cref="ITlsFront"/>'s worker interface — loopback when fronted).
+	/// Creates a launcher that spawns the headless build <paramref name="workerPath"/> resolves — re-read on
+	/// every spawn, so an updated <c>current</c> version takes effect on the next launch without touching the
+	/// running worker — binding each worker to <paramref name="workerBind"/> (the <see cref="ITlsFront"/>'s
+	/// worker interface — loopback when fronted).
 	/// </summary>
-	public HeadlessLauncher(RunnerOptions options, string workerBind, Action<SupervisorLogEntry>? log) {
-		ArgumentNullException.ThrowIfNull(options);
+	public HeadlessLauncher(Func<string> workerPath, string workerBind, Action<SupervisorLogEntry>? log) {
+		ArgumentNullException.ThrowIfNull(workerPath);
 		ArgumentNullException.ThrowIfNull(workerBind);
-		_options = options;
+		_workerPath = workerPath;
 		_workerBind = workerBind;
 		_log = log;
 	}
@@ -63,9 +65,10 @@ public sealed class HeadlessLauncher {
 	}
 
 	private Process Spawn(WorkspaceBackend backend) {
-		bool isDll = _options.HeadlessPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
+		string workerPath = _workerPath();
+		bool isDll = workerPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 		var info = new ProcessStartInfo {
-			FileName = isDll ? "dotnet" : _options.HeadlessPath,
+			FileName = isDll ? "dotnet" : workerPath,
 			WorkingDirectory = backend.WorkspaceRoot,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
@@ -73,7 +76,7 @@ public sealed class HeadlessLauncher {
 		};
 
 		if (isDll) {
-			info.ArgumentList.Add(_options.HeadlessPath);
+			info.ArgumentList.Add(workerPath);
 		}
 
 		// Workers are network-exposed: --remote requires the token (the worker refuses to start otherwise).

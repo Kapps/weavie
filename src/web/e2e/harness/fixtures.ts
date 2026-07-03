@@ -1,3 +1,4 @@
+import { writeFile } from "node:fs/promises";
 import { test as base, expect } from "@playwright/test";
 import { fakeClaudeBuilt } from "./fake-claude";
 import { type WeavieHost, headlessBuilt, launchHeadless } from "./weavie-host";
@@ -11,8 +12,15 @@ type WeavieOptions = {
   // Set via test.use to boot the Open-PR scenario: a base+head git workspace and a stubbed PR provider.
   prScenario: boolean;
   // Set via test.use to stub the source connector with a canned Notion doc (WEAVIE_FAKE_NOTION), so a
-  // notion.so open-target fetches + renders it deterministically. Null in normal use.
-  notionDoc: { title: string; markdown: string; editedTime?: string } | null;
+  // notion.so open-target fetches + renders it deterministically. `truncated` shows the incomplete banner;
+  // `rejectEdits` makes every source-save-edit conflict (the stale-edit UX). Null in normal use.
+  notionDoc: {
+    title: string;
+    markdown: string;
+    editedTime?: string;
+    truncated?: boolean;
+    rejectEdits?: boolean;
+  } | null;
 };
 
 type WeavieFixtures = {
@@ -53,6 +61,19 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       // is the "app is interactive" signal — not a fixed sleep.
       await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
       await use(host);
+      // On failure, attach the host's captured stdout/stderr and the fake-claude log: a host crash is
+      // invisible in the browser trace (the page just shows "Lost connection"), so the .NET exception that
+      // killed it must ride the test artifacts. See issue #197.
+      if (testInfo.status !== testInfo.expectedStatus) {
+        for (const [name, content] of [
+          ["weavie-host.log", host.log()],
+          ["fake-claude.log", host.fakeLog()],
+        ] as const) {
+          const path = testInfo.outputPath(name);
+          await writeFile(path, content);
+          await testInfo.attach(name, { path, contentType: "text/plain" });
+        }
+      }
       await host.stop();
     },
     { auto: true },

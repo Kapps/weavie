@@ -62,27 +62,20 @@ public sealed class NotionParsingTests {
 		Assert.Equal(expected, NotionSource.ParseWorkspaceName(json));
 
 	[Fact]
-	public void ParseMarkdown_ReturnsTheMarkdownBodyVerbatim() =>
+	public void ParseMarkdown_ReturnsTheMarkdownVerbatimWithLossFlags() =>
 		Assert.Equal(
-			"# Title\n\nHello **world**",
+			new NotionSource.MarkdownBody("# Title\n\nHello **world**", Truncated: false, UnknownBlocks: 0),
 			NotionSource.ParseMarkdown("""{ "markdown": "# Title\n\nHello **world**", "truncated": false, "unknown_block_ids": [] }"""));
 
 	[Fact]
-	public void ParseMarkdown_PrependsNoticeWhenTruncated() {
-		string result = NotionSource.ParseMarkdown("""{ "markdown": "# Big page", "truncated": true, "unknown_block_ids": [] }""");
-		Assert.StartsWith("> **Note:** This page is incomplete", result);
-		Assert.Contains("per-page block limit", result);
-		Assert.EndsWith("# Big page", result); // the body still follows the notice
-	}
+	public void ParseMarkdown_FlagsTruncationWithoutTouchingTheMarkdown() =>
+		Assert.Equal(
+			new NotionSource.MarkdownBody("# Big page", Truncated: true, UnknownBlocks: 0),
+			NotionSource.ParseMarkdown("""{ "markdown": "# Big page", "truncated": true, "unknown_block_ids": [] }"""));
 
 	[Fact]
-	public void ParseMarkdown_PrependsNoticeWhenBlocksUnreadable() {
-		string result = NotionSource.ParseMarkdown("""{ "markdown": "body", "truncated": false, "unknown_block_ids": ["a", "b"] }""");
-		Assert.StartsWith("> **Note:** This page is incomplete", result);
-		Assert.Contains("2 block(s) couldn't be read", result);
-	}
-
-	[Fact]
-	public void ParseMarkdown_NoNoticeWhenWhole() =>
-		Assert.Equal("body", NotionSource.ParseMarkdown("""{ "markdown": "body", "truncated": false, "unknown_block_ids": [] }"""));
+	public void ParseMarkdown_CountsUnreadableBlocks() =>
+		Assert.Equal(
+			new NotionSource.MarkdownBody("body", Truncated: false, UnknownBlocks: 2),
+			NotionSource.ParseMarkdown("""{ "markdown": "body", "truncated": false, "unknown_block_ids": ["a", "b"] }"""));
 }

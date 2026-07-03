@@ -1,10 +1,10 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { collectChangedFiles } from "../harness/navigator";
+import { awaitNavigatorOn, collectChangedFiles } from "../harness/navigator";
 
 // SCENARIO 2: two PR sessions open at once (#101: feature.ts + hello.ts; #102: widget.ts + notes.txt). Each
-// session must show ITS OWN changed files / merge-base diff — never the other PR's. _prReviews is keyed by
-// worktree path and ActivePrReview() resolves by the active session, so this is the core of that design.
+// session must show ITS OWN changed files / merge-base diff — never the other PR's. _diffReviews is keyed by
+// worktree path and ActiveReview() resolves by the active session, so this is the core of that design.
 test.use({ prScenario: true });
 
 const toolbar = ".weavie-inline-toolbar";
@@ -34,18 +34,23 @@ test("S2: two PR sessions each show only their own changed files", async ({ page
   await openPrByNumber(page, 102, 3);
 
   // The active session is #102 — its navigator must show widget.ts / notes.txt and NOT #101's files.
+  await awaitNavigatorOn(page, ["widget.ts", "notes.txt"]);
   const filesOn102 = await collectChangedFiles(page);
   expect([...filesOn102].sort()).toEqual(["notes.txt", "widget.ts"]);
 
   // Switch back to the #101 session (second chip) — its navigator must show feature.ts / hello.ts only.
+  // Walk only once the incoming PR's diff is bound: until then the outgoing session's navigator is still
+  // (legitimately) on screen, and walking it would read the previous PR's files.
   await page.locator(chips).nth(1).click();
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 15_000 });
+  await awaitNavigatorOn(page, ["feature.ts", "hello.ts"]);
   const filesOn101 = await collectChangedFiles(page);
   expect([...filesOn101].sort()).toEqual(["feature.ts", "hello.ts"]);
 
   // Switch to #102 again — still only its own files (no leak accumulated across switches).
   await page.locator(chips).nth(2).click();
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 15_000 });
+  await awaitNavigatorOn(page, ["widget.ts", "notes.txt"]);
   const filesOn102Again = await collectChangedFiles(page);
   expect([...filesOn102Again].sort()).toEqual(["notes.txt", "widget.ts"]);
 });

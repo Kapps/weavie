@@ -4,23 +4,22 @@ using Xunit;
 
 namespace Weavie.Core.Tests;
 
-/// <summary>The <c>--settings</c> JSON routes PermissionRequest (gate, every tool) and the edit tools' PreToolUse/PostToolUse (change tracking) to the relay binary.</summary>
+/// <summary>The <c>--settings</c> JSON routes PermissionRequest (gate) and PreToolUse/PostToolUse (change feed + status) for every tool to the relay binary.</summary>
 public sealed class HookSettingsTests {
 	private const string RelayPath = @"C:\app\weavie-hook-relay.exe";
 
 	[Fact]
-	public void BuildJson_PermissionRequestGatesAllTools_PreAndPostObserveEditsOnly() {
+	public void BuildJson_ToolScopedHooksMatchEveryTool() {
 		using var doc = JsonDocument.Parse(HookSettings.BuildJson(RelayPath));
 		var hooks = doc.RootElement.GetProperty("hooks");
 
-		// The gate matches every tool so claude.allowAllTools can bypass anything that would prompt.
-		Assert.Equal("*", HookSettings.PermissionMatcher);
-		Assert.Equal(HookSettings.PermissionMatcher, hooks.GetProperty("PermissionRequest")[0].GetProperty("matcher").GetString());
-
-		// Pre/PostToolUse are observation-only, scoped to the edit tools.
-		Assert.DoesNotContain("Bash", HookSettings.ObserveMatcher, StringComparison.Ordinal);
-		foreach (string eventName in new[] { "PreToolUse", "PostToolUse" }) {
-			Assert.Equal(HookSettings.ObserveMatcher, hooks.GetProperty(eventName)[0].GetProperty("matcher").GetString());
+		// The gate matches every tool so claude.allowAllTools can bypass anything that would prompt, and
+		// Pre/PostToolUse match every tool so the session status sees each tool start/finish — an approved
+		// permission prompt is only observable as the gated tool's PostToolUse, so the old edit-only matcher
+		// left an approved Bash stuck at NeedsInput.
+		Assert.Equal("*", HookSettings.AllToolsMatcher);
+		foreach (string eventName in new[] { "PermissionRequest", "PreToolUse", "PostToolUse" }) {
+			Assert.Equal(HookSettings.AllToolsMatcher, hooks.GetProperty(eventName)[0].GetProperty("matcher").GetString());
 		}
 	}
 

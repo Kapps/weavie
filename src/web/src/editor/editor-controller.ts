@@ -17,6 +17,7 @@ import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { samePath, uriHostPath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
+import { mediaTypeOf } from "./media/media-types";
 import { type NavHistory, createNavHistory } from "./nav-history";
 import {
   type ActivateResult,
@@ -146,8 +147,8 @@ export interface EditorController {
   flushDirty(): Promise<void>;
   /** Update the post-turn review set driving the inline toolbar's ← / → file walk; empty when nothing to review. */
   setReviewFiles(files: ReviewFile[]): void;
-  /** Arm a PR's base→head diff review (number + changed files) on the same navigator, in read-only "pr" mode. */
-  setPrReview(number: number, files: ReviewFile[]): void;
+  /** Arm a review diff (a PR's base→head or a local "diff against") on the same navigator, in read-only "pr" mode. */
+  setPrReview(number: number, label: string, files: ReviewFile[]): void;
   /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
   openFirstReviewFile(): boolean;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
@@ -185,10 +186,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
-  // Which review the file walk shows: "turn" (Claude's edits — keep/revert) or "pr" (a PR's base→head diff —
-  // read + comment). Selects which per-file diff message openReviewFile requests and which inline-diff mode renders.
+  // Which review the file walk shows: "turn" (Claude's edits — keep/revert) or "pr" (a review diff — a PR's
+  // base→head, or a local "diff against"; read-only). Selects which per-file diff message openReviewFile
+  // requests and which inline-diff mode renders. `prLabel` names the diff review ("PR #12", "vs main").
   let reviewKind: "turn" | "pr" = "turn";
   let prNumber = 0;
+  let prLabel = "";
   // The openDiff under inline review (at most one live, since openDiff blocks). `reviewUri` keys the transient
   // review model the inline diff is rendered over.
   let activeReview:
@@ -210,9 +213,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const applyActive = (result: ActivateResult): Promise<void> => {
     deps.onCurrentFileChanged(result.path);
     // A web/source overlay tab has no Monaco model: leave the editor host untouched (App overlays the iframe /
-    // shadow-root render over it) and never read the path as a file.
+    // shadow-root render over it) and never read the path as a file. Same for a media (image/video) file tab —
+    // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
-    if (activeKind === "web" || activeKind === "source") {
+    if (activeKind === "web" || activeKind === "source" || mediaTypeOf(result.path) !== null) {
       return Promise.resolve();
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
@@ -637,6 +641,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       reviewFiles.length > 0
         ? {
             fileCount: reviewFiles.length,
+            ...(reviewKind === "pr" ? { label: prLabel } : {}),
             stepIn: () => {
               const first = reviewFiles[0];
               if (first !== undefined) {
@@ -648,18 +653,20 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     );
   };
 
-  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false (so
-  // $mod+Left/Right keep word-nav) when there's no multi-file review or the active file isn't in it.
+  // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
+  // (so $mod+Left/Right keep word-nav) when there's no multi-file review. An active file that fell OUT of the
+  // set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the first
+  // file — a nav key pressed at a live review toolbar must never silently no-op.
   const stepReviewFile = (delta: number): boolean => {
     if (reviewFiles.length < 2) {
       return false;
     }
     const current = activePath();
     const idx = current === null ? -1 : reviewFiles.findIndex((f) => samePath(f.path, current));
-    if (idx === -1) {
-      return false;
-    }
-    const next = reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
+    const next =
+      idx === -1
+        ? reviewFiles[0]
+        : reviewFiles[(idx + delta + reviewFiles.length) % reviewFiles.length];
     if (next === undefined) {
       return false;
     }
@@ -898,9 +905,10 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         return true;
       }
       case "pr-diff": {
-        // A PR file's base→head diff: baseline (the file at the merge-base) → current (the worktree file).
+        // One review file's diff: baseline (the file at the review's merge-base) → current (the worktree file).
         // Rendered in the inline-diff's read-only "pr" mode — the same navigator, walked with ← / → and ↑ / ↓,
-        // but no keep/revert (the PR is already committed). Comments arrive in a later phase.
+        // but no keep/revert (the base is already committed). Commenting is a forge capability, so a local
+        // "diff against" review (number 0) gets no comment affordances.
         const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
         const fileNav =
           reviewFiles.length > 1 && idx !== -1
@@ -915,33 +923,40 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
                 fileCount: reviewFiles.length,
               }
             : {};
+        const commenting =
+          message.number > 0
+            ? {
+                comments: message.comments,
+                onAddComment: (line: number, body: string) =>
+                  postToHost({
+                    type: "add-pr-comment",
+                    number: message.number,
+                    path: message.path,
+                    line,
+                    side: "right",
+                    inReplyTo: 0,
+                    body,
+                  }),
+                onReply: (inReplyTo: number, body: string) =>
+                  postToHost({
+                    type: "add-pr-comment",
+                    number: message.number,
+                    path: message.path,
+                    line: 0,
+                    side: "right",
+                    inReplyTo,
+                    body,
+                  }),
+              }
+            : {};
         inlineDiff?.set(message.path, {
           original: message.baseline,
           claudeVersion: message.current,
           mode: "pr",
           fileLabel: message.name,
+          reviewLabel: prLabel,
           ...fileNav,
-          comments: message.comments,
-          onAddComment: (line, body) =>
-            postToHost({
-              type: "add-pr-comment",
-              number: message.number,
-              path: message.path,
-              line,
-              side: "right",
-              inReplyTo: 0,
-              body,
-            }),
-          onReply: (inReplyTo, body) =>
-            postToHost({
-              type: "add-pr-comment",
-              number: message.number,
-              path: message.path,
-              line: 0,
-              side: "right",
-              inReplyTo,
-              body,
-            }),
+          ...commenting,
         });
         commentProse?.refresh();
         return true;
@@ -1063,14 +1078,25 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       reviewFiles = files;
       updateParkedReview();
     },
-    setPrReview: (number, files) => {
-      // Binding a PR surfaces its diff immediately (open the first changed file — unlike post-turn review,
-      // which never auto-moves the editor); a duplicate push for the PR already in review (every switch onto
+    setPrReview: (number, label, files) => {
+      // A retracted review ("diff against" found no changes): clear the walk and its markers — but only when
+      // a review diff is what's bound, so it can never clobber a live post-turn walk.
+      if (files.length === 0) {
+        if (reviewKind === "pr") {
+          reviewFiles = [];
+          updateParkedReview();
+          inlineDiff?.clearAll();
+        }
+        return;
+      }
+      // Binding a review surfaces its diff immediately (open the first changed file — unlike post-turn review,
+      // which never auto-moves the editor); a duplicate push for the review already bound (every switch onto
       // its session fires a fire-and-forget diff) updates the file list quietly instead of re-yanking the
       // walk. A genuine (re)bind still jumps: any switch flips reviewKind to "turn" before this lands.
-      const alreadyBound = reviewKind === "pr" && prNumber === number;
+      const alreadyBound = reviewKind === "pr" && prNumber === number && prLabel === label;
       reviewKind = "pr";
       prNumber = number;
+      prLabel = label;
       reviewFiles = files;
       updateParkedReview();
       const first = files[0];

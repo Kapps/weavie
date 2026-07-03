@@ -12,6 +12,11 @@ namespace Weavie.Core.Git;
 public sealed class GitService : IGitService {
 	private const string HeadsPrefix = "refs/heads/";
 
+	// A read-only dirty probe: `--no-optional-locks` refreshes the index in-core instead of taking
+	// `.git/index.lock`, so this background/footer poll can never collide with a concurrent `git diff` or
+	// `git add` on the same repo (the index-lock race behind the diff-against CI flakes).
+	private static readonly string[] PorcelainStatusArgs = ["--no-optional-locks", "status", "--porcelain"];
+
 	/// <inheritdoc/>
 	public async Task<bool> IsRepositoryAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
@@ -148,14 +153,14 @@ public sealed class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(worktreeDirectory, ["status", "--porcelain"], ct).ConfigureAwait(false);
+		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusArgs, ct).ConfigureAwait(false);
 		return result.StdOut.Trim().Length > 0;
 	}
 
 	/// <inheritdoc/>
 	public async Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(worktreeDirectory, ["status", "--porcelain"], ct).ConfigureAwait(false);
+		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusArgs, ct).ConfigureAwait(false);
 		string[] lines = result.StdOut.Replace("\r", "", StringComparison.Ordinal)
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries);
 		if (lines.Length == 0) {
@@ -226,6 +231,52 @@ public sealed class GitService : IGitService {
 
 		string sha = result.StdOut.Trim();
 		return sha.Length == 0 ? null : sha;
+	}
+
+	/// <inheritdoc/>
+	public async Task<string?> ResolveCommitAsync(string repositoryDirectory, string reference, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(reference);
+		// The trust-boundary check for a web-supplied ref: never let it be read as an option. (--end-of-options
+		// would also cover it, but rejecting here keeps the guarantee independent of the git version.)
+		if (reference.StartsWith('-')) {
+			return null;
+		}
+
+		// ^{commit} peels tags to commits, so any commit-ish resolves to what a diff can use.
+		var result = await RunAsync(repositoryDirectory, ["rev-parse", "--verify", "--quiet", $"{reference}^{{commit}}"], ct).ConfigureAwait(false);
+		if (result.ExitCode != 0) {
+			return null;
+		}
+
+		string sha = result.StdOut.Trim();
+		return sha.Length == 0 ? null : sha;
+	}
+
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<DiffFileChange>> DiffWorktreeAsync(string repositoryDirectory, string baseRef, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(repositoryDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(baseRef);
+		// No second ref ⇒ diff against the working tree, so uncommitted edits are included (unlike DiffRefsAsync).
+		var result = await RunCheckedAsync(repositoryDirectory, ["diff", "--numstat", "--no-renames", baseRef, "--"], ct).ConfigureAwait(false);
+		var changes = new List<DiffFileChange>(ParseNumstat(result.StdOut));
+		// `git diff` skips untracked files, but to a user a brand-new file IS an uncommitted change — surface
+		// each (gitignore honored) as all-added rather than silently absent from the review.
+		var untracked = await RunCheckedAsync(repositoryDirectory, ["ls-files", "--others", "--exclude-standard", "-z"], ct).ConfigureAwait(false);
+		foreach (string path in untracked.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries)) {
+			changes.Add(new DiffFileChange { Path = path, Added = CountLines(Path.Combine(repositoryDirectory, path)), Removed = 0 });
+		}
+
+		return [.. changes.OrderBy(c => c.Path, StringComparer.Ordinal)];
+	}
+
+	// The added-line count for an untracked file (display-only, mirroring numstat); 0 when it vanished mid-read.
+	private static int CountLines(string absolutePath) {
+		try {
+			return File.ReadLines(absolutePath).Count();
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+			return 0;
+		}
 	}
 
 	/// <inheritdoc/>

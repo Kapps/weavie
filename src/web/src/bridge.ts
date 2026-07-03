@@ -147,6 +147,9 @@ export type HostBoundMessage =
   // Hand an opened URL to the host's open resolver: the host matches it to a source (fetch + render) or replies
   // open-web for a web (iframe) tab. The match (ISource.Match) lives host-side. See docs/specs/notion-source-view.md.
   | { type: "open-target"; url: string }
+  // Save one block edit to the source document: an exact-match old/new pair diffed against the verbatim fetched
+  // markdown (notion-edit.ts). Answered by a refreshed source-doc, or source-edit-error. See docs/specs/notion-writes.md.
+  | { type: "source-save-edit"; target: string; oldStr: string; newStr: string }
   | { type: "list-branches"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
@@ -160,6 +163,8 @@ export type HostBoundMessage =
   | { type: "resolve-pr"; id: string; number: number; owner: string; repo: string }
   // Ask the host for one PR file's base→head diff (answered by pr-diff).
   | { type: "get-pr-diff"; number: number; path: string }
+  // Arm a "diff against <ref>" review on the active session (answered by pr-changes; see diff-against.md).
+  | { type: "diff-against"; ref: string }
   // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
   | {
       type: "add-pr-comment";
@@ -196,6 +201,8 @@ export type HostBoundMessage =
   // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
   | { type: "fs-stat"; id: string; path: string }
   | { type: "fs-read"; id: string; path: string }
+  // Raw bytes (base64) for the media pane's image/video render — same confinement + correlation as fs-read.
+  | { type: "fs-read-bytes"; id: string; path: string }
   | { type: "fs-write"; id: string; path: string; content: string }
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
@@ -234,7 +241,8 @@ export type HostBoundMessage =
   | { type: "keep-file"; path: string }
   // Inline review: UN-KEEP one faded (accepted) hunk — Core splices the accepted-anchor lines back into the review
   // baseline so it returns to the bright pending band (no disk write). `accepted*` is the range in the accepted
-  // anchor (the restored lines); `review*` the range in the review baseline (splice target + `guardText` check).
+  // anchor (the restored lines); `review*` the range in the review baseline (the splice target). Both sides carry
+  // the rendered text as a guard (`acceptedGuardText` / `guardText`); the host aborts if either moved.
   | {
       type: "unkeep-hunk";
       path: string;
@@ -242,6 +250,7 @@ export type HostBoundMessage =
       acceptedEndExclusive: number;
       reviewStart: number;
       reviewEndExclusive: number;
+      acceptedGuardText: string;
       guardText: string;
     }
   // Review undo/redo. `kind` "keep" undoes the last keep, "revert" the last revert (the type-split chords);
@@ -351,7 +360,8 @@ export type WebBoundMessage =
   | { type: "source-loading"; target: string; title: string; sourceId: string }
   // A fetched source doc keyed by `target`, carrying exactly one body: `markdown` (a Notion page — SourceView
   // renders it to HTML) or pre-rendered `html` (the host's log viewer; SourceView re-sanitizes it). `editedTime`
-  // (ISO, may be "") heads the rendered page. Feeds the kind:"source" tab source-loading opened.
+  // (ISO, may be "") heads the rendered page. `truncated`/`unknownBlocks` flag content the source couldn't return
+  // (rendered as a banner; absent from html-bodied docs). Feeds the kind:"source" tab source-loading opened.
   | {
       type: "source-doc";
       target: string;
@@ -360,9 +370,14 @@ export type WebBoundMessage =
       html?: string;
       editedTime: string;
       sourceId: string;
+      truncated?: boolean;
+      unknownBlocks?: number;
     }
   // A source fetch failed (keyed by `target`): the open tab swaps its spinner for the error reason.
   | { type: "source-error"; target: string; message: string }
+  // A source-save-edit failed (keyed by `target`): shown inline at the edited block. `stale` means the page
+  // changed in Notion since the fetch (the exact-match op missed), so the block offers a re-fetch.
+  | { type: "source-edit-error"; target: string; message: string; stale: boolean }
   // The host's open resolver decided the URL isn't a source — open it as a web (iframe) tab.
   | { type: "open-web"; url: string }
   // IDE-MCP openDiff arriving from Claude: render an editable Monaco diff.
@@ -377,12 +392,12 @@ export type WebBoundMessage =
   | { type: "close-diff"; id: string }
   // Reply to clipboard-read (terminal paste), correlated by `id`: the OS clipboard's text ("" when empty).
   | { type: "clipboard-content"; id: string; text: string }
-  // Host delivers a file to load + reveal in Monaco. `preview` ⇒ reusable preview tab, else persistent.
-  // `scratch` marks an untitled buffer (New File / restored). `content` is ignored — the working copy reads disk.
+  // Host delivers a file to load + reveal (a Monaco working copy, or the media pane for images/video).
+  // `preview` ⇒ reusable preview tab, else persistent. `scratch` marks an untitled buffer (New File /
+  // restored). No content rides along — the web reads disk through the fs provider.
   | {
       type: "open-file";
       path: string;
-      content: string;
       line: number;
       preview?: boolean;
       scratch?: boolean;
@@ -424,6 +439,17 @@ export type WebBoundMessage =
       id: string;
       ok: boolean;
       content?: string;
+      mtimeMs?: number;
+      size?: number;
+      code?: string;
+      error?: string;
+    }
+  // Reply to fs-read-bytes, correlated by `id`: the file's raw bytes as base64 (or code:"FileNotFound" / error).
+  | {
+      type: "fs-read-bytes-result";
+      id: string;
+      ok: boolean;
+      dataB64?: string;
       mtimeMs?: number;
       size?: number;
       code?: string;
@@ -481,6 +507,19 @@ export type WebBoundMessage =
   // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"
   // info clearing the lingering "settings malformed" error).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string; key?: string }
+  // Update drain state (docs/specs/runner-auto-update.md): what's holding a pending update restart
+  // (re-pushed on every change, and on `ready` for a tab that connected mid-drain)…
+  | {
+      type: "update-pending";
+      holds: { session: string; reason: "working" | "needs-input" | "shell-job" }[];
+    }
+  // …and the moment the restart commits: input is frozen host-side and the worker is about to exit;
+  // the page shows the blocking "Updating…" overlay until the new worker is back.
+  | { type: "update-restarting" }
+  // The worker's build identity, pushed first on every `ready` cycle. A tab that reconnected to a
+  // worker updated under it sees a different build than its boot-time __WEAVIE_SHELL__.buildNumber
+  // and reloads itself to pick up the matching assets.
+  | { type: "host-info"; buildNumber: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";
@@ -490,7 +529,9 @@ export type WebBoundMessage =
   // Host pushes the window's chrome state so the title bar updates its maximize glyph and blur dim.
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
-  | { type: "file-index"; root: string; files: string[] }
+  // `pending` = a session switch invalidated the index and the new worktree's walk is still running: files is
+  // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
+  | { type: "file-index"; root: string; files: string[]; pending?: boolean }
   // Host answers find-in-files with the content-search matches, echoing the `query` so the page can drop a
   // stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
   // `error` ⇒ the git search failed (e.g. git unavailable); the panel shows it rather than "No results".
@@ -511,11 +552,13 @@ export type WebBoundMessage =
   | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
   // Host answers resolve-pr with the single PR (or null when it doesn't exist / is a foreign repo), tagged by `id`.
   | { type: "pr-resolved"; id: string; pr: PullRequestInfo | null }
-  // PR review (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
-  // pr-diff is one file's base→head pair (baseline→current) rendered in the inline-diff "pr" mode.
+  // Review diff (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
+  // pr-diff is one file's base→current pair rendered in the inline-diff's read-only "pr" mode. Fed by an
+  // opened PR (number > 0) or a local "diff against <ref>" (number 0); `label` names the review in the UI.
   | {
       type: "pr-changes";
       number: number;
+      label: string;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
   | {
@@ -710,6 +753,10 @@ const nativeTransport: BridgeTransport = {
   dispose(): void {},
 };
 
+// The `ready` announcement that makes a host (re-)push its state — sent on every remote (re)connect and on a
+// local reconnect (main.tsx sends the local backend's initial one).
+const READY_HELLO = JSON.stringify({ type: "ready" });
+
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
 // before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
 // Inbound frames go through the shared `deliverFromHost`, indistinguishable from a native host.
@@ -718,6 +765,8 @@ class WebSocketTransport implements BridgeTransport {
   private readonly outbox: string[] = [];
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
+  private hasOpened = false;
   // Set once the backend is deliberately disconnected; stops the close→reconnect loop for good.
   private disposed = false;
   // Mirrors the published phase so a drop can decide its one-shot toast without a reactive read.
@@ -782,7 +831,12 @@ class WebSocketTransport implements BridgeTransport {
       setBackendPhase(this.backendId, "online");
       if (this.hello !== undefined) {
         socket.send(this.hello);
+      } else if (this.hasOpened) {
+        // The local backend's initial `ready` came from main.tsx; the host re-pushes state (and re-syncs
+        // terminals) only on `ready`, so a reconnect re-announces it here (remotes' `hello` already does).
+        socket.send(READY_HELLO);
       }
+      this.hasOpened = true;
       const pending = this.outbox.splice(0, this.outbox.length);
       for (const message of pending) {
         socket.send(message);
@@ -911,7 +965,7 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, wsUrl, name, JSON.stringify({ type: "ready" }));
+  const transport = new WebSocketTransport(id, wsUrl, name, READY_HELLO);
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }
@@ -988,6 +1042,11 @@ onHostMessage((message) => {
 // the web never re-implements a source's predicate.
 export function openTarget(url: string): void {
   postToHost({ type: "open-target", url });
+}
+
+/** Saves one block edit to a source document (see the source-save-edit message). */
+export function saveSourceEdit(target: string, oldStr: string, newStr: string): void {
+  postToHost({ type: "source-save-edit", target, oldStr, newStr });
 }
 
 export function submitSourceToken(

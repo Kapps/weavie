@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
@@ -26,6 +26,8 @@ const SCOPE = ".weavie-inline-scope";
 const ADDED = ".weavie-inline-added"; // one decoration per BRIGHT (pending) changed line → one per single-line hunk
 const ACCEPTED = ".weavie-inline-accepted"; // one decoration per FADED (kept-but-uncommitted) line
 const UNDO = ".weavie-inline-accepted-undo"; // the inline ↶ undo beside a faded hunk
+const KEEP = ".weavie-inline-pending-keep"; // the inline ✓ keep beside a bright pending hunk
+const REVERT = ".weavie-inline-pending-revert"; // the inline ✕ revert beside a bright pending hunk
 const HIST_UNDO = ".weavie-inline-hist"; // the toolbar's ↶ Undo (first) / ↷ Redo history buttons
 const TOOLBAR = ".weavie-inline-toolbar";
 
@@ -86,6 +88,70 @@ test.describe("applied review — accepted band fades (kept, not vanished) + inl
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(0);
     await expect(page.locator(TOOLBAR)).toHaveCount(0);
+  });
+});
+
+test.describe("applied review — a new turn commits the faded accepted band", () => {
+  // The fake pauses after its edits until the test signals (waitFile), then submits a new prompt — the
+  // UserPromptSubmit hook is the turn-start boundary that implicitly commits whatever was kept.
+  const SIGNAL = ".weavie-e2e-turn-signal";
+  test.use({
+    fakeScript: {
+      steps: [
+        ...appliedEdit("hello.ts", TWO_HUNKS),
+        { op: "waitFile", path: `{{WORKSPACE}}/${SIGNAL}` },
+        { op: "hook", request: { hook_event_name: "UserPromptSubmit" } },
+      ],
+    },
+  });
+
+  test("kept hunks disappear from the diff at the next prompt; pending ones stay", async ({
+    page,
+    weavie,
+  }) => {
+    await openFile(page, "hello.ts");
+    await focusFirstHunk(page);
+    await page.keyboard.press("ControlOrMeta+Enter"); // keep hunk 1 → faded, hunk 2 still bright
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+    await expect(page.locator(ADDED)).toHaveCount(1);
+
+    // Signal the fake to submit its next prompt: the turn boundary commits the kept hunk out of the view.
+    writeFileSync(join(weavie.workspace, SIGNAL), "");
+    await expect(page.locator(ACCEPTED)).toHaveCount(0); // the faded band is gone — committed
+    await expect(page.locator(UNDO)).toHaveCount(0); // and its inline ↶ undo with it
+    await expect(page.locator(ADDED)).toHaveCount(1); // the unreviewed hunk still accumulates
+  });
+});
+
+test.describe("applied review — inline ✓ keep / ✕ revert on pending hunks", () => {
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+
+  test("every pending hunk carries its own keep/revert; clicking ✓ keep fades just that hunk", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+    await expect(page.locator(KEEP)).toHaveCount(2); // one ✓ keep / ✕ revert pair per pending hunk
+    await expect(page.locator(REVERT)).toHaveCount(2);
+
+    // Click the first hunk's ✓ keep: it fades (with its ↶ undo), the other stays pending with its buttons.
+    await page.locator(KEEP).first().click();
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect(page.locator(ACCEPTED)).toHaveCount(1);
+    await expect(page.locator(UNDO)).toHaveCount(1);
+    await expect(page.locator(KEEP)).toHaveCount(1);
+  });
+
+  test("clicking ✕ revert rewrites disk for just that hunk", async ({ page, weavie }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(REVERT)).toHaveCount(2);
+
+    // Revert the first hunk (the greet() line): its baseline returns to disk, the other hunk is untouched.
+    await page.locator(REVERT).first().click();
+    await expect.poll(() => read(weavie.workspace, "hello.ts")).toContain("Hello, ${name}");
+    expect(read(weavie.workspace, "hello.ts")).toContain("console.warn");
+    await expect(page.locator(ADDED)).toHaveCount(1);
+    await expect(page.locator(REVERT)).toHaveCount(1);
   });
 });
 

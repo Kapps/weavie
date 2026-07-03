@@ -15,6 +15,11 @@ export interface SourceDocEntry {
   html?: string | undefined;
   // The page's last-edited time (ISO 8601), or "" when unknown — shown in the SourceView header.
   editedTime: string;
+  // Content the source couldn't return: the page was cut off (`truncated`) and/or `unknownBlocks` blocks were
+  // unreadable. Rendered as a banner above the content — the flags live beside the markdown, never inside it,
+  // so the markdown stays the verbatim fetched text the edit path diffs against.
+  truncated: boolean;
+  unknownBlocks: number;
   status: "loading" | "ready" | "error";
   // Set when status is "error": the failure reason, shown in the tab instead of the spinner.
   message?: string;
@@ -25,7 +30,14 @@ const [docs, setDocs] = createSignal<Record<string, SourceDocEntry>>({});
 export function setSourceLoading(target: string, title: string, sourceId: string): void {
   setDocs((prev) => ({
     ...prev,
-    [target]: { title, sourceId, editedTime: "", status: "loading" },
+    [target]: {
+      title,
+      sourceId,
+      editedTime: "",
+      truncated: false,
+      unknownBlocks: 0,
+      status: "loading",
+    },
   }));
 }
 
@@ -37,6 +49,8 @@ export function setSourceDoc(
     markdown?: string | undefined;
     html?: string | undefined;
     editedTime: string;
+    truncated: boolean;
+    unknownBlocks: number;
   },
 ): void {
   setDocs((prev) => ({ ...prev, [target]: { ...doc, status: "ready" } }));
@@ -50,6 +64,8 @@ export function setSourceError(target: string, message: string): void {
       title: prev[target]?.title ?? "Notion",
       sourceId: prev[target]?.sourceId ?? "",
       editedTime: "",
+      truncated: false,
+      unknownBlocks: 0,
       status: "error",
       message,
     },

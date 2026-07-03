@@ -551,7 +551,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // (chunk load, crash, or an init that never settles within EDITOR_INIT_MS) — so the reveal shows a settled UI.
   const start = (container: HTMLElement): void => {
     const editorReady = import("./editor-host").then(({ createEditorHost }) =>
-      createEditorHost(container, deps.onSaveError, deps.onOpenError),
+      createEditorHost(container, deps.onSaveError, deps.onOpenError, (loc) =>
+        navHistory.record(loc),
+      ),
     );
     const initDeadline = new Promise<never>((_, reject) => {
       initTimer = window.setTimeout(

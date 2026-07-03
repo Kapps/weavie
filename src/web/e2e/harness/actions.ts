@@ -13,9 +13,10 @@ export async function openFile(page: Page, name: string): Promise<void> {
   // swap is an async host round-trip. Typing in the gap leaks into the outgoing model, so wait for the editor
   // to actually bind this file (data-active-file, stamped on the real swap). Media files never bind a model.
   if (mediaTypeOf(name) === null) {
+    const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); // every regex metachar, backslash included
     await expect(page.locator(".editor")).toHaveAttribute(
       "data-active-file",
-      new RegExp(`[\\\\/]${name.replace(/[.]/g, "\\.")}$`),
+      new RegExp(`[\\\\/]${escaped}$`),
     );
   }
 }

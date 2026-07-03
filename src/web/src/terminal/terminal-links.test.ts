@@ -140,6 +140,38 @@ describe("auto-link provider", () => {
     expect(fakeTerminal("⏺ Bash(git status)").provide()).toEqual([]);
   });
 
+  it("links a bare path (separator, no :line, no wrapper) and reveals it at line 1", () => {
+    const { provide } = fakeTerminal("wrote src/web/e2e/.recordings/clip.webm just now");
+    const links = provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("src/web/e2e/.recordings/clip.webm");
+    links[0]?.activate({} as MouseEvent, links[0].text);
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "src/web/e2e/.recordings/clip.webm",
+      line: 1,
+    });
+  });
+
+  it("links a rooted bare path, keeping the leading separator", () => {
+    const { provide } = fakeTerminal("see /home/user/notes.md for context");
+    const links = provide();
+    expect(links[0]?.text).toBe("/home/user/notes.md");
+  });
+
+  it("does not link a bare path as file:line and again as bare (single link at its line)", () => {
+    const { provide } = fakeTerminal("edit src/foo.ts:42 please");
+    expect(provide()).toHaveLength(1);
+  });
+
+  it("does not link a dotted word with no separator (Node.js, package.json)", () => {
+    expect(fakeTerminal("built with Node.js; see package.json").provide()).toEqual([]);
+  });
+
+  it("does not link a slashed token whose extension starts with a digit (HTTP/1.1)", () => {
+    expect(fakeTerminal("the server speaks HTTP/1.1 here").provide()).toEqual([]);
+  });
+
   it("does not double-link a URL that ends in a .ext:line-looking path", () => {
     // URLs are claimed first, so the file:line scanner must skip the span already inside the URL.
     const { provide } = fakeTerminal("https://host/app.js:10");

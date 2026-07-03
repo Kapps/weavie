@@ -1,7 +1,7 @@
 # Commands & keybindings
 
 Status: implemented (Core + Windows + macOS hosts + web)
-Last updated: 2026-06-18
+Last updated: 2026-07-02
 
 The third concrete instance of the
 [Claude-facing capability registry](../concepts/mcp-registry.md) (after settings and the layout
@@ -242,6 +242,13 @@ A single window-level `keydown` listener in **capture phase** (as today) so chor
 xterm/Monaco, but `preventDefault` fires **only when a binding actually matches** — so unmatched
 `Ctrl+digit` still passes through to the terminal/editor, preserving current behavior. `tinykeys`
 parses/normalizes the key strings (including `$mod`); on a match we evaluate `when`, then dispatch.
+
+The back/forward **mouse buttons** are bindable through the same resolver as the key tokens
+`MouseBack` / `MouseForward` (modifiers compose, e.g. `ctrl+MouseBack`), matched from a capture-phase
+`mousedown`. They default-bind the navigation-history commands (`weavie.navigation.back` / `.forward`).
+One deliberate asymmetry with keydown: those two buttons are **always cancelled** (mousedown, mouseup,
+auxclick), matched or not, because their default action — the webview's own history navigation — would
+navigate the whole app away.
 
 ### Global hotkeys
 

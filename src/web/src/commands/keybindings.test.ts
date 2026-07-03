@@ -25,4 +25,9 @@ describe("formatKey (non-mac)", () => {
     expect(formatKey("$mod+up")).toBe("Ctrl+Up");
     expect(formatKey("alt+enter")).toBe("Alt+Enter");
   });
+
+  it("renders the mouse-button tokens canonically regardless of spelling", () => {
+    expect(formatKey("MouseBack")).toBe("MouseBack");
+    expect(formatKey("mouseforward")).toBe("MouseForward");
+  });
 });

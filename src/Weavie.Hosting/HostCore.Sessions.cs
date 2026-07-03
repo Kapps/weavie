@@ -36,6 +36,10 @@ public sealed partial class HostCore {
 			_ui.Post(() => session.Claude.Restart());
 			return Task.FromResult(CommandResult.Success("Restarted Claude."));
 		});
+		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
+		// running shell jobs); fails cleanly when no update is pending.
+		session.Commands.RegisterHandler(CoreCommands.RestartForUpdate, (_, _) =>
+			Task.FromResult(RestartNowForUpdate()));
 		session.Commands.RegisterHandler(CoreCommands.ToggleWindow, (_, _) => {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
@@ -78,11 +82,28 @@ public sealed partial class HostCore {
 				PushDeletionToWeb(path);
 			}
 		});
+		// A new prompt committed the faded accepted band: re-push the trimmed review set, each committed file's
+		// diff (its faded hunks vanish inline), and the now-cleared undo history.
+		session.Changes.AcceptedCommitted += paths => _ui.Post(() => {
+			if (IsActiveSession(session)) {
+				PushTurnChangesToWeb();
+				foreach (string path in paths) {
+					PushTurnDiffToWeb(path);
+				}
+
+				PushReviewHistoryToWeb();
+			}
+		});
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
 				// A turn settling may have changed files / the branch — refresh the footer's git status.
 				PushGitStatus();
+			}
+
+			// A pending update drain re-checks its gate the moment any session settles (or starts working).
+			if (Draining) {
+				EvaluateDrain();
 			}
 
 			// The review set is pushed live on every edit (Changes.Changed), so the page's parked navigator
@@ -440,8 +461,9 @@ public sealed partial class HostCore {
 		// the ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
 		// session's walk would linger. Pushed after the status so the web's auto-arm sees the idle state.
 		PushIncomingReviewState();
-		// If the incoming session is a PR review, re-push its changed-file list so the diff navigator follows it.
-		PushActivePrChanges();
+		// If the incoming session has an armed review (a PR or a "diff against"), re-push its changed-file list
+		// so the diff navigator follows it.
+		PushActiveReviewChanges();
 		// The rail push carries the new active flag, flipping the page to this session's (already-live) terminal
 		// panes. Pushed before focus so the target pane is shown first.
 		PushSessionList();

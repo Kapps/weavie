@@ -1,4 +1,3 @@
-using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Git;
 using Weavie.Core.Review;
@@ -8,7 +7,8 @@ namespace Weavie.Hosting;
 
 // The Open-PR flow: list a repo's open pull requests for the picker, and open one as a session checked out on
 // its head branch. PR data comes from IPullRequestProvider (GitHub by default); the branch checkout reuses the
-// existing attach-existing-worktree path. The overview tab + comments are later phases (see docs/specs/open-pr.md).
+// existing attach-existing-worktree path, and the diff rides the shared review-diff surface
+// (HostCore.DiffReviews.cs). The overview tab is a later phase (see docs/specs/open-pr.md).
 public sealed partial class HostCore {
 	/// <summary>
 	/// Answers the Open-PR picker: resolves the workspace's <c>origin</c> to a repo, lists its open PRs, and
@@ -140,21 +140,16 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		await ArmPrReviewAsync(number, headRef, baseRef, title, url).ConfigureAwait(false);
+		await ArmPrReviewAsync(number, headRef, baseRef).ConfigureAwait(false);
 	}
-
-	// Each PR session's review state, keyed by session id (= the head branch). Holds what computing a per-file
-	// diff needs: the merge-base to diff against and the worktree the head is checked out in.
-	private readonly ConcurrentDictionary<string, PullRequestReview> _prReviews = new(StringComparer.Ordinal);
 
 	/// <summary>
 	/// Arms PR review on the just-opened session: fetches the base, computes the merge-base, records the review,
 	/// and pushes the changed-file list so the diff navigator surfaces. A diff failure toasts and leaves the
 	/// session usable (the checkout still succeeded).
 	/// </summary>
-	private async Task ArmPrReviewAsync(int number, string headRef, string baseRef, string title, string url) {
-		// The just-opened PR is the active session (attach switched to it). Key the review by the worktree path —
-		// stable across switches, unlike the session's path-hashed Id, and unique per session.
+	private async Task ArmPrReviewAsync(int number, string headRef, string baseRef) {
+		// The just-opened PR is the active session (attach switched to it).
 		if (_session is not { } session) {
 			return;
 		}
@@ -185,114 +180,25 @@ public sealed partial class HostCore {
 		}
 
 		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
-		var review = new PullRequestReview(number, title, url, baseRef, headRef, mergeBase, headSha, repo, worktree);
-		_prReviews[worktree] = review;
+		var review = new DiffReview(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
+		_diffReviews[worktree] = review;
 		await RefreshCommentsAsync(review).ConfigureAwait(false);
-		await PushPrChangesAsync(review).ConfigureAwait(false);
+		await PushReviewChangesAsync(review).ConfigureAwait(false);
 	}
 
 	/// <summary>Re-loads a PR's review comments into the review (best-effort; a forge error leaves the prior set).</summary>
-	private async Task RefreshCommentsAsync(PullRequestReview review) {
+	private async Task RefreshCommentsAsync(DiffReview review) {
 		if (review.Repo is not { } repo) {
 			return;
 		}
 
 		try {
-			var comments = await _reviewComments.ListAsync(repo, review.Number, CancellationToken.None).ConfigureAwait(false);
+			var comments = await _reviewComments.ListAsync(repo, review.PrNumber, CancellationToken.None).ConfigureAwait(false);
 			review.Comments.Clear();
 			review.Comments.AddRange(comments);
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Log($"[weavie] pr #{review.Number}: couldn't load comments: {ex.Message}");
+			Log($"[weavie] pr #{review.PrNumber}: couldn't load comments: {ex.Message}");
 		}
-	}
-
-	/// <summary>Computes and pushes a PR's changed-file list (<c>pr-changes</c>) — the file axis of the diff walk.</summary>
-	private async Task PushPrChangesAsync(PullRequestReview review) {
-		IReadOnlyList<DiffFileChange> changes;
-		try {
-			changes = await new GitService().DiffRefsAsync(review.Worktree, review.MergeBase, review.HeadRef, CancellationToken.None).ConfigureAwait(false);
-		} catch (GitException ex) {
-			Log($"[weavie] pr #{review.Number}: diff failed: {ex.Message}");
-			return;
-		}
-
-		// Fire-and-forget: this diff can finish after a rapid session switch has moved off the PR, and the web
-		// applies pr-changes last-writer-wins with no guard. Guard and post ON the UI thread — where switches run
-		// and in-order with their message train — so a stale diff can never check active, get preempted by a
-		// switch, and still land after the incoming session's pushes.
-		_ui.Post(() => {
-			if (_session is not { } active || !string.Equals(active.WorkspaceRoot, review.Worktree, StringComparison.Ordinal)) {
-				return;
-			}
-
-			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "pr-changes",
-				number = review.Number,
-				files = changes.Select(c => new {
-					path = Path.GetFullPath(Path.Combine(review.Worktree, c.Path)),
-					name = Path.GetFileName(c.Path),
-					added = c.Added,
-					removed = c.Removed,
-					line = 1,
-				}),
-			}));
-		});
-	}
-
-	/// <summary>
-	/// Answers <c>get-pr-diff</c> for one file: its base→head pair (baseline = the file at the merge-base, current
-	/// = the worktree file) so the inline-diff renderer can show it. Comments arrive in a later phase.
-	/// </summary>
-	private async Task SendPrDiffAsync(int number, string absolutePath) {
-		if (ActivePrReview() is not { } review || review.Number != number) {
-			// Stale request (the session moved on) — dropping is correct, but log it: an unanswered get-pr-diff
-			// strands the web's navigator mid-step, and this is the only trace of why.
-			Log($"[weavie] pr #{number}: dropped get-pr-diff for {Path.GetFileName(absolutePath)} (active pr: {ActivePrReview()?.Number.ToString() ?? "none"})");
-			return;
-		}
-
-		string relative = Path.GetRelativePath(review.Worktree, absolutePath).Replace('\\', '/');
-		string baseline;
-		try {
-			baseline = await new GitService().ShowFileAtRefAsync(review.Worktree, review.MergeBase, relative, CancellationToken.None).ConfigureAwait(false);
-		} catch (GitException) {
-			baseline = string.Empty;
-		}
-
-		string current;
-		try {
-			current = File.Exists(absolutePath) ? await File.ReadAllTextAsync(absolutePath).ConfigureAwait(false) : string.Empty;
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			current = string.Empty;
-		}
-
-		// Guard + post on the UI thread: a switch that landed while the git show / file read ran above means this
-		// diff belongs to a session no longer on screen — drop it rather than render it over the wrong session.
-		_ui.Post(() => {
-			if (ActivePrReview() is not { } stillActive || stillActive.Number != number) {
-				return;
-			}
-
-			_bridge.PostToWeb(JsonSerializer.Serialize(new {
-				type = "pr-diff",
-				number,
-				path = absolutePath,
-				name = Path.GetFileName(absolutePath),
-				baseline,
-				current,
-				comments = review.Comments
-					.Where(c => string.Equals(c.Path, relative, StringComparison.Ordinal))
-					.Select(c => new {
-						id = c.Id,
-						line = c.Line,
-						side = c.Side,
-						author = c.Author,
-						body = c.Body,
-						createdAt = c.CreatedAt,
-						inReplyTo = c.InReplyTo,
-					}),
-			}));
-		});
 	}
 
 	/// <summary>
@@ -301,7 +207,7 @@ public sealed partial class HostCore {
 	/// <paramref name="inReplyTo"/>. Failure toasts and keeps the draft (the web doesn't clear it until success).
 	/// </summary>
 	private async Task AddPrCommentFromWebAsync(int number, string absolutePath, int line, string side, long inReplyTo, string body) {
-		if (string.IsNullOrWhiteSpace(body) || ActivePrReview() is not { } review || review.Number != number || review.Repo is not { } repo) {
+		if (string.IsNullOrWhiteSpace(body) || ActiveReview() is not { } review || review.PrNumber != number || review.Repo is not { } repo) {
 			return;
 		}
 
@@ -321,24 +227,7 @@ public sealed partial class HostCore {
 		}
 
 		await RefreshCommentsAsync(review).ConfigureAwait(false);
-		await SendPrDiffAsync(number, absolutePath).ConfigureAwait(false);
-	}
-
-	/// <summary>The PR review armed for the active session, or <c>null</c> when the active session isn't a PR.</summary>
-	private PullRequestReview? ActivePrReview() =>
-		_session is { } session && _prReviews.TryGetValue(session.WorkspaceRoot, out var review) ? review : null;
-
-	/// <summary>Re-pushes the active session's PR change list on a switch, so the navigator follows the PR session.</summary>
-	private void PushActivePrChanges() {
-		if (ActivePrReview() is { } review) {
-			_ = PushPrChangesAsync(review);
-		}
-	}
-
-	private sealed record PullRequestReview(
-		int Number, string Title, string Url, string BaseRef, string HeadRef, string MergeBase, string HeadSha, RepoRef? Repo, string Worktree) {
-		/// <summary>The PR's review comments, refreshed on arm and after each post.</summary>
-		public List<ReviewComment> Comments { get; } = [];
+		await SendReviewDiffAsync(number, absolutePath).ConfigureAwait(false);
 	}
 
 	/// <summary>Resolves the workspace's <c>origin</c> remote URL to a <see cref="RepoRef"/>, or <c>null</c> when it isn't a forge repo.</summary>

@@ -122,6 +122,7 @@ public sealed class TerminalControllerCwdTests {
 		public event Action<int>? Exited;
 
 		public bool IsRunning { get; private set; }
+		public bool HasForegroundJob => false;
 		public string? WorkingDirectory { get; private set; }
 
 		public void Start(TerminalStartInfo startInfo) {

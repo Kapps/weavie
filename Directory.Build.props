@@ -35,6 +35,11 @@
     <BuildNumber Condition="'$(BuildNumber)' == ''">0</BuildNumber>
     <VersionPrefix>0.1.$(BuildNumber)</VersionPrefix>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+
+    <!-- Runner⟷worker spawn contract generation (argv + control endpoints). Bump when that contract
+         changes; the auto-updater refuses a bundle declaring a newer generation than the running
+         runner. See docs/specs/runner-auto-update.md. -->
+    <SpawnContractVersion>1</SpawnContractVersion>
   </PropertyGroup>
 
   <!--

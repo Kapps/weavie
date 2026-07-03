@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import { Agent, get as httpGet } from "node:http";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -145,6 +146,23 @@ function waitForListening(
   });
 }
 
+// A drained GET over a caller-owned keep-alive agent: draining returns the socket to the pool so the next
+// poll reuses it instead of opening a fresh loopback connection that leaks into Windows TIME_WAIT (#206).
+export function getOverAgent(url: string, agent: Agent): Promise<{ status: number; body: string }> {
+  return new Promise((resolve, reject) => {
+    const req = httpGet(url, { agent }, (res) => {
+      let body = "";
+      res.setEncoding("utf8");
+      res.on("data", (chunk) => {
+        body += chunk;
+      });
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, body }));
+      res.on("error", reject);
+    });
+    req.on("error", reject);
+  });
+}
+
 // Polls the host URL until it answers (any HTTP status), so callers connect only once the listener accepts.
 export async function waitForHttp(
   url: string,
@@ -152,16 +170,21 @@ export async function waitForHttp(
   timeoutMs: number,
 ): Promise<void> {
   const deadline = Date.now() + timeoutMs;
-  for (;;) {
-    try {
-      await fetch(url, { redirect: "manual" });
-      return;
-    } catch {
-      if (Date.now() > deadline) {
-        throw new Error(`host never answered ${url}:\n${getLog()}`);
+  const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+  try {
+    for (;;) {
+      try {
+        await getOverAgent(url, agent);
+        return;
+      } catch {
+        if (Date.now() > deadline) {
+          throw new Error(`host never answered ${url}:\n${getLog()}`);
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
       }
-      await new Promise((resolve) => setTimeout(resolve, 100));
     }
+  } finally {
+    agent.destroy();
   }
 }
 

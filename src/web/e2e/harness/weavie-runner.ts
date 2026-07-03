@@ -1,12 +1,14 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
+import { Agent } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   type LaunchOptions,
   type WeavieHost,
   freePort,
+  getOverAgent,
   headlessDll,
   killProcessTree,
   prepareFake,
@@ -37,22 +39,29 @@ async function resolveWorkerUrl(
   getLog: () => string,
 ): Promise<string> {
   const deadline = Date.now() + 40_000;
-  for (;;) {
-    try {
-      const res = await fetch(`${control}/backend?token=${token}`);
-      if (res.ok) {
-        const body = (await res.json()) as { url?: string; status?: string };
-        if (body.url && body.status !== "failed") {
-          return body.url;
+  // One keep-alive socket for the whole poll: the control plane is already up, so without reuse every 200ms
+  // probe was a fresh established-then-closed loopback connection piling into Windows TIME_WAIT (#206).
+  const agent = new Agent({ keepAlive: true, maxSockets: 1 });
+  try {
+    for (;;) {
+      try {
+        const res = await getOverAgent(`${control}/backend?token=${token}`, agent);
+        if (res.status >= 200 && res.status < 300) {
+          const body = JSON.parse(res.body) as { url?: string; status?: string };
+          if (body.url && body.status !== "failed") {
+            return body.url;
+          }
         }
+      } catch {
+        // control plane not up yet
       }
-    } catch {
-      // control plane not up yet
+      if (Date.now() > deadline) {
+        throw new Error(`runner never returned a worker backend:\n${getLog()}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 200));
     }
-    if (Date.now() > deadline) {
-      throw new Error(`runner never returned a worker backend:\n${getLog()}`);
-    }
-    await new Promise((resolve) => setTimeout(resolve, 200));
+  } finally {
+    agent.destroy();
   }
 }
 

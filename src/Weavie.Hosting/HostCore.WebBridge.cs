@@ -50,6 +50,9 @@ public sealed partial class HostCore {
 				}
 
 				break;
+			case "term-paste-image":
+				HandlePasteImage(root);
+				break;
 			case "term-resize":
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
@@ -187,15 +190,15 @@ public sealed partial class HostCore {
 			case "lsp-start":
 				// The page opened a language client: spawn its server on the owning session, bound to the page-minted
 				// channel. Routed by slot like the terminal, so a background session's client reaches its own servers.
-				LspSessionFor(root)?.Lsp.Start(root.GetStringOrEmpty("slot"), root.GetStringOrEmpty("server"), root.GetStringOrEmpty("channel"));
+				SessionForSlot(root)?.Lsp.Start(root.GetStringOrEmpty("slot"), root.GetStringOrEmpty("server"), root.GetStringOrEmpty("channel"));
 				break;
 			case "lsp-data":
 				// One JSON-RPC payload from a language client → its server's stdin (the payload rides embedded, already JSON).
-				LspSessionFor(root)?.Lsp.Data(root.GetStringOrEmpty("channel"), LspPayloadBytes(root));
+				SessionForSlot(root)?.Lsp.Data(root.GetStringOrEmpty("channel"), LspPayloadBytes(root));
 				break;
 			case "lsp-stop":
 				// The page tore a language client down (document closed / session switch) → kill its server.
-				LspSessionFor(root)?.Lsp.Stop(root.GetStringOrEmpty("channel"));
+				SessionForSlot(root)?.Lsp.Stop(root.GetStringOrEmpty("channel"));
 				break;
 			case "list-dir":
 				_session?.ListDirectory(root.GetStringOrEmpty("path"));
@@ -1315,11 +1318,11 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Routes an <c>lsp-*</c> message to the session named by its <c>slot</c> (the terminal's routing, sans pane): a
-	/// background session's language client must reach THAT session's servers. Falls back to the active session when
-	/// the slot is absent or no longer loaded.
+	/// Resolves the session a message names by its <c>slot</c> (the terminal's routing, sans pane): a background
+	/// session's work (LSP, a pasted image) must reach THAT session, not the active one. Falls back to the active
+	/// session when the slot is absent or no longer loaded.
 	/// </summary>
-	private HostSession? LspSessionFor(JsonElement root) {
+	private HostSession? SessionForSlot(JsonElement root) {
 		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
 		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
 		return session ?? _session;

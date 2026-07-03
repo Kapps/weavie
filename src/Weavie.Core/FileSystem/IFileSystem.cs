@@ -47,6 +47,9 @@ public interface IFileSystem {
 	/// <summary>Writes UTF-8 text, creating parent directories as needed, overwriting any existing file.</summary>
 	void WriteAllText(string path, string contents);
 
+	/// <summary>Writes raw bytes, creating parent directories as needed, overwriting any existing file.</summary>
+	void WriteAllBytes(string path, byte[] contents);
+
 	/// <summary>
 	/// Writes UTF-8 text atomically (a crash leaves the old or new file, never a torn one), creating parent
 	/// dirs. For app-managed config, not user source files — atomic-rename churns watchers and breaks ACLs there.

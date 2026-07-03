@@ -46,6 +46,7 @@ public sealed class HostSession : IAsyncDisposable {
 		LayoutStore layout,
 		string workspaceRoot,
 		string scratchDir,
+		string pastedImagesDir,
 		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
@@ -57,6 +58,7 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(layout);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
+		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
@@ -78,6 +80,9 @@ public sealed class HostSession : IAsyncDisposable {
 		// file tree/index/git/Claude. The file provider gets that dir as a second allowed root so the editor can
 		// read/write them as ordinary working copies.
 		Scratch = new ScratchStore(fileSystem, scratchDir);
+		// Images pasted into Claude land here (a scratch dir outside the workspace) and their path is injected into
+		// the prompt; wiped on unload so they never linger or reach the tree/git.
+		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
@@ -192,6 +197,9 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Owns this workspace's scratch (untitled-buffer) directory; New File creates a file here.</summary>
 	public ScratchStore Scratch { get; }
+
+	/// <summary>Owns this session's pasted-image directory; an image pasted into Claude is written here and its path injected into the prompt.</summary>
+	public PastedImageStore PastedImages { get; }
 
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
@@ -361,6 +369,8 @@ public sealed class HostSession : IAsyncDisposable {
 			Shell.Dispose();
 		}).ConfigureAwait(false);
 		_watcher.Dispose();
+		// Pasted images are ephemeral prompt inputs — drop this session's on unload so they never accumulate.
+		PastedImages.Clear();
 		await Ide.DisposeAsync().ConfigureAwait(false);
 		await Lsp.DisposeAsync().ConfigureAwait(false);
 	}

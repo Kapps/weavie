@@ -210,9 +210,15 @@ function collectHeadings(blocks: NotionBlock[]): Map<NotionBlock, Heading> {
 
 // A heading's plain-text label: escapes resolved, marks/tags/links reduced to their text.
 function plainText(text: string): string {
-  return text
-    .replace(/\[((?:\\.|[^\]\\])*)\]\([^)]*\)/g, "$1")
-    .replace(/<[^>]+>/g, "")
+  let out = text.replace(/\[((?:\\.|[^\]\\])*)\]\([^)]*\)/g, "$1");
+  // Strip tags to a fixed point: one pass can splice a new tag together (`<scr<b>ipt>`), which would leak
+  // tag-looking residue into the label (and reads as an injection risk to scanners, though escapeHtml and
+  // DOMPurify both sit downstream).
+  for (let prev = ""; prev !== out; ) {
+    prev = out;
+    out = out.replace(/<[^>]*>/g, "");
+  }
+  return out
     .replace(/(\*\*|~~|[*`$])/g, "")
     .replace(/\\(.)/g, "$1")
     .trim();

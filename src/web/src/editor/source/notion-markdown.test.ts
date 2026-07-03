@@ -77,6 +77,13 @@ describe("seam invariants", () => {
     expect(html).toContain('id="wv-h-heading-one"');
   });
 
+  test("a ToC label strips spliced tags to a fixed point — nothing tag-opening survives", () => {
+    const html = renderNotionMarkdown("# he<scr<b>ipt>ading\n<table_of_contents/>");
+    // `<scr<b>` is consumed as one tag; the label keeps the stray text but can never re-open a tag.
+    expect(html).toContain(">heipt&gt;ading</a>");
+    expect(html).not.toMatch(/<a[^>]*>[^<]*&lt;/); // no `<` (escaped or raw) survives into a label
+  });
+
   test("children nest under list items, todos, and quotes instead of flattening", () => {
     const html = renderNotionMarkdown(KITCHEN_SINK);
     expect(html).toMatch(/<li[^>]*>Bullet one.*wv-children.*Paragraph child of bullet one/);

@@ -21,6 +21,10 @@ function themeConfig(): Parameters<Mermaid["initialize"]>[0] {
   return {
     startOnLoad: false,
     securityLevel: "strict",
+    // SVG-native <text> labels, not HTML-in-<foreignObject> — the SVG-profile sanitize below strips
+    // foreignObject, which silently deleted every node label.
+    htmlLabels: false,
+    flowchart: { htmlLabels: false },
     theme: "base",
     themeVariables: {
       darkMode: document.documentElement.dataset.themeType === "dark",

@@ -5,7 +5,7 @@
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 import type { ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
-import { formatKey } from "../commands/keybindings";
+import { IS_MAC, formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
@@ -709,10 +709,15 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const prevChange = (): boolean => (showingParked ? stepIn() : goToChange(-1));
   const undo = (): boolean => runAction(currentOptions?.onUndo);
   const keepAll = (): boolean => runAction(currentOptions?.onKeepAll);
+  // A live review with no file axis (single-file) has no ← / → handler, so the chord would fall through. On
+  // Win/Linux that's wanted — ctrl+$mod+←/→ is plain Ctrl+←/→ word-nav. On macOS it's Ctrl+⌘+←/→, which has no
+  // native meaning, so falling through just rings the system bell — swallow it instead while a review is up.
+  const swallowFileNav = (): boolean =>
+    IS_MAC && (currentOptions?.mode === "applied" || currentOptions?.mode === "pr");
   const nextFile = (): boolean =>
-    showingParked ? stepIn() : runAction(currentOptions?.onNextFile);
+    showingParked ? stepIn() : runAction(currentOptions?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
-    showingParked ? stepIn() : runAction(currentOptions?.onPrevFile);
+    showingParked ? stepIn() : runAction(currentOptions?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
   // from the review set. Returns false outside applied mode.

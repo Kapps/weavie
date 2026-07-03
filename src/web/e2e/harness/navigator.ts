@@ -6,6 +6,11 @@ import { type Page, expect } from "@playwright/test";
 
 const STACK_NAME = ".weavie-inline-stack-name";
 
+/** The change navigator's chord for an arrow — ctrl+$mod: plain Ctrl on Win/Linux, ⌃⌘ on Mac. */
+export function navChord(arrow: "ArrowUp" | "ArrowDown" | "ArrowLeft" | "ArrowRight"): string {
+  return process.platform === "darwin" ? `Control+Meta+${arrow}` : `Control+${arrow}`;
+}
+
 // A real changed-file label carries an extension; during a session-switch rebind the label transiently reads
 // the parked cue ("Review changes") before it binds to the incoming diff, so we only ever trust filenames.
 const isFileName = (s: string): boolean => /\.\w+$/.test(s);
@@ -24,7 +29,7 @@ async function settledFile(page: Page): Promise<string> {
 // Step the navigator to the next changed file (Ctrl/Cmd+→) and resolve once the label has advanced to a
 // different filename. Returns the file now in view. The editor must already hold focus so the chord lands.
 async function stepToNextFile(page: Page, from: string): Promise<string> {
-  await page.keyboard.press("ControlOrMeta+ArrowRight");
+  await page.keyboard.press(navChord("ArrowRight"));
   await expect
     .poll(async () => {
       const name = await currentFile(page);

@@ -651,7 +651,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false (so
-  // $mod+Left/Right keep word-nav) when there's no multi-file review or the active file isn't in it.
+  // Ctrl+Left/Right keep Win/Linux word-nav) when there's no multi-file review or the active file isn't in it.
   const stepReviewFile = (delta: number): boolean => {
     if (reviewFiles.length < 2) {
       return false;
@@ -863,7 +863,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           return true;
         }
         // The toolbar's ← / → file axis: only for a multi-file review containing this file, so a single-file
-        // review leaves $mod+Left/Right as editor word-nav.
+        // review leaves ctrl+$mod+Left/Right unclaimed (Win/Linux word-nav).
         const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
         const fileNav =
           reviewFiles.length > 1 && idx !== -1

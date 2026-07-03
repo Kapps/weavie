@@ -821,7 +821,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.undoRevert, () => editor.inline.undoRevert()),
       registerCommand(CommandIds.redoReview, () => editor.inline.redoReview()),
       // Post-turn review (acceptEdits/bypass): drive the inline toolbar's file axis. next/prev DECLINE (fall
-      // through to the editor) when no multi-file review is active, so $mod+Left/Right keep word-nav outside one.
+      // through to the editor) when no multi-file review is active, so Ctrl+Left/Right keep Win/Linux word-nav
+      // outside one.
       registerCommand(CommandIds.reviewOpen, () => editor.openFirstReviewFile()),
       registerCommand(CommandIds.reviewNextFile, () => editor.inline.nextFile()),
       registerCommand(CommandIds.reviewPrevFile, () => editor.inline.prevFile()),

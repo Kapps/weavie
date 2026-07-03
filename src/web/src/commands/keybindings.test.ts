@@ -25,4 +25,8 @@ describe("formatKey (non-mac)", () => {
     expect(formatKey("$mod+up")).toBe("Ctrl+Up");
     expect(formatKey("alt+enter")).toBe("Alt+Enter");
   });
+
+  it("collapses ctrl+$mod to a single Ctrl where $mod is Ctrl", () => {
+    expect(formatKey("ctrl+$mod+Right")).toBe("Ctrl+Right");
+  });
 });

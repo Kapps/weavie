@@ -70,8 +70,8 @@ around a **scope picker**:
 
 | Keys | Action |
 |---|---|
-| `↑` / `↓` (`$mod+Up` / `$mod+Down`) | previous / next **change** (hunk) within the file |
-| `←` / `→` (`$mod+Left` / `$mod+Right`) | previous / next **file** in the review set |
+| `↑` / `↓` (`ctrl+$mod+Up` / `ctrl+$mod+Down`) | previous / next **change** (hunk) within the file |
+| `←` / `→` (`ctrl+$mod+Left` / `ctrl+$mod+Right`) | previous / next **file** in the review set |
 | **Keep** (`$mod+Enter`) | keep at the toolbar's **scope** (this change / file / all), advance |
 | **Revert** (`$mod+Backspace`) | revert at the toolbar's **scope** (this change / file / all), advance |
 | Undo keep (`$mod+Shift+Enter`) | undo the most recent keep — bring its change back into the pending set |
@@ -284,8 +284,8 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 
 | Command id | Default key | Action in review context |
 |---|---|---|
-| `weavie.diff.nextChange` | `$mod+Down` | next hunk |
-| `weavie.diff.prevChange` | `$mod+Up` | previous hunk |
+| `weavie.diff.nextChange` | `ctrl+$mod+Down` | next hunk |
+| `weavie.diff.prevChange` | `ctrl+$mod+Up` | previous hunk |
 | `weavie.diff.accept` | `$mod+Enter` | **Keep** at the toolbar's scope, advance |
 | `weavie.diff.reject` | `$mod+Backspace` | **Revert** at the toolbar's scope, advance |
 | `weavie.review.undoKeep` | `$mod+Shift+Enter` | **Undo keep** — re-pend the most recent kept change |
@@ -295,12 +295,14 @@ visibility, so the commands stay runnable from the palette regardless of focus.
 | `weavie.review.revertFile` | _(palette + scope picker)_ | **Revert file** (= Revert at scope "File"; confirms) |
 | `weavie.review.keepAll` | _(palette-only)_ | **Keep all** — the commit point; clears the marks + undo history |
 | `weavie.diff.undo` | _(palette-only)_ | **Revert all** — undo the whole set on disk (confirms; undoable) |
-| `weavie.review.nextFile` | `$mod+Right` | next file in the review set (land on first change) |
-| `weavie.review.prevFile` | `$mod+Left` | previous file in the review set |
+| `weavie.review.nextFile` | `ctrl+$mod+Right` | next file in the review set (land on first change) |
+| `weavie.review.prevFile` | `ctrl+$mod+Left` | previous file in the review set |
 | `weavie.review.open` | _(palette-only)_ | open the first reviewed file at its first change |
 
-`$mod+Left`/`$mod+Right` override Monaco's word-navigation **only while an applied-mode diff is active**
-(the handlers decline when there is no review diff), so normal editing keeps word-nav. The
+Navigation rides `ctrl+$mod`: plain Ctrl+arrows on Win/Linux, ⌃⌘+arrows on Mac — so ⌘+arrows keep their
+macOS line/document meaning even mid-review. On Win/Linux `Ctrl+Left/Right` override Monaco's
+word-navigation **only while an applied-mode diff is active** (the handlers decline when there is no
+review diff), so normal editing keeps word-nav. The
 `$mod+Shift+Enter`/`$mod+Shift+Backspace` chords (formerly Keep file / Revert file) now mean **Undo keep
 / Undo revert**; file-scope keep/revert moved onto the sticky scope picker. New commands follow the
 standard path: declare in `CoreCommands.cs` (`RunsIn = Web`), mirror the id in
@@ -407,5 +409,7 @@ The session-changes "show changes" panel and the post-turn review panel (both fl
 
 ## Open questions
 
-- **`$mod+Left/Right` vs word-nav.** Overriding word navigation during an active review is the chosen
-  trade for the 2D model; if it grates in practice, `Alt+Left/Right` is the fallback binding.
+- **`Ctrl+Left/Right` vs word-nav (Win/Linux).** Overriding word navigation during an active review is
+  the chosen trade for the 2D model; if it grates in practice, `Alt+Left/Right` is the fallback binding.
+  On Mac the navigator is `⌃⌘+arrows` — unclaimed by the OS and text editing — so no steal exists there;
+  bare Ctrl+arrows would be eaten by Mission Control/Spaces and bare `⌘+arrows` are line/document nav.

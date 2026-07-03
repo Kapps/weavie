@@ -71,16 +71,16 @@ public static class CoreCommands {
 	/// <summary>Jumps into the post-turn review (acceptEdits/bypass) at the first changed file; palette-only, no default keybinding.</summary>
 	public const string ReviewOpen = "weavie.review.open";
 
-	/// <summary>Walks to the next changed file in the review set; bound to <c>$mod+Right</c>.</summary>
+	/// <summary>Walks to the next changed file in the review set; bound to <c>ctrl+$mod+Right</c>.</summary>
 	public const string ReviewNextFile = "weavie.review.nextFile";
 
-	/// <summary>Walks to the previous changed file in the review set; bound to <c>$mod+Left</c>.</summary>
+	/// <summary>Walks to the previous changed file in the review set; bound to <c>ctrl+$mod+Left</c>.</summary>
 	public const string ReviewPrevFile = "weavie.review.prevFile";
 
-	/// <summary>Keeps every hunk in the active review file (mark reviewed + advance); bound to <c>$mod+Shift+Enter</c>.</summary>
+	/// <summary>Keeps every hunk in the active review file (mark reviewed + advance); palette/Claude only, scope also reachable via the toolbar picker.</summary>
 	public const string KeepFile = "weavie.review.keepFile";
 
-	/// <summary>Reverts every change in the active review file on disk (confirms first); bound to <c>$mod+Shift+Backspace</c>.</summary>
+	/// <summary>Reverts every change in the active review file on disk (confirms first); palette/Claude only, scope also reachable via the toolbar picker.</summary>
 	public const string RevertFile = "weavie.review.revertFile";
 
 	/// <summary>Keeps the whole accumulated review set (the cosmetic counterpart to Undo All Changes); palette/Claude only.</summary>
@@ -436,7 +436,7 @@ public static class CoreCommands {
 			When = "diffActive",
 			Description = "Jump to the next change in the inline diff.",
 			Aliases = ["next change", "next diff", "next hunk", "go to next change"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Down", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Down", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -447,7 +447,7 @@ public static class CoreCommands {
 			When = "diffActive",
 			Description = "Jump to the previous change in the inline diff.",
 			Aliases = ["previous change", "prev change", "previous diff", "previous hunk"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Up", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Up", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -485,8 +485,9 @@ public static class CoreCommands {
 		});
 
 		// Post-turn review (acceptEdits/bypass): inline in the editor via the diff toolbar, a 2D navigator
-		// (Up/Down = hunks, Left/Right = files). Web-handled; the handlers DECLINE when no review diff is active,
-		// so $mod+Left/Right keep their editor word-nav meaning outside a review.
+		// (Up/Down = hunks, Left/Right = files) on ctrl+$mod — plain Ctrl on Win/Linux, ⌃⌘ on Mac so ⌘+arrows
+		// keep their macOS line/document meaning. Web-handled; the handlers DECLINE when no review diff is
+		// active, so Ctrl+Left/Right keep their Win/Linux word-nav meaning outside a review.
 		registry.Register(new CommandDefinition {
 			Id = ReviewOpen,
 			Title = "Review Changes",
@@ -504,7 +505,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the next changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["next file in review", "next changed file", "next review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Right", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Right", When = "!terminalFocused" }],
 		});
 
 		registry.Register(new CommandDefinition {
@@ -514,7 +515,7 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Walk to the previous changed file in the post-turn review set, landed on its first change.",
 			Aliases = ["previous file in review", "previous changed file", "prev review file"],
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Left", When = "!terminalFocused" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "ctrl+$mod+Left", When = "!terminalFocused" }],
 		});
 
 		// File-scoped review actions. Scope now rides the toolbar's sticky picker (Keep/Revert at file scope =

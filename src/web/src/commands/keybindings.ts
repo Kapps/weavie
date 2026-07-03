@@ -164,20 +164,19 @@ export function installKeybindings(): () => void {
 
 /** Formats a raw key spec for display, e.g. "$mod+Shift+p" → "Ctrl+Shift+P" (or "⌘+Shift+P" on macOS). */
 export function formatKey(spec: string): string {
-  return spec
-    .split("+")
-    .map((part) => {
-      const lower = part.trim().toLowerCase();
-      if (lower === "$mod" || lower === "mod") {
-        return IS_MAC ? "⌘" : "Ctrl";
-      }
-      if (lower === "control") {
-        return "Ctrl";
-      }
-      if (lower.length === 1) {
-        return lower.toUpperCase();
-      }
-      return part.charAt(0).toUpperCase() + part.slice(1);
-    })
-    .join("+");
+  const parts = spec.split("+").map((part) => {
+    const lower = part.trim().toLowerCase();
+    if (lower === "$mod" || lower === "mod") {
+      return IS_MAC ? "⌘" : "Ctrl";
+    }
+    if (lower === "ctrl" || lower === "control") {
+      return IS_MAC ? "⌃" : "Ctrl";
+    }
+    if (lower.length === 1) {
+      return lower.toUpperCase();
+    }
+    return part.charAt(0).toUpperCase() + part.slice(1);
+  });
+  // "ctrl+$mod" collapses to a single Ctrl on Win/Linux, where $mod resolves to Ctrl.
+  return parts.filter((part, i) => parts.indexOf(part) === i).join("+");
 }

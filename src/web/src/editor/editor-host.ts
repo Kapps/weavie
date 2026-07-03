@@ -18,6 +18,7 @@ import { setEditorStatus } from "./editor-status-store";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
 import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
+import { leaveLine } from "./nav-history";
 import { captureViewState, editorOwner, editorSession, openTab, promote } from "./session-store";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
@@ -107,12 +108,14 @@ function isUserFileModel(model: monaco.editor.ITextModel): boolean {
 /**
  * Brings up the editor: initializes the VSCode services (must precede editor creation), creates the editor in
  * `container`, wires lazy per-language LSP. `onSaveError` / `onOpenError` surface a failed save / open as a
- * toast so neither strands silently.
+ * toast so neither strands silently. `onLeaveViewport` records the outgoing file's scrolled-to position as a
+ * navigation point on a cross-file jump (see showFile), so Back returns there.
  */
 export async function createEditorHost(
   container: HTMLElement,
   onSaveError?: (message: string) => void,
   onOpenError?: (message: string) => void,
+  onLeaveViewport?: (loc: { path: string; line: number }) => void,
 ): Promise<EditorHost> {
   await initEditorServices();
   const textModelService = await getService(ITextModelService);
@@ -392,6 +395,27 @@ export async function createEditorHost(
   ): Promise<boolean> => {
     // Snapshot the outgoing tab's position before swapping away (data-only store write; never loops back).
     snapshotViewState();
+    // On a cross-file jump, if the user scrolled the outgoing cursor off-screen, record where they were looking
+    // as a nav point first (else Back skips it) — read before setModel, while the outgoing scroll is still live.
+    const leaving = editor.getModel();
+    const cursor = editor.getPosition();
+    const visible = editor.getVisibleRanges();
+    const top = visible[0];
+    const bottom = visible[visible.length - 1];
+    if (
+      onLeaveViewport !== undefined &&
+      leaving !== null &&
+      cursor !== null &&
+      top !== undefined &&
+      bottom !== undefined &&
+      isUserFileModel(leaving) &&
+      leaving.uri.toString() !== uri.toString()
+    ) {
+      const line = leaveLine(cursor.lineNumber, top.startLineNumber, bottom.endLineNumber);
+      if (line !== undefined) {
+        onLeaveViewport({ path: uriHostPath(leaving.uri), line });
+      }
+    }
     const token = ++openSeq;
     try {
       const ref = await ensureRef(uri);

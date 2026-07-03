@@ -11,6 +11,15 @@ export interface NavLocation {
   line: number;
 }
 
+/**
+ * The line to record when leaving a file, given the 1-based cursor line and the visible line span `[top, bottom]`.
+ * Undefined when the cursor is still on screen (its own settle-record is the right point); the viewport centre when
+ * the user has scrolled the cursor out of view, so Back returns to where they were looking, not the off-screen cursor.
+ */
+export function leaveLine(cursorLine: number, top: number, bottom: number): number | undefined {
+  return cursorLine >= top && cursorLine <= bottom ? undefined : Math.round((top + bottom) / 2);
+}
+
 /** Back/forward navigation over recorded editor locations, exposed to the Go Back / Go Forward commands. */
 export interface NavHistory {
   /** Record the editor settling at `loc`; a small move within the current region updates the entry in place. */

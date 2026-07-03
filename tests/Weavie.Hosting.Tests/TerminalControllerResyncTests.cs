@@ -122,6 +122,8 @@ public sealed class TerminalControllerResyncTests {
 
 		public bool IsRunning { get; private set; }
 
+		public bool HasForegroundJob => false;
+
 		/// <summary>Every (columns, rows) passed to <see cref="Resize"/>, in order.</summary>
 		public List<(int Columns, int Rows)> Resizes { get; } = [];
 

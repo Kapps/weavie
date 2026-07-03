@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { expect, test } from "../harness/fixtures";
 
@@ -50,7 +50,8 @@ async function pasteInto(
     const target =
       document.querySelector<HTMLElement>(
         '.terminal-surface[data-kind="terminal:claude"] .xterm-helper-textarea',
-      ) ?? document.querySelector<HTMLElement>('.terminal-surface[data-kind="terminal:claude"] .term');
+      ) ??
+      document.querySelector<HTMLElement>('.terminal-surface[data-kind="terminal:claude"] .term');
     if (target === null) {
       throw new Error("claude terminal container not found");
     }
@@ -65,7 +66,11 @@ async function pasteInto(
     } else {
       dt.setData("text/plain", arg.text);
     }
-    const event = new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true });
+    const event = new ClipboardEvent("paste", {
+      clipboardData: dt,
+      bubbles: true,
+      cancelable: true,
+    });
     target.focus();
     target.dispatchEvent(event);
   }, item);
@@ -84,11 +89,13 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
   await page.evaluate(() => {
     (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__ = [];
     const original = WebSocket.prototype.send;
-    WebSocket.prototype.send = function (data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+    WebSocket.prototype.send = function (
+      data: string | ArrayBufferLike | Blob | ArrayBufferView,
+    ): void {
       if (typeof data === "string" && data.includes('"term-paste-image"')) {
         (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(JSON.parse(data));
       }
-      return original.call(this, data as string);
+      original.call(this, data as string);
     };
   });
 
@@ -103,9 +110,7 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
 
   // The host wrote the bytes to a per-session scratch file, byte-for-byte, with the .png extension.
   const expected = Buffer.from(PNG_B64, "base64");
-  await expect
-    .poll(() => pastedPngs(weavie.home).length, { timeout: 15_000 })
-    .toBe(1);
+  await expect.poll(() => pastedPngs(weavie.home).length, { timeout: 15_000 }).toBe(1);
   const written = pastedPngs(weavie.home)[0];
   expect(written).toMatch(/[/\\]pasted-images[/\\].*[/\\]paste-1\.png$/);
   expect(readFileSync(written).equals(expected)).toBe(true);
@@ -120,11 +125,13 @@ test("a text-only paste on the claude pane never posts term-paste-image (falls t
   await page.evaluate(() => {
     (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__ = [];
     const original = WebSocket.prototype.send;
-    WebSocket.prototype.send = function (data: string | ArrayBufferLike | Blob | ArrayBufferView): void {
+    WebSocket.prototype.send = function (
+      data: string | ArrayBufferLike | Blob | ArrayBufferView,
+    ): void {
       if (typeof data === "string" && data.includes('"term-paste-image"')) {
         (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__.push(JSON.parse(data));
       }
-      return original.call(this, data as string);
+      original.call(this, data as string);
     };
   });
 

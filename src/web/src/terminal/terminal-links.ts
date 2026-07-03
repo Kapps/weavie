@@ -1,5 +1,6 @@
 // Terminal hyperlinks: OSC 8 links (file:// → reveal in Monaco, http(s) → OS browser) plus auto-detected
-// bare file:line references and URLs in the output. The browser-open + file-reveal both round-trip the host.
+// file references (path:line, tool-wrapped, or a bare path) and URLs in the output. The browser-open +
+// file-reveal both round-trip the host.
 
 import type { ILink, Terminal } from "@xterm/xterm";
 import { isBrowserHostedShell, postToHost, postToLocalHost } from "../bridge";
@@ -15,6 +16,11 @@ const URL_RE = /https?:\/\/[^\s"'<>()]*[^\s"'<>().,;:!?]/g;
 // A path (:line optional) in a tool-call wrapper, e.g. Edit(src/foo.ts) — the form Claude Code prints
 // for file tools, where the parens anchor a path that has no :line.
 const TOOL_PATH = new RegExp(String.raw`(?<=[A-Za-z]\()${PATH}(?::\d+(?::\d+)?)?(?=\))`, "g");
+// A bare path with no :line and no wrapper, e.g. a src/web/e2e/.recordings/clip.webm reference. Requires a
+// path separator AND a letter-initial extension so prose isn't linked: "Node.js", "index.ts", "HTTP/1.1"
+// and "16/9.0" don't match — only a real relative/rooted path (a/b.ext, ./x.md, /home/u/a.ts, ~/n.log) does.
+const BARE_PATH =
+  /(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/][\w.-]+(?:[\\/][\w.-]+)*|[\w.-]+(?:[\\/][\w.-]+)+)\.[A-Za-z][A-Za-z0-9]*/g;
 
 function revealFile(matchText: string): void {
   // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
@@ -100,6 +106,8 @@ export function wireTerminalLinks(term: Terminal): void {
       collect(text, URL_RE, lineNumber, openUrl, links, claimed);
       collect(text, FILE_LINE, lineNumber, revealFile, links, claimed);
       collect(text, TOOL_PATH, lineNumber, revealFile, links, claimed);
+      // Last, so a path already claimed as file:line, a tool path, or inside a URL isn't re-linked bare.
+      collect(text, BARE_PATH, lineNumber, revealFile, links, claimed);
       callback(links.length > 0 ? links : undefined);
     },
   });

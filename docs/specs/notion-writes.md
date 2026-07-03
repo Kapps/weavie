@@ -11,28 +11,29 @@ column editing.
 
 ## Why formatting can't be clobbered
 
-`PATCH /v1/pages/{id}/markdown` with `update_content: [{old_str, new_str}]` is an exact-match, must-match-once
-search-and-replace over the page's enhanced markdown — the same representation `GET …/markdown` returns, where
-*all* formatting is carried in-text (`<callout icon color>`, trailing `{color="…"}` attrs, `<span color>`).
+`PATCH /v1/pages/{id}/markdown` with body `{type: "update_content", update_content: {content_updates:
+[{old_str, new_str}]}}` is an exact-match, must-match-once search-and-replace over the page's enhanced
+markdown — the same representation `GET …/markdown` returns, where *all* formatting is carried in-text
+(`<callout icon color>`, trailing `{color="…"}` attrs, `<span color>`).
 Weavie never regenerates the page from the rendered view: ops are diffed against the **verbatim fetched
 markdown**, so untouched blocks are never rewritten. The write path never uses `replace_content` (it would
 destroy `<unknown/>` embeds and truncated tails) and never sends `allow_deleting_content` /
 `replace_all_matches` — their absence is the safety rail. A stale `old_str` (the page changed in Notion) fails
-server-side with `validation_error` — free optimistic concurrency, surfaced at the block as "re-fetch".
+server-side with `validation_error` naming `old_str` — free optimistic concurrency, surfaced at the block as
+"re-fetch". Every 400 carries code `validation_error`, so only messages naming `old_str` classify as stale;
+any other (a malformed body, a non-page id, a synced page) surfaces as a plain error with Notion's message —
+never a re-fetch offer that can't help.
 
 ## The block ↔ line model
 
 Notion emits **one block per line** (single-`\n`, tab-nested). The editable unit is one original markdown line;
 every mapping, edit, and op is "original line index N".
 
-- **Line map** — `normalizeNotionMarkdown` (`notion-transform.ts`) returns `NormalizedDoc { text, lineMap }`:
-  normalized line → original line, `-1` for synthesized lines (blank separators, toggle-heading wrappers).
-  `installLineStamps` (a markdown-it core rule, `lineMap` passed as render env) stamps `data-wv-line` — the
-  *original* line index — onto paragraph/heading/list-item/blockquote tokens via `token.map`.
-- **Editable marking** — the DOM walk (`notion-markdown.ts` `markEditableBlocks`) drops a stamp whose ancestor
-  carries the same line (the blockquote owns its inner `<p>`) and marks stamped `p/h1–h6/li/blockquote` outside
-  `table`/`pre` as `.wv-editable` (sanitizer allowlist carries `data-wv-line` through). Everything else —
-  tables, fences, cards, mentions, column wrappers — renders with no affordance.
+- **Line stamps** — `notion-parse.ts` builds the block tree directly from the fetched lines, so every node
+  natively carries its original line index; no line map or normalization exists to drift. `notion-render.ts`
+  stamps `data-wv-line` + `.wv-editable` on exactly the leaf text kinds (`p/h1–h6/li/blockquote`) — by
+  construction, never by DOM inspection. Everything else — tables, fences, cards, mentions, column wrappers —
+  renders with no affordance (sanitizer allowlist carries `data-wv-line` through).
 - **Edit ops** (`notion-edit.ts`, pure) — `blockSource` slices a line byte-exactly into
   `tabs + display + attrsRaw`; the editor shows only `display` (inline marks and `##`/`- `/`> ` prefixes are
   visible and editable; nesting tabs and `{color=…}` attrs re-attach verbatim on commit). `buildUpdateOp`
@@ -78,9 +79,10 @@ toggle heading still toggles (its heading edits from the keyboard).
 
 Per [integration-testing-strategy.md](integration-testing-strategy.md), nothing hits real Notion:
 
-- **Pure units** — `notion-transform`: `lineMap` invariants across containers, toggle headings, lists, fences;
-  stamp rule output. `notion-edit`: byte-exact reconstruction (incl. literal `{note}` braces), context
-  expansion over duplicated lines/regions/document edges, refusals.
+- **Pure units** — `notion-parse`/`notion-render`: tree shape + line indices across containers, toggle headings,
+  lists, fences; the corpus seam invariant that every emitted `data-wv-line` round-trips through `blockSource`
+  to its verbatim fetched line. `notion-edit`: byte-exact reconstruction (incl. literal `{note}` braces),
+  context expansion over duplicated lines/regions/document edges, refusals.
 - **Full stack** (`HostCoreSourcesTests`, stubbed HttpClient) — the PATCH's URL/auth/exact body (proving no
   `allow_deleting_content`/`replace_all_matches`) and the refreshed `source-doc`; `validation_error` →
   `stale:true` and no doc; a 500 still resolves (`stale:false`); truncated fetch → clean markdown + flags.

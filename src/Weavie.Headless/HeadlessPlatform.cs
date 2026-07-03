@@ -5,14 +5,15 @@ using Weavie.Hosting;
 namespace Weavie.Headless;
 
 /// <summary>
-/// The thinnest <see cref="IHostPlatform"/>: WebSocket bridge, inline dispatch, per-OS PTY backend, no
-/// native window / hotkey / dialog.
+/// The thinnest <see cref="IHostPlatform"/>: WebSocket bridge, a serial dispatcher standing in for the UI
+/// thread, per-OS PTY backend, no native window / hotkey / dialog.
 /// </summary>
 internal sealed class HeadlessPlatform : IHostPlatform {
-	public HeadlessPlatform(IHostBridge bridge) {
+	public HeadlessPlatform(IHostBridge bridge, IUiDispatcher dispatcher) {
 		ArgumentNullException.ThrowIfNull(bridge);
+		ArgumentNullException.ThrowIfNull(dispatcher);
 		Bridge = bridge;
-		Dispatcher = new InlineUiDispatcher();
+		Dispatcher = dispatcher;
 		PtyLauncher = OperatingSystem.IsWindows() ? new WindowsPtyLauncher() : new PosixPtyLauncher();
 	}
 

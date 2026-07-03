@@ -72,7 +72,7 @@ public sealed class TurnKeepTests {
 		host.Bridge.Clear();
 		// The faded band is the accepted→review insertion: accepted range [2,2) (empty), review range [2,3) ("world").
 		host.Send($$"""
-			{"type":"unkeep-hunk","path":{{JsonSerializer.Serialize(path)}},"acceptedStart":2,"acceptedEndExclusive":2,"reviewStart":2,"reviewEndExclusive":3,"guardText":"world"}
+			{"type":"unkeep-hunk","path":{{JsonSerializer.Serialize(path)}},"acceptedStart":2,"acceptedEndExclusive":2,"reviewStart":2,"reviewEndExclusive":3,"acceptedGuardText":"","guardText":"world"}
 			""");
 
 		Assert.Equal("hello\nworld\n", File.ReadAllText(path)); // disk untouched — un-keep only moves the band
@@ -80,6 +80,38 @@ public sealed class TurnKeepTests {
 		Assert.NotNull(turn);
 		Assert.Equal("hello\n", turn!.BaselineText);             // review baseline rolled back to the anchor → bright again
 		Assert.NotNull(host.Bridge.LastOfType("turn-diff"));
+	}
+
+	[Fact]
+	public async Task NewPrompt_CommitsFadedBand_AndRePushesReviewState() {
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+
+		session.Changes.CaptureBaseline(path);
+		File.WriteAllText(path, "hello\nworld\n");
+		session.Changes.RecordChange(path);
+		host.Send($$"""{"type":"keep-file","path":{{JsonSerializer.Serialize(path)}}}""");
+		Assert.Single(session.Changes.TurnChanges()); // kept: faded band only
+
+		host.Bridge.Clear();
+		// A new prompt (the UserPromptSubmit hook) commits the accepted band: the file leaves the diff view.
+		session.Changes.Observe(new Weavie.Core.Hooks.HookRequest {
+			Event = Weavie.Core.Hooks.HookEventKind.UserPromptSubmit,
+			ToolName = string.Empty,
+			ToolInputJson = "{}",
+		});
+
+		Assert.Empty(session.Changes.TurnChanges());
+		var files = host.Bridge.LastOfType("turn-changes");
+		Assert.NotNull(files);
+		Assert.Empty(files!.Value.GetProperty("files").EnumerateArray()); // the trimmed (now empty) review set
+		var diff = host.Bridge.LastOfType("turn-diff");
+		Assert.NotNull(diff); // the file's inline markers clear: accepted == current
+		Assert.Equal(diff!.Value.GetProperty("current").GetString(), diff.Value.GetProperty("acceptedBaseline").GetString());
+		var history = host.Bridge.LastOfType("review-history");
+		Assert.NotNull(history); // the commit cleared the undo history
+		Assert.False(history!.Value.GetProperty("canUndo").GetBoolean());
 	}
 
 	[Fact]

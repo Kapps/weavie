@@ -21,8 +21,17 @@ string bind = listen.BindAddress;
 // therefore the LOCAL no-token mode's only bridge defense and applies only there.
 bool tokenGated = listen is ListenMode.Remote;
 
-// The host outlives any one page: built once, each browser connection (re)attaches its socket.
-var bridge = new WebSocketHostBridge();
+// The host outlives any one page: built once, each browser connection (re)attaches its socket. The serial
+// dispatcher is this host's "UI thread": inbound bridge messages and posted session work run on it in order,
+// so a session switch and an async push (a PR diff, the file-index walk) can never interleave. A posted
+// action that throws means session state can no longer be trusted — crash loudly (a native UI thread does
+// the same) rather than pump on in a silently inconsistent host.
+var dispatcher = new SerialUiDispatcher(ex => {
+	Console.Error.WriteLine($"[weavie-headless] dispatched action failed: {ex}");
+	Console.Error.Flush();
+	Environment.FailFast("weavie-headless: a dispatched UI action threw", ex);
+});
+var bridge = new WebSocketHostBridge(dispatcher);
 var services = HostServices.CreateDefault();
 // Deterministic Open-PR journeys for the integration harness / capture: a JSON file of canned PRs replaces the
 // live GitHub provider, the PR analogue of WEAVIE_FAKE_CLAUDE_SCRIPT. Unset in normal use.
@@ -40,7 +49,7 @@ if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } 
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
-await using var core = new HostCore(new HeadlessPlatform(bridge), services, workspace);
+await using var core = new HostCore(new HeadlessPlatform(bridge, dispatcher), services, workspace);
 await core.StartAsync().ConfigureAwait(false);
 
 var builder = WebApplication.CreateBuilder(args);
@@ -110,6 +119,23 @@ app.Map("/weavie-bridge", async context => {
 	using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
 	await bridge.ServeAsync(socket, context.RequestAborted).ConfigureAwait(false);
 });
+
+// The runner's update control plane, REMOTE MODE ONLY: there the default-deny middleware token-gates
+// it, and the runner is its only legitimate caller. Local no-token mode must not map a state-changing
+// endpoint any web page could POST to cross-origin (a drive-by drain would exit the app). Status
+// reports this worker's identity + drain state (the runner's post-restart confirm probe); drain begins
+// the gated exit — the worker exits 0 at the first quiet moment and the runner respawns it from the
+// staged version. See docs/specs/runner-auto-update.md.
+if (tokenGated) {
+	app.MapGet("/control/status", () => Results.Json(new {
+		buildNumber = HostCore.BuildNumber,
+		draining = core.Draining,
+	}));
+	app.MapPost("/control/drain", () => {
+		core.BeginDrain(app.Lifetime.StopApplication);
+		return Results.Accepted();
+	});
+}
 
 string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
 string tokenSuffix = listen is ListenMode.Remote shown ? $"/?token={shown.Token}" : string.Empty;

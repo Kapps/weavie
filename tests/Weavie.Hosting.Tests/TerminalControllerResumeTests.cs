@@ -2,7 +2,6 @@ using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Weavie.Core.Sessions;
-using Weavie.Core.Terminal;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -154,47 +153,4 @@ public sealed class TerminalControllerResumeTests {
 		}
 	}
 
-	/// <summary>An <see cref="IPtyLauncher"/> that records the resolved session args and hands back a terminal the test can drive.</summary>
-	private sealed class ScriptablePtyLauncher : IPtyLauncher {
-		public IReadOnlyList<string> LastClaudeSessionArguments { get; private set; } = [];
-		public ScriptableTerminal? LastTerminal { get; private set; }
-
-		public ITerminal CreateTerminal() => LastTerminal = new ScriptableTerminal();
-
-		public PtyLaunch Resolve(PtyLaunchRequest request) {
-			LastClaudeSessionArguments = request.ClaudeSessionArguments;
-			return new PtyLaunch {
-				Command = "noop",
-				Arguments = request.BuildClaudeArguments(),
-				RemoveEnvironment = [],
-				Environment = new Dictionary<string, string>(StringComparer.Ordinal),
-			};
-		}
-	}
-
-	/// <summary>An <see cref="ITerminal"/> that never spawns a child but lets the test raise its output/exit events.</summary>
-	private sealed class ScriptableTerminal : ITerminal {
-		public event Action<byte[]>? Output;
-		public event Action<int>? Exited;
-
-		public bool IsRunning { get; private set; }
-
-		public void Start(TerminalStartInfo startInfo) {
-			IsRunning = true;
-			_ = Exited; // ITerminal requires the event; this fake never exits on its own (CS0067 suppression)
-		}
-
-		public void Write(byte[] data) {
-			// no child to write to
-		}
-
-		public void Resize(int columns, int rows) {
-			// no PTY to resize
-		}
-
-		public void Dispose() => IsRunning = false;
-
-		/// <summary>Raises the <see cref="Output"/> event with <paramref name="data"/>, as a live child would.</summary>
-		public void EmitOutput(byte[] data) => Output?.Invoke(data);
-	}
 }

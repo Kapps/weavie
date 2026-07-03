@@ -51,7 +51,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	public LogBuffer LogBuffer => _services.LogBuffer;
 
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
-	public static async Task<TestHost> StartAsync() {
+	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
+
+	/// <summary>
+	/// As <see cref="StartAsync()"/>, with test-specific repo setup run BEFORE the host starts. Git commands
+	/// that write the index (add / commit / checkout) must happen here: once the host is live its own git
+	/// activity (status refresh) races a concurrent writer's <c>index.lock</c>.
+	/// </summary>
+	public static async Task<TestHost> StartAsync(Action<string> prepareRepo) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -59,6 +66,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
 		RunGit(repo, "add", "-A");
 		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "initial");
+		prepareRepo(repo);
 
 		EnsureRelayBinary();
 		// Keep tests hermetic: never spawn the developer's real login shell or import its rc-file environment.
@@ -168,12 +176,15 @@ internal sealed class TestPlatform : IHostPlatform {
 	public TestPlatform(IHostBridge bridge) {
 		Bridge = bridge;
 		Dispatcher = new InlineUiDispatcher();
-		PtyLauncher = new NoopPtyLauncher();
+		NoopLauncher = new NoopPtyLauncher();
 	}
+
+	/// <summary>The typed launcher, so tests can reach the terminals it handed out.</summary>
+	public NoopPtyLauncher NoopLauncher { get; }
 
 	public IHostBridge Bridge { get; }
 	public IUiDispatcher Dispatcher { get; }
-	public IPtyLauncher PtyLauncher { get; }
+	public IPtyLauncher PtyLauncher => NoopLauncher;
 	public string ChromePlatform => "web";
 	public string? TitleBar => null;
 	public IReadOnlyList<string> Recents => [];
@@ -203,7 +214,14 @@ internal sealed class TestPlatform : IHostPlatform {
 
 /// <summary>A launcher whose terminals never spawn — sessions construct fine, but no real claude/shell runs.</summary>
 internal sealed class NoopPtyLauncher : IPtyLauncher {
-	public ITerminal CreateTerminal() => new NoopTerminal();
+	/// <summary>Every terminal handed out, in creation order — lets a test script one (e.g. its foreground-job flag).</summary>
+	public List<NoopTerminal> Created { get; } = [];
+
+	public ITerminal CreateTerminal() {
+		var terminal = new NoopTerminal();
+		Created.Add(terminal);
+		return terminal;
+	}
 
 	public PtyLaunch Resolve(PtyLaunchRequest request) => new() {
 		Command = "noop",
@@ -220,14 +238,18 @@ internal sealed class NoopTerminal : ITerminal {
 
 	public bool IsRunning => false;
 
+	/// <summary>Test-scriptable foreground-job flag (the drain gate's shell probe).</summary>
+	public bool HasForegroundJob { get; set; }
+
+	/// <summary>How many input writes reached this terminal (asserts the drain input freeze).</summary>
+	public int WriteCount { get; private set; }
+
 	public void Start(TerminalStartInfo startInfo) {
 		_ = Output;
 		_ = Exited;
 	}
 
-	public void Write(byte[] data) {
-		// no child to write to
-	}
+	public void Write(byte[] data) => WriteCount++;
 
 	public void Resize(int columns, int rows) {
 		// no PTY to resize

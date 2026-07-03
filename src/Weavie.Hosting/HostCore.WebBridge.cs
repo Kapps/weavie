@@ -43,7 +43,12 @@ public sealed partial class HostCore {
 	private void Dispatch(string type, JsonElement root, string json) {
 		switch (type) {
 			case "term-input":
-				TerminalFor(root)?.Write(Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty));
+				// Frozen from the moment an update restart commits: a keystroke forwarded now could start a
+				// turn the restart would silently discard (see HostCore.Drain.cs).
+				if (!_drainInputFrozen) {
+					TerminalFor(root)?.Write(Convert.FromBase64String(root.GetProperty("dataB64").GetString() ?? string.Empty));
+				}
+
 				break;
 			case "term-resize":
 				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
@@ -105,7 +110,12 @@ public sealed partial class HostCore {
 				}
 
 			case "get-pr-diff": {
-					_ = SendPrDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
+					_ = SendReviewDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
+					break;
+				}
+
+			case "diff-against": {
+					_ = DiffAgainstFromWebAsync(root.GetStringOrEmpty("ref"));
 					break;
 				}
 
@@ -287,7 +297,7 @@ public sealed partial class HostCore {
 				break;
 			case "request-file-index":
 				// Build the omnibar's quick-open index from the active session's worktree, so switching re-roots "Go to File".
-				PushFileIndexToWeb();
+				PushFileIndexToWeb(invalidate: false);
 				break;
 			case "find-in-files":
 				_ = SearchInFilesAsync(root.GetStringOrEmpty("query"));
@@ -295,6 +305,9 @@ public sealed partial class HostCore {
 			case "ready":
 				// The page's bridge listener is live; push the persisted state to restore it. Must go on `ready`, not
 				// init — PostToWeb before navigation no-ops (window.__weavieReceive doesn't exist yet).
+				// Build identity first: a tab reconnecting to a worker updated under it compares this against its
+				// boot-time __WEAVIE_SHELL__.buildNumber and reloads itself to pick up the matching assets.
+				_bridge.PostToWeb($"{{\"type\":\"host-info\",\"buildNumber\":{JsonString(BuildNumber)}}}");
 				PushLayoutToWeb();
 				PushEditorSessionToWeb();
 				PushRecentFilesToWeb();
@@ -309,7 +322,16 @@ public sealed partial class HostCore {
 					PushLspConfigToWeb(lspSession);
 				}
 
+				// Terminal output posted while the link was down never reached the page: re-sync every loaded
+				// session's panes (replay the shell's log, nudge claude's TUI) — see TerminalController.ResyncPane.
+				foreach (var slot in _sessions?.Slots ?? []) {
+					slot.Session?.Claude.ResyncPane();
+					slot.Session?.Shell.ResyncPane();
+				}
+
 				_suggestions?.PushCurrent();
+				// A tab that (re)connects mid-drain must learn the pending/restarting update state it missed.
+				PushDrainStateToWeb();
 				// A prior run that died on an unhandled exception left a crash report; surface it once, now that
 				// the page can render the toast, so a silent hard exit doesn't go unnoticed.
 				SurfacePriorCrash();
@@ -512,20 +534,30 @@ public sealed partial class HostCore {
 
 	/// <summary>
 	/// Re-walks the active session's worktree and pushes its <c>file-index</c> so the omnibar's "Go to File" and
-	/// the file browser re-root to it. Runs off the UI thread; drops the result if the user switched again first,
-	/// so a slow walk from a stale session can't clobber the page's index.
+	/// the file browser re-root to it. When <paramref name="invalidate"/> (a session switch), a pending (empty)
+	/// index posts first, in order with the switch's message train, so the page drops the outgoing session's
+	/// files immediately — during the walk the omnibar must show nothing rather than offer a stale file whose
+	/// path routes into the wrong worktree. A same-root refresh (the omnibar's open) keeps the current index
+	/// usable while the walk runs. The walk runs off the UI thread; its result is guarded + posted back on it,
+	/// so a slow walk from a stale session can't clobber the page's index after a further switch.
 	/// </summary>
-	private void PushFileIndexToWeb() {
+	private void PushFileIndexToWeb(bool invalidate) {
 		if (_session is not { } session) {
 			return;
+		}
+
+		if (invalidate) {
+			_bridge.PostToWeb(ShellProtocol.BuildFileIndexPending(session.FileIndex.Root));
 		}
 
 		_ = Task.Run(async () => {
 			var files = await GitTrackedFilesAsync(session.FileIndex.Root).ConfigureAwait(false)
 				?? session.FileIndex.List();
-			if (ReferenceEquals(_session, session)) {
-				_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
-			}
+			_ui.Post(() => {
+				if (ReferenceEquals(_session, session)) {
+					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
+				}
+			});
 		});
 	}
 
@@ -561,9 +593,12 @@ public sealed partial class HostCore {
 			}
 		}
 
-		if (ReferenceEquals(_session, session)) {
-			_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "find-in-files-results", query, matches, truncated, error }));
-		}
+		// Guard + post on the UI thread, so a slow grep can't check active, lose to a switch, and still post.
+		_ui.Post(() => {
+			if (ReferenceEquals(_session, session)) {
+				_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "find-in-files-results", query, matches, truncated, error }));
+			}
+		});
 	}
 
 	/// <summary>
@@ -930,8 +965,9 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Un-keeps a single faded (accepted) hunk: Core splices its accepted-anchor lines back into the review
 	/// baseline, returning it to the bright pending band. The inverse of <see cref="KeepHunk"/>; the web sends the
-	/// accepted-anchor + review-baseline ranges and a <c>guardText</c> snapshot of the review baseline (a guard
-	/// mismatch — a concurrent keep moved it — re-emits a fresh diff without un-keeping). No disk write.
+	/// accepted-anchor + review-baseline ranges and both sides' guard snapshots (a mismatch — a concurrent keep
+	/// moved the baseline, or a turn boundary committed the anchor — re-emits a fresh diff without un-keeping).
+	/// No disk write.
 	/// </summary>
 	private void UnkeepHunk(JsonElement root) {
 		if (_session is not { } session) {
@@ -945,9 +981,10 @@ public sealed partial class HostCore {
 
 		var acceptedRange = new LineRange(JsonInt(root, "acceptedStart"), JsonInt(root, "acceptedEndExclusive"));
 		var reviewRange = new LineRange(JsonInt(root, "reviewStart"), JsonInt(root, "reviewEndExclusive"));
+		string acceptedGuardText = root.GetStringOrEmpty("acceptedGuardText");
 		string guardText = root.GetStringOrEmpty("guardText");
 
-		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, guardText)) {
+		if (!session.Changes.UnkeepHunk(path, acceptedRange, reviewRange, acceptedGuardText, guardText)) {
 			Notify("warn", $"{Path.GetFileName(path)} changed — re-open to review.");
 			PushTurnDiffToWeb(path); // re-render so the stale hunk geometry is replaced
 			return;
@@ -1018,15 +1055,14 @@ public sealed partial class HostCore {
 
 	/// <summary>Pushes a user-facing notification (rendered as a toast in the page).</summary>
 	public void Notify(string level, string message) =>
-		_bridge.PostToWeb($"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)}}}");
+		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message));
 
 	/// <summary>
 	/// As <see cref="Notify(string,string)"/>, with a dedupe <paramref name="key"/>: a later toast carrying the
 	/// same key replaces the live one in place (e.g. a "reloaded" info clearing a lingering "malformed" error).
 	/// </summary>
 	public void Notify(string level, string message, string key) =>
-		_bridge.PostToWeb(
-			$"{{\"type\":\"notify\",\"level\":{JsonString(level)},\"message\":{JsonString(message)},\"key\":{JsonString(key)}}}");
+		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message, key));
 
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the

@@ -163,6 +163,8 @@ export type HostBoundMessage =
   | { type: "resolve-pr"; id: string; number: number; owner: string; repo: string }
   // Ask the host for one PR file's base→head diff (answered by pr-diff).
   | { type: "get-pr-diff"; number: number; path: string }
+  // Arm a "diff against <ref>" review on the active session (answered by pr-changes; see diff-against.md).
+  | { type: "diff-against"; ref: string }
   // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
   | {
       type: "add-pr-comment";
@@ -239,7 +241,8 @@ export type HostBoundMessage =
   | { type: "keep-file"; path: string }
   // Inline review: UN-KEEP one faded (accepted) hunk — Core splices the accepted-anchor lines back into the review
   // baseline so it returns to the bright pending band (no disk write). `accepted*` is the range in the accepted
-  // anchor (the restored lines); `review*` the range in the review baseline (splice target + `guardText` check).
+  // anchor (the restored lines); `review*` the range in the review baseline (the splice target). Both sides carry
+  // the rendered text as a guard (`acceptedGuardText` / `guardText`); the host aborts if either moved.
   | {
       type: "unkeep-hunk";
       path: string;
@@ -247,6 +250,7 @@ export type HostBoundMessage =
       acceptedEndExclusive: number;
       reviewStart: number;
       reviewEndExclusive: number;
+      acceptedGuardText: string;
       guardText: string;
     }
   // Review undo/redo. `kind` "keep" undoes the last keep, "revert" the last revert (the type-split chords);
@@ -503,6 +507,19 @@ export type WebBoundMessage =
   // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"
   // info clearing the lingering "settings malformed" error).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string; key?: string }
+  // Update drain state (docs/specs/runner-auto-update.md): what's holding a pending update restart
+  // (re-pushed on every change, and on `ready` for a tab that connected mid-drain)…
+  | {
+      type: "update-pending";
+      holds: { session: string; reason: "working" | "needs-input" | "shell-job" }[];
+    }
+  // …and the moment the restart commits: input is frozen host-side and the worker is about to exit;
+  // the page shows the blocking "Updating…" overlay until the new worker is back.
+  | { type: "update-restarting" }
+  // The worker's build identity, pushed first on every `ready` cycle. A tab that reconnected to a
+  // worker updated under it sees a different build than its boot-time __WEAVIE_SHELL__.buildNumber
+  // and reloads itself to pick up the matching assets.
+  | { type: "host-info"; buildNumber: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";
@@ -512,7 +529,9 @@ export type WebBoundMessage =
   // Host pushes the window's chrome state so the title bar updates its maximize glyph and blur dim.
   | { type: "window-state"; maximized: boolean; focused: boolean }
   // Host answers request-file-index with the workspace root + every file's absolute path (for the omnibar).
-  | { type: "file-index"; root: string; files: string[] }
+  // `pending` = a session switch invalidated the index and the new worktree's walk is still running: files is
+  // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
+  | { type: "file-index"; root: string; files: string[]; pending?: boolean }
   // Host answers find-in-files with the content-search matches, echoing the `query` so the page can drop a
   // stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
   // `error` ⇒ the git search failed (e.g. git unavailable); the panel shows it rather than "No results".
@@ -533,11 +552,13 @@ export type WebBoundMessage =
   | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
   // Host answers resolve-pr with the single PR (or null when it doesn't exist / is a foreign repo), tagged by `id`.
   | { type: "pr-resolved"; id: string; pr: PullRequestInfo | null }
-  // PR review (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
-  // pr-diff is one file's base→head pair (baseline→current) rendered in the inline-diff "pr" mode.
+  // Review diff (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
+  // pr-diff is one file's base→current pair rendered in the inline-diff's read-only "pr" mode. Fed by an
+  // opened PR (number > 0) or a local "diff against <ref>" (number 0); `label` names the review in the UI.
   | {
       type: "pr-changes";
       number: number;
+      label: string;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
   | {
@@ -732,6 +753,10 @@ const nativeTransport: BridgeTransport = {
   dispose(): void {},
 };
 
+// The `ready` announcement that makes a host (re-)push its state — sent on every remote (re)connect and on a
+// local reconnect (main.tsx sends the local backend's initial one).
+const READY_HELLO = JSON.stringify({ type: "ready" });
+
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
 // before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
 // Inbound frames go through the shared `deliverFromHost`, indistinguishable from a native host.
@@ -740,6 +765,8 @@ class WebSocketTransport implements BridgeTransport {
   private readonly outbox: string[] = [];
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
+  private hasOpened = false;
   // Set once the backend is deliberately disconnected; stops the close→reconnect loop for good.
   private disposed = false;
   // Mirrors the published phase so a drop can decide its one-shot toast without a reactive read.
@@ -804,7 +831,12 @@ class WebSocketTransport implements BridgeTransport {
       setBackendPhase(this.backendId, "online");
       if (this.hello !== undefined) {
         socket.send(this.hello);
+      } else if (this.hasOpened) {
+        // The local backend's initial `ready` came from main.tsx; the host re-pushes state (and re-syncs
+        // terminals) only on `ready`, so a reconnect re-announces it here (remotes' `hello` already does).
+        socket.send(READY_HELLO);
       }
+      this.hasOpened = true;
       const pending = this.outbox.splice(0, this.outbox.length);
       for (const message of pending) {
         socket.send(message);
@@ -933,7 +965,7 @@ export function connectBackend(id: string, name: string, wsUrl: string): void {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, wsUrl, name, JSON.stringify({ type: "ready" }));
+  const transport = new WebSocketTransport(id, wsUrl, name, READY_HELLO);
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }

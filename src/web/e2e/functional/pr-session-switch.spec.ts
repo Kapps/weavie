@@ -125,7 +125,7 @@ test("S5: a parked navigator does not linger after switching to a non-PR session
 });
 
 // SCENARIO 4b: try to comment WHILE the non-PR session is active (the navigator should be gone, but if it
-// lingers, ActivePrReview() has changed so the post would be silently dropped). This documents whether the
+// lingers, ActiveReview() has changed so the post would be silently dropped). This documents whether the
 // surface is even reachable from the wrong session.
 test("S4b: PR comment surface is not reachable while a non-PR session is active", async ({
   page,

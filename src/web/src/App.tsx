@@ -27,6 +27,7 @@ import {
 } from "./bridge";
 import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
+import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
@@ -38,6 +39,7 @@ import { ResizeFrame } from "./chrome/ResizeFrame";
 import { SessionRail } from "./chrome/SessionRail";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 import { TitleBar } from "./chrome/TitleBar";
+import { UpdateOverlay } from "./chrome/UpdateOverlay";
 import { UrlPrompt } from "./chrome/UrlPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
@@ -55,11 +57,16 @@ import {
   sessions,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
+import {
+  type UpdateHold,
+  surfacePostUpdateNotice,
+  updateHolds,
+  updateRestarting,
+} from "./chrome/update-store";
 import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { formatKey, installKeybindings } from "./commands/keybindings";
-import { installMouseNav } from "./commands/mouse-nav";
 import { dispatchCommand, findCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
@@ -179,6 +186,7 @@ export default function App(): JSX.Element {
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
   const [openPrOpen, setOpenPrOpen] = createSignal(false);
+  const [diffAgainstOpen, setDiffAgainstOpen] = createSignal(false);
   // The connect-a-source token dialog (host pushed prompt-source-token), or null when closed.
   const [sourceTokenPrompt, setSourceTokenPrompt] = createSignal<{
     sourceId: string;
@@ -202,6 +210,8 @@ export default function App(): JSX.Element {
   const { toasts, addToast, dismissToast, isLeaving, pauseToast, resumeToast } = createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
+  // Now that toasts render, surface "updated to build N" if this page load followed an update reload.
+  surfacePostUpdateNotice();
   // A pending "discard unsaved scratch?" confirm: the names + the resolver the dialog settles. Every tab
   // close routes through this guard (confirmDiscard below).
   const [confirmReq, setConfirmReq] = createSignal<{
@@ -255,6 +265,8 @@ export default function App(): JSX.Element {
   const [windowFocused, setWindowFocused] = createSignal(true);
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
   const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
+  // True between a switch's index invalidation (pending file-index) and the new worktree's walked index.
+  const [indexPending, setIndexPending] = createSignal(false);
 
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
@@ -620,7 +632,9 @@ export default function App(): JSX.Element {
             }}
           </For>
         </div>
-        <PaneFooter claude={kind === "terminal:claude"} />
+        {/* One status footer for both terminal panes, on the bottom (shell) pane; it carries the Claude
+            session status too, so the Claude pane stays chrome-free below its TUI. */}
+        {kind === "terminal:shell" && <PaneFooter />}
       </div>
     );
   };
@@ -640,12 +654,19 @@ export default function App(): JSX.Element {
     }
     setFullscreen((on) => !on);
   };
-  // The Toggle Fullscreen Pane shortcut, read live from the catalog so the fullscreen badge advertises the
-  // real (user-overridable) binding instead of a hardcoded one.
-  const fullscreenKeyHint = (): string => {
-    const keys = findCommand(CommandIds.toggleFullscreenPane)?.keys ?? [];
+  // A command's effective shortcut as a label suffix (" (Ctrl+…)"), read live from the catalog so
+  // buttons advertise the real (user-overridable) binding; empty when unbound.
+  const keyHint = (commandId: string): string => {
+    const keys = findCommand(commandId)?.keys ?? [];
     return keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
   };
+  const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
+  const updateHoldText = (hold: UpdateHold): string =>
+    hold.reason === "working"
+      ? `${hold.session}: Claude is working`
+      : hold.reason === "needs-input"
+        ? `${hold.session}: Claude awaits input`
+        : `${hold.session}: shell job running`;
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
@@ -677,8 +698,18 @@ export default function App(): JSX.Element {
         addToast(message.level, message.message, message.key);
       } else if (message.type === "focus-pane") {
         // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
-        // xterms persist across switches, so focusing the slot is valid even mid-respawn.
-        focusPane(message.kind);
+        // xterms persist across switches, so focusing the slot is valid even mid-respawn. Never steal from
+        // an overlay input the user is typing in (the omnibar/palette, a session/PR prompt, a dialog): on a
+        // slow switch this push arrives late, and yanking focus closes the palette under them mid-word. The
+        // xterm helper textarea doesn't count — switching focus away FROM a terminal is the intended path.
+        const active = document.activeElement;
+        const typingInOverlay =
+          active instanceof HTMLElement &&
+          !active.classList.contains("xterm-helper-textarea") &&
+          (active.tagName === "INPUT" || active.tagName === "TEXTAREA");
+        if (!typingInOverlay) {
+          focusPane(message.kind);
+        }
       } else if (message.type === "turn-changes") {
         // The review set: feed the editor's ← / → file walk + the parked navigator, which surfaces the review
         // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an
@@ -687,7 +718,7 @@ export default function App(): JSX.Element {
       } else if (message.type === "pr-changes") {
         // A PR session armed (or switched to): feed its changed files into the same ← / → walk + parked
         // navigator, in read-only PR mode, so the diff navigator surfaces over the editor.
-        editor.setPrReview(message.number, message.files);
+        editor.setPrReview(message.number, message.label, message.files);
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
         // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
@@ -703,12 +734,19 @@ export default function App(): JSX.Element {
         setWindowFocused(message.focused);
       } else if (message.type === "file-index") {
         // A switch re-pushes the index rooted at the new worktree. On a root change, drop the cached listings
-        // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree.
+        // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree. A
+        // `pending` push is the walk's in-train start signal: on a root CHANGE the old session's files vanish
+        // NOW (picking one would route a wrong-worktree path) and the omnibar shows loading until the walked
+        // index arrives; a same-root pending (an omnibar-open refresh) keeps the still-valid current index.
+        if (message.pending === true && message.root === indexRoot()) {
+          return;
+        }
         if (message.root !== indexRoot()) {
           setDirListings({});
         }
         setIndexRoot(message.root);
         setFileIndex(message.files);
+        setIndexPending(message.pending === true);
       } else if (message.type === "prompt-source-token") {
         // The host opened the source's token page in the browser; show the dialog to paste the token.
         setSourceTokenPrompt({ sourceId: message.sourceId, label: message.label });
@@ -881,6 +919,25 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
+      // Diff Against… (Ctrl+Shift+D / palette): review the working tree against a ref. A 'ref' arg (Claude /
+      // a keybinding) skips the prompt; the helpers are the same flow with their ref fixed.
+      registerCommand(CommandIds.diffAgainst, (args) => {
+        const ref = (args as { ref?: unknown } | undefined)?.ref;
+        if (typeof ref === "string" && ref.trim().length > 0) {
+          postToHost({ type: "diff-against", ref: ref.trim() });
+        } else {
+          setDiffAgainstOpen(true);
+        }
+        return true;
+      }),
+      registerCommand(CommandIds.diffAgainstParent, () => {
+        postToHost({ type: "diff-against", ref: "HEAD^" });
+        return true;
+      }),
+      registerCommand(CommandIds.diffAgainstHead, () => {
+        postToHost({ type: "diff-against", ref: "HEAD" });
+        return true;
+      }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
       // still cycles tabs): cycle the rail, wrapping. stepSession returns false with <2 sessions so the chord
       // falls through.
@@ -932,11 +989,6 @@ export default function App(): JSX.Element {
     const offKeybindings = installKeybindings();
     // Double-tapping Shift mirrors $mod+P (Go to File) — a gesture the chord resolver can't express.
     const offDoubleShift = installDoubleShift(() => dispatchCommand(CommandIds.focusOmnibarFiles));
-    // The back / forward mouse buttons drive the navigation history (and we cancel the browser's own nav).
-    const offMouseNav = installMouseNav(
-      () => void dispatchCommand(CommandIds.navBack),
-      () => void dispatchCommand(CommandIds.navForward),
-    );
 
     // A browser tab can't read the clipboard programmatically, so terminal Paste (a clipboard read) is gated
     // off it in the command catalog — Ctrl+V there falls through to xterm's native paste instead. Session-static.
@@ -963,7 +1015,6 @@ export default function App(): JSX.Element {
       offEditorOptions();
       offKeybindings();
       offDoubleShift();
-      offMouseNav();
       for (const off of offCommands) {
         off();
       }
@@ -980,6 +1031,7 @@ export default function App(): JSX.Element {
           maximized={maximized()}
           focused={windowFocused()}
           files={fileIndex()}
+          filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           onWindowControl={(action) => postToLocalHost({ type: "window-control", action })}
@@ -1001,6 +1053,7 @@ export default function App(): JSX.Element {
       <Show when={MAC_TITLEBAR}>
         <MacTitleBar
           files={fileIndex()}
+          filesPending={indexPending()}
           root={indexRoot()}
           currentFile={currentFile()}
           workspaceLabel={SHELL?.workspaceLabel ?? "weavie"}
@@ -1044,6 +1097,23 @@ export default function App(): JSX.Element {
                 {connectionLabel()}…
               </span>
             </output>
+          </Show>
+          <Show when={!updateRestarting() && updateHolds()} keyed>
+            {(holds) => (
+              <output class="update-banner">
+                <span>
+                  Update pending — waiting on {holds.map(updateHoldText).join(", ")}. Background
+                  shell jobs will be terminated at restart.
+                </span>
+                <button
+                  type="button"
+                  title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
+                  onClick={() => void dispatchCommand(CommandIds.restartForUpdate)}
+                >
+                  Restart Now{keyHint(CommandIds.restartForUpdate)}
+                </button>
+              </output>
+            )}
           </Show>
         </div>
       </div>
@@ -1102,6 +1172,15 @@ export default function App(): JSX.Element {
             );
           }}
           onCancel={() => setOpenPrOpen(false)}
+        />
+      </Show>
+      <Show when={diffAgainstOpen()}>
+        <DiffAgainstPrompt
+          onPick={(ref) => {
+            setDiffAgainstOpen(false);
+            postToHost({ type: "diff-against", ref });
+          }}
+          onCancel={() => setDiffAgainstOpen(false)}
         />
       </Show>
       <Show when={sourceTokenPrompt()}>
@@ -1178,6 +1257,9 @@ export default function App(): JSX.Element {
         items={suggestions()}
         onDismiss={(id, forever) => postToHost({ type: "dismiss-suggestion", id, forever })}
       />
+      <Show when={updateRestarting()}>
+        <UpdateOverlay />
+      </Show>
       <Show when={contextMenu()}>
         {(m) => <ContextMenu menu={m()} onClose={() => setContextMenu(null)} />}
       </Show>

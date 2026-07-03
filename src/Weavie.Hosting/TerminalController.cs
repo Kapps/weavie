@@ -45,6 +45,15 @@ public sealed class TerminalController : IDisposable {
 	// Shell-only: the directory the shell last reported via OSC 7, so a reopen relaunches there instead of the
 	// workspace root. Null until reported (or for the claude pane, which always runs in the IDE workspace).
 	private string? _reportedCwd;
+	// Per-launch latched terminal state (alt screen, mouse modes, bracketed paste, title…), replayed to a client
+	// that mounts onto the already-live child — the resize nudge redraws content but can't re-establish modes.
+	// Replaced with a fresh instance per launch in StartTerminal, which is also the reset on restart.
+	private TerminalModeTracker _modes = new();
+	// Serializes live term-output posts against a pending reset→replay (_resyncPending, set while a ResyncPane
+	// awaits its term-ready), so every output chunk reaches the page exactly once: via the replay when it was
+	// logged before the replay snapshot, live otherwise. Separate from _gate so keystrokes never wait on it.
+	private readonly Lock _replayGate = new();
+	private bool _resyncPending;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) <paramref name="bridge"/>, resolving its
@@ -145,34 +154,91 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Handles the page's <c>term-ready</c> for this pane (a session's xterm mounting). If the child isn't running
-	/// it launches it sized to the given columns/rows; if it's already live (a cold reattach), it nudges the PTY
-	/// size (one row shorter, then back) to force the running TUI to redraw into the pane, else it stays blank.
-	/// The start runs after the lock (the supervisor's start callback takes the gate) on the not-running branch.
+	/// it launches it sized to the given columns/rows. If it's already live (a cold reattach), the fresh xterm has
+	/// missed everything the child established at startup, so this replays the persisted scrollback (shell only),
+	/// then the latched terminal modes (alt screen, mouse tracking, bracketed paste, title — without which a
+	/// fullscreen TUI renders into the normal buffer and grows scrollback it never wanted), and only then nudges
+	/// the PTY size (one row shorter, then back) to make the TUI redraw — into the now-correct buffer. The redraw
+	/// bytes can't overtake the preamble: they only exist after the resize reaches the child and come back through
+	/// the PTY read thread. The start runs after the lock (the supervisor's start callback takes the gate).
 	/// </summary>
 	public void OnReady(int columns, int rows) {
 		bool start;
+		byte[] restore = [];
 		lock (_gate) {
 			_columns = columns;
 			_rows = rows;
-			if (_terminal is null) {
-				start = true;
-			} else {
-				start = false;
-				_terminal.Resize(_columns, Math.Max(1, _rows - 1));
-				_terminal.Resize(_columns, _rows);
+			start = _terminal is null;
+			if (!start) {
+				restore = _modes.BuildRestore();
 			}
 		}
 
 		// Replay persisted scrollback (shell only) before (re)starting, so faded history paints above the new
 		// child's live output. File I/O stays outside _gate. (BuildReplay is empty for claude / no persistence.)
-		byte[] scrollback = _scrollback?.BuildReplay() ?? [];
-		if (scrollback.Length > 0) {
-			_bridge.PostToWeb(TermOutputJson(scrollback));
+		// Under _replayGate with the pending-resync clear: output logged before this snapshot arrives via the
+		// replay, output logged after posts live below it — once each, in order (see OnOutput).
+		lock (_replayGate) {
+			byte[] scrollback = _scrollback?.BuildReplay() ?? [];
+			if (scrollback.Length > 0) {
+				_bridge.PostToWeb(TermOutputJson(scrollback));
+			}
+
+			_resyncPending = false;
 		}
 
 		if (start) {
 			_supervisor.Start();
+			return;
 		}
+
+		if (restore.Length > 0) {
+			_bridge.PostToWeb(TermOutputJson(restore));
+		}
+
+		lock (_gate) {
+			if (_terminal is not null) {
+				NudgeResize(_terminal);
+			}
+		}
+	}
+
+	/// <summary>
+	/// Re-syncs this pane's already-mounted xterm after a bridge reconnect: output posted while the link was down
+	/// never reached the page. A scrollback-backed pane (the shell) is reset, and its <c>term-ready</c> reply
+	/// replays the log — gap included — via <see cref="OnReady"/>; a pane with no log (claude) keeps its buffer
+	/// and gets the size nudge so the running TUI repaints its screen. No-op until the child has started.
+	/// </summary>
+	public void ResyncPane() {
+		lock (_gate) {
+			if (_terminal is null) {
+				return;
+			}
+
+			if (_scrollback is null) {
+				NudgeResize(_terminal);
+				return;
+			}
+		}
+
+		// Suppress live output until the page's term-ready replays the log (OnReady clears it): a chunk posted
+		// after the page clears but logged before the replay snapshot would otherwise paint twice.
+		lock (_replayGate) {
+			if (_resyncPending) {
+				return; // a reset is already in flight; its term-ready reply covers this resync too
+			}
+
+			_resyncPending = true;
+		}
+
+		PostTermReset(respawn: false);
+	}
+
+	// One row shorter then back: the size change is what forces a running TUI to repaint the whole screen.
+	// Callers hold _gate.
+	private void NudgeResize(ITerminal terminal) {
+		terminal.Resize(_columns, Math.Max(1, _rows - 1));
+		terminal.Resize(_columns, _rows);
 	}
 
 	/// <summary>
@@ -199,10 +265,16 @@ public sealed class TerminalController : IDisposable {
 		_supervisor.Stop();
 		Console.WriteLine($"[weavie] terminal[{_session}] restarting (setting changed)");
 		Console.Out.Flush();
-		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset. The sole
-		// term-reset caller — a session switch keeps each session's own live xterm and doesn't reset.
-		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":true}}");
+		// respawn=true: the child relaunches and re-establishes its modes, so the page does a full reset.
+		PostTermReset(respawn: true);
 	}
+
+	/// <summary>
+	/// The <c>term-reset</c> bridge message: the page clears this pane and re-emits <c>term-ready</c>. Respawn
+	/// also resets terminal modes (the child relaunched); a still-running child keeps them.
+	/// </summary>
+	private void PostTermReset(bool respawn) =>
+		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-reset\",\"session\":\"{_session}\",\"respawn\":{(respawn ? "true" : "false")}}}");
 
 	/// <summary>Opens the scrollback log for the configured path once, honoring the size-cap setting (0 = disabled).</summary>
 	private void EnsureScrollbackLog() {
@@ -254,6 +326,8 @@ public sealed class TerminalController : IDisposable {
 			// decided by ObserveHook, not here. Unmanaged launches (shell, or resume off) skip all this.
 			var managedLaunch = isClaude ? ResolveClaudeLaunch() : null;
 			_startupWatcher = managedLaunch is { } resolved ? new ClaudeStartupWatcher(resuming: resolved.Resume) : null;
+			var modes = new TerminalModeTracker();
+			_modes = modes;
 			var sessionArgs = managedLaunch is { } managed
 				? (IReadOnlyList<string>)[managed.Resume ? "--resume" : "--session-id", managed.SessionId]
 				: NoSessionArgs;
@@ -269,7 +343,9 @@ public sealed class TerminalController : IDisposable {
 			});
 
 			var terminal = _launcher.CreateTerminal();
-			terminal.Output += OnOutput;
+			// The tracker is captured per launch (not read from the field) so a late chunk from a dying child can
+			// never latch into the next launch's restore preamble.
+			terminal.Output += data => OnOutput(data, modes);
 			terminal.Exited += OnTerminalExited;
 			terminal.Start(new TerminalStartInfo {
 				Command = launch.Command,
@@ -390,6 +466,18 @@ public sealed class TerminalController : IDisposable {
 		InputWritten?.Invoke(data);
 	}
 
+	/// <summary>
+	/// Whether a job (build, dev server) is running in this pane — the PTY's foreground process group
+	/// differs from the child shell. False when nothing runs. Feeds the update drain gate.
+	/// </summary>
+	public bool HasForegroundJob {
+		get {
+			lock (_gate) {
+				return _terminal is { HasForegroundJob: true };
+			}
+		}
+	}
+
 	/// <summary>Resizes the PTY to the given column/row count (and remembers them for restarts).</summary>
 	public void Resize(int columns, int rows) {
 		lock (_gate) {
@@ -399,18 +487,26 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
-	private void OnOutput(byte[] data) {
+	private void OnOutput(byte[] data, TerminalModeTracker modes) {
 		_ptyLog?.Write(data, 0, data.Length);
 		_ptyLog?.Flush();
-		// Persist to the scrollback log for replay on a cold (re)attach / resume.
-		_scrollback?.Append(data);
+		// Latch mode/title changes for the restore preamble a reattaching client gets (see OnReady). Independent
+		// of the resync suppression below: a suppressed chunk still changes the child's mode state.
+		modes.Feed(data);
 
 		// Confirm a managed claude launch came up (and self-heal on a failed resume), independent of the page.
 		ObserveClaudeStartup(data);
 
 		// Output always posts, tagged by slot: a background session paints into its own hidden pane (instant
 		// switch). The page drops a background backend's traffic at the bridge, so this never bleeds across backends.
-		_bridge.PostToWeb(TermOutputJson(data));
+		// Log + post atomically under _replayGate: during a pending resync the chunk is only logged — the page
+		// just cleared this pane, and the coming replay (snapshotted after this append) already delivers it.
+		lock (_replayGate) {
+			_scrollback?.Append(data);
+			if (!_resyncPending) {
+				_bridge.PostToWeb(TermOutputJson(data));
+			}
+		}
 	}
 
 	/// <summary>The <c>term-output</c> bridge message carrying <paramref name="data"/> base64-encoded for this pane.</summary>

@@ -1,6 +1,9 @@
 // Resolves keydowns against the resolved keybindings via one capture-phase listener (so a chord wins over a
 // focused xterm/Monaco), preventDefaulting only when a binding matches AND its handler consumes the event.
-// Single-chord matching only; multi-stroke sequences are not handled. See docs/specs/commands.md.
+// Single-chord matching only; multi-stroke sequences are not handled. The back/forward mouse buttons are
+// bindable too (the MouseBack / MouseForward key tokens), resolved from mousedown the same way — with the one
+// difference that those two buttons are always cancelled, matched or not, because the webview's default action
+// (its own history navigation) would navigate the whole app away. See docs/specs/commands.md.
 
 import { evaluateWhen } from "./context";
 import { getKeybindings, onCommandsChanged, runForKeybinding } from "./registry";
@@ -105,19 +108,29 @@ function parseChord(spec: string): Chord {
   return chord;
 }
 
-function matches(chord: Chord, event: KeyboardEvent): boolean {
-  if (chord.key === "") {
-    return false; // modifiers-only binding never matches a keydown
-  }
+// The bindable mouse buttons, by normalized key token → MouseEvent.button. Only back/forward: the primary
+// buttons belong to the panes (click, selection, context menus), so they are not offered as chord tokens.
+const MOUSE_BUTTONS: Record<string, number> = {
+  mouseback: 3,
+  mouseforward: 4,
+};
+
+function modifiersMatch(chord: Chord, event: KeyboardEvent | MouseEvent): boolean {
   const wantCtrl = chord.ctrl || (chord.mod && !IS_MAC);
   const wantMeta = chord.meta || (chord.mod && IS_MAC);
   return (
     event.ctrlKey === wantCtrl &&
     event.metaKey === wantMeta &&
     event.shiftKey === chord.shift &&
-    event.altKey === chord.alt &&
-    normalizeKey(event.key) === chord.key
+    event.altKey === chord.alt
   );
+}
+
+function matches(chord: Chord, event: KeyboardEvent): boolean {
+  if (chord.key === "") {
+    return false; // modifiers-only binding never matches a keydown
+  }
+  return modifiersMatch(chord, event) && normalizeKey(event.key) === chord.key;
 }
 
 let compiled: { chord: Chord; binding: ResolvedKeybinding }[] = [];
@@ -155,9 +168,45 @@ export function installKeybindings(): () => void {
     }
   };
 
+  // The back/forward mouse buttons fire mousedown/mouseup/auxclick; cancelling all three stops whichever
+  // phase an engine would navigate on. Unlike keydown, they're cancelled even when no binding consumes the
+  // press — falling through would let the webview's own history navigation replace the app.
+  const suppressNavButtons = (event: MouseEvent): boolean => {
+    if (event.button !== MOUSE_BUTTONS.mouseback && event.button !== MOUSE_BUTTONS.mouseforward) {
+      return false;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    return true;
+  };
+  const onMouseDown = (event: MouseEvent): void => {
+    if (!suppressNavButtons(event)) {
+      return;
+    }
+    // Last-match-first, like keydown, so a user binding wins over a default for the same button.
+    for (let i = compiled.length - 1; i >= 0; i--) {
+      const entry = compiled[i];
+      if (entry === undefined || MOUSE_BUTTONS[entry.chord.key] !== event.button) {
+        continue;
+      }
+      if (!modifiersMatch(entry.chord, event) || !evaluateWhen(entry.binding.when)) {
+        continue;
+      }
+      if (runForKeybinding(entry.binding.command, entry.binding.args)) {
+        return;
+      }
+    }
+  };
+
   window.addEventListener("keydown", onKeyDown, { capture: true });
+  window.addEventListener("mousedown", onMouseDown, { capture: true });
+  window.addEventListener("mouseup", suppressNavButtons, { capture: true });
+  window.addEventListener("auxclick", suppressNavButtons, { capture: true });
   return () => {
     window.removeEventListener("keydown", onKeyDown, { capture: true });
+    window.removeEventListener("mousedown", onMouseDown, { capture: true });
+    window.removeEventListener("mouseup", suppressNavButtons, { capture: true });
+    window.removeEventListener("auxclick", suppressNavButtons, { capture: true });
     offChanged();
   };
 }
@@ -171,6 +220,12 @@ export function formatKey(spec: string): string {
     }
     if (lower === "ctrl" || lower === "control") {
       return IS_MAC ? "⌃" : "Ctrl";
+    }
+    if (lower === "mouseback") {
+      return "MouseBack";
+    }
+    if (lower === "mouseforward") {
+      return "MouseForward";
     }
     if (lower.length === 1) {
       return lower.toUpperCase();

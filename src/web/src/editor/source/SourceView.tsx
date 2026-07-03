@@ -106,6 +106,18 @@ export default function SourceView(props: {
     if (anchor !== undefined) {
       event.preventDefault();
       const href = anchor.getAttribute("href") ?? "";
+      // A ToC link: shadow roots don't do fragment navigation natively, so scroll to the heading ourselves,
+      // opening any collapsed toggle it sits in first (a closed <details> would swallow the jump).
+      if (href.startsWith("#")) {
+        const heading = root?.getElementById(href.slice(1));
+        for (let el = heading?.parentElement; el != null; el = el.parentElement) {
+          if (el instanceof HTMLDetailsElement) {
+            el.open = true;
+          }
+        }
+        heading?.scrollIntoView({ behavior: "smooth", block: "start" });
+        return;
+      }
       if (/^https?:/i.test(href)) {
         // The host resolves it: a Notion link renders natively in another source tab, else it opens as a web tab.
         openTarget(href);

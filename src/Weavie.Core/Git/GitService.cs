@@ -12,6 +12,11 @@ namespace Weavie.Core.Git;
 public sealed class GitService : IGitService {
 	private const string HeadsPrefix = "refs/heads/";
 
+	// A read-only dirty probe: `--no-optional-locks` refreshes the index in-core instead of taking
+	// `.git/index.lock`, so this background/footer poll can never collide with a concurrent `git diff` or
+	// `git add` on the same repo (the index-lock race behind the diff-against CI flakes).
+	private static readonly string[] PorcelainStatusArgs = ["--no-optional-locks", "status", "--porcelain"];
+
 	/// <inheritdoc/>
 	public async Task<bool> IsRepositoryAsync(string directory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(directory);
@@ -148,14 +153,14 @@ public sealed class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(worktreeDirectory, ["status", "--porcelain"], ct).ConfigureAwait(false);
+		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusArgs, ct).ConfigureAwait(false);
 		return result.StdOut.Trim().Length > 0;
 	}
 
 	/// <inheritdoc/>
 	public async Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(worktreeDirectory, ["status", "--porcelain"], ct).ConfigureAwait(false);
+		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusArgs, ct).ConfigureAwait(false);
 		string[] lines = result.StdOut.Replace("\r", "", StringComparison.Ordinal)
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries);
 		if (lines.Length == 0) {

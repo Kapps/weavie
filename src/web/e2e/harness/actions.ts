@@ -1,13 +1,23 @@
 import { type Page, expect } from "@playwright/test";
+import { mediaTypeOf } from "../../src/editor/media/media-types";
 
-// Open a workspace file through the omnibar's "Go to File" and wait for its tab. The first fuzzy match is
-// auto-selected, so typing the name and pressing Enter opens it.
+// Open a workspace file through the omnibar's "Go to File" and wait until the editor is ACTUALLY showing it.
+// The first fuzzy match is auto-selected, so typing the name and pressing Enter opens it.
 export async function openFile(page: Page, name: string): Promise<void> {
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill(name);
   await expect(page.locator(".tb-omnibar-row", { hasText: name }).first()).toBeVisible();
   await page.locator(".tb-omnibar-input").press("Enter");
   await expect(page.locator(".editor-tab", { hasText: name })).toBeVisible();
+  // The tab appears (and its active state + the current-file flip) BEFORE the Monaco model swap lands — that
+  // swap is an async host round-trip. Typing in the gap leaks into the outgoing model, so wait for the editor
+  // to actually bind this file (data-active-file, stamped on the real swap). Media files never bind a model.
+  if (mediaTypeOf(name) === null) {
+    await expect(page.locator(".editor")).toHaveAttribute(
+      "data-active-file",
+      new RegExp(`[\\\\/]${name.replace(/[.]/g, "\\.")}$`),
+    );
+  }
 }
 
 // Run a command through the command palette (Show All Commands), matching by title text. Exercises the

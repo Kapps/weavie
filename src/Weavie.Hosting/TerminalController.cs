@@ -445,6 +445,16 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
+	/// Writes <paramref name="text"/> to the PTY wrapped in bracketed-paste markers (<c>ESC[200~</c>…<c>ESC[201~</c>)
+	/// — the framing that makes a full-screen TUI (Claude) treat it as pasted input, e.g. converting a pasted image
+	/// path into an <c>[Image #N]</c> attachment rather than typed text.
+	/// </summary>
+	public void WriteBracketedPaste(string text) {
+		ArgumentNullException.ThrowIfNull(text);
+		Write(Encoding.UTF8.GetBytes($"\x1b[200~{text}\x1b[201~"));
+	}
+
+	/// <summary>
 	/// Whether a job (build, dev server) is running in this pane — the PTY's foreground process group
 	/// differs from the child shell. False when nothing runs. Feeds the update drain gate.
 	/// </summary>

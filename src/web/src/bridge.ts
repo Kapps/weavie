@@ -130,6 +130,9 @@ export type HostBoundMessage =
   // this pane belongs to; `session` is the pane within it.
   | { type: "term-ready"; slot: string; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
+  // An image pasted into the claude pane: its bytes (base64) + MIME. The host writes a scratch file on the
+  // backend and injects its path into claude, which attaches it as an [Image #N]. See paste-image.ts.
+  | { type: "term-paste-image"; slot: string; session: TermSession; mime: string; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`

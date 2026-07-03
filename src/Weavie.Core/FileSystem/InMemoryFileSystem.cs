@@ -8,7 +8,7 @@ namespace Weavie.Core.FileSystem;
 /// the same file collide as expected.
 /// </summary>
 public sealed class InMemoryFileSystem : IFileSystem {
-	private readonly ConcurrentDictionary<string, string> _files = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, byte[]> _files = new(StringComparer.Ordinal);
 	// Logical mtimes: a monotonic write counter (not wall-clock), bumped per write so TryGetStat's mtime
 	// changes on every content change — the etag contract the file:// provider needs.
 	private readonly ConcurrentDictionary<string, long> _mtimes = new(StringComparer.Ordinal);
@@ -23,7 +23,7 @@ public sealed class InMemoryFileSystem : IFileSystem {
 		ArgumentNullException.ThrowIfNull(seed);
 		foreach (var (path, contents) in seed) {
 			string normalized = Normalize(path);
-			_files[normalized] = contents;
+			_files[normalized] = Encoding.UTF8.GetBytes(contents);
 			_mtimes[normalized] = Interlocked.Increment(ref _clock);
 		}
 	}
@@ -40,9 +40,9 @@ public sealed class InMemoryFileSystem : IFileSystem {
 	/// <inheritdoc/>
 	public bool TryGetStat(string path, out FileStat stat) {
 		string normalized = Normalize(path);
-		if (_files.TryGetValue(normalized, out string? contents)) {
+		if (_files.TryGetValue(normalized, out byte[]? contents)) {
 			long mtime = _mtimes.TryGetValue(normalized, out long m) ? m : 0;
-			stat = new FileStat(true, false, mtime, mtime, Encoding.UTF8.GetByteCount(contents));
+			stat = new FileStat(true, false, mtime, mtime, contents.Length);
 			return true;
 		}
 
@@ -85,22 +85,32 @@ public sealed class InMemoryFileSystem : IFileSystem {
 
 	/// <inheritdoc/>
 	public string ReadAllText(string path) {
-		if (_files.TryGetValue(Normalize(path), out string? contents)) {
-			return contents;
+		if (_files.TryGetValue(Normalize(path), out byte[]? contents)) {
+			return Encoding.UTF8.GetString(contents);
 		}
 
 		throw new FileNotFoundException($"No in-memory file at '{path}'.", path);
 	}
 
 	/// <inheritdoc/>
-	public byte[] ReadAllBytes(string path) => Encoding.UTF8.GetBytes(ReadAllText(path));
+	public byte[] ReadAllBytes(string path) {
+		if (_files.TryGetValue(Normalize(path), out byte[]? contents)) {
+			return (byte[])contents.Clone();
+		}
+
+		throw new FileNotFoundException($"No in-memory file at '{path}'.", path);
+	}
 
 	/// <inheritdoc/>
 	public void WriteAllText(string path, string contents) {
 		ArgumentNullException.ThrowIfNull(contents);
-		string normalized = Normalize(path);
-		_files[normalized] = contents;
-		_mtimes[normalized] = Interlocked.Increment(ref _clock);
+		Store(path, Encoding.UTF8.GetBytes(contents));
+	}
+
+	/// <inheritdoc/>
+	public void WriteAllBytes(string path, byte[] contents) {
+		ArgumentNullException.ThrowIfNull(contents);
+		Store(path, (byte[])contents.Clone());
 	}
 
 	/// <inheritdoc/>
@@ -108,6 +118,10 @@ public sealed class InMemoryFileSystem : IFileSystem {
 		// A single dictionary assignment is atomic, honoring the same all-or-nothing contract
 		// the real filesystem provides via temp-file + replace.
 		ArgumentNullException.ThrowIfNull(contents);
+		Store(path, Encoding.UTF8.GetBytes(contents));
+	}
+
+	private void Store(string path, byte[] contents) {
 		string normalized = Normalize(path);
 		_files[normalized] = contents;
 		_mtimes[normalized] = Interlocked.Increment(ref _clock);

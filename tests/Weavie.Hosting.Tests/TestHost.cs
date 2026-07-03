@@ -244,12 +244,21 @@ internal sealed class NoopTerminal : ITerminal {
 	/// <summary>How many input writes reached this terminal (asserts the drain input freeze).</summary>
 	public int WriteCount { get; private set; }
 
+	/// <summary>Every write's bytes, in order — lets a test assert what was injected (e.g. a bracketed paste).</summary>
+	public List<byte[]> Writes { get; } = [];
+
+	/// <summary>Every write concatenated and UTF-8 decoded — for asserting injected text.</summary>
+	public string WrittenText => string.Concat(Writes.Select(System.Text.Encoding.UTF8.GetString));
+
 	public void Start(TerminalStartInfo startInfo) {
 		_ = Output;
 		_ = Exited;
 	}
 
-	public void Write(byte[] data) => WriteCount++;
+	public void Write(byte[] data) {
+		WriteCount++;
+		Writes.Add(data);
+	}
 
 	public void Resize(int columns, int rows) {
 		// no PTY to resize

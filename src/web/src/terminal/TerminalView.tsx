@@ -9,6 +9,7 @@ import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
 import { base64ToBytes, bytesToBase64 } from "./base64";
 import { attachOsc52, noteTerminalFocus, registerTerminal } from "./host-clipboard";
+import { attachImagePaste } from "./paste-image";
 import { wireTerminalLinks } from "./terminal-links";
 
 // Windows file URIs (OSC 7) surface as "/C:/..." — strip the leading slash so it's a real path.
@@ -156,6 +157,10 @@ export function TerminalView(props: {
     // and note focus so the commands act on the terminal the user is in.
     const offRegister = registerTerminal(termKey, term);
     const offClipboard = attachOsc52(term);
+    // Image paste (claude pane only): capture an image from the browser paste event → host scratch file → path
+    // injected into claude. The shell has no use for it; a pasted path there would just try to run.
+    const offImagePaste =
+      props.pane === "claude" ? attachImagePaste(container, props.slot) : (): void => {};
     const onContainerFocus = (): void => noteTerminalFocus(termKey);
     container.addEventListener("focusin", onContainerFocus);
 
@@ -314,6 +319,7 @@ export function TerminalView(props: {
       offTheme();
       offRegister();
       offClipboard.dispose();
+      offImagePaste();
       offCwd.dispose();
       container.removeEventListener("focusin", onContainerFocus);
       resizeObserver.disconnect();

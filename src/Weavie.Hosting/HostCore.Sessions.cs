@@ -377,6 +377,9 @@ public sealed partial class HostCore {
 	private HostSession CreateSession(string cwd) {
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id),
+			// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
+			// one session's images never touches another's.
+			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client

@@ -31,9 +31,25 @@ function revealFile(matchText: string): void {
   }
 }
 
-function openUrl(url: string): void {
-  // The browser lives on the user's machine: a served tab opens the (caller-checked, host-revalidated http(s))
-  // URL itself under the click's user gesture; a native shell asks the LOCAL host, never a remote backend.
+// True only for an absolute http(s) URL — the open gate, mirroring the host's IsHttpUrl. Terminal content is
+// untrusted and this is also reachable via the openUrlExternal command (Claude/MCP), so a file://, UNC path, or
+// custom scheme (a ShellExecute / window.open handler vector) is never opened.
+function isHttpUrl(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "http:" || protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Opens an http(s) URL in the OS/default browser (the terminal's left-click + the "Open in Browser" menu). */
+export function openUrlExternal(url: string): void {
+  if (!isHttpUrl(url)) {
+    return;
+  }
+  // The browser lives on the user's machine: a served tab opens the URL itself under the click's user gesture;
+  // a native shell asks the LOCAL host (re-gated there too), never a remote backend.
   if (isBrowserHostedShell()) {
     window.open(url, "_blank", "noopener");
     return;
@@ -41,11 +57,13 @@ function openUrl(url: string): void {
   postToLocalHost({ type: "open-url", url });
 }
 
-// One regex hit within a logical (possibly wrapped) line: its flat char span in that line plus how to open it.
+// One regex hit within a logical (possibly wrapped) line: its flat char span in that line, whether it's a URL
+// (URLs get the hover-tracked "Open in…" right-click menu), and how to open it.
 type LinkMatch = {
   start: number;
   end: number;
   text: string;
+  url: boolean;
   activate: (matchText: string) => void;
 };
 
@@ -54,6 +72,7 @@ type LinkMatch = {
 function collect(
   text: string,
   pattern: RegExp,
+  url: boolean,
   activate: (matchText: string) => void,
   matches: LinkMatch[],
   claimed: Array<[number, number]>,
@@ -66,14 +85,24 @@ function collect(
       continue;
     }
     claimed.push([start, end]);
-    matches.push({ start, end, text: match[0], activate });
+    matches.push({ start, end, text: match[0], url, activate });
   }
 }
 
-/** Wires OSC 8 link activation + the auto-link provider (URLs first, so URL-embedded file:line isn't double-linked). */
-export function wireTerminalLinks(term: Terminal): void {
+/**
+ * Wires OSC 8 link activation + the auto-link provider (URLs first, so URL-embedded file:line isn't
+ * double-linked). Returns a getter for the URL currently under the pointer, so a right-click can offer to
+ * open it (browser vs Weavie) instead of activating it — xterm activates links on mouseup for ANY button, so
+ * the activate handlers below open only on the primary button and a right-click falls through to the menu.
+ */
+export function wireTerminalLinks(term: Terminal): () => string | undefined {
+  let hoveredUrl: string | undefined;
+
   term.options.linkHandler = {
-    activate: (_event, uri) => {
+    activate: (event, uri) => {
+      if (event.button !== 0) {
+        return;
+      }
       try {
         const url = new URL(uri);
         if (url.protocol === "file:") {
@@ -84,10 +113,20 @@ export function wireTerminalLinks(term: Terminal): void {
             line: lineMatch ? Number(lineMatch[1]) : 1,
           });
         } else if (url.protocol === "http:" || url.protocol === "https:") {
-          openUrl(uri);
+          openUrlExternal(uri);
         }
       } catch {
         // not a parseable URI; ignore
+      }
+    },
+    hover: (_event, uri) => {
+      if (isHttpUrl(uri)) {
+        hoveredUrl = uri;
+      }
+    },
+    leave: (_event, uri) => {
+      if (hoveredUrl === uri) {
+        hoveredUrl = undefined;
       }
     },
   };
@@ -126,11 +165,11 @@ export function wireTerminalLinks(term: Terminal): void {
       }
       const matches: LinkMatch[] = [];
       const claimed: Array<[number, number]> = [];
-      collect(text, URL_RE, openUrl, matches, claimed);
-      collect(text, FILE_LINE, revealFile, matches, claimed);
-      collect(text, TOOL_PATH, revealFile, matches, claimed);
+      collect(text, URL_RE, true, openUrlExternal, matches, claimed);
+      collect(text, FILE_LINE, false, revealFile, matches, claimed);
+      collect(text, TOOL_PATH, false, revealFile, matches, claimed);
       // Last, so a path already claimed as file:line, a tool path, or inside a URL isn't re-linked bare.
-      collect(text, BARE_PATH, revealFile, matches, claimed);
+      collect(text, BARE_PATH, false, revealFile, matches, claimed);
       // Emit only the slice of each match that lands on the queried row (a single-row range), but open the
       // whole matched target — so hovering or clicking any wrapped fragment reveals the complete path/URL.
       const links: ILink[] = [];
@@ -140,16 +179,33 @@ export function wireTerminalLinks(term: Terminal): void {
         if (from >= to) {
           continue;
         }
-        links.push({
+        const link: ILink = {
           range: {
             start: { x: from - queryStart + 1, y: lineNumber },
             end: { x: to - queryStart + 1, y: lineNumber },
           },
           text: match.text,
-          activate: () => match.activate(match.text),
-        });
+          activate: (event) => {
+            if (event.button === 0) {
+              match.activate(match.text);
+            }
+          },
+        };
+        if (match.url) {
+          link.hover = (): void => {
+            hoveredUrl = match.text;
+          };
+          link.leave = (): void => {
+            if (hoveredUrl === match.text) {
+              hoveredUrl = undefined;
+            }
+          };
+        }
+        links.push(link);
       }
       callback(links.length > 0 ? links : undefined);
     },
   });
+
+  return () => hoveredUrl;
 }

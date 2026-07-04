@@ -197,8 +197,11 @@ public static class CoreCommands {
 	/// <summary>Open a different workspace folder via the native folder picker.</summary>
 	public const string OpenFolder = "weavie.workspace.openFolder";
 
-	/// <summary>Prompt for an http(s) URL and open it in a web (iframe) tab.</summary>
+	/// <summary>Open an http(s) URL in a web (iframe) tab; with a `url` arg opens it directly, else prompts.</summary>
 	public const string OpenUrl = "weavie.workspace.openUrl";
+
+	/// <summary>Open an http(s) URL (its `url` arg) in the system's default browser.</summary>
+	public const string OpenUrlExternal = "weavie.workspace.openUrlExternal";
 
 	/// <summary>Has Claude inspect the repo and configure the workspace's knowledge-shaped settings (worktree setup command + test profile) on the user's confirmation; backs the workspace-setup suggestion. Palette-visible, no default keybinding.</summary>
 	public const string SetupWorkspace = "weavie.workspace.setup";
@@ -324,14 +327,30 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+o" }],
 		});
 
+		string openUrlArgs = "{\"url\":{\"type\":\"string\",\"description\":\"An http(s) URL to open.\"}}";
 		registry.Register(new CommandDefinition {
 			Id = OpenUrl,
 			Title = "Open URL…",
 			RunsIn = CommandLocation.Web,
 			Category = "File",
-			Description = "Open an http(s) URL in a web tab — e.g. a local dev server to preview your app.",
-			Aliases = ["open url", "open web page", "web tab", "preview url", "open browser tab"],
+			Description = "Open an http(s) URL in a web (iframe) tab — e.g. a local dev server to preview your app. "
+				+ "A `url` arg opens it directly; without one it prompts.",
+			Aliases = ["open url", "open web page", "web tab", "preview url", "open browser tab", "open in weavie"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+o" }],
+			ArgsSchemaJson = openUrlArgs,
+		});
+
+		// The terminal's right-click "Open in Browser" (the click default): open a URL in the OS browser. Only a
+		// menu / Claude surface — needs a `url` arg, so it's not palette-visible.
+		registry.Register(new CommandDefinition {
+			Id = OpenUrlExternal,
+			Title = "Open in Browser",
+			RunsIn = CommandLocation.Web,
+			Category = "File",
+			Description = "Open an http(s) URL in the system's default browser.",
+			Aliases = ["open in browser", "open url in browser", "open external", "open in default browser"],
+			ShowInPalette = false,
+			ArgsSchemaJson = openUrlArgs,
 		});
 
 		registry.Register(new CommandDefinition {

@@ -25,7 +25,7 @@ import {
   postToLocalHost,
   setActiveBackendId,
 } from "./bridge";
-import { ContextMenu, type ContextMenuState } from "./chrome/ContextMenu";
+import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
@@ -112,6 +112,7 @@ import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
+import { openUrlExternal } from "./terminal/terminal-links";
 import { runTestAtCursor } from "./tests/test-lens";
 import { applyChromeTheme } from "./theme";
 
@@ -637,23 +638,38 @@ export default function App(): JSX.Element {
                     onTitle={(title) =>
                       setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
                     }
-                    onContextMenu={(event) =>
+                    onContextMenu={(event, url) => {
+                      const entries: ContextMenuEntry[] = [];
+                      // A URL under the pointer leads with the two ways to open it (browser is the click default).
+                      if (url !== undefined) {
+                        entries.push(
+                          {
+                            commandId: CommandIds.openUrlExternal,
+                            args: { url },
+                            label: "Open in Browser",
+                          },
+                          { commandId: CommandIds.openUrl, args: { url }, label: "Open in Weavie" },
+                          { kind: "separator" },
+                        );
+                      }
+                      entries.push({ commandId: CommandIds.terminalCopy });
+                      // A served browser tab can't read the clipboard from a click (only the native paste event
+                      // works there) — Ctrl+V is the paste path; the menu item only fits the WebView.
+                      if (!isBrowserHostedShell()) {
+                        entries.push({ commandId: CommandIds.terminalPaste });
+                      }
+                      entries.push(
+                        { commandId: CommandIds.terminalClear },
+                        { kind: "separator" },
+                        { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
+                      );
                       setContextMenu({
                         x: event.clientX,
                         y: event.clientY,
-                        entries: [
-                          { commandId: CommandIds.terminalCopy },
-                          // A served browser tab can't read the clipboard from a click (only the native paste
-                          // event works there) — Ctrl+V is the paste path; the menu item only fits the WebView.
-                          ...(isBrowserHostedShell()
-                            ? []
-                            : [{ commandId: CommandIds.terminalPaste }]),
-                          { commandId: CommandIds.terminalClear },
-                          { kind: "separator" },
-                          { commandId: CommandIds.focusOmnibarCommands, label: "Command Palette" },
-                        ],
-                      })
-                    }
+                        ...(url !== undefined ? { header: url } : {}),
+                        entries,
+                      });
+                    }}
                   />
                 </div>
               );
@@ -951,7 +967,22 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.openFolder, () => {
         postToLocalHost({ type: "menu-action", action: "open-folder" });
       }),
-      registerCommand(CommandIds.openUrl, () => setUrlPromptOpen(true)),
+      // Open URL: a `url` arg (the terminal's "Open in Weavie" menu / Claude) opens it in a web tab directly;
+      // no arg (the palette / $mod+O) prompts. "Open in Browser" opens the same URL in the OS browser instead.
+      registerCommand(CommandIds.openUrl, (args) => {
+        const url = (args as { url?: unknown } | undefined)?.url;
+        if (typeof url === "string" && url.length > 0) {
+          openTarget(url);
+        } else {
+          setUrlPromptOpen(true);
+        }
+      }),
+      registerCommand(CommandIds.openUrlExternal, (args) => {
+        const url = (args as { url?: unknown } | undefined)?.url;
+        if (typeof url === "string" && url.length > 0) {
+          openUrlExternal(url);
+        }
+      }),
       // New Session… (Ctrl+Shift+N / palette / the rail's "+"): open the branch-name prompt.
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.

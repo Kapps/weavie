@@ -20,6 +20,8 @@
   font-size: 0.88em;
   font-weight: 600;
   letter-spacing: 0.02em;
+  /* Bounded + ellipsis so a long header (e.g. a URL) truncates instead of stretching the menu. */
+  max-width: 24em;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;

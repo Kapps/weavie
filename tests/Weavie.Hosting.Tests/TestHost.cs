@@ -34,9 +34,9 @@ internal sealed class TestHost : IAsyncDisposable {
 		SourcesDir = sourcesDir;
 	}
 
-	public FakeHostBridge Bridge { get; }
-	public TestPlatform Platform { get; }
-	public HostCore Core { get; }
+	public FakeHostBridge Bridge { get; private set; }
+	public TestPlatform Platform { get; private set; }
+	public HostCore Core { get; private set; }
 
 	/// <summary>The stub backing the source system's HTTP calls (the Notion token validate + API); set its responder per test.</summary>
 	public StubHttpMessageHandler SourceHttp { get; }
@@ -99,6 +99,20 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>Sends a raw web message to the host (as the page would).</summary>
 	public void Send(string json) => Bridge.Receive(json);
+
+	/// <summary>
+	/// Simulates a worker restart (what a runner auto-update respawn does): disposes the live core and brings a
+	/// fresh one up over the same repo — same workspace id, so it re-reads the persisted per-workspace stores. A
+	/// fresh bridge is used because a disposed core does not detach its <c>OnWebMessage</c> handler.
+	/// </summary>
+	public async Task RestartAsync() {
+		await Core.DisposeAsync().ConfigureAwait(false);
+		Bridge = new FakeHostBridge();
+		Platform = new TestPlatform(Bridge);
+		Core = new HostCore(Platform, _services, RepoRoot);
+		await Core.StartAsync().ConfigureAwait(false);
+		Bridge.Receive("""{"type":"ready"}""");
+	}
 
 	private static HostServices IsolatedServices(string tempRoot, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);

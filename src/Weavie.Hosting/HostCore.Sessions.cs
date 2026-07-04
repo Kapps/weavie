@@ -418,6 +418,7 @@ public sealed partial class HostCore {
 		session.Shell.EnsureStarted();
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 		PushSessionList();
+		PersistSessionState();
 	}
 
 	/// <summary>
@@ -469,6 +470,8 @@ public sealed partial class HostCore {
 		PushSessionList();
 		// Land keyboard focus in the new session's Claude pane.
 		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
+		// Record the new active slot (and any load it just triggered) so a reopen restores it.
+		PersistSessionState();
 	}
 
 	/// <summary>
@@ -596,6 +599,7 @@ public sealed partial class HostCore {
 			_ui.Post(() => {
 				_sessions?.Remove(target);
 				PushSessionList();
+				PersistSessionState();
 			});
 			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
 		} catch (WorktreeDirtyException) {
@@ -671,6 +675,7 @@ public sealed partial class HostCore {
 		// after process teardown finishes (Windows can take many seconds to release the children's handles).
 		slot.Session = null;
 		PushSessionList();
+		PersistSessionState();
 		await session.DisposeAsync().ConfigureAwait(false);
 	}
 

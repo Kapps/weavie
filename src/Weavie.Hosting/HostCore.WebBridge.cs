@@ -309,7 +309,12 @@ public sealed partial class HostCore {
 				// boot-time __WEAVIE_SHELL__.buildNumber and reloads itself to pick up the matching assets.
 				_bridge.PostToWeb($"{{\"type\":\"host-info\",\"buildNumber\":{JsonString(BuildNumber)}}}");
 				PushLayoutToWeb();
-				PushEditorSessionToWeb();
+				// The ACTIVE session's editor tabs — normally the primary, but a restored worktree session may be
+				// active after a reopen/update restart, and the page must open its tabs, not the primary's.
+				if (_session is { } editorSession) {
+					PushSessionEditorToWeb(editorSession);
+				}
+
 				PushRecentFilesToWeb();
 				PushSessionList();
 				PushGitStatus();
@@ -511,17 +516,6 @@ public sealed partial class HostCore {
 		}
 
 		return active;
-	}
-
-	/// <summary>Pushes the persisted editor session for launch restore, scoped to the primary session's root and
-	/// stamped with its id so a later change can't be misattributed.</summary>
-	private void PushEditorSessionToWeb() {
-		if (_primarySession is not { } primary) {
-			return;
-		}
-
-		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
-			_editorSession.Current, primary.FileSystem, primary.WorkspaceRoot, primary.Id, Log));
 	}
 
 	/// <summary>

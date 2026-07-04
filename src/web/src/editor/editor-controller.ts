@@ -640,7 +640,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     postToHost({ type: "get-turn-diff", path: file.path });
   };
 
-  // Monotonic revision of the published review set (see __WEAVIE_REVIEW__), bumped on each update.
+  // Monotonic revision of the published review set.
   let reviewRev = 0;
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
   // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —

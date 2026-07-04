@@ -23,6 +23,11 @@ public static class EmbeddedClaudeGuidance {
 		and can diverge from the live app: an override may be applied in-session but not yet written, or a
 		file edited without a reload. Always read live state through the `mcp__weavie__*` tools instead.
 
+		You run inside ONE Weavie session; the user may have a DIFFERENT session focused. To act on your own
+		session — e.g. deleting or unloading it when you're done — first call `mcp__weavie__currentSession` to
+		get your session's id, then pass that id explicitly, rather than assuming the focused session is yours.
+		Deleting a session (weavie.session.delete) requires an explicit id for exactly this reason.
+
 		When you reference a file in your replies, write its path relative to the repository root with the line
 		number (e.g. `src/web/src/editor/preview/preview.css:22`), never a bare filename. Weavie turns
 		`path:line` references into clickable links that reveal the file in the editor, and a bare name can't be

@@ -40,7 +40,7 @@ public static class SessionCommands {
 	/// <summary>Unloads a session (the active one, or the <c>id</c> arg) into a dormant chip, keeping its worktree on disk.</summary>
 	public const string UnloadSession = "weavie.session.unload";
 
-	/// <summary>Deletes a session: removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
+	/// <summary>Deletes a session (named by the required <c>id</c>): removes its worktree (keeps the branch), guarded against uncommitted changes unless <c>force</c>. The programmatic entry; the UI uses <see cref="DeleteSessionPrompt"/>.</summary>
 	public const string DeleteSession = "weavie.session.delete";
 
 	/// <summary>Opens the interactive delete confirmation in the UI (arg <c>id</c>; defaults to the active session).</summary>
@@ -182,10 +182,11 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Unload a session (the active one, or the session 'id') into a dormant chip: tear its live "
 				+ "backend (Claude / terminals / LSP) down but keep its worktree on disk so it can be reloaded later. "
-				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To remove the worktree "
-				+ "entirely, use Delete Session.",
+				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To unload your OWN session "
+				+ "rather than the focused one, get its id from the mcp__weavie__currentSession tool. To remove the "
+				+ "worktree entirely, use Delete Session.",
 			Aliases = ["unload session", "park session", "make session dormant", "suspend session"],
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the active session\"}}",
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to unload; omit for the active (focused) session. To target your OWN session, get its id from mcp__weavie__currentSession\"}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -193,16 +194,18 @@ public static class SessionCommands {
 			Title = "Delete Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Delete a session (the active one, or the session 'id'): remove its git worktree but KEEP the "
+			Description = "Delete a session (named by the required 'id'): remove its git worktree but KEEP the "
 				+ "branch (committed work survives on it). Refuses when the worktree has uncommitted changes unless "
 				+ "'force' is true, so work is never discarded silently. The primary session can't be deleted. With "
 				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
-				+ "for a confirm prompt. This is the programmatic entry (for Claude); the interactive UI uses 'Delete "
+				+ "for a confirm prompt. To delete your OWN session (e.g. when finishing it), get its id from the "
+				+ "mcp__weavie__currentSession tool — a no-id call is rejected so you never delete the user's focused "
+				+ "session by mistake. This is the programmatic entry (for Claude); the interactive UI uses 'Delete "
 				+ "Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
 			// The human-facing entry is the guarded prompt (DeleteSessionPrompt); the raw delete stays reachable by Claude.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete; omit for the active session\"},"
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id to delete (required); get your own from the mcp__weavie__currentSession tool\"},"
 				+ "\"force\":{\"type\":\"boolean\",\"description\":\"Delete even if the worktree has uncommitted changes\"},"
 				+ "\"classify\":{\"type\":\"boolean\",\"description\":\"Don't delete; return the worktree state {state,label} for a confirm prompt\"}}",
 		});

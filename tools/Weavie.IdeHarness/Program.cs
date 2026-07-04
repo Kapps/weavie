@@ -24,7 +24,7 @@ var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
 await using var ide = new IdeIntegration(
 	presenter, [workspace], "weavie", settings: null, layout: null, editor: null,
-	commands: null, keybindings: null, themeOverrides: null, editLocator: null);
+	commands: null, keybindings: null, themeOverrides: null, editLocator: null, currentSessionId: () => "harness");
 
 ide.Server.Log += line => {
 	Console.WriteLine($"[mcp] {line}");

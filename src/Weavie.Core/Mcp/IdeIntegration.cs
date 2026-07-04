@@ -35,15 +35,17 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		CommandDispatcher? commands,
 		KeybindingStore? keybindings,
 		ThemeOverridesStore? themeOverrides,
-		Func<HookRequest, string?>? editLocator) {
+		Func<HookRequest, string?>? editLocator,
+		Func<string> currentSessionId) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
+		ArgumentNullException.ThrowIfNull(currentSessionId);
 
 		AuthToken = IdeLockFile.NewAuthToken();
 		// The IDE server (not the registry) carries the active-editor context (getCurrentSelection/
 		// getOpenEditors + the pushed selection_changed notification).
 		Server = new McpServer(
 			AuthToken, presenter, workspaceFolders, ideName, settings: null, registryMode: false, layout: null,
-			editor: editor, commands: null, keybindings: null, themeOverrides: null);
+			editor: editor, commands: null, keybindings: null, themeOverrides: null, currentSessionId: null);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, AuthToken);
 
@@ -63,7 +65,8 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		if (settings is not null) {
 			RegistryServer = new McpServer(
 				AuthToken, presenter, workspaceFolders, ideName, settings, registryMode: true, layout: layout,
-				editor: null, commands: commands, keybindings: keybindings, themeOverrides: themeOverrides);
+				editor: null, commands: commands, keybindings: keybindings, themeOverrides: themeOverrides,
+				currentSessionId: currentSessionId);
 			RegistryPort = RegistryServer.Start();
 		}
 	}

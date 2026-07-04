@@ -78,6 +78,7 @@ export const CommandIds = {
   undoKeep: "weavie.review.undoKeep",
   undoRevert: "weavie.review.undoRevert",
   redoReview: "weavie.review.redo",
+  reviewComment: "weavie.review.comment",
   closeTab: "weavie.editor.closeTab",
   nextTab: "weavie.editor.nextTab",
   prevTab: "weavie.editor.prevTab",

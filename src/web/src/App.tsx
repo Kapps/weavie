@@ -713,12 +713,9 @@ export default function App(): JSX.Element {
       } else if (message.type === "turn-changes") {
         // The review set: feed the editor's ← / → file walk + the parked navigator, which surfaces the review
         // over the editor the moment changes land — without moving it. Stepping in is user-driven, not an
-        // auto-jump. (weavie.review.open / palette still jumps on demand.)
-        editor.setReviewFiles(message.files);
-      } else if (message.type === "pr-changes") {
-        // A PR session armed (or switched to): feed its changed files into the same ← / → walk + parked
-        // navigator, in read-only PR mode, so the diff navigator surfaces over the editor.
-        editor.setPrReview(message.number, message.label, message.files);
+        // auto-jump. (weavie.review.open / palette still jumps on demand.) `label` names a PR/ref review ("PR
+        // #12", "vs main") in the subtitle, or is empty for a plain post-turn review.
+        editor.setReviewFiles(message.files, message.label);
       } else if (message.type === "lsp-config") {
         // A session switch: re-point the language clients at the incoming session's LSP bridge (its own
         // worktree root), tearing the previous session's clients down. Imported lazily — lsp-client pulls
@@ -853,6 +850,9 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.keepFile, () => editor.inline.keepFile()),
       registerCommand(CommandIds.revertFile, () => editor.inline.revertFile()),
       registerCommand(CommandIds.keepAll, () => editor.inline.keepAll()),
+      // Comment on the current line — only a PR file under review carries a comment surface, so this DECLINES
+      // (falls through) outside one.
+      registerCommand(CommandIds.reviewComment, () => editor.inline.comment()),
       // Review undo/redo. The undo chords are type-split (Shift+Enter keep / Shift+Backspace revert) and decline
       // (fall through) when there's nothing of that kind to undo; redo is palette/toolbar-only.
       registerCommand(CommandIds.undoKeep, () => editor.inline.undoKeep()),

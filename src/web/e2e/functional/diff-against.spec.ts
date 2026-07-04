@@ -5,8 +5,8 @@ import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { walkToChangedFile } from "../harness/navigator";
 
-// The "diff against" journey: review the working tree against a ref in the same read-only inline-diff
-// navigator a PR uses — no forge, no new session, just git. See docs/specs/diff-against.md.
+// The "diff against" journey: review the working tree against a ref through the same accept/reject inline-diff
+// engine a turn uses — no forge, no new session, just git, with full Keep/Revert. See docs/specs/diff-against.md.
 
 const git = (cwd: string, ...args: string[]): void => {
   execFileSync("git", args, { cwd, stdio: "ignore" });
@@ -29,14 +29,12 @@ const commitAll = (cwd: string, message: string): void => {
   );
 };
 
-test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, weavie }) => {
+test("Diff Against HEAD reviews uncommitted changes with Keep/Revert", async ({ page, weavie }) => {
   // The suite's default 30s test timeout would otherwise cap this below the 30s toolbar wait itself.
   test.setTimeout(60_000);
   // An uncommitted edit to a seeded file — the exact thing "diff against HEAD" exists to review.
-  await writeFile(
-    join(weavie.workspace, "notes.txt"),
-    "just plain text\nplus an uncommitted line\n",
-  );
+  const notes = join(weavie.workspace, "notes.txt");
+  await writeFile(notes, "just plain text\nplus an uncommitted line\n");
 
   await runCommand(page, "Diff Against HEAD");
 
@@ -47,10 +45,16 @@ test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, 
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText("vs HEAD");
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
 
-  // Read-only: no Keep/Revert (nothing here was auto-applied) and no Comment (no forge behind a local ref).
-  await expect(toolbar.locator(".weavie-inline-accept")).toHaveCount(0);
-  await expect(toolbar.locator(".weavie-inline-reject")).toHaveCount(0);
+  // Not read-only any more: Keep / Revert act on the diff (the whole point of the unification). Comment stays
+  // absent — a local ref has no forge behind it.
+  await expect(toolbar.locator(".weavie-inline-accept")).toBeVisible();
+  await expect(toolbar.locator(".weavie-inline-reject")).toBeVisible();
   await expect(toolbar.locator(".weavie-inline-comment")).toHaveCount(0);
+
+  // Reject the change → the uncommitted line is backed out on disk (the file returns to its committed content)
+  // and its added marker clears, exactly as a turn revert.
+  await toolbar.locator(".weavie-inline-reject").click();
+  await expect(page.locator(".weavie-inline-added")).toHaveCount(0, { timeout: 10_000 });
 });
 
 test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ page, weavie }) => {

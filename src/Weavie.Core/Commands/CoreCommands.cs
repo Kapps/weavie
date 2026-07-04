@@ -107,6 +107,9 @@ public static class CoreCommands {
 	/// <summary>Redoes the most recently undone review action; palette/toolbar only, no default keybinding.</summary>
 	public const string RedoReview = "weavie.review.redo";
 
+	/// <summary>Comments on the current line of a PR file under review; palette/toolbar only, no default keybinding.</summary>
+	public const string ReviewComment = "weavie.review.comment";
+
 	/// <summary>Closes an editor tab (the active tab, or the one named in <c>path</c>); bound to <c>$mod+w</c>.</summary>
 	public const string CloseTab = "weavie.editor.closeTab";
 
@@ -637,6 +640,16 @@ public static class CoreCommands {
 			Category = "Review",
 			Description = "Re-apply the most recently undone review action (the counterpart to Undo Keep / Undo Revert).",
 			Aliases = ["redo review", "redo keep", "redo revert", "redo change"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ReviewComment,
+			Title = "Comment on Line (Review)",
+			RunsIn = CommandLocation.Web,
+			Category = "Review",
+			When = "diffActive",
+			Description = "Add a review comment on the current line of a PR file under review (declines outside a PR review).",
+			Aliases = ["comment", "add comment", "review comment", "comment on line", "reply"],
 		});
 
 		// Editor tabs. closeTab / nextTab / prevTab are gated to editor focus (a tab key shouldn't act while a

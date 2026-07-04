@@ -645,4 +645,126 @@ public sealed class SessionChangeTrackerTests {
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Empty(tracker.Changes());
 	}
+
+	[Fact]
+	public void SeedRefBaseline_SeedsRefDiff_ReviewsAsAppliedTriple() {
+		// A ref diff (a PR's base→head) seeds the same engine a turn uses: baseline = ref, current = disk, so
+		// the file reviews through TurnChanges/GetTurn with no hook events at all.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n"); // worktree (head) content
+		var tracker = Tracker(fileSystem);
+
+		tracker.SeedRefBaseline("/w/a.txt", refContent: "a\nb\nc\n", diskContent: "a\nB\nc\n", existedAtRef: true);
+
+		var change = Assert.Single(tracker.TurnChanges());
+		Assert.Equal("a\nb\nc\n", change.AcceptedBaselineText); // accepted anchor == review baseline == ref
+		Assert.Equal("a\nb\nc\n", change.BaselineText);
+		Assert.Equal("a\nB\nc\n", change.CurrentText);
+	}
+
+	[Fact]
+	public void SeedRefBaseline_KeepHunk_AdvancesBaselineWithoutTouchingDisk() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
+		var tracker = Tracker(fileSystem);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
+
+		// Accept the committed change (line 2): the review baseline advances over it, disk is never written.
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
+
+		Assert.Equal("a\nB\nc\n", fileSystem.ReadAllText("/w/a.txt")); // disk untouched
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\nc\n", change!.AcceptedBaselineText); // anchor holds → the hunk is now faded-accepted
+		Assert.Equal("a\nB\nc\n", change.BaselineText);          // review baseline == current → no bright pending
+	}
+
+	[Fact]
+	public void SeedRefBaseline_RevertHunk_WritesRefContentOverCurrentOnDisk() {
+		// Reject on a committed hunk writes the ref (baseline) back over the current lines on disk — an
+		// uncommitted backout — guarded against current disk content, exactly like a turn revert.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
+		var tracker = Tracker(fileSystem);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
+
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.Equal("a\nb\nc\n", fileSystem.ReadAllText("/w/a.txt")); // backed out to the ref on disk
+		Assert.Empty(tracker.TurnChanges());                          // nothing left pending
+	}
+
+	[Fact]
+	public void SeedRefBaseline_RevertAddedFile_DeletesIt() {
+		// A file added in the PR (absent at the ref) is one added hunk; reverting it backs the addition out —
+		// deleting the worktree file, not truncating it (delete keys off existence-at-ref).
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/added.txt", "new\nfile\n");
+		var tracker = Tracker(fileSystem);
+		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\nfile\n", existedAtRef: false);
+
+		// Whole content is one added hunk: empty baseline range, all three model lines (incl. the trailing empty).
+		var outcome = tracker.RevertHunk("/w/added.txt", new LineRange(1, 1), new LineRange(1, 4), "new\nfile\n");
+
+		Assert.Equal(RevertHunkOutcome.Deleted, outcome);
+		Assert.False(fileSystem.FileExists("/w/added.txt"));
+		Assert.Empty(tracker.TurnChanges());
+	}
+
+	[Fact]
+	public void SeedRefBaseline_ThenClaudeEdit_KeepsRefBaselineAndAccumulates() {
+		// Seed → edit race (the common order): the ref seed lands first, then Claude edits. CaptureBaseline's
+		// TryAdd no-ops on the seeded keys, so the baseline stays the ref while _current follows the new edit —
+		// the committed diff and the fresh edit accumulate into one bright band.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n"); // head as checked out
+		var tracker = Tracker(fileSystem);
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nc\n", existedAtRef: true);
+
+		tracker.CaptureBaseline("/w/a.txt"); // TryAdd → no-op on the ref-seeded baselines
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nC\n"); // Claude also changes line 3
+		tracker.RecordChange("/w/a.txt");
+
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\nc\n", change!.BaselineText); // still the ref, not disk-at-edit
+		Assert.Equal("a\nB\nC\n", change.CurrentText);   // committed change + new edit together
+	}
+
+	[Fact]
+	public void SeedRefBaseline_AfterClaudeEdit_CorrectsBaselineBackToRef() {
+		// Edit → seed race: Claude edits before the seed arrives, so CaptureBaseline seeds a disk baseline (head)
+		// and the committed diff is momentarily invisible. The seed OVERWRITES the baseline back to the ref while
+		// keeping the edited current — surfacing the full base→head+edit band. (A TryAdd seed would lose here.)
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n"); // head
+		var tracker = Tracker(fileSystem);
+
+		tracker.CaptureBaseline("/w/a.txt"); // Claude touches it first → baseline seeded to head
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nC\n"); // edit line 3
+		tracker.RecordChange("/w/a.txt");
+		Assert.Equal("a\nB\nc\n", tracker.GetTurn("/w/a.txt")!.BaselineText); // only the edit shows against head
+
+		tracker.SeedRefBaseline("/w/a.txt", "a\nb\nc\n", "a\nB\nC\n", existedAtRef: true);
+
+		var change = tracker.GetTurn("/w/a.txt");
+		Assert.NotNull(change);
+		Assert.Equal("a\nb\nc\n", change!.BaselineText); // corrected to the ref
+		Assert.Equal("a\nB\nC\n", change.CurrentText);   // edited current preserved
+	}
+
+	[Fact]
+	public void SeedRefBaseline_AcceptTurn_ClearsSeededSetKeepsSessionDiff() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/added.txt", "new\n");
+		var tracker = Tracker(fileSystem);
+		tracker.SeedRefBaseline("/w/added.txt", refContent: "", diskContent: "new\n", existedAtRef: false);
+		Assert.Single(tracker.TurnChanges());
+
+		tracker.AcceptTurn(); // keep-all: anchors snap to current, created-since-ref clears
+
+		Assert.Empty(tracker.TurnChanges());     // review board cleared
+		Assert.Single(tracker.Changes());        // session diff (ref "" → head "new\n") survives
+	}
 }

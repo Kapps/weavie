@@ -19,9 +19,10 @@ public sealed class ChangeMessagesTests {
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");
 		tracker.RecordChange("/w/a.txt");
 
-		var root = Parse(ChangeMessages.TurnChanges(tracker));
+		var root = Parse(ChangeMessages.TurnChanges(tracker, "vs main"));
 
 		Assert.Equal("turn-changes", root.GetProperty("type").GetString());
+		Assert.Equal("vs main", root.GetProperty("label").GetString()); // names an armed PR/ref review; empty for a plain turn
 		var file = Assert.Single(root.GetProperty("files").EnumerateArray());
 		Assert.Equal("/w/a.txt", file.GetProperty("path").GetString());
 		Assert.Equal(1, file.GetProperty("added").GetInt32());

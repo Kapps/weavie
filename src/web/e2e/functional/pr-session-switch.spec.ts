@@ -72,28 +72,27 @@ test("S4: replying to a PR comment after a round-trip switch still posts and ref
   ).toBeVisible({ timeout: 10_000 });
 });
 
-// SCENARIO 3: in-flight get-pr-diff during a switch. Open a file's PR diff, then switch sessions fast; a stale
-// pr-diff for the wrong session must not render onto the new session's editor.
-test("S3: a stale pr-diff cannot render onto a non-PR session after a quick switch", async ({
+// SCENARIO 3: in-flight get-turn-diff during a switch. Open a file's diff, then switch sessions fast; a stale
+// per-file diff for the wrong session must not render onto the new session's editor.
+test("S3: a stale per-file diff cannot render onto a non-PR session after a quick switch", async ({
   page,
 }) => {
   await openPr101(page);
   await expect(page.locator(added).first()).toBeVisible();
 
-  // Trigger a fresh per-file diff request, then immediately switch to the non-PR primary before the host
-  // can reply. Stepping the file walk issues get-pr-diff for the neighbour.
+  // can reply. Stepping the file walk issues get-turn-diff for the neighbour.
   await focusEditor(page); // confirm the editor holds focus so the `!terminalFocused`-guarded chord lands
   await page.keyboard.press(navChord("ArrowRight"));
   await page.locator(chips).first().click();
 
-  // The non-PR session must show NO PR diff surface — no toolbar, no bright added band leaking over it.
+  // The non-PR session must show NO diff surface — no toolbar, no bright added band leaking over it.
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
   await expect(page.locator(added)).toHaveCount(0, { timeout: 10_000 });
 
-  // Anchor the "stale reply never lands" check on a real later event instead of a fixed delay: open a file on
-  // the primary session and wait for its content to render. That round-trip is slower than the git diff the
-  // pre-switch get-pr-diff awaited, so by the time it paints the stale reply has already had its chance — and
-  // the surface must still be absent (the reply was dropped, not painted).
+  // Anchor the "stale diff never lands" check on a real later event instead of a fixed delay: open a file on
+  // the primary session and wait for its content to render. That round-trip is slower than the diff the
+  // pre-switch get-turn-diff awaited, so by the time it paints the stale reply has already had its chance — and
+  // the surface must still be absent (the host drops it: get-turn-diff reads the now-active session's tracker).
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill("notes.txt");
   await expect(page.locator(".tb-omnibar-row", { hasText: "notes.txt" }).first()).toBeVisible();

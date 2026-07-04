@@ -4,6 +4,7 @@
 import { createSignal } from "solid-js";
 import {
   LOCAL_BACKEND_ID,
+  type ReviewCommentInfo,
   type WebBoundMessage,
   activeBackendId,
   isBrowserHostedShell,
@@ -15,8 +16,8 @@ import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
 import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
-import { samePath, uriHostPath } from "./fs-path";
-import type { HunkRevert, HunkUnkeep, InlineDiff } from "./inline-diff";
+import { normalizePath, samePath, uriHostPath } from "./fs-path";
+import type { HunkRevert, HunkUnkeep, InlineDiff, InlineDiffOptions } from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
 import { type NavHistory, createNavHistory } from "./nav-history";
 import {
@@ -78,6 +79,8 @@ export interface InlineDiffActions {
   revertFile(): boolean;
   /** Keep the whole accumulated review set (applied review). */
   keepAll(): boolean;
+  /** Comment on the current line (a PR file under review); false (key falls through) otherwise. */
+  comment(): boolean;
   /** Undo the most recent keep / revert, or redo the last undone action; false (key falls through) when none. */
   undoKeep(): boolean;
   undoRevert(): boolean;
@@ -145,10 +148,11 @@ export interface EditorController {
    * cross-backend session switch so edits persist on their own host. Resolves immediately when unmounted.
    */
   flushDirty(): Promise<void>;
-  /** Update the post-turn review set driving the inline toolbar's ← / → file walk; empty when nothing to review. */
-  setReviewFiles(files: ReviewFile[]): void;
-  /** Arm a review diff (a PR's base→head or a local "diff against") on the same navigator, in read-only "pr" mode. */
-  setPrReview(number: number, label: string, files: ReviewFile[]): void;
+  /**
+   * Update the review set driving the inline toolbar's ← / → file walk; empty when nothing to review. `label`
+   * names a PR/ref review ("PR #12", "vs main") in the subtitle, or is empty for a plain post-turn review.
+   */
+  setReviewFiles(files: ReviewFile[], label: string): void;
   /** Open the first file in the review set landed on its first change (the manual "jump into review"). */
   openFirstReviewFile(): boolean;
   /** The active file's current working-copy text (reactive), for the Preview overlay; "" when none. */
@@ -186,12 +190,14 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
-  // Which review the file walk shows: "turn" (Claude's edits — keep/revert) or "pr" (a review diff — a PR's
-  // base→head, or a local "diff against"; read-only). Selects which per-file diff message openReviewFile
-  // requests and which inline-diff mode renders. `prLabel` names the diff review ("PR #12", "vs main").
-  let reviewKind: "turn" | "pr" = "turn";
-  let prNumber = 0;
-  let prLabel = "";
+  // Names the review in the toolbar/parked subtitle ("PR #12", "vs main"); empty for a plain post-turn review.
+  // Carried on the turn-changes push (from the host's active DiffReview), so the applied surface always names
+  // what it's diffing against.
+  let reviewLabel = "";
+  // A PR file's review comments (+ the PR number to post replies against), keyed by normalized path. Merged into
+  // the applied diff so Comment/Reply coexist with Accept/Reject; a present entry (even empty) marks a PR file.
+  // Cleared on turn-reset / switch, then repopulated by the host's review-comments pushes.
+  const commentsByPath = new Map<string, { number: number; comments: ReviewCommentInfo[] }>();
   // The openDiff under inline review (at most one live, since openDiff blocks). `reviewUri` keys the transient
   // review model the inline diff is rendered over.
   let activeReview:
@@ -627,11 +633,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // so applied markers render even if the push was missed.
   const openReviewFile = (file: ReviewFile): void => {
     openFile(file.path, file.line, true);
-    if (reviewKind === "pr") {
-      postToHost({ type: "get-pr-diff", number: prNumber, path: file.path });
-    } else {
-      postToHost({ type: "get-turn-diff", path: file.path });
-    }
+    // Re-request the diff so applied markers (and any merged PR comments) render even if the push was missed.
+    postToHost({ type: "get-turn-diff", path: file.path });
   };
 
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
@@ -643,7 +646,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       reviewFiles.length > 0
         ? {
             fileCount: reviewFiles.length,
-            ...(reviewKind === "pr" ? { label: prLabel } : {}),
+            ...(reviewLabel !== "" ? { label: reviewLabel } : {}),
             stepIn: () => {
               const first = reviewFiles[0];
               if (first !== undefined) {
@@ -762,6 +765,40 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           postToHost({ type: "undo-turn" });
         }
       });
+  };
+
+  // The Comment/Reply actions for a PR file under review (nothing for a plain turn file), merged into the applied
+  // diff so commenting coexists with Accept/Reject on the one toolbar. `number` is the PR to post against.
+  const prCommentActions = (
+    path: string,
+  ): Pick<InlineDiffOptions, "comments" | "onAddComment" | "onReply"> => {
+    const pr = commentsByPath.get(normalizePath(path));
+    if (pr === undefined) {
+      return {};
+    }
+    return {
+      comments: pr.comments,
+      onAddComment: (line, body) =>
+        postToHost({
+          type: "add-pr-comment",
+          number: pr.number,
+          path,
+          line,
+          side: "right",
+          inReplyTo: 0,
+          body,
+        }),
+      onReply: (inReplyTo, body) =>
+        postToHost({
+          type: "add-pr-comment",
+          number: pr.number,
+          path,
+          line: 0,
+          side: "right",
+          inReplyTo,
+          body,
+        }),
+    };
   };
 
   const handleMessage = (message: WebBoundMessage): boolean => {
@@ -899,76 +936,36 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           onUndo: revertAll,
           // Always present so the stacked toolbar label shows the filename even for a single-file review.
           fileLabel: message.name,
+          // Names the review ("PR #12", "vs main") in the subtitle; omitted (falsy) for a plain post-turn review.
+          ...(reviewLabel !== "" ? { reviewLabel } : {}),
           ...fileNav,
+          // A PR file also carries its review comments (Comment/Reply on the same applied toolbar); a plain turn
+          // file has no entry, so this spreads nothing.
+          ...prCommentActions(message.path),
         });
         // The diff suspends comment-prose over this model; refresh so a collapsed comment re-expands rather
         // than hiding a changed line.
         commentProse?.refresh();
         return true;
       }
-      case "pr-diff": {
-        // One review file's diff: baseline (the file at the review's merge-base) → current (the worktree file).
-        // Rendered in the inline-diff's read-only "pr" mode — the same navigator, walked with ← / → and ↑ / ↓,
-        // but no keep/revert (the base is already committed). Commenting is a forge capability, so a local
-        // "diff against" review (number 0) gets no comment affordances.
-        const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
-        const fileNav =
-          reviewFiles.length > 1 && idx !== -1
-            ? {
-                onPrevFile: (): void => {
-                  stepReviewFile(-1);
-                },
-                onNextFile: (): void => {
-                  stepReviewFile(1);
-                },
-                fileIndex: idx + 1,
-                fileCount: reviewFiles.length,
-              }
-            : {};
-        const commenting =
-          message.number > 0
-            ? {
-                comments: message.comments,
-                onAddComment: (line: number, body: string) =>
-                  postToHost({
-                    type: "add-pr-comment",
-                    number: message.number,
-                    path: message.path,
-                    line,
-                    side: "right",
-                    inReplyTo: 0,
-                    body,
-                  }),
-                onReply: (inReplyTo: number, body: string) =>
-                  postToHost({
-                    type: "add-pr-comment",
-                    number: message.number,
-                    path: message.path,
-                    line: 0,
-                    side: "right",
-                    inReplyTo,
-                    body,
-                  }),
-              }
-            : {};
-        inlineDiff?.set(message.path, {
-          original: message.baseline,
-          claudeVersion: message.current,
-          mode: "pr",
-          fileLabel: message.name,
-          reviewLabel: prLabel,
-          ...fileNav,
-          ...commenting,
+      case "review-comments":
+        // A PR file's review comments (pushed just before its turn-diff at arm, and again after a post): stash
+        // them so the applied set() above merges Comment/Reply in. The host re-emits turn-diff to re-render.
+        commentsByPath.set(normalizePath(message.path), {
+          number: message.number,
+          comments: message.comments,
         });
-        commentProse?.refresh();
         return true;
-      }
       case "turn-reset":
         // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers so a
         // fresh set starts clean (kept/reviewed state lives in Core now). reviewFiles too — else a switch
         // with no following turn-changes leaves the ← / → walk on the previous session's (maybe gone) paths.
+        // commentsByPath + reviewLabel too, so a switch away from a PR/ref review drops its threads + label
+        // (both repopulated by the host on arm/switch-in).
         inlineDiff?.clearAll();
         reviewFiles = [];
+        reviewLabel = "";
+        commentsByPath.clear();
         updateParkedReview(); // keep the count signal in sync so the empty-state cue clears too (#125)
         commentProse?.refresh();
         return true;
@@ -1075,36 +1072,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     newFile,
     save,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
-    setReviewFiles: (files) => {
-      reviewKind = "turn";
+    setReviewFiles: (files, label) => {
+      // The label (empty for a plain turn) names a PR/ref review in the subtitle. The host drives which file
+      // opens (it opens the first changed file on arm, and re-pushes per-file diffs on switch-in); this only
+      // reflects the file set + label onto the parked navigator, so a PR/ref review parks like a turn does.
+      reviewLabel = label;
       reviewFiles = files;
       updateParkedReview();
-    },
-    setPrReview: (number, label, files) => {
-      // A retracted review ("diff against" found no changes): clear the walk and its markers — but only when
-      // a review diff is what's bound, so it can never clobber a live post-turn walk.
-      if (files.length === 0) {
-        if (reviewKind === "pr") {
-          reviewFiles = [];
-          updateParkedReview();
-          inlineDiff?.clearAll();
-        }
-        return;
-      }
-      // Binding a review surfaces its diff immediately (open the first changed file — unlike post-turn review,
-      // which never auto-moves the editor); a duplicate push for the review already bound (every switch onto
-      // its session fires a fire-and-forget diff) updates the file list quietly instead of re-yanking the
-      // walk. A genuine (re)bind still jumps: any switch flips reviewKind to "turn" before this lands.
-      const alreadyBound = reviewKind === "pr" && prNumber === number && prLabel === label;
-      reviewKind = "pr";
-      prNumber = number;
-      prLabel = label;
-      reviewFiles = files;
-      updateParkedReview();
-      const first = files[0];
-      if (!alreadyBound && first !== undefined) {
-        openReviewFile(first);
-      }
     },
     openFirstReviewFile: () => {
       const first = reviewFiles[0];
@@ -1128,6 +1102,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       keepFile: () => inlineDiff?.keepFile() ?? false,
       revertFile: () => inlineDiff?.revertFile() ?? false,
       keepAll: () => inlineDiff?.keepAll() ?? false,
+      comment: () => inlineDiff?.comment() ?? false,
       undoKeep: () => inlineDiff?.undoKeep() ?? false,
       undoRevert: () => inlineDiff?.undoRevert() ?? false,
       redoReview: () => inlineDiff?.redoReview() ?? false,

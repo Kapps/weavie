@@ -188,6 +188,44 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	/// <summary>
+	/// Seeds <paramref name="path"/>'s review state from a git ref instead of disk-at-first-edit, so a ref diff (a
+	/// PR's base→head, or "diff against &lt;ref&gt;") reviews through the same engine as a turn: session + review
+	/// baseline + accepted anchor all = <paramref name="refContent"/>, current + pre-edit = <paramref name="diskContent"/>.
+	/// Records no undo history (a seed isn't a user action) and does NOT raise <see cref="Changed"/> — the host
+	/// pushes the armed set.
+	/// <para>
+	/// Overwrites (not <c>TryAdd</c>) every baseline: if a live Claude edit already seeded a disk baseline for this
+	/// file, that baseline is corrected back to the ref while its current content is kept, so the committed diff and
+	/// the new edit accumulate into one bright band. Composes with <see cref="CaptureBaseline"/>'s <c>TryAdd</c>,
+	/// which then no-ops on the already-seeded keys.
+	/// </para>
+	/// </summary>
+	/// <param name="path">Absolute file path (inside the worktree, so it satisfies the tracker's scope).</param>
+	/// <param name="refContent">The file's content at the diff ref — the baseline the current file is diffed against.</param>
+	/// <param name="diskContent">The file's current worktree content.</param>
+	/// <param name="existedAtRef">
+	/// Whether the file existed at the ref; <see langword="false"/> marks it created-since-baseline, so reverting its
+	/// last hunk deletes it rather than leaving a 0-byte file.
+	/// </param>
+	public void SeedRefBaseline(string path, string refContent, string diskContent, bool existedAtRef) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		ArgumentNullException.ThrowIfNull(refContent);
+		ArgumentNullException.ThrowIfNull(diskContent);
+		lock (_gate) {
+			_baseline[path] = refContent;
+			_reviewBaseline[path] = refContent;
+			_acceptedAnchor[path] = refContent;
+			_current[path] = diskContent;
+			_preEdit[path] = diskContent;
+			if (existedAtRef) {
+				_createdSinceBaseline.Remove(path);
+			} else {
+				_createdSinceBaseline.Add(path);
+			}
+		}
+	}
+
+	/// <summary>
 	/// Drops any recorded file that no longer exists on disk (deleted out from under us), since there's nothing to
 	/// render. Raises <see cref="FileDeleted"/> per removed path and a single <see cref="Changed"/>; a no-op when
 	/// nothing vanished.

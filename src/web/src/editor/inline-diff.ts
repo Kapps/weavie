@@ -26,7 +26,7 @@ const RECOMPUTE_DEBOUNCE_MS = 120;
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
 const MAX_CHANGE_DOTS = 7;
 
-export type InlineDiffMode = "review" | "applied" | "view" | "pr";
+export type InlineDiffMode = "review" | "applied" | "view";
 
 // Which scope the applied-review toolbar's Keep / Revert buttons act on; sticky across files (reset only on a
 // turn-reset via clearAll).
@@ -110,13 +110,13 @@ export interface InlineDiffOptions {
   fileLabel?: string;
   fileIndex?: number;
   fileCount?: number;
-  /** PR mode: names the review in the toolbar subtitle — "PR #12" or "vs main" ("diff against"). */
+  /** Applied review: names the review in the toolbar subtitle — "PR #12" or "vs main" ("diff against"). */
   reviewLabel?: string;
-  /** PR mode: review comments anchored to this file's lines, rendered as threads below their line. */
+  /** A PR file's review comments anchored to its lines, rendered as threads below their line (applied mode). */
   comments?: ReviewCommentInfo[];
-  /** PR mode: post a new comment on `line` (the current side). */
+  /** Applied mode (PR file): post a new comment on `line` (the current side). */
   onAddComment?: (line: number, body: string) => void;
-  /** PR mode: reply to the thread rooted at `inReplyTo`. */
+  /** Applied mode (PR file): reply to the thread rooted at `inReplyTo`. */
   onReply?: (inReplyTo: number, body: string) => void;
 }
 
@@ -155,6 +155,8 @@ export interface InlineDiff {
   revertFile(): boolean;
   /** Keep the whole accumulated review set in one action (applied review). */
   keepAll(): boolean;
+  /** Comment on the current line (a PR file under review); false (key falls through) otherwise. */
+  comment(): boolean;
   /** Undo the most recent keep; false (key falls through) when there's none. */
   undoKeep(): boolean;
   /** Undo the most recent revert; false (key falls through) when there's none. */
@@ -275,14 +277,22 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // surface right now, so the nav/Keep keys step in instead of acting on a (nonexistent) hunk.
   let parkedReview: ParkedReview | undefined;
   let showingParked = false;
-  // The transient "new comment" composer zone (PR mode), opened by the toolbar Comment button; removed on
-  // submit/cancel or any re-render. Kept out of zoneIds so cancel can drop just it.
+  // The transient "new comment" composer zone (a PR file under review), opened by the toolbar Comment button.
+  // Closed on submit/cancel, a model swap (onModel), and clearAll — but NOT on a routine same-model re-render
+  // (that would wipe a half-typed comment), so it survives a keep/faded-band/diff re-push while composing.
   let composerZoneId: string | undefined;
+  // How many composer textareas (the new-comment composer AND every thread's reply composer) currently hold
+  // focus, tracked by focus/blur since the editor's shadow root hides the real activeElement. A live composer
+  // makes the review chords fall through to it — so Ctrl+Enter submits the comment instead of Keeping a hunk,
+  // and Ctrl+Backspace deletes a word instead of Reverting one on disk.
+  let focusedComposers = 0;
 
   const clearRender = (): void => {
     decorations?.clear();
     decorations = undefined;
-    closeNewComposer();
+    // NB: a new-comment composer is deliberately NOT closed here — a routine same-model re-render (a keep, the
+    // faded band, a fresh diff push) would otherwise wipe the half-typed comment. It's closed on submit/cancel,
+    // a model swap (onModel), and clearAll instead.
     if (zoneIds.length > 0) {
       editor.changeViewZones((accessor) => {
         for (const id of zoneIds) {
@@ -290,6 +300,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         }
       });
       zoneIds = [];
+      // The reply composers lived in those zones — removing a focused one may not fire blur, so clear their
+      // focus tally here. The new-comment composer (not in zoneIds) survives and stays gated by composerZoneId.
+      focusedComposers = 0;
     }
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
@@ -347,6 +360,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     input.className = "weavie-pr-composer-input";
     input.placeholder = placeholder;
     input.rows = 2;
+    // Track focus so composerFocused() covers every composer (new comment + each reply), not just the new-comment
+    // zone — else a review chord typed into a reply would Keep/Revert a hunk instead of reaching the textarea.
+    input.addEventListener("focus", () => {
+      focusedComposers++;
+    });
+    input.addEventListener("blur", () => {
+      focusedComposers = Math.max(0, focusedComposers - 1);
+    });
     const submit = (): void => {
       const body = input.value.trim();
       if (body.length > 0) {
@@ -406,8 +427,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }
   };
 
-  // Open a new-comment composer below `line` (the toolbar Comment action). Submit posts via onAddComment (the
-  // host re-renders, dropping this); Cancel removes it.
+  // Open a new-comment composer below `line` (the toolbar Comment action). Submit posts via onAddComment then
+  // closes it; Cancel removes it. clearRender no longer drops it, so a background re-render can't wipe a draft.
   const openNewComposer = (line: number, options: InlineDiffOptions): void => {
     if (options.onAddComment === undefined) {
       return;
@@ -417,7 +438,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     const node = document.createElement("div");
     node.className = "weavie-pr-thread weavie-pr-thread-new";
     node.appendChild(
-      buildComposer("Add a comment…", "Comment", (body) => onAddComment(line, body)),
+      // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
+      // keeps every review chord declining (composerFocused stays true).
+      buildComposer("Add a comment…", "Comment", (body) => {
+        onAddComment(line, body);
+        closeNewComposer();
+      }),
     );
     const cancel = document.createElement("button");
     cancel.type = "button";
@@ -431,7 +457,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     queueMicrotask(() => node.querySelector("textarea")?.focus());
   };
 
-  // Render each commented line's thread as a view zone below it (PR mode). Zones are tracked in zoneIds so the
+  // Render each commented line's thread as a view zone below it (a PR file under review). Zones are tracked in zoneIds so the
   // next render clears them.
   const renderPrCommentZones = (
     model: monaco.editor.ITextModel,
@@ -705,19 +731,34 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     parkedReview.stepIn();
     return true;
   };
-  const nextChange = (): boolean => (showingParked ? stepIn() : goToChange(1));
-  const prevChange = (): boolean => (showingParked ? stepIn() : goToChange(-1));
+  // While a new-comment composer is open, the review chords fall through to it: its own keydown handler owns
+  // Ctrl+Enter (submit), Ctrl+Backspace (delete word), and arrows (caret). Gate on the zone being open, not
+  // document.activeElement — the editor lives in a shadow root, so activeElement is the shadow host, never the
+  // composer textarea inside it.
+  const composerFocused = (): boolean => composerZoneId !== undefined || focusedComposers > 0;
+
+  const nextChange = (): boolean =>
+    composerFocused() ? false : showingParked ? stepIn() : goToChange(1);
+  const prevChange = (): boolean =>
+    composerFocused() ? false : showingParked ? stepIn() : goToChange(-1);
   const undo = (): boolean => runAction(currentOptions?.onUndo);
   const keepAll = (): boolean => runAction(currentOptions?.onKeepAll);
   // A live review with no file axis (single-file) has no ← / → handler, so the chord would fall through. On
   // Win/Linux that's wanted — ctrl+$mod+←/→ is plain Ctrl+←/→ word-nav. On macOS it's Ctrl+⌘+←/→, which has no
   // native meaning, so falling through just rings the system bell — swallow it instead while a review is up.
-  const swallowFileNav = (): boolean =>
-    IS_MAC && (currentOptions?.mode === "applied" || currentOptions?.mode === "pr");
+  const swallowFileNav = (): boolean => IS_MAC && currentOptions?.mode === "applied";
   const nextFile = (): boolean =>
-    showingParked ? stepIn() : runAction(currentOptions?.onNextFile) || swallowFileNav();
+    composerFocused()
+      ? false
+      : showingParked
+        ? stepIn()
+        : runAction(currentOptions?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
-    showingParked ? stepIn() : runAction(currentOptions?.onPrevFile) || swallowFileNav();
+    composerFocused()
+      ? false
+      : showingParked
+        ? stepIn()
+        : runAction(currentOptions?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
   // from the review set. Returns false outside applied mode.
@@ -728,10 +769,23 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   const revertFile = (): boolean =>
     runAction(currentOptions?.mode === "applied" ? currentOptions.onRevertFile : undefined);
 
+  // Comment on the current cursor line (a PR file under review, which carries onAddComment). Returns false (the
+  // key falls through) for a plain turn file or when no diff is active.
+  const comment = (): boolean => {
+    if (currentOptions?.onAddComment === undefined) {
+      return false;
+    }
+    openNewComposer(editor.getPosition()?.lineNumber ?? 1, currentOptions);
+    return true;
+  };
+
   // Keep / Revert act at the toolbar's sticky scope in applied mode (change → hunk, file → whole file, all →
   // the set); in review mode they resolve the openDiff proposal. The plain keys and the toolbar buttons share
   // these, so a keypress always matches the picker.
   const accept = (): boolean => {
+    if (composerFocused()) {
+      return false; // typing a comment: let the composer's own Ctrl+Enter submit instead of Keeping the diff
+    }
     if (showingParked) {
       return stepIn(); // Keep at "change 0" enters the review rather than acting
     }
@@ -743,6 +797,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
   };
   const reject = (): boolean => {
+    if (composerFocused()) {
+      return false; // typing a comment: let Ctrl+Backspace delete a word instead of Reverting the diff
+    }
     if (showingParked) {
       return false; // nothing to revert from "change 0"
     }
@@ -980,6 +1037,18 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         reject,
       ),
     );
+    // A PR file also carries review comments, so Comment/Reply sit beside Keep/Revert on the one toolbar (a plain
+    // turn file has no onAddComment, so no button).
+    if (options.onAddComment !== undefined) {
+      bar.appendChild(
+        makeButton(
+          "weavie-inline-comment",
+          "Comment",
+          withShortcut("Add a comment on the current line", CommandIds.reviewComment),
+          () => openNewComposer(editor.getPosition()?.lineNumber ?? 1, options),
+        ),
+      );
+    }
     // Undo / Redo of review actions (session-global). The generic Undo reverses the most recent of either kind;
     // its tooltip names the two type-split chords. Both dim when there's nothing to do (syncHistoryButtons).
     const histDivider = document.createElement("span");
@@ -1002,69 +1071,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     renderCounter();
   };
 
-  // PR review bar: the file axis (← / →) + stacked label + hunk arrows (↑ / ↓) — the same 2D navigator as
-  // applied mode, but read-only (no scope picker, no Keep/Revert, no undo). The PR is already committed; the
-  // per-hunk action (Comment) lands in a later phase.
-  const buildPrBar = (bar: HTMLElement, options: InlineDiffOptions): void => {
-    const multiFile =
-      options.fileCount !== undefined &&
-      options.fileCount > 1 &&
-      options.onPrevFile !== undefined &&
-      options.onNextFile !== undefined;
-    if (multiFile) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-file",
-          "←",
-          withShortcut("Previous file", CommandIds.reviewPrevFile),
-          prevFile,
-        ),
-      );
-    }
-    const stack = document.createElement("div");
-    stack.className = "weavie-inline-stack";
-    const name = document.createElement("span");
-    name.className = "weavie-inline-stack-name";
-    name.textContent = options.fileLabel ?? "";
-    counterNode = document.createElement("span");
-    counterNode.className = "weavie-inline-stack-sub";
-    stack.append(name, counterNode);
-    bar.appendChild(stack);
-    if (multiFile) {
-      bar.appendChild(
-        makeButton(
-          "weavie-inline-file",
-          "→",
-          withShortcut("Next file", CommandIds.reviewNextFile),
-          nextFile,
-        ),
-      );
-    }
-    dotsNode = document.createElement("span");
-    dotsNode.className = "weavie-inline-dots";
-    bar.appendChild(dotsNode);
-    bar.append(...navButtons());
-    if (options.onAddComment !== undefined) {
-      bar.appendChild(
-        makeButton("weavie-inline-comment", "Comment", "Add a comment on the current line", () =>
-          openNewComposer(editor.getPosition()?.lineNumber ?? 1, options),
-        ),
-      );
-    }
-    renderCounter();
-  };
-
-  // The floating action bar. Applied mode is the 2D scope navigator (buildAppliedBar); pr mode is the same
-  // navigator read-only; review mode is the hunk arrows + Keep/Reject for the proposal; view mode is arrows alone.
+  // The floating action bar. Applied mode is the 2D scope navigator (buildAppliedBar), which also carries
+  // Comment/Reply for a PR file; review mode is the hunk arrows + Keep/Reject for the proposal; view mode is
+  // arrows alone.
   const buildToolbar = (options: InlineDiffOptions): HTMLElement => {
     const bar = document.createElement("div");
     bar.className = "weavie-inline-toolbar";
     if (options.mode === "applied") {
       buildAppliedBar(bar, options);
-      return bar;
-    }
-    if (options.mode === "pr") {
-      buildPrBar(bar, options);
       return bar;
     }
     bar.append(...navButtons());
@@ -1257,7 +1271,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       }
     });
 
-    if (options.mode === "pr") {
+    // Comment threads (a PR file under applied review); no-op for a plain turn file (no comments).
+    if (options.comments !== undefined) {
       renderPrCommentZones(model, options);
     }
 
@@ -1425,8 +1440,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     }, RECOMPUTE_DEBOUNCE_MS);
   };
 
-  // View zones are lost on model swap — re-render for the newly active model.
-  const onModel = editor.onDidChangeModel(renderActive);
+  // View zones are lost on model swap — close any open composer (its zone is gone) and re-render the new model.
+  const onModel = editor.onDidChangeModel(() => {
+    closeNewComposer();
+    renderActive();
+  });
   const onContent = editor.onDidChangeModelContent(scheduleRender);
   const offFonts = onFontsChanged(renderActive);
   // Live-update the applied toolbar's change counter + dots as the cursor walks hunks (no full re-render).
@@ -1487,6 +1505,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       diffs.clear();
       currentScope = "change";
       parkedReview = undefined;
+      closeNewComposer();
       clearRender();
       syncDiffContext();
     },
@@ -1501,6 +1520,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     keepFile,
     revertFile,
     keepAll,
+    comment,
     undoKeep,
     undoRevert,
     redoReview,

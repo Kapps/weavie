@@ -164,9 +164,8 @@ export type HostBoundMessage =
   | { type: "open-pr"; number: number; owner: string; repo: string }
   // Preview a typed #N / pasted URL: resolve it to a PR (answered by pr-resolved tagged with `id`).
   | { type: "resolve-pr"; id: string; number: number; owner: string; repo: string }
-  // Ask the host for one PR file's base→head diff (answered by pr-diff).
-  | { type: "get-pr-diff"; number: number; path: string }
-  // Arm a "diff against <ref>" review on the active session (answered by pr-changes; see diff-against.md).
+  // Arm a "diff against <ref>" review on the active session; seeds the change tracker so it reviews through the
+  // same accept/reject engine as a turn (answered by turn-changes + per-file turn-diff; see diff-against.md).
   | { type: "diff-against"; ref: string }
   // Post a review comment on a PR: a reply when `inReplyTo` is set, else a new comment at `path`/`line`/`side`.
   | {
@@ -471,9 +470,11 @@ export type WebBoundMessage =
   | { type: "fs-change"; changes: { path: string; kind: "updated" | "added" | "deleted" }[] }
   // The per-TURN change list (files + each file's first-change line), driving the inline review walk's
   // ← / → axis and the parked navigator (which surfaces the review without moving the editor). Pushed live as
-  // changes land; empty after a turn boundary / switch.
+  // changes land; empty after a turn boundary / switch. `label` names a PR/ref review ("PR #12", "vs main") in
+  // the toolbar/parked subtitle when this set was armed from a ref (a PR or "diff against"); empty for a plain turn.
   | {
       type: "turn-changes";
+      label: string;
       files: { path: string; name: string; added: number; removed: number; line: number }[];
     }
   // One file's per-TURN diff as the (acceptedBaseline, baseline, current) triple: baseline→current is the bright
@@ -557,24 +558,11 @@ export type WebBoundMessage =
   | { type: "prs-result"; id: string; prs: PullRequestInfo[] }
   // Host answers resolve-pr with the single PR (or null when it doesn't exist / is a foreign repo), tagged by `id`.
   | { type: "pr-resolved"; id: string; pr: PullRequestInfo | null }
-  // Review diff (active backend): pr-changes is the changed-file list (the ← / → walk + parked navigator);
-  // pr-diff is one file's base→current pair rendered in the inline-diff's read-only "pr" mode. Fed by an
-  // opened PR (number > 0) or a local "diff against <ref>" (number 0); `label` names the review in the UI.
-  | {
-      type: "pr-changes";
-      number: number;
-      label: string;
-      files: { path: string; name: string; added: number; removed: number; line: number }[];
-    }
-  | {
-      type: "pr-diff";
-      number: number;
-      path: string;
-      name: string;
-      baseline: string;
-      current: string;
-      comments: ReviewCommentInfo[];
-    }
+  // A PR file's review comments, pushed alongside its turn-diff so the inline diff anchors threads on it and shows
+  // the Comment button. Keyed by absolute `path`; `number` is the PR the comments belong to (carried back on
+  // add-pr-comment). An empty list still marks the file as a PR file (commenting enabled); a local "diff against"
+  // ref pushes none (no forge behind it → no comment affordance). See docs/specs/diff-against.md.
+  | { type: "review-comments"; number: number; path: string; comments: ReviewCommentInfo[] }
   // Host pushes the command catalog + resolved keybindings (on a live ~/.weavie/keybindings.json edit).
   | { type: "commands"; commands: CommandInfo[]; keybindings: ResolvedKeybinding[] }
   // Host pushes the persisted remote-agent registry (on `ready` + any add/remove); the web reconciles its
@@ -1123,7 +1111,7 @@ export interface PullRequestInfo {
   draft: boolean;
 }
 
-/** One PR review comment anchored to a diff line, as the inline-diff renders it. Mirrors the host's pr-diff entries. */
+/** One PR review comment anchored to a diff line, as the inline-diff renders it. Mirrors the host's review-comments entries. */
 export interface ReviewCommentInfo {
   id: number;
   line: number;

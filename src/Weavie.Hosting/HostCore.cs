@@ -268,12 +268,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 				PushThemeToWeb();
 			}
 
-			// Setting worktree.setupCommand makes the worktree-setup card vanish; re-evaluate the suggestions.
-			if (change.Key == "worktree.setupCommand") {
+			// Configuring the worktree setup command or the test profile can make the workspace-setup card vanish;
+			// re-evaluate the suggestions. A changed test profile also re-pushes it so run lenses refresh in place.
+			if (change.Key is "worktree.setupCommand" or Weavie.Core.Configuration.TestSettings.Profile) {
 				_suggestions?.Evaluate();
 			}
 
-			// A changed test profile re-pushes it so the page's run lenses refresh in place.
 			if (change.Key == Weavie.Core.Configuration.TestSettings.Profile) {
 				PushTestProfileToWeb();
 			}

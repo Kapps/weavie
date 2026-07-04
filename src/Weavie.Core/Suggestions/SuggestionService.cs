@@ -75,12 +75,16 @@ public sealed class SuggestionService {
 				HasBuildManifest = _hasManifest,
 			};
 			active = [.. _registry.Definitions.Where(d =>
-				!_snoozed.Contains(d.Id) && !_dismissals.IsDismissed(d.Id) && d.IsRelevant(context))];
+				!_snoozed.Contains(d.Id) && !IsDismissed(d) && d.IsRelevant(context))];
 			_current = active;
 		}
 
 		_push(active);
 	}
+
+	// Dismissed if the card's own id — or any id it superseded — was dismissed forever (migration continuity).
+	private bool IsDismissed(SuggestionDefinition definition) =>
+		_dismissals.IsDismissed(definition.Id) || definition.LegacyIds.Any(_dismissals.IsDismissed);
 
 	/// <summary>Pushes the current active set without re-evaluating (used on the page's first <c>ready</c>).</summary>
 	public void PushCurrent() {

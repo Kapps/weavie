@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 
 namespace Weavie.Core.Suggestions;
 
@@ -17,19 +18,23 @@ public static class CoreSuggestions {
 	public static void Register(SuggestionRegistry registry) {
 		ArgumentNullException.ThrowIfNull(registry);
 
-		// Offer to configure worktree.setupCommand when the repo looks like it needs one (a build manifest is
-		// present) and the setting is still empty. "Yes" engages Claude in the primary session.
+		// Offer to set the workspace up when the repo looks like it needs it (a build manifest is present) and a
+		// knowledge-shaped setting is still unconfigured — the worktree setup command OR the test profile. "Yes"
+		// engages Claude in the primary session to configure both. Supersedes the old worktree-only card, whose
+		// "don't ask again" carries over via LegacyIds.
 		registry.Register(new SuggestionDefinition {
-			Id = "worktree.setupCommand",
-			Title = "Set up new worktrees automatically?",
-			Body = "Claude can pick a command (e.g. install dependencies) to run whenever you create a worktree.",
-			IsRelevant = ctx =>
-				string.IsNullOrWhiteSpace(ctx.Settings.GetString("worktree.setupCommand")) && ctx.HasBuildManifest,
+			Id = "workspace.setup",
+			Title = "Set up this workspace?",
+			Body = "Claude can configure how to prepare a fresh checkout and how to run this repo's tests.",
+			LegacyIds = ["worktree.setupCommand"],
+			IsRelevant = ctx => ctx.HasBuildManifest && (
+				string.IsNullOrWhiteSpace(ctx.Settings.GetString("worktree.setupCommand", ctx.WorkspaceRoot)) ||
+				string.IsNullOrWhiteSpace(ctx.Settings.GetString(TestSettings.Profile, ctx.WorkspaceRoot))),
 			Actions = [
 				new SuggestionAction {
 					Label = "Yes",
 					Kind = SuggestionActionKind.RunCommand,
-					CommandId = CoreCommands.SuggestSetupCommand,
+					CommandId = CoreCommands.SetupWorkspace,
 				},
 				new SuggestionAction { Label = "Not now", Kind = SuggestionActionKind.Snooze },
 				new SuggestionAction { Label = "Don't ask again", Kind = SuggestionActionKind.DismissForever },

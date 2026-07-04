@@ -1,24 +1,16 @@
-using System.Text;
 using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Mcp;
 using Weavie.Core.Suggestions;
 
 namespace Weavie.Hosting;
 
 // Contextual suggestions: the per-workspace SuggestionService evaluates the registered nudges, this partial
-// constructs it, fans the active set out to the page, applies dismissals, and seeds the worktree-setup prompt.
+// constructs it, fans the active set out to the page, applies dismissals, and seeds the workspace-setup prompt.
 // See docs/specs/suggestions.md.
 public sealed partial class HostCore {
 	private SuggestionService? _suggestions;
-
-	// The analysis prompt for the worktree-setup nudge. Pre-filled (not auto-sent) into the primary session so
-	// Claude proposes a command and asks the user to confirm; on confirmation it persists via the setSetting tool.
-	private const string SetupCommandPrompt =
-		"Look at this repository and decide a single shell command suitable for the `worktree.setupCommand` " +
-		"setting — the one command needed to make a fresh checkout ready to work in (install dependencies, and a " +
-		"build step only if required before editing). Briefly explain your choice and ask me to confirm. On my " +
-		"confirmation, call the `setSetting` tool with key `worktree.setupCommand`. Don't run anything else.";
 
 	private void InitSuggestions() {
 		var dismissals = new SuggestionDismissals(new LocalFileSystem(), WeaviePaths.WorkspaceSuggestionsFile(Id));
@@ -58,11 +50,13 @@ public sealed partial class HostCore {
 		}
 	}
 
-	// "Yes" on the worktree-setup card: pre-fill (no Enter) the analysis prompt into the primary session's Claude,
-	// so it proposes a setupCommand and asks the user to confirm. Never auto-sends — the user presses Enter.
-	private void SeedSetupCommandPrompt() {
+	// "Yes" on the workspace-setup card: pre-fill (no Enter) the setup prompt into the primary session's Claude,
+	// so it proposes the settings and asks the user to confirm. Bracketed paste so the multi-line prompt lands as
+	// one paste (not line-by-line submits); never auto-sends — the user reviews and presses Enter. The prompt is
+	// the same artifact the /mcp__weavie__setup-workspace slash command serves.
+	private void SeedWorkspaceSetup() {
 		if (_primarySession is { } primary) {
-			primary.Claude.Write(Encoding.UTF8.GetBytes(SetupCommandPrompt));
+			primary.Claude.WriteBracketedPaste(WorkspaceSetupPrompt.Prompt.Text);
 		}
 	}
 }

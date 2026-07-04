@@ -197,8 +197,8 @@ public static class CoreCommands {
 	/// <summary>Prompt for an http(s) URL and open it in a web (iframe) tab.</summary>
 	public const string OpenUrl = "weavie.workspace.openUrl";
 
-	/// <summary>Has Claude propose a <c>worktree.setupCommand</c> for the repo and set it on the user's confirmation; backs the worktree-setup suggestion. Palette-visible, no default keybinding.</summary>
-	public const string SuggestSetupCommand = "weavie.worktree.suggestSetupCommand";
+	/// <summary>Has Claude inspect the repo and configure the workspace's knowledge-shaped settings (worktree setup command + test profile) on the user's confirmation; backs the workspace-setup suggestion. Palette-visible, no default keybinding.</summary>
+	public const string SetupWorkspace = "weavie.workspace.setup";
 
 	/// <summary>Runs tests for a file via the workspace test profile (args <c>file</c>, optional <c>name</c> for a single test); writes the composed command into the shell pane. The one executor behind the lenses and MCP.</summary>
 	public const string RunTests = "weavie.tests.run";
@@ -1034,16 +1034,16 @@ public static class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = SuggestSetupCommand,
-			Title = "Suggest a Worktree Setup Command",
+			Id = SetupWorkspace,
+			Title = "Set Up This Workspace with Claude",
 			RunsIn = CommandLocation.Core,
-			Category = "Worktree",
-			Description = "Have Claude look at the repository, propose a worktree.setupCommand (the command to ready a fresh checkout), and set it on your confirmation.",
-			Aliases = ["suggest setup command", "worktree setup command", "configure worktree setup", "what should the setup command be"],
+			Category = "Workspace",
+			Description = "Have Claude inspect the repository and configure this workspace's settings — the command to ready a fresh checkout and how to run its tests — on your confirmation.",
+			Aliases = ["set up workspace", "configure workspace", "suggest setup command", "configure test runner", "how to run tests", "worktree setup command"],
 		});
 
 		// Connect a Notion account (Core-handled in HostCore.Sources.cs). One-time action — palette + Claude, no
-		// default keybinding (like RestartClaude / SuggestSetupCommand).
+		// default keybinding (like RestartClaude / SetupWorkspace).
 		registry.Register(new CommandDefinition {
 			Id = ConnectNotion,
 			Title = "Connect Notion",

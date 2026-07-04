@@ -783,17 +783,40 @@ public sealed partial class HostCore {
 		}
 
 		string? kind = root.GetStringOrNull("kind");
-		HandleHistory(kind switch {
+		var result = kind switch {
 			"keep" => session.Changes.UndoLastKeep(),
 			"revert" => session.Changes.UndoLastRevert(),
 			_ => session.Changes.UndoLast(),
-		});
+		};
+		HandleHistory(result);
+		RevealHistoryChange(session, result);
 	}
 
 	/// <summary>Redoes the most recently undone review action (the toolbar/palette Redo).</summary>
 	private void ReviewRedo() {
 		if (_session is { } session) {
-			HandleHistory(session.Changes.Redo());
+			var result = session.Changes.Redo();
+			HandleHistory(result);
+			RevealHistoryChange(session, result);
+		}
+	}
+
+	/// <summary>
+	/// After an undo/redo brings a change back, land the editor on it: open the first affected file at its first
+	/// pending hunk, so the keystroke visibly takes you to what changed instead of re-rendering in place. No-op
+	/// when the action left nothing pending (e.g. an undo that re-kept every hunk).
+	/// </summary>
+	private static void RevealHistoryChange(HostSession session, ReviewHistoryResult result) {
+		if (!result.Acted) {
+			return;
+		}
+
+		foreach (string path in result.Paths) {
+			if (session.Changes.GetTurn(path) is { } turn
+				&& LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) is { } line) {
+				session.FileOpener.Open(path, line, preview: true, scratch: false);
+				return;
+			}
 		}
 	}
 

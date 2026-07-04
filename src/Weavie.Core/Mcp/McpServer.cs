@@ -29,6 +29,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly CommandDispatcher? _commands;
 	private readonly KeybindingStore? _keybindings;
 	private readonly ThemeOverridesStore? _themeOverrides;
+	private readonly Func<string>? _currentSessionId;
 	private readonly string _toolsListJson;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
@@ -55,7 +56,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		EditorStore? editor,
 		CommandDispatcher? commands,
 		KeybindingStore? keybindings,
-		ThemeOverridesStore? themeOverrides) {
+		ThemeOverridesStore? themeOverrides,
+		Func<string>? currentSessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(authToken);
 		ArgumentNullException.ThrowIfNull(presenter);
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
@@ -72,6 +74,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		_commands = commands;
 		_keybindings = keybindings;
 		_themeOverrides = themeOverrides;
+		_currentSessionId = currentSessionId;
 		// Push an unsolicited selection_changed to the connected client whenever the user's active
 		// file/selection changes, so the embedded claude knows what they're looking at.
 		editor?.Changed += OnActiveEditorChanged;
@@ -82,6 +85,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string entries;
 		if (registryMode) {
 			var parts = new List<string> { SettingsToolEntries };
+			if (currentSessionId is not null) {
+				parts.Add(CurrentSessionToolEntries);
+			}
+
 			if (layout is not null) {
 				parts.Add(LayoutToolEntries);
 			}
@@ -354,6 +361,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 			case "saveDocument":
 				await SendToolTextAsync(ws, idRaw, "OK", ct).ConfigureAwait(false);
 				break;
+			case "currentSession":
+				await HandleCurrentSessionAsync(ws, idRaw, ct).ConfigureAwait(false);
+				break;
 			case "listSettings":
 				await HandleListSettingsAsync(ws, idRaw, ct).ConfigureAwait(false);
 				break;
@@ -397,6 +407,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
 				break;
 		}
+	}
+
+	private async Task HandleCurrentSessionAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+		var currentSessionId = Require(_currentSessionId, "Current session");
+		await SendToolTextAsync(ws, idRaw, $"{{\"id\":{JsonString(currentSessionId())}}}", ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleListSettingsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {

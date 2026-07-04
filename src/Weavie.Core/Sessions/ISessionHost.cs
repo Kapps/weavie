@@ -47,8 +47,9 @@ public interface ISessionHost {
 	Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct = default);
 
 	/// <summary>
-	/// Deletes a session (the active one, or the given <paramref name="sessionId"/>): removes its git worktree
-	/// but keeps the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>.
+	/// Deletes the session named by the required <paramref name="sessionId"/>: removes its git worktree but keeps
+	/// the branch. Refuses when the worktree has uncommitted changes unless <paramref name="force"/>. A blank id is
+	/// rejected — it must never fall back to the focused session, which may not be the caller's own (issue #217).
 	/// </summary>
 	Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct = default);
 

@@ -2,8 +2,10 @@
 
 A Core-owned surface for **dismissible, contextual nudges** that teach the user what Weavie can do —
 registered once in Core, evaluated against the current workspace, and rendered as small cards the user
-can act on or dismiss. The first instance offers to configure `worktree.setupCommand` when the repo
-looks like it needs one.
+can act on or dismiss. The first instance is the **workspace-setup** nudge (`workspace.setup`), which
+offers to configure this repo's knowledge-shaped settings — the worktree setup command and the test
+profile — when the repo looks like it needs it. (It supersedes the original worktree-only card; see
+[test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).)
 
 ## Why
 
@@ -12,7 +14,7 @@ if you already know to ask Claude for them. The worktree setup command is the sh
 that wants `pnpm install` before work gets nothing, because no one tells the user the setting exists.
 
 We need a *general* way to say "here's something you can do, right now, in this context" — not a one-off
-banner. This spec defines that surface and lands the worktree-setup nudge as its first user.
+banner. This spec defines that surface; its first user is the workspace-setup nudge.
 
 The hard constraint: a nudge must **never spend model tokens or act without the user's say-so**. The
 gate is the user clicking the suggestion — only then do we engage Claude, and we engage the *embedded
@@ -133,14 +135,17 @@ reachable without the card):
 `Snooze` / `DismissForever` are intrinsic to the suggestions surface, not commands — they have no
 meaningful keybinding and exist only in the context of a shown card.
 
-## First instance — the worktree setup nudge
+## First instance — the workspace-setup nudge
 
-Registered in `CoreSuggestions`:
+Registered in `CoreSuggestions`. (Originally a worktree-command-only card; generalized to configure all
+knowledge-shaped workspace settings — see
+[test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).)
 
-- **Id** `worktree.setupCommand`.
-- **IsRelevant**: `worktree.setupCommand` resolves to empty (read via `SettingsStore.GetString` and
-  tested with `string.IsNullOrWhiteSpace` — there's no dedicated emptiness helper) **and** the repo has
-  a recognizable dependency/build manifest. The manifest scan is **shallow, not root-only**: it checks
+- **Id** `workspace.setup`, with `LegacyIds = ["worktree.setupCommand"]` so a user who dismissed the
+  original card forever isn't re-nagged by the successor.
+- **IsRelevant**: **either** `worktree.setupCommand` **or** `test.profile` is unconfigured (workspace-scoped
+  reads via `SettingsStore.GetString(key, ctx.WorkspaceRoot)`, tested with `string.IsNullOrWhiteSpace`)
+  **and** the repo has a recognizable dependency/build manifest. The manifest scan is **shallow, not root-only**: it checks
   the workspace root and up to two levels of subdirectories, skipping vendored/output dirs (`.git`,
   `node_modules`, `bin`, `obj`, `target`, `dist`). Root-only would miss exactly the repos that most need
   a setup command — Weavie's own checkout keeps `package.json`/`pnpm-lock.yaml` under `src/web/` with
@@ -162,24 +167,22 @@ Registered in `CoreSuggestions`:
   (the anti-pattern the rule exists to stop). Failing open is also the better guess: a repo big or slow
   enough to exhaust the timeout almost certainly has dependencies worth a setup command. Because the
   probe is off the hot path, the timeout only bounds the background work; it never blocks the UI.
-- **Actions**: `Yes` → `weavie.worktree.suggestSetupCommand`; `Not now` → Snooze; `Don't ask again` →
+- **Actions**: `Yes` → `weavie.workspace.setup`; `Not now` → Snooze; `Don't ask again` →
   DismissForever.
 
 **"Yes" engages Claude in the primary session.** The command handler seeds the **primary** session's
-`Claude` controller (`PrimarySlot()`, `IsPrimary = true`) — not the *active* session — with an analysis
-prompt:
-
-> Look at this repository and decide a single shell command suitable for the `worktree.setupCommand`
-> setting — the one command needed to make a fresh checkout ready to work in (install dependencies,
-> and a build step only if required before editing). Briefly explain your choice and ask me to confirm.
-> On my confirmation, call the `setSetting` tool with key `worktree.setupCommand`. Don't run anything
-> else.
+`Claude` controller (`PrimarySlot()`, `IsPrimary = true`) — not the *active* session — with the
+`WorkspaceSetupPrompt` text (the same artifact the `/mcp__weavie__setup-workspace` MCP prompt serves),
+which has Claude inspect the repo, propose `worktree.setupCommand` and `test.profile`, and ask the user
+to confirm each in the Claude pane. The multi-line prompt is injected as a **bracketed paste** so the
+TUI treats it as one paste rather than submitting line-by-line.
 
 Claude reads the repo, proposes, **and asks the user to confirm in the Claude pane** — the confirmation
 is conversational, which is exactly the desired "Claude figures it out and asks you to confirm". On
-confirmation it persists the value through the existing `setSetting` MCP tool; the existing
-`ShellWorktreeProvisioner` picks it up on the next worktree create. No new save path, no new provisioner.
-Because the value is now set, the next `Evaluate()` (via `SettingChanged`) drops the card.
+confirmation it persists each value through the existing `setSetting` MCP tool (routed to the workspace's
+`.weavie/settings.toml`); the existing `ShellWorktreeProvisioner` picks up the setup command on the next
+worktree create, and the run lenses pick up the test profile. No new save path. Because the values are
+now set, the next `Evaluate()` (via `SettingChanged`) drops the card.
 
 **Why the primary session — not the active one or a new one.** `worktree.setupCommand` is a global
 setting that scopes every future worktree, so the conversation belongs to no particular worktree. The
@@ -206,8 +209,8 @@ primary on the two cwd-keyed stores (Claude-resume in `ClaudeSessionStore`, shel
 | `src/Weavie.Core/Suggestions/SuggestionRegistry.cs` | new — registry (mirrors `CommandRegistry`) |
 | `src/Weavie.Core/Suggestions/SuggestionService.cs` | new — evaluate, snooze, dismiss, push |
 | `src/Weavie.Core/Suggestions/SuggestionDismissals.cs` | new — per-workspace persisted store |
-| `src/Weavie.Core/Suggestions/CoreSuggestions.cs` | new — built-in suggestions (worktree setup) |
-| `src/Weavie.Core/Commands/CoreCommands.cs` | declare `weavie.worktree.suggestSetupCommand` |
+| `src/Weavie.Core/Suggestions/CoreSuggestions.cs` | new — built-in suggestions (workspace setup) |
+| `src/Weavie.Core/Commands/CoreCommands.cs` | declare `weavie.workspace.setup` |
 | `src/Weavie.Hosting/HostCore.*.cs` | wire service, triggers, `suggestions` push, `dismiss-suggestion` handler, seed-command handler |
 | `src/web/src/bridge.ts` | handle `suggestions`; send `dismiss-suggestion` |
 | `src/web/src/.../Suggestions.tsx` | new — card surface |

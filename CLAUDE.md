@@ -28,8 +28,9 @@ load it only when you need it.
 - **Contextual suggestions** — a Core-owned surface for dismissible nudge cards that teach users what
   Weavie can do. Declared once (`SuggestionDefinition`/`CoreSuggestions`), evaluated per-workspace by
   `SuggestionService` (with a bounded, fail-open manifest probe off the hot path), and rendered as cards;
-  acting on one runs a command (never spends model tokens until the user clicks). First instance: offer to
-  configure `worktree.setupCommand`. See [docs/concepts/suggestions.md](docs/concepts/suggestions.md).
+  acting on one runs a command (never spends model tokens until the user clicks). First instance: the
+  `workspace.setup` nudge — have Claude configure the repo's worktree setup command + test profile. See
+  [docs/concepts/suggestions.md](docs/concepts/suggestions.md).
 
 ## Keyboard-first navigation
 

@@ -222,11 +222,13 @@ documentation:
   Known limitation: `t.Run("subtest", …)` subtests do **not** appear as symbols, so subtests get no
   individual lens — the enclosing `TestXxx` lens and `runFile` cover them.
 
-## Open questions
+## Resolved / open questions
 
-1. **Pasted slash command** — does a bracketed-pasted `/mcp__weavie__setup-workspace` + user Enter
-   execute as a slash command in the Claude Code TUI? The one mechanic not verifiable from the tree;
-   resolve in step 6a. Fallback (seed the prompt's full text) keeps the artifact single-sourced.
+1. **Pasted slash command (resolved)** — rather than depend on whether a bracketed-pasted
+   `/mcp__weavie__setup-workspace` executes as a slash command in the TUI (unverifiable from the tree),
+   the card seeds the prompt's **full text** via bracketed paste. This works regardless, single-sources
+   the text from `WorkspaceSetupPrompt`, and handles the multi-line prompt as one paste. The slash
+   command still exists (the MCP prompt) for re-running setup.
 2. **Symbol-name drift** — the shapes above are empirical, not contractual. Mitigated by the
    regexes being workspace data (re-run setup to fix) plus captured-fixture tests for the common
    symbol shapes (tsserver, gopls, csharp-ls).

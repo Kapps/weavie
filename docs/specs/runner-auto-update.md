@@ -103,6 +103,14 @@ The runner polls the Releases API for a build number above its staged-latest, ho
   *old* backend — an asset/bridge mismatch the reload signal cannot fix. `HeadlessLauncher` takes
   a spawn-time path provider (a required `Func<string>`; no optional param) that returns the
   staged version's real `worker/Weavie.Headless.dll` path.
+- **The hook relay is the deliberate exception** to "never through `current`": the Claude
+  `--settings` file bakes the relay through the symlink — `<root>/current/worker/weavie-hook-relay`,
+  via `ManagedRunnerLayout.CurrentRelayPath` — *not* the worker's resolved version dir. A claude can
+  outlive the worker that spawned it (a detached `claude daemon`, or one not relaunched on the
+  bounce) and would otherwise hold a hook path into a since-pruned version dir — a dangling
+  `weavie-hook-relay: not found` on every hook. The relay is version-independent (it forwards over a
+  per-hook named pipe), so riding `current` is safe; the accepted cost is that a backwards-incompatible
+  relay change needs the surviving claude restarted.
 - Retention: the confirmed-good version plus the staged one; older dirs are pruned only when no
   live process (runner *or* worker) was spawned from them, and pruning is logged with the freed
   path. The rollback target is derived from `state.json` — no second symlink to keep in sync.

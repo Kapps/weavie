@@ -105,14 +105,6 @@ public sealed class VersionStoreTests : IDisposable {
 		Assert.Throws<InvalidDataException>(() => VersionStore.ExtractBundle(tarball, Path.Combine(_root, "scratch")));
 	}
 
-	[Fact]
-	public void LayoutRootContaining_FindsTheRootFromAVersionDir() {
-		string versionDir = Path.Combine(_root, "versions", "42", "worker");
-		Directory.CreateDirectory(versionDir);
-		Assert.Equal(_root, VersionStore.LayoutRootContaining(versionDir));
-		Assert.Null(VersionStore.LayoutRootContaining(Path.GetTempPath()));
-	}
-
 	[Theory]
 	[InlineData("0.1.247", 247)]
 	[InlineData("0.1.0", 0)]

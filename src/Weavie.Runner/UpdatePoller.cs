@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Security.Cryptography;
 using System.Text.Json;
+using Weavie.Core;
 
 namespace Weavie.Runner;
 
@@ -258,7 +259,7 @@ public sealed class UpdatePoller : IDisposable {
 	// Behind = the runner executes from a version dir that is no longer the staged one; a runner outside
 	// any managed layout (a source build) is unmanaged, not behind.
 	private bool RunnerIsBehind() =>
-		VersionStore.LayoutRootContaining(AppContext.BaseDirectory) is not null
+		ManagedRunnerLayout.RootContaining(AppContext.BaseDirectory) is not null
 		&& _store.StagedBuild is { } staged
 		&& RunnerIdentity.Build != staged;
 

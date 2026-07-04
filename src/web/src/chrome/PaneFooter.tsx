@@ -1,7 +1,7 @@
 import { type JSX, Show } from "solid-js";
 import type { SessionStatusName } from "../bridge";
 import { gitStatus } from "./git-status-store";
-import { STATUS_LABEL, STATUS_SHORT, claudeStatus } from "./session-store";
+import { claudeStatus, STATUS_LABEL, STATUS_SHORT } from "./session-store";
 
 /**
  * The shell pane's status footer, serving both terminal panes: the workspace git branch plus the Claude

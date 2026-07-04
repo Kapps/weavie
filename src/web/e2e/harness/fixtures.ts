@@ -1,7 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { test as base, expect } from "@playwright/test";
 import { fakeClaudeBuilt } from "./fake-claude";
-import { type WeavieHost, headlessBuilt, launchHeadless } from "./weavie-host";
+import { headlessBuilt, launchHeadless, type WeavieHost } from "./weavie-host";
 import { launchRemote, runnerBuilt } from "./weavie-runner";
 
 // Per-test options. `fakeScript` (set via test.use) seeds the fake claude before the host boots, so MCP/

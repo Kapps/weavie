@@ -1,4 +1,4 @@
-import { type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { activeBackendId, submitSourceToken } from "../bridge";
 

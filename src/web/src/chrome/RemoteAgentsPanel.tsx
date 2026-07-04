@@ -1,5 +1,5 @@
 import { X } from "lucide-solid";
-import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { ContextMenu, type ContextMenuState } from "./ContextMenu";
 import { sessionMenuEntries } from "./session-menu";

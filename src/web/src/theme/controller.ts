@@ -3,15 +3,15 @@
 // so a `system`-mode OS switch re-themes instantly with no host round-trip. Monaco-free (kept off the
 // editor chunk) so it lives on the first-paint path; the editor chunk bridges in via onMonacoThemeChanged.
 
-import { hostInjected, onHostMessage } from "../bridge";
 import type { ThemeMode, ThemeSlot } from "../bridge";
+import { hostInjected, onHostMessage } from "../bridge";
 import { applyColorsToCssVars } from "./apply";
 import { WEAVIE_DARK, WEAVIE_DARK_ID } from "./builtin/weavie-dark";
 import { WEAVIE_LIGHT, WEAVIE_LIGHT_ID } from "./builtin/weavie-light";
 import { deriveChromeVars } from "./chrome-vars";
 import { type OverrideOp, type ResolvedTheme, resolveTheme } from "./overrides";
 import type { VsCodeColorTheme } from "./vscode-theme";
-import { type XtermTheme, paletteToXtermTheme } from "./xterm-theme";
+import { paletteToXtermTheme, type XtermTheme } from "./xterm-theme";
 
 /** A Monaco theme to register+apply: a unique id (bumped per change to force re-registration) + the theme. */
 export interface MonacoThemeUpdate {

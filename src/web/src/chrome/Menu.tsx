@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-solid";
-import { For, type JSX, Show, createSignal, onCleanup } from "solid-js";
+import { createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";

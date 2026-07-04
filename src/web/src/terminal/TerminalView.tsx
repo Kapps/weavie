@@ -2,8 +2,8 @@ import { FitAddon } from "@xterm/addon-fit";
 import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
-import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
-import { type TermSession, isBrowserHostedShell, log, onHostMessage, postToHost } from "../bridge";
+import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
+import { isBrowserHostedShell, log, onHostMessage, postToHost, type TermSession } from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
@@ -358,6 +358,7 @@ export function TerminalView(props: {
   return (
     <div
       class="term"
+      role="application"
       ref={container}
       onContextMenu={(event) => {
         if (props.onContextMenu === undefined) {

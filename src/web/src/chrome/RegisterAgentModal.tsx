@@ -1,7 +1,7 @@
-import { type JSX, createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount } from "solid-js";
 import { Portal } from "solid-js/web";
 import { log } from "../bridge";
-import { type RemoteAgent, addAgent } from "./remote-agents";
+import { addAgent, type RemoteAgent } from "./remote-agents";
 
 // Register a remote agent (name + runner control-plane URL/token). On save we persist and connect, so it
 // appears as a New Session location. Esc cancels; Enter saves.

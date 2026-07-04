@@ -1,4 +1,4 @@
-import { type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 // How dirty the session's worktree is (host git status), driving the confirm friction: clean = one click,

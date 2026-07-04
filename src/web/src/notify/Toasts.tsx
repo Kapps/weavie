@@ -1,4 +1,4 @@
-import { For, type JSX, createSignal } from "solid-js";
+import { createSignal, For, type JSX } from "solid-js";
 
 /** One transient notification surfaced to the user (e.g. an autosave write that failed). */
 export interface Toast {

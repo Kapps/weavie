@@ -1,4 +1,4 @@
-import { type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 // Normalize user input to an http(s) URL: a bare host gets an https:// scheme, and only http/https is accepted.

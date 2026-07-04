@@ -1,13 +1,13 @@
 import { ChevronLeft, ChevronRight, Code, Eye, Globe, Pin, X } from "lucide-solid";
 import {
-  For,
-  type JSX,
-  Show,
   createEffect,
   createMemo,
   createSignal,
+  For,
+  type JSX,
   onCleanup,
   onMount,
+  Show,
 } from "solid-js";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "../chrome/ContextMenu";
 import { formatKey } from "../commands/keybindings";
@@ -225,7 +225,7 @@ export function TabStrip(props: {
                   <Show when={view.kind === "source"}>{sourceTabIcon(view.path)}</Show>
                   <span class="editor-tab-label">{tabLabel(view)}</span>
                   <Show when={view.dirty}>
-                    <span class="editor-tab-dirty" aria-label="Unsaved changes">
+                    <span class="editor-tab-dirty" role="img" aria-label="Unsaved changes">
                       *
                     </span>
                   </Show>

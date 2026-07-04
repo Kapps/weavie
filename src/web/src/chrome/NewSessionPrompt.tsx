@@ -1,4 +1,4 @@
-import { For, type JSX, Show, createEffect, createSignal } from "solid-js";
+import { createEffect, createSignal, For, type JSX, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { connectedBackends, requestBranches } from "../bridge";
 import { BranchTypeahead, branchSuggestions } from "./BranchTypeahead";

@@ -95,6 +95,9 @@
 .remote-session.pending {
   cursor: progress;
 }
+.remote-session-mono {
+  pointer-events: none;
+}
 .session-chip.pending .session-chip-mono,
 .remote-session.pending .remote-session-mono {
   opacity: 0.25;
@@ -170,19 +173,6 @@
   }
 }
 
-/* Honor reduced-motion: drop the continuous spin/pulse to a static indicator (status colour still reads). */
-@media (prefers-reduced-motion: reduce) {
-  .session-chip-spinner,
-  .session-status.status-working,
-  .session-status.status-waiting,
-  .session-chip.status-working .session-chip-dot,
-  .session-chip.status-waiting .session-chip-dot,
-  .session-chip.status-working .session-chip-cloud,
-  .session-chip.status-waiting .session-chip-cloud {
-    animation: none;
-  }
-}
-
 /* A promoted remote chip's marker: a small cloud (it says "remote") sitting where the local status dot would,
    on a dark backing so it reads on any chip colour. It carries the SAME status colours as the dot, but is the
    agent's identity hue at rest (idle) — so a calm remote shows which box it's on, an active one shows status. */
@@ -199,6 +189,20 @@
   background: var(--bar);
   color: hsl(var(--agent-hue, 210) 60% 58%);
 }
+
+/* Honor reduced-motion: drop the continuous spin/pulse to a static indicator (status colour still reads). */
+@media (prefers-reduced-motion: reduce) {
+  .session-chip-spinner,
+  .session-status.status-working,
+  .session-status.status-waiting,
+  .session-chip.status-working .session-chip-dot,
+  .session-chip.status-waiting .session-chip-dot,
+  .session-chip.status-working .session-chip-cloud,
+  .session-chip.status-waiting .session-chip-cloud {
+    animation: none;
+  }
+}
+
 .session-chip-cloud svg {
   width: 11px;
   height: 11px;
@@ -377,9 +381,6 @@
 }
 .remote-session.unloaded {
   opacity: 0.4;
-}
-.remote-session-mono {
-  pointer-events: none;
 }
 .remote-session-dot {
   position: absolute;

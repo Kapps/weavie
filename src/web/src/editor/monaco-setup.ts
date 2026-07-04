@@ -7,8 +7,8 @@ import {
 import * as monaco from "monaco-editor";
 import { log } from "../bridge";
 import {
-  type EditorOptionsSpec,
   currentEditorOptions,
+  type EditorOptionsSpec,
   onEditorOptionsChanged,
 } from "../editor-options";
 import { currentFonts, onFontsChanged } from "../fonts";

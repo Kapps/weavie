@@ -1,13 +1,13 @@
 import { createMemo, createSignal } from "solid-js";
 import {
-  type SessionChip,
-  type SessionStatusName,
   activeBackendId,
   backendName,
   connectedBackends,
   onSessionMessage,
+  type SessionChip,
+  type SessionStatusName,
 } from "../bridge";
-import { demoteSession, isPromoted, promoteSession, promotedKeys } from "./rail-state";
+import { demoteSession, isPromoted, promotedKeys, promoteSession } from "./rail-state";
 import { agentBackendId, agentHue, remoteAgents } from "./remote-agents";
 
 // Re-export the promote/demote/isPromoted API so consumers reach it through the session store; the state
@@ -46,6 +46,7 @@ const [status, setStatus] = createSignal<SessionStatusName | undefined>(undefine
 // the reveal path needs: a launch that lands with zero loaded terminals (all-dormant restore, offline
 // remote) must still bring the editor up rather than wait forever on a terminal frame that never comes.
 const [sessionsReceived, setSessionsReceived] = createSignal(false);
+
 export { sessionsReceived };
 
 // Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so

@@ -1,5 +1,5 @@
 import { For, type JSX, Show } from "solid-js";
-import { type ResizeEdge, postToLocalHost } from "../bridge";
+import { postToLocalHost, type ResizeEdge } from "../bridge";
 
 // Resize grab handles for the frameless host window (Windows custom chrome): the WebView2 covers the OS
 // resize border so WM_NCHITTEST never fires at the edges, so these thin border handles ask the host to begin

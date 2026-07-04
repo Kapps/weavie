@@ -99,12 +99,12 @@
   background: rgba(255, 255, 255, 0.1);
 }
 
-.tb-omnibar-row.current .tb-row-leaf {
-  color: var(--accent);
-}
-
 .tb-row-leaf {
   flex: 0 0 auto;
+}
+
+.tb-omnibar-row.current .tb-row-leaf {
+  color: var(--accent);
 }
 
 .tb-row-dir {

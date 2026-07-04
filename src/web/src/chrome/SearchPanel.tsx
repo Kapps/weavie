@@ -1,6 +1,6 @@
 import { ChevronDown, ChevronRight, Search, X } from "lucide-solid";
-import { For, type JSX, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
-import { type SearchMatch, onHostMessage, postToHost } from "../bridge";
+import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { onHostMessage, postToHost, type SearchMatch } from "../bridge";
 
 // Debounce so each keystroke doesn't spawn a git grep; ~200ms is responsive without thrashing.
 const DEBOUNCE_MS = 200;
@@ -143,7 +143,7 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
   });
 
   return (
-    <div class="search-panel" onKeyDown={onKeyDown}>
+    <div class="search-panel" role="search" onKeyDown={onKeyDown}>
       <div class="search-head">
         <span class="search-title">Search</span>
         <button

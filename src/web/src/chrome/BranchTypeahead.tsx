@@ -1,4 +1,4 @@
-import { For, type JSX, Show, createSignal, onCleanup, onMount } from "solid-js";
+import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 
 /** Existing branches containing the typed text (case-insensitive), minus an exact full match; capped. */
 export function branchSuggestions(branches: string[], typed: string): string[] {

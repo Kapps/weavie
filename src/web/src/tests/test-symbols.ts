@@ -5,7 +5,7 @@ import { StandaloneServices } from "@codingame/monaco-vscode-api";
 import { ILanguageFeaturesService } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/services/languageFeatures.service";
 import type * as monaco from "monaco-editor";
 import { CancellationToken } from "vscode-jsonrpc";
-import { type SymbolNode, type TestHit, collectTests } from "./test-match";
+import { collectTests, type SymbolNode, type TestHit } from "./test-match";
 import type { TestRule } from "./test-profile";
 
 export type { SymbolNode, SymbolRange, TestHit } from "./test-match";

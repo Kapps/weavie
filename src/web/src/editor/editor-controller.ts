@@ -3,14 +3,14 @@
 
 import { createSignal } from "solid-js";
 import {
-  LOCAL_BACKEND_ID,
-  type ReviewCommentInfo,
-  type WebBoundMessage,
   activeBackendId,
   isBrowserHostedShell,
+  LOCAL_BACKEND_ID,
   log,
   postToBackend,
   postToHost,
+  type ReviewCommentInfo,
+  type WebBoundMessage,
 } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
@@ -19,7 +19,7 @@ import type { EditorHost } from "./editor-host";
 import { normalizePath, samePath, uriHostPath } from "./fs-path";
 import type { HunkRevert, HunkUnkeep, InlineDiff, InlineDiffOptions } from "./inline-diff";
 import { mediaTypeOf } from "./media/media-types";
-import { type NavHistory, createNavHistory } from "./nav-history";
+import { createNavHistory, type NavHistory } from "./nav-history";
 import {
   type ActivateResult,
   activateTab,

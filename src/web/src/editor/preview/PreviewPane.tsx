@@ -1,4 +1,4 @@
-import { type JSX, createEffect, onCleanup, onMount } from "solid-js";
+import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
 import { onPreviewThemeChanged } from "../../theme/controller";
 import { installEmbedZoomAndMermaid } from "./embed-zoom";
 import { renderMarkdown } from "./preview-markdown";

@@ -7,9 +7,9 @@
 // host-file-provider.ts and docs/specs/file-management-and-sessions.md.
 
 import {
+  getService,
   ITextFileService,
   ITextModelService,
-  getService,
 } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";

@@ -26,29 +26,29 @@
          runs, so without this a boot failure is invisible (splash hangs forever, no log). This survives
          that and forwards uncaught errors to the host log, so a broken boot is loud, never silent. -->
     <script>
-      (function () {
+      (() => {
         function toHost(level, message) {
           try {
-            var h = window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.weavie;
+            const h = window.webkit?.messageHandlers?.weavie;
             if (h) h.postMessage(JSON.stringify({ type: "log", level: level, message: message }));
-          } catch (err) {}
+          } catch (_err) {}
         }
         window.addEventListener(
           "error",
-          function (e) {
+          (e) => {
             var t = e.target;
             if (t && t !== window && t.tagName) {
-              toHost("warn", "resource failed to load: " + (t.src || t.href || t.tagName));
+              toHost("warn", `resource failed to load: ${t.src || t.href || t.tagName}`);
             } else {
-              var at = e.filename ? " @ " + e.filename + ":" + e.lineno + ":" + e.colno : "";
-              toHost("error", "uncaught: " + (e.message || "unknown error") + at);
+              const at = e.filename ? ` @ ${e.filename}:${e.lineno}:${e.colno}` : "";
+              toHost("error", `uncaught: ${e.message || "unknown error"}${at}`);
             }
           },
           true,
         );
-        window.addEventListener("unhandledrejection", function (e) {
+        window.addEventListener("unhandledrejection", (e) => {
           var r = e.reason;
-          toHost("error", "unhandledrejection: " + String((r && r.message) || r));
+          toHost("error", `unhandledrejection: ${String((r?.message) || r)}`);
         });
       })();
     </script>

@@ -152,7 +152,9 @@
   font-family: inherit;
   font-size: 0.82em;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .session-prompt-location-remove:hover {
@@ -223,7 +225,9 @@
   font-family: inherit;
   line-height: 1.15;
   cursor: pointer;
-  transition: background-color 120ms ease, border-color 120ms ease;
+  transition:
+    background-color 120ms ease,
+    border-color 120ms ease;
 }
 
 .session-prompt-btn:hover {

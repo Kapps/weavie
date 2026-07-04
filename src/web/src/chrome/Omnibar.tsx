@@ -1,4 +1,4 @@
-import { Fzf, byLengthAsc } from "fzf";
+import { byLengthAsc, Fzf } from "fzf";
 import {
   ChevronDown,
   ChevronRight,
@@ -8,14 +8,14 @@ import {
   Search,
 } from "lucide-solid";
 import {
-  For,
-  type JSX,
-  Show,
   createEffect,
   createMemo,
   createSignal,
+  For,
+  type JSX,
   on,
   onCleanup,
+  Show,
 } from "solid-js";
 import { evaluateWhen, paneFocusContext } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
@@ -23,10 +23,10 @@ import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../comma
 import type { CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
 import {
-  type FileRow,
-  type ScoredFile,
   createFileFinder,
+  type FileRow,
   rankFiles,
+  type ScoredFile,
   splitPath,
 } from "./file-search";
 import { highlightSlice } from "./highlight";

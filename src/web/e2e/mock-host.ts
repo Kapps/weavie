@@ -5,7 +5,7 @@
 // (fs-stat / fs-read / fs-write) from an in-memory file map. No claude, filesystem, or LSP.
 
 import { readFile } from "node:fs/promises";
-import { type Server, createServer } from "node:http";
+import { createServer, type Server } from "node:http";
 import { extname, join, normalize } from "node:path";
 import { type WebSocket, WebSocketServer } from "ws";
 

@@ -1,4 +1,4 @@
-import { For, type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { type PullRequestInfo, requestPullRequests, resolvePullRequest } from "../bridge";
 import { type OpenPrTarget, parsePrRef } from "./pr-ref";

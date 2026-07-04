@@ -60,8 +60,8 @@
    faint fill + border so they read as code without shouting. Inline (not inline-block) and with no vertical
    padding contribution to the line box, so a chip never makes its line taller than --prose-line. */
 .weavie-comment-prose .weavie-comment-code {
-  font-family: ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas,
-    monospace;
+  font-family:
+    ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
   /* Stay upright inside the italic prose so code reads as code. */
   font-style: normal;
   font-size: 0.92em;

@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { navChord, walkToChangedFile } from "../harness/navigator";
+import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 
 // Probes the PR-review surface across SESSION SWITCHES (the suspected bug nest). The prScenario fixture stubs
 // one PR (#101: feature.ts added + hello.ts modified) over a local "origin", with a seeded comment on hello.ts.
@@ -80,9 +80,8 @@ test("S3: a stale per-file diff cannot render onto a non-PR session after a quic
   await openPr101(page);
   await expect(page.locator(added).first()).toBeVisible();
 
-  // Trigger a fresh per-file diff request, then immediately switch to the non-PR primary before the host
   // can reply. Stepping the file walk issues get-turn-diff for the neighbour.
-  await page.locator(".monaco-editor").first().click();
+  await focusEditor(page); // confirm the editor holds focus so the `!terminalFocused`-guarded chord lands
   await page.keyboard.press(navChord("ArrowRight"));
   await page.locator(chips).first().click();
 

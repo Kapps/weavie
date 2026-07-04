@@ -31,6 +31,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 	private readonly ThemeOverridesStore? _themeOverrides;
 	private readonly Func<string>? _currentSessionId;
 	private readonly string _toolsListJson;
+	private readonly IReadOnlyList<McpPrompt> _prompts;
 	private readonly SemaphoreSlim _sendLock = new(1, 1);
 
 	private TcpListener? _listener;
@@ -107,6 +108,8 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		_toolsListJson = "{\"tools\":[" + entries + "]}";
+		// Prompts (surfaced by Claude Code as /mcp__weavie__<name> slash commands) are a registry-mode capability.
+		_prompts = registryMode ? RegistryPrompts : [];
 		IdeName = ideName;
 	}
 
@@ -266,6 +269,12 @@ public sealed partial class McpServer : IAsyncDisposable {
 				case "tools/call":
 					await HandleToolCallAsync(ws, root, idRaw, ct).ConfigureAwait(false);
 					break;
+				case "prompts/list":
+					await SendResultAsync(ws, idRaw, BuildPromptsListJson(), ct).ConfigureAwait(false);
+					break;
+				case "prompts/get":
+					await HandlePromptsGetAsync(ws, root, idRaw, ct).ConfigureAwait(false);
+					break;
 				default:
 					if (idRaw is not null) {
 						await SendErrorAsync(ws, idRaw, -32601, $"Method not found: {method}", ct).ConfigureAwait(false);
@@ -292,8 +301,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 			protocolVersion = pv.GetString() ?? protocolVersion;
 		}
 
+		string promptsCapability = _prompts.Count > 0 ? ",\"prompts\":{\"listChanged\":false}" : string.Empty;
 		string result = "{\"protocolVersion\":" + JsonString(protocolVersion) +
-			",\"capabilities\":{\"tools\":{\"listChanged\":false}},\"serverInfo\":{\"name\":\"weavie\",\"version\":\"0.1.0\"}}";
+			",\"capabilities\":{\"tools\":{\"listChanged\":false}" + promptsCapability +
+			"},\"serverInfo\":{\"name\":\"weavie\",\"version\":\"0.1.0\"}}";
 		await SendResultAsync(ws, idRaw, result, ct).ConfigureAwait(false);
 	}
 

@@ -111,6 +111,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
+		// Back per-workspace settings (worktree.setupCommand, test.profile) from this repo's .weavie/settings.toml.
+		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
+		_settings.RegisterWorkspace(workspaceRoot);
+
 		// Per-workspace layout + editor session, keyed by the folder's path id so each folder restores its own state.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
@@ -235,6 +239,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};"
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
+			+ BuildTestProfileScript()
 			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
@@ -271,9 +276,14 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 				PushThemeToWeb();
 			}
 
-			// Setting worktree.setupCommand makes the worktree-setup card vanish; re-evaluate the suggestions.
-			if (change.Key == "worktree.setupCommand") {
+			// Configuring the worktree setup command or the test profile can make the workspace-setup card vanish;
+			// re-evaluate the suggestions. A changed test profile also re-pushes it so run lenses refresh in place.
+			if (change.Key is "worktree.setupCommand" or Weavie.Core.Configuration.TestSettings.Profile) {
 				_suggestions?.Evaluate();
+			}
+
+			if (change.Key == Weavie.Core.Configuration.TestSettings.Profile) {
+				PushTestProfileToWeb();
 			}
 		};
 		_settings.SettingChanged += _onSettingChanged;

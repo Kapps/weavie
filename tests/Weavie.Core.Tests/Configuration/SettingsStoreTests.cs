@@ -37,6 +37,36 @@ public sealed class SettingsStoreTests : IDisposable {
 		return registry;
 	}
 
+	// A registry with one workspace-scoped and one user-scoped string key, for the per-workspace layer tests.
+	private static SettingsRegistry ScopedRegistry() {
+		var registry = new SettingsRegistry();
+		registry.Register(new SettingDefinition {
+			Key = "t.wsstr",
+			Kind = SettingKind.String,
+			Description = "a per-workspace string",
+			Scope = SettingScope.Workspace,
+			Default = "ws-default",
+		});
+		registry.Register(new SettingDefinition {
+			Key = "t.userstr",
+			Kind = SettingKind.String,
+			Description = "a user string",
+			Default = "user-default",
+		});
+		return registry;
+	}
+
+	// The overlay file RegisterWorkspace resolves for a workspace root.
+	private static string WorkspaceFile(string root) => Path.Combine(root, ".weavie", "settings.toml");
+
+	private string WorkspaceRoot {
+		get {
+			string root = Path.Combine(_dir, "repo");
+			Directory.CreateDirectory(root);
+			return root;
+		}
+	}
+
 	private static JsonElement Json(string raw) => JsonDocument.Parse(raw).RootElement.Clone();
 
 	[Fact]
@@ -438,6 +468,113 @@ public sealed class SettingsStoreTests : IDisposable {
 		await Task.Delay(1200); // ample time past the 250ms debounce for a stray re-fire
 
 		Assert.Equal(1, count);
+	}
+
+	[Fact]
+	public void WorkspaceScope_Resolution_EnvBeatsWorkspaceBeatsUserBeatsDefault() {
+		string root = WorkspaceRoot;
+		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
+		File.WriteAllText(FilePath, "t.wsstr = \"from-user\"\n");
+		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"from-workspace\"\n");
+
+		// Workspace file wins over user file.
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+			store.RegisterWorkspace(root);
+			Assert.Equal("from-workspace", store.Resolve("t.wsstr", root).Value);
+			Assert.Equal(SettingSource.WorkspaceFile, store.Resolve("t.wsstr", root).Source);
+
+			// A bare resolve (no workspace) skips the overlay and falls through to the user file.
+			Assert.Equal("from-user", store.Resolve("t.wsstr").Value);
+			Assert.Equal(SettingSource.UserFile, store.Resolve("t.wsstr").Source);
+		}
+
+		// Env wins over everything.
+		using (EnvScope("WEAVIE_T_WSSTR", "from-env"))
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+			store.RegisterWorkspace(root);
+			Assert.Equal("from-env", store.Resolve("t.wsstr", root).Value);
+			Assert.Equal(SettingSource.Environment, store.Resolve("t.wsstr", root).Source);
+		}
+
+		// No workspace value -> user file.
+		File.WriteAllText(WorkspaceFile(root), "");
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+			store.RegisterWorkspace(root);
+			Assert.Equal("from-user", store.Resolve("t.wsstr", root).Value);
+			Assert.Equal(SettingSource.UserFile, store.Resolve("t.wsstr", root).Source);
+		}
+
+		// No workspace, no user -> default.
+		File.WriteAllText(FilePath, "");
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+			store.RegisterWorkspace(root);
+			Assert.Equal("ws-default", store.Resolve("t.wsstr", root).Value);
+			Assert.Equal(SettingSource.Default, store.Resolve("t.wsstr", root).Source);
+		}
+	}
+
+	[Fact]
+	public void Set_WorkspaceScopedKey_WithRoot_WritesWorkspaceFile_NotUserFile() {
+		string root = WorkspaceRoot;
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false);
+		store.RegisterWorkspace(root);
+
+		var result = store.Set("t.wsstr", Json("\"repo-value\""), root);
+
+		Assert.True(result.Written);
+		Assert.Equal("repo-value", store.Resolve("t.wsstr", root).Value);
+		Assert.Equal(SettingSource.WorkspaceFile, store.Resolve("t.wsstr", root).Source);
+		Assert.True(File.Exists(WorkspaceFile(root)));
+		Assert.Contains("t.wsstr = \"repo-value\"", File.ReadAllText(WorkspaceFile(root)), StringComparison.Ordinal);
+		// The user file is untouched.
+		Assert.False(File.Exists(FilePath) && File.ReadAllText(FilePath).Contains("t.wsstr", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public void Set_UserScopedKey_WithRoot_WritesUserFile_IgnoringWorkspace() {
+		string root = WorkspaceRoot;
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false);
+		store.RegisterWorkspace(root);
+
+		store.Set("t.userstr", Json("\"u\""), root);
+
+		Assert.Contains("t.userstr = \"u\"", File.ReadAllText(FilePath), StringComparison.Ordinal);
+		Assert.False(File.Exists(WorkspaceFile(root)));
+	}
+
+	[Fact]
+	public async Task Watcher_WorkspaceFileEdit_RaisesChange_CarryingRoot() {
+		string root = WorkspaceRoot;
+		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
+		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"one\"\n");
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: true);
+		store.RegisterWorkspace(root);
+		var signal = new TaskCompletionSource<SettingChange>(TaskCreationOptions.RunContinuationsAsynchronously);
+		store.Subscribe("t.wsstr", c => signal.TrySetResult(c));
+
+		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"two\"\n"); // external edit
+
+		var change = await WaitAsync(signal.Task, TimeSpan.FromSeconds(5));
+		Assert.Equal("two", change.NewValue);
+		Assert.Equal("one", change.OldValue);
+		Assert.Equal(root, change.WorkspaceRoot);
+	}
+
+	[Fact]
+	public void Malformed_WorkspaceFile_FallsBackToUserThenDefault_AndReportsMalformed() {
+		string root = WorkspaceRoot;
+		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
+		File.WriteAllText(WorkspaceFile(root), "t.wsstr = = broken\n[unterminated\n");
+		File.WriteAllText(FilePath, "t.wsstr = \"from-user\"\n");
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false);
+		store.RegisterWorkspace(root);
+
+		Assert.True(store.IsMalformed);
+		// The broken overlay is ignored; resolution falls through to the user file.
+		Assert.Equal("from-user", store.Resolve("t.wsstr", root).Value);
+		Assert.Equal(SettingSource.UserFile, store.Resolve("t.wsstr", root).Source);
+		// Writing to the malformed overlay is refused non-destructively.
+		Assert.Throws<SettingsFileMalformedException>(() => store.Set("t.wsstr", Json("\"x\""), root));
 	}
 
 	private static async Task<T> WaitAsync<T>(Task<T> task, TimeSpan timeout) {

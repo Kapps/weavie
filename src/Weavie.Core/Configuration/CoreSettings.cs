@@ -122,6 +122,8 @@ public static class CoreSettings {
 			Aliases = ["worktree setup", "post-create command", "install deps on new session",
 				"bootstrap worktree", "provision worktree", "worktree install command"],
 			Apply = ApplyMode.NextSession,
+			// Per-repo: stored in the workspace's .weavie/settings.toml (reads fall back to the user file).
+			Scope = SettingScope.Workspace,
 			Default = "",
 		});
 
@@ -141,6 +143,7 @@ public static class CoreSettings {
 		FontSettings.Register(registry);
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
+		TestSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",

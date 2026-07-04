@@ -208,6 +208,67 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.Null(ide.WriteMcpConfigFile());
 	}
 
+	[Fact]
+	public async Task RegistryMode_Initialize_AdvertisesPromptsCapability() {
+		using var store = NewStore();
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "initialize", "{\"protocolVersion\":\"2025-03-26\"}"));
+		using var response = await ReceiveAsync(ws);
+
+		Assert.True(response.RootElement.GetProperty("result").GetProperty("capabilities").TryGetProperty("prompts", out _));
+	}
+
+	[Fact]
+	public async Task RegistryMode_ListsAndGetsWorkspaceSetupPrompt() {
+		using var store = NewStore();
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "prompts/list", "{}"));
+		using var list = await ReceiveAsync(ws);
+		var names = list.RootElement.GetProperty("result").GetProperty("prompts")
+			.EnumerateArray().Select(p => p.GetProperty("name").GetString()).ToList();
+		Assert.Contains("setup-workspace", names);
+
+		await SendAsync(ws, Request(2, "prompts/get", "{\"name\":\"setup-workspace\"}"));
+		using var get = await ReceiveAsync(ws);
+		string text = get.RootElement.GetProperty("result").GetProperty("messages")[0]
+			.GetProperty("content").GetProperty("text").GetString()!;
+		Assert.Contains("test.profile", text, StringComparison.Ordinal);
+		Assert.Contains("worktree.setupCommand", text, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task RegistryMode_GetUnknownPrompt_Errors() {
+		using var store = NewStore();
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "prompts/get", "{\"name\":\"nope\"}"));
+		using var response = await ReceiveAsync(ws);
+		Assert.True(response.RootElement.TryGetProperty("error", out _));
+	}
+
+	[Fact]
+	public async Task IdeMode_ListsNoPrompts() {
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", settings: null, registryMode: false);
+		int port = server.Start();
+		using var ws = await ConnectBearerAsync(port, Token);
+
+		await SendAsync(ws, Request(1, "prompts/list", "{}"));
+		using var response = await ReceiveAsync(ws);
+		Assert.Empty(response.RootElement.GetProperty("result").GetProperty("prompts").EnumerateArray());
+	}
+
 	private static async Task<ClientWebSocket> ConnectBearerAsync(int port, string token) {
 		var client = new ClientWebSocket();
 		client.Options.SetRequestHeader("Authorization", $"Bearer {token}");

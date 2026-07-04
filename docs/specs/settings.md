@@ -57,8 +57,9 @@ spec introduces a user-level settings system that is:
 - **`weavie config` CLI verb.** Wanted eventually, but there's no `weavie` on PATH today (the app
   is a GUI exe). The CLI will be a thin wrapper over the same Core store, so deferring it costs
   nothing architecturally. MCP is the only editing surface in this milestone.
-- **Workspace/project-level settings** (`.weavie/settings.toml` in the repo). The resolution order
-  leaves a slot for it; not built yet.
+- **Workspace/project-level settings** (`.weavie/settings.toml` in the repo). Now built: a setting
+  declares `Scope = Workspace` and resolves env > workspace file > user file > default, keyed per
+  workspace. See [test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).
 - **In-app settings UI** (web panel over the bridge). Later.
 - **Secrets.** Settings are plaintext. API keys / tokens do **not** belong here; a separate
   secret-storage mechanism is out of scope.
@@ -235,8 +236,9 @@ flowchart TD
     C -- no --> D["registered default<br/>ComputeDefault() / Default<br/>source = Default"]
 ```
 
-A future per-workspace `.weavie/settings.toml` slots in between the env and user-file layers; not
-built in this milestone.
+A per-workspace `.weavie/settings.toml` slots in between the env and user-file layers for
+`Scope = Workspace` keys (resolved against the active workspace root); see
+[test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).
 
 ```csharp
 public ResolvedValue Resolve(string key) {

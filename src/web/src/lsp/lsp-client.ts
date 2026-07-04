@@ -49,6 +49,29 @@ let generation = 0;
 // Monotonic per-page channel id, so even a fast stop/start on one server can't confuse stale frames.
 let channelSeq = 0;
 
+// Listeners notified when a language client finishes starting (and on rebind), so consumers that query LSP
+// providers — the test-lens provider — can refresh once a server is actually able to answer.
+const languageClientStartedListeners = new Set<() => void>();
+
+/** The active session's worktree root (from the LSP config), or undefined before the host injects one. */
+export function currentWorkspaceRoot(): string | undefined {
+  return activeConfig?.workspace;
+}
+
+/** Subscribes to language-client-started events (fired when a client starts or services rebind). Returns an unsubscribe. */
+export function onLanguageClientStarted(listener: () => void): () => void {
+  languageClientStartedListeners.add(listener);
+  return () => {
+    languageClientStartedListeners.delete(listener);
+  };
+}
+
+function notifyLanguageClientStarted(): void {
+  for (const listener of languageClientStartedListeners) {
+    listener();
+  }
+}
+
 function indexServers(config: WeavieLspConfig): void {
   serverByLanguage = new Map();
   for (const server of config.servers) {
@@ -262,7 +285,10 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
   // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.
   const startPromise = client.start();
   void startPromise.then(
-    () => log("info", `lsp: ${server.id} client started`),
+    () => {
+      log("info", `lsp: ${server.id} client started`);
+      notifyLanguageClientStarted();
+    },
     (err: unknown) => fail(`initialize failed: ${describeError(err)}`),
   );
 }

@@ -44,11 +44,11 @@ public sealed partial class HostCore {
 			_ui.Post(_platform.ToggleWindow);
 			return Task.FromResult(CommandResult.Success("Toggled the Weavie window."));
 		});
-		// Pre-fills the worktree-setup analysis prompt into the primary session's Claude (seeds whichever session
-		// is active when the card is clicked; the handler always targets the primary).
-		session.Commands.RegisterHandler(CoreCommands.SuggestSetupCommand, (_, _) => {
-			_ui.Post(SeedSetupCommandPrompt);
-			return Task.FromResult(CommandResult.Success("Asked Claude to suggest a worktree setup command."));
+		// Pre-fills the workspace-setup prompt into the primary session's Claude (seeds whichever session is active
+		// when the card is clicked; the handler always targets the primary).
+		session.Commands.RegisterHandler(CoreCommands.SetupWorkspace, (_, _) => {
+			_ui.Post(SeedWorkspaceSetup);
+			return Task.FromResult(CommandResult.Success("Asked Claude to set up this workspace."));
 		});
 		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
 		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
@@ -59,6 +59,7 @@ public sealed partial class HostCore {
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). Registered per session so whichever session is active serves it.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs()));
+		RegisterTestRunHandlers(session);
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, this);

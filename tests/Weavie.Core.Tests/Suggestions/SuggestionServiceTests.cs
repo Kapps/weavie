@@ -8,10 +8,10 @@ namespace Weavie.Core.Tests;
 /// <summary>
 /// Exercises <see cref="SuggestionService"/>: the bounded shallow manifest scan (root + ≤2 levels, skip-list,
 /// .NET + JS/Cargo/Go/etc. manifests), the fail-open timeout, the setting gate, and snooze/dismiss filtering.
-/// The worktree-setup suggestion (<see cref="CoreSuggestions"/>) is the subject under test.
+/// The workspace-setup suggestion (<see cref="CoreSuggestions"/>) is the subject under test.
 /// </summary>
 public sealed class SuggestionServiceTests : IDisposable {
-	private const string WorktreeId = "worktree.setupCommand";
+	private const string SetupId = "workspace.setup";
 
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-suggestion-tests", Guid.NewGuid().ToString("N"));
 
@@ -40,7 +40,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
 
-		Assert.Contains(WorktreeId, harness.ActiveIds());
+		Assert.Contains(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -50,7 +50,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
 
-		Assert.Contains(WorktreeId, harness.ActiveIds());
+		Assert.Contains(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -60,7 +60,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -69,7 +69,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -78,27 +78,60 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
-	public async Task SettingAlreadySet_IsNotRelevant() {
+	public async Task OnlySetupCommandSet_StillRelevant_TestProfileMissing() {
+		// The card offers to configure BOTH knowledge-shaped settings, so it stays until each is configured.
 		var fs = SeedFs(("/repo", "package.json"));
 
 		var harness = await StartAsync(fs, "/repo", SettingsWith("worktree.setupCommand = \"pnpm install\""));
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
+		Assert.Contains(SetupId, harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task OnlyTestProfileSet_StillRelevant_SetupCommandMissing() {
+		var fs = SeedFs(("/repo", "package.json"));
+
+		var harness = await StartAsync(fs, "/repo", SettingsWith("test.profile = '[]'"));
+
+		Assert.Contains(SetupId, harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task BothConfigured_IsNotRelevant() {
+		// An explicit empty test profile ([]) counts as configured ("this repo has no tests"), like a set command.
+		var fs = SeedFs(("/repo", "package.json"));
+
+		var harness = await StartAsync(fs, "/repo",
+			SettingsWith("worktree.setupCommand = \"pnpm install\"\ntest.profile = '[]'"));
+
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task LegacyWorktreeDismissal_AlsoSilencesWorkspaceSetup() {
+		// A user who dismissed the old worktree-only card forever isn't re-nagged by its successor.
+		var fs = SeedFs(("/repo", "package.json"));
+		var dismissals = new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json");
+		dismissals.Add("worktree.setupCommand");
+
+		var harness = await StartAsync(fs, "/repo", EmptySettings(), dismissals);
+
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
 	public async Task Snooze_RemovesFromActiveSet() {
 		var fs = SeedFs(("/repo", "package.json"));
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
-		Assert.Contains(WorktreeId, harness.ActiveIds());
+		Assert.Contains(SetupId, harness.ActiveIds());
 
-		harness.Service.Snooze(WorktreeId);
+		harness.Service.Snooze(SetupId);
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -106,21 +139,21 @@ public sealed class SuggestionServiceTests : IDisposable {
 		var fs = SeedFs(("/repo", "package.json"));
 		var harness = await StartAsync(fs, "/repo", EmptySettings());
 
-		harness.Service.DismissForever(WorktreeId);
+		harness.Service.DismissForever(SetupId);
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
-		Assert.True(harness.Dismissals.IsDismissed(WorktreeId));
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
+		Assert.True(harness.Dismissals.IsDismissed(SetupId));
 	}
 
 	[Fact]
 	public async Task DismissedBeforeStart_NeverOffered() {
 		var fs = SeedFs(("/repo", "package.json"));
 		var dismissals = new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json");
-		dismissals.Add(WorktreeId);
+		dismissals.Add(SetupId);
 
 		var harness = await StartAsync(fs, "/repo", EmptySettings(), dismissals);
 
-		Assert.DoesNotContain(WorktreeId, harness.ActiveIds());
+		Assert.DoesNotContain(SetupId, harness.ActiveIds());
 	}
 
 	[Fact]
@@ -133,7 +166,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 		var harness = await StartAsync(fs, "/repo", EmptySettings(),
 			new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"), TimeSpan.FromMilliseconds(200));
 
-		Assert.Contains(WorktreeId, harness.ActiveIds());
+		Assert.Contains(SetupId, harness.ActiveIds());
 	}
 
 	private static InMemoryFileSystem SeedFs(params (string Dir, string File)[] entries) {

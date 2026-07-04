@@ -73,4 +73,7 @@ public sealed record SuggestionDefinition {
 
 	/// <summary>The action buttons on the card.</summary>
 	public required IReadOnlyList<SuggestionAction> Actions { get; init; }
+
+	/// <summary>Prior ids this suggestion superseded; a persisted "don't ask again" for any of them also dismisses this one, so a renamed card doesn't re-nag users who already dismissed it.</summary>
+	public IReadOnlyList<string> LegacyIds { get; init; } = [];
 }

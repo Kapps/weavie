@@ -41,14 +41,21 @@ function openUrl(url: string): void {
   postToLocalHost({ type: "open-url", url });
 }
 
-// Pushes an xterm ILink for each regex match on one buffer line. `skip` excludes matches that fall inside an
-// already-claimed span (so a URL ending in .ext:line isn't also linked as a file:line).
+// One regex hit within a logical (possibly wrapped) line: its flat char span in that line plus how to open it.
+type LinkMatch = {
+  start: number;
+  end: number;
+  text: string;
+  activate: (matchText: string) => void;
+};
+
+// Records each regex match on the logical-line text. `claimed` excludes matches that fall inside an already-
+// claimed span (so a URL ending in .ext:line isn't also linked as a file:line).
 function collect(
   text: string,
   pattern: RegExp,
-  lineNumber: number,
   activate: (matchText: string) => void,
-  links: ILink[],
+  matches: LinkMatch[],
   claimed: Array<[number, number]>,
 ): void {
   pattern.lastIndex = 0;
@@ -59,15 +66,7 @@ function collect(
       continue;
     }
     claimed.push([start, end]);
-    const matched = match[0];
-    links.push({
-      range: {
-        start: { x: start + 1, y: lineNumber },
-        end: { x: start + 1 + matched.length, y: lineNumber },
-      },
-      text: matched,
-      activate: () => activate(matched),
-    });
+    matches.push({ start, end, text: match[0], activate });
   }
 }
 
@@ -95,19 +94,61 @@ export function wireTerminalLinks(term: Terminal): void {
 
   term.registerLinkProvider({
     provideLinks(lineNumber, callback) {
-      const bufferLine = term.buffer.active.getLine(lineNumber - 1);
-      if (bufferLine === undefined) {
+      const buffer = term.buffer.active;
+      if (buffer.getLine(lineNumber - 1) === undefined) {
         callback(undefined);
         return;
       }
-      const text = bufferLine.translateToString(true);
-      const links: ILink[] = [];
+      // Match the whole soft-wrapped logical line, not just this row: xterm flags each continuation row
+      // isWrapped, and only those are stitched — a real newline (isWrapped=false) is never joined.
+      let startIdx = lineNumber - 1;
+      while (startIdx > 0 && buffer.getLine(startIdx)?.isWrapped) {
+        startIdx--;
+      }
+      // Concatenate every row of the logical line, noting where the queried row's own text sits within it.
+      let text = "";
+      let queryStart = -1;
+      let queryEnd = -1;
+      for (let idx = startIdx; ; idx++) {
+        const line = buffer.getLine(idx);
+        if (line === undefined) {
+          break;
+        }
+        const rowStart = text.length;
+        text += line.translateToString(false);
+        if (idx === lineNumber - 1) {
+          queryStart = rowStart;
+          queryEnd = text.length;
+        }
+        if (!buffer.getLine(idx + 1)?.isWrapped) {
+          break;
+        }
+      }
+      const matches: LinkMatch[] = [];
       const claimed: Array<[number, number]> = [];
-      collect(text, URL_RE, lineNumber, openUrl, links, claimed);
-      collect(text, FILE_LINE, lineNumber, revealFile, links, claimed);
-      collect(text, TOOL_PATH, lineNumber, revealFile, links, claimed);
+      collect(text, URL_RE, openUrl, matches, claimed);
+      collect(text, FILE_LINE, revealFile, matches, claimed);
+      collect(text, TOOL_PATH, revealFile, matches, claimed);
       // Last, so a path already claimed as file:line, a tool path, or inside a URL isn't re-linked bare.
-      collect(text, BARE_PATH, lineNumber, revealFile, links, claimed);
+      collect(text, BARE_PATH, revealFile, matches, claimed);
+      // Emit only the slice of each match that lands on the queried row (a single-row range), but open the
+      // whole matched target — so hovering or clicking any wrapped fragment reveals the complete path/URL.
+      const links: ILink[] = [];
+      for (const match of matches) {
+        const from = Math.max(match.start, queryStart);
+        const to = Math.min(match.end, queryEnd);
+        if (from >= to) {
+          continue;
+        }
+        links.push({
+          range: {
+            start: { x: from - queryStart + 1, y: lineNumber },
+            end: { x: to - queryStart + 1, y: lineNumber },
+          },
+          text: match.text,
+          activate: () => match.activate(match.text),
+        });
+      }
       callback(links.length > 0 ? links : undefined);
     },
   });

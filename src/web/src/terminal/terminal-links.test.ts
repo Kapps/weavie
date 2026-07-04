@@ -18,10 +18,12 @@ vi.mock("../bridge", () => ({
 
 const { wireTerminalLinks } = await import("./terminal-links");
 
-// A minimal xterm stand-in: one buffer line of text, capturing the registered link provider + link handler.
-function fakeTerminal(line: string): {
+// A minimal xterm stand-in over an ordered set of buffer rows. Each row carries isWrapped (true = a soft-wrap
+// continuation of the row above), so the provider's logical-line reconstruction can be exercised. `provide`
+// queries a single buffer row (1-based), mirroring how xterm invokes the provider once per row.
+function fakeTerminal(...rows: Array<{ text: string; isWrapped: boolean }>): {
   term: Terminal;
-  provide: () => ILink[];
+  provide: (row?: number) => ILink[];
   activateOsc: (uri: string) => void;
 } {
   let provider: Parameters<Terminal["registerLinkProvider"]>[0] | undefined;
@@ -29,7 +31,10 @@ function fakeTerminal(line: string): {
     options: {} as Terminal["options"],
     buffer: {
       active: {
-        getLine: (n: number) => (n === 0 ? { translateToString: () => line } : undefined),
+        getLine: (n: number) => {
+          const row = rows[n];
+          return row ? { translateToString: () => row.text, isWrapped: row.isWrapped } : undefined;
+        },
       },
     },
     registerLinkProvider: (p: Parameters<Terminal["registerLinkProvider"]>[0]) => {
@@ -42,9 +47,9 @@ function fakeTerminal(line: string): {
 
   return {
     term,
-    provide: () => {
+    provide: (row = 1) => {
       let links: ILink[] = [];
-      provider?.provideLinks(1, (l) => {
+      provider?.provideLinks(row, (l) => {
         links = l ?? [];
       });
       return links;
@@ -52,6 +57,11 @@ function fakeTerminal(line: string): {
     activateOsc: (uri: string) =>
       term.options.linkHandler?.activate({} as MouseEvent, uri, {} as never),
   };
+}
+
+// The common single-line case: one un-wrapped row.
+function oneLine(line: string): ReturnType<typeof fakeTerminal> {
+  return fakeTerminal({ text: line, isWrapped: false });
 }
 
 beforeEach(() => {
@@ -62,7 +72,7 @@ beforeEach(() => {
 
 describe("auto-link provider", () => {
   it("links a bare file:line and posts reveal-file with the parsed line", () => {
-    const { provide } = fakeTerminal("see src/foo.ts:42 for details");
+    const { provide } = oneLine("see src/foo.ts:42 for details");
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/foo.ts:42");
@@ -71,14 +81,14 @@ describe("auto-link provider", () => {
   });
 
   it("keeps a Windows drive colon in the path, splitting only the trailing :line", () => {
-    const { provide } = fakeTerminal("at C:\\src\\foo.ts:7:3 now");
+    const { provide } = oneLine("at C:\\src\\foo.ts:7:3 now");
     const links = provide();
     links[0]?.activate({} as MouseEvent, links[0].text);
     expect(posted).toContainEqual({ type: "reveal-file", path: "C:\\src\\foo.ts", line: 7 });
   });
 
   it("links a bare URL and posts open-url to the LOCAL host (the browser is the user's, not the backend's)", () => {
-    const { provide } = fakeTerminal("visit https://example.com/x?y=1 today");
+    const { provide } = oneLine("visit https://example.com/x?y=1 today");
     const links = provide();
     expect(links[0]?.text).toBe("https://example.com/x?y=1");
     links[0]?.activate({} as MouseEvent, links[0].text);
@@ -90,7 +100,7 @@ describe("auto-link provider", () => {
     browserShell.value = true;
     const open = vi.fn();
     vi.stubGlobal("window", { open });
-    const { provide } = fakeTerminal("visit https://example.com/ today");
+    const { provide } = oneLine("visit https://example.com/ today");
     provide()[0]?.activate({} as MouseEvent, "https://example.com/");
     expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener");
     expect(postedLocal).toEqual([]);
@@ -98,7 +108,7 @@ describe("auto-link provider", () => {
   });
 
   it("leaves trailing sentence punctuation out of a URL", () => {
-    const { provide } = fakeTerminal(
+    const { provide } = oneLine(
       "PR is up: https://github.com/Kapps/weavie/pull/186. Let me check CI",
     );
     const links = provide();
@@ -107,7 +117,7 @@ describe("auto-link provider", () => {
   });
 
   it("links a bare path (no :line) inside a tool-call wrapper like Edit(...)", () => {
-    const { provide } = fakeTerminal("⏺ Edit(src/web/src/terminal/terminal-links.ts)");
+    const { provide } = oneLine("⏺ Edit(src/web/src/terminal/terminal-links.ts)");
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/web/src/terminal/terminal-links.ts");
@@ -120,7 +130,7 @@ describe("auto-link provider", () => {
   });
 
   it("links a tool-call path with a :line once, at that line", () => {
-    const { provide } = fakeTerminal("⏺ Read(src/foo.ts:42)");
+    const { provide } = oneLine("⏺ Read(src/foo.ts:42)");
     const links = provide();
     expect(links).toHaveLength(1);
     links[0]?.activate({} as MouseEvent, links[0].text);
@@ -128,7 +138,7 @@ describe("auto-link provider", () => {
   });
 
   it("links a URL inside a tool-call wrapper as a URL, not a reveal-file", () => {
-    const { provide } = fakeTerminal("⏺ WebFetch(https://example.com/page.html)");
+    const { provide } = oneLine("⏺ WebFetch(https://example.com/page.html)");
     const links = provide();
     expect(links).toHaveLength(1);
     links[0]?.activate({} as MouseEvent, links[0].text);
@@ -137,11 +147,11 @@ describe("auto-link provider", () => {
   });
 
   it("does not link tool-call args that aren't file paths", () => {
-    expect(fakeTerminal("⏺ Bash(git status)").provide()).toEqual([]);
+    expect(oneLine("⏺ Bash(git status)").provide()).toEqual([]);
   });
 
   it("links a bare path (separator, no :line, no wrapper) and reveals it at line 1", () => {
-    const { provide } = fakeTerminal("wrote src/web/e2e/.recordings/clip.webm just now");
+    const { provide } = oneLine("wrote src/web/e2e/.recordings/clip.webm just now");
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/web/e2e/.recordings/clip.webm");
@@ -154,50 +164,102 @@ describe("auto-link provider", () => {
   });
 
   it("links a rooted bare path, keeping the leading separator", () => {
-    const { provide } = fakeTerminal("see /home/user/notes.md for context");
+    const { provide } = oneLine("see /home/user/notes.md for context");
     const links = provide();
     expect(links[0]?.text).toBe("/home/user/notes.md");
   });
 
   it("does not link a bare path as file:line and again as bare (single link at its line)", () => {
-    const { provide } = fakeTerminal("edit src/foo.ts:42 please");
+    const { provide } = oneLine("edit src/foo.ts:42 please");
     expect(provide()).toHaveLength(1);
   });
 
   it("does not link a dotted word with no separator (Node.js, package.json)", () => {
-    expect(fakeTerminal("built with Node.js; see package.json").provide()).toEqual([]);
+    expect(oneLine("built with Node.js; see package.json").provide()).toEqual([]);
   });
 
   it("does not link a slashed token whose extension starts with a digit (HTTP/1.1)", () => {
-    expect(fakeTerminal("the server speaks HTTP/1.1 here").provide()).toEqual([]);
+    expect(oneLine("the server speaks HTTP/1.1 here").provide()).toEqual([]);
   });
 
   it("does not double-link a URL that ends in a .ext:line-looking path", () => {
     // URLs are claimed first, so the file:line scanner must skip the span already inside the URL.
-    const { provide } = fakeTerminal("https://host/app.js:10");
+    const { provide } = oneLine("https://host/app.js:10");
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("https://host/app.js:10");
   });
 
   it("returns no links for a plain line", () => {
-    expect(fakeTerminal("just some prose here").provide()).toEqual([]);
+    expect(oneLine("just some prose here").provide()).toEqual([]);
+  });
+});
+
+describe("soft-wrapped links", () => {
+  it("reconstructs a file:line split across two wrapped rows; either row opens the full path", () => {
+    const term = fakeTerminal(
+      { text: "src/web/src/terminal/terminal-", isWrapped: false },
+      { text: "links.ts:104:17", isWrapped: true },
+    );
+    const full = "src/web/src/terminal/terminal-links.ts:104:17";
+    for (const row of [1, 2]) {
+      posted.length = 0;
+      const links = term.provide(row);
+      expect(links).toHaveLength(1);
+      expect(links[0]?.text).toBe(full);
+      links[0]?.activate({} as MouseEvent, full);
+      expect(posted).toContainEqual({
+        type: "reveal-file",
+        path: "src/web/src/terminal/terminal-links.ts",
+        line: 104,
+      });
+    }
+  });
+
+  it("reconstructs a URL split across wrapped rows and opens the whole URL", () => {
+    const { provide } = fakeTerminal(
+      { text: "see https://github.com/Kapps/weavie/", isWrapped: false },
+      { text: "pull/186/files now", isWrapped: true },
+    );
+    const links = provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("https://github.com/Kapps/weavie/pull/186/files");
+    links[0]?.activate({} as MouseEvent, links[0].text);
+    expect(postedLocal).toContainEqual({
+      type: "open-url",
+      url: "https://github.com/Kapps/weavie/pull/186/files",
+    });
+  });
+
+  it("stitches only across an isWrapped continuation, never across a real newline", () => {
+    // Neither fragment matches alone ("src/foo" has no extension, ".ts" has no separator); only their join
+    // "src/foo.ts" does. isWrapped=true is one line the terminal reflowed, so it links; isWrapped=false is
+    // two lines the program printed, so it must not be stitched.
+    const rows = [
+      { text: "src/foo", isWrapped: false },
+      { text: ".ts", isWrapped: true },
+    ] as const;
+    expect(fakeTerminal(...rows).provide(1)[0]?.text).toBe("src/foo.ts");
+
+    const broken = fakeTerminal(rows[0], { text: ".ts", isWrapped: false });
+    expect(broken.provide(1)).toEqual([]);
+    expect(broken.provide(2)).toEqual([]);
   });
 });
 
 describe("OSC 8 link handler", () => {
   it("reveals a file:// URI at its line hash", () => {
-    fakeTerminal("").activateOsc("file:///home/user/a.ts#12");
+    oneLine("").activateOsc("file:///home/user/a.ts#12");
     expect(posted).toContainEqual({ type: "reveal-file", path: "/home/user/a.ts", line: 12 });
   });
 
   it("opens an http(s) URI via the LOCAL host", () => {
-    fakeTerminal("").activateOsc("https://example.com/");
+    oneLine("").activateOsc("https://example.com/");
     expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/" });
   });
 
   it("ignores an unparseable URI without posting", () => {
-    fakeTerminal("").activateOsc("not a uri");
+    oneLine("").activateOsc("not a uri");
     expect(posted).toEqual([]);
     expect(postedLocal).toEqual([]);
   });

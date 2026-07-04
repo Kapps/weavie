@@ -1,5 +1,6 @@
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using Weavie.Core.Commands;
 using Weavie.Core.Shell;
@@ -53,6 +54,22 @@ internal sealed partial class WorkspaceWindow {
 		} catch (ExternalException ex) {
 			Console.Error.WriteLine($"[weavie] clipboard read failed: {ex.Message}");
 			return string.Empty;
+		}
+	}
+
+	ClipboardImage IHostPlatform.ReadClipboardImage() {
+		try {
+			using var image = Clipboard.GetImage();
+			if (image is null) {
+				return ClipboardImage.None;
+			}
+
+			using var buffer = new MemoryStream();
+			image.Save(buffer, ImageFormat.Png);
+			return new ClipboardImage("image/png", buffer.ToArray());
+		} catch (ExternalException ex) {
+			Console.Error.WriteLine($"[weavie] clipboard image read failed: {ex.Message}");
+			return ClipboardImage.None;
 		}
 	}
 

@@ -53,6 +53,14 @@ public interface IHostPlatform {
 	string ReadClipboard();
 
 	/// <summary>
+	/// Reads a raster image from the OS clipboard — the claude pane's paste path when the DOM paste event can't
+	/// reach it (a native WebView consumes Ctrl/Cmd+V first). A headless Claude has no clipboard, so the host
+	/// reads the image here and the bytes ride to the backend as a scratch file. <see cref="ClipboardImage.None"/>
+	/// when the clipboard holds no image or the host has none (headless).
+	/// </summary>
+	ClipboardImage ReadClipboardImage();
+
+	/// <summary>
 	/// Opens a URL in the OS default browser — terminal hyperlinks and Claude's OAuth/login flow. No-op where
 	/// unsupported (headless).
 	/// </summary>

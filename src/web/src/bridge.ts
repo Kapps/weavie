@@ -188,6 +188,9 @@ export type HostBoundMessage =
   | { type: "clipboard-write"; text: string }
   // Terminal paste -> read the OS clipboard; the host replies with clipboard-content tagged by `id`.
   | { type: "clipboard-read"; id: string }
+  // Claude-pane paste in a native WebView -> read the OS clipboard as an image (the DOM paste event can't reach
+  // it); the host replies with clipboard-image-content tagged by `id`. Empty reply => paste text instead.
+  | { type: "clipboard-read-image"; id: string }
   // A terminal hyperlink / Claude's OAuth URL -> open in the OS default browser.
   | { type: "open-url"; url: string }
   // The shell child reported its working directory (OSC 7); the host relaunches the shell there on reopen.
@@ -395,6 +398,9 @@ export type WebBoundMessage =
   | { type: "close-diff"; id: string }
   // Reply to clipboard-read (terminal paste), correlated by `id`: the OS clipboard's text ("" when empty).
   | { type: "clipboard-content"; id: string; text: string }
+  // Reply to clipboard-read-image (claude-pane paste), correlated by `id`: the OS clipboard's image (base64 +
+  // MIME), or an empty `mime` when it holds no image.
+  | { type: "clipboard-image-content"; id: string; mime: string; dataB64: string }
   // Host delivers a file to load + reveal (a Monaco working copy, or the media pane for images/video).
   // `preview` ⇒ reusable preview tab, else persistent. `scratch` marks an untitled buffer (New File /
   // restored). No content rides along — the web reads disk through the fs provider.
@@ -725,7 +731,10 @@ function deliverFromHost(raw: string, backendId: string): void {
   }
   // Local-machine pushes (the OS clipboard reply, the native window state) route from the local backend
   // only, whichever backend drives the page; everything else is gated to the active backend.
-  const localMachinePush = parsed.type === "clipboard-content" || parsed.type === "window-state";
+  const localMachinePush =
+    parsed.type === "clipboard-content" ||
+    parsed.type === "clipboard-image-content" ||
+    parsed.type === "window-state";
   if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
     return;
   }

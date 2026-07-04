@@ -69,6 +69,20 @@ internal sealed class LinuxPlatform : IHostPlatform {
 		}
 	}
 
+	public ClipboardImage ReadClipboardImage() {
+		IntPtr clipboard = Gtk.gtk_clipboard_get(Gtk.SelectionClipboard);
+		IntPtr pixbuf = Gtk.gtk_clipboard_wait_for_image(clipboard);
+		if (pixbuf == IntPtr.Zero) {
+			return ClipboardImage.None;
+		}
+
+		try {
+			return GdkPixbuf.EncodePng(pixbuf) is { } bytes ? new ClipboardImage("image/png", bytes) : ClipboardImage.None;
+		} finally {
+			GLib.g_object_unref(pixbuf);
+		}
+	}
+
 	public void OpenExternalUrl(string url) {
 		if (string.IsNullOrEmpty(url)) {
 			return;

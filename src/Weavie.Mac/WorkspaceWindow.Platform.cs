@@ -35,6 +35,11 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 	// The general pasteboard's plain-text UTI; read + write must agree on it.
 	private const string PasteboardTextType = "public.utf8-plain-text";
 
+	// Image UTIs read on a claude-pane paste. A screenshot or Preview copy lands as TIFF; re-encode it to the PNG
+	// claude ingests.
+	private const string PasteboardPngType = "public.png";
+	private const string PasteboardTiffType = "public.tiff";
+
 	// Called on the main thread from OnWebMessage, where NSPasteboard / NSWorkspace are valid.
 	void IHostPlatform.WriteClipboard(string text) {
 		var pasteboard = NSPasteboard.GeneralPasteboard;
@@ -44,6 +49,17 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 
 	string IHostPlatform.ReadClipboard() =>
 		NSPasteboard.GeneralPasteboard.GetStringForType(PasteboardTextType) ?? string.Empty;
+
+	ClipboardImage IHostPlatform.ReadClipboardImage() {
+		var pasteboard = NSPasteboard.GeneralPasteboard;
+		var png = pasteboard.GetDataForType(PasteboardPngType);
+		if (png is null && pasteboard.GetDataForType(PasteboardTiffType) is { } tiff) {
+			using var rep = new NSBitmapImageRep(tiff);
+			png = rep.RepresentationUsingTypeProperties(NSBitmapImageFileType.Png, new NSDictionary());
+		}
+
+		return png is null ? ClipboardImage.None : new ClipboardImage("image/png", png.ToArray());
+	}
 
 	void IHostPlatform.OpenExternalUrl(string url) {
 		if (string.IsNullOrEmpty(url) || NSUrl.FromString(url) is not { } nsUrl) {

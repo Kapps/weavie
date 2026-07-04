@@ -5,8 +5,9 @@ namespace Weavie.Hosting.Tests;
 
 /// <summary>
 /// The update drain gate over a real <see cref="HostCore"/> (docs/specs/runner-auto-update.md): a quiet
-/// host commits immediately; a Working / NeedsInput session or a shell foreground job holds the drain
-/// (pushed as <c>update-pending</c>) until it settles; the commit freezes terminal input and pushes
+/// host commits immediately; a Working / NeedsInput / Waiting session (a pending scheduled wakeup or
+/// background task) or a shell foreground job holds the drain (pushed as <c>update-pending</c>) until it
+/// settles; the commit freezes terminal input and pushes
 /// <c>update-restarting</c>; restart-now skips the gate.
 /// </summary>
 public sealed class HostCoreDrainTests {
@@ -86,6 +87,29 @@ public sealed class HostCoreDrainTests {
 	}
 
 	[Fact]
+	public async Task WaitingSession_HoldsDrain_UntilTheTaskResolves() {
+		// The overnight regression: a session that ended its turn with a pending wakeup ("wait 15m then check CI")
+		// reads Idle to the eye but must hold the update, or the restart kills the pending step.
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest()!;
+		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.Observe(Stop(sessionWillResume: true));
+
+		bool exited = false;
+		host.Core.BeginDrain(() => exited = true);
+
+		Assert.False(exited);
+		var hold = Assert.Single(host.Bridge.LastOfType("update-pending")!.Value.GetProperty("holds").EnumerateArray());
+		Assert.Equal("waiting-on-task", hold.GetProperty("reason").GetString());
+
+		// The wake fires (new turn) and the follow-up ends with nothing pending → genuinely Idle → the gate commits.
+		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.Observe(Stop(sessionWillResume: false));
+		Assert.True(exited);
+		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
+	}
+
+	[Fact]
 	public async Task ReadyMidDrain_RepushesPendingState() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
@@ -147,5 +171,12 @@ public sealed class HostCoreDrainTests {
 		ToolName = "",
 		ToolInputJson = "{}",
 		Message = message,
+	};
+
+	private static HookRequest Stop(bool sessionWillResume) => new() {
+		Event = HookEventKind.Stop,
+		ToolName = "",
+		ToolInputJson = "{}",
+		SessionWillResume = sessionWillResume,
 	};
 }

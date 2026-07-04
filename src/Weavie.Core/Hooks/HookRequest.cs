@@ -41,6 +41,15 @@ public sealed record HookRequest {
 	public string? PermissionMode { get; init; }
 
 	/// <summary>
+	/// For a <see cref="HookEventKind.Stop"/> event: whether the session will resume itself after this turn — a
+	/// pending one-shot scheduled wakeup (a <c>session_crons</c> entry with <c>recurring:false</c>, from
+	/// ScheduleWakeup / a dynamic loop) or an in-flight <c>background_tasks</c> entry. Idle to the eye but not
+	/// done, so the update drain holds for it (a restart would kill the pending step). A recurring cron is
+	/// excluded — a standing routine would hold the update forever. Always false on other events.
+	/// </summary>
+	public bool SessionWillResume { get; init; }
+
+	/// <summary>
 	/// Parses a hook stdin payload. Returns <see langword="null"/> for malformed JSON or a tool event missing
 	/// its tool name (treated as "no opinion"). Non-tool events parse with an empty tool name.
 	/// </summary>
@@ -78,6 +87,7 @@ public sealed record HookRequest {
 				Source = GetString(root, "source"),
 				Cwd = GetString(root, "cwd"),
 				PermissionMode = GetString(root, "permission_mode"),
+				SessionWillResume = evt == HookEventKind.Stop && StopHasPendingResumption(root),
 			};
 		} catch (JsonException) {
 			return null;
@@ -97,4 +107,27 @@ public sealed record HookRequest {
 
 	private static string? GetString(JsonElement obj, string name) =>
 		obj.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+	// A Stop payload lists the session's in-flight background tasks and scheduled crons (both present, empty when
+	// none). The session resumes itself if a background task is still in flight, or a one-shot wakeup is pending;
+	// a recurring cron is a standing routine that would never clear the hold, so it doesn't count.
+	private static bool StopHasPendingResumption(JsonElement root) =>
+		HasEntry(root, "background_tasks", static _ => true)
+		|| HasEntry(root, "session_crons",
+			static cron => !cron.TryGetProperty("recurring", out var recurring) || recurring.ValueKind != JsonValueKind.True);
+
+	// True when <paramref name="property"/> is an array holding at least one object element matching <paramref name="match"/>.
+	private static bool HasEntry(JsonElement root, string property, Func<JsonElement, bool> match) {
+		if (!root.TryGetProperty(property, out var array) || array.ValueKind != JsonValueKind.Array) {
+			return false;
+		}
+
+		foreach (var entry in array.EnumerateArray()) {
+			if (entry.ValueKind == JsonValueKind.Object && match(entry)) {
+				return true;
+			}
+		}
+
+		return false;
+	}
 }

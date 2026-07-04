@@ -141,18 +141,28 @@ across the swap.
      commit, resumes input, and returns to pending. The residual race is bounded by hook latency
      at the commit instant — accepted and stated, not papered over.
 
-   The gate is: **no session `Working` or `NeedsInput`** (a pending permission prompt whose
-   in-flight tool call a kill would discard), **and no shell pane with a foreground job**
-   (`tcgetpgrp` on the pane's PTY differs from the shell's own process group). The shell condition
-   exists because unattended is the normal case: killing a dev server or build left running in a
-   pane at 3am is silent destruction no pending-UI warning excuses. An idle prompt drains; a
-   running job holds the update, named in the indicator. Notes on the gate:
+   The gate is: **no session `Working`, `NeedsInput`, or `Waiting`** — `Working`/`NeedsInput` is an
+   in-flight turn or a pending permission prompt whose tool call a kill would discard; `Waiting` is a
+   turn that *ended* but armed a self-continuation that a restart would destroy (see below) — **and no
+   shell pane with a foreground job** (`tcgetpgrp` on the pane's PTY differs from the shell's own
+   process group). The shell condition exists because unattended is the normal case: killing a dev
+   server or build left running in a pane at 3am is silent destruction no pending-UI warning excuses.
+   A genuinely idle prompt drains; a *waiting* session or a running job holds the update, named in the
+   indicator. Notes on the gate:
    - There is no aggregate today — `SessionStatusMachine` is per-session and the loaded-session
      set is private to `HostCore`. The gate is a new Core-owned seam (all hosts get it). The
      foreground-job check is a small PTY-shim addition.
    - `Starting` **drains**: it's the machine's initial state (a claude pane with no activity yet —
      including a worker no client has connected to, which sits at `Starting` indefinitely), has no
      in-flight turn, and resumes deterministically.
+   - `Waiting` **holds**: a turn that ends with a pending one-shot scheduled wakeup or an in-flight
+     background task looks `Idle` but will resume itself, and a restart kills the pending step (the
+     motivating incident: an overnight "wait 15m then check CI" loop restarted away, and — nothing
+     connected to resume it — a night of progress was lost). `SessionStatusMachine` reads it straight
+     from the `Stop` hook's two registries: a `session_crons` entry with `recurring:false` (a one-shot
+     wakeup; `ScheduleWakeup` / a dynamic loop) or any in-flight `background_tasks` entry. A
+     `recurring:true` cron is **excluded** — a standing routine survives the restart and would hold the
+     update forever. `Waiting` clears the instant a turn ends with those registries empty.
    - **Background shell jobs** (`&`, `nohup`) are invisible to the foreground check and die at
      restart; the pending indicator says so.
 4. **Restart**: the runner sees the clean exit and respawns the same `WorkspaceBackend` from the
@@ -216,7 +226,8 @@ Per the no-silent-fallback rule, every update state the user could care about is
 user is:
 
 - *Update pending — waiting on <the busy thing>* (a working session, an open permission prompt, a
-  foreground shell job; background jobs will be terminated) — a passive indicator in the web UI
+  session waiting on a scheduled task, a foreground shell job; background jobs will be terminated) —
+  a passive indicator in the web UI
   with a *restart now* action. Updates never require confirmation: the indicator informs, and
   restart-now accelerates. Restart-now is a **command** (palette + default keybinding + advertised
   on the button, per the commands standard), not a bespoke button.

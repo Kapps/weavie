@@ -52,4 +52,9 @@ describe("claudeStatus host sync", () => {
     deliver({ type: "session-status", session: "shell", status: "idle" }, "local");
     expect(store.claudeStatus()).toBe("needsInput");
   });
+
+  it("adopts the waiting status (idle but resuming on a scheduled task)", () => {
+    deliver({ type: "session-status", session: "claude", status: "waiting" }, "local");
+    expect(store.claudeStatus()).toBe("waiting");
+  });
 });

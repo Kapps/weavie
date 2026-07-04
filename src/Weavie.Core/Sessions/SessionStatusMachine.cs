@@ -36,7 +36,9 @@ public sealed class SessionStatusMachine {
 			// The tool ran — in particular, the user approved its permission prompt — so the turn is live again.
 			HookEventKind.PostToolUse => SessionStatus.Working,
 			HookEventKind.Notification => ClassifyNotification(request, current),
-			HookEventKind.Stop => SessionStatus.Idle,
+			// A turn ending with a pending wakeup / in-flight background task is idle-but-not-done: it will
+			// resume itself, so it settles to Waiting (which holds the update drain) rather than Idle.
+			HookEventKind.Stop => request.SessionWillResume ? SessionStatus.Waiting : SessionStatus.Idle,
 			// A mid-turn auto-compact also fires SessionStart (source=compact); only the other sources
 			// (startup/resume/clear) mean claude is up and waiting.
 			HookEventKind.SessionStart when request.Source != "compact" => SessionStatus.Idle,

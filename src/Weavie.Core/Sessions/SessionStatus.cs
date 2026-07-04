@@ -17,6 +17,14 @@ public enum SessionStatus {
 	/// <summary>The last turn ended; Claude is idle and waiting (calm — fades to neutral in the UI).</summary>
 	Idle,
 
+	/// <summary>
+	/// The last turn ended, but the session will resume itself: it armed a self-continuation (a scheduled
+	/// wakeup or a detached background task) that hasn't fired yet. Idle to the eye, but not done — the update
+	/// drain holds for it so an auto-update never restarts away a pending overnight step. See
+	/// docs/specs/runner-auto-update.md.
+	/// </summary>
+	Waiting,
+
 	/// <summary>Claude's process crashed or crash-looped (reported by the supervisor).</summary>
 	Error,
 }

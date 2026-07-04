@@ -86,6 +86,65 @@ public sealed class HookRequestTests {
 		Assert.NotNull(request);
 		Assert.Equal(HookEventKind.Stop, request!.Event);
 		Assert.Equal(string.Empty, request.ToolName);
+		// No task registry in the payload → nothing pending.
+		Assert.False(request.SessionWillResume);
+	}
+
+	[Fact]
+	public void Parse_Stop_EmptyRegistries_SessionWillNotResume() {
+		var request = HookRequest.Parse("""{"hook_event_name":"Stop","background_tasks":[],"session_crons":[]}""");
+
+		Assert.NotNull(request);
+		Assert.False(request!.SessionWillResume);
+	}
+
+	[Fact]
+	public void Parse_Stop_OneShotWakeup_SessionWillResume() {
+		// A dynamic loop / ScheduleWakeup arms a one-shot cron (recurring:false) — the overnight-loss case.
+		var request = HookRequest.Parse(
+			"""{"hook_event_name":"Stop","session_crons":[{"id":"c1","recurring":false,"prompt":"check CI"}]}""");
+
+		Assert.NotNull(request);
+		Assert.True(request!.SessionWillResume);
+	}
+
+	[Fact]
+	public void Parse_Stop_RecurringCronOnly_SessionWillNotResume() {
+		// A standing recurring routine survives a restart and would hold the update forever — it must not count.
+		var request = HookRequest.Parse(
+			"""{"hook_event_name":"Stop","session_crons":[{"id":"c1","recurring":true,"schedule":"0 9 * * 1-5"}]}""");
+
+		Assert.NotNull(request);
+		Assert.False(request!.SessionWillResume);
+	}
+
+	[Fact]
+	public void Parse_Stop_RunningBackgroundTask_SessionWillResume() {
+		var request = HookRequest.Parse(
+			"""{"hook_event_name":"Stop","background_tasks":[{"id":"t1","status":"running","command":"sleep 900"}]}""");
+
+		Assert.NotNull(request);
+		Assert.True(request!.SessionWillResume);
+	}
+
+	[Fact]
+	public void Parse_Stop_RecurringCronPlusOneShot_SessionWillResume() {
+		// Mixed registry: the one-shot entry still holds even alongside a standing recurring routine.
+		var request = HookRequest.Parse(
+			"""{"hook_event_name":"Stop","session_crons":[{"recurring":true},{"recurring":false}]}""");
+
+		Assert.NotNull(request);
+		Assert.True(request!.SessionWillResume);
+	}
+
+	[Fact]
+	public void Parse_NonStopEvent_IgnoresRegistries() {
+		// The registries only mean "will resume" at turn end; a mid-turn tool event carrying them says nothing.
+		var request = HookRequest.Parse(
+			"""{"hook_event_name":"PostToolUse","tool_name":"Bash","session_crons":[{"recurring":false}]}""");
+
+		Assert.NotNull(request);
+		Assert.False(request!.SessionWillResume);
 	}
 
 	[Fact]

@@ -29,7 +29,14 @@ export type TermSession = "claude" | "shell";
 
 // The live state of a session's embedded Claude, derived host-side from its hook stream + process
 // supervisor.
-export type SessionStatusName = "starting" | "working" | "needsInput" | "idle" | "error";
+export type SessionStatusName =
+  | "starting"
+  | "working"
+  | "needsInput"
+  | "idle"
+  // Idle but self-resuming: a scheduled wakeup / background task is pending (holds the update drain).
+  | "waiting"
+  | "error";
 
 // One session's rail chip (host-pushed in session-list). `hue`/`monogram` are derived deterministically
 // from the branch so a session looks the same across restarts. `loaded` is false for a dormant worktree
@@ -521,7 +528,10 @@ export type WebBoundMessage =
   // (re-pushed on every change, and on `ready` for a tab that connected mid-drain)…
   | {
       type: "update-pending";
-      holds: { session: string; reason: "working" | "needs-input" | "shell-job" }[];
+      holds: {
+        session: string;
+        reason: "working" | "needs-input" | "shell-job" | "waiting-on-task";
+      }[];
     }
   // …and the moment the restart commits: input is frozen host-side and the worker is about to exit;
   // the page shows the blocking "Updating…" overlay until the new worker is back.

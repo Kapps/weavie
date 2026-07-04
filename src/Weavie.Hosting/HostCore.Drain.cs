@@ -4,8 +4,9 @@ using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting;
 
-// The update drain gate: BeginDrain holds until no session is Working/NeedsInput and no shell pane
-// runs a foreground job, then freezes terminal input, tells the page it's restarting, and invokes
+// The update drain gate: BeginDrain holds until no session is Working/NeedsInput/Waiting (a pending
+// scheduled wakeup or background task) and no shell pane runs a foreground job, then freezes terminal
+// input, tells the page it's restarting, and invokes
 // the exit callback. There is deliberately NO drain timeout — a busy box holds the update until
 // quiet, and only the user's explicit restart-now overrides. See docs/specs/runner-auto-update.md.
 public sealed partial class HostCore {
@@ -146,6 +147,10 @@ public sealed partial class HostCore {
 					break;
 				case SessionStatus.NeedsInput:
 					holds.Add((label, "needs-input"));
+					break;
+				// Idle to the eye, but a scheduled wakeup / background task is pending — restarting would kill it.
+				case SessionStatus.Waiting:
+					holds.Add((label, "waiting-on-task"));
 					break;
 				default:
 					break;

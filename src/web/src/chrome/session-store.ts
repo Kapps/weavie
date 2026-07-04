@@ -150,9 +150,12 @@ export const remoteAgentRows = createMemo<RemoteAgentRow[]>(() => {
   return [...online, ...offline];
 });
 
-/** Whether any remote session is mid-turn or awaiting input — flags the cloud button so off-rail work is visible. */
+/** Whether any remote session is mid-turn, awaiting input, or waiting on a task — flags the cloud button so off-rail work is visible. */
 export const remoteActivity = createMemo<boolean>(() =>
-  merged().some((s) => !s.isLocal && (s.status === "working" || s.status === "needsInput")),
+  merged().some(
+    (s) =>
+      !s.isLocal && (s.status === "working" || s.status === "needsInput" || s.status === "waiting"),
+  ),
 );
 
 /** The active session's Claude status for the pane footer, or undefined until the first push. */
@@ -164,6 +167,7 @@ export const STATUS_LABEL: Record<SessionStatusName, string> = {
   working: "Claude is working",
   needsInput: "Claude needs your input",
   idle: "Claude is idle",
+  waiting: "Claude is waiting on a scheduled task",
   error: "Claude crashed",
 };
 
@@ -173,5 +177,6 @@ export const STATUS_SHORT: Record<SessionStatusName, string> = {
   working: "Working",
   needsInput: "Needs input",
   idle: "Idle",
+  waiting: "Waiting",
   error: "Crashed",
 };

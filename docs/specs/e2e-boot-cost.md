@@ -19,6 +19,10 @@ resized both items:
     on CI-like CPU). The editor still comes up right after (editor-ready unchanged at ~1.1s/~3.4s).
   - Shipped as Item B below. Half the suite (non-editor journeys) proceeds ~2s earlier on throttled
     CI; editor journeys are unchanged (their helpers now wait on a new `data-ready` signal).
+  - Liveness: the terminal paint is the reveal trigger, but a launch with zero loaded terminals (an
+    all-dormant restore, an offline remote backend) never paints one — so the editor also comes up
+    once the host's session state has arrived with no active-backend terminal (and on becoming
+    visible, for a window occluded at launch). That path reveals at editor-ready, exactly as before.
   - **Local unthrottled suite wall-time was unchanged (37.3s vs 37.4s at 50% workers on 24 cores)** —
     honest: with spare cores the eval was already hidden. The win is real only under CPU contention
     (CI 4-vCPU, serial macOS/Windows) and as the product reveal-latency win. CI is the true measure.

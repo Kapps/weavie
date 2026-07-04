@@ -1102,8 +1102,9 @@ export default function App(): JSX.Element {
             {(holds) => (
               <output class="update-banner">
                 <span>
-                  Update pending — waiting on {holds.map(updateHoldText).join(", ")}. Background
-                  shell jobs will be terminated at restart.
+                  Update pending — waiting on {holds.map(updateHoldText).join(", ")}. Applying it
+                  restarts the whole workspace: every session briefly reloads and returns as it was
+                  (conversations are kept); background shell jobs are terminated.
                 </span>
                 <button
                   type="button"

@@ -26,7 +26,7 @@ export function UpdateOverlay(): JSX.Element {
           }}
         >
           <span class="connection-spinner" aria-hidden="true" />
-          <span>Updating Weavie…</span>
+          <span>Updating Weavie — your sessions will reload…</span>
         </div>
       </div>
     </Portal>

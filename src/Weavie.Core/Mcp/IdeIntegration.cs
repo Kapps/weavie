@@ -124,14 +124,16 @@ public sealed class IdeIntegration : IAsyncDisposable {
 
 	/// <summary>
 	/// Writes the spawned claude's <c>--settings</c> file (a <c>hooks</c> block routing the permission gate +
-	/// change-tracking hooks to the co-located relay) and returns its path. Throws if the relay is missing —
-	/// no fallback, so a build that failed to co-locate it surfaces loudly.
+	/// change-tracking hooks to the standalone relay) and returns its path. Throws if the relay is missing —
+	/// no fallback, so a build that failed to produce it surfaces loudly.
 	/// </summary>
 	public string WriteSettingsFile() {
-		string relay = ResolveRelayBinary()
-			?? throw new InvalidOperationException(
-				$"Hook relay '{RelayBinaryName}' was not found next to the app at '{AppContext.BaseDirectory}'. "
+		string relay = RelayBinaryPath();
+		if (!File.Exists(relay)) {
+			throw new InvalidOperationException(
+				$"Hook relay '{RelayBinaryName}' was not found at '{relay}'. "
 				+ "The build co-locates it (see HookRelay.targets); a Release build requires the NativeAOT C++ toolchain.");
+		}
 
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
@@ -144,13 +146,14 @@ public sealed class IdeIntegration : IAsyncDisposable {
 	private static string RelayBinaryName => OperatingSystem.IsWindows() ? "weavie-hook-relay.exe" : "weavie-hook-relay";
 
 	/// <summary>
-	/// The hook-relay executable co-located with the app (resolved against <see cref="AppContext.BaseDirectory"/>),
-	/// or <see langword="null"/> when absent. No fallback; the caller fails loudly on null.
+	/// Where the hook-relay executable should be, to bake into the settings file (existence is the caller's to
+	/// check). A runner-managed worker resolves it through the <c>current</c> symlink so the baked path survives
+	/// version-dir pruning (<see cref="ManagedRunnerLayout.CurrentRelayPath"/>); every other host uses the relay
+	/// co-located with the app (<see cref="AppContext.BaseDirectory"/>).
 	/// </summary>
-	private static string? ResolveRelayBinary() {
-		string candidate = Path.Combine(AppContext.BaseDirectory, RelayBinaryName);
-		return File.Exists(candidate) ? candidate : null;
-	}
+	private static string RelayBinaryPath() =>
+		ManagedRunnerLayout.CurrentRelayPath(AppContext.BaseDirectory, RelayBinaryName)
+		?? Path.Combine(AppContext.BaseDirectory, RelayBinaryName);
 
 	/// <summary>
 	/// Writes the <c>--append-system-prompt-file</c> appendix (<see cref="EmbeddedClaudeGuidance"/>) and returns

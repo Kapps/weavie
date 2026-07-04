@@ -1,6 +1,7 @@
 using System.Formats.Tar;
 using System.IO.Compression;
 using System.Text.Json;
+using Weavie.Core;
 
 namespace Weavie.Runner;
 
@@ -39,7 +40,7 @@ public sealed class VersionStore {
 	/// </summary>
 	public static VersionStore Open(Action<string> log) {
 		ArgumentNullException.ThrowIfNull(log);
-		string root = LayoutRootContaining(AppContext.BaseDirectory)
+		string root = ManagedRunnerLayout.RootContaining(AppContext.BaseDirectory)
 			?? Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".weavie", "runner");
 		return OpenAt(root, log);
 	}
@@ -197,7 +198,7 @@ public sealed class VersionStore {
 			keep.Add(VersionDir(good));
 		}
 
-		if (LayoutRootContaining(AppContext.BaseDirectory) is not null) {
+		if (ManagedRunnerLayout.RootContaining(AppContext.BaseDirectory) is not null) {
 			// The runner itself executes from a version dir; never delete the code we're running.
 			keep.Add(Path.TrimEndingDirectorySeparator(Path.GetFullPath(Path.Combine(AppContext.BaseDirectory))));
 		}
@@ -247,18 +248,6 @@ public sealed class VersionStore {
 			new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
 			?? throw new InvalidDataException("bundle manifest.json is empty");
 		return (manifest, versionDir);
-	}
-
-	/// <summary>The layout root when <paramref name="dir"/> sits inside a <c>versions/&lt;build&gt;/</c> tree, else null.</summary>
-	internal static string? LayoutRootContaining(string dir) {
-		var info = new DirectoryInfo(Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)));
-		for (var d = info; d?.Parent is { } parent; d = parent) {
-			if (parent.Name == "versions" && int.TryParse(d.Name, out _)) {
-				return parent.Parent?.FullName;
-			}
-		}
-
-		return null;
 	}
 
 	private sealed record StateFile {

@@ -82,6 +82,16 @@ public sealed partial class HostCore {
 		}
 	}
 
+	/// <summary>The page-bootstrap fragment seeding <c>window.__WEAVIE_TEST_PROFILE__</c> with this workspace's raw test.profile (empty when unset).</summary>
+	public string BuildTestProfileScript() =>
+		"window.__WEAVIE_TEST_PROFILE__ = " + JsonSerializer.Serialize(ResolvedTestProfile()) + ";";
+
+	// Re-push the workspace's test profile so the page's lens provider refreshes (fired on a test.profile change).
+	private void PushTestProfileToWeb() =>
+		_bridge.PostToWeb("{\"type\":\"test-profile\",\"profile\":" + JsonSerializer.Serialize(ResolvedTestProfile()) + "}");
+
+	private string ResolvedTestProfile() => _settings.Resolve(TestSettings.Profile, WorkspaceRoot).Value as string ?? string.Empty;
+
 	// POSIX single-quoting for everything except PowerShell / cmd.exe, which get the '' -doubling treatment.
 	private ShellQuoting ShellQuotingForShell() {
 		string shell = _settings.GetString("terminal.shell") ?? string.Empty;

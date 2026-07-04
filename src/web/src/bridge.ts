@@ -421,6 +421,9 @@ export type WebBoundMessage =
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
+  // Host pushes the workspace's test profile (raw test.profile JSON, "" when unconfigured) so the run-lens
+  // provider refreshes; injected pre-nav as window.__WEAVIE_TEST_PROFILE__ and re-pushed on change.
+  | { type: "test-profile"; profile: string }
   // Host pushes the appearance mode + both polarities' themes, so the web resolves `system` against the live
   // OS setting and switches light↔dark instantly. Re-themes editor, terminal, chrome live.
   | { type: "theme"; mode: ThemeMode; light: ThemeSlot; dark: ThemeSlot }

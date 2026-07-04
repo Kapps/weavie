@@ -231,6 +231,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};"
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
+			+ BuildTestProfileScript()
 			+ $"window.__WEAVIE_COMMANDS__ = {_keybindings.BuildCommandsJson()};"
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
@@ -270,6 +271,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			// Setting worktree.setupCommand makes the worktree-setup card vanish; re-evaluate the suggestions.
 			if (change.Key == "worktree.setupCommand") {
 				_suggestions?.Evaluate();
+			}
+
+			// A changed test profile re-pushes it so the page's run lenses refresh in place.
+			if (change.Key == Weavie.Core.Configuration.TestSettings.Profile) {
+				PushTestProfileToWeb();
 			}
 		};
 		_settings.SettingChanged += _onSettingChanged;

@@ -13,6 +13,7 @@ import {
 } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
+import { installTestLenses } from "../tests/test-lens";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
@@ -133,6 +134,10 @@ export async function createEditorHost(
   // document of its language is open. Fire-and-forget: services are already up here (we just awaited them), so
   // its internal initEditorServices() await resolves at once.
   void startLanguageServices();
+
+  // Run-test lenses on test files (fed by LSP document symbols + the workspace test profile). Idempotent —
+  // guarded against a second install across a hot reload.
+  installTestLenses();
 
   // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
   // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.

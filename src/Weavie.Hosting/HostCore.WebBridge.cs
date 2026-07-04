@@ -325,6 +325,9 @@ public sealed partial class HostCore {
 					PushLspConfigToWeb(lspSession);
 				}
 
+				// Re-seed the test profile so a reconnecting tab's run lenses reflect any change made while it was down.
+				PushTestProfileToWeb();
+
 				// Terminal output posted while the link was down never reached the page: re-sync every loaded
 				// session's panes (replay the shell's log, nudge claude's TUI) — see TerminalController.ResyncPane.
 				foreach (var slot in _sessions?.Slots ?? []) {

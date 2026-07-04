@@ -111,6 +111,7 @@ import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
 import { TerminalView } from "./terminal/TerminalView";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
+import { runTestAtCursor } from "./tests/test-lens";
 import { applyChromeTheme } from "./theme";
 
 const FileBrowser = lazy(() => import("./files/FileBrowser"));
@@ -910,6 +911,10 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.saveFile, () => editor.save()),
       registerCommand(CommandIds.toggleEditorPreview, () => toggleActivePreview()),
       registerCommand(CommandIds.zoomEmbed, () => zoomActiveEmbed()),
+      registerCommand(CommandIds.runTestAtCursor, () => {
+        void runTestAtCursor();
+        return true;
+      }),
       // Open Folder (reuses the local host's native picker via the existing menu-action) + Open URL (opens a web tab).
       registerCommand(CommandIds.openFolder, () => {
         postToLocalHost({ type: "menu-action", action: "open-folder" });

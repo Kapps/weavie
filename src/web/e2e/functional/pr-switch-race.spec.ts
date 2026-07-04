@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { awaitNavigatorOn, collectChangedFiles } from "../harness/navigator";
+import { awaitReviewSet, collectChangedFiles } from "../harness/navigator";
 
 // Race probe: each PR session carries its own ref-seeded change tracker, and a switch-in re-surfaces the active
 // session's review synchronously from that persisted tracker (no per-switch git diff to race). A rapid
@@ -40,12 +40,13 @@ test("S2-race: rapid PR->PR->PR switching never leaves the wrong PR's files on s
     await page.locator(chips).nth(2).click();
     await page.locator(chips).nth(1).click();
   }
-  // We end on #101 (chip[1]). The settle signal is the navigator binding one of #101's files — the toolbar
-  // alone can still be the outgoing PR's until the final pr-changes lands.
+  // We end on #101 (chip[1]). Settle on the review SET, not just the toolbar or the navigator label: the
+  // storm's per-switch pushes settle asynchronously, so the label can already read a #101 file while the set
+  // is still mid-swap from #102 — walking then records a transient #102 file (the historical flake).
   await expect(page.locator(chips).nth(1)).toHaveClass(/\bactive\b/);
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 15_000 });
-  await awaitNavigatorOn(page, ["feature.ts", "hello.ts"]);
+  await awaitReviewSet(page, ["feature.ts", "hello.ts"]);
 
-  // The settled navigator on #101 must contain ONLY #101's files (exact set ⇒ no leak from #102).
+  // With the set settled, the ← / → walk must surface ONLY #101's files (exact set ⇒ no leak from #102).
   expect([...(await collectChangedFiles(page))].sort()).toEqual(["feature.ts", "hello.ts"]);
 });

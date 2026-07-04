@@ -59,24 +59,27 @@ S3/diff-against failure will show definitively whether `.editor` is `Wx0` (layou
 flex/pane-slot chain or the boot ordering) or full-size with `monaco` at `Wx5` (a Monaco
 non-recovery — force an explicit `layout()`). Until that datum exists, a "fix" is a guess.
 
-## Suspected root cause: #1 (S2-race) — the review-walk set leaks a cross-PR file
+## CONFIRMED + FIXED: #1 (S2-race) — a test walk-race, not a product bug
 
 **Symptom:** after a PR→PR→PR switch storm settling on #101 (files `feature.ts`, `hello.ts`),
-`collectChangedFiles` returns `[feature.ts, notes.txt]` — `notes.txt` is **#102's** file. The editor
-is healthy (742×709), no buffer error — a pure state race, not the 5px issue.
+`collectChangedFiles` returned `[feature.ts, hello.ts, notes.txt]` — `notes.txt` is **#102's** file.
 
-**What's ruled out (static):** the host only pushes `turn-changes` for the active `_session`
-(gated on `IsActiveSession`); `SwitchToSlot` is synchronous, so switch pushes are ordered; the web's
-`setReviewFiles` is a **full replace** (`reviewFiles = files`), so the web can't fabricate a mix by
-merging. Each PR session has its own worktree + `SessionChangeTracker`, and `_diffReviews` is keyed by
-`WorkspaceRoot`. By all of that the final set should be #101's `[feature.ts, hello.ts]`. It isn't.
+**Root cause (from the forensics, Windows run 28699904571):** at failure time the editor was healthy
+(742×709), `console-errors.txt` was empty, and — decisively — the new `__WEAVIE_REVIEW__` attachment
+showed the web's live `reviewFiles` was **already the correct `[feature.ts, hello.ts]` (label "PR #101")**.
+So the host did **not** push a mixed set and the final state is correct. The defect was in the test:
+`collectChangedFiles` walks the navigator over ~2 s (focus + `Ctrl+→` per file), and the storm's
+per-switch pushes settle asynchronously — so the navigator *label* can already read a #101 file
+(`awaitNavigatorOn` passes) while the *set* is still mid-swap, and the walk steps onto a transient #102
+file before the set converges, recording it. A rapid 12-click storm legitimately flickers through
+intermediate sets; only the settled state is the contract.
 
-**The missing datum:** whether the web's live `reviewFiles` is genuinely `[feature.ts, notes.txt]`
-(⇒ the host pushed a mixed set — a tracker/arm race worth chasing in `HostCore.DiffReviews` /
-`SessionChangeTracker`) or whether the collection **walk** raced a still-settling set (⇒ the test's
-settle signal `awaitNavigatorOn` is insufficient). To capture it, `window.__WEAVIE_REVIEW__`
-(`{files, label}`) is now published by the editor controller and attached on failure via
-`viewport-layout.json`'s `review` field. The next S2-race failure will decide host-bug vs test-race.
+**Fix:** gate the walk on the actual set. `awaitReviewSet(page, [...])` polls `__WEAVIE_REVIEW__.files`
+(by basename) until it equals the expected set, then `collectChangedFiles` runs against stable data.
+Not masking: a *permanent* leak never settles ⇒ the poll times out ⇒ the test still fails. Applied to
+`pr-switch-race.spec.ts` and `pr-two-sessions.spec.ts` (same pattern, same latent race); the too-early
+`awaitNavigatorOn` (label-only settle) was removed. This is the payoff of the forensics — the missing
+datum turned a suspected host bug into a confirmed one-line test-settle fix.
 
 ## #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
 

@@ -95,14 +95,23 @@ export async function collectChangedFiles(page: Page): Promise<Set<string>> {
   return seen;
 }
 
-// Wait until the navigator has bound the INCOMING PR's diff after a session switch — its stack label shows
-// one of that PR's files (a PR/ref review re-surfaces its first changed file on switch-in). The toolbar alone
-// is not a settle signal: right after the switch the OUTGOING session's toolbar is still on screen until the
-// incoming review re-surfaces, and walking then collects the wrong PR's files.
-export async function awaitNavigatorOn(page: Page, files: string[]): Promise<void> {
+// Wait until the review-walk file SET (not just the current label) has settled to exactly `files` (by
+// basename). After a rapid switch storm the host's per-switch pushes settle asynchronously, so the navigator
+// label can already read the incoming PR's first file while the set is still mid-swap — walking it then steps
+// onto a file from the other PR that is about to be replaced (a transient), and records it. Reads the editor's
+// live reviewFiles via the __WEAVIE_REVIEW__ diagnostics hook — the exact set the ← / → walk traverses — so
+// the walk runs only once the data is stable. A set that never settles still fails (a real cross-PR leak).
+export async function awaitReviewSet(page: Page, files: string[]): Promise<void> {
+  const want = [...files].sort();
   await expect
-    .poll(async () => files.includes(await currentFile(page)), { timeout: 15_000 })
-    .toBe(true);
+    .poll(
+      async () => {
+        const paths = await page.evaluate(() => window.__WEAVIE_REVIEW__?.files ?? null);
+        return paths === null ? null : paths.map((p) => p.split(/[\\/]/).pop() ?? p).sort();
+      },
+      { timeout: 15_000 },
+    )
+    .toEqual(want);
 }
 
 // Walk the navigator forward until `target` is in view, then assert it arrived. Replaces the per-step

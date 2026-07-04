@@ -85,9 +85,15 @@ the WRONG set, which never equals `want`, so the poll times out and the test sti
 > once). It still flaked — the forensics on the re-fail again showed the editor healthy and the settled
 > set correct, so the walk had again caught a transient. The storm's 12 rapid clicks queue faster than
 > the host drains them, so the set bounces through intermediate #101 states; a momentary match landed on
-> one *before* the last switch's push, and the ~2s walk overlapped the remaining drain. Quiescence
-> (holding the set stable across ~12 reads) waits for the drain to finish. Lesson: after a *burst*, the
-> settle signal must be steady-state, not first-match.
+> one *before* the last switch's push, and the ~2s walk overlapped the remaining drain. The settle signal
+> after a *burst* must be steady-state, not first-match.
+>
+> **Hardening (third cycle):** list-comparison quiescence still poll-*samples* — a fast bounce can
+> round-trip between two ~100ms reads and be missed. So `__WEAVIE_REVIEW__` now carries a monotonic `rev`
+> that bumps on every change; `awaitReviewSet` waits for `rev` to stop advancing (and `files` to match),
+> which cannot miss a bounce. Note this flake was **not reproducible locally even at 10× CPU throttle +
+> oversubscription** — it is purely a slow-hosted-Windows-runner timing artifact, so the fix is validated
+> by soaking across Windows CI re-runs, not locally.
 
 ## #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
 

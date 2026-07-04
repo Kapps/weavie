@@ -95,34 +95,34 @@ export async function collectChangedFiles(page: Page): Promise<Set<string>> {
   return seen;
 }
 
-// Number of consecutive stable reads awaitReviewSet requires. A rapid switch storm's per-switch pushes
-// drain back-to-back (each switch fires its turn-changes synchronously), so the set bounces at sub-100ms
-// spacing while draining; requiring the target set to hold across this many ~100ms reads means the last
-// switch's push has landed and nothing follows. Comfortably longer than the inter-bounce gap, short enough
-// to keep the (already `test.slow`) PR-switch specs reasonable.
-const REVIEW_QUIESCE_READS = 12;
+// Consecutive unchanged-revision reads awaitReviewSet requires before it trusts the set. Each read is
+// ~100ms; the review set's monotonic `rev` bumps on every change, so this many reads with `rev` frozen means
+// no push has landed for ~this long — the switch storm's drain is done. Longer than the gap between a
+// storm's back-to-back pushes, short enough to keep the (already `test.slow`) PR-switch specs reasonable.
+const REVIEW_QUIESCE_READS = 8;
 
-// Wait until the review-walk file SET (not just the current label) has QUIESCED to exactly `files` (by
-// basename) — held stable across a sustained run of reads, i.e. the push train has drained. After a rapid
-// switch storm the host's per-switch pushes settle asynchronously: the set bounces through the other PR's
-// files as each queued switch is processed, before the last switch's push lands. A momentary match can be
-// one of those intermediate states, and the ~2s navigator walk that follows would then step onto a file from
-// the other PR that is about to be replaced (a transient) and record it — the historical flake. Reads the
-// editor's live reviewFiles via the __WEAVIE_REVIEW__ diagnostics hook (the exact set the ← / → walk
-// traverses). Not a fixed delay: it detects steady state. A genuine cross-PR leak quiesces to the WRONG set,
-// which never matches `want`, so this still fails a real bug.
+// Wait until the review-walk file SET has QUIESCED to exactly `files` (by basename) — the target set is
+// showing AND its revision has stopped advancing, i.e. the host's push train has fully drained. After a
+// rapid switch storm the per-switch pushes settle asynchronously: the set bounces through the other PR's
+// files as each queued switch is processed, before the last switch's push lands. A momentary match can be an
+// intermediate state, and the ~2s navigator walk that follows would then step onto a transient from the
+// other PR and record it — the historical flake. `rev` (a monotonic counter on the __WEAVIE_REVIEW__ hook)
+// is watched instead of just polling the file list, because a fast bounce can round-trip between two ~100ms
+// samples and be missed by list-comparison alone; a rev bump can't be. Not a fixed delay — it detects steady
+// state. A genuine cross-PR leak quiesces to the WRONG set, so `files` never matches `want` and this fails.
 export async function awaitReviewSet(page: Page, files: string[]): Promise<void> {
   const want = JSON.stringify([...files].sort());
+  let lastRev = Number.NaN;
   let stableReads = 0;
   await expect
     .poll(
       async () => {
-        const paths = await page.evaluate(() => window.__WEAVIE_REVIEW__?.files ?? null);
-        const got =
-          paths === null
-            ? null
-            : JSON.stringify(paths.map((p) => p.split(/[\\/]/).pop() ?? p).sort());
-        stableReads = got === want ? stableReads + 1 : 0;
+        const review = await page.evaluate(() => window.__WEAVIE_REVIEW__ ?? null);
+        const matches =
+          review !== null &&
+          JSON.stringify(review.files.map((p) => p.split(/[\\/]/).pop() ?? p).sort()) === want;
+        stableReads = matches && review.rev === lastRev ? stableReads + 1 : 0;
+        lastRev = review?.rev ?? Number.NaN;
         return stableReads;
       },
       { timeout: 20_000, intervals: [100] },

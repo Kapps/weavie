@@ -640,14 +640,23 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     postToHost({ type: "get-turn-diff", path: file.path });
   };
 
+  // Monotonic revision of the published review set (see __WEAVIE_REVIEW__), bumped on each update.
+  let reviewRev = 0;
   // Reflect the review set onto the inline-diff's parked navigator: it surfaces (parked at "change 0", editor
   // untouched) whenever files are pending and none is in view, so review is visible the moment changes land —
   // stepping in (a nav key) opens the first change. Called wherever reviewFiles changes.
   const updateParkedReview = (): void => {
     setParkedReviewCount(reviewFiles.length);
     // Publish the live review-walk set for e2e / diagnostics (read-only) — a failed PR-switch test attaches
-    // exactly which files the navigator holds, so a leaked cross-PR mix is visible without walking it.
-    window.__WEAVIE_REVIEW__ = { files: reviewFiles.map((file) => file.path), label: reviewLabel };
+    // exactly which files the navigator holds, so a leaked cross-PR mix is visible without walking it. `rev`
+    // is a monotonic counter bumped on every change so a test can detect quiescence exactly (poll-sampling
+    // the file list alone can miss a fast bounce during a rapid switch storm's push drain).
+    reviewRev += 1;
+    window.__WEAVIE_REVIEW__ = {
+      files: reviewFiles.map((file) => file.path),
+      label: reviewLabel,
+      rev: reviewRev,
+    };
     inlineDiff?.setParkedReview(
       reviewFiles.length > 0
         ? {

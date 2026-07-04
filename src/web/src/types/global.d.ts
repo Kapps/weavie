@@ -50,6 +50,6 @@ interface Window {
    * controller for e2e / diagnostics (read-only). A failed PR-switch test attaches this so the exact settled
    * set (a leaked cross-PR mix vs the correct set) is visible without walking the navigator. See fixtures.ts.
    */
-  __WEAVIE_REVIEW__?: { files: string[]; label: string };
+  __WEAVIE_REVIEW__?: { files: string[]; label: string; rev: number };
   // The LSP bridge config (window.__WEAVIE_LSP__) is augmented onto Window in lsp/lsp-client.ts.
 }

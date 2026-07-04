@@ -52,18 +52,27 @@ export interface LaunchOptions {
   };
 }
 
-// Terminate the spawned host/runner (Windows: AND its descendants — worker, claude, shell, LSP), then resolve
-// once it has actually exited, so the workspace/HOME can be removed without racing live handles. Node's kill()
-// reaches only the root process on Windows; taskkill /T kills the whole tree. Resolving on the real `exit` is the
-// deterministic signal (not a fixed sleep), but a graceful shutdown that stalls (a child that ignores SIGINT, or
-// a slow dispose) must not hang teardown — so escalate to an unconditional kill after a bounded grace.
+// Terminate the spawned host/runner AND every descendant (worker, claude, shell, LSP), resolving only once the
+// whole tree is actually gone — so the workspace/HOME can be removed without a live process racing the delete.
+// On Windows that race is the teardown killer: a surviving descendant whose cwd sits inside a worktree blocks
+// `rm`, and fs.rm's retry backoff compounds with the tree's directory depth into a 10-60s stall that outlasts the
+// test timeout (the "teardown hang" flake). Node's kill() reaches only the root there; `taskkill /T` is the only
+// thing that kills descendants — and AWAITING it, not the root's `exit` (which fires while taskkill is still
+// walking the tree), is what guarantees every child is down before we return. POSIX asks the root for a graceful
+// SIGINT (it forwards to its own children), escalating to SIGKILL if that stalls.
 export function killProcessTree(proc: ChildProcess): Promise<void> {
+  const pid = proc.pid;
+  if (proc.exitCode !== null || proc.signalCode !== null || pid === undefined) {
+    return Promise.resolve();
+  }
+  if (process.platform === "win32") {
+    return new Promise((resolve) => {
+      const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
+      taskkill.once("exit", () => resolve());
+      taskkill.once("error", () => resolve());
+    });
+  }
   return new Promise((resolve) => {
-    const pid = proc.pid;
-    if (proc.exitCode !== null || proc.signalCode !== null || pid === undefined) {
-      resolve();
-      return;
-    }
     let settled = false;
     const finish = (): void => {
       if (settled) {
@@ -72,33 +81,19 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
       settled = true;
       resolve();
     };
-    const forceKill = (): void => {
-      if (process.platform === "win32") {
-        spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      } else {
+    proc.once("exit", finish);
+    proc.kill("SIGINT");
+    // If `exit` hasn't fired in time (a child ignoring SIGINT, or a stalled dispose), force-kill and resolve so
+    // teardown is bounded — a no-op once the process already exited.
+    setTimeout(() => {
+      if (!settled) {
         try {
           proc.kill("SIGKILL");
         } catch {
           // already gone
         }
+        finish();
       }
-    };
-    proc.once("exit", finish);
-    // Windows: force-kill the tree immediately (taskkill is the only thing that reaches descendants). POSIX: ask
-    // for a graceful SIGINT first.
-    if (process.platform === "win32") {
-      forceKill();
-    } else {
-      proc.kill("SIGINT");
-    }
-    // If `exit` hasn't fired in time (a child ignoring SIGINT, or a stalled dispose), force-kill and resolve so
-    // teardown is bounded — a no-op once the process already exited.
-    setTimeout(() => {
-      if (settled) {
-        return;
-      }
-      forceKill();
-      finish();
     }, 3000).unref();
   });
 }

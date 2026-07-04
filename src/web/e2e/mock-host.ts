@@ -111,10 +111,15 @@ export class MockHost {
     });
   }
 
-  /** Stops the HTTP + WebSocket servers. */
+  /** Stops the HTTP + WebSocket servers, force-closing any lingering sockets so teardown can't hang. */
   async close(): Promise<void> {
-    this.socket?.close();
-    await new Promise<void>((resolve) => this.wss.close(() => resolve()));
+    this.socket?.terminate();
+    this.wss.close();
+    // http.close() fires its callback only once every connection has ended; the browser's keep-alive sockets
+    // (still open while the page is, since afterEach runs before Playwright tears the page down) can outlive the
+    // test on Windows loopback and stall it past the timeout. Force them shut so the close is deterministic
+    // rather than waiting on the OS to reap them.
+    this.http.closeAllConnections();
     await new Promise<void>((resolve) => this.http.close(() => resolve()));
   }
 

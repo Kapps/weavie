@@ -73,10 +73,11 @@ whole name) select tests; `runOne`/`runFile` are the command templates; optional
 (default `" "`) joins captures along the ancestor symbol chain (nested `describe`s); optional
 `header` is a regex matched against the source slice between a symbol's `range.start` and
 `selectionRange.start` — the region that holds attributes/annotations/decorators (`[Fact]`, `@Test`)
-— so attribute-based frameworks stay pure data (see open questions for the verification this needs).
+— so attribute-based frameworks stay pure data (verified against csharp-ls, see below).
 
-Placeholders `${file}` (worktree-relative), `${fileDir}`, `${name}` — each substituted shell-quoted,
-never raw. `test.profile` **unset** means unconfigured (setup card shows, no lenses); explicit `[]`
+Placeholders `${file}` and `${fileDir}` (**absolute paths** — immune to wherever the user last
+`cd`'d in the shell pane) and `${name}` — each substituted shell-quoted, never raw. `test.profile`
+**unset** means unconfigured (setup card shows, no lenses); explicit `[]`
 means "this repo has no tests" (card satisfied, no lenses). That unset/empty distinction is what
 keeps "no buttons without a profile" a refusal rather than a silent guess.
 
@@ -127,10 +128,11 @@ worktree session's Claude runs in *that* session's shell with `${file}` relative
   Claude via `runCommand`).
 - Shell busy (`HasForegroundJob`) → failure + error toast. Never queued, never a second pane, never
   silently dropped.
-- Compose via `TestCommandComposer` against the file's matched rule (POSIX single-quote escaping;
-  PowerShell quoting off `terminal.shell`), then `session.Shell.Write(utf8(command + "\r"))` — plain
-  write, not bracketed paste (paste markers to a shell that never enabled the mode print escape
-  garbage).
+- Compose via `TestCommandComposer` against the file's matched rule: POSIX single-quote escaping,
+  or double-quote escaping when `terminal.shell` resolves to PowerShell; cmd.exe gets the same
+  double-quote treatment — no cmd-specific escaping, exotic names fail visibly in the terminal.
+  Then `session.Shell.Write(utf8(command + "\r"))` — plain write, not bracketed paste (paste
+  markers to a shell that never enabled the mode print escape garbage).
 - On success, post `focus-pane` for the shell so the user watches the run.
 
 ## Workspace setup flow
@@ -204,23 +206,27 @@ flowchart LR
 7. **Docs** — update `docs/specs/suggestions.md` and `docs/specs/settings.md` (workspace layer now
    real), CLAUDE.md concepts line if needed.
 
+## Verified by experiment
+
+Probed live servers (LSP stdio, `initialize` → `didOpen` → `documentSymbol`) rather than trusting
+documentation:
+
+- **tsserver**: the navigation tree includes test call expressions as named nested symbols —
+  `describe('math') callback` containing `it('adds') callback` — so Jest/Vitest/Mocha blocks are
+  discoverable with names and nesting.
+- **csharp-ls 0.25**: a method symbol's `range` starts at its attribute lines while
+  `selectionRange` is the bare identifier, so the `header` slice contains `[Fact]` /
+  `[Theory] [InlineData(1)]` and a plain method's slice contains no attribute — `header:
+  "\\[(Fact|Theory)\\b"` cleanly selects xUnit tests.
+- **gopls**: `TestXxx` functions are flat symbols named `TestAdds` etc. (`symbol: "^(Test\\w+)"`).
+  Known limitation: `t.Run("subtest", …)` subtests do **not** appear as symbols, so subtests get no
+  individual lens — the enclosing `TestXxx` lens and `runFile` cover them.
+
 ## Open questions
 
 1. **Pasted slash command** — does a bracketed-pasted `/mcp__weavie__setup-workspace` + user Enter
    execute as a slash command in the Claude Code TUI? The one mechanic not verifiable from the tree;
    resolve in step 6a. Fallback (seed the prompt's full text) keeps the artifact single-sourced.
-2. **cmd.exe quoting** — POSIX and PowerShell are handled; cmd.exe quoting is a swamp. Proposal:
-   `weavie.tests.run` fails loudly under cmd ("configure a POSIX shell or PowerShell for test
-   running") rather than emit a maybe-mangled command. Needs a philosophy sign-off — it's a refusal,
-   not a fallback.
-3. **Shell cwd drift** — the user may have `cd`'d away; `${file}` is worktree-relative, so the run
-   fails *visibly in the terminal*. Alternatives (absolute paths, `cd &&` prefix) mutate templates or
-   shell state; recommendation is to accept the visible failure.
-4. **Symbol-name drift** — tsserver's `describe('math') callback` shape is empirical, not
-   contractual. Mitigated by the regexes being workspace data (re-run setup to fix) plus
-   captured-fixture tests for the common symbol shapes (tsserver, gopls).
-5. **`header` slice coverage** — the attribute-detection trick assumes `DocumentSymbol.range`
-   includes the attribute/annotation lines while `selectionRange` is the bare identifier. Verify
-   empirically per server (csharp-ls, jdtls) before documenting `header` as supported; if a server
-   excludes attributes from `range`, that language falls back to name/file-convention rules or
-   file-level running.
+2. **Symbol-name drift** — the shapes above are empirical, not contractual. Mitigated by the
+   regexes being workspace data (re-run setup to fix) plus captured-fixture tests for the common
+   symbol shapes (tsserver, gopls, csharp-ls).

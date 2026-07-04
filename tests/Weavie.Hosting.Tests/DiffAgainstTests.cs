@@ -6,8 +6,9 @@ namespace Weavie.Hosting.Tests;
 
 /// <summary>
 /// The "diff against &lt;ref&gt;" flow (web <c>diff-against</c>): resolve the ref, diff the working tree from
-/// its merge-base with HEAD, and feed the review navigator over <c>pr-changes</c> / <c>pr-diff</c> — or answer
-/// with a toast when the ref is unknown or nothing differs. See docs/specs/diff-against.md.
+/// its merge-base with HEAD, and SEED the change tracker so the diff reviews through the same accept/reject engine
+/// as a turn — feeding the navigator over <c>turn-changes</c> / <c>turn-diff</c>, with keep/revert acting on disk.
+/// A toast answers an unknown ref or nothing differing. See docs/specs/diff-against.md.
 /// </summary>
 public sealed class DiffAgainstTests {
 	[Fact]
@@ -18,20 +19,41 @@ public sealed class DiffAgainstTests {
 
 		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
 
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
-		Assert.Equal(0, changes.GetProperty("number").GetInt32());
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 		Assert.Equal("vs HEAD", changes.GetProperty("label").GetString());
 		var files = changes.GetProperty("files").EnumerateArray().ToList();
 		var file = Assert.Single(files);
 		Assert.Equal(path, file.GetProperty("path").GetString());
 		Assert.Equal(1, file.GetProperty("added").GetInt32());
 
-		// The per-file diff pairs the merge-base content (baseline) with the worktree file (current).
-		host.Send($$"""{"type":"get-pr-diff","number":0,"path":{{JsonSerializer.Serialize(path)}}}""");
-		var diff = await Wait.ForAsync(() => host.Bridge.LastOfType("pr-diff"));
+		// The per-file diff pairs the merge-base content (baseline) with the worktree file (current), reviewed
+		// through the applied engine (acceptedBaseline == baseline until a hunk is kept).
+		host.Send($$"""{"type":"get-turn-diff","path":{{JsonSerializer.Serialize(path)}}}""");
+		var diff = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-diff"));
 		Assert.Equal("hello\n", diff.GetProperty("baseline").GetString());
 		Assert.Equal("hello\nworld\n", diff.GetProperty("current").GetString());
-		Assert.Empty(diff.GetProperty("comments").EnumerateArray()); // no forge on a local ref diff
+		Assert.Equal("hello\n", diff.GetProperty("acceptedBaseline").GetString());
+	}
+
+	[Fact]
+	public async Task DiffAgainstHead_RevertFile_RestoresRefContentOnDisk() {
+		// Diff Against is no longer read-only: a Reject writes the ref (baseline) back over the worktree file — an
+		// uncommitted backout — through the same tracker a turn revert uses.
+		await using var host = await TestHost.StartAsync();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.WriteAllText(path, "hello\nworld\n"); // committed content is "hello\n"
+
+		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		host.Bridge.Clear();
+
+		host.Send($$"""{"type":"revert-file","path":{{JsonSerializer.Serialize(path)}}}""");
+
+		// The reverted file leaves the walk (its turn-changes carries no files), pushed AFTER the disk write, so
+		// observing it means the backout already landed on disk.
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		Assert.Empty(changes.GetProperty("files").EnumerateArray());
+		Assert.Equal("hello\n", File.ReadAllText(path)); // backed out to the ref on disk
 	}
 
 	[Fact]
@@ -44,7 +66,7 @@ public sealed class DiffAgainstTests {
 
 		host.Send("""{"type":"diff-against","ref":"HEAD^"}""");
 
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 		Assert.Equal("vs HEAD^", changes.GetProperty("label").GetString());
 		var names = changes.GetProperty("files").EnumerateArray()
 			.Select(f => f.GetProperty("name").GetString()).ToList();
@@ -60,29 +82,31 @@ public sealed class DiffAgainstTests {
 		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
 
 		// A brand-new file IS an uncommitted change — never "No changes against 'HEAD'."
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 		var file = Assert.Single(changes.GetProperty("files").EnumerateArray());
 		Assert.Equal("brand-new.txt", file.GetProperty("name").GetString());
-		Assert.Equal(2, file.GetProperty("added").GetInt32());
+		// Counted in model lines (the trailing newline is a 3rd, empty line), exactly as turn review counts a
+		// created file — the unification shares one count, not git's numstat.
+		Assert.Equal(3, file.GetProperty("added").GetInt32());
 	}
 
 	[Fact]
-	public async Task GetPrDiff_ForAPathOutsideTheReviewWorktree_IsDropped() {
+	public async Task GetTurnDiff_ForAnUntrackedPath_IsDropped() {
 		await using var host = await TestHost.StartAsync();
 		File.WriteAllText(Path.Combine(host.RepoRoot, "readme.txt"), "hello\nworld\n");
 		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
-		await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 
-		// Local reviews all carry number 0, so the number can't disambiguate — a request whose path escapes
-		// the active review's worktree (a switch-race leftover) must be dropped, never resolved against it.
+		// The seeded tracker only knows the review's files, so a diff request for a path it never seeded (a
+		// switch-race leftover, or a foreign file) resolves nothing and is dropped, never rendered.
 		string foreign = Path.Combine(Path.GetTempPath(), "weavie-foreign-" + Guid.NewGuid().ToString("n") + ".txt");
 		File.WriteAllText(foreign, "elsewhere\n");
 		try {
 			host.Bridge.Clear();
-			host.Send($$"""{"type":"get-pr-diff","number":0,"path":{{JsonSerializer.Serialize(foreign)}}}""");
+			host.Send($$"""{"type":"get-turn-diff","path":{{JsonSerializer.Serialize(foreign)}}}""");
 
 			await Task.Delay(300);
-			Assert.Null(host.Bridge.LastOfType("pr-diff"));
+			Assert.Null(host.Bridge.LastOfType("turn-diff"));
 		} finally {
 			File.Delete(foreign);
 		}
@@ -98,7 +122,7 @@ public sealed class DiffAgainstTests {
 		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
 		Assert.Equal("error", toast.GetProperty("level").GetString());
 		Assert.Contains("no-such-ref", toast.GetProperty("message").GetString());
-		Assert.Null(host.Bridge.LastOfType("pr-changes"));
+		Assert.Null(host.Bridge.LastOfType("turn-changes"));
 	}
 
 	[Fact]
@@ -107,7 +131,7 @@ public sealed class DiffAgainstTests {
 		string path = Path.Combine(host.RepoRoot, "readme.txt");
 		File.WriteAllText(path, "hello\nworld\n");
 		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
-		await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+		await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 
 		File.WriteAllText(path, "hello\n"); // back to the committed content — nothing differs now
 		host.Bridge.Clear();
@@ -116,8 +140,9 @@ public sealed class DiffAgainstTests {
 		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
 		Assert.Equal("info", toast.GetProperty("level").GetString());
 		Assert.Contains("No changes against 'HEAD'", toast.GetProperty("message").GetString());
-		// The prior review is retracted with an empty file list, so the stale walk clears in the page.
-		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("pr-changes"));
+		// The prior review is retracted: the tracker's board is committed and an empty review set is pushed, so
+		// the stale walk clears in the page.
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
 		Assert.Empty(changes.GetProperty("files").EnumerateArray());
 	}
 

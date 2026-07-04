@@ -2,9 +2,9 @@ import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 import { awaitNavigatorOn, collectChangedFiles } from "../harness/navigator";
 
-// Race probe: PushActiveReviewChanges() fires PushReviewChangesAsync() fire-and-forget (awaits a git diff), and a rapid
-// PR->PR->PR switch could let a stale pr-changes for the wrong PR land on the now-active PR session. The active
-// session resolves the review, so the settled navigator must carry only the active PR's files.
+// Race probe: each PR session carries its own ref-seeded change tracker, and a switch-in re-surfaces the active
+// session's review synchronously from that persisted tracker (no per-switch git diff to race). A rapid
+// PR->PR->PR switch must therefore settle on only the active PR's files — no stale set from the other PR lingers.
 test.use({ prScenario: true });
 
 const toolbar = ".weavie-inline-toolbar";
@@ -27,9 +27,9 @@ async function openPrByNumber(
 test("S2-race: rapid PR->PR->PR switching never leaves the wrong PR's files on screen", async ({
   page,
 }) => {
-  // Heavyweight: two real PR worktrees plus a rapid switch storm that settles a fire-and-forget git diff. On
-  // the slow, serialized hosted Windows/macOS runners the legitimate work outlasts the 30s default even with
-  // no contention, so give it the room — this marks the test slow, it does not retry it.
+  // Heavyweight: two real PR worktrees plus a rapid switch storm. On the slow, serialized hosted Windows/macOS
+  // runners the legitimate work (two branch checkouts + the switches) outlasts the 30s default even with no
+  // contention, so give it the room — this marks the test slow, it does not retry it.
   test.slow();
   await openPrByNumber(page, 101, 2); // chip[1]
   await openPrByNumber(page, 102, 3); // chip[2]

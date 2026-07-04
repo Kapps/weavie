@@ -112,11 +112,6 @@ public sealed partial class HostCore {
 					break;
 				}
 
-			case "get-pr-diff": {
-					_ = SendReviewDiffAsync(JsonInt(root, "number"), root.GetStringOrEmpty("path"));
-					break;
-				}
-
 			case "diff-against": {
 					_ = DiffAgainstFromWebAsync(root.GetStringOrEmpty("ref"));
 					break;
@@ -211,7 +206,9 @@ public sealed partial class HostCore {
 				EditorMessageTarget(root, "open-editors-changed")?.UpdateOpenEditors(root);
 				break;
 			case "get-turn-diff":
-				PushTurnDiffToWeb(root.GetProperty("path").GetString() ?? string.Empty);
+				// A review step-in: render the file's diff, plus its comments when the active review is a PR (the
+				// web cleared them on the switch out, so re-push so the threads + Comment button reappear).
+				PushReviewFileToWeb(root.GetProperty("path").GetString() ?? string.Empty);
 				break;
 			case "fs-stat":
 				// Route by path, not active session: the statted file belongs to whichever session's worktree contains it.
@@ -656,7 +653,10 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void PushTurnChangesToWeb() {
 		if (_session is { } session) {
-			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
+			// The label names an armed PR/ref review ("PR #12", "vs main") in the navigator subtitle; empty for a
+			// plain post-turn review. It rides the change list, so it survives switches (the tracker + review both
+			// persist on the session) and is threaded here once — the sole builder of the turn-changes message.
+			_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes, ActiveReview()?.Label ?? string.Empty));
 		}
 	}
 
@@ -674,11 +674,11 @@ public sealed partial class HostCore {
 	/// stale ← / → walk + parked navigator).
 	/// </summary>
 	private void PushIncomingReviewState() {
-		if (_session is not { } session) {
+		if (_session is null) {
 			return;
 		}
 
-		_bridge.PostToWeb(ChangeMessages.TurnChanges(session.Changes));
+		PushTurnChangesToWeb(); // threads the incoming session's review label (a PR/ref review follows its session)
 		PushReviewHistoryToWeb(); // the incoming session's undo history persists — reflect it on the toolbar
 	}
 
@@ -695,7 +695,7 @@ public sealed partial class HostCore {
 
 		PushTurnChangesToWeb();
 		foreach (var change in session.Changes.TurnChanges()) {
-			PushTurnDiffToWeb(change.Path);
+			PushReviewFileToWeb(change.Path); // includes PR comments so a reload restores the threads too
 		}
 
 		PushReviewHistoryToWeb();
@@ -738,11 +738,17 @@ public sealed partial class HostCore {
 	/// pushing the now-empty review set so the ← / → file walk empties too (the debt-clearing action).
 	/// </summary>
 	private void AcceptTurn() {
-		if (_session is null) {
+		if (_session is not { } session) {
 			return;
 		}
 
-		_session.Changes.AcceptTurn();
+		session.Changes.AcceptTurn();
+		// Keep-all commits the board: a local "diff against" review is done, so drop it — else its label would
+		// cling to the next plain turn. A PR review persists (its identity + comments outlive an equal tree).
+		if (ActiveReview() is { PrNumber: 0 }) {
+			_diffReviews.TryRemove(session.WorkspaceRoot, out _);
+		}
+
 		_bridge.PostToWeb(ChangeMessages.TurnReset());
 		PushTurnChangesToWeb();
 		PushReviewHistoryToWeb(); // keep-all is the commit point — the undo history reset

@@ -9,10 +9,14 @@ namespace Weavie.Core.Changes;
 public static class ChangeMessages {
 	/// <summary>
 	/// The per-turn change list: each changed file with its added/removed counts and the 1-based line of its
-	/// first change, so the review walk + parked navigator can open the file on that diff.
+	/// first change, so the review walk + parked navigator can open the file on that diff. <paramref name="label"/>
+	/// names a PR/ref review ("PR #12", "vs main") in the subtitle, or is empty for a plain post-turn review.
 	/// </summary>
-	public static string TurnChanges(SessionChangeTracker tracker) {
+	/// <param name="tracker">The session change tracker whose turn changes are listed.</param>
+	/// <param name="label">The review label, or an empty string for a plain post-turn review.</param>
+	public static string TurnChanges(SessionChangeTracker tracker, string label) {
 		ArgumentNullException.ThrowIfNull(tracker);
+		ArgumentNullException.ThrowIfNull(label);
 		var files = tracker.TurnChanges().Select(change => {
 			// Count over the full span (accepted anchor → current) so a fully-kept (faded-only) file still reads as
 			// changed; land the walk on the first PENDING hunk, falling back to the first faded one.
@@ -27,7 +31,7 @@ public static class ChangeMessages {
 					?? 1,
 			};
 		});
-		return JsonSerializer.Serialize(new { type = "turn-changes", files });
+		return JsonSerializer.Serialize(new { type = "turn-changes", label, files });
 	}
 
 	/// <summary>

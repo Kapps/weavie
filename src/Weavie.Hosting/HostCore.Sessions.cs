@@ -460,13 +460,15 @@ public sealed partial class HostCore {
 		PostSessionStatus(session.Status.Status);
 		// Push the incoming session's worktree branch to the footer (its worktree may be on a different branch).
 		PushGitStatus();
-		// Catch the page up on the incoming session's inline turn-review: its muted-while-background diffs (and
-		// the ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
-		// session's walk would linger. Pushed after the status so the web's auto-arm sees the idle state.
+		// Catch the page up on the incoming session's inline review: its muted-while-background diffs (and the
+		// ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
+		// session's walk would linger. This threads the incoming session's review label too (a PR/ref review's
+		// state — its seeded tracker + label — persists on the session, so no per-switch git diff is needed).
+		// Pushed after the status so the web's auto-arm sees the idle state.
 		PushIncomingReviewState();
-		// If the incoming session has an armed review (a PR or a "diff against"), re-push its changed-file list
-		// so the diff navigator follows it.
-		PushActiveReviewChanges();
+		// A PR/ref review re-surfaces its code on switch-back (open + render its first changed file), unlike a plain
+		// post-turn review which parks. Reads the persisted tracker, so it's race-free (unlike a per-switch git diff).
+		SurfaceActiveReviewOnSwitch();
 		// The rail push carries the new active flag, flipping the page to this session's (already-live) terminal
 		// panes. Pushed before focus so the target pane is shown first.
 		PushSessionList();

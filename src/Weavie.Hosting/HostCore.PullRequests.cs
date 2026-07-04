@@ -181,9 +181,18 @@ public sealed partial class HostCore {
 
 		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
 		var review = new DiffReview(number, $"PR #{number}", headRef, mergeBase, headSha, repo, worktree);
-		_diffReviews[worktree] = review;
 		await RefreshCommentsAsync(review).ConfigureAwait(false);
-		await PushReviewChangesAsync(review).ConfigureAwait(false);
+		IReadOnlyList<DiffFileChange> changes;
+		try {
+			changes = await ComputeReviewChangesAsync(review).ConfigureAwait(false);
+		} catch (GitException ex) {
+			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}");
+			return;
+		}
+
+		// Seed the change tracker so the PR reviews through the same accept/reject engine as a turn (opens + renders
+		// the first changed file; keep/revert + later Claude edits accumulate into the one set).
+		await SeedAndArmReviewAsync(review, session, changes).ConfigureAwait(false);
 	}
 
 	/// <summary>Re-loads a PR's review comments into the review (best-effort; a forge error leaves the prior set).</summary>
@@ -227,7 +236,16 @@ public sealed partial class HostCore {
 		}
 
 		await RefreshCommentsAsync(review).ConfigureAwait(false);
-		await SendReviewDiffAsync(number, absolutePath).ConfigureAwait(false);
+		// Re-render the file's diff so the just-posted thread appears. Post-await, so hop to the UI thread and
+		// guard: a switch could have moved off this review while the forge round-tripped.
+		_ui.Post(() => {
+			if (!ReferenceEquals(ActiveReview(), review)) {
+				return;
+			}
+
+			PushReviewCommentsToWeb(review, absolutePath);
+			PushTurnDiffToWeb(absolutePath);
+		});
 	}
 
 	/// <summary>Resolves the workspace's <c>origin</c> remote URL to a <see cref="RepoRef"/>, or <c>null</c> when it isn't a forge repo.</summary>

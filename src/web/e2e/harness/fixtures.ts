@@ -56,9 +56,9 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });
-      // Collect the page's console errors/warnings for the failure dump: a browser-side error that disrupts
-      // boot (e.g. a Windows `net::ERR_NO_BUFFER_SPACE` resource-load failure) is invisible in the DOM
-      // snapshot but is the first thing needed to root-cause an editor/diff render timeout.
+      // Collect the page's console errors for the failure dump: a browser-side error that disrupts boot
+      // (e.g. a Windows `net::ERR_NO_BUFFER_SPACE` resource-load failure) is invisible in the DOM snapshot
+      // but is the first thing needed to root-cause an editor/diff render timeout.
       const consoleErrors: string[] = [];
       page.on("console", (msg) => {
         // Errors only: a browser-level failure (a failed resource load, an uncaught exception) is the signal.

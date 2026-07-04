@@ -252,11 +252,11 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
 // reports — and actually accepts on — the port it bound.
 export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost> {
   const fake = await prepareFake(options);
-  const requestedPort = await freePort();
   const env: NodeJS.ProcessEnv = {
     ...process.env,
     ...fake.env,
-    WEAVIE_SERVE_PORT: String(requestedPort),
+    // Port 0: the OS assigns a free port at bind, so parallel workers can never race each other for one.
+    WEAVIE_SERVE_PORT: "0",
     WEAVIE_SERVE_WORKSPACE: fake.workspace,
   };
 
@@ -269,12 +269,10 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
     log += chunk.toString("utf8");
   });
 
+  // The host prints the ready line only after its listener is bound and accepting, so the parsed port is
+  // connectable the moment it appears.
   const port = await waitForListening(proc, () => log, 40_000);
   const url = `http://127.0.0.1:${port}/`;
-  // The "open …" line can print just before the listener actually accepts (a fresh HOME does first-run
-  // setup in between), so poll the socket until it responds rather than racing the browser into a refused
-  // connection.
-  await waitForHttp(url, () => log, 30_000);
 
   return {
     url,

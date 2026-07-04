@@ -1,4 +1,5 @@
 import { type Page, expect } from "@playwright/test";
+import { awaitEditorReady } from "./actions";
 
 // The inline-diff navigator's file walk, shared by every PR/review spec. Each step waits for the navigator's
 // file label to actually advance — the state event — instead of a fixed delay, which was the suite's #1 flake
@@ -32,6 +33,7 @@ async function settledFile(page: Page): Promise<string> {
 // chord silently falls through to xterm (the Windows PR-switch flake). Re-click until the focused pane is the
 // editor; fail loudly if it can't be held.
 export async function focusEditor(page: Page): Promise<void> {
+  await awaitEditorReady(page);
   const focusedPane = (): Promise<string | null> =>
     page.evaluate(
       () => document.activeElement?.closest("[data-kind]")?.getAttribute("data-kind") ?? null,

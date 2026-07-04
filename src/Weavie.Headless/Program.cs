@@ -55,7 +55,7 @@ await core.StartAsync().ConfigureAwait(false);
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); // We print our own status; Kestrel request logging is noise here.
 builder.WebHost.UseUrls($"http://{bind}:{port}");
-var app = builder.Build();
+await using var app = builder.Build();
 
 // Keepalive with a timeout so a half-open peer (an unclean refresh / crash / sleep / network drop, which sends
 // no close frame) is actively detected and aborted, instead of lingering as a zombie the bridge keeps
@@ -117,7 +117,11 @@ app.Map("/weavie-bridge", async context => {
 	}
 
 	using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-	await bridge.ServeAsync(socket, context.RequestAborted).ConfigureAwait(false);
+	// A bridge socket is long-lived by design, so graceful shutdown must cancel it directly — otherwise
+	// Kestrel waits the full HostOptions.ShutdownTimeout (30s) for it, hanging every Ctrl+C with a page open.
+	using var serveLifetime = CancellationTokenSource.CreateLinkedTokenSource(
+		context.RequestAborted, app.Lifetime.ApplicationStopping);
+	await bridge.ServeAsync(socket, serveLifetime.Token).ConfigureAwait(false);
 });
 
 // The runner's update control plane, REMOTE MODE ONLY: there the default-deny middleware token-gates
@@ -137,12 +141,16 @@ if (tokenGated) {
 	});
 }
 
+// Start before printing the ready line so it reports the port actually bound (port 0 asks the OS for a
+// free one — the race-free way for a supervisor to spawn many hosts) and never precedes the listener.
+await app.StartAsync().ConfigureAwait(false);
+int boundPort = new Uri(app.Urls.First()).Port;
 string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
 string tokenSuffix = listen is ListenMode.Remote shown ? $"/?token={shown.Token}" : string.Empty;
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
-Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{port}{tokenSuffix}  in a browser");
+Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{boundPort}{tokenSuffix}  in a browser");
 Console.Out.Flush();
-await app.RunAsync().ConfigureAwait(false);
+await app.WaitForShutdownAsync().ConfigureAwait(false);
 
 // Best-effort cleanup of the app-global stores' file watchers (core disposes the sessions).
 services.Keybindings.Dispose();

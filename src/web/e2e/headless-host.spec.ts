@@ -1,7 +1,6 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync } from "node:fs";
 import { mkdtemp } from "node:fs/promises";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,21 +20,6 @@ const hostDll = join(
   "net10.0",
   "Weavie.Headless.dll",
 );
-
-function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const address = srv.address();
-      if (address === null || typeof address === "string") {
-        reject(new Error("could not allocate a port"));
-        return;
-      }
-      const { port } = address;
-      srv.close(() => resolve(port));
-    });
-  });
-}
 
 // Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
 // the listener and never assumes the requested port.
@@ -72,13 +56,13 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   let port = 0;
 
   test.beforeAll(async () => {
-    const requestedPort = await freePort();
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
     const workspace = await mkdtemp(join(tmpdir(), "weavie-e2e-"));
     proc = spawn("dotnet", [hostDll], {
       env: {
         ...process.env,
-        WEAVIE_SERVE_PORT: String(requestedPort),
+        // Port 0: the OS assigns a free port at bind; the ready line reports it once it is accepting.
+        WEAVIE_SERVE_PORT: "0",
         WEAVIE_SERVE_WORKSPACE: workspace,
       },
       stdio: ["ignore", "pipe", "pipe"],
@@ -86,22 +70,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     proc.stdout?.on("data", (chunk: Buffer) => {
       log += chunk.toString("utf8");
     });
-    // Use the port the host reports binding, robust to the freePort race.
     port = await waitForListening(proc, 30_000);
-    // The "open …" line can print just before the listener actually accepts, so poll until it responds —
-    // otherwise the first navigation can hit ERR_CONNECTION_REFUSED.
-    const deadline = Date.now() + 30_000;
-    for (;;) {
-      try {
-        await fetch(`http://127.0.0.1:${port}/`, { redirect: "manual" });
-        break;
-      } catch {
-        if (Date.now() > deadline) {
-          throw new Error("host never answered after reporting its port");
-        }
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-    }
   });
 
   test.afterAll(() => {

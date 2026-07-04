@@ -614,6 +614,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         if (model !== null && model.uri.scheme === "file") {
           deps.onCurrentFileChanged(uriHostPath(model.uri));
         }
+        // Deterministic "editor is usable" signal: the shell now reveals before the editor chunk settles
+        // (App defers start past first paint), so tests and any editor-gated UI wait on this, not on the splash.
+        container.setAttribute("data-ready", "true");
         postToHost({ type: "monaco-ready" });
         mark("editor-ready");
       })

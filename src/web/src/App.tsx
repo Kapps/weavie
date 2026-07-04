@@ -55,6 +55,7 @@ import {
   remoteActivity,
   remoteAgentRows,
   sessions,
+  sessionsReceived,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
 import {
@@ -277,6 +278,29 @@ export default function App(): JSX.Element {
     confirmDiscard,
     confirm,
     promptScratchName,
+  });
+
+  // Bring the editor up once, deferred one frame past the first terminal paint so the splash-removed shell
+  // reveals before the multi-MB editor chunk's eval + Monaco creation jams the main thread. Idempotent: both
+  // terminal panes fire onFirstRender, plus the liveness paths below.
+  let editorStarted = false;
+  const startEditorOnce = (): void => {
+    if (editorStarted) {
+      return;
+    }
+    editorStarted = true;
+    requestAnimationFrame(() => editor.start(editorContainer));
+  };
+
+  // Liveness: the first terminal paint is the reveal trigger, but a launch can land with NO loaded terminal to
+  // paint — an all-dormant restore, or an offline remote backend — and then onFirstRender never fires. Once the
+  // host has answered `ready` with its session state (sessionsReceived) and there's no active-backend terminal,
+  // bring the editor up so the shell still reveals. When terminals DO exist, their paint drives it (and reveals
+  // before the editor eval), so this stays out of the way — it only fires when there is nothing to jam.
+  createEffect(() => {
+    if (sessionsReceived() && termSessionIds().length === 0) {
+      startEditorOnce();
+    }
   });
 
   const focusPane = (kind: string): void => {
@@ -605,7 +629,10 @@ export default function App(): JSX.Element {
                     slot={sid}
                     pane={pane}
                     active={isActive()}
-                    onFirstRender={dismissSplash}
+                    onFirstRender={() => {
+                      dismissSplash();
+                      startEditorOnce();
+                    }}
                     onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
                     onTitle={(title) =>
                       setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
@@ -687,9 +714,14 @@ export default function App(): JSX.Element {
     // Registered remote agents are connected by remote-agents.ts when the host pushes the persisted registry on
     // `ready` (best-effort; a down runner just logs and is skipped) — no startup call needed here.
 
-    // Terminal panes mount independently (spawning claude). The editor is a separate off-first-paint chunk
-    // brought up here; its pane shows a placeholder until it resolves, splash held until it settles.
-    editor.start(editorContainer);
+    // Occluded-launch backstop for the editor bring-up (see startEditorOnce + the liveness effect above): a
+    // window hidden at launch pauses rAF, so a loaded terminal never paints its first frame and the fast path
+    // never fires. Start the editor when the tab first becomes visible — no fixed timer that could fire
+    // mid-reveal on a healthy launch. (A launch with zero loaded terminals is handled by the effect, which
+    // isn't rAF-gated.)
+    if (document.visibilityState !== "visible") {
+      document.addEventListener("visibilitychange", () => startEditorOnce(), { once: true });
+    }
 
     const offHost = onHostMessage((message) => {
       if (editor.handleMessage(message)) {

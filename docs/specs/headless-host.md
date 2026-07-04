@@ -77,7 +77,8 @@ native window, geometry, and main-thread marshaling stripped out. Three files:
   `MessageReceived`. The bridge **outlives any one connection** — like the native hosts, the host persists
   while the page reloads — so a browser refresh just re-attaches a fresh socket and the page re-sends
   `ready`. Pushes made with no page connected are dropped (the page re-requests state on `ready`).
-- **`Program.cs`** — Kestrel on `127.0.0.1:<port>` (env `WEAVIE_SERVE_PORT`, default 8700). Serves the
+- **`Program.cs`** — Kestrel on `127.0.0.1:<port>` (env `WEAVIE_SERVE_PORT`, default 8700; `0` binds an
+  OS-assigned port, reported by the ready line, which prints only once the listener accepts). Serves the
   built `wwwroot`, injecting the bootstrap globals (`__WEAVIE_BRIDGE_WS__="auto"` + fonts + command /
   keybinding catalog) into `index.html` before the module graph runs — the document-start injection the
   native shells do via `AddUserScript`. Exposes the `/weavie-bridge` WebSocket upgrade.

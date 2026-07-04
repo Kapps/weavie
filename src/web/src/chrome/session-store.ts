@@ -41,6 +41,13 @@ export interface RemoteAgentRow {
 const [byBackend, setByBackend] = createSignal<Map<string, SessionChip[]>>(new Map());
 const [status, setStatus] = createSignal<SessionStatusName | undefined>(undefined);
 
+// True once ANY backend has pushed its session-list — i.e. the host has answered `ready` with the initial
+// session state. Distinguishes "no sessions yet, still booting" from "the host says there are none", which
+// the reveal path needs: a launch that lands with zero loaded terminals (all-dormant restore, offline
+// remote) must still bring the editor up rather than wait forever on a terminal frame that never comes.
+const [sessionsReceived, setSessionsReceived] = createSignal(false);
+export { sessionsReceived };
+
 // Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so
 // overlapping ops don't clear the spinner early. The chip shows a spinner while its count is positive.
 const [pendingSessions, setPendingSessions] = createSignal<Map<string, number>>(new Map());
@@ -71,6 +78,7 @@ export function trackSessionCommand<T>(
 
 onSessionMessage((message, backendId) => {
   if (message.type === "session-list") {
+    setSessionsReceived(true);
     setByBackend((prev) => {
       const next = new Map(prev);
       next.set(backendId, message.sessions);

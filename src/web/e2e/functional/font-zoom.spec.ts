@@ -18,8 +18,10 @@ test("Increase / Decrease / Reset Font Size resize the editor live", async ({ pa
   await openFile(page, "hello.ts");
   await expect(page.locator(".monaco-editor .view-line").first()).toBeVisible();
 
-  const initial = await editorFontSize(page);
-  expect(initial).toBe(16); // the default font.size
+  const initial = 16; // the default font.size
+  // Poll: Monaco can re-render the line between visibility and the style read, detaching the sampled
+  // element mid-read (getComputedStyle on a detached node yields "" → NaN).
+  await expect.poll(() => editorFontSize(page)).toBe(initial);
 
   // Increase three times: the rendered editor font must grow.
   for (let i = 0; i < 3; i++) {

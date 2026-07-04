@@ -71,6 +71,25 @@ export default defineConfig(({ command }) => ({
         main: "index.html",
         welcome: "welcome.html",
       },
+      output: {
+        // Split the ~7 MB Monaco + vscode-api layer into its own chunk. Nothing on the first-paint path
+        // imports it — the editor is brought up lazily (a deferred dynamic import in editor-controller) —
+        // but editor-controller (eager) dynamically imports THREE consumers of it (editor-host, inline-diff,
+        // comment-prose), so Rollup's default splitting hoists the shared Monaco into their common ancestor:
+        // the eager entry chunk. That forces the WebView to parse all 7 MB before the shell can render.
+        // Pinning it to a named chunk keeps it out of the entry, so first paint parses only the shell and
+        // Monaco loads with the deferred editor bring-up. xterm stays eager (the terminals paint on boot).
+        manualChunks(id) {
+          if (
+            /[\\/]node_modules[\\/](monaco-editor|monaco-languageclient|@codingame[\\/]monaco-vscode)/.test(
+              id,
+            )
+          ) {
+            return "monaco";
+          }
+          return undefined;
+        },
+      },
     },
     // Even served from disk, the WebView must parse + evaluate every byte of JS before the app runs,
     // and Monaco + the vscode-api layer is multiple megabytes. esbuild minification (near-free at build

@@ -281,6 +281,11 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // Closed on submit/cancel, a model swap (onModel), and clearAll — but NOT on a routine same-model re-render
   // (that would wipe a half-typed comment), so it survives a keep/faded-band/diff re-push while composing.
   let composerZoneId: string | undefined;
+  // How many composer textareas (the new-comment composer AND every thread's reply composer) currently hold
+  // focus, tracked by focus/blur since the editor's shadow root hides the real activeElement. A live composer
+  // makes the review chords fall through to it — so Ctrl+Enter submits the comment instead of Keeping a hunk,
+  // and Ctrl+Backspace deletes a word instead of Reverting one on disk.
+  let focusedComposers = 0;
 
   const clearRender = (): void => {
     decorations?.clear();
@@ -295,6 +300,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         }
       });
       zoneIds = [];
+      // The reply composers lived in those zones — removing a focused one may not fire blur, so clear their
+      // focus tally here. The new-comment composer (not in zoneIds) survives and stays gated by composerZoneId.
+      focusedComposers = 0;
     }
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
@@ -352,6 +360,14 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     input.className = "weavie-pr-composer-input";
     input.placeholder = placeholder;
     input.rows = 2;
+    // Track focus so composerFocused() covers every composer (new comment + each reply), not just the new-comment
+    // zone — else a review chord typed into a reply would Keep/Revert a hunk instead of reaching the textarea.
+    input.addEventListener("focus", () => {
+      focusedComposers++;
+    });
+    input.addEventListener("blur", () => {
+      focusedComposers = Math.max(0, focusedComposers - 1);
+    });
     const submit = (): void => {
       const body = input.value.trim();
       if (body.length > 0) {
@@ -719,7 +735,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // Ctrl+Enter (submit), Ctrl+Backspace (delete word), and arrows (caret). Gate on the zone being open, not
   // document.activeElement — the editor lives in a shadow root, so activeElement is the shadow host, never the
   // composer textarea inside it.
-  const composerFocused = (): boolean => composerZoneId !== undefined;
+  const composerFocused = (): boolean => composerZoneId !== undefined || focusedComposers > 0;
 
   const nextChange = (): boolean =>
     composerFocused() ? false : showingParked ? stepIn() : goToChange(1);

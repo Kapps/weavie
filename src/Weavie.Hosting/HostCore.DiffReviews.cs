@@ -151,7 +151,10 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void RetractActiveReview(HostSession session) {
 		_ui.Post(() => {
-			if (!IsActiveSession(session)) {
+			// Bail if a new review armed between the caller's TryRemove and this post — else AcceptTurn() would
+			// snap the freshly-seeded anchors, dropping the new review from the walk. ActiveReview() is null when
+			// the removal still stands (nothing re-armed), which is exactly when the retract should proceed.
+			if (!IsActiveSession(session) || ActiveReview() is not null) {
 				return;
 			}
 
@@ -168,8 +171,8 @@ public sealed partial class HostCore {
 	/// <c>get-turn-diff</c> step-in. On a plain turn (no active review) it's just the diff.
 	/// </summary>
 	private void PushReviewFileToWeb(string absolutePath) {
-		if (ActiveReview() is { PrNumber: > 0 } review) {
-			PushReviewCommentsToWeb(review, absolutePath);
+		if (ActiveReview() is { } review) {
+			PushReviewCommentsToWeb(review, absolutePath); // self-guards: a no-op for a local ref (PrNumber 0)
 		}
 
 		PushTurnDiffToWeb(absolutePath);

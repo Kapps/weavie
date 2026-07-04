@@ -33,4 +33,16 @@ public static class EmbeddedClaudeGuidance {
 		`path:line` references into clickable links that reveal the file in the editor, and a bare name can't be
 		resolved.
 		""";
+
+	/// <summary>The static appendix plus a "Host runtime" block describing what <paramref name="runtime"/> is running.</summary>
+	public static string Compose(HostRuntimeInfo runtime) {
+		ArgumentNullException.ThrowIfNull(runtime);
+		string transport = runtime.Transport == HostTransport.Remote
+			? "remote (network-exposed worker)"
+			: "local (loopback only)";
+		string build = runtime.Managed
+			? $"{runtime.Build} (runner-managed worker)"
+			: $"{runtime.Build} (local dev build)";
+		return $"{SystemPromptAppendix}\n\n## Host runtime\n- Transport: {transport}\n- Build: {build}\n";
+	}
 }

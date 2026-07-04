@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Hosting;
 
@@ -9,11 +10,12 @@ namespace Weavie.Headless;
 /// thread, per-OS PTY backend, no native window / hotkey / dialog.
 /// </summary>
 internal sealed class HeadlessPlatform : IHostPlatform {
-	public HeadlessPlatform(IHostBridge bridge, IUiDispatcher dispatcher) {
+	public HeadlessPlatform(IHostBridge bridge, IUiDispatcher dispatcher, HostTransport transport) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(dispatcher);
 		Bridge = bridge;
 		Dispatcher = dispatcher;
+		Transport = transport;
 		PtyLauncher = OperatingSystem.IsWindows() ? new WindowsPtyLauncher() : new PosixPtyLauncher();
 	}
 
@@ -22,6 +24,8 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 	public IUiDispatcher Dispatcher { get; }
 
 	public IPtyLauncher PtyLauncher { get; }
+
+	public HostTransport Transport { get; }
 
 	// A browser has no native chrome, so render Weavie's custom title bar.
 	public string ChromePlatform => "web";

@@ -3,6 +3,7 @@ using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
+using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
@@ -200,6 +201,7 @@ internal sealed class TestPlatform : IHostPlatform {
 	public IUiDispatcher Dispatcher { get; }
 	public IPtyLauncher PtyLauncher => NoopLauncher;
 	public string ChromePlatform => "web";
+	public HostTransport Transport => HostTransport.Local;
 	public string? TitleBar => null;
 	public IReadOnlyList<string> Recents => [];
 	public IShellWindow? Window => null;

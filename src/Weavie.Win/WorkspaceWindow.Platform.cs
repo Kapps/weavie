@@ -3,6 +3,7 @@ using System.Diagnostics;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
 using Weavie.Core.Commands;
+using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Hosting;
 using Weavie.Win.Hosting;
@@ -20,6 +21,8 @@ internal sealed partial class WorkspaceWindow {
 	IPtyLauncher IHostPlatform.PtyLauncher => _ptyLauncher;
 
 	string IHostPlatform.ChromePlatform => "win";
+
+	HostTransport IHostPlatform.Transport => HostTransport.Local;
 
 	string? IHostPlatform.TitleBar => "custom";
 

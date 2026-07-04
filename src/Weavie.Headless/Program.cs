@@ -1,5 +1,6 @@
 using System.Text;
 using Microsoft.Extensions.FileProviders;
+using Weavie.Core.Mcp;
 using Weavie.Headless;
 using Weavie.Hosting;
 
@@ -49,7 +50,8 @@ if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } 
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
-await using var core = new HostCore(new HeadlessPlatform(bridge, dispatcher), services, workspace);
+var transport = listen is ListenMode.Remote ? HostTransport.Remote : HostTransport.Local;
+await using var core = new HostCore(new HeadlessPlatform(bridge, dispatcher, transport), services, workspace);
 await core.StartAsync().ConfigureAwait(false);
 
 var builder = WebApplication.CreateBuilder(args);

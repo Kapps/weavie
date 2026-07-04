@@ -43,6 +43,8 @@ internal static class TestMcp {
 		KeybindingStore? keybindings = null,
 		ThemeOverridesStore? themeOverrides = null,
 		Func<HookRequest, string?>? editLocator = null,
-		Func<string>? currentSessionId = null) =>
-		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides, editLocator, currentSessionId ?? (() => "test-session"));
+		Func<string>? currentSessionId = null,
+		HostRuntimeInfo? runtime = null) =>
+		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides, editLocator,
+			currentSessionId ?? (() => "test-session"), runtime ?? new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"));
 }

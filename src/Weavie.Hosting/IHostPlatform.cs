@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 
 namespace Weavie.Hosting;
@@ -21,6 +22,9 @@ public interface IHostPlatform {
 
 	/// <summary>Short platform id the web renders against (<c>win</c> / <c>mac</c> / <c>linux</c> / <c>web</c>).</summary>
 	string ChromePlatform { get; }
+
+	/// <summary>How this host is reached — <see cref="HostTransport.Remote"/> for a network-exposed worker, else local.</summary>
+	HostTransport Transport { get; }
 
 	/// <summary>Title-bar mode the web should render (<c>custom</c> for a web title bar, <c>mac</c>, or <c>null</c> for native chrome).</summary>
 	string? TitleBar { get; }

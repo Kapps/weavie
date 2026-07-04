@@ -544,6 +544,10 @@ export default function App(): JSX.Element {
                   x: event.clientX,
                   y: event.clientY,
                   entries: [
+                    { commandId: CommandIds.editorGoToDefinition },
+                    { commandId: CommandIds.editorGoToReferences },
+                    { commandId: CommandIds.editorRename },
+                    { kind: "separator" },
                     { commandId: CommandIds.editorCut },
                     { commandId: CommandIds.editorCopy },
                     { commandId: CommandIds.editorPaste },
@@ -956,6 +960,15 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.editorPaste, () =>
         editor.triggerAction("editor.action.clipboardPasteAction"),
       ),
+      // Code intelligence (right-click menu + F12 / Shift+F12 / F2): trigger Monaco's own actions, whose LSP
+      // providers do the work. triggerAction returns false with no editor mounted, so the chord falls through.
+      registerCommand(CommandIds.editorGoToDefinition, () =>
+        editor.triggerAction("editor.action.revealDefinition"),
+      ),
+      registerCommand(CommandIds.editorGoToReferences, () =>
+        editor.triggerAction("editor.action.goToReferences"),
+      ),
+      registerCommand(CommandIds.editorRename, () => editor.triggerAction("editor.action.rename")),
       // New File (scratch buffer) + Save (scratch → name prompt; real file already autosaved).
       registerCommand(CommandIds.newFile, () => editor.newFile()),
       registerCommand(CommandIds.saveFile, () => editor.save()),

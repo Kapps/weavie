@@ -53,6 +53,15 @@ public static class CoreCommands {
 	/// <summary>Pastes the clipboard into the editor at the cursor (the editor right-click "Paste" action).</summary>
 	public const string EditorPaste = "weavie.editor.paste";
 
+	/// <summary>Jumps to the definition of the symbol at the editor cursor (the editor right-click "Go to Definition"); bound to <c>F12</c>.</summary>
+	public const string EditorGoToDefinition = "weavie.editor.goToDefinition";
+
+	/// <summary>Lists every reference to the symbol at the editor cursor (the editor right-click "Find All References"); bound to <c>Shift+F12</c>.</summary>
+	public const string EditorGoToReferences = "weavie.editor.goToReferences";
+
+	/// <summary>Renames the symbol at the editor cursor across the workspace (the editor right-click "Rename Symbol"); bound to <c>F2</c>.</summary>
+	public const string EditorRename = "weavie.editor.rename";
+
 	/// <summary>Toggles Weavie's window (focus it / minimize it); bound by default to the global hotkey <c>ctrl+`</c>.</summary>
 	public const string ToggleWindow = "weavie.window.toggle";
 
@@ -495,6 +504,45 @@ public static class CoreCommands {
 			Description = "Paste the clipboard into the editor at the cursor.",
 			Aliases = ["paste", "paste clipboard", "editor paste"],
 			When = "editorFocused",
+		});
+
+		// Code-intelligence actions (right-click surface + palette + Claude): web-handled, they trigger the
+		// matching Monaco action, whose LSP provider does the work. Monaco's own chords are re-declared as Weavie
+		// keybindings so the menu advertises them; the capture-phase resolver runs the action once, before Monaco.
+		registry.Register(new CommandDefinition {
+			Id = EditorGoToDefinition,
+			Title = "Go to Definition",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Jump to the definition of the symbol at the editor cursor. Does nothing when no "
+				+ "definition is known (e.g. no language server for the file).",
+			Aliases = ["go to definition", "goto definition", "jump to definition", "definition"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "F12" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = EditorGoToReferences,
+			Title = "Find All References",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "List every reference to the symbol at the editor cursor in a peek view. Does nothing "
+				+ "when no references are known (e.g. no language server for the file).",
+			Aliases = ["find all references", "find references", "references", "go to references", "usages"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "Shift+F12" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = EditorRename,
+			Title = "Rename Symbol",
+			RunsIn = CommandLocation.Web,
+			Category = "Editor",
+			Description = "Rename the symbol at the editor cursor across the workspace. Does nothing when the "
+				+ "symbol can't be renamed (e.g. no language server for the file).",
+			Aliases = ["rename symbol", "rename", "refactor rename"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "F2" }],
 		});
 
 		// Toggle Weavie in/out of the foreground via the GLOBAL hotkey ctrl+` so it fires even when another app

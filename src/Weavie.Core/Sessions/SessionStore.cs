@@ -5,16 +5,18 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Sessions;
 
 /// <summary>
-/// The per-workspace set of sessions (and the active one), persisted atomically to
-/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>; a malformed file is backed up to
-/// <c>sessions.json.bad</c> and reset rather than throwing.
+/// The per-workspace overlay of which sessions were loaded and which was active, persisted atomically to
+/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a reopen (including a worker auto-update restart) comes
+/// back with the same sessions loaded and the same one active. The worktree set itself is reconciled from git;
+/// this store only carries the loaded/active overlay. A malformed file is backed up to <c>sessions.json.bad</c>
+/// and reset rather than throwing.
 /// </summary>
 public sealed class SessionStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
-	private readonly List<SessionDescriptor> _items;
+	private List<SessionDescriptor> _items;
 	private SessionId? _activeId;
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
@@ -27,9 +29,6 @@ public sealed class SessionStore {
 			_items = LoadLocked(out _activeId);
 		}
 	}
-
-	/// <summary>Raised (off the UI thread) after the session set or active session changes.</summary>
-	public event Action? Changed;
 
 	/// <summary>Diagnostic log line — read failures, malformed-file resets, persist failures.</summary>
 	public event Action<string>? Log;
@@ -46,7 +45,7 @@ public sealed class SessionStore {
 		}
 	}
 
-	/// <summary>The session that was active when last persisted, or <c>null</c>.</summary>
+	/// <summary>The session that was active when last persisted, or <c>null</c> (the primary was active).</summary>
 	public SessionId? ActiveId {
 		get {
 			lock (_gate) {
@@ -55,57 +54,13 @@ public sealed class SessionStore {
 		}
 	}
 
-	/// <summary>Adds or replaces (by id) <paramref name="descriptor"/>.</summary>
-	public void Add(SessionDescriptor descriptor) {
-		ArgumentNullException.ThrowIfNull(descriptor);
+	/// <summary>Replaces the whole overlay with <paramref name="sessions"/> and <paramref name="activeId"/>, persisting it.</summary>
+	public void Save(IReadOnlyList<SessionDescriptor> sessions, SessionId? activeId) {
+		ArgumentNullException.ThrowIfNull(sessions);
 		lock (_gate) {
-			_items.RemoveAll(s => s.Id == descriptor.Id);
-			_items.Add(descriptor);
+			_items = [.. sessions];
+			_activeId = activeId;
 			PersistLocked();
-		}
-
-		Changed?.Invoke();
-	}
-
-	/// <summary>Removes the session <paramref name="id"/> (clearing the active pointer if it referred to it).</summary>
-	public void Remove(SessionId id) {
-		bool removed;
-		lock (_gate) {
-			removed = _items.RemoveAll(s => s.Id == id) > 0;
-			if (_activeId == id) {
-				_activeId = null;
-			}
-
-			if (removed) {
-				PersistLocked();
-			}
-		}
-
-		if (removed) {
-			Changed?.Invoke();
-		}
-	}
-
-	/// <summary>Records <paramref name="id"/> as the active session.</summary>
-	public void SetActive(SessionId id) {
-		bool changed;
-		lock (_gate) {
-			changed = _activeId != id;
-			if (changed) {
-				_activeId = id;
-				PersistLocked();
-			}
-		}
-
-		if (changed) {
-			Changed?.Invoke();
-		}
-	}
-
-	/// <summary>The descriptor for <paramref name="id"/>, or <c>null</c>.</summary>
-	public SessionDescriptor? Get(SessionId id) {
-		lock (_gate) {
-			return _items.FirstOrDefault(s => s.Id == id);
 		}
 	}
 
@@ -140,6 +95,7 @@ public sealed class SessionStore {
 					Label = e.Label,
 					WorktreePath = e.WorktreePath,
 					IsPrimary = e.IsPrimary,
+					Loaded = e.Loaded,
 				})];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[sessions] {FilePath} is malformed ({ex.Message}); backing up to sessions.json.bad and resetting");
@@ -158,6 +114,7 @@ public sealed class SessionStore {
 					Label = s.Label,
 					WorktreePath = s.WorktreePath,
 					IsPrimary = s.IsPrimary,
+					Loaded = s.Loaded,
 				})],
 			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
@@ -189,5 +146,8 @@ public sealed class SessionStore {
 
 		[JsonPropertyName("isPrimary")]
 		public bool IsPrimary { get; set; }
+
+		[JsonPropertyName("loaded")]
+		public bool Loaded { get; set; }
 	}
 }

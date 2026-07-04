@@ -5,67 +5,67 @@ using Xunit;
 namespace Weavie.Core.Tests;
 
 /// <summary>
-/// Exercises <see cref="SessionStore"/> over the in-memory filesystem: persist + reload (including the
-/// active pointer), same-id replacement, removal clearing the active pointer, lookup, and malformed-file
-/// backup + reset.
+/// Exercises <see cref="SessionStore"/> over the in-memory filesystem: a full-overlay save persists the
+/// loaded flags + active pointer and reloads them, a null active clears the pointer, an old file lacking the
+/// <c>loaded</c> field reads back unloaded, and a malformed file is backed up + reset.
 /// </summary>
 public sealed class SessionStoreTests {
 	private const string StorePath = "/weavie-session-tests/sessions.json";
 
-	private static SessionDescriptor Descriptor(string id, string label, bool primary) => new() {
+	private static SessionDescriptor Descriptor(string id, string label, bool loaded) => new() {
 		Id = new SessionId(id),
 		Label = label,
 		WorktreePath = "/wt/" + label,
-		IsPrimary = primary,
+		IsPrimary = false,
+		Loaded = loaded,
 	};
 
 	[Fact]
-	public void Add_PersistsAndReloads_WithActive() {
+	public void Save_PersistsLoadedFlagsAndActive_AndReloads() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
 
-		store.Add(Descriptor("aaaa", "main", true));
-		store.SetActive(new SessionId("aaaa"));
+		store.Save([Descriptor("aaaa", "a", loaded: true), Descriptor("bbbb", "b", loaded: false)], new SessionId("aaaa"));
 
 		var reloaded = new SessionStore(fs, StorePath);
-		Assert.Single(reloaded.Items);
-		Assert.Equal("main", reloaded.Items[0].Label);
+		Assert.Equal(2, reloaded.Items.Count);
+		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
+		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
 		Assert.Equal(new SessionId("aaaa"), reloaded.ActiveId);
 	}
 
 	[Fact]
-	public void Add_SameId_Replaces() {
+	public void Save_NullActive_ClearsActive() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
+		store.Save([Descriptor("aaaa", "a", loaded: true)], new SessionId("aaaa"));
 
-		store.Add(Descriptor("aaaa", "main", true));
-		store.Add(Descriptor("aaaa", "renamed", true));
+		store.Save([Descriptor("aaaa", "a", loaded: true)], activeId: null);
 
-		Assert.Single(store.Items);
-		Assert.Equal("renamed", store.Items[0].Label);
+		Assert.Null(new SessionStore(fs, StorePath).ActiveId);
 	}
 
 	[Fact]
-	public void Remove_DropsAndClearsActive() {
+	public void Save_ReplacesWholeOverlay() {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
-		store.Add(Descriptor("aaaa", "main", true));
-		store.SetActive(new SessionId("aaaa"));
+		store.Save([Descriptor("aaaa", "a", loaded: true), Descriptor("bbbb", "b", loaded: true)], new SessionId("aaaa"));
 
-		store.Remove(new SessionId("aaaa"));
+		store.Save([Descriptor("bbbb", "b", loaded: true)], new SessionId("bbbb"));
 
-		Assert.Empty(store.Items);
-		Assert.Null(store.ActiveId);
+		var item = Assert.Single(new SessionStore(fs, StorePath).Items);
+		Assert.Equal("b", item.Label);
 	}
 
 	[Fact]
-	public void Get_ReturnsDescriptorOrNull() {
+	public void OldFileWithoutLoadedField_ReadsBackUnloaded() {
 		var fs = new InMemoryFileSystem();
-		var store = new SessionStore(fs, StorePath);
-		store.Add(Descriptor("aaaa", "main", true));
+		fs.WriteAllText(StorePath,
+			"""{"version":1,"activeId":null,"sessions":[{"id":"aaaa","label":"a","worktreePath":"/wt/a","isPrimary":false}]}""");
 
-		Assert.NotNull(store.Get(new SessionId("aaaa")));
-		Assert.Null(store.Get(new SessionId("zzzz")));
+		var store = new SessionStore(fs, StorePath);
+
+		Assert.False(Assert.Single(store.Items).Loaded);
 	}
 
 	[Fact]

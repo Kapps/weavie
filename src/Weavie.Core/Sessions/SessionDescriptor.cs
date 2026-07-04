@@ -16,4 +16,7 @@ public sealed record SessionDescriptor {
 
 	/// <summary>True for the workspace's primary session (the folder the user opened; not a Weavie-created worktree).</summary>
 	public required bool IsPrimary { get; init; }
+
+	/// <summary>Whether this session had a live backend at last persist — the flag a reopen restores (loading + <c>--resume</c>ing it).</summary>
+	public required bool Loaded { get; init; }
 }

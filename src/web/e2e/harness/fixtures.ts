@@ -65,9 +65,42 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
       // invisible in the browser trace (the page just shows "Lost connection"), so the .NET exception that
       // killed it must ride the test artifacts. See issue #197.
       if (testInfo.status !== testInfo.expectedStatus) {
+        // The viewport/layout state rides along too: one CI failure showed the whole app painting at 0.6
+        // scale with the editor container at 5px CSS — invisible in a DOM snapshot, obvious in these numbers.
+        const layout = await page
+          .evaluate(() => {
+            const rect = (sel: string) => {
+              const el = document.querySelector(sel);
+              if (!el) {
+                return "absent";
+              }
+              const r = el.getBoundingClientRect();
+              return `${Math.round(r.width)}x${Math.round(r.height)}`;
+            };
+            return JSON.stringify(
+              {
+                inner: `${window.innerWidth}x${window.innerHeight}`,
+                dpr: window.devicePixelRatio,
+                visualViewport: window.visualViewport
+                  ? `${Math.round(window.visualViewport.width)}x${Math.round(window.visualViewport.height)} scale=${window.visualViewport.scale}`
+                  : "absent",
+                html: rect("html"),
+                body: rect("body"),
+                app: rect(".app"),
+                appBody: rect(".app-body"),
+                layoutRoot: rect(".layout-root"),
+                editor: rect(".editor-surface .editor"),
+                monaco: rect(".editor-surface .monaco-editor"),
+              },
+              null,
+              2,
+            );
+          })
+          .catch((err) => `layout probe failed: ${err}`);
         for (const [name, content] of [
           ["weavie-host.log", host.log()],
           ["fake-claude.log", host.fakeLog()],
+          ["viewport-layout.json", layout],
         ] as const) {
           const path = testInfo.outputPath(name);
           await writeFile(path, content);

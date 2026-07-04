@@ -278,6 +278,18 @@ export default function App(): JSX.Element {
     promptScratchName,
   });
 
+  // Bring the editor up once, deferred one frame past the first terminal paint so the splash-removed shell
+  // reveals before the multi-MB editor chunk's eval + Monaco creation jams the main thread. Idempotent: both
+  // terminal panes fire onFirstRender, and a backstop covers a window that never paints a terminal frame.
+  let editorStarted = false;
+  const startEditorOnce = (): void => {
+    if (editorStarted) {
+      return;
+    }
+    editorStarted = true;
+    requestAnimationFrame(() => editor.start(editorContainer));
+  };
+
   const focusPane = (kind: string): void => {
     // Mark it active first: in fullscreen this synchronously makes its slot the visible one (the others are
     // display:none), so the focus call below lands on an on-screen element rather than a hidden one.
@@ -604,7 +616,10 @@ export default function App(): JSX.Element {
                     slot={sid}
                     pane={pane}
                     active={isActive()}
-                    onFirstRender={dismissSplash}
+                    onFirstRender={() => {
+                      dismissSplash();
+                      startEditorOnce();
+                    }}
                     onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
                     onTitle={(title) =>
                       setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
@@ -686,9 +701,14 @@ export default function App(): JSX.Element {
     // Registered remote agents are connected by remote-agents.ts when the host pushes the persisted registry on
     // `ready` (best-effort; a down runner just logs and is skipped) — no startup call needed here.
 
-    // Terminal panes mount independently (spawning claude). The editor is a separate off-first-paint chunk
-    // brought up here; its pane shows a placeholder until it resolves, splash held until it settles.
-    editor.start(editorContainer);
+    // The editor is a separate off-first-paint chunk; startEditorOnce brings it up one frame after the first
+    // terminal paint (see its definition) so the shell reveals before the multi-MB editor eval jams the main
+    // thread. A terminal always paints a frame on mount when the window is visible, so that path is the
+    // trigger; a window occluded at launch (WKWebView pauses rAF, so no terminal frame) starts the editor
+    // when it first becomes visible — no fixed timer that could fire mid-reveal on a healthy launch.
+    if (document.visibilityState !== "visible") {
+      document.addEventListener("visibilitychange", () => startEditorOnce(), { once: true });
+    }
 
     const offHost = onHostMessage((message) => {
       if (editor.handleMessage(message)) {

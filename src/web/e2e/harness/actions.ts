@@ -1,9 +1,18 @@
 import { type Page, expect } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 
+// The editor chunk is deferred past the shell's first paint (so the splash reveals early), so the editor is
+// NOT up when the splash clears — it stamps `data-ready` on the `.editor` container once Monaco is live. Any
+// helper that drives the editor waits on this; tests that never touch the editor never pay for it. Generous
+// timeout: the editor's own init deadline is 15s, so a real hang fails loudly rather than racing.
+export async function awaitEditorReady(page: Page): Promise<void> {
+  await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
+}
+
 // Open a workspace file through the omnibar's "Go to File" and wait until the editor is ACTUALLY showing it.
 // The first fuzzy match is auto-selected, so typing the name and pressing Enter opens it.
 export async function openFile(page: Page, name: string): Promise<void> {
+  await awaitEditorReady(page);
   await page.locator(".tb-omnibar-input").click();
   await page.locator(".tb-omnibar-input").fill(name);
   await expect(page.locator(".tb-omnibar-row", { hasText: name }).first()).toBeVisible();
@@ -45,6 +54,7 @@ export async function runCommand(page: Page, title: string): Promise<void> {
 
 // Type text at the current caret in the focused Monaco editor.
 export async function typeInEditor(page: Page, text: string): Promise<void> {
+  await awaitEditorReady(page);
   await page.locator(".monaco-editor .view-lines").first().click();
   await page.keyboard.type(text);
 }

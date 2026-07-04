@@ -1,7 +1,37 @@
 # E2E boot-cost reduction
 
-Status: planned (two independent work items)
+Status: implemented (Item B shipped; Item A abandoned at its gate)
 Last updated: 2026-07-04
+
+## Outcome (what implementation found)
+
+Instrumenting the boot with the `?startuptiming` marks corrected the plan's central premise and
+resized both items:
+
+- **The splash was already dropped on the first terminal paint, not on editor-ready** (App wires
+  `dismissSplash` to `TerminalView.onFirstRender`; the stale `main.tsx` comment said otherwise). The
+  splash *element* is removed at ~180ms (1x) / ~780ms (4x throttle). But the user didn't SEE the
+  reveal until ~editor-ready, because `editor.start()` ran synchronously in `onMount` and the
+  ~6.9MB editor chunk's eval + Monaco creation **jammed the renderer main thread**, starving the
+  reveal paint. So the real fix is not "move the splash gate" (already moved) — it is **defer the
+  editor bring-up until one frame past the first terminal paint** so the shell reveals first.
+  - Measured reveal (dom→splash-observed): **1x 902ms → 180ms; 4x throttle 2762ms → 430ms** (~2.3s
+    on CI-like CPU). The editor still comes up right after (editor-ready unchanged at ~1.1s/~3.4s).
+  - Shipped as Item B below. Half the suite (non-editor journeys) proceeds ~2s earlier on throttled
+    CI; editor journeys are unchanged (their helpers now wait on a new `data-ready` signal).
+  - **Local unthrottled suite wall-time was unchanged (37.3s vs 37.4s at 50% workers on 24 cores)** —
+    honest: with spare cores the eval was already hidden. The win is real only under CPU contention
+    (CI 4-vCPU, serial macOS/Windows) and as the product reveal-latency win. CI is the true measure.
+
+- **Item A (V8 code-cache reuse) failed its go/no-go gate: ~0ms.** Measured its actual mechanism
+  cleanly — a persistent context + fixed port (same origin ⇒ warm code cache) across three
+  sequential *fresh* hosts — saving was splash **-43ms**, editor-ready **+17ms** (noise); editor-ready
+  sat at ~3.4s cold *and* warm under 4x throttle. The editor bring-up is **execution-bound** (Monaco
+  builds DOM, vscode services initialize), not compile-bound, so caching compiled bytecode buys
+  nothing. An earlier reload-in-same-page proxy showed a false ~1.3s "saving" that was entirely
+  host-session-state reuse, not the code cache. **Abandoned; not built** — the persistent-context /
+  stable-port / hand-rolled-tracing / storage-isolation machinery isn't worth ~0ms plus isolation
+  risk. This is exactly the number the measure-first gate existed to find.
 
 ## Context: where a test's fixed cost goes (measured)
 
@@ -39,6 +69,9 @@ CI medians after PR #234: Linux 5.0s (2 workers), macOS 3.6s, Windows 2.4s (seri
 below attack the ~1-2.2s browser-side share. They are independent; land as separate PRs.
 
 ## Item A — V8 code-cache reuse within a worker (harness-only, measure-first)
+
+> **ABANDONED at the gate (~0ms saving).** See Outcome above. The plan below was not built; kept as
+> the record of what was evaluated.
 
 **Idea:** one persistent browser context per Playwright worker + one stable port per worker, so the
 bundle URL (the V8 code-cache key) is constant within a worker. Chromium writes the compile cache
@@ -84,7 +117,11 @@ fresh page, fresh host process, fresh HOME/workspace); the `remote` project must
 worker URL comes from the runner, so scope the stable-port scheme to `launchHeadless` and leave
 `launchRemote` on its current path (its per-test cost is dominated by runner+worker spawn anyway).
 
-## Item B — drop the splash's dependency on the editor chunk (product change)
+## Item B — defer the editor bring-up past first paint (product change) — SHIPPED
+
+> **SHIPPED.** The splash was already terminal-gated; the real fix was deferring `editor.start()` one
+> frame past the first terminal paint so the editor eval stops starving the reveal (see Outcome
+> above). Editor-touching e2e helpers now wait on a `data-ready` signal on `.editor`.
 
 **Today:** `src/web/src/main.tsx` already renders the shell immediately and loads Monaco + vscode
 services as a separate lazy chunk — but `src/web/src/App.tsx` (see the `editor.start(editorContainer)`

@@ -56,6 +56,18 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         pr: prScenario,
         notionDoc: notionDoc ?? undefined,
       });
+      // Collect the page's console errors/warnings for the failure dump: a browser-side error that disrupts
+      // boot (e.g. a Windows `net::ERR_NO_BUFFER_SPACE` resource-load failure) is invisible in the DOM
+      // snapshot but is the first thing needed to root-cause an editor/diff render timeout.
+      const consoleErrors: string[] = [];
+      page.on("console", (msg) => {
+        // Errors only: a browser-level failure (a failed resource load, an uncaught exception) is the signal.
+        // Warnings are dropped — the WebGL "GPU stall" perf warnings would bury it.
+        if (msg.type() === "error") {
+          consoleErrors.push(`[error] ${msg.text()}`);
+        }
+      });
+      page.on("pageerror", (err) => consoleErrors.push(`[pageerror] ${String(err)}`));
       await page.goto(host.url, { waitUntil: "domcontentloaded" });
       // The app removes the splash element once it has booted (layout + first session). Its disappearance
       // is the "app is interactive" signal — not a fixed sleep.
@@ -91,6 +103,9 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
                 layoutRoot: rect(".layout-root"),
                 editor: rect(".editor-surface .editor"),
                 monaco: rect(".editor-surface .monaco-editor"),
+                // The live review-walk file set: on a PR-switch failure this shows whether the navigator holds
+                // a leaked cross-PR mix (a host push bug) or the correct set (a test-walk race).
+                review: window.__WEAVIE_REVIEW__ ?? null,
               },
               null,
               2,
@@ -101,6 +116,7 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
           ["weavie-host.log", host.log()],
           ["fake-claude.log", host.fakeLog()],
           ["viewport-layout.json", layout],
+          ["console-errors.txt", consoleErrors.join("\n") || "(none)"],
         ] as const) {
           const path = testInfo.outputPath(name);
           await writeFile(path, content);

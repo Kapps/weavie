@@ -45,5 +45,11 @@ interface Window {
   __WEAVIE_TERMINALS__?: Record<string, import("@xterm/xterm").Terminal>;
   /** The live Monaco editor, published by createEditor for e2e / diagnostics (read-only). */
   __WEAVIE_EDITOR__?: import("monaco-editor").editor.IStandaloneCodeEditor;
+  /**
+   * The live review-walk file set + label the inline navigator cycles through, published by the editor
+   * controller for e2e / diagnostics (read-only). A failed PR-switch test attaches this so the exact settled
+   * set (a leaked cross-PR mix vs the correct set) is visible without walking the navigator. See fixtures.ts.
+   */
+  __WEAVIE_REVIEW__?: { files: string[]; label: string };
   // The LSP bridge config (window.__WEAVIE_LSP__) is augmented onto Window in lsp/lsp-client.ts.
 }

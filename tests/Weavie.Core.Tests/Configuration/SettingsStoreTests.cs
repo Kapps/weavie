@@ -41,11 +41,17 @@ public sealed class SettingsStoreTests : IDisposable {
 	private static SettingsRegistry ScopedRegistry() {
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition {
-			Key = "t.wsstr", Kind = SettingKind.String, Description = "a per-workspace string",
-			Scope = SettingScope.Workspace, Default = "ws-default",
+			Key = "t.wsstr",
+			Kind = SettingKind.String,
+			Description = "a per-workspace string",
+			Scope = SettingScope.Workspace,
+			Default = "ws-default",
 		});
 		registry.Register(new SettingDefinition {
-			Key = "t.userstr", Kind = SettingKind.String, Description = "a user string", Default = "user-default",
+			Key = "t.userstr",
+			Kind = SettingKind.String,
+			Description = "a user string",
+			Default = "user-default",
 		});
 		return registry;
 	}

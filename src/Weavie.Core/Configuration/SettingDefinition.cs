@@ -39,14 +39,31 @@ public enum ApplyMode {
 
 /// <summary>Which resolution layer a value came from (highest precedence first).</summary>
 public enum SettingSource {
-	/// <summary>A <c>WEAVIE_*</c> environment variable (wins over the file).</summary>
+	/// <summary>A <c>WEAVIE_*</c> environment variable (wins over any file).</summary>
 	Environment,
+
+	/// <summary>The workspace's <c>.weavie/settings.toml</c> (only for <see cref="SettingScope.Workspace"/> keys).</summary>
+	WorkspaceFile,
 
 	/// <summary>The user's <c>settings.toml</c>.</summary>
 	UserFile,
 
 	/// <summary>The registered default (computed or static).</summary>
 	Default,
+}
+
+/// <summary>
+/// Where a setting is stored and resolved from. <see cref="User"/> keys live in the shared user file
+/// (one value across every workspace, e.g. theme); <see cref="Workspace"/> keys live in the repo's
+/// <c>.weavie/settings.toml</c> and are resolved per workspace (e.g. the test profile), falling back
+/// to the user file when the workspace hasn't set them. See <c>docs/specs/settings.md</c>.
+/// </summary>
+public enum SettingScope {
+	/// <summary>Cross-workspace: stored in the user file, one value everywhere.</summary>
+	User,
+
+	/// <summary>Per-workspace: stored in the repo's <c>.weavie/settings.toml</c>, resolved against the active workspace.</summary>
+	Workspace,
 }
 
 /// <summary>
@@ -110,6 +127,9 @@ public sealed record SettingDefinition {
 
 	/// <summary>How a change to this setting takes effect.</summary>
 	public ApplyMode Apply { get; init; } = ApplyMode.NextSession;
+
+	/// <summary>Where the value is stored and resolved from — the shared user file or the workspace's <c>.weavie/settings.toml</c>.</summary>
+	public SettingScope Scope { get; init; } = SettingScope.User;
 
 	/// <summary>
 	/// The derived override env var: <c>WEAVIE_</c> + the key uppercased with <c>.</c> → <c>_</c>

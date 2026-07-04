@@ -108,6 +108,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
+		// Back per-workspace settings (worktree.setupCommand, test.profile) from this repo's .weavie/settings.toml.
+		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
+		_settings.RegisterWorkspace(workspaceRoot);
+
 		// Per-workspace layout + editor session, keyed by the folder's path id so each folder restores its own state.
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));

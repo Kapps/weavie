@@ -1,18 +1,15 @@
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
-using Tomlyn;
-using Tomlyn.Model;
-using Tomlyn.Syntax;
 
 namespace Weavie.Core.Configuration;
 
 /// <summary>A resolved setting value and the layer it came from.</summary>
 public readonly record struct ResolvedValue(object? Value, SettingSource Source);
 
-/// <summary>The outcome of a <see cref="SettingsStore.Set"/> — what to tell the user.</summary>
+/// <summary>The outcome of a <see cref="SettingsStore.Set(string, JsonElement)"/> — what to tell the user.</summary>
 public sealed record SetResult {
-	/// <summary>Whether the value was written to the user file (always true on success).</summary>
+	/// <summary>Whether the value was written to its backing file (always true on success).</summary>
 	public required bool Written { get; init; }
 
 	/// <summary>The env var that overrides the file (so the effective value is unchanged), or <c>null</c>.</summary>
@@ -22,9 +19,9 @@ public sealed record SetResult {
 	public required ApplyMode Apply { get; init; }
 }
 
-/// <summary>The outcome of a <see cref="SettingsStore.Clear"/> — what to tell the user.</summary>
+/// <summary>The outcome of a <see cref="SettingsStore.Clear(string)"/> — what to tell the user.</summary>
 public sealed record ClearResult {
-	/// <summary>Whether a user-file override was actually present and removed.</summary>
+	/// <summary>Whether a file override was actually present and removed.</summary>
 	public required bool Removed { get; init; }
 
 	/// <summary>The env var that still overrides the resolved value (so it's unchanged), or <c>null</c>.</summary>
@@ -34,40 +31,51 @@ public sealed record ClearResult {
 	public required ApplyMode Apply { get; init; }
 }
 
-/// <summary>A single resolved-value change, raised to subscribers of <see cref="SettingsStore.SettingChanged"/>.</summary>
-public readonly record struct SettingChange(string Key, object? OldValue, object? NewValue, SettingSource Source);
+/// <summary>
+/// A single resolved-value change, raised to subscribers of <see cref="SettingsStore.SettingChanged"/>.
+/// <see cref="WorkspaceRoot"/> is the workspace a <see cref="SettingScope.Workspace"/> change belongs to,
+/// or <c>null</c> for a cross-workspace (user-file/env) change.
+/// </summary>
+public readonly record struct SettingChange(string Key, object? OldValue, object? NewValue, SettingSource Source, string? WorkspaceRoot);
 
 /// <summary>
-/// Loads, resolves, and persists user settings as TOML at <c>~/.weavie/settings.toml</c>, and is the change
-/// hub the host reacts to. Resolution precedence is env var → user file → registered default; values are
-/// coerced to their declared <see cref="SettingKind"/> and validated. Atomic writes go through Tomlyn's
-/// comment-preserving <see cref="DocumentSyntax"/> so unknown subtrees and user comments survive a round-trip.
-/// A debounced, parse-guarded <see cref="FileSystemWatcher"/> turns hand-edits into <see cref="SettingChanged"/>
+/// Loads, resolves, and persists settings as TOML and is the change hub the host reacts to. Cross-workspace
+/// (<see cref="SettingScope.User"/>) keys live in the shared user file (<c>~/.weavie/settings.toml</c>);
+/// per-workspace (<see cref="SettingScope.Workspace"/>) keys live in each registered workspace's
+/// <c>.weavie/settings.toml</c>. Resolution precedence is env var → workspace file → user file → registered
+/// default; values are coerced to their declared <see cref="SettingKind"/> and validated. Writes go through
+/// Tomlyn's comment-preserving document so unknown subtrees and user comments survive a round-trip. A debounced,
+/// parse-guarded <see cref="FileSystemWatcher"/> per watched file turns hand-edits into <see cref="SettingChanged"/>
 /// events, diffing against in-memory state so self-writes never double-fire. See <c>docs/specs/settings.md</c>.
 /// </summary>
 public sealed class SettingsStore : IDisposable {
 	private const string WorkspaceKey = "workspace";
+	private const string WorkspaceSettingsDir = ".weavie";
+	private const string WorkspaceSettingsFileName = "settings.toml";
 
 	private readonly SettingsRegistry _registry;
 	private readonly Lock _gate = new();
+	private readonly bool _enableWatcher;
+	private readonly SettingsFileLayer _userLayer;
+	private readonly Dictionary<string, WorkspaceRegistration> _workspaces = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, object?> _resolved = new(StringComparer.Ordinal);
-	private readonly FileSystemWatcher? _watcher;
+	private readonly List<FileSystemWatcher> _watchers = [];
 	private readonly Timer? _debounce;
 
-	private DocumentSyntax _doc = new();
-	private TomlTable _model = [];
-	private bool _malformed;
-	private bool _hasGoodDoc;
+	private bool _lastMalformed;
 	private bool _disposed;
 
 	/// <summary>
 	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>), loading
-	/// current values and — unless <paramref name="enableWatcher"/> is false — watching the file for edits.
+	/// current values and — unless <paramref name="enableWatcher"/> is false — watching files for edits.
+	/// Register per-workspace overlays afterwards with <see cref="RegisterWorkspace"/>.
 	/// </summary>
 	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher) {
 		ArgumentNullException.ThrowIfNull(registry);
 		_registry = registry;
+		_enableWatcher = enableWatcher;
 		FilePath = filePath ?? WeaviePaths.SettingsFile;
+		_userLayer = new SettingsFileLayer(FilePath);
 
 		string? directory = Path.GetDirectoryName(FilePath);
 		if (!string.IsNullOrEmpty(directory)) {
@@ -75,21 +83,17 @@ public sealed class SettingsStore : IDisposable {
 		}
 
 		lock (_gate) {
-			LoadFromDiskLocked();
+			LogAll(_userLayer.Load());
 			foreach (var definition in _registry.Definitions) {
-				_resolved[definition.Key] = ResolveLocked(definition).Value;
+				_resolved[definition.Key] = ResolveLocked(definition, workspaceRoot: null).Value;
 			}
+
+			_lastMalformed = AnyMalformedLocked();
 		}
 
-		if (enableWatcher && !string.IsNullOrEmpty(directory)) {
+		if (enableWatcher) {
 			_debounce = new Timer(OnDebounceElapsed, null, Timeout.Infinite, Timeout.Infinite);
-			_watcher = new FileSystemWatcher(directory, Path.GetFileName(FilePath)) {
-				NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
-				EnableRaisingEvents = true,
-			};
-			_watcher.Changed += OnFileEvent;
-			_watcher.Created += OnFileEvent;
-			_watcher.Renamed += OnFileEvent;
+			WatchFileDirectory(FilePath);
 		}
 	}
 
@@ -99,27 +103,59 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>Diagnostic log line: parse errors and ignored invalid values.</summary>
 	public event Action<string>? Log;
 
-	/// <summary>Raised when the file's malformed state flips on a live reload — true once it starts having parse
-	/// errors (edits ignored), false once it parses cleanly again. Lets a host surface it to the user.</summary>
+	/// <summary>Raised when the malformed state of any watched file flips on a live reload — true once a file
+	/// starts having parse errors (its edits ignored), false once every file parses cleanly again.</summary>
 	public event Action<bool>? MalformedChanged;
 
-	/// <summary>The settings file backing this store.</summary>
+	/// <summary>The user settings file backing this store's cross-workspace layer.</summary>
 	public string FilePath { get; }
 
-	/// <summary>Whether the on-disk file currently has TOML parse errors (writes are refused while true).</summary>
+	/// <summary>Whether any watched settings file currently has TOML parse errors (writes to it are refused while true).</summary>
 	public bool IsMalformed {
-		get { lock (_gate) { return _malformed; } }
+		get { lock (_gate) { return AnyMalformedLocked(); } }
 	}
 
-	/// <summary>Resolves <paramref name="key"/> through env → file → default and reports the source.</summary>
+	/// <summary>
+	/// Registers a workspace so its <c>.weavie/settings.toml</c> overlay is loaded and (if watching is on)
+	/// watched, backing <see cref="SettingScope.Workspace"/> resolution for <paramref name="workspaceRoot"/>.
+	/// Idempotent per root; the caller reads current values fresh after registering.
+	/// </summary>
+	public void RegisterWorkspace(string workspaceRoot) {
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		string root = NormalizeRoot(workspaceRoot);
+		lock (_gate) {
+			if (_disposed || _workspaces.ContainsKey(root)) {
+				return;
+			}
+
+			string file = Path.Combine(root, WorkspaceSettingsDir, WorkspaceSettingsFileName);
+			var registration = new WorkspaceRegistration(root, new SettingsFileLayer(file));
+			LogAll(registration.Layer.Load());
+			_workspaces[root] = registration; // register before seeding so ResolveLocked sees the overlay
+			SeedWorkspaceResolvedLocked(registration);
+			EnsureWorkspaceWatcherLocked(registration);
+		}
+	}
+
+	/// <summary>Resolves <paramref name="key"/> through env → user file → default (no workspace overlay).</summary>
 	public ResolvedValue Resolve(string key) {
 		lock (_gate) {
-			return ResolveLocked(_registry.Require(key));
+			return ResolveLocked(_registry.Require(key), workspaceRoot: null);
+		}
+	}
+
+	/// <summary>Resolves <paramref name="key"/> for <paramref name="workspaceRoot"/> through env → workspace file → user file → default.</summary>
+	public ResolvedValue Resolve(string key, string workspaceRoot) {
+		lock (_gate) {
+			return ResolveLocked(_registry.Require(key), workspaceRoot);
 		}
 	}
 
 	/// <summary>Resolves <paramref name="key"/> as a string (null if the value is absent or not a string).</summary>
 	public string? GetString(string key) => Resolve(key).Value as string;
+
+	/// <summary>Resolves <paramref name="key"/> as a string for <paramref name="workspaceRoot"/> (null if absent or not a string).</summary>
+	public string? GetString(string key, string workspaceRoot) => Resolve(key, workspaceRoot).Value as string;
 
 	/// <summary>Resolves <paramref name="key"/> as a bool (<paramref name="fallback"/> if absent or not a bool).</summary>
 	public bool GetBool(string key, bool fallback) => Resolve(key).Value is bool b ? b : fallback;
@@ -143,19 +179,41 @@ public sealed class SettingsStore : IDisposable {
 		new($"setting '{key}' did not resolve to a {kind}; check the default it was registered with.");
 
 	/// <summary>
-	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> (a JSON value from MCP) to the
-	/// user file, raising <see cref="SettingChanged"/> if the effective value changed. Throws
-	/// <see cref="UnknownSettingException"/> / <see cref="SettingValidationException"/> /
-	/// <see cref="SettingsFileMalformedException"/> on rejection.
+	/// Validates and writes <paramref name="key"/> = <paramref name="value"/> to the user file (the
+	/// cross-workspace layer), raising <see cref="SettingChanged"/> for any effective value that changed.
+	/// Workspace-scoped keys written here land in the user file as the shared fallback; route them to a
+	/// workspace with <see cref="Set(string, JsonElement, string)"/>.
 	/// </summary>
-	public SetResult Set(string key, JsonElement value) {
+	public SetResult Set(string key, JsonElement value) => SetOnLayer(key, value, workspaceRoot: null);
+
+	/// <summary>
+	/// As <see cref="Set(string, JsonElement)"/>, but a <see cref="SettingScope.Workspace"/> key is written to
+	/// <paramref name="workspaceRoot"/>'s <c>.weavie/settings.toml</c> (registering the workspace if needed);
+	/// a <see cref="SettingScope.User"/> key ignores <paramref name="workspaceRoot"/> and writes the user file.
+	/// </summary>
+	public SetResult Set(string key, JsonElement value, string workspaceRoot) {
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		return SetOnLayer(key, value, workspaceRoot);
+	}
+
+	/// <summary>Removes <paramref name="key"/>'s user-file override, falling back to env/default. The inverse of <see cref="Set(string, JsonElement)"/>.</summary>
+	public ClearResult Clear(string key) => ClearOnLayer(key, workspaceRoot: null);
+
+	/// <summary>As <see cref="Clear(string)"/>, but a workspace-scoped key is cleared from <paramref name="workspaceRoot"/>'s file.</summary>
+	public ClearResult Clear(string key, string workspaceRoot) {
+		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		return ClearOnLayer(key, workspaceRoot);
+	}
+
+	private SetResult SetOnLayer(string key, JsonElement value, string? workspaceRoot) {
 		List<SettingChange> changes;
 		SetResult result;
 		lock (_gate) {
 			var definition = _registry.Require(key);
-			if (_malformed) {
+			var layer = TargetLayerLocked(definition, workspaceRoot, createIfMissing: true);
+			if (layer.Malformed) {
 				throw new SettingsFileMalformedException(
-					$"{FilePath} has TOML parse errors; fix or delete it before changing settings.");
+					$"{layer.FilePath} has TOML parse errors; fix or delete it before changing settings.");
 			}
 
 			if (!TryCoerceJson(definition, value, out object? coerced, out string? coerceError)) {
@@ -167,11 +225,12 @@ public sealed class SettingsStore : IDisposable {
 				throw new SettingValidationException(key, validation.Message ?? "invalid value");
 			}
 
-			SetDocValueLocked(definition, coerced);
-			SaveAtomicLocked();
+			layer.SetValue(definition, coerced);
+			layer.SaveAtomic();
+			EnsureWatcherForLayerLocked(definition, workspaceRoot);
 			changes = RecomputeAndDiffLocked();
 
-			string? shadow = ResolveLocked(definition).Source == SettingSource.Environment ? definition.EnvVar : null;
+			string? shadow = ResolveLocked(definition, workspaceRoot).Source == SettingSource.Environment ? definition.EnvVar : null;
 			result = new SetResult { Written = true, ShadowedByEnv = shadow, Apply = definition.Apply };
 		}
 
@@ -179,29 +238,24 @@ public sealed class SettingsStore : IDisposable {
 		return result;
 	}
 
-	/// <summary>
-	/// Removes <paramref name="key"/>'s user-file override (if any), so it falls back to its env var or
-	/// registered default, raising <see cref="SettingChanged"/> if the effective value changed — the inverse of
-	/// <see cref="Set"/>. Throws <see cref="UnknownSettingException"/> /
-	/// <see cref="SettingsFileMalformedException"/> as <see cref="Set"/> does.
-	/// </summary>
-	public ClearResult Clear(string key) {
+	private ClearResult ClearOnLayer(string key, string? workspaceRoot) {
 		List<SettingChange> changes;
 		ClearResult result;
 		lock (_gate) {
 			var definition = _registry.Require(key);
-			if (_malformed) {
+			var layer = TargetLayerLocked(definition, workspaceRoot, createIfMissing: false);
+			if (layer.Malformed) {
 				throw new SettingsFileMalformedException(
-					$"{FilePath} has TOML parse errors; fix or delete it before changing settings.");
+					$"{layer.FilePath} has TOML parse errors; fix or delete it before changing settings.");
 			}
 
-			bool removed = RemoveKeyLocked(definition.Key);
+			bool removed = layer.RemoveKey(definition.Key);
 			if (removed) {
-				SaveAtomicLocked();
+				layer.SaveAtomic();
 			}
 
 			changes = RecomputeAndDiffLocked();
-			string? shadow = ResolveLocked(definition).Source == SettingSource.Environment ? definition.EnvVar : null;
+			string? shadow = ResolveLocked(definition, workspaceRoot).Source == SettingSource.Environment ? definition.EnvVar : null;
 			result = new ClearResult { Removed = removed, ShadowedByEnv = shadow, Apply = definition.Apply };
 		}
 
@@ -209,7 +263,31 @@ public sealed class SettingsStore : IDisposable {
 		return result;
 	}
 
-	/// <summary>Subscribes <paramref name="handler"/> to changes of a single <paramref name="key"/>.</summary>
+	// The file a write targets: a Workspace-scoped key with a root goes to that workspace's overlay (registered
+	// on demand for writes); everything else — including a Workspace key with no root — goes to the user file.
+	private SettingsFileLayer TargetLayerLocked(SettingDefinition definition, string? workspaceRoot, bool createIfMissing) {
+		if (definition.Scope != SettingScope.Workspace || workspaceRoot is null) {
+			return _userLayer;
+		}
+
+		string root = NormalizeRoot(workspaceRoot);
+		if (_workspaces.TryGetValue(root, out var existing)) {
+			return existing.Layer;
+		}
+
+		if (!createIfMissing) {
+			return _userLayer; // nothing registered and not creating: clearing a never-set overlay is a no-op on the user file
+		}
+
+		string file = Path.Combine(root, WorkspaceSettingsDir, WorkspaceSettingsFileName);
+		var registration = new WorkspaceRegistration(root, new SettingsFileLayer(file));
+		LogAll(registration.Layer.Load());
+		_workspaces[root] = registration; // register before seeding so ResolveLocked sees the overlay
+		SeedWorkspaceResolvedLocked(registration);
+		return registration.Layer;
+	}
+
+	/// <summary>Subscribes <paramref name="handler"/> to changes of a single <paramref name="key"/> (across all workspaces).</summary>
 	public IDisposable Subscribe(string key, Action<SettingChange> handler) {
 		ArgumentNullException.ThrowIfNull(handler);
 		void Filtered(SettingChange change) {
@@ -264,25 +342,26 @@ public sealed class SettingsStore : IDisposable {
 			_disposed = true;
 		}
 
-		if (_watcher is not null) {
-			_watcher.EnableRaisingEvents = false;
-			_watcher.Changed -= OnFileEvent;
-			_watcher.Created -= OnFileEvent;
-			_watcher.Renamed -= OnFileEvent;
-			_watcher.Dispose();
+		foreach (var watcher in _watchers) {
+			watcher.EnableRaisingEvents = false;
+			watcher.Changed -= OnFileEvent;
+			watcher.Created -= OnFileEvent;
+			watcher.Renamed -= OnFileEvent;
+			watcher.Dispose();
 		}
 
 		_debounce?.Dispose();
 	}
 
 	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition) {
-		var (value, source) = ResolveLocked(definition);
+		var (value, source) = ResolveLocked(definition, workspaceRoot: null);
 		object? fallback = definition.ComputeDefault?.Invoke() ?? definition.Default;
 
 		writer.WriteStartObject();
 		writer.WriteString("key", definition.Key);
 		writer.WriteString("type", KindName(definition.Kind));
 		writer.WriteString("description", definition.Description);
+		writer.WriteString("scope", definition.Scope == SettingScope.Workspace ? "workspace" : "user");
 		writer.WriteStartArray("aliases");
 		foreach (string alias in definition.Aliases) {
 			writer.WriteStringValue(alias);
@@ -307,7 +386,7 @@ public sealed class SettingsStore : IDisposable {
 		writer.WriteEndObject();
 	}
 
-	private ResolvedValue ResolveLocked(SettingDefinition definition) {
+	private ResolvedValue ResolveLocked(SettingDefinition definition, string? workspaceRoot) {
 		string? env = Environment.GetEnvironmentVariable(definition.EnvVar);
 		if (env is not null) {
 			if (TryCoerceEnv(definition, env, out object? coerced, out string? error)) {
@@ -322,7 +401,22 @@ public sealed class SettingsStore : IDisposable {
 			Log?.Invoke($"[settings] {definition.Key}: ignoring invalid {definition.EnvVar}='{env}' ({error}); falling back.");
 		}
 
-		if (!_malformed && TryGetFileValue(definition.Key, out object? fileValue)) {
+		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
+			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)
+			&& !registration.Layer.Malformed && registration.Layer.TryGetValue(definition.Key, out object? wsValue)) {
+			if (TryCoerceFile(definition, wsValue, out object? coerced, out string? error)) {
+				var validation = ValidateValue(definition, coerced);
+				if (validation.IsValid) {
+					return new ResolvedValue(coerced, SettingSource.WorkspaceFile);
+				}
+
+				error = validation.Message;
+			}
+
+			Log?.Invoke($"[settings] {definition.Key}: ignoring invalid value in {registration.Layer.FilePath} ({error}); falling back.");
+		}
+
+		if (!_userLayer.Malformed && _userLayer.TryGetValue(definition.Key, out object? fileValue)) {
 			if (TryCoerceFile(definition, fileValue, out object? coerced, out string? error)) {
 				var validation = ValidateValue(definition, coerced);
 				if (validation.IsValid) {
@@ -346,30 +440,6 @@ public sealed class SettingsStore : IDisposable {
 		}
 
 		return definition.Validate?.Invoke(value) ?? ValidationResult.Success;
-	}
-
-	private bool TryGetFileValue(string key, out object? value) {
-		value = null;
-		string[] parts = key.Split('.');
-		var table = _model;
-		for (int i = 0; i < parts.Length; i++) {
-			if (!table.TryGetValue(parts[i], out object? current)) {
-				return false;
-			}
-
-			if (i == parts.Length - 1) {
-				value = current;
-				return true;
-			}
-
-			if (current is TomlTable next) {
-				table = next;
-			} else {
-				return false; // a leaf where a subtable was expected
-			}
-		}
-
-		return false;
 	}
 
 	private bool TryCoerceEnv(SettingDefinition definition, string raw, out object? value, out string? error) {
@@ -536,109 +606,55 @@ public sealed class SettingsStore : IDisposable {
 		path.Length >= 3 && char.IsAsciiLetter(path[0]) && path[1] == ':' && (path[2] == '\\' || path[2] == '/');
 
 	private string ResolveWorkspaceDirLocked(string fallback) {
-		if (_registry.TryGet(WorkspaceKey, out var workspace) && ResolveLocked(workspace).Value is string dir) {
+		if (_registry.TryGet(WorkspaceKey, out var workspace) && ResolveLocked(workspace, workspaceRoot: null).Value is string dir) {
 			return dir;
 		}
 
 		return fallback;
 	}
 
-	private void SetDocValueLocked(SettingDefinition definition, object? coerced) {
-		var valueSyntax = BuildValueSyntax(definition, coerced);
-		var existing = FindKeyValueLocked(definition.Key);
-		if (existing is not null) {
-			existing.Value = valueSyntax;
-		} else {
-			var keyValue = new KeyValueSyntax(BuildKeySyntax(definition.Key), valueSyntax) {
-				// Self-document a newly written key with its description; existing lines are never touched.
-				LeadingTrivia = [
-					new SyntaxTrivia(TokenKind.Comment, "# " + definition.Description),
-					new SyntaxTrivia(TokenKind.NewLine, "\n"),
-				],
-			};
-			_doc.KeyValues.Add(keyValue);
-		}
+	private static string NormalizeRoot(string root) => Path.TrimEndingDirectorySeparator(Path.GetFullPath(root));
 
-		_model = _doc.ToModel();
-	}
-
-	private KeyValueSyntax? FindKeyValueLocked(string key) {
-		foreach (var keyValue in _doc.KeyValues) {
-			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
-				return keyValue;
+	// Seeds a workspace's resolved cache so a later reload can diff against it and only fire real changes.
+	private void SeedWorkspaceResolvedLocked(WorkspaceRegistration registration) {
+		foreach (var definition in _registry.Definitions) {
+			if (definition.Scope == SettingScope.Workspace) {
+				registration.Resolved[definition.Key] = ResolveLocked(definition, registration.Root).Value;
 			}
-		}
-
-		return null;
-	}
-
-	// Removes every user-file entry for `key` — the root-level dotted form and entries nested under a
-	// hand-edited [table] header. An emptied table header is left in place: pruning it risks dropping comments.
-	private bool RemoveKeyLocked(string key) {
-		bool removed = false;
-
-		var rootMatches = new List<KeyValueSyntax>();
-		foreach (var keyValue in _doc.KeyValues) {
-			if (keyValue.Key is { } syntax && string.Equals(DottedKeyName(syntax), key, StringComparison.Ordinal)) {
-				rootMatches.Add(keyValue);
-			}
-		}
-
-		foreach (var match in rootMatches) {
-			_doc.KeyValues.RemoveChild(match);
-			removed = true;
-		}
-
-		foreach (var table in _doc.Tables) {
-			if (table.Name is not { } tableName) {
-				continue;
-			}
-
-			string prefix = DottedKeyName(tableName);
-			var itemMatches = new List<KeyValueSyntax>();
-			foreach (var item in table.Items) {
-				if (item.Key is { } syntax
-					&& string.Equals($"{prefix}.{DottedKeyName(syntax)}", key, StringComparison.Ordinal)) {
-					itemMatches.Add(item);
-				}
-			}
-
-			foreach (var match in itemMatches) {
-				table.Items.RemoveChild(match);
-				removed = true;
-			}
-		}
-
-		if (removed) {
-			_model = _doc.ToModel();
-		}
-
-		return removed;
-	}
-
-	private void SaveAtomicLocked() {
-		string text = _doc.ToString();
-		string tmp = FilePath + ".tmp";
-		File.WriteAllText(tmp, text);
-		if (File.Exists(FilePath)) {
-			File.Replace(tmp, FilePath, null);
-		} else {
-			File.Move(tmp, FilePath);
 		}
 	}
 
 	private List<SettingChange> RecomputeAndDiffLocked() {
 		var changes = new List<SettingChange>();
 		foreach (var definition in _registry.Definitions) {
-			var (value, source) = ResolveLocked(definition);
+			var (value, source) = ResolveLocked(definition, workspaceRoot: null);
 			object? previous = _resolved.GetValueOrDefault(definition.Key);
 			if (!Equals(previous, value)) {
-				changes.Add(new SettingChange(definition.Key, previous, value, source));
+				changes.Add(new SettingChange(definition.Key, previous, value, source, WorkspaceRoot: null));
 				_resolved[definition.Key] = value;
 			}
 		}
 
+		foreach (var registration in _workspaces.Values) {
+			DiffWorkspaceLocked(registration, changes);
+		}
+
 		return changes;
+	}
+
+	private void DiffWorkspaceLocked(WorkspaceRegistration registration, List<SettingChange> changes) {
+		foreach (var definition in _registry.Definitions) {
+			if (definition.Scope != SettingScope.Workspace) {
+				continue;
+			}
+
+			var (value, source) = ResolveLocked(definition, registration.Root);
+			object? previous = registration.Resolved.GetValueOrDefault(definition.Key);
+			if (!Equals(previous, value)) {
+				changes.Add(new SettingChange(definition.Key, previous, value, source, registration.Root));
+				registration.Resolved[definition.Key] = value;
+			}
+		}
 	}
 
 	private void RaiseChanges(List<SettingChange> changes) {
@@ -647,11 +663,56 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
+	private bool AnyMalformedLocked() {
+		if (_userLayer.Malformed) {
+			return true;
+		}
+
+		foreach (var registration in _workspaces.Values) {
+			if (registration.Layer.Malformed) {
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	private void WatchFileDirectory(string filePath) {
+		string? directory = Path.GetDirectoryName(filePath);
+		if (string.IsNullOrEmpty(directory) || !Directory.Exists(directory)) {
+			return;
+		}
+
+		var watcher = new FileSystemWatcher(directory, Path.GetFileName(filePath)) {
+			NotifyFilter = NotifyFilters.LastWrite | NotifyFilters.FileName | NotifyFilters.Size,
+			EnableRaisingEvents = true,
+		};
+		watcher.Changed += OnFileEvent;
+		watcher.Created += OnFileEvent;
+		watcher.Renamed += OnFileEvent;
+		_watchers.Add(watcher);
+	}
+
+	private void EnsureWorkspaceWatcherLocked(WorkspaceRegistration registration) {
+		if (_enableWatcher && !registration.Watched && Directory.Exists(Path.GetDirectoryName(registration.Layer.FilePath))) {
+			WatchFileDirectory(registration.Layer.FilePath);
+			registration.Watched = true;
+		}
+	}
+
+	// A workspace-scoped write may have just created the .weavie directory, so try to attach its watcher now.
+	private void EnsureWatcherForLayerLocked(SettingDefinition definition, string? workspaceRoot) {
+		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
+			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)) {
+			EnsureWorkspaceWatcherLocked(registration);
+		}
+	}
+
 	private void OnFileEvent(object sender, FileSystemEventArgs e) =>
 		_debounce?.Change(250, Timeout.Infinite);
 
 	private void OnDebounceElapsed(object? state) {
-		List<SettingChange> changes = [];
+		List<SettingChange> changes;
 		bool malformedFlipped;
 		bool nowMalformed;
 		lock (_gate) {
@@ -659,14 +720,19 @@ public sealed class SettingsStore : IDisposable {
 				return;
 			}
 
-			bool wasMalformed = _malformed;
-			LoadFromDiskLocked();
-			nowMalformed = _malformed;
-			malformedFlipped = wasMalformed != nowMalformed;
-			// A malformed reload keeps the last-good resolved state; don't thrash reactions on a transient typo.
-			if (!nowMalformed) {
-				changes = RecomputeAndDiffLocked();
+			bool wasMalformed = _lastMalformed;
+			LogAll(_userLayer.Load());
+			foreach (var registration in _workspaces.Values) {
+				LogAll(registration.Layer.Load());
 			}
+
+			nowMalformed = AnyMalformedLocked();
+			_lastMalformed = nowMalformed;
+			malformedFlipped = wasMalformed != nowMalformed;
+
+			// A malformed layer keeps its last-good resolved state; recompute only the clean layers so a transient
+			// typo doesn't thrash reactions. RecomputeAndDiffLocked reads each layer's Malformed guard internally.
+			changes = RecomputeAndDiffLocked();
 		}
 
 		if (malformedFlipped) {
@@ -676,87 +742,11 @@ public sealed class SettingsStore : IDisposable {
 		RaiseChanges(changes);
 	}
 
-	private void LoadFromDiskLocked() {
-		string text;
-		try {
-			text = File.Exists(FilePath) ? File.ReadAllText(FilePath) : string.Empty;
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Log?.Invoke($"[settings] could not read {FilePath}: {ex.Message}; using defaults.");
-			text = string.Empty;
+	private void LogAll(IReadOnlyList<string> lines) {
+		foreach (string line in lines) {
+			Log?.Invoke(line);
 		}
-
-		var parsed = Toml.Parse(text, FilePath);
-		if (parsed.HasErrors) {
-			_malformed = true;
-			foreach (var diagnostic in parsed.Diagnostics) {
-				Log?.Invoke($"[settings] {diagnostic}");
-			}
-
-			Log?.Invoke($"[settings] {FilePath} has parse errors; using defaults and refusing writes until fixed.");
-			if (!_hasGoodDoc) {
-				// First load is malformed: there is no last-good document, so resolve to all defaults.
-				_doc = new DocumentSyntax();
-				_model = _doc.ToModel();
-			}
-
-			return; // otherwise keep the last good document so live resolution stays stable
-		}
-
-		_malformed = false;
-		_hasGoodDoc = true;
-		_doc = parsed;
-		_model = parsed.ToModel();
 	}
-
-	private static ValueSyntax BuildValueSyntax(SettingDefinition definition, object? coerced) =>
-		definition.Kind switch {
-			SettingKind.Bool => new BooleanValueSyntax((bool)coerced!),
-			SettingKind.Int => new IntegerValueSyntax((long)coerced!),
-			SettingKind.Path => MakeStringSyntax((string)coerced!, preferLiteral: true),
-			_ => MakeStringSyntax((string)coerced!, preferLiteral: ((string)coerced!).Contains('\\', StringComparison.Ordinal)),
-		};
-
-	// Emit a single-quoted literal string (no escaping — ideal for Windows paths) when the value has
-	// no character that a literal string can't hold; otherwise a normal escaped basic string.
-	private static StringValueSyntax MakeStringSyntax(string value, bool preferLiteral) {
-		if (preferLiteral
-			&& !value.Contains('\'', StringComparison.Ordinal)
-			&& !value.Contains('\n', StringComparison.Ordinal)
-			&& !value.Contains('\r', StringComparison.Ordinal)) {
-			return new StringValueSyntax(value) {
-				Token = new SyntaxToken(TokenKind.StringLiteral, "'" + value + "'"),
-			};
-		}
-
-		return new StringValueSyntax(value);
-	}
-
-	private static KeySyntax BuildKeySyntax(string key) {
-		string[] parts = key.Split('.');
-		// Tomlyn's KeySyntax only takes the first segment (+ optionally one dot key) via its
-		// constructors; deeper dotted keys (e.g. editor.font.size) are built by appending DotKeys.
-		var syntax = new KeySyntax(parts[0]);
-		for (int i = 1; i < parts.Length; i++) {
-			syntax.DotKeys.Add(new DottedKeyItemSyntax(parts[i]));
-		}
-
-		return syntax;
-	}
-
-	private static string DottedKeyName(KeySyntax key) {
-		var parts = new List<string> { KeyPartName(key.Key) };
-		foreach (var dot in key.DotKeys) {
-			parts.Add(KeyPartName(dot.Key));
-		}
-
-		return string.Join('.', parts);
-	}
-
-	private static string KeyPartName(BareKeyOrStringValueSyntax? part) => part switch {
-		BareKeySyntax bare => bare.Key?.Text?.Trim() ?? string.Empty,
-		StringValueSyntax str => str.Value ?? string.Empty,
-		_ => part?.ToString()?.Trim() ?? string.Empty,
-	};
 
 	private static void WriteTypedValue(Utf8JsonWriter writer, object? value) {
 		switch (value) {
@@ -791,6 +781,7 @@ public sealed class SettingsStore : IDisposable {
 
 	private static string SourceName(SettingSource source) => source switch {
 		SettingSource.Environment => "environment",
+		SettingSource.WorkspaceFile => "workspaceFile",
 		SettingSource.UserFile => "userFile",
 		SettingSource.Default => "default",
 		_ => source.ToString().ToLowerInvariant(),
@@ -803,6 +794,22 @@ public sealed class SettingsStore : IDisposable {
 		ApplyMode.RestartRequired => "restartRequired",
 		_ => apply.ToString().ToLowerInvariant(),
 	};
+
+	// One registered workspace's overlay: its file layer plus the resolved snapshot a reload diffs against.
+	private sealed class WorkspaceRegistration {
+		public WorkspaceRegistration(string root, SettingsFileLayer layer) {
+			Root = root;
+			Layer = layer;
+		}
+
+		public string Root { get; }
+
+		public SettingsFileLayer Layer { get; }
+
+		public Dictionary<string, object?> Resolved { get; } = new(StringComparer.Ordinal);
+
+		public bool Watched { get; set; }
+	}
 
 	private sealed class Subscription : IDisposable {
 		private Action? _unsubscribe;

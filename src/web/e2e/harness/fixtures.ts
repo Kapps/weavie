@@ -82,12 +82,17 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
         const layout = await page
           .evaluate(() => {
             const rect = (sel: string) => {
-              const el = document.querySelector(sel);
-              if (!el) {
-                return "absent";
+              try {
+                const el = document.querySelector(sel);
+                if (!el) {
+                  return "absent";
+                }
+                const r = el.getBoundingClientRect();
+                return `${Math.round(r.width)}x${Math.round(r.height)}`;
+              } catch {
+                // A malformed/unsupported selector must not sink the whole probe — degrade this one field.
+                return "selector-error";
               }
-              const r = el.getBoundingClientRect();
-              return `${Math.round(r.width)}x${Math.round(r.height)}`;
             };
             return JSON.stringify(
               {
@@ -101,6 +106,11 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
                 app: rect(".app"),
                 appBody: rect(".app-body"),
                 layoutRoot: rect(".layout-root"),
+                // The editor pane chain, so a 0-height editor (the S3 5px collapse) is pinpointed to a
+                // level: which of paneSlot -> editorSurface -> editorPane -> editor is the one that's 0-high.
+                editorPaneSlot: rect(".layout-root > .pane-slot:has(.editor-surface)"),
+                editorSurface: rect(".editor-surface"),
+                editorPane: rect(".editor-surface .editor-pane"),
                 editor: rect(".editor-surface .editor"),
                 monaco: rect(".editor-surface .monaco-editor"),
                 // The live review-walk file set: on a PR-switch failure this shows whether the navigator holds

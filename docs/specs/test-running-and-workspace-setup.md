@@ -128,11 +128,12 @@ worktree session's Claude runs in *that* session's shell with `${file}` relative
   Claude via `runCommand`).
 - Shell busy (`HasForegroundJob`) → failure + error toast. Never queued, never a second pane, never
   silently dropped.
-- Compose via `TestCommandComposer` against the file's matched rule: POSIX single-quote escaping,
-  or double-quote escaping when `terminal.shell` resolves to PowerShell; cmd.exe gets the same
-  double-quote treatment — no cmd-specific escaping, exotic names fail visibly in the terminal.
-  Then `session.Shell.Write(utf8(command + "\r"))` — plain write, not bracketed paste (paste
-  markers to a shell that never enabled the mode print escape garbage).
+- Compose via `TestCommandComposer` against the file's matched rule: POSIX single-quote escaping, or
+  PowerShell single-quote escaping (`''` doubling) when `terminal.shell` resolves to PowerShell — the
+  Windows default. cmd.exe is not specially handled (it never is the default; a user who sets it may
+  need a POSIX shell or PowerShell for test running). Then `session.Shell.Write(utf8(command + "\r"))`
+  — plain write, not bracketed paste (paste markers to a shell that never enabled the mode print escape
+  garbage).
 - On success, post `focus-pane` for the shell so the user watches the run.
 
 ## Workspace setup flow

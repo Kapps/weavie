@@ -13,14 +13,18 @@ public sealed partial class HostCore {
 	// Registers the run handlers on a session's dispatcher (called from WireSession) so an MCP invocation from a
 	// worktree session's Claude runs in that session's own shell.
 	private void RegisterTestRunHandlers(HostSession session) {
-		session.Commands.RegisterHandler(CoreCommands.RunTests, (argsJson, _) => {
-			var (file, name) = ParseRunArgs(argsJson);
-			return Task.FromResult(RunTests(session, file, name));
-		});
-		session.Commands.RegisterHandler(CoreCommands.RunTestsInFile, (argsJson, _) => {
-			var (file, _) = ParseRunArgs(argsJson);
-			return Task.FromResult(RunTests(session, file, testName: null));
-		});
+		session.Commands.RegisterHandler(CoreCommands.RunTests, (argsJson, _) =>
+			Task.FromResult(RunFromArgs(session, argsJson, includeName: true)));
+		session.Commands.RegisterHandler(CoreCommands.RunTestsInFile, (argsJson, _) =>
+			Task.FromResult(RunFromArgs(session, argsJson, includeName: false)));
+	}
+
+	private CommandResult RunFromArgs(HostSession session, string? argsJson, bool includeName) {
+		if (!TryParseRunArgs(argsJson, out string? file, out string? name, out string? error)) {
+			return CommandResult.Failure(error!);
+		}
+
+		return RunTests(session, file, includeName ? name : null);
 	}
 
 	private CommandResult RunTests(HostSession session, string? fileArg, string? testName) {
@@ -66,19 +70,25 @@ public sealed partial class HostCore {
 		return CommandResult.Success($"Running: {command}");
 	}
 
-	private static (string? File, string? Name) ParseRunArgs(string? argsJson) {
+	// Parses {file?, name?}. Absent/empty args is valid (file falls back to the active editor); malformed JSON is
+	// a loud failure, never a silent fall-through that could run a different test than asked.
+	private static bool TryParseRunArgs(string? argsJson, out string? file, out string? name, out string? error) {
+		file = null;
+		name = null;
+		error = null;
 		if (string.IsNullOrWhiteSpace(argsJson)) {
-			return (null, null);
+			return true;
 		}
 
 		try {
 			using var doc = JsonDocument.Parse(argsJson);
 			var root = doc.RootElement;
-			string? file = root.TryGetProperty("file", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() : null;
-			string? name = root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
-			return (file, name);
-		} catch (JsonException) {
-			return (null, null);
+			file = root.TryGetProperty("file", out var f) && f.ValueKind == JsonValueKind.String ? f.GetString() : null;
+			name = root.TryGetProperty("name", out var n) && n.ValueKind == JsonValueKind.String ? n.GetString() : null;
+			return true;
+		} catch (JsonException ex) {
+			error = $"Could not run tests: invalid command arguments ({ex.Message}).";
+			return false;
 		}
 	}
 
@@ -92,11 +102,11 @@ public sealed partial class HostCore {
 
 	private string ResolvedTestProfile() => _settings.Resolve(TestSettings.Profile, WorkspaceRoot).Value as string ?? string.Empty;
 
-	// POSIX single-quoting for everything except PowerShell / cmd.exe, which get the '' -doubling treatment.
+	// PowerShell (the Windows default) gets '' -doubling single-quotes; everything else POSIX single-quoting.
+	// cmd.exe isn't specially handled — it's never the default, and single-quoting isn't its convention.
 	private ShellQuoting ShellQuotingForShell() {
 		string shell = _settings.GetString("terminal.shell") ?? string.Empty;
 		string name = Path.GetFileNameWithoutExtension(shell).ToLowerInvariant();
-		bool powerShellFamily = name is "pwsh" or "powershell" || Path.GetFileName(shell).Equals("cmd.exe", StringComparison.OrdinalIgnoreCase);
-		return powerShellFamily ? ShellQuoting.PowerShell : ShellQuoting.Posix;
+		return name is "pwsh" or "powershell" ? ShellQuoting.PowerShell : ShellQuoting.Posix;
 	}
 }

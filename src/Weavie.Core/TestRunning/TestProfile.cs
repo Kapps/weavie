@@ -133,7 +133,12 @@ public sealed record TestProfile {
 		}
 
 		rule = new TestRule {
-			Glob = glob, Symbol = symbol, RunOne = runOne, RunFile = runFile, NameSeparator = separator, Header = header,
+			Glob = glob,
+			Symbol = symbol,
+			RunOne = runOne,
+			RunFile = runFile,
+			NameSeparator = separator,
+			Header = header,
 		};
 		return true;
 	}

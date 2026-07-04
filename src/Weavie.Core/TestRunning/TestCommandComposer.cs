@@ -16,7 +16,7 @@ public enum ShellQuoting {
 	/// <summary>POSIX shells: single-quote wrap, <c>'\''</c> for an embedded quote.</summary>
 	Posix,
 
-	/// <summary>PowerShell (and cmd.exe, which gets the same treatment): single-quote wrap, <c>''</c> doubling.</summary>
+	/// <summary>PowerShell: single-quote wrap, <c>''</c> doubling (no variable expansion).</summary>
 	PowerShell,
 }
 

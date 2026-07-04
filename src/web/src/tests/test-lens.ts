@@ -108,8 +108,8 @@ function ruleForModel(model: monaco.editor.ITextModel): TestRule | undefined {
   return testRules().find((rule) => globMatches(rule.glob, relative));
 }
 
-// The model's path relative to the workspace root (forward-slashed). Falls back to the full path when the file
-// is outside the workspace — such a path won't match the typical **-rooted rule, so no lenses render.
+// The model's path relative to the workspace root (forward-slashed), or undefined when the file is outside the
+// workspace — so lenses never render on files the profile's workspace-relative globs aren't meant to match.
 function relativePath(uri: monaco.Uri): string | undefined {
   const root = currentWorkspaceRoot();
   if (root === undefined) {
@@ -120,10 +120,9 @@ function relativePath(uri: monaco.Uri): string | undefined {
   if (normalizedPath === normalizedRoot) {
     return "";
   }
-  if (normalizedPath.startsWith(`${normalizedRoot}/`)) {
-    return normalizedPath.slice(normalizedRoot.length + 1);
-  }
-  return normalizedPath;
+  return normalizedPath.startsWith(`${normalizedRoot}/`)
+    ? normalizedPath.slice(normalizedRoot.length + 1)
+    : undefined;
 }
 
 function shortcut(commandId: string): string {

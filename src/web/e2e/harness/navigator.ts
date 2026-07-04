@@ -95,23 +95,39 @@ export async function collectChangedFiles(page: Page): Promise<Set<string>> {
   return seen;
 }
 
-// Wait until the review-walk file SET (not just the current label) has settled to exactly `files` (by
-// basename). After a rapid switch storm the host's per-switch pushes settle asynchronously, so the navigator
-// label can already read the incoming PR's first file while the set is still mid-swap — walking it then steps
-// onto a file from the other PR that is about to be replaced (a transient), and records it. Reads the editor's
-// live reviewFiles via the __WEAVIE_REVIEW__ diagnostics hook — the exact set the ← / → walk traverses — so
-// the walk runs only once the data is stable. A set that never settles still fails (a real cross-PR leak).
+// Number of consecutive stable reads awaitReviewSet requires. A rapid switch storm's per-switch pushes
+// drain back-to-back (each switch fires its turn-changes synchronously), so the set bounces at sub-100ms
+// spacing while draining; requiring the target set to hold across this many ~100ms reads means the last
+// switch's push has landed and nothing follows. Comfortably longer than the inter-bounce gap, short enough
+// to keep the (already `test.slow`) PR-switch specs reasonable.
+const REVIEW_QUIESCE_READS = 12;
+
+// Wait until the review-walk file SET (not just the current label) has QUIESCED to exactly `files` (by
+// basename) — held stable across a sustained run of reads, i.e. the push train has drained. After a rapid
+// switch storm the host's per-switch pushes settle asynchronously: the set bounces through the other PR's
+// files as each queued switch is processed, before the last switch's push lands. A momentary match can be
+// one of those intermediate states, and the ~2s navigator walk that follows would then step onto a file from
+// the other PR that is about to be replaced (a transient) and record it — the historical flake. Reads the
+// editor's live reviewFiles via the __WEAVIE_REVIEW__ diagnostics hook (the exact set the ← / → walk
+// traverses). Not a fixed delay: it detects steady state. A genuine cross-PR leak quiesces to the WRONG set,
+// which never matches `want`, so this still fails a real bug.
 export async function awaitReviewSet(page: Page, files: string[]): Promise<void> {
-  const want = [...files].sort();
+  const want = JSON.stringify([...files].sort());
+  let stableReads = 0;
   await expect
     .poll(
       async () => {
         const paths = await page.evaluate(() => window.__WEAVIE_REVIEW__?.files ?? null);
-        return paths === null ? null : paths.map((p) => p.split(/[\\/]/).pop() ?? p).sort();
+        const got =
+          paths === null
+            ? null
+            : JSON.stringify(paths.map((p) => p.split(/[\\/]/).pop() ?? p).sort());
+        stableReads = got === want ? stableReads + 1 : 0;
+        return stableReads;
       },
-      { timeout: 15_000 },
+      { timeout: 20_000, intervals: [100] },
     )
-    .toEqual(want);
+    .toBeGreaterThanOrEqual(REVIEW_QUIESCE_READS);
 }
 
 // Walk the navigator forward until `target` is in view, then assert it arrived. Replaces the per-step

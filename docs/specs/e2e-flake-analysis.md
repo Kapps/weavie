@@ -74,12 +74,20 @@ per-switch pushes settle asynchronously — so the navigator *label* can already
 file before the set converges, recording it. A rapid 12-click storm legitimately flickers through
 intermediate sets; only the settled state is the contract.
 
-**Fix:** gate the walk on the actual set. `awaitReviewSet(page, [...])` polls `__WEAVIE_REVIEW__.files`
-(by basename) until it equals the expected set, then `collectChangedFiles` runs against stable data.
-Not masking: a *permanent* leak never settles ⇒ the poll times out ⇒ the test still fails. Applied to
-`pr-switch-race.spec.ts` and `pr-two-sessions.spec.ts` (same pattern, same latent race); the too-early
-`awaitNavigatorOn` (label-only settle) was removed. This is the payoff of the forensics — the missing
-datum turned a suspected host bug into a confirmed one-line test-settle fix.
+**Fix:** gate the walk on the actual set having **quiesced**. `awaitReviewSet(page, [...])` reads
+`__WEAVIE_REVIEW__.files` (by basename) and requires the target set to hold across a sustained run of
+reads — the push train has drained and nothing more bounces — then `collectChangedFiles` runs against
+stable data. Applied to `pr-switch-race.spec.ts` and `pr-two-sessions.spec.ts`; the too-early
+`awaitNavigatorOn` (label-only settle) was removed. Not masking: a *permanent* cross-PR leak quiesces to
+the WRONG set, which never equals `want`, so the poll times out and the test still fails.
+
+> **Correction (second CI cycle):** the first attempt gated on a *momentary* match (`.toEqual(want)`
+> once). It still flaked — the forensics on the re-fail again showed the editor healthy and the settled
+> set correct, so the walk had again caught a transient. The storm's 12 rapid clicks queue faster than
+> the host drains them, so the set bounces through intermediate #101 states; a momentary match landed on
+> one *before* the last switch's push, and the ~2s walk overlapped the remaining drain. Quiescence
+> (holding the set stable across ~12 reads) waits for the drain to finish. Lesson: after a *burst*, the
+> settle signal must be steady-state, not first-match.
 
 ## #4 — `net::ERR_NO_BUFFER_SPACE` (Windows socket/buffer pressure)
 

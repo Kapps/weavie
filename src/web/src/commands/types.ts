@@ -103,6 +103,7 @@ export const CommandIds = {
   runTestAtCursor: "weavie.tests.runAtCursor",
   openFolder: "weavie.workspace.openFolder",
   openUrl: "weavie.workspace.openUrl",
+  openUrlExternal: "weavie.workspace.openUrlExternal",
   newSessionPrompt: "weavie.session.newPrompt",
   openPr: "weavie.pr.open",
   nextSession: "weavie.session.next",

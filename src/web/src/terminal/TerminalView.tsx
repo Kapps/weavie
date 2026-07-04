@@ -42,10 +42,12 @@ export function TerminalView(props: {
   // terminal (the primary surface) instead of waiting for the editor.
   onFirstRender?: () => void;
   // Right-click on the terminal body, after this pane has taken focus (so the copy/paste/clear commands target
-  // it). The shell opens the shared context menu.
-  onContextMenu?: (event: MouseEvent) => void;
+  // it). `url` is the URL under the pointer (if any), so the menu can offer to open it. The shell opens the menu.
+  onContextMenu?: (event: MouseEvent, url: string | undefined) => void;
 }): JSX.Element {
   let container!: HTMLDivElement;
+  // Reports the URL currently under the pointer (set once links are wired in onMount), for the right-click menu.
+  let hoveredUrl: () => string | undefined = () => undefined;
 
   // Host-resolved font setting injected before navigation so the terminal mounts at the right font; live-updated in onMount.
   const initialFont = currentFonts().terminal;
@@ -168,7 +170,7 @@ export function TerminalView(props: {
     });
 
     // OSC 8 + auto-detected file:line and http(s) links (file:// → Monaco, URLs → OS browser).
-    wireTerminalLinks(term);
+    hoveredUrl = wireTerminalLinks(term);
 
     // Clipboard: register this pane for the copy/paste commands, route Claude's OSC 52 to the OS clipboard,
     // and note focus so the commands act on the terminal the user is in.
@@ -363,7 +365,7 @@ export function TerminalView(props: {
         }
         event.preventDefault();
         term.focus(); // make this the focused terminal so the menu's copy/paste/clear act on it
-        props.onContextMenu(event);
+        props.onContextMenu(event, hoveredUrl());
       }}
     />
   );

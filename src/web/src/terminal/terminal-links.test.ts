@@ -25,6 +25,7 @@ function fakeTerminal(...rows: Array<{ text: string; isWrapped: boolean }>): {
   term: Terminal;
   provide: (row?: number) => ILink[];
   activateOsc: (uri: string) => void;
+  hoveredUrl: () => string | undefined;
 } {
   let provider: Parameters<Terminal["registerLinkProvider"]>[0] | undefined;
   const term = {
@@ -43,7 +44,7 @@ function fakeTerminal(...rows: Array<{ text: string; isWrapped: boolean }>): {
     },
   } as unknown as Terminal;
 
-  wireTerminalLinks(term);
+  const hoveredUrl = wireTerminalLinks(term);
 
   return {
     term,
@@ -55,7 +56,8 @@ function fakeTerminal(...rows: Array<{ text: string; isWrapped: boolean }>): {
       return links;
     },
     activateOsc: (uri: string) =>
-      term.options.linkHandler?.activate({} as MouseEvent, uri, {} as never),
+      term.options.linkHandler?.activate({ button: 0 } as MouseEvent, uri, {} as never),
+    hoveredUrl,
   };
 }
 
@@ -76,14 +78,14 @@ describe("auto-link provider", () => {
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/foo.ts:42");
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
   });
 
   it("keeps a Windows drive colon in the path, splitting only the trailing :line", () => {
     const { provide } = oneLine("at C:\\src\\foo.ts:7:3 now");
     const links = provide();
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(posted).toContainEqual({ type: "reveal-file", path: "C:\\src\\foo.ts", line: 7 });
   });
 
@@ -91,7 +93,7 @@ describe("auto-link provider", () => {
     const { provide } = oneLine("visit https://example.com/x?y=1 today");
     const links = provide();
     expect(links[0]?.text).toBe("https://example.com/x?y=1");
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/x?y=1" });
     expect(posted).toEqual([]);
   });
@@ -101,10 +103,32 @@ describe("auto-link provider", () => {
     const open = vi.fn();
     vi.stubGlobal("window", { open });
     const { provide } = oneLine("visit https://example.com/ today");
-    provide()[0]?.activate({} as MouseEvent, "https://example.com/");
+    provide()[0]?.activate({ button: 0 } as MouseEvent, "https://example.com/");
     expect(open).toHaveBeenCalledWith("https://example.com/", "_blank", "noopener");
     expect(postedLocal).toEqual([]);
     vi.unstubAllGlobals();
+  });
+
+  it("does not open a URL on a non-primary (right) click — the right-click menu handles it", () => {
+    const { provide } = oneLine("visit https://example.com/ today");
+    provide()[0]?.activate({ button: 2 } as MouseEvent, "https://example.com/");
+    expect(postedLocal).toEqual([]);
+    expect(posted).toEqual([]);
+  });
+
+  it("tracks the hovered URL for the right-click menu and clears it on leave", () => {
+    const term = oneLine("visit https://example.com/x today");
+    const link = term.provide()[0];
+    expect(term.hoveredUrl()).toBeUndefined();
+    link?.hover?.({} as MouseEvent, link.text);
+    expect(term.hoveredUrl()).toBe("https://example.com/x");
+    link?.leave?.({} as MouseEvent, link.text);
+    expect(term.hoveredUrl()).toBeUndefined();
+  });
+
+  it("does not track a file reference as a hoverable URL (no browser/Weavie menu for it)", () => {
+    const link = oneLine("see src/foo.ts:42 now").provide()[0];
+    expect(link?.hover).toBeUndefined();
   });
 
   it("leaves trailing sentence punctuation out of a URL", () => {
@@ -121,7 +145,7 @@ describe("auto-link provider", () => {
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/web/src/terminal/terminal-links.ts");
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(posted).toContainEqual({
       type: "reveal-file",
       path: "src/web/src/terminal/terminal-links.ts",
@@ -133,7 +157,7 @@ describe("auto-link provider", () => {
     const { provide } = oneLine("⏺ Read(src/foo.ts:42)");
     const links = provide();
     expect(links).toHaveLength(1);
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
   });
 
@@ -141,7 +165,7 @@ describe("auto-link provider", () => {
     const { provide } = oneLine("⏺ WebFetch(https://example.com/page.html)");
     const links = provide();
     expect(links).toHaveLength(1);
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/page.html" });
     expect(posted).toEqual([]);
   });
@@ -155,7 +179,7 @@ describe("auto-link provider", () => {
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/web/e2e/.recordings/clip.webm");
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(posted).toContainEqual({
       type: "reveal-file",
       path: "src/web/e2e/.recordings/clip.webm",
@@ -207,7 +231,7 @@ describe("soft-wrapped links", () => {
       const links = term.provide(row);
       expect(links).toHaveLength(1);
       expect(links[0]?.text).toBe(full);
-      links[0]?.activate({} as MouseEvent, full);
+      links[0]?.activate({ button: 0 } as MouseEvent, full);
       expect(posted).toContainEqual({
         type: "reveal-file",
         path: "src/web/src/terminal/terminal-links.ts",
@@ -224,7 +248,7 @@ describe("soft-wrapped links", () => {
     const links = provide();
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("https://github.com/Kapps/weavie/pull/186/files");
-    links[0]?.activate({} as MouseEvent, links[0].text);
+    links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
     expect(postedLocal).toContainEqual({
       type: "open-url",
       url: "https://github.com/Kapps/weavie/pull/186/files",
@@ -262,5 +286,29 @@ describe("OSC 8 link handler", () => {
     oneLine("").activateOsc("not a uri");
     expect(posted).toEqual([]);
     expect(postedLocal).toEqual([]);
+  });
+
+  it("does not open an OSC http(s) link on a non-primary (right) click", () => {
+    const { term } = oneLine("");
+    term.options.linkHandler?.activate(
+      { button: 2 } as MouseEvent,
+      "https://example.com/",
+      {} as never,
+    );
+    expect(postedLocal).toEqual([]);
+  });
+
+  it("tracks a hovered OSC http(s) link for the right-click menu, clearing it on leave", () => {
+    const { term, hoveredUrl } = oneLine("");
+    term.options.linkHandler?.hover?.({} as MouseEvent, "https://example.com/", {} as never);
+    expect(hoveredUrl()).toBe("https://example.com/");
+    term.options.linkHandler?.leave?.({} as MouseEvent, "https://example.com/", {} as never);
+    expect(hoveredUrl()).toBeUndefined();
+  });
+
+  it("does not offer the open-in menu for a non-http OSC link (leaves the hovered URL unset)", () => {
+    const { term, hoveredUrl } = oneLine("");
+    term.options.linkHandler?.hover?.({} as MouseEvent, "file:///home/user/a.ts", {} as never);
+    expect(hoveredUrl()).toBeUndefined();
   });
 });

@@ -13,6 +13,7 @@ import { registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { base64ToBytes } from "./base64";
+import { sendPastedImage } from "./paste-image";
 
 // Live terminals by key (slot:pane) + the most recently focused one, so the copy/paste commands target the
 // terminal the user is actually in (the keybindings are also gated `terminalFocused`).
@@ -43,34 +44,80 @@ function focusedTerminal(): Terminal | undefined {
 
 let readSeq = 0;
 const pendingReads = new Map<string, (text: string) => void>();
-// The host answers clipboard-read synchronously; the timeout only guards against a dropped bridge so a paste
-// can't hang forever. It REJECTS (not resolves "") so the paste handler can tell a dropped link from a
+const pendingImageReads = new Map<string, (image: ClipboardImage) => void>();
+// The host answers a clipboard read synchronously; the timeout only guards against a dropped bridge so a paste
+// can't hang forever. It REJECTS (not resolves empty) so the paste handler can tell a dropped link from a
 // genuinely-empty clipboard and surface the former.
 const READ_TIMEOUT_MS = 3000;
+
+// An image read from the OS clipboard: base64 bytes + MIME, or an empty `mime` when it holds no image.
+interface ClipboardImage {
+  mime: string;
+  dataB64: string;
+}
 
 onHostMessage((message) => {
   if (message.type === "clipboard-content") {
     pendingReads.get(message.id)?.(message.text);
+  } else if (message.type === "clipboard-image-content") {
+    pendingImageReads.get(message.id)?.({ mime: message.mime, dataB64: message.dataB64 });
   }
 });
 
-function readClipboard(): Promise<string> {
-  // Native WebView only — a browser tab never reaches here (its paste declines to the native paste event). The
-  // LOCAL host owns the OS clipboard and answers clipboard-read (a remote backend has none); the timeout only
-  // guards a dropped bridge.
+// One request/reply round-trip to the LOCAL host, which owns the OS clipboard even when a remote backend drives
+// the page (a remote/headless backend has none). Native WebView only — a browser tab declines to the DOM paste
+// event and never gets here. The timeout only guards a dropped bridge; the host answers synchronously.
+function requestFromLocalHost<T>(
+  send: (id: string) => void,
+  pending: Map<string, (value: T) => void>,
+): Promise<T> {
   const id = `clip${++readSeq}`;
-  return new Promise<string>((resolve, reject) => {
+  return new Promise<T>((resolve, reject) => {
     const timer = setTimeout(() => {
-      pendingReads.delete(id);
+      pending.delete(id);
       reject(new Error("the host didn't respond"));
     }, READ_TIMEOUT_MS);
-    pendingReads.set(id, (text) => {
+    pending.set(id, (value) => {
       clearTimeout(timer);
-      pendingReads.delete(id);
-      resolve(text);
+      pending.delete(id);
+      resolve(value);
     });
-    postToLocalHost({ type: "clipboard-read", id });
+    send(id);
   });
+}
+
+const readClipboard = (): Promise<string> =>
+  requestFromLocalHost((id) => postToLocalHost({ type: "clipboard-read", id }), pendingReads);
+
+const readClipboardImage = (): Promise<ClipboardImage> =>
+  requestFromLocalHost(
+    (id) => postToLocalHost({ type: "clipboard-read-image", id }),
+    pendingImageReads,
+  );
+
+// The native WebView consumes Ctrl/Cmd+V, so the DOM paste event never fires — read the OS clipboard through the
+// host instead. On the claude pane (`key` is `slot:pane`) an image is shipped to the backend as a scratch file +
+// injected path (a headless Claude has no clipboard of its own); everything else pastes as text.
+async function pasteFromHost(term: Terminal, key: string): Promise<void> {
+  try {
+    const sep = key.lastIndexOf(":");
+    if (key.slice(sep + 1) === "claude") {
+      const image = await readClipboardImage();
+      if (image.mime.length > 0) {
+        sendPastedImage(key.slice(0, sep), image.mime, image.dataB64);
+        return;
+      }
+    }
+    const text = await readClipboard();
+    if (text.length > 0) {
+      term.paste(text);
+    }
+  } catch (error) {
+    notify(
+      "warn",
+      `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
 }
 
 /**
@@ -107,28 +154,18 @@ export function installTerminalClipboardCommands(): () => void {
   });
 
   const offPaste = registerCommand(CommandIds.terminalPaste, () => {
+    const key = focusedKey;
     const term = focusedTerminal();
-    if (term === undefined) {
+    if (term === undefined || key === null) {
       return false;
     }
     // A served browser tab forbids programmatic clipboard reads (navigator.clipboard.readText throws "not
-    // allowed"), so decline: the keystroke falls through to the terminal's native paste event (see TerminalView),
-    // the one clipboard read a browser permits. Only the native WebView reads the OS clipboard through the host.
+    // allowed"), so decline: the keystroke falls through to the terminal's DOM paste event (see TerminalView),
+    // which handles both text and — on the claude pane — images. Only the native WebView reads through the host.
     if (isBrowserHostedShell()) {
       return false;
     }
-    return readClipboard().then(
-      (text) => {
-        if (text.length > 0) {
-          term.paste(text);
-        }
-      },
-      (error: unknown) =>
-        notify(
-          "warn",
-          `Couldn't paste from the clipboard: ${error instanceof Error ? error.message : String(error)}`,
-        ),
-    );
+    return pasteFromHost(term, key);
   });
 
   const offClear = registerCommand(CommandIds.terminalClear, () => {

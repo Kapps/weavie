@@ -215,6 +215,9 @@ internal sealed class TestPlatform : IHostPlatform {
 	/// <summary>The text a clipboard read returns (a terminal paste); set by a test.</summary>
 	public string ClipboardValue { get; set; } = string.Empty;
 
+	/// <summary>The image a clipboard-image read returns (a claude-pane paste); set by a test. None by default.</summary>
+	public ClipboardImage ClipboardImageValue { get; set; } = ClipboardImage.None;
+
 	public void ToggleWindow() {
 		// no window in tests
 	}
@@ -222,6 +225,8 @@ internal sealed class TestPlatform : IHostPlatform {
 	public void WriteClipboard(string text) => LastWrittenClipboard = text;
 
 	public string ReadClipboard() => ClipboardValue;
+
+	public ClipboardImage ReadClipboardImage() => ClipboardImageValue;
 
 	public void OpenExternalUrl(string url) => LastOpenedUrl = url;
 }

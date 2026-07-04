@@ -78,6 +78,10 @@ internal static partial class Gtk {
 	[LibraryImport(Lib)]
 	internal static partial IntPtr gtk_clipboard_wait_for_text(IntPtr clipboard);
 
+	/// <summary>The clipboard's image as a new GdkPixbuf (unref with <see cref="GLib.g_object_unref"/>), or NULL.</summary>
+	[LibraryImport(Lib)]
+	internal static partial IntPtr gtk_clipboard_wait_for_image(IntPtr clipboard);
+
 	/// <summary>Creates a native (OS-themed) file chooser; non-variadic, unlike <c>gtk_file_chooser_dialog_new</c>.</summary>
 	[LibraryImport(Lib, StringMarshalling = StringMarshalling.Utf8)]
 	internal static partial IntPtr gtk_file_chooser_native_new(

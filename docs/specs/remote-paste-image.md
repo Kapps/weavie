@@ -1,12 +1,13 @@
 # Remote image paste into Claude
 
-Status: **built (remote/browser-served path), verified by tests + the real `claude` TUI.** Native-WebView
-Ctrl+V image paste is a scoped follow-up (see [Native WebView](#native-webview-the-one-gap)).
+Status: **built, verified by tests + the real `claude` TUI.** Covers both entry points: the browser-served
+DOM paste capture and the native-WebView Ctrl/Cmd+V read (see [Native WebView](#native-webview)).
 
 Pasting an image into the embedded `claude` pane works when the backend is remote/headless — where Claude
-can't reach any OS clipboard. The image is captured in the browser, shipped to the backend, written to a
-scratch file there, and its **path injected into the claude PTY as a bracketed paste**, which the TUI renders
-as an `[Image #N]` chip and attaches on submit.
+can't reach any OS clipboard. The image is captured in the browser (or, on a native WebView, read from the OS
+clipboard through the local host), shipped to the backend, written to a scratch file there, and its **path
+injected into the claude PTY as a bracketed paste**, which the TUI renders as an `[Image #N]` chip and attaches
+on submit.
 
 ## Why path-injection (and not a clipboard or a protocol push)
 
@@ -67,21 +68,29 @@ flowchart LR
   boot-time wipe: it would delete a concurrent same-workspace instance's live images (a risk scratch's
   keep-set GC deliberately avoids), and a hard-crash orphan is a few KB in a hidden dir.
 
-## Native WebView: the one gap
+## Native WebView
 
-On a **browser-served** shell (the remote target) `weavie.terminal.paste` declines, the Ctrl+V keydown falls
-through, and the DOM `paste` event fires — the capture handler works. On a **native WebView** that command
-consumes Ctrl+V and `preventDefault`s it, suppressing the DOM paste event, so the handler never fires there.
-The host path is unconditional; only the web *capture* depends on the paste event reaching the DOM. Native
-desktop already ingests clipboard images via Claude's own OS-clipboard support (macOS/Windows), so this is a
-genuine remote-only fix. Extending to native WebView Ctrl+V (making the paste command fall through on all
-hosts, or a per-OS clipboard-image read) is a follow-up, not folded in silently.
+On a **browser-served** shell `weavie.terminal.paste` declines, the Ctrl/Cmd+V keydown falls through, and the
+DOM `paste` event fires — the browser capture handles it. On a **native WebView** that command consumes
+Ctrl/Cmd+V and `preventDefault`s it, so the DOM paste event never fires. A native desktop running Claude
+*locally* can still ingest a clipboard image via Claude's own OS-clipboard support — but a native app driving a
+**remote/headless** session cannot: Claude runs on the backend with no access to the desktop clipboard, so the
+paste silently did nothing. That is the common way the native app hits a remote session, so it is the bug, not
+an edge case.
+
+So the native paste command reads the OS clipboard itself. On the claude pane it asks the **local** host — which
+owns the clipboard even when a remote backend drives the page — for a clipboard *image* (`clipboard-read-image`
+→ `IHostPlatform.ReadClipboardImage`, decoded to PNG per OS: `NSPasteboard` / `Clipboard.GetImage` / gdk-pixbuf;
+headless has none and returns `ClipboardImage.None`). A present image rides to the **active** backend as the same
+`term-paste-image` message the browser capture posts (scratch file + path injection); no image falls through to a
+text paste, unchanged.
 
 ## Tests
 
 - `HostCorePasteImageTests` (headless, at the PTY seam): a pasted PNG writes a scratch file with the right
   bytes/extension and injects `ESC[200~<path>ESC[201~` into the claude PTY; each allowed MIME maps to its
   extension; a disallowed type / oversize paste is toasted and never written; a shell-named paste never
-  reaches the shell; a paste is suppressed while input is frozen for an update.
+  reaches the shell; a paste is suppressed while input is frozen for an update. Plus the native-WebView read:
+  `clipboard-read-image` replies with the platform's clipboard image (bytes + MIME), or an empty MIME for none.
 - `PastedImageStoreTests` (Core): sequential `paste-N` allocation, byte-exact writes, `Clear` on unload, and
   the `PastedImageMedia` allowlist.

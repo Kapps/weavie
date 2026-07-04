@@ -52,19 +52,23 @@ export function attachImagePaste(container: HTMLElement, slot: string): () => vo
 }
 
 async function sendImage(blob: Blob, slot: string): Promise<void> {
-  if (blob.size > MAX_BYTES) {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  sendPastedImage(slot, blob.type, bytesToBase64(bytes));
+}
+
+/**
+ * Ships a pasted image to the backend as `term-paste-image` (the host writes a scratch file on the backend and
+ * injects its path into claude). Oversize is rejected here so it never rides the bridge; the host re-validates as
+ * the authoritative gate. Shared by the browser DOM-paste capture and the native-WebView clipboard read.
+ */
+export function sendPastedImage(slot: string, mime: string, dataB64: string): void {
+  const bytes = Math.floor(dataB64.length / 4) * 3;
+  if (bytes > MAX_BYTES) {
     notify(
       "warn",
-      `That image is ${(blob.size / (1024 * 1024)).toFixed(1)} MB — Claude accepts images up to ${MAX_BYTES / (1024 * 1024)} MB. Resize it and paste again.`,
+      `That image is ${(bytes / (1024 * 1024)).toFixed(1)} MB — Claude accepts images up to ${MAX_BYTES / (1024 * 1024)} MB. Resize it and paste again.`,
     );
     return;
   }
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  postToHost({
-    type: "term-paste-image",
-    slot,
-    session: "claude",
-    mime: blob.type,
-    dataB64: bytesToBase64(bytes),
-  });
+  postToHost({ type: "term-paste-image", slot, session: "claude", mime, dataB64 });
 }

@@ -114,4 +114,31 @@ public sealed class HostCorePasteImageTests {
 
 		Assert.Equal(0, claudeTerminal.WriteCount);
 	}
+
+	// The native-WebView half: on the claude pane the paste command reads the OS clipboard IMAGE through the local
+	// host (clipboard-read-image), since the DOM paste event never fires there. The host replies with the bytes.
+	[Fact]
+	public async Task ClipboardReadImage_RepliesWithThePlatformsClipboardImage() {
+		await using var host = await TestHost.StartAsync();
+		host.Platform.ClipboardImageValue = new ClipboardImage("image/png", PngBytes);
+
+		host.Send(JsonSerializer.Serialize(new { type = "clipboard-read-image", id = "img-1" }));
+
+		var reply = host.Bridge.LastOfType("clipboard-image-content");
+		Assert.True(reply.HasValue);
+		Assert.Equal("img-1", reply!.Value.GetProperty("id").GetString());
+		Assert.Equal("image/png", reply.Value.GetProperty("mime").GetString());
+		Assert.Equal(PngBytes, Convert.FromBase64String(reply.Value.GetProperty("dataB64").GetString()!));
+	}
+
+	[Fact]
+	public async Task ClipboardReadImage_WithNoImage_RepliesWithAnEmptyMime() {
+		await using var host = await TestHost.StartAsync();
+
+		host.Send(JsonSerializer.Serialize(new { type = "clipboard-read-image", id = "img-2" }));
+
+		var reply = host.Bridge.LastOfType("clipboard-image-content");
+		Assert.True(reply.HasValue);
+		Assert.Equal(string.Empty, reply!.Value.GetProperty("mime").GetString());
+	}
 }

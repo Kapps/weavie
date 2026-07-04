@@ -165,6 +165,13 @@ public sealed partial class HostCore {
 				_bridge.PostToWeb(
 					$"{{\"type\":\"clipboard-content\",\"id\":{JsonString(root.GetStringOrEmpty("id"))},\"text\":{JsonString(_platform.ReadClipboard())}}}");
 				break;
+			case "clipboard-read-image":
+				// Claude-pane paste in a native WebView -> read the OS clipboard as an image and reply, correlated by
+				// id. An empty mime means no image, and the web falls back to a text paste. Same UI-thread seam.
+				var clip = _platform.ReadClipboardImage();
+				_bridge.PostToWeb(
+					$"{{\"type\":\"clipboard-image-content\",\"id\":{JsonString(root.GetStringOrEmpty("id"))},\"mime\":{JsonString(clip.Mime)},\"dataB64\":{JsonString(Convert.ToBase64String(clip.Bytes))}}}");
+				break;
 			case "open-url":
 				// A terminal hyperlink / Claude's auth URL -> open in the OS default browser. Allowlist http(s) at
 				// this trust boundary: terminal content is untrusted, so the OS opener must never be reachable with a

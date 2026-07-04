@@ -48,6 +48,8 @@ internal sealed class HeadlessPlatform : IHostPlatform {
 
 	public string ReadClipboard() => string.Empty;
 
+	public ClipboardImage ReadClipboardImage() => ClipboardImage.None;
+
 	public void OpenExternalUrl(string url) {
 		// No host browser in a browser-served host.
 	}

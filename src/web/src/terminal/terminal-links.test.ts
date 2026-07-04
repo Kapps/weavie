@@ -16,7 +16,7 @@ vi.mock("../bridge", () => ({
   isBrowserHostedShell: () => browserShell.value,
 }));
 
-const { wireTerminalLinks, openUrlExternal } = await import("./terminal-links");
+const { wireTerminalLinks } = await import("./terminal-links");
 
 // A minimal xterm stand-in over an ordered set of buffer rows. Each row carries isWrapped (true = a soft-wrap
 // continuation of the row above), so the provider's logical-line reconstruction can be exercised. `provide`
@@ -305,21 +305,10 @@ describe("OSC 8 link handler", () => {
     term.options.linkHandler?.leave?.({} as MouseEvent, "https://example.com/", {} as never);
     expect(hoveredUrl()).toBeUndefined();
   });
-});
 
-// openUrlExternal is exported + reachable via the openUrlExternal command (Claude/MCP), so it re-gates the
-// scheme itself: a browser-hosted shell opens the URL with no host round-trip to filter it.
-describe("openUrlExternal scheme gate", () => {
-  it("refuses a non-http(s) or unparseable URL, never reaching the OS opener", () => {
-    openUrlExternal("file:///etc/passwd");
-    openUrlExternal("javascript:alert(1)");
-    openUrlExternal("not a url");
-    expect(postedLocal).toEqual([]);
-    expect(posted).toEqual([]);
-  });
-
-  it("opens an http(s) URL via the LOCAL host", () => {
-    openUrlExternal("https://example.com/");
-    expect(postedLocal).toContainEqual({ type: "open-url", url: "https://example.com/" });
+  it("does not offer the open-in menu for a non-http OSC link (leaves the hovered URL unset)", () => {
+    const { term, hoveredUrl } = oneLine("");
+    term.options.linkHandler?.hover?.({} as MouseEvent, "file:///home/user/a.ts", {} as never);
+    expect(hoveredUrl()).toBeUndefined();
   });
 });

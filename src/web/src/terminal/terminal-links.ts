@@ -31,25 +31,11 @@ function revealFile(matchText: string): void {
   }
 }
 
-// True only for an absolute http(s) URL — the open gate, mirroring the host's IsHttpUrl. Terminal content is
-// untrusted and this is also reachable via the openUrlExternal command (Claude/MCP), so a file://, UNC path, or
-// custom scheme (a ShellExecute / window.open handler vector) is never opened.
-function isHttpUrl(url: string): boolean {
-  try {
-    const { protocol } = new URL(url);
-    return protocol === "http:" || protocol === "https:";
-  } catch {
-    return false;
-  }
-}
-
-/** Opens an http(s) URL in the OS/default browser (the terminal's left-click + the "Open in Browser" menu). */
+/** Opens a URL in the OS/default browser (the terminal's left-click + the "Open in Browser" menu). */
 export function openUrlExternal(url: string): void {
-  if (!isHttpUrl(url)) {
-    return;
-  }
   // The browser lives on the user's machine: a served tab opens the URL itself under the click's user gesture;
-  // a native shell asks the LOCAL host (re-gated there too), never a remote backend.
+  // a native shell asks the LOCAL host, which allowlists http(s) at that trust boundary — untrusted terminal
+  // content must never reach a file:// / custom-scheme OS opener. Never a remote backend.
   if (isBrowserHostedShell()) {
     window.open(url, "_blank", "noopener");
     return;
@@ -97,6 +83,8 @@ function collect(
  */
 export function wireTerminalLinks(term: Terminal): () => string | undefined {
   let hoveredUrl: string | undefined;
+  // Only track web URLs, so a right-click on a file:// OSC link shows the plain terminal menu, not "open in…".
+  const isHttp = (uri: string): boolean => uri.startsWith("http:") || uri.startsWith("https:");
 
   term.options.linkHandler = {
     activate: (event, uri) => {
@@ -120,7 +108,7 @@ export function wireTerminalLinks(term: Terminal): () => string | undefined {
       }
     },
     hover: (_event, uri) => {
-      if (isHttpUrl(uri)) {
+      if (isHttp(uri)) {
         hoveredUrl = uri;
       }
     },

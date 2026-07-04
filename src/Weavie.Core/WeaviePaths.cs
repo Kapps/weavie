@@ -112,6 +112,14 @@ public static class WeaviePaths {
 	public static string WorkspaceScratchDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "scratch");
 
 	/// <summary>
+	/// A workspace's pasted-image directory: <c>~/.weavie/workspaces/&lt;id&gt;/pasted-images</c> (each session in
+	/// its own worktree-keyed subdir). An image pasted into Claude is written here and its path injected into the
+	/// prompt; the files never reach the tree, index, git, or a real name, and are wiped on session unload. See
+	/// <see cref="Editor.PastedImageStore"/>.
+	/// </summary>
+	public static string WorkspacePastedImagesDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "pasted-images");
+
+	/// <summary>
 	/// A workspace's per-session git worktrees: <c>~/.weavie/workspaces/&lt;id&gt;/worktrees</c>. Outside the
 	/// repo so they never appear in the project tree and cleanup stays scoped per workspace.
 	/// </summary>

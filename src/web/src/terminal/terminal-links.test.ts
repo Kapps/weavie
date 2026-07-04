@@ -150,6 +150,38 @@ describe("auto-link provider", () => {
     expect(oneLine("⏺ Bash(git status)").provide()).toEqual([]);
   });
 
+  it("links a bare path (separator, no :line, no wrapper) and reveals it at line 1", () => {
+    const { provide } = oneLine("wrote src/web/e2e/.recordings/clip.webm just now");
+    const links = provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("src/web/e2e/.recordings/clip.webm");
+    links[0]?.activate({} as MouseEvent, links[0].text);
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "src/web/e2e/.recordings/clip.webm",
+      line: 1,
+    });
+  });
+
+  it("links a rooted bare path, keeping the leading separator", () => {
+    const { provide } = oneLine("see /home/user/notes.md for context");
+    const links = provide();
+    expect(links[0]?.text).toBe("/home/user/notes.md");
+  });
+
+  it("does not link a bare path as file:line and again as bare (single link at its line)", () => {
+    const { provide } = oneLine("edit src/foo.ts:42 please");
+    expect(provide()).toHaveLength(1);
+  });
+
+  it("does not link a dotted word with no separator (Node.js, package.json)", () => {
+    expect(oneLine("built with Node.js; see package.json").provide()).toEqual([]);
+  });
+
+  it("does not link a slashed token whose extension starts with a digit (HTTP/1.1)", () => {
+    expect(oneLine("the server speaks HTTP/1.1 here").provide()).toEqual([]);
+  });
+
   it("does not double-link a URL that ends in a .ext:line-looking path", () => {
     // URLs are claimed first, so the file:line scanner must skip the span already inside the URL.
     const { provide } = oneLine("https://host/app.js:10");
@@ -200,15 +232,16 @@ describe("soft-wrapped links", () => {
   });
 
   it("stitches only across an isWrapped continuation, never across a real newline", () => {
-    // Identical rows; only the continuation flag differs. isWrapped=true is one printed line the terminal
-    // reflowed, so it links; isWrapped=false is two lines the program printed, so it must not be stitched.
+    // Neither fragment matches alone ("src/foo" has no extension, ".ts" has no separator); only their join
+    // "src/foo.ts" does. isWrapped=true is one line the terminal reflowed, so it links; isWrapped=false is
+    // two lines the program printed, so it must not be stitched.
     const rows = [
-      { text: "src/foo.ts", isWrapped: false },
-      { text: ":42", isWrapped: true },
+      { text: "src/foo", isWrapped: false },
+      { text: ".ts", isWrapped: true },
     ] as const;
-    expect(fakeTerminal(...rows).provide(1)[0]?.text).toBe("src/foo.ts:42");
+    expect(fakeTerminal(...rows).provide(1)[0]?.text).toBe("src/foo.ts");
 
-    const broken = fakeTerminal(rows[0], { text: ":42", isWrapped: false });
+    const broken = fakeTerminal(rows[0], { text: ".ts", isWrapped: false });
     expect(broken.provide(1)).toEqual([]);
     expect(broken.provide(2)).toEqual([]);
   });

@@ -1,6 +1,6 @@
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
-import { walkToChangedFile } from "../harness/navigator";
+import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 
 // The Open-PR journey end to end against a stubbed PR provider + a local "origin" with a base/head diff
 // (prScenario): pick the PR, check out its branch as a session, and walk its base→head diff in the inline-diff
@@ -31,7 +31,8 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   const label = page.locator(".weavie-inline-stack-name");
   await expect(label).toHaveText(/feature\.ts|hello\.ts/);
   const first = (await label.textContent())?.trim() ?? "";
-  await page.keyboard.press("ControlOrMeta+ArrowRight");
+  await focusEditor(page); // the ← / → chord is `!terminalFocused`-guarded; a switch-in focuses Claude's terminal
+  await page.keyboard.press(navChord("ArrowRight"));
   await expect
     .poll(async () => (await label.textContent())?.trim(), { timeout: 10_000 })
     .not.toBe(first);

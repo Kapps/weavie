@@ -32,6 +32,13 @@ public sealed partial class McpServer {
           {"name":"setLayout","description":"Replace the weavie window layout. 'root' is a layout tree where each node is a split (type 'split', with 'dir' 'row' or 'column', a 'weights' number array, and a 'children' node array) or a pane (type 'pane', with a unique 'id' and a 'kind'). Pane kinds: editor, terminal:claude, terminal:shell. Weights are relative. Optionally set 'focused' to a pane id. Call getLayout first to see the current shape.","inputSchema":{"type":"object","properties":{"root":{"type":"object"},"focused":{"type":"string"}},"required":["root"]}}
         """;
 
+	// Current-session tool (model-facing), advertised on the registry server only when a session-id provider is
+	// wired. Lets the embedded claude target session commands at its OWN session rather than the focused one.
+	private const string CurrentSessionToolEntries =
+		"""
+          {"name":"currentSession","description":"Get the id of the weavie session that YOU (this embedded Claude) are running in, as {\"id\":\"…\"}. Use it to target session commands at your OWN session rather than the user's focused one (the user may have a different session in the foreground). Pass the returned id to weavie.session.delete (via runCommand) — a no-id delete is rejected for exactly this reason — and prefer passing it to weavie.session.unload too.","inputSchema":{"type":"object","properties":{}}}
+        """;
+
 	// Command tools (model-facing), advertised on the registry server only when a CommandDispatcher is wired.
 	private const string CommandToolEntries =
 		"""

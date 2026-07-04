@@ -130,6 +130,9 @@ export type HostBoundMessage =
   // this pane belongs to; `session` is the pane within it.
   | { type: "term-ready"; slot: string; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
+  // An image pasted into the claude pane: its bytes (base64) + MIME. The host writes a scratch file on the
+  // backend and injects its path into claude, which attaches it as an [Image #N]. See paste-image.ts.
+  | { type: "term-paste-image"; slot: string; session: TermSession; mime: string; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
@@ -543,6 +546,8 @@ export type WebBoundMessage =
       error?: string;
     }
   // Host pushes the recently-used files (most-frecent-first absolute paths) for the omnibar's Recent section.
+  // Routed cross-backend (isSessionMessage) and kept per backend, so a remote session shows the remote box's
+  // files — whose paths only make sense there — not the local machine's.
   | { type: "recent-files"; files: string[] }
   // Host answers list-branches with the local branches available to check out, tagged by the request `id`.
   // Routed cross-backend (isSessionMessage) so the New Session dialog can query a non-active backend.
@@ -641,13 +646,14 @@ export const activeBackendPhase = createMemo<BackendPhase>(
 export const activeBackendOffline = createMemo<boolean>(() => activeBackendPhase() !== "online");
 
 // These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
-// feed the rail, the New Session typeahead, and local-only registry/rail state. Everything else is gated to
-// the bound backend.
+// feed the rail, the New Session typeahead, the active backend's suggestions/recent-files, and local-only
+// registry/rail state. Everything else is gated to the bound backend.
 function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
     type === "session-status" ||
     type === "suggestions" ||
+    type === "recent-files" ||
     type === "branches-result" ||
     type === "prs-result" ||
     type === "pr-resolved" ||

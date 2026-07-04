@@ -119,6 +119,21 @@ public sealed partial class HostCore {
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
 
+	/// <summary>
+	/// The failure for a destructive delete/classify called without an id, else <c>null</c>. A no-id delete must
+	/// NOT fall back to the focused session (<c>ActiveSlot</c>): an embedded Claude lives in one session while the
+	/// user may have another focused, so a no-arg delete could tear down a session the caller never intended
+	/// (issue #217). The caller learns its OWN id from the <c>mcp__weavie__currentSession</c> tool; the interactive
+	/// human path (<c>deletePrompt</c>, not palette-visible raw delete) resolves focus in the web, where focus IS
+	/// the intent. Unload keeps its focused-session default — see <see cref="UnloadSessionAsync"/>.
+	/// </summary>
+	private static CommandResult? RequireSessionId(string? sessionId, string verb) =>
+		string.IsNullOrWhiteSpace(sessionId)
+			? CommandResult.Failure(
+				$"{verb} needs a session id — call the mcp__weavie__currentSession tool to get your own session's id, "
+				+ "then pass it. (It no longer defaults to the focused session, which may not be yours.)")
+			: null;
+
 	/// <summary>Test seam: the session currently driving the page (the active backend), or null before startup.</summary>
 	internal HostSession? ActiveSessionForTest() => _session;
 
@@ -377,6 +392,9 @@ public sealed partial class HostCore {
 	private HostSession CreateSession(string cwd) {
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id),
+			// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
+			// one session's images never touches another's.
+			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
@@ -418,6 +436,7 @@ public sealed partial class HostCore {
 		session.Shell.EnsureStarted();
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 		PushSessionList();
+		PersistSessionState();
 	}
 
 	/// <summary>
@@ -469,6 +488,8 @@ public sealed partial class HostCore {
 		PushSessionList();
 		// Land keyboard focus in the new session's Claude pane.
 		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
+		// Record the new active slot (and any load it just triggered) so a reopen restores it.
+		PersistSessionState();
 	}
 
 	/// <summary>
@@ -525,6 +546,9 @@ public sealed partial class HostCore {
 
 	/// <inheritdoc/>
 	public async Task<CommandResult> UnloadSessionAsync(string? sessionId, CancellationToken ct) {
+		// Unlike delete, unload keeps the focused-session default: it's the palette's "Unload Session" action
+		// (no prompt wrapper, so no-arg IS the human intent) and is reversible — the worktree survives, reloadable
+		// from its dormant chip. So the focused-session hazard of issue #217 doesn't apply the same way here.
 		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
 		if (target is null) {
 			return CommandResult.Failure("No such session.");
@@ -544,7 +568,11 @@ public sealed partial class HostCore {
 
 	/// <inheritdoc/>
 	public Task<CommandResult> DeleteSessionAsync(string? sessionId, bool force, CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
+		if (RequireSessionId(sessionId, "Delete") is { } missing) {
+			return Task.FromResult(missing);
+		}
+
+		var target = _sessions?.Find(sessionId!);
 		if (target is null) {
 			return Task.FromResult(CommandResult.Failure("No such session."));
 		}
@@ -596,6 +624,7 @@ public sealed partial class HostCore {
 			_ui.Post(() => {
 				_sessions?.Remove(target);
 				PushSessionList();
+				PersistSessionState();
 			});
 			return CommandResult.Success($"Deleted session '{label}': its worktree was removed and the branch kept.");
 		} catch (WorktreeDirtyException) {
@@ -628,7 +657,11 @@ public sealed partial class HostCore {
 
 	/// <inheritdoc/>
 	public async Task<CommandResult> ClassifyDeleteAsync(string? sessionId, CancellationToken ct) {
-		var target = string.IsNullOrWhiteSpace(sessionId) ? _sessions?.ActiveSlot : _sessions?.Find(sessionId);
+		if (RequireSessionId(sessionId, "Delete") is { } missing) {
+			return missing;
+		}
+
+		var target = _sessions?.Find(sessionId!);
 		if (target is null) {
 			return CommandResult.Failure("No such session.");
 		}
@@ -671,6 +704,7 @@ public sealed partial class HostCore {
 		// after process teardown finishes (Windows can take many seconds to release the children's handles).
 		slot.Session = null;
 		PushSessionList();
+		PersistSessionState();
 		await session.DisposeAsync().ConfigureAwait(false);
 	}
 

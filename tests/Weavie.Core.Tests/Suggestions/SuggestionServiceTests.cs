@@ -203,6 +203,7 @@ public sealed class SuggestionServiceTests : IDisposable {
 		public string ReadAllText(string path) => _inner.ReadAllText(path);
 		public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
 		public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
+		public void WriteAllBytes(string path, byte[] contents) => _inner.WriteAllBytes(path, contents);
 		public void WriteAllTextAtomic(string path, string contents) => _inner.WriteAllTextAtomic(path, contents);
 		public void DeleteFile(string path) => _inner.DeleteFile(path);
 

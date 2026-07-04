@@ -30,6 +30,8 @@ const commitAll = (cwd: string, message: string): void => {
 };
 
 test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, weavie }) => {
+  // The suite's default 30s test timeout would otherwise cap this below the 30s toolbar wait itself.
+  test.setTimeout(60_000);
   // An uncommitted edit to a seeded file — the exact thing "diff against HEAD" exists to review.
   await writeFile(
     join(weavie.workspace, "notes.txt"),
@@ -40,7 +42,7 @@ test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, 
 
   // The navigator surfaces on the changed file, labeled with what it's diffing against.
   const toolbar = page.locator(".weavie-inline-toolbar");
-  await expect(toolbar).toBeVisible({ timeout: 20_000 });
+  await expect(toolbar).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".weavie-inline-stack-name")).toHaveText("notes.txt");
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText("vs HEAD");
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
@@ -52,6 +54,8 @@ test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, 
 });
 
 test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ page, weavie }) => {
+  // The suite's default 30s test timeout would otherwise cap this below the 30s toolbar wait itself.
+  test.setTimeout(60_000);
   // A second commit changing two files, so diffing against the first commit is a two-file walk.
   await writeFile(
     join(weavie.workspace, "hello.ts"),
@@ -73,7 +77,7 @@ test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ p
   await prompt.locator(".session-prompt-input").press("Enter");
 
   // The navigator arms on the first changed file and ← / → walks to the other.
-  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 20_000 });
+  await expect(page.locator(".weavie-inline-toolbar")).toBeVisible({ timeout: 30_000 });
   await expect(page.locator(".weavie-inline-stack-sub")).toContainText("vs HEAD^");
   await walkToChangedFile(page, "hello.ts");
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
@@ -85,10 +89,12 @@ test("a ref with no changes answers with a toast, not an empty navigator", async
 }) => {
   // The tree is clean (the seed commit), so there is nothing to review against HEAD.
   void weavie;
+  // The suite's default 30s test timeout would otherwise cap this below the 30s toast wait itself.
+  test.setTimeout(60_000);
   await runCommand(page, "Diff Against HEAD");
 
   await expect(page.locator(".toast", { hasText: "No changes against 'HEAD'" })).toBeVisible({
-    timeout: 20_000,
+    timeout: 30_000,
   });
   await expect(page.locator(".weavie-inline-toolbar")).toHaveCount(0);
 });

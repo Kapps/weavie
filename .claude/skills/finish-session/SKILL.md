@@ -44,7 +44,10 @@ confirmed merged** — never before, and never with unshipped work.
 
 - Print the wrap-up first — PR link and what landed — because this step tears down the session
   (including this Claude) immediately.
-- Then run the Weavie command `weavie.session.delete` via the `mcp__weavie__runCommand` MCP tool
-  with no args (it acts on the active session). It keeps the branch and refuses on a dirty
-  worktree — if it refuses, do NOT pass `force`; something is unshipped, find out what.
+- Get *your own* session id from the `mcp__weavie__currentSession` MCP tool (it returns
+  `{"id":"…"}`). Delete targets an explicit id and no longer defaults to the active session — the
+  user may have a *different* session focused, so never rely on a no-arg delete.
+- Then run the Weavie command `weavie.session.delete` via the `mcp__weavie__runCommand` MCP tool,
+  passing that id as `args` (i.e. `{"id":"<your-session-id>"}`). It keeps the branch and refuses on
+  a dirty worktree — if it refuses, do NOT pass `force`; something is unshipped, find out what.
 - If it reports the primary session can't be deleted, the work still shipped — say so and finish.

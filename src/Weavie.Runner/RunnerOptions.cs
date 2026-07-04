@@ -146,6 +146,19 @@ public sealed record RunnerOptions {
 		}, null);
 	}
 
+	// Every flag Resolve reads. An arg outside this set is a typo we warn about (not reject) — the runner
+	// still starts, but the operator sees that e.g. --autoupdate never enabled --auto-update.
+	private static readonly HashSet<string> KnownFlags = new(StringComparer.Ordinal) {
+		"--workspace", "--headless", "--tls", "--bind", "--worker-bind", "--port", "--public-host",
+		"--worker-https-port", "--control-https-port", "--worker-port", "--token", "--auto-update", "--github-token",
+	};
+
+	/// <summary>The <c>--</c>-prefixed args <see cref="Resolve"/> doesn't recognize, in argv order (for a startup warning).</summary>
+	public static IReadOnlyList<string> UnknownArgs(string[] args) {
+		ArgumentNullException.ThrowIfNull(args);
+		return [.. args.Where(a => a.StartsWith("--", StringComparison.Ordinal) && !KnownFlags.Contains(a))];
+	}
+
 	/// <summary>A URL-safe random token (128 bits of entropy, lowercase hex).</summary>
 	public static string NewToken() => Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
 

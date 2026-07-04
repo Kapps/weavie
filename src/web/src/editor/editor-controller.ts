@@ -551,7 +551,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // (chunk load, crash, or an init that never settles within EDITOR_INIT_MS) — so the reveal shows a settled UI.
   const start = (container: HTMLElement): void => {
     const editorReady = import("./editor-host").then(({ createEditorHost }) =>
-      createEditorHost(container, deps.onSaveError, deps.onOpenError),
+      createEditorHost(container, deps.onSaveError, deps.onOpenError, (loc) =>
+        navHistory.record(loc),
+      ),
     );
     const initDeadline = new Promise<never>((_, reject) => {
       initTimer = window.setTimeout(
@@ -654,9 +656,9 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
-  // (so $mod+Left/Right keep word-nav) when there's no multi-file review. An active file that fell OUT of the
-  // set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the first
-  // file — a nav key pressed at a live review toolbar must never silently no-op.
+  // (so Ctrl+Left/Right keep Win/Linux word-nav) when there's no multi-file review. An active file that fell
+  // OUT of the set (a session switch's in-flight rebind briefly leaves a stale tab on screen) re-enters at the
+  // first file — a nav key pressed at a live review toolbar must never silently no-op.
   const stepReviewFile = (delta: number): boolean => {
     if (reviewFiles.length < 2) {
       return false;
@@ -868,7 +870,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           return true;
         }
         // The toolbar's ← / → file axis: only for a multi-file review containing this file, so a single-file
-        // review leaves $mod+Left/Right as editor word-nav.
+        // review leaves ctrl+$mod+Left/Right unclaimed (Win/Linux word-nav).
         const idx = reviewFiles.findIndex((f) => samePath(f.path, message.path));
         const fileNav =
           reviewFiles.length > 1 && idx !== -1

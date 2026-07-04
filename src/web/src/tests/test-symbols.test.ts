@@ -26,7 +26,10 @@ describe("collectTests", () => {
         node("describe('nested') callback", [node("it('multiplies') callback")]),
       ]),
     ];
-    const r = rule({ symbol: "^(?:describe|it|test)\\((?:'|\")(.+?)(?:'|\")", nameSeparator: " > " });
+    const r = rule({
+      symbol: "^(?:describe|it|test)\\((?:'|\")(.+?)(?:'|\")",
+      nameSeparator: " > ",
+    });
     const names = collectTests(symbols, r, noHeader).map((h) => h.name);
     expect(names).toEqual([
       "math",
@@ -39,7 +42,9 @@ describe("collectTests", () => {
 
   it("selects TestXxx functions and ignores helpers (gopls shape)", () => {
     const symbols = [node("TestAdds"), node("TestSubtracts"), node("helper")];
-    const names = collectTests(symbols, rule({ symbol: "^(Test\\w+)" }), noHeader).map((h) => h.name);
+    const names = collectTests(symbols, rule({ symbol: "^(Test\\w+)" }), noHeader).map(
+      (h) => h.name,
+    );
     expect(names).toEqual(["TestAdds", "TestSubtracts"]);
   });
 
@@ -57,7 +62,9 @@ describe("collectTests", () => {
   });
 
   it("falls back to the whole symbol name when the regex has no capture group", () => {
-    const names = collectTests([node("TestAdds")], rule({ symbol: "^Test\\w+" }), noHeader).map((h) => h.name);
+    const names = collectTests([node("TestAdds")], rule({ symbol: "^Test\\w+" }), noHeader).map(
+      (h) => h.name,
+    );
     expect(names).toEqual(["TestAdds"]);
   });
 });

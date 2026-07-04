@@ -80,6 +80,11 @@
   background: var(--busy);
   animation: weavie-status-pulse 1.2s ease-in-out infinite;
 }
+/* Waiting on a scheduled task: same busy hue as working, but a slower breath — resting, not driving. */
+.session-chip.status-waiting .session-chip-dot {
+  background: var(--busy);
+  animation: weavie-status-pulse 2.4s ease-in-out infinite;
+}
 .session-chip.status-starting .session-chip-dot {
   background: var(--busy);
 }
@@ -147,6 +152,10 @@
   background: var(--busy);
   animation: weavie-status-pulse 1.2s ease-in-out infinite;
 }
+.session-status.status-waiting {
+  background: var(--busy);
+  animation: weavie-status-pulse 2.4s ease-in-out infinite;
+}
 .session-status.status-starting {
   background: var(--busy);
   opacity: 0.6;
@@ -165,8 +174,11 @@
 @media (prefers-reduced-motion: reduce) {
   .session-chip-spinner,
   .session-status.status-working,
+  .session-status.status-waiting,
   .session-chip.status-working .session-chip-dot,
-  .session-chip.status-working .session-chip-cloud {
+  .session-chip.status-waiting .session-chip-dot,
+  .session-chip.status-working .session-chip-cloud,
+  .session-chip.status-waiting .session-chip-cloud {
     animation: none;
   }
 }
@@ -201,6 +213,10 @@
 .session-chip.status-working .session-chip-cloud {
   color: var(--busy);
   animation: weavie-status-pulse 1.2s ease-in-out infinite;
+}
+.session-chip.status-waiting .session-chip-cloud {
+  color: var(--busy);
+  animation: weavie-status-pulse 2.4s ease-in-out infinite;
 }
 .session-chip.status-starting .session-chip-cloud {
   color: var(--busy);
@@ -382,6 +398,9 @@
   background: var(--bad);
 }
 .remote-session.status-working .remote-session-dot {
+  background: var(--busy);
+}
+.remote-session.status-waiting .remote-session-dot {
   background: var(--busy);
 }
 .remote-panel-add {

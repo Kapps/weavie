@@ -49,6 +49,10 @@ describe("update-store", () => {
     expect(store.updateHolds()).toEqual([{ session: "main", reason: "working" }]);
     expect(store.updateRestarting()).toBe(false);
 
+    // A session waiting on a scheduled task holds the update the same way a working one does.
+    deliver({ type: "update-pending", holds: [{ session: "loop", reason: "waiting-on-task" }] });
+    expect(store.updateHolds()).toEqual([{ session: "loop", reason: "waiting-on-task" }]);
+
     deliver({ type: "update-restarting" });
     expect(store.updateRestarting()).toBe(true);
   });

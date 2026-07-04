@@ -380,13 +380,16 @@ public sealed partial class HostCore {
 	private void PostSessionStatus(SessionStatus status) =>
 		_bridge.PostToWeb($"{{\"type\":\"session-status\",\"session\":\"claude\",\"status\":\"{StatusName(status)}\"}}");
 
+	// Exhaustive on purpose: a silent default that maps an unhandled status to "idle" would render it
+	// drain-killable — exactly the Waiting bug — so a new status must be wired here, not fall through.
 	private static string StatusName(SessionStatus status) => status switch {
 		SessionStatus.Starting => "starting",
 		SessionStatus.Working => "working",
 		SessionStatus.NeedsInput => "needsInput",
 		SessionStatus.Idle => "idle",
+		SessionStatus.Waiting => "waiting",
 		SessionStatus.Error => "error",
-		_ => "idle",
+		_ => throw new ArgumentOutOfRangeException(nameof(status), status, "unhandled session status"),
 	};
 
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>

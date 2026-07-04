@@ -689,12 +689,14 @@ export default function App(): JSX.Element {
     return keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
   };
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
+  const holdReasonText: Record<UpdateHold["reason"], string> = {
+    working: "Claude is working",
+    "needs-input": "Claude awaits input",
+    "shell-job": "shell job running",
+    "waiting-on-task": "waiting on a scheduled task",
+  };
   const updateHoldText = (hold: UpdateHold): string =>
-    hold.reason === "working"
-      ? `${hold.session}: Claude is working`
-      : hold.reason === "needs-input"
-        ? `${hold.session}: Claude awaits input`
-        : `${hold.session}: shell job running`;
+    `${hold.session}: ${holdReasonText[hold.reason]}`;
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.

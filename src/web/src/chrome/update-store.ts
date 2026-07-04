@@ -2,8 +2,11 @@ import { createSignal } from "solid-js";
 import { onHostMessage } from "../bridge";
 import { notify } from "../notify/notify";
 
-/** One thing holding a pending update restart (a busy session or a running shell job). */
-export type UpdateHold = { session: string; reason: "working" | "needs-input" | "shell-job" };
+/** One thing holding a pending update restart (a busy session, a running shell job, or a pending task). */
+export type UpdateHold = {
+  session: string;
+  reason: "working" | "needs-input" | "shell-job" | "waiting-on-task";
+};
 
 // The reloaded page's only memory that an update just landed (set right before the forced reload).
 const UPDATED_KEY = "weavie-updated-to";

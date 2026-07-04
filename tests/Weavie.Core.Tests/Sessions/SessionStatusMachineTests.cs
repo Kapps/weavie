@@ -36,6 +36,13 @@ public sealed class SessionStatusMachineTests {
 		Source = source,
 	};
 
+	private static HookRequest Stop(bool sessionWillResume) => new() {
+		Event = HookEventKind.Stop,
+		ToolName = string.Empty,
+		ToolInputJson = "{}",
+		SessionWillResume = sessionWillResume,
+	};
+
 	[Fact]
 	public void InitialStatus_IsStarting() {
 		var machine = new SessionStatusMachine();
@@ -309,6 +316,29 @@ public sealed class SessionStatusMachineTests {
 
 		machine.ObserveSupervisor(new SupervisorStateChanged(SupervisorState.BackingOff, null, 1));
 
+		Assert.Equal(SessionStatus.Idle, machine.Status);
+	}
+
+	[Fact]
+	public void Stop_WithPendingResumption_GoesWaiting() {
+		// The overnight-loss case: the turn ended with a pending wakeup / background task (SessionWillResume),
+		// so it settles to Waiting — idle-but-not-done — rather than Idle, holding the update drain.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.UserPromptSubmit));
+		machine.Observe(Stop(sessionWillResume: true));
+		Assert.Equal(SessionStatus.Waiting, machine.Status);
+	}
+
+	[Fact]
+	public void WaitingClears_WhenResumptionResolves() {
+		// The wake fires (new turn) and the follow-up ends with nothing pending → genuinely Idle. Each Stop is a
+		// fresh snapshot, so Waiting tracks the payload with no leftover state.
+		var machine = new SessionStatusMachine();
+		machine.Observe(Stop(sessionWillResume: true));
+		Assert.Equal(SessionStatus.Waiting, machine.Status);
+
+		machine.Observe(Hook(HookEventKind.UserPromptSubmit));
+		machine.Observe(Stop(sessionWillResume: false));
 		Assert.Equal(SessionStatus.Idle, machine.Status);
 	}
 

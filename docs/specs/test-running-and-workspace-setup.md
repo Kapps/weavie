@@ -40,29 +40,50 @@ symbol conventions. The mapping from symbol to "this is a test named X" is a reg
 
 ## Test profile (settings)
 
-Four `Workspace`-scoped keys in the settings registry. This feature lands the **workspace settings
-layer** the settings spec reserves: `<workspaceRoot>/.weavie/settings.toml`, resolution
-env > workspace > user > default. `SettingDefinition` gains `SettingScope Scope` (default `User`);
-`setSetting` routes writes by scope with an unchanged tool signature. `worktree.setupCommand`
-migrates to `Workspace` scope (reads still fall through to the user file).
+One `Workspace`-scoped key, `test.profile` (String kind holding a JSON array, `Validate` =
+`TestProfile.TryParse`). This feature lands the **workspace settings layer** the settings spec
+reserves: `<workspaceRoot>/.weavie/settings.toml`, resolution env > workspace > user > default.
+`SettingDefinition` gains `SettingScope Scope` (default `User`); `setSetting` routes writes by scope
+with an unchanged tool signature. `worktree.setupCommand` migrates to `Workspace` scope (reads still
+fall through to the user file).
 
-| key | kind | meaning |
-|---|---|---|
-| `test.match` | String (JSON array, `Validate` = `TestProfile.TryParse`) | rules like `{ "glob": "**/*.test.ts", "symbol": "^(?:describe\|it\|test)\\((?:'\|\")(.+?)(?:'\|\")" }`; first capture = test name (no capture → whole symbol name) |
-| `test.runOne` | String | template, e.g. `pnpm vitest run ${file} -t ${name}` |
-| `test.runFile` | String | template, e.g. `pnpm vitest run ${file}` |
-| `test.nameSeparator` | String, default `" "` | joins name captures along the ancestor symbol chain (nested `describe`s): jest `" "`, vitest `" > "` |
+Each rule carries its own match *and* run knowledge, so multi-language repos are just multiple rules
+— the executor uses the first rule whose glob matches the file:
+
+```json
+[
+  {
+    "glob": "**/*.test.ts?(x)",
+    "symbol": "^(?:describe|it|test)\\((?:'|\")(.+?)(?:'|\")",
+    "runOne": "pnpm vitest run ${file} -t ${name}",
+    "runFile": "pnpm vitest run ${file}",
+    "nameSeparator": " > "
+  },
+  {
+    "glob": "**/*_test.go",
+    "symbol": "^(Test\\w+)",
+    "runOne": "go test ${fileDir} -run '^${name}$'",
+    "runFile": "go test ${fileDir}"
+  }
+]
+```
+
+Rule fields: `glob` + `symbol` (regex over the symbol name; first capture = test name, no capture →
+whole name) select tests; `runOne`/`runFile` are the command templates; optional `nameSeparator`
+(default `" "`) joins captures along the ancestor symbol chain (nested `describe`s); optional
+`header` is a regex matched against the source slice between a symbol's `range.start` and
+`selectionRange.start` — the region that holds attributes/annotations/decorators (`[Fact]`, `@Test`)
+— so attribute-based frameworks stay pure data (see open questions for the verification this needs).
 
 Placeholders `${file}` (worktree-relative), `${fileDir}`, `${name}` — each substituted shell-quoted,
-never raw. `test.match` **unset** means unconfigured (setup card shows, no lenses); explicit `[]`
+never raw. `test.profile` **unset** means unconfigured (setup card shows, no lenses); explicit `[]`
 means "this repo has no tests" (card satisfied, no lenses). That unset/empty distinction is what
 keeps "no buttons without a profile" a refusal rather than a silent guess.
 
-**Bundled defaults are prompt data, not runtime fallbacks.** `TestProfilePresets` (Core, const table:
-vitest, jest, pytest, `go test`, `dotnet test --filter`) is never consulted when running; it is
-embedded in the setup prompt so Claude proposes from it and the user confirms. C# is the weak case —
-attributes don't appear in symbol names — so its preset matches by class/file convention, and a repo
-where that fails gets file-level running only. Nothing in Weavie's code is C#-aware.
+**No bundled framework presets.** A shipped table of known framework rules would recreate the
+language×framework matrix as maintained data. The setup prompt teaches only the *schema* and
+placeholders; Claude derives each rule's globs and commands from the repo itself (package scripts,
+`go.mod`, project files). Nothing in Weavie's code or data is framework-aware.
 
 ## Discovery & lenses (web)
 
@@ -70,12 +91,12 @@ The matcher runs in the web: the symbols already live there (`monaco-languagecli
 the lens renders there, and Monaco owns the refresh lifecycle. New `src/web/src/tests/` folder:
 
 - `test-profile.ts` — profile signal from `__WEAVIE_TEST_PROFILE__` pre-nav injection + `test-profile`
-  bridge push (re-sent on `SettingChanged` for `test.*`).
+  bridge push (re-sent on `SettingChanged` for `test.profile`).
 - `glob.ts` — small glob→RegExp (`**`, `*`, `?`, `{a,b}`), vitest-covered.
 - `test-symbols.ts` — queries the document-symbol provider via
   `StandaloneServices.get(ILanguageFeaturesService)` (same deep-import style as
-  `DocumentSemanticTokensFeature`), walks the tree against the file's rule, composes ancestor-chain
-  names with `test.nameSeparator`.
+  `DocumentSemanticTokensFeature`), walks the tree against the file's matched rule (`symbol`, and
+  `header` when present), composes ancestor-chain names with the rule's `nameSeparator`.
 - `test-lens.ts` — `monaco.languages.registerCodeLensProvider({ scheme: "file" }, …)`: one lens per
   matched symbol + a run-file lens; `onDidChange` on profile push and language-client start. Lens
   titles advertise the resolved keybinding from the command catalog (`formatKey`), e.g.
@@ -93,7 +114,8 @@ Declared in `CoreCommands`; `SuggestSetupCommand` is deleted.
 | `weavie.workspace.setup` | Core | none | — (palette-visible) |
 
 `weavie.tests.run` is the one executor and is MCP-reachable, so Claude runs tests through the same
-path the lens does.
+path the lens does. Its handler resolves the rule for `file` by glob, so multi-language repos route
+each file to its own framework's commands.
 
 ## Terminal-run seam (Hosting)
 
@@ -105,32 +127,41 @@ worktree session's Claude runs in *that* session's shell with `${file}` relative
   Claude via `runCommand`).
 - Shell busy (`HasForegroundJob`) → failure + error toast. Never queued, never a second pane, never
   silently dropped.
-- Compose via `TestCommandComposer` (POSIX single-quote escaping; PowerShell quoting off
-  `terminal.shell`), then `session.Shell.Write(utf8(command + "\r"))` — plain write, not bracketed
-  paste (paste markers to a shell that never enabled the mode print escape garbage).
+- Compose via `TestCommandComposer` against the file's matched rule (POSIX single-quote escaping;
+  PowerShell quoting off `terminal.shell`), then `session.Shell.Write(utf8(command + "\r"))` — plain
+  write, not bracketed paste (paste markers to a shell that never enabled the mode print escape
+  garbage).
 - On success, post `focus-pane` for the shell so the user watches the run.
 
 ## Workspace setup flow
 
 The `worktree.setupCommand` card generalizes to one **"Set up this workspace?"** suggestion
-(`IsRelevant = ctx.HasBuildManifest && (setupCommand unset || test.match unset)`; a persisted
+(`IsRelevant = ctx.HasBuildManifest && (setupCommand unset || test.profile unset)`; a persisted
 `worktree.setupCommand` dismissal counts as dismissing the new id). "Yes" runs
 `weavie.workspace.setup`, which pre-fills — never sends — the setup entry point into the primary
 session's Claude, preserving the seeding-safety stance.
 
 The setup brain ships as an **MCP prompt on the registry server**: `prompts/list`/`prompts/get` in a
 new `McpServer.Prompts.cs` partial (registry mode only), with the text a maintained Core artifact
-(`WorkspaceSetupPrompt.cs`) embedding the presets table. Claude Code surfaces server prompts as slash
-commands, so setup is `/mcp__weavie__setup-workspace` — discoverable, re-runnable, zero tokens until
-invoked. Rejected alternatives: skill/plugin injection (model-invoked discovery, needs plugin
-machinery beyond the `--settings` file, no explicit user trigger) and keeping a seeded prompt string
-(not re-runnable or discoverable; remains the fallback if the pasted slash command doesn't execute —
-see open questions).
+(`WorkspaceSetupPrompt.cs`). Claude Code surfaces server prompts as slash commands, so setup is
+`/mcp__weavie__setup-workspace` — discoverable, re-runnable, zero tokens until invoked. Rejected
+alternatives: skill/plugin injection (model-invoked discovery, needs plugin machinery beyond the
+`--settings` file, no explicit user trigger) and keeping a seeded prompt string (not re-runnable or
+discoverable; remains the fallback if the pasted slash command doesn't execute — see open questions).
+
+**No server-initiated model call is involved.** An MCP prompt is fetch-and-inject: when the slash
+command is invoked in the embedded interactive session (subscription-billed), Claude Code calls
+`prompts/get` on the in-process registry server and injects the returned text into that session's
+conversation. Weavie never runs `claude -p` or touches the API — same economics as the seeded
+prompt, plus discoverability.
 
 The prompt instructs Claude to: inspect the repo; propose `worktree.setupCommand` and the test
-profile (consulting the presets); ask for confirmation; persist each confirmed value via
-`setSetting`; set `test.match` to `[]` explicitly when the repo has no tests; write only registered
-settings; run nothing else.
+profile (teaching only the rule schema and placeholders — Claude derives globs and commands from the
+repo); ask for confirmation; persist each confirmed value via `setSetting`; set `test.profile` to
+`[]` explicitly when the repo has no tests; write only registered settings; run nothing else; and
+**close by reporting what was decided** — each setting written, that they live in
+`<root>/.weavie/settings.toml`, and that setup can be re-run anytime via
+`/mcp__weavie__setup-workspace` or by editing that file.
 
 ```mermaid
 flowchart LR
@@ -157,7 +188,7 @@ flowchart LR
 1. **Workspace settings layer** — `SettingScope`, workspace file load/watch/write routing; unit tests
    mirror `SettingsStoreTests` (precedence, scoped writes, malformed file → last-good).
 2. **Test profile in Core** — `TestSettings`, `TestProfile.TryParse`, `TestCommandComposer` (+ quoting
-   incl. injection attempts in `${name}`), `TestProfilePresets`. Pure unit-tested.
+   incl. injection attempts in `${name}`). Pure unit-tested.
 3. **Run commands** — declarations + `HostCore.TestRun.cs` + `WireSession`. Headless journey with
    `echo RUN ${file}` templates: palette-invoke `runFile` → assert the shell xterm renders the line;
    busy-shell → error toast, nothing written. Collision-check the default keybindings here.
@@ -187,4 +218,9 @@ flowchart LR
    shell state; recommendation is to accept the visible failure.
 4. **Symbol-name drift** — tsserver's `describe('math') callback` shape is empirical, not
    contractual. Mitigated by the regexes being workspace data (re-run setup to fix) plus
-   captured-fixture tests per bundled preset.
+   captured-fixture tests for the common symbol shapes (tsserver, gopls).
+5. **`header` slice coverage** — the attribute-detection trick assumes `DocumentSymbol.range`
+   includes the attribute/annotation lines while `selectionRange` is the bare identifier. Verify
+   empirically per server (csharp-ls, jdtls) before documenting `header` as supported; if a server
+   excludes attributes from `range`, that language falls back to name/file-convention rules or
+   file-level running.

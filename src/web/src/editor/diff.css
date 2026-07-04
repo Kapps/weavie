@@ -82,6 +82,8 @@
 
 .weavie-inline-added-gutter {
   background: #2ea043;
+  /* Overrides Monaco's inline width:6px on the linesDecorations element (lineDecorationsWidth) — only
+     !important beats an inline style; a plain rule leaves the accent bar double-width and overflowing. */
   width: 3px !important;
   margin-left: 3px;
 }

@@ -67,6 +67,15 @@
   background: color-mix(in srgb, var(--fg) 8%, transparent);
 }
 
+.tb-icon {
+  display: flex;
+  align-items: center;
+  color: var(--accent);
+  padding: 0 6px 0 2px;
+  /* The logo is sized in em (it renders at 1em), so it scales with the chrome font — no fixed px. */
+  font-size: 1.5em;
+}
+
 .titlebar.blurred .tb-icon {
   opacity: 0.6;
 }
@@ -115,15 +124,6 @@
 
 .titlebar.blurred .tb-build {
   opacity: 0.6;
-}
-
-.tb-icon {
-  display: flex;
-  align-items: center;
-  color: var(--accent);
-  padding: 0 6px 0 2px;
-  /* The logo is sized in em (it renders at 1em), so it scales with the chrome font — no fixed px. */
-  font-size: 1.5em;
 }
 
 /* Lucide UI glyphs (search + window controls) sized in em off the chrome font — never a fixed px height. */

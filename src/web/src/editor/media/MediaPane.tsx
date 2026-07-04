@@ -1,4 +1,4 @@
-import { type JSX, Show, createEffect, onCleanup, onMount } from "solid-js";
+import { createEffect, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { basename } from "../fs-path";
 import { loadMedia, mediaDoc, releaseMedia } from "./media-store";
 import { mediaTypeOf } from "./media-types";

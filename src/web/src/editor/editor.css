@@ -13,8 +13,8 @@
   overflow: auto;
   padding: 2em;
   /* Faint brand glow off the top, over the editor background — distinct from a flat empty pane. */
-  background: radial-gradient(120% 80% at 50% -10%, rgb(84 198 164 / 7%) 0%, transparent 55%),
-    var(--bg);
+  background:
+    radial-gradient(120% 80% at 50% -10%, rgb(84 198 164 / 7%) 0%, transparent 55%), var(--bg);
   color: var(--fg);
 }
 
@@ -79,7 +79,10 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  transition: background 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+  transition:
+    background 0.1s ease,
+    border-color 0.1s ease,
+    color 0.1s ease;
 }
 
 /* The "Claude changed files this turn" nudge: an accented variant of an action row, since when no file is
@@ -263,6 +266,11 @@
   box-shadow: inset 0 0.15em 0 var(--accent);
 }
 
+.editor-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .editor-tab.preview .editor-tab-label {
   font-style: italic;
 }
@@ -270,11 +278,6 @@
 /* Pinned tabs are compact and float furthest-left (the store orders them; this just narrows them). */
 .editor-tab.pinned {
   max-width: 10em;
-}
-
-.editor-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
 /* Unsaved-changes marker: a `*` after the filename, held until the debounced autosave reaches disk. Never

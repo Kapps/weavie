@@ -1,5 +1,5 @@
 import { ChevronRight } from "lucide-solid";
-import { For, type JSX, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, runCommandWithFeedback } from "../commands/registry";
@@ -165,6 +165,7 @@ function MenuPanel(props: {
   return (
     <div
       class="context-menu"
+      role="menu"
       ref={(el) => {
         panelEl = el;
         el.style.left = `${props.x}px`;

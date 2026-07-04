@@ -1,4 +1,4 @@
-import { type JSX, Show, createEffect, createSignal, onCleanup, onMount } from "solid-js";
+import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import type { EmbedZoomState } from "./embed-zoom";
 
@@ -150,6 +150,7 @@ export function EmbedLightbox(props: {
       >
         <div
           class="embed-lightbox-body"
+          role="application"
           classList={{ zoomed: scale() > 1, panning: panning() }}
           ref={frame}
           onPointerDown={onPointerDown}

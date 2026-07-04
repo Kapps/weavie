@@ -1,4 +1,4 @@
-import { For, type JSX, Show, createSignal } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, getKeybindings } from "../commands/registry";
 import { CommandIds } from "../commands/types";

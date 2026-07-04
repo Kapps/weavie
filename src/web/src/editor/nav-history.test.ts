@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { type NavHistory, type NavLocation, createNavHistory, leaveLine } from "./nav-history";
+import { createNavHistory, leaveLine, type NavHistory, type NavLocation } from "./nav-history";
 
 // Drains microtasks + timers so the in-flight guard (released in navigateTo's .finally) clears between a
 // step and the next user action — mirroring a real back/forward whose async model swap has landed.

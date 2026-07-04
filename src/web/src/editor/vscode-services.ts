@@ -4,8 +4,8 @@
 
 import {
   IInstantiationService,
-  StandaloneServices,
   initialize,
+  StandaloneServices,
 } from "@codingame/monaco-vscode-api";
 import getEditorServiceOverride, {
   type OpenEditor,
@@ -29,17 +29,16 @@ import "@codingame/monaco-vscode-go-default-extension";
 // contribution on `onWillCreateCodeEditor`, which never fires for a standalone editor — so we construct it
 // ourselves in doInit(), else the provider is registered but never consumed.
 import { DocumentSemanticTokensFeature } from "@codingame/monaco-vscode-api/vscode/vs/editor/contrib/semanticTokens/browser/documentSemanticTokens";
+import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
+// Generic editor worker for most services; the dedicated TextMate worker (label "TextMateWorker") handles
+// background tokenization. `monaco-editor` is aliased to the vscode editor-api (see package.json).
+import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 import { log } from "../bridge";
 import { notify } from "../notify/notify";
 import { currentMonacoTheme, onMonacoThemeChanged } from "../theme";
 import { applyMonacoTheme } from "../theme/monaco-theme";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 import { installHostFileProvider } from "./host-file-provider";
-
-import textMateWorker from "@codingame/monaco-vscode-textmate-service-override/worker?worker";
-// Generic editor worker for most services; the dedicated TextMate worker (label "TextMateWorker") handles
-// background tokenization. `monaco-editor` is aliased to the vscode editor-api (see package.json).
-import editorWorker from "monaco-editor/esm/vs/editor/editor.worker?worker";
 
 declare global {
   interface Window {

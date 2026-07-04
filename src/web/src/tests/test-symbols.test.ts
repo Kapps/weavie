@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { type SymbolNode, collectTests } from "./test-match";
+import { collectTests, type SymbolNode } from "./test-match";
 import type { TestRule } from "./test-profile";
 
 const RANGE = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };

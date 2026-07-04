@@ -1,5 +1,5 @@
 import importMetaUrlPlugin from "@codingame/esbuild-import-meta-url-plugin";
-import { type Plugin, defineConfig } from "vite";
+import { defineConfig, type Plugin } from "vite";
 import solid from "vite-plugin-solid";
 
 // monaco-vscode-api lazy-loads vscode-textmate's incremental-tokenization helpers (applyStateStackDiff,

@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronRight, File, Folder, FolderOpen, X } from "lucide-solid";
-import { For, type JSX, Show, createEffect, createSignal, onMount } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onMount, Show } from "solid-js";
 import { normalizePath, samePath } from "../editor/fs-path";
 
 // One directory entry the host returned: leaf name, absolute path, and whether it's a folder.
@@ -120,7 +120,7 @@ export default function FileBrowser(props: {
   };
   onMount(() => closeButton?.focus());
   return (
-    <div class="browser-panel" onKeyDown={onKeyDown}>
+    <div class="browser-panel" role="group" onKeyDown={onKeyDown}>
       <div class="browser-head">
         <span class="browser-title" title={props.root}>
           {leafName(props.root)}

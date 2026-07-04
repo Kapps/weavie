@@ -1,17 +1,16 @@
 import {
-  For,
-  type JSX,
-  Show,
-  Suspense,
   createEffect,
   createMemo,
   createSignal,
+  For,
+  type JSX,
   lazy,
   onCleanup,
   onMount,
+  Show,
+  Suspense,
 } from "solid-js";
 import {
-  type TermSession,
   activeBackendId,
   activeBackendOffline,
   activeBackendPhase,
@@ -24,6 +23,7 @@ import {
   postToHost,
   postToLocalHost,
   setActiveBackendId,
+  type TermSession,
 } from "./bridge";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
@@ -32,25 +32,22 @@ import { EditorFooter } from "./chrome/EditorFooter";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
+import { focusOmnibar } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
-import { SessionRail } from "./chrome/SessionRail";
-import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
-import { TitleBar } from "./chrome/TitleBar";
-import { UpdateOverlay } from "./chrome/UpdateOverlay";
-import { UrlPrompt } from "./chrome/UrlPrompt";
-import { focusOmnibar } from "./chrome/omnibar-controller";
 import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
+import { SessionRail } from "./chrome/SessionRail";
+import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 // Top-level import keeps the session store out of any hot-swapping component so the rail + active-session
 // status survive HMR.
 import {
-  type RailSession,
   demoteSession,
   isPromoted,
   promoteSession,
+  type RailSession,
   railSessions,
   remoteActivity,
   remoteAgentRows,
@@ -58,9 +55,12 @@ import {
   sessionsReceived,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
+import { TitleBar } from "./chrome/TitleBar";
+import { UpdateOverlay } from "./chrome/UpdateOverlay";
+import { UrlPrompt } from "./chrome/UrlPrompt";
 import {
-  type UpdateHold,
   surfacePostUpdateNotice,
+  type UpdateHold,
   updateHolds,
   updateRestarting,
 } from "./chrome/update-store";
@@ -70,12 +70,8 @@ import { installDoubleShift } from "./commands/double-shift";
 import { formatKey, installKeybindings } from "./commands/keybindings";
 import { dispatchCommand, findCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
-import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
-import { SaveAsPrompt } from "./editor/SaveAsPrompt";
-import { TabStrip } from "./editor/TabStrip";
-import WebTabPane from "./editor/WebTabPane";
 import { createEditorController } from "./editor/editor-controller";
 import { basename, repoRelativePath } from "./editor/fs-path";
 import MediaPane from "./editor/media/MediaPane";
@@ -88,6 +84,7 @@ import {
   zoomedEmbed,
 } from "./editor/preview/embed-zoom";
 import { canPreview } from "./editor/preview/preview-registry";
+import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
@@ -99,19 +96,22 @@ import {
   setSourceLoading,
   sourceDoc,
 } from "./editor/source/source-store";
+import { TabStrip } from "./editor/TabStrip";
 import { isPreviewMode, toggleViewMode } from "./editor/view-mode-store";
+import WebTabPane from "./editor/WebTabPane";
+import { currentEditorOptions, onEditorOptionsChanged } from "./editor-options";
 import type { DirListings } from "./files/FileBrowser";
-import { LayoutView } from "./layout/LayoutView";
 import { paneOrder } from "./layout/geometry";
+import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
-import { Suggestions } from "./notify/Suggestions";
-import { Toasts, createToasts } from "./notify/Toasts";
 import { setNotifySink } from "./notify/notify";
+import { Suggestions } from "./notify/Suggestions";
+import { createToasts, Toasts } from "./notify/Toasts";
 import { dismissSplash } from "./splash";
 import { mark } from "./startup-timing";
-import { TerminalView } from "./terminal/TerminalView";
 import { installTerminalClipboardCommands } from "./terminal/host-clipboard";
+import { TerminalView } from "./terminal/TerminalView";
 import { openUrlExternal } from "./terminal/terminal-links";
 import { runTestAtCursor } from "./tests/test-lens";
 import { applyChromeTheme } from "./theme";
@@ -533,6 +533,7 @@ export default function App(): JSX.Element {
           <div class="editor-pane">
             <div
               class="editor"
+              role="application"
               ref={editorContainer}
               onContextMenu={(event) => {
                 // Only when a document is mounted — the empty-state pane has no selection to act on.
@@ -604,6 +605,7 @@ export default function App(): JSX.Element {
             preventDefault stops that and focusPane lands focus on this pane's xterm. The body (xterm) self-focuses. */}
         <div
           class="pane-head"
+          role="toolbar"
           onMouseDown={(event) => {
             event.preventDefault();
             focusPane(kind);

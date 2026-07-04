@@ -17,14 +17,6 @@
   min-width: 0;
 }
 
-/* While the active backend's link is down the panes show stale state and can't reach their host: dim and
-   lock them, and float the banner, so the freeze is visible and clearly recoverable. Lifts on reconnect. */
-.pane-area.offline > .layout-root {
-  opacity: 0.4;
-  pointer-events: none;
-  transition: opacity 0.15s ease;
-}
-
 /* Floating "reconnecting…" pill centered over the panes — the user's signal that the link dropped. */
 .connection-banner {
   position: absolute;
@@ -229,6 +221,14 @@
   min-height: 0;
   overflow: hidden;
   background: var(--bg);
+}
+
+/* While the active backend's link is down the panes show stale state and can't reach their host: dim and
+   lock them, and float the banner, so the freeze is visible and clearly recoverable. Lifts on reconnect. */
+.pane-area.offline > .layout-root {
+  opacity: 0.4;
+  pointer-events: none;
+  transition: opacity 0.15s ease;
 }
 
 .pane-slot {

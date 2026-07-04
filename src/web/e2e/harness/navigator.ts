@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { awaitEditorReady } from "./actions";
 
 // The inline-diff navigator's file walk, shared by every PR/review spec. Each step waits for the navigator's

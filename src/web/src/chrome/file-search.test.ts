@@ -1,6 +1,6 @@
 import { Fzf } from "fzf";
 import { describe, expect, it } from "vitest";
-import { type FileRow, createFileFinder, rankFiles } from "./file-search";
+import { createFileFinder, type FileRow, rankFiles } from "./file-search";
 
 // Well past the host's 20k index cap — the omnibar must stay snappy even if that ceiling is raised, and a
 // regression to scoring the whole index per keystroke (the old behaviour) shows up here as a blown budget.

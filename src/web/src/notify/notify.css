@@ -36,7 +36,9 @@
   /* Drop in rather than pop; the leaving class fades it back out before it's removed (Toasts.tsx), so
      dismissing one doesn't snap the rest of the stack up. */
   animation: toast-in 180ms ease;
-  transition: opacity 200ms ease, transform 200ms ease;
+  transition:
+    opacity 200ms ease,
+    transform 200ms ease;
 }
 
 /* Timed (auto-dismissing) toasts show time remaining as a faint fill draining toward the left;

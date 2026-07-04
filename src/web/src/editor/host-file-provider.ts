@@ -17,7 +17,7 @@ import {
   type IStat,
   registerFileSystemOverlay,
 } from "@codingame/monaco-vscode-files-service-override";
-import { type WebBoundMessage, onHostMessage, postToHost } from "../bridge";
+import { onHostMessage, postToHost, type WebBoundMessage } from "../bridge";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
 
 // A correlated request can't wedge a model resolve forever: if the host never replies (a dropped message, a

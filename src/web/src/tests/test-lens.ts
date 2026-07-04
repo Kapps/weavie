@@ -9,7 +9,7 @@ import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { currentWorkspaceRoot, onLanguageClientStarted } from "../lsp/lsp-client";
 import { globMatches } from "./glob";
-import { type TestRule, onTestProfileChanged, testRules } from "./test-profile";
+import { onTestProfileChanged, type TestRule, testRules } from "./test-profile";
 import { documentTestHits } from "./test-symbols";
 
 // An internal monaco command the lens click invokes; it forwards to the Core weavie.tests.run command.

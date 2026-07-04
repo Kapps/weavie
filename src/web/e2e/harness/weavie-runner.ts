@@ -5,13 +5,13 @@ import { Agent } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  type LaunchOptions,
-  type WeavieHost,
   freePort,
   getOverAgent,
   headlessDll,
   killProcessTree,
+  type LaunchOptions,
   prepareFake,
+  type WeavieHost,
   waitForHttp,
 } from "./weavie-host";
 

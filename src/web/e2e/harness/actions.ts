@@ -1,4 +1,4 @@
-import { type Page, expect } from "@playwright/test";
+import { expect, type Page } from "@playwright/test";
 import { mediaTypeOf } from "../../src/editor/media/media-types";
 
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps

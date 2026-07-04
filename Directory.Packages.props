@@ -8,20 +8,22 @@
 
   <ItemGroup>
     <!-- Test stack (T1 in-memory tests) -->
-    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.12.0" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.7.0" />
     <PackageVersion Include="xunit" Version="2.9.3" />
-    <PackageVersion Include="xunit.runner.visualstudio" Version="3.0.2" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Settings storage: TOML parse/serialize with a comment-preserving syntax tree (MIT). -->
-    <PackageVersion Include="Tomlyn" Version="0.19.0" />
+    <!-- Settings storage: TOML parse/serialize with a comment-preserving syntax tree (MIT). Held on the 0.x
+         line: 1.0 dropped the Toml.Parse facade + DocumentSyntax.ToModel() bridge that SettingsFileLayer's
+         comment-preserving read/write path is built on, so 2.x is a settings-persistence rewrite, not a bump. -->
+    <PackageVersion Include="Tomlyn" Version="0.20.0" />
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Roslyn: builds the in-repo Weavie.Analyzers (compile-time only, never shipped). Pinned below
+    <!-- Roslyn: builds the in-repo Weavie.Analyzers (compile-time only, never shipped). Pinned to (not above)
          the SDK's bundled compiler so the analyzer always loads against an equal-or-newer Roslyn. -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
   </ItemGroup>
 
   <ItemGroup>

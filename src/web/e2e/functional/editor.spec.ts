@@ -17,6 +17,37 @@ test("omnibar opens a file and Monaco highlights it", async ({ page }) => {
   expect(tokenClasses.length).toBeGreaterThan(1);
 });
 
+// Highlighting must survive an EDIT, not just first render. monaco-vscode-api's incremental re-tokenizer loads
+// vscode-textmate's diff helpers (applyStateStackDiff / diffStateStacksRefEq / INITIAL) through a dynamic import
+// a bundler can flatten to `undefined` — freshly typed lines then never colour (a silent, edit-only break). This
+// guards vite.config.ts's `fixTextmateLazyImport` workaround across bundler swaps (Rollup ↔ Rolldown). Pure
+// frontend, so headless-only.
+test("syntax highlighting survives typing new code (incremental re-tokenization)", async ({
+  page,
+}) => {
+  await openFile(page, "hello.ts");
+
+  // Type a distinctive line AFTER first render, so its tokens come purely from the incremental re-tokenizer.
+  await page.locator(".monaco-editor .view-lines").first().click();
+  await page.keyboard.press("ControlOrMeta+End");
+  await page.keyboard.type("\nconst added: number = 987654;");
+
+  // Once the async worker re-tokenizes, the new line carries several distinct token classes (const / number
+  // type / numeric literal / identifier). A broken incremental tokenizer leaves it a single flat default run.
+  const typedLineClasses = () =>
+    page.locator(".monaco-editor .view-line").evaluateAll((lines) => {
+      const line = lines.find((l) => (l.textContent ?? "").includes("987654"));
+      return line
+        ? new Set(
+            Array.from(line.querySelectorAll("[class*='mtk']"))
+              .flatMap((s) => s.className.split(/\s+/))
+              .filter((c) => /^mtk\d+$/.test(c)),
+          ).size
+        : 0;
+    });
+  await expect.poll(typedLineClasses, { timeout: 10_000 }).toBeGreaterThan(2);
+});
+
 // Edit a file → the tab goes dirty → save → the dirty marker clears AND the new content is on disk. The
 // clean signal is the dirty marker disappearing (the fs-write round-trip completed), never a fixed sleep.
 // Persistence is the host-side seam, so this also runs on remote (where the write lands on the worker).

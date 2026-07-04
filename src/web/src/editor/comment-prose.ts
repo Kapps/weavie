@@ -15,8 +15,8 @@ import { currentEditorOptions, onEditorOptionsChanged } from "../editor-options"
 import { onFontsChanged } from "../fonts";
 import {
   type CommentBlock,
-  type Inline,
   commentSyntaxFor,
+  type Inline,
   parseCommentLines,
   scanCommentBlocks,
 } from "./comment-markup";

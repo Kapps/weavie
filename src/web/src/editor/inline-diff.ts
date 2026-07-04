@@ -5,7 +5,7 @@
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 import type { ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
-import { IS_MAC, formatKey } from "../commands/keybindings";
+import { formatKey, IS_MAC } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";

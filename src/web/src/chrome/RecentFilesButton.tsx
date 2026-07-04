@@ -1,11 +1,11 @@
 import { History } from "lucide-solid";
-import { For, type JSX, Show, createMemo, createSignal, onCleanup, onMount } from "solid-js";
+import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { formatKey } from "../commands/keybindings";
 import { findCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { canonicalFsPath } from "../editor/fs-path";
-import { type FileRow, createFileFinder, rankFiles, splitPath } from "./file-search";
+import { createFileFinder, type FileRow, rankFiles, splitPath } from "./file-search";
 import { recentFiles } from "./recent-files-store";
 
 // How many rows the dropdown shows at once. The host remembers many more (top 50, frecency-ranked); the search

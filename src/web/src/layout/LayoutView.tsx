@@ -1,9 +1,9 @@
-import { For, type JSX, createMemo, onCleanup } from "solid-js";
+import { createMemo, For, type JSX, onCleanup } from "solid-js";
 import {
-  type Rect,
-  type SplitterInfo,
   computeRects,
   computeSplitters,
+  type Rect,
+  type SplitterInfo,
   setBoundary,
 } from "./geometry";
 import type { LayoutNode } from "./types";

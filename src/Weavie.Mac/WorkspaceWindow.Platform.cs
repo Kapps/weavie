@@ -58,7 +58,7 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 			png = rep.RepresentationUsingTypeProperties(NSBitmapImageFileType.Png, new NSDictionary());
 		}
 
-		return png is null ? ClipboardImage.None : new ClipboardImage("image/png", png.ToArray());
+		return png is null ? ClipboardImage.None : new ClipboardImage("image/png", [.. png]);
 	}
 
 	void IHostPlatform.OpenExternalUrl(string url) {

@@ -11,7 +11,7 @@ export interface Toast {
 }
 
 /** How long a non-error toast lingers before auto-dismissing. Errors are exempt — see addToast. */
-const AUTO_DISMISS_MS = 6000;
+const AUTO_DISMISS_MS = 4000;
 // Timed toasts auto-dismiss and show the drain fill; errors persist until dismissed.
 const isTimed = (level: Toast["level"]): boolean => level !== "error";
 // How long the collapse-out animation runs before the toast is actually removed. Keep in sync with the

@@ -31,4 +31,14 @@ public sealed class ManagedRunnerLayoutTests {
 	[Fact]
 	public void CurrentRelayPath_IsNull_OutsideAManagedLayout() =>
 		Assert.Null(ManagedRunnerLayout.CurrentRelayPath(Path.GetTempPath(), "weavie-hook-relay"));
+
+	[Fact]
+	public void LoadedBuildNumber_ReadsTheBuildFromTheWorkerPath() {
+		string workerDir = Path.Combine(Path.GetTempPath(), "wv", "versions", "114", "worker");
+		Assert.Equal(114, ManagedRunnerLayout.LoadedBuildNumber(workerDir));
+	}
+
+	[Fact]
+	public void LoadedBuildNumber_IsNull_OutsideAManagedLayout() =>
+		Assert.Null(ManagedRunnerLayout.LoadedBuildNumber(Path.GetTempPath()));
 }

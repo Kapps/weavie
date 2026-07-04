@@ -52,7 +52,8 @@ public sealed class HostSession : IAsyncDisposable {
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
 		IPtyLauncher ptyLauncher,
-		ClaudeSessionStore claudeSessions) {
+		ClaudeSessionStore claudeSessions,
+		HostRuntimeInfo runtime) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
@@ -65,6 +66,7 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(claudeSessions);
+		ArgumentNullException.ThrowIfNull(runtime);
 
 		Id = id;
 		WorkspaceRoot = workspaceRoot;
@@ -122,7 +124,8 @@ public sealed class HostSession : IAsyncDisposable {
 			editLocator: Changes.EditLocationFor,
 			// The rail slot id is what SessionManager.Find resolves — so mcp__weavie__currentSession hands the
 			// embedded claude an id it can pass straight back to weavie.session.delete/unload (its OWN session).
-			currentSessionId: () => SlotId);
+			currentSessionId: () => SlotId,
+			runtime: runtime);
 		Ide.Server.Log += Tagged("[mcp]");
 		Ide.RegistryServer?.Log += Tagged("[registry]");
 

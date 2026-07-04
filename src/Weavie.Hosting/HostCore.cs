@@ -7,6 +7,7 @@ using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
+using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
@@ -25,6 +26,7 @@ namespace Weavie.Hosting;
 /// </summary>
 public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly IHostPlatform _platform;
+	private readonly HostRuntimeInfo _runtime;
 	private readonly IHostBridge _bridge;
 	private readonly IUiDispatcher _ui;
 	private readonly SettingsStore _settings;
@@ -94,6 +96,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		_platform = platform;
+		// The build a managed worker actually loaded (its own versions/<build>/ path), or the dev version — surfaced
+		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
+		_runtime = HostRuntimeInfo.Resolve(platform.Transport, AppContext.BaseDirectory, BuildNumber);
 		_bridge = platform.Bridge;
 		_ui = platform.Dispatcher;
 		_settings = services.Settings;

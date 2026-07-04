@@ -20,6 +20,7 @@ namespace Weavie.Core.Mcp;
 /// </summary>
 public sealed class IdeIntegration : IAsyncDisposable {
 	private const string McpServerName = "weavie";
+	private readonly HostRuntimeInfo _runtime;
 
 	/// <summary>
 	/// Mints an auth token and starts the IDE server (writing the lock file) plus, when
@@ -36,10 +37,13 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		KeybindingStore? keybindings,
 		ThemeOverridesStore? themeOverrides,
 		Func<HookRequest, string?>? editLocator,
-		Func<string> currentSessionId) {
+		Func<string> currentSessionId,
+		HostRuntimeInfo runtime) {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 		ArgumentNullException.ThrowIfNull(currentSessionId);
+		ArgumentNullException.ThrowIfNull(runtime);
 
+		_runtime = runtime;
 		AuthToken = IdeLockFile.NewAuthToken();
 		// The IDE server (not the registry) carries the active-editor context (getCurrentSelection/
 		// getOpenEditors + the pushed selection_changed notification).
@@ -167,7 +171,7 @@ public sealed class IdeIntegration : IAsyncDisposable {
 		string directory = WeaviePaths.Internal("mcp");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{RegistryPort}.system-prompt.txt");
-		File.WriteAllText(path, EmbeddedClaudeGuidance.SystemPromptAppendix);
+		File.WriteAllText(path, EmbeddedClaudeGuidance.Compose(_runtime));
 		return path;
 	}
 

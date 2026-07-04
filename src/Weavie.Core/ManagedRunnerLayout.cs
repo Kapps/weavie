@@ -10,10 +10,25 @@ public static class ManagedRunnerLayout {
 	/// <summary>The layout root when <paramref name="dir"/> sits inside a <c>versions/&lt;build&gt;/</c> tree, else null.</summary>
 	public static string? RootContaining(string dir) {
 		ArgumentException.ThrowIfNullOrEmpty(dir);
+		return Locate(dir)?.Root;
+	}
+
+	/// <summary>
+	/// The build number <paramref name="dir"/> was loaded from (its enclosing <c>versions/&lt;build&gt;/</c>), or
+	/// null outside a managed layout. This is the build the process actually runs — not what <c>current</c> points
+	/// at now — so a long-lived process reports its own version even after an update repoints the symlink.
+	/// </summary>
+	public static int? LoadedBuildNumber(string dir) {
+		ArgumentException.ThrowIfNullOrEmpty(dir);
+		return Locate(dir)?.Build;
+	}
+
+	/// <summary>Walks up from <paramref name="dir"/> to its enclosing <c>versions/&lt;build&gt;/</c>, or null.</summary>
+	private static (string? Root, int Build)? Locate(string dir) {
 		var info = new DirectoryInfo(Path.TrimEndingDirectorySeparator(Path.GetFullPath(dir)));
 		for (var d = info; d?.Parent is { } parent; d = parent) {
-			if (parent.Name == "versions" && int.TryParse(d.Name, out _)) {
-				return parent.Parent?.FullName;
+			if (parent.Name == "versions" && int.TryParse(d.Name, out int build)) {
+				return (parent.Parent?.FullName, build);
 			}
 		}
 

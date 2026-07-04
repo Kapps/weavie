@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Weavie.Core.Commands;
+using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Core.Workspaces;
 using Weavie.Hosting;
@@ -31,6 +32,8 @@ internal sealed class LinuxPlatform : IHostPlatform {
 	public IPtyLauncher PtyLauncher { get; }
 
 	public string ChromePlatform => "linux";
+
+	public HostTransport Transport => HostTransport.Local;
 
 	// Native GTK decorations, so the web renders no custom title bar.
 	public string? TitleBar => null;

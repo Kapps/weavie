@@ -1,4 +1,5 @@
 using Weavie.Core.Commands;
+using Weavie.Core.Mcp;
 using Weavie.Core.Shell;
 using Weavie.Hosting;
 
@@ -16,6 +17,8 @@ internal sealed partial class WorkspaceWindow : IHostPlatform {
 	IPtyLauncher IHostPlatform.PtyLauncher => _app.PtyLauncher;
 
 	string IHostPlatform.ChromePlatform => "mac";
+
+	HostTransport IHostPlatform.Transport => HostTransport.Local;
 
 	// Native NSWindow chrome plus the web omnibar strip (no web window controls).
 	string? IHostPlatform.TitleBar => "mac";

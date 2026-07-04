@@ -143,6 +143,7 @@ public static class CoreSettings {
 		FontSettings.Register(registry);
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
+		TestSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",

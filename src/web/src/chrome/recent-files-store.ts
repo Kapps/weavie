@@ -1,16 +1,22 @@
-import { createSignal } from "solid-js";
-import { onHostMessage } from "../bridge";
+import { createMemo, createSignal } from "solid-js";
+import { activeBackendId, onSessionMessage } from "../bridge";
 
-// The host's frecency-ranked recent files (most-relevant-first absolute paths), pushed on `ready` and whenever
-// the active file changes. A module singleton (like session-store) so it survives HMR and any component can read
-// it without prop-drilling through the title bars.
-const [recentFiles, setRecentFiles] = createSignal<readonly string[]>([]);
+// Each backend pushes its own frecency-ranked recent files (absolute paths meaningful only on the box that
+// produced them); keep them keyed by backend and surface only the active one's. Top-level signal so it survives HMR.
+const [byBackend, setByBackend] = createSignal<Map<string, readonly string[]>>(new Map());
 
-onHostMessage((message) => {
+onSessionMessage((message, backendId) => {
   if (message.type === "recent-files") {
-    setRecentFiles(message.files);
+    setByBackend((prev) => {
+      const next = new Map(prev);
+      next.set(backendId, message.files);
+      return next;
+    });
   }
 });
 
-/// Most-frecent-first absolute paths of recently used files (host-ranked). Empty until the first push.
-export { recentFiles };
+/// Most-frecent-first absolute paths of the active backend's recently used files (host-ranked). Empty until its
+/// first push.
+export const recentFiles = createMemo<readonly string[]>(
+  () => byBackend().get(activeBackendId()) ?? [],
+);

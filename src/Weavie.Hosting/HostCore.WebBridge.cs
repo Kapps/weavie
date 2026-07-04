@@ -309,7 +309,12 @@ public sealed partial class HostCore {
 				// boot-time __WEAVIE_SHELL__.buildNumber and reloads itself to pick up the matching assets.
 				_bridge.PostToWeb($"{{\"type\":\"host-info\",\"buildNumber\":{JsonString(BuildNumber)}}}");
 				PushLayoutToWeb();
-				PushEditorSessionToWeb();
+				// The ACTIVE session's editor tabs — normally the primary, but a restored worktree session may be
+				// active after a reopen/update restart, and the page must open its tabs, not the primary's.
+				if (_session is { } editorSession) {
+					PushSessionEditorToWeb(editorSession);
+				}
+
 				PushRecentFilesToWeb();
 				PushSessionList();
 				PushGitStatus();
@@ -511,17 +516,6 @@ public sealed partial class HostCore {
 		}
 
 		return active;
-	}
-
-	/// <summary>Pushes the persisted editor session for launch restore, scoped to the primary session's root and
-	/// stamped with its id so a later change can't be misattributed.</summary>
-	private void PushEditorSessionToWeb() {
-		if (_primarySession is not { } primary) {
-			return;
-		}
-
-		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
-			_editorSession.Current, primary.FileSystem, primary.WorkspaceRoot, primary.Id, Log));
 	}
 
 	/// <summary>
@@ -789,17 +783,40 @@ public sealed partial class HostCore {
 		}
 
 		string? kind = root.GetStringOrNull("kind");
-		HandleHistory(kind switch {
+		var result = kind switch {
 			"keep" => session.Changes.UndoLastKeep(),
 			"revert" => session.Changes.UndoLastRevert(),
 			_ => session.Changes.UndoLast(),
-		});
+		};
+		HandleHistory(result);
+		RevealHistoryChange(session, result);
 	}
 
 	/// <summary>Redoes the most recently undone review action (the toolbar/palette Redo).</summary>
 	private void ReviewRedo() {
 		if (_session is { } session) {
-			HandleHistory(session.Changes.Redo());
+			var result = session.Changes.Redo();
+			HandleHistory(result);
+			RevealHistoryChange(session, result);
+		}
+	}
+
+	/// <summary>
+	/// After an undo/redo brings a change back, land the editor on it: open the first affected file at its first
+	/// pending hunk, so the keystroke visibly takes you to what changed instead of re-rendering in place. No-op
+	/// when the action left nothing pending (e.g. an undo that re-kept every hunk).
+	/// </summary>
+	private static void RevealHistoryChange(HostSession session, ReviewHistoryResult result) {
+		if (!result.Acted) {
+			return;
+		}
+
+		foreach (string path in result.Paths) {
+			if (session.Changes.GetTurn(path) is { } turn
+				&& LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) is { } line) {
+				session.FileOpener.Open(path, line, preview: true, scratch: false);
+				return;
+			}
 		}
 	}
 

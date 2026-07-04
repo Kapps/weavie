@@ -49,6 +49,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly Weavie.Core.Sources.ISourceConnector _sources;
 	private readonly LayoutStore _layout;
 	private readonly EditorSessionStore _editorSession;
+	// Per-workspace loaded/active overlay (which worktree sessions were loaded, which was active), so a reopen —
+	// including a worker auto-update restart — comes back as the user left it. See HostCore.SessionState.cs.
+	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
 	// web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
@@ -112,6 +115,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_layout = LayoutPanes.CreateStore(WeaviePaths.WorkspaceLayoutFile(Id));
 		_editorSession = new EditorSessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceEditorSessionFile(Id));
 		_editorSession.Log += Log;
+		_sessionStore = new SessionStore(new LocalFileSystem(), WeaviePaths.WorkspaceSessionsFile(Id));
+		_sessionStore.Log += Log;
 		_recentFiles = new RecentFilesStore(new LocalFileSystem(), WeaviePaths.WorkspaceRecentFilesFile(Id));
 		_recentFiles.Log += Log;
 	}
@@ -201,6 +206,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_sessions = new SessionManager(_worktrees);
 		AddPrimarySlot(primaryLabel);
 		await ReconcileWorktreesOnOpenAsync().ConfigureAwait(false);
+		// Overlay the persisted loaded/active state onto the reconciled chips: reload the sessions that were live
+		// at last close (each --resumes) and re-activate the last-active one, so a reopen/update-restart is seamless.
+		RestoreSessionState();
 
 		// Contextual suggestions: the manifest probe runs off the hot path; the active set is pushed on `ready`.
 		InitSuggestions();

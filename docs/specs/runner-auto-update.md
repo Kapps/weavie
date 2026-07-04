@@ -167,10 +167,14 @@ across the swap.
    recovery for that is the supervisor's normal re-provision path, not an update rollback.
 6. **Recover**: claude sessions resume through the existing `ClaudeSessionStore` / `--resume`
    machinery (`docs/specs/claude-session-resume.md`, implemented, including failed-resume
-   self-heal). Recovery is **conversation-lossless, view-state-lossy** today:
-   - Worktree slots reappear on the rail as unloaded chips (`ReconcileWorktreesOnOpenAsync`);
-     clicking one loads and `--resume`s it. The previously-active non-primary session is not
-     auto-reactivated — continuity is one click, not zero.
+   self-heal). Recovery is **conversation-lossless and rail-lossless**; only non-primary editor
+   tabs are lost:
+   - The loaded/active rail state is restored from a per-workspace overlay (`SessionStore`,
+     `~/.weavie/workspaces/<id>/sessions.json`): every worktree session that was loaded comes back
+     loaded and `--resume`s, and the session that was active comes back active — the box returns as
+     the user left it, zero clicks. The git-reconciled worktree set stays the source of truth; the
+     overlay only records which of those were live and which was active, so a worktree removed
+     out-of-band is simply not restored. See `src/Weavie.Hosting/HostCore.SessionState.cs`.
    - Non-primary editor tabs are in-memory only (`HostSession.cs` mirrors only the primary to the
      persisted store), so worktree sessions lose open tabs. `docs/specs/remote-sessions.md`
      specifies on-box durability for this but it is unbuilt; this spec inherits that gap and does

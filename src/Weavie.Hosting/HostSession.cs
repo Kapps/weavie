@@ -119,7 +119,10 @@ public sealed class HostSession : IAsyncDisposable {
 		Ide = new IdeIntegration(
 			new PermissionModeDiffPresenter(DiffPresenter, ObservedMode), [workspaceRoot], "weavie", settings, layout, Editor,
 			commands: Commands, keybindings: keybindings, themeOverrides: themeOverrides,
-			editLocator: Changes.EditLocationFor);
+			editLocator: Changes.EditLocationFor,
+			// The rail slot id is what SessionManager.Find resolves — so mcp__weavie__currentSession hands the
+			// embedded claude an id it can pass straight back to weavie.session.delete/unload (its OWN session).
+			currentSessionId: () => SlotId);
 		Ide.Server.Log += Tagged("[mcp]");
 		Ide.RegistryServer?.Log += Tagged("[registry]");
 

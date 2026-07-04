@@ -57,6 +57,39 @@ test.describe("applied review — keep & undo", () => {
   });
 });
 
+test.describe("applied review — undo-keep reveals the restored hunk", () => {
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
+
+  // The caret line as the real editor reports it (window.__WEAVIE_EDITOR__ is the IStandaloneCodeEditor).
+  const caretLine = (page: import("@playwright/test").Page): Promise<number | null> =>
+    page.evaluate(
+      () =>
+        (
+          window as Window & {
+            __WEAVIE_EDITOR__?: { getPosition(): { lineNumber: number } | null };
+          }
+        ).__WEAVIE_EDITOR__?.getPosition()?.lineNumber ?? null,
+    );
+
+  // hunk 1 is the greeting (line 2, Hello→Hi there); hunk 2 is the call (line 6, console.log→console.warn).
+  test("undoing a keep lands the editor back on the re-pended first hunk", async ({ page }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+
+    // Land on hunk 1 (line 2) and Keep it — the caret advances toward hunk 2, leaving line 2.
+    await focusFirstHunk(page);
+    await expect.poll(() => caretLine(page)).toBe(2);
+    await page.keyboard.press("ControlOrMeta+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(1); // hunk 1 kept
+    await expect.poll(() => caretLine(page)).toBeGreaterThan(2); // caret moved off hunk 1
+
+    // Undo the keep — the host re-pends hunk 1 AND reveals it, landing the editor back on line 2.
+    await page.keyboard.press("ControlOrMeta+Shift+Enter");
+    await expect(page.locator(ADDED)).toHaveCount(2); // hunk 1 re-pended
+    await expect.poll(() => caretLine(page)).toBe(2); // editor revealed the restored hunk
+  });
+});
+
 test.describe("applied review — accepted band fades (kept, not vanished) + inline undo", () => {
   test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", TWO_HUNKS)] } });
 
@@ -235,6 +268,25 @@ test.describe("applied review — scope picker (keep whole file)", () => {
     await expect(page.locator(ADDED)).toHaveCount(0);
     await expect(page.locator(ACCEPTED)).toHaveCount(2);
     await expect(page.locator(UNDO)).toHaveCount(2);
+  });
+
+  // A single-file review has no ← / → file axis, so "All files" reads as "All changes" — but it must still be
+  // offered, because keep-all is the only toolbar scope that commits the review and closes the navigator.
+  // Without it a one-file review could only ever be faded (kept-but-uncommitted), never dismissed.
+  test("with scope = All changes, one Keep commits the single-file review and closes the toolbar", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(2);
+
+    await page.locator(".weavie-inline-scope-btn").click();
+    await page.locator(".weavie-inline-scope-item", { hasText: "All changes" }).click();
+    await page.locator(".weavie-inline-accept").click();
+
+    // Committed: every marker (bright + faded) clears and the toolbar leaves — the review is fully closed.
+    await expect(page.locator(ADDED)).toHaveCount(0);
+    await expect(page.locator(ACCEPTED)).toHaveCount(0);
+    await expect(page.locator(TOOLBAR)).toHaveCount(0);
   });
 });
 

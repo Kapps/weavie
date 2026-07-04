@@ -5,7 +5,7 @@
 import { linesDiffComputers } from "@codingame/monaco-vscode-api/vscode/vs/editor/common/diff/linesDiffComputers";
 import type { ReviewCommentInfo } from "../bridge";
 import { setContext } from "../commands/context";
-import { formatKey } from "../commands/keybindings";
+import { IS_MAC, formatKey } from "../commands/keybindings";
 import { findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { onFontsChanged } from "../fonts";
@@ -743,10 +743,22 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     composerFocused() ? false : showingParked ? stepIn() : goToChange(-1);
   const undo = (): boolean => runAction(currentOptions?.onUndo);
   const keepAll = (): boolean => runAction(currentOptions?.onKeepAll);
+  // A live review with no file axis (single-file) has no ← / → handler, so the chord would fall through. On
+  // Win/Linux that's wanted — ctrl+$mod+←/→ is plain Ctrl+←/→ word-nav. On macOS it's Ctrl+⌘+←/→, which has no
+  // native meaning, so falling through just rings the system bell — swallow it instead while a review is up.
+  const swallowFileNav = (): boolean => IS_MAC && currentOptions?.mode === "applied";
   const nextFile = (): boolean =>
-    composerFocused() ? false : showingParked ? stepIn() : runAction(currentOptions?.onNextFile);
+    composerFocused()
+      ? false
+      : showingParked
+        ? stepIn()
+        : runAction(currentOptions?.onNextFile) || swallowFileNav();
   const prevFile = (): boolean =>
-    composerFocused() ? false : showingParked ? stepIn() : runAction(currentOptions?.onPrevFile);
+    composerFocused()
+      ? false
+      : showingParked
+        ? stepIn()
+        : runAction(currentOptions?.onPrevFile) || swallowFileNav();
 
   // Per-file Keep (applied mode): the host advances the file's whole review baseline to current, dropping it
   // from the review set. Returns false outside applied mode.
@@ -781,7 +793,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (options?.mode !== "applied") {
       return runAction(options?.onAccept);
     }
-    const scope = effectiveScope(options);
+    const scope = currentScope;
     return scope === "change" ? keepHunk() : scope === "file" ? keepFile() : keepAll();
   };
   const reject = (): boolean => {
@@ -795,7 +807,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     if (options?.mode !== "applied") {
       return runAction(options?.onReject);
     }
-    const scope = effectiveScope(options);
+    const scope = currentScope;
     return scope === "change" ? revertHunk() : scope === "file" ? revertFile() : undo();
   };
 
@@ -849,11 +861,6 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   const scopeName = (scope: ReviewScope): string =>
     scope === "change" ? "Change" : scope === "file" ? "File" : "All";
-  // A single-file review collapses File and All onto the same operation, so clamp a sticky "all" to "file".
-  const effectiveScope = (options: InlineDiffOptions): ReviewScope =>
-    currentScope === "all" && !(options.fileCount !== undefined && options.fileCount > 1)
-      ? "file"
-      : currentScope;
 
   // Repaint the applied toolbar's `file i/N · change j/M` subtitle + change dots for the hunk at the cursor.
   // A cheap DOM-only update fired on cursor move (no full re-render); no-op outside applied mode.
@@ -902,7 +909,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // The scope dropdown: a `Scope: <X> ▾` toggle over an "Apply to…" menu whose items set the sticky scope the
   // Keep / Revert buttons act on, with per-item counts naming each scope's reach.
   const buildScopePicker = (options: InlineDiffOptions): HTMLElement => {
-    const scope = effectiveScope(options);
+    const scope = currentScope;
     const wrap = document.createElement("div");
     wrap.className = "weavie-inline-scope";
     scopeWrapNode = wrap;
@@ -939,9 +946,15 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     };
     addItem("change", "This change", undefined);
     addItem("file", "This file", currentHunks.length);
-    if (options.fileCount !== undefined && options.fileCount > 1) {
-      addItem("all", "All files", options.fileCount);
-    }
+    // "All" always offered — it's the only Keep/Revert scope that commits the whole review and closes the
+    // navigator (keep-all / revert-all), so a single-file review still has a way out. "All files" reads wrong
+    // for one file, so name it "All changes" (counting hunks) there.
+    const manyFiles = (options.fileCount ?? 1) > 1;
+    addItem(
+      "all",
+      manyFiles ? "All files" : "All changes",
+      manyFiles ? options.fileCount : currentHunks.length,
+    );
     wrap.append(toggle, menu);
     return wrap;
   };
@@ -994,19 +1007,20 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     // Keep / Revert always carry the plain chords (Ctrl+Enter / Ctrl+Backspace); accept/reject route to the
     // sticky scope, so the buttons and the keys stay in lockstep. Only the tooltip names the current scope.
-    const scope = effectiveScope(options);
+    const scope = currentScope;
+    const allTarget = (options.fileCount ?? 1) > 1 ? "all files" : "all changes";
     const keepTip =
       scope === "change"
         ? "Keep this change"
         : scope === "file"
           ? "Keep this file"
-          : "Keep all files";
+          : `Keep ${allTarget}`;
     const revertTip =
       scope === "change"
         ? "Revert this change"
         : scope === "file"
           ? "Revert this file"
-          : "Revert all files";
+          : `Revert ${allTarget}`;
     bar.appendChild(
       makeButton(
         "weavie-inline-accept",

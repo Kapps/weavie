@@ -27,8 +27,9 @@ internal static class TestMcp {
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, layout, editor, commands, keybindings, themeOverrides);
+		ThemeOverridesStore? themeOverrides = null,
+		Func<string>? currentSessionId = null) =>
+		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, layout, editor, commands, keybindings, themeOverrides, currentSessionId);
 
 	/// <summary>Builds an <see cref="IdeIntegration"/> with test defaults for every unspecified dependency.</summary>
 	internal static IdeIntegration Ide(
@@ -41,6 +42,7 @@ internal static class TestMcp {
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
 		ThemeOverridesStore? themeOverrides = null,
-		Func<HookRequest, string?>? editLocator = null) =>
-		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides, editLocator);
+		Func<HookRequest, string?>? editLocator = null,
+		Func<string>? currentSessionId = null) =>
+		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides, editLocator, currentSessionId ?? (() => "test-session"));
 }

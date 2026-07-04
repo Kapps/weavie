@@ -59,6 +59,7 @@ public sealed partial class HostCore {
 		// View Logs: snapshot the captured console output into a read-only tab + return the recent tail (see
 		// HostCore.Logs.cs). Registered per session so whichever session is active serves it.
 		session.Commands.RegisterHandler(CoreCommands.ViewLogs, (_, _) => Task.FromResult(ShowLogs()));
+		RegisterTestRunHandlers(session);
 		ThemeCommands.RegisterHandlers(session.Commands, _settings, _themeOverrides, VsixPicker);
 		FontCommands.RegisterHandlers(session.Commands, _settings);
 		SessionCommands.RegisterHandlers(session.Commands, this);

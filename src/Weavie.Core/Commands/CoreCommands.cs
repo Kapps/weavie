@@ -200,6 +200,15 @@ public static class CoreCommands {
 	/// <summary>Has Claude propose a <c>worktree.setupCommand</c> for the repo and set it on the user's confirmation; backs the worktree-setup suggestion. Palette-visible, no default keybinding.</summary>
 	public const string SuggestSetupCommand = "weavie.worktree.suggestSetupCommand";
 
+	/// <summary>Runs tests for a file via the workspace test profile (args <c>file</c>, optional <c>name</c> for a single test); writes the composed command into the shell pane. The one executor behind the lenses and MCP.</summary>
+	public const string RunTests = "weavie.tests.run";
+
+	/// <summary>Runs every test in a file (arg <c>file</c>, or the active editor file); bound to <c>$mod+alt+t</c>.</summary>
+	public const string RunTestsInFile = "weavie.tests.runFile";
+
+	/// <summary>Runs the test at the editor cursor (web-resolved to the innermost matched symbol, then dispatched to <see cref="RunTests"/>); bound to <c>$mod+alt+r</c>.</summary>
+	public const string RunTestAtCursor = "weavie.tests.runAtCursor";
+
 	/// <summary>Connects a Notion account by validating the user's pasted personal access token. One-time action; palette + Claude only, no default keybinding.</summary>
 	public const string ConnectNotion = "weavie.source.connectNotion";
 
@@ -351,6 +360,42 @@ public static class CoreCommands {
 			Category = "Update",
 			Description = "Apply the pending update immediately instead of waiting for sessions to go idle — running shell jobs are killed.",
 			Aliases = ["restart for update", "apply update", "update now", "restart now"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RunTests,
+			Title = "Run Test",
+			RunsIn = CommandLocation.Core,
+			Category = "Tests",
+			Description = "Run tests for a file using this workspace's test profile — writes the command into the "
+				+ "shell pane. Pass 'name' to run a single test, omit it to run the whole file.",
+			Aliases = ["run test", "run tests", "run this test", "execute test"],
+			ArgsSchemaJson = "{\"file\":{\"type\":\"string\",\"description\":\"Absolute path of the test file\"},"
+				+ "\"name\":{\"type\":\"string\",\"description\":\"Composed test name to run a single test; omit to run the whole file\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = RunTestsInFile,
+			Title = "Run Tests in File",
+			RunsIn = CommandLocation.Core,
+			Category = "Tests",
+			Description = "Run every test in a file (the given 'file', or the active editor file) via the workspace test profile.",
+			Aliases = ["run tests in file", "run file tests", "test this file", "run all tests in file"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+t" }],
+			ArgsSchemaJson = "{\"file\":{\"type\":\"string\",\"description\":\"Absolute path of the test file; omit to use the active editor file\"}}",
+		});
+
+		// Web-handled: resolves the innermost matched test symbol at the cursor from the lens cache, then dispatches
+		// RunTests {file, name}. editorFocused-gated so the chord is free elsewhere.
+		registry.Register(new CommandDefinition {
+			Id = RunTestAtCursor,
+			Title = "Run Test at Cursor",
+			RunsIn = CommandLocation.Web,
+			Category = "Tests",
+			Description = "Run the test at the editor cursor (the innermost test block containing it).",
+			Aliases = ["run test at cursor", "run this test", "run current test"],
+			When = "editorFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+alt+r" }],
 		});
 
 		// Terminal copy/paste are web-handled (they act on the live xterm selection) but write/read the OS

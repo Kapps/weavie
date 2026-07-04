@@ -26,13 +26,37 @@ async function settledFile(page: Page): Promise<string> {
   return currentFile(page);
 }
 
+// Click into the inline-diff/editor pane and confirm focus landed there. The change-nav chords are guarded
+// `!terminalFocused`, so they only reach the navigator when the editor holds focus — but a session switch
+// focuses Claude's terminal, and a trailing focus-pane from a switch storm can steal it back mid-walk, so the
+// chord silently falls through to xterm (the Windows PR-switch flake). Re-click until the focused pane is the
+// editor; fail loudly if it can't be held.
+export async function focusEditor(page: Page): Promise<void> {
+  const focusedPane = (): Promise<string | null> =>
+    page.evaluate(
+      () => document.activeElement?.closest("[data-kind]")?.getAttribute("data-kind") ?? null,
+    );
+  for (let attempt = 0; attempt < 10; attempt++) {
+    await page.locator(".monaco-editor").first().click();
+    try {
+      await expect.poll(focusedPane, { timeout: 1_000 }).toBe("editor");
+      return;
+    } catch {
+      // A trailing focus-pane stole focus back to the terminal; click again once it settles.
+    }
+  }
+  throw new Error("editor never held focus — a focus-pane kept stealing it");
+}
+
 // Step the navigator to the next changed file (Ctrl/Cmd+→) and resolve once the label has advanced to a
-// different filename. Returns the file now in view. The editor must already hold focus so the chord lands.
+// different filename. Returns the file now in view. Editor focus is re-asserted before every press (the chord
+// is `!terminalFocused`-guarded), so a focus-pane stealing focus mid-walk can't silently swallow the chord.
 // The chord is re-sent when the label hasn't moved: a press that lands while a switch's message train is
 // still applying can be consumed by a transient state (like a user, press again once it settles); a
 // navigator that's genuinely dead still fails loudly after the attempts run out.
 async function stepToNextFile(page: Page, from: string): Promise<string> {
   for (let attempt = 0; attempt < 8; attempt++) {
+    await focusEditor(page);
     await page.keyboard.press(navChord("ArrowRight"));
     try {
       await expect
@@ -55,7 +79,7 @@ async function stepToNextFile(page: Page, from: string): Promise<string> {
 // The set of changed files the navigator cycles through, gathered by walking → until it loops back to the
 // first. Event-based, so it neither misses a file under load nor wastes time waiting on a fixed delay.
 export async function collectChangedFiles(page: Page): Promise<Set<string>> {
-  await page.locator(".monaco-editor").first().click();
+  await focusEditor(page);
   const first = await settledFile(page);
   const seen = new Set<string>([first]);
   let current = first;
@@ -82,7 +106,7 @@ export async function awaitNavigatorOn(page: Page, files: string[]): Promise<voi
 // Walk the navigator forward until `target` is in view, then assert it arrived. Replaces the per-step
 // fixed-delay loops the PR specs used to reach a specific changed file.
 export async function walkToChangedFile(page: Page, target: string): Promise<void> {
-  await page.locator(".monaco-editor").first().click();
+  await focusEditor(page);
   for (let i = 0; i < 6; i++) {
     const current = await settledFile(page);
     if (current === target) {

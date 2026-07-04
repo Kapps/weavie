@@ -95,14 +95,39 @@ export async function collectChangedFiles(page: Page): Promise<Set<string>> {
   return seen;
 }
 
-// Wait until the navigator has bound the INCOMING PR's diff after a session switch — its stack label shows
-// one of that PR's files (a PR/ref review re-surfaces its first changed file on switch-in). The toolbar alone
-// is not a settle signal: right after the switch the OUTGOING session's toolbar is still on screen until the
-// incoming review re-surfaces, and walking then collects the wrong PR's files.
-export async function awaitNavigatorOn(page: Page, files: string[]): Promise<void> {
+// Consecutive unchanged-revision reads awaitReviewSet requires before it trusts the set. Each read is
+// ~100ms; the review set's monotonic `rev` bumps on every change, so this many reads with `rev` frozen means
+// no push has landed for ~this long — the switch storm's drain is done. Longer than the gap between a
+// storm's back-to-back pushes, short enough to keep the (already `test.slow`) PR-switch specs reasonable.
+const REVIEW_QUIESCE_READS = 8;
+
+// Wait until the review-walk file SET has QUIESCED to exactly `files` (by basename) — the target set is
+// showing AND its revision has stopped advancing, i.e. the host's push train has fully drained. After a
+// rapid switch storm the per-switch pushes settle asynchronously: the set bounces through the other PR's
+// files as each queued switch is processed, before the last switch's push lands. A momentary match can be an
+// intermediate state, and the ~2s navigator walk that follows would then step onto a transient from the
+// other PR and record it — the historical flake. `rev` (a monotonic counter on the __WEAVIE_REVIEW__ hook)
+// is watched instead of just polling the file list, because a fast bounce can round-trip between two ~100ms
+// samples and be missed by list-comparison alone; a rev bump can't be. Not a fixed delay — it detects steady
+// state. A genuine cross-PR leak quiesces to the WRONG set, so `files` never matches `want` and this fails.
+export async function awaitReviewSet(page: Page, files: string[]): Promise<void> {
+  const want = JSON.stringify([...files].sort());
+  let lastRev = Number.NaN;
+  let stableReads = 0;
   await expect
-    .poll(async () => files.includes(await currentFile(page)), { timeout: 15_000 })
-    .toBe(true);
+    .poll(
+      async () => {
+        const review = await page.evaluate(() => window.__WEAVIE_REVIEW__ ?? null);
+        const matches =
+          review !== null &&
+          JSON.stringify(review.files.map((p) => p.split(/[\\/]/).pop() ?? p).sort()) === want;
+        stableReads = matches && review.rev === lastRev ? stableReads + 1 : 0;
+        lastRev = review?.rev ?? Number.NaN;
+        return stableReads;
+      },
+      { timeout: 20_000, intervals: [100] },
+    )
+    .toBeGreaterThanOrEqual(REVIEW_QUIESCE_READS);
 }
 
 // Walk the navigator forward until `target` is in view, then assert it arrived. Replaces the per-step

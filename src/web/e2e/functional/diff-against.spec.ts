@@ -30,6 +30,8 @@ const commitAll = (cwd: string, message: string): void => {
 };
 
 test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, weavie }) => {
+  // The suite's default 30s test timeout would otherwise cap this below the 30s toolbar wait itself.
+  test.setTimeout(60_000);
   // An uncommitted edit to a seeded file — the exact thing "diff against HEAD" exists to review.
   await writeFile(
     join(weavie.workspace, "notes.txt"),
@@ -52,6 +54,8 @@ test("Diff Against HEAD reviews uncommitted changes, read-only", async ({ page, 
 });
 
 test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ page, weavie }) => {
+  // The suite's default 30s test timeout would otherwise cap this below the 30s toolbar wait itself.
+  test.setTimeout(60_000);
   // A second commit changing two files, so diffing against the first commit is a two-file walk.
   await writeFile(
     join(weavie.workspace, "hello.ts"),
@@ -85,6 +89,8 @@ test("a ref with no changes answers with a toast, not an empty navigator", async
 }) => {
   // The tree is clean (the seed commit), so there is nothing to review against HEAD.
   void weavie;
+  // The suite's default 30s test timeout would otherwise cap this below the 30s toast wait itself.
+  test.setTimeout(60_000);
   await runCommand(page, "Diff Against HEAD");
 
   await expect(page.locator(".toast", { hasText: "No changes against 'HEAD'" })).toBeVisible({

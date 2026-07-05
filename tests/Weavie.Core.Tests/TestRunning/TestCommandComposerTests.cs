@@ -25,6 +25,25 @@ public sealed class TestCommandComposerTests {
 	}
 
 	[Fact]
+	public void RunFile_SubstitutesFileName_ForClassScopedDotnet() {
+		// C# runFile scopes to the file's class by convention via ${fileName} (base name, no extension).
+		var rule = Rule("dotnet test --filter FullyQualifiedName~${name}", "dotnet test --filter FullyQualifiedName~${fileName}");
+		Assert.True(TestCommandComposer.TryCompose(
+			rule, TestCommandKind.RunFile, "/repo/tests/MathTests.cs", null, ShellQuoting.Posix, out string cmd, out string error), error);
+		Assert.Equal("dotnet test --filter FullyQualifiedName~'MathTests'", cmd);
+	}
+
+	[Fact]
+	public void RunOne_CSharpFilter_ComposerQuotesName_NoLiteralQuotesInTemplate() {
+		// The composer single-quotes ${name}; the template must not wrap it in quotes of its own (a filter value
+		// like FullyQualifiedName~'Adds' → the shell strips the quotes → FullyQualifiedName~Adds, matching).
+		var rule = Rule("dotnet test --filter FullyQualifiedName~${name}", "dotnet test");
+		Assert.True(TestCommandComposer.TryCompose(
+			rule, TestCommandKind.RunOne, "/r/MathTests.cs", "Adds", ShellQuoting.Posix, out string cmd, out _));
+		Assert.Equal("dotnet test --filter FullyQualifiedName~'Adds'", cmd);
+	}
+
+	[Fact]
 	public void PosixQuoting_NeutralizesInjectionInName() {
 		var rule = Rule("vitest -t ${name}", "vitest");
 		// A name carrying a shell metacharacter payload must be quoted, not interpreted.

@@ -19,7 +19,8 @@ public static class TestSettings {
 				+ "{ \"glob\": file glob, \"symbol\": regex over a symbol name (first capture = test name), "
 				+ "\"runOne\": command template, \"runFile\": command template, optional \"nameSeparator\" (joins "
 				+ "nested names, default space), optional \"header\": regex over a symbol's attribute/annotation "
-				+ "lines }. Templates support ${file}, ${fileDir} (absolute paths) and ${name} (runOne only). The "
+				+ "lines }. Templates support ${file}, ${fileDir} (absolute paths), ${fileName} (base name, no "
+				+ "extension) and ${name} (runOne only). The "
 				+ "first rule whose glob matches a file wins. Empty means unconfigured (no buttons); [] means this "
 				+ "repo has no tests. Stored per-workspace in Weavie's config, outside the repo; set it via 'Set Up This Workspace'.",
 			Aliases = ["test profile", "test runner", "how to run tests", "test command", "run tests config",

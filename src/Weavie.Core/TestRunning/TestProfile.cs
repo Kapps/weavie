@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Weavie.Core.Configuration;
@@ -19,7 +20,7 @@ public sealed record TestRule {
 	/// <summary>Command template to run a single test — supports <c>${file}</c>, <c>${fileDir}</c>, <c>${name}</c>.</summary>
 	public required string RunOne { get; init; }
 
-	/// <summary>Command template to run every test in a file — supports <c>${file}</c>, <c>${fileDir}</c>.</summary>
+	/// <summary>Command template to run every test in a file — supports <c>${file}</c>, <c>${fileDir}</c>, <c>${fileName}</c> (base name, no extension).</summary>
 	public required string RunFile { get; init; }
 
 	/// <summary>Separator joining captured names along the ancestor symbol chain (nested <c>describe</c>s). Defaults to a space.</summary>
@@ -43,6 +44,39 @@ public sealed record TestProfile {
 
 	/// <summary>The rules, in the order the workspace declared them; the first whose glob matches a file wins.</summary>
 	public required IReadOnlyList<TestRule> Rules { get; init; }
+
+	/// <summary>
+	/// Serializes <paramref name="rules"/> to the <c>test.profile</c> JSON array form <see cref="TryParse"/> reads
+	/// back — the inverse used by workspace auto-config to persist derived rules. Omits an unset <c>header</c> and a
+	/// default (space) <c>nameSeparator</c> so the output stays minimal.
+	/// </summary>
+	public static string Serialize(IReadOnlyList<TestRule> rules) {
+		ArgumentNullException.ThrowIfNull(rules);
+		using var stream = new MemoryStream();
+		using (var writer = new Utf8JsonWriter(stream)) {
+			writer.WriteStartArray();
+			foreach (var rule in rules) {
+				writer.WriteStartObject();
+				writer.WriteString("glob", rule.Glob);
+				writer.WriteString("symbol", rule.Symbol);
+				writer.WriteString("runOne", rule.RunOne);
+				writer.WriteString("runFile", rule.RunFile);
+				if (rule.NameSeparator != " ") {
+					writer.WriteString("nameSeparator", rule.NameSeparator);
+				}
+
+				if (rule.Header is not null) {
+					writer.WriteString("header", rule.Header);
+				}
+
+				writer.WriteEndObject();
+			}
+
+			writer.WriteEndArray();
+		}
+
+		return Encoding.UTF8.GetString(stream.ToArray());
+	}
 
 	/// <summary>The <see cref="SettingDefinition.Validate"/> adapter: a stored <c>test.profile</c> string must parse.</summary>
 	public static ValidationResult Validate(object? value) =>

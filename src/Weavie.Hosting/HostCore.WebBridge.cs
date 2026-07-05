@@ -355,6 +355,9 @@ public sealed partial class HostCore {
 				}
 
 				_suggestions?.PushCurrent();
+				// The built-in auto-config toast is emitted before any page exists (the probe runs during startup);
+				// release it now that a page can render it. Fires once, whichever of write/ready landed second.
+				MarkAutoConfigPageReady();
 				// A tab that (re)connects mid-drain must learn the pending/restarting update state it missed.
 				PushDrainStateToWeb();
 				// A prior run that died on an unhandled exception left a crash report; surface it once, now that

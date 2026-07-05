@@ -3,6 +3,7 @@ using Weavie.Core;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Suggestions;
+using Weavie.Core.Workspaces;
 
 namespace Weavie.Hosting;
 
@@ -13,11 +14,15 @@ public sealed partial class HostCore {
 	private SuggestionService? _suggestions;
 
 	private void InitSuggestions() {
-		var dismissals = new SuggestionDismissals(new LocalFileSystem(), WeaviePaths.WorkspaceSuggestionsFile(Id));
+		var fileSystem = new LocalFileSystem();
+		var dismissals = new SuggestionDismissals(fileSystem, WeaviePaths.WorkspaceSuggestionsFile(Id));
 		dismissals.Log += Log;
+		// Built-in auto-config runs as the probe: it detects the language(s), writes the unset setup/test settings,
+		// and reports whether a manifest is present (the card gate). Set before the service, whose ctor starts it.
+		_autoConfig = new WorkspaceAutoConfig(_settings, WorkspaceRoot);
 		_suggestions = new SuggestionService(
-			_suggestionRegistry, _settings, new LocalFileSystem(), WorkspaceRoot, dismissals,
-			TimeSpan.FromMilliseconds(500), PushSuggestions);
+			_suggestionRegistry, _settings, fileSystem, WorkspaceRoot, dismissals,
+			TimeSpan.FromMilliseconds(500), PushSuggestions, () => RunAutoConfigProbe(fileSystem));
 	}
 
 	// Fan the active suggestion set out to every client, like the session list.

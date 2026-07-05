@@ -7,7 +7,8 @@ namespace Weavie.Core.Tests;
 /// <summary>
 /// Exercises <see cref="SessionStore"/> over the in-memory filesystem: a full-overlay save persists the
 /// loaded flags + active pointer and reloads them, a null active clears the pointer, an old file lacking the
-/// <c>loaded</c> field reads back unloaded, and a malformed file is backed up + reset.
+/// <c>loaded</c> field reads back unloaded, a malformed file is backed up + reset, and the recorded shell
+/// terminal size round-trips (flushed and co-persisted with an overlay save).
 /// </summary>
 public sealed class SessionStoreTests {
 	private const string StorePath = "/weavie-session-tests/sessions.json";
@@ -66,6 +67,32 @@ public sealed class SessionStoreTests {
 		var store = new SessionStore(fs, StorePath);
 
 		Assert.False(Assert.Single(store.Items).Loaded);
+	}
+
+	[Fact]
+	public void RecordShellSize_Flush_PersistsAndReloads() {
+		var fs = new InMemoryFileSystem();
+		var store = new SessionStore(fs, StorePath);
+
+		store.RecordShellSize(200, 50);
+		store.Flush();
+
+		Assert.Equal((200, 50), new SessionStore(fs, StorePath).ShellSize);
+	}
+
+	[Fact]
+	public void ShellSize_IsNull_WhenNeverRecorded() =>
+		Assert.Null(new SessionStore(new InMemoryFileSystem(), StorePath).ShellSize);
+
+	[Fact]
+	public void RecordShellSize_SurvivesAnOverlaySave() {
+		var fs = new InMemoryFileSystem();
+		var store = new SessionStore(fs, StorePath);
+		store.RecordShellSize(200, 50);
+
+		store.Save([Descriptor("aaaa", "a", loaded: true)], new SessionId("aaaa"));
+
+		Assert.Equal((200, 50), new SessionStore(fs, StorePath).ShellSize);
 	}
 
 	[Fact]

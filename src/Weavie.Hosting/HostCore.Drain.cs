@@ -184,6 +184,8 @@ public sealed partial class HostCore {
 
 	private void CommitDrainRestart(Action exit) {
 		_drainTick?.Cancel();
+		// Persist the latest shell terminal size so the post-restart pre-spawn is born at the reattaching xterm's width.
+		_sessionStore.Flush();
 		// Best-effort heads-up; the page also shows the overlay when the socket drops mid-drain, so a
 		// push lost to the shutdown race still surfaces.
 		_bridge.PostToWeb("{\"type\":\"update-restarting\"}");

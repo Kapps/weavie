@@ -8,7 +8,8 @@ namespace Weavie.Core.Sessions;
 /// The per-workspace overlay of which sessions were loaded and which was active, persisted atomically to
 /// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c> so a reopen (including a worker auto-update restart) comes
 /// back with the same sessions loaded and the same one active. The worktree set itself is reconciled from git;
-/// this store only carries the loaded/active overlay. A malformed file is backed up to <c>sessions.json.bad</c>
+/// this store only carries the loaded/active overlay plus the last real shell-terminal size (so a restored
+/// pre-spawn matches the reattaching xterm's width). A malformed file is backed up to <c>sessions.json.bad</c>
 /// and reset rather than throwing.
 /// </summary>
 public sealed class SessionStore {
@@ -18,6 +19,9 @@ public sealed class SessionStore {
 	private readonly Lock _gate = new();
 	private List<SessionDescriptor> _items;
 	private SessionId? _activeId;
+	// Last real shell-terminal size (fitted, active-pane term-resize); 0 = never recorded. See ShellSize.
+	private int _shellCols;
+	private int _shellRows;
 
 	/// <summary>Creates the store over <paramref name="path"/>, loading it now.</summary>
 	public SessionStore(IFileSystem fileSystem, string path) {
@@ -51,6 +55,38 @@ public sealed class SessionStore {
 			lock (_gate) {
 				return _activeId;
 			}
+		}
+	}
+
+	/// <summary>
+	/// The last real shell-terminal size (from a fitted, active pane), or <c>null</c> if none was recorded. A
+	/// restored session seeds its shell child with this so the pre-spawn width matches the reattaching xterm —
+	/// otherwise the raw scrollback replay, laid out at the placeholder 80×24, stacks garbled at the real width.
+	/// </summary>
+	public (int Cols, int Rows)? ShellSize {
+		get {
+			lock (_gate) {
+				return _shellCols > 0 && _shellRows > 0 ? (_shellCols, _shellRows) : null;
+			}
+		}
+	}
+
+	/// <summary>
+	/// Records the shell terminal's latest real size in memory, persisted by the next <see cref="Save"/> or
+	/// <see cref="Flush"/> — not written per call, so a window-drag's resize storm doesn't thrash the file.
+	/// </summary>
+	public void RecordShellSize(int columns, int rows) {
+		lock (_gate) {
+			_shellCols = columns;
+			_shellRows = rows;
+		}
+	}
+
+	/// <summary>Persists the current overlay (including the latest recorded shell size) without replacing it —
+	/// called at the graceful pre-restart / shutdown points so a resize since the last <see cref="Save"/> survives.</summary>
+	public void Flush() {
+		lock (_gate) {
+			PersistLocked();
 		}
 	}
 
@@ -88,6 +124,9 @@ public sealed class SessionStore {
 				active = new SessionId(document.ActiveId);
 			}
 
+			_shellCols = document.ShellCols;
+			_shellRows = document.ShellRows;
+
 			return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Id) && !string.IsNullOrWhiteSpace(e.WorktreePath))
 				.Select(e => new SessionDescriptor {
@@ -109,6 +148,8 @@ public sealed class SessionStore {
 			var document = new SessionsDocument {
 				Version = 1,
 				ActiveId = _activeId?.Value,
+				ShellCols = _shellCols,
+				ShellRows = _shellRows,
 				Sessions = [.. _items.Select(s => new SessionEntry {
 					Id = s.Id.Value,
 					Label = s.Label,
@@ -129,6 +170,12 @@ public sealed class SessionStore {
 
 		[JsonPropertyName("activeId")]
 		public string? ActiveId { get; set; }
+
+		[JsonPropertyName("shellCols")]
+		public int ShellCols { get; set; }
+
+		[JsonPropertyName("shellRows")]
+		public int ShellRows { get; set; }
 
 		[JsonPropertyName("sessions")]
 		public List<SessionEntry> Sessions { get; set; } = [];

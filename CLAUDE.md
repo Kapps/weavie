@@ -31,6 +31,11 @@ load it only when you need it.
   acting on one runs a command (never spends model tokens until the user clicks). First instance: the
   `workspace.setup` nudge — have Claude configure the repo's worktree setup command + test profile. See
   [docs/concepts/suggestions.md](docs/concepts/suggestions.md).
+- **Built-in workspace auto-config** — when a workspace opens with its setup settings unset, Weavie
+  detects the language from a curated, hardcoded catalog (TS/C#/Go now; Rust/Python next) and writes
+  `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
+  setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
+  presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
 
 ## Keyboard-first navigation
 

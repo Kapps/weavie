@@ -10,25 +10,13 @@ namespace Weavie.Core.Suggestions;
 /// re-walking the disk. See <c>docs/specs/suggestions.md</c>.
 /// </summary>
 public sealed class SuggestionService {
-	private const int MaxDepth = 2;       // scan the root + 2 levels of subdirectories
-	private const int MaxDirs = 256;      // hard ceiling on directories visited (a non-manifest repo's "no card")
-
-	private static readonly HashSet<string> SkipDirs = new(StringComparer.OrdinalIgnoreCase) {
-		".git", "node_modules", "bin", "obj", "target", "dist",
-	};
-
-	private static readonly HashSet<string> ManifestNames = new(StringComparer.OrdinalIgnoreCase) {
-		"package.json", "pnpm-lock.yaml", "Cargo.toml", "go.mod", "pyproject.toml", "Makefile",
-	};
-
-	private static readonly string[] ManifestExtensions = [".slnx", ".sln", ".csproj"];
-
 	private readonly SuggestionRegistry _registry;
 	private readonly SettingsStore _settings;
 	private readonly IFileSystem _fileSystem;
 	private readonly string _workspaceRoot;
 	private readonly SuggestionDismissals _dismissals;
 	private readonly Action<IReadOnlyList<SuggestionDefinition>> _push;
+	private readonly Func<bool> _probe;
 	private readonly TimeSpan _probeTimeout;
 	private readonly Lock _gate = new();
 	private readonly HashSet<string> _snoozed = new(StringComparer.Ordinal);
@@ -37,8 +25,9 @@ public sealed class SuggestionService {
 	private IReadOnlyList<SuggestionDefinition> _current = [];
 
 	/// <summary>
-	/// Creates the service and kicks off the off-the-hot-path manifest probe. <paramref name="probeTimeout"/>
-	/// bounds that probe, failing open (card shown) if the scan doesn't finish in time.
+	/// Creates the service and kicks off the off-the-hot-path <paramref name="probe"/> — the host-supplied walk
+	/// that classifies + auto-configures the workspace and reports whether it carries a build manifest.
+	/// <paramref name="probeTimeout"/> bounds it, failing open (card shown) if it doesn't finish in time.
 	/// </summary>
 	public SuggestionService(
 		SuggestionRegistry registry,
@@ -47,13 +36,15 @@ public sealed class SuggestionService {
 		string workspaceRoot,
 		SuggestionDismissals dismissals,
 		TimeSpan probeTimeout,
-		Action<IReadOnlyList<SuggestionDefinition>> push) {
+		Action<IReadOnlyList<SuggestionDefinition>> push,
+		Func<bool> probe) {
 		ArgumentNullException.ThrowIfNull(registry);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentNullException.ThrowIfNull(dismissals);
 		ArgumentNullException.ThrowIfNull(push);
+		ArgumentNullException.ThrowIfNull(probe);
 		_registry = registry;
 		_settings = settings;
 		_fileSystem = fileSystem;
@@ -61,6 +52,7 @@ public sealed class SuggestionService {
 		_dismissals = dismissals;
 		_probeTimeout = probeTimeout;
 		_push = push;
+		_probe = probe;
 		_ = RunProbeAsync();
 	}
 
@@ -114,10 +106,10 @@ public sealed class SuggestionService {
 	}
 
 	private async Task RunProbeAsync() {
-		var scan = Task.Run(() => HasManifest(_workspaceRoot));
+		var scan = Task.Run(_probe);
 		var winner = await Task.WhenAny(scan, Task.Delay(_probeTimeout)).ConfigureAwait(false);
 
-		// Fail open: only a completed scan that found nothing yields false. A timeout (a tree too slow or large to
+		// Fail open: only a completed probe that found nothing yields false. A timeout (a tree too slow or large to
 		// finish in time) or a fault shows the dismissible card — such a repo almost certainly has dependencies.
 		bool hasManifest = true;
 		if (winner == scan && scan.Status == TaskStatus.RanToCompletion) {
@@ -130,29 +122,4 @@ public sealed class SuggestionService {
 
 		Evaluate();
 	}
-
-	private bool HasManifest(string root) {
-		var queue = new Queue<(string Path, int Depth)>();
-		queue.Enqueue((root, 0));
-		int visited = 0;
-		while (queue.Count > 0 && visited < MaxDirs) {
-			var (dir, depth) = queue.Dequeue();
-			visited++;
-			foreach (var entry in _fileSystem.EnumerateDirectory(dir)) {
-				if (entry.IsDirectory) {
-					if (depth < MaxDepth && !SkipDirs.Contains(entry.Name)) {
-						queue.Enqueue((Path.Combine(dir, entry.Name), depth + 1));
-					}
-				} else if (IsManifest(entry.Name)) {
-					return true;
-				}
-			}
-		}
-
-		return false;
-	}
-
-	private static bool IsManifest(string name) =>
-		ManifestNames.Contains(name) ||
-		ManifestExtensions.Any(ext => name.EndsWith(ext, StringComparison.OrdinalIgnoreCase));
 }

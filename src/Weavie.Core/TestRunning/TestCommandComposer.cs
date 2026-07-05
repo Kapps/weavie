@@ -22,9 +22,10 @@ public enum ShellQuoting {
 
 /// <summary>
 /// Composes a runnable shell command from a <see cref="TestRule"/> template by substituting shell-quoted
-/// placeholders — <c>${file}</c>, <c>${fileDir}</c> (absolute paths), and <c>${name}</c> (run-one only). Every
-/// value is quoted, never interpolated raw; an unknown or unavailable placeholder is a loud failure, never a
-/// silent pass-through. Pure: it builds the string, it does not run anything.
+/// placeholders — <c>${file}</c>, <c>${fileDir}</c> (absolute paths), <c>${fileName}</c> (the file's base name
+/// without extension), and <c>${name}</c> (run-one only). Every value is quoted, never interpolated raw; an
+/// unknown or unavailable placeholder is a loud failure, never a silent pass-through. Pure: it builds the
+/// string, it does not run anything.
 /// </summary>
 public static partial class TestCommandComposer {
 	/// <summary>
@@ -49,6 +50,7 @@ public static partial class TestCommandComposer {
 		string template = kind == TestCommandKind.RunOne ? rule.RunOne : rule.RunFile;
 		string file = Quote(absoluteFilePath, quoting);
 		string fileDir = Quote(Path.GetDirectoryName(absoluteFilePath) ?? string.Empty, quoting);
+		string fileName = Quote(Path.GetFileNameWithoutExtension(absoluteFilePath), quoting);
 
 		string? failure = null;
 		command = PlaceholderPattern().Replace(template, match => {
@@ -58,6 +60,8 @@ public static partial class TestCommandComposer {
 					return file;
 				case "fileDir":
 					return fileDir;
+				case "fileName":
+					return fileName;
 				case "name" when kind == TestCommandKind.RunOne && testName is not null:
 					return Quote(testName, quoting);
 				case "name":

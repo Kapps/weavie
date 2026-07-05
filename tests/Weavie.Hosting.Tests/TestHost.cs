@@ -59,7 +59,14 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// that write the index (add / commit / checkout) must happen here: once the host is live its own git
 	/// activity (status refresh) races a concurrent writer's <c>index.lock</c>.
 	/// </summary>
-	public static async Task<TestHost> StartAsync(Action<string> prepareRepo) {
+	public static Task<TestHost> StartAsync(Action<string> prepareRepo) => StartAsync(prepareRepo, sendReady: true);
+
+	/// <summary>
+	/// As <see cref="StartAsync(Action{string})"/>, but only delivers the page's <c>ready</c> message when
+	/// <paramref name="sendReady"/> is true. Pass false to assert on host behavior BEFORE a page connects (e.g.
+	/// that a startup push is held rather than dropped), then call <c>Send</c> with a <c>ready</c> message.
+	/// </summary>
+	public static async Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -81,7 +88,10 @@ internal sealed class TestHost : IAsyncDisposable {
 		var core = new HostCore(platform, services, repo);
 		await core.StartAsync().ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
-		bridge.Receive("""{"type":"ready"}""");
+		if (sendReady) {
+			bridge.Receive("""{"type":"ready"}""");
+		}
+
 		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);
 	}
 

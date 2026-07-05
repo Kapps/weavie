@@ -138,6 +138,8 @@ public static class CoreSettings {
 				+ "a toast, but removal proceeds regardless.",
 			Aliases = ["worktree teardown", "pre-remove command", "cleanup on discard",
 				"worktree cleanup command", "deprovision worktree"],
+			// Per-workspace, like its setupCommand sibling: a teardown command belongs to one repo, not every workspace.
+			Scope = SettingScope.Workspace,
 			Apply = ApplyMode.NextSession,
 			Default = "",
 		});

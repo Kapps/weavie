@@ -86,6 +86,13 @@ language×framework matrix as maintained data. The setup prompt teaches only the
 placeholders; Claude derives each rule's globs and commands from the repo itself (package scripts,
 `go.mod`, project files). Nothing in Weavie's code or data is framework-aware.
 
+> **Superseded (planned).** The Claude-derived flow proved slow (~15 min) and inconsistent, so this
+> stance is reversed for the common case by
+> [built-in workspace auto-config](../concepts/workspace-autoconfig.md): a *curated, bounded* preset
+> catalog (TS/C#/Go) detects the language and writes these same two settings deterministically, in
+> code, with zero tokens. The Claude flow above stays as the override / unsupported-language fallback.
+> This section reflects behavior until that lands.
+
 ## Discovery & lenses (web)
 
 The matcher runs in the web: the symbols already live there (`monaco-languageclient` per language),

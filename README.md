@@ -16,7 +16,7 @@ developer review each of the changes and make edits in a fully featured editor w
 - **Uses the Claude Code TUI**: Weavie embeds the Claude Code TUI directly. This ensures that you can continue using your subscription plan rather than API pricing if/when [that change](https://support.claude.com/en/articles/15036540-use-the-claude-agent-sdk-with-your-claude-plan) goes through.
 - **Custom sources**: You can open a Github PR directly, opening the branch as a worktree and using the existing weavie diff view to review it. You can also open an existing Notion doc with very basic editing support.
 
-## State of things
+## Current State
 
 At this point, weavie is my daily driver and has been what I've used to develop the product.
 There are limitations though:
@@ -28,7 +28,7 @@ There are limitations though:
 - No releases or installer — build it from source.
 - Nothing yet around packaging, signing, or shipping an actual binary.
 
-## Building it
+## Building
 
 Needs a .NET 10 SDK (global.json rolls forward and allows prerelease), Node for the UI, and
 Claude Code (`claude`) on the PATH since weavie spawns it. The UI uses pnpm, run through Corepack
@@ -36,6 +36,12 @@ Claude Code (`claude`) on the PATH since weavie spawns it. The UI uses pnpm, run
 once puts a bare `pnpm` on the PATH if you prefer it. On Windows that also means Windows 10 1809+ and
 the WebView2 runtime (already there on Windows 11). For LSP, put `csharp-ls`, `gopls`, or `tsgo` on
 the PATH.
+
+## Contributing / Reporting Issues
+
+Please report any issues or feature requests by [creating an issue](https://github.com/Kapps/weavie/issues/new).
+
+Candidly, while weavie is open source, **pull requests (for features especially) are unlikely to be accepted**. I have a plan for how I want things done and where I want weavie to go, and weavie development has me more in an architect / tester / project manager role with Claude handling the implementation. Development has been extremely fast, and code writing is not the bottleneck. External PRs require a lot more careful review (especially for security), and I still have to perform the same roles as if Claude wrote it but with more manual testing. 
 
 ## License
 

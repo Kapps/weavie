@@ -353,6 +353,9 @@ export type WebBoundMessage =
   // Host pushes the active session's git branch + dirty flag for the terminal-column footer (active-backend
   // gated like the page's other state). `branch` is null when the workspace isn't a git repo / HEAD is detached.
   | { type: "git-status"; branch: string | null; dirty: boolean }
+  // Host pushes the forge URL prefix a terminal `#N` reference links to (e.g. `https://github.com/owner/repo/pull/`)
+  // for the active session's origin; null when it isn't a forge repo (so `#N` stays plain text). See ref-link-store.
+  | { type: "ref-link-base"; prefix: string | null }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
   // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.

@@ -4,6 +4,7 @@
 
 import type { ILink, Terminal } from "@xterm/xterm";
 import { isBrowserHostedShell, postToHost, postToLocalHost } from "../bridge";
+import { refLinkPrefix } from "./ref-link-store";
 
 // A path with an extension, e.g. src/foo.ts or C:\src\foo.ts. An optional Windows drive prefix (C:\…)
 // is matched explicitly so its colon isn't mistaken for a :line suffix.
@@ -21,6 +22,11 @@ const TOOL_PATH = new RegExp(String.raw`(?<=[A-Za-z]\()${PATH}(?::\d+(?::\d+)?)?
 // and "16/9.0" don't match — only a real relative/rooted path (a/b.ext, ./x.md, /home/u/a.ts, ~/n.log) does.
 const BARE_PATH =
   /(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/][\w.-]+(?:[\\/][\w.-]+)*|[\w.-]+(?:[\\/][\w.-]+)+)\.[A-Za-z][A-Za-z0-9]*/g;
+// A bare issue/PR reference like #123 (Claude prints these) → the origin repo's forge page. The lookbehind
+// excludes an embedded/entity form (abc#1, ##, &#123;); no leading zero and no trailing word char reject
+// #0/#012 and #123abc. Only linked when the repo resolves to a forge (refLinkPrefix != null); "#fff" never
+// matches (\d only).
+const REF_RE = /(?<![\w#&])#[1-9]\d*(?!\w)/g;
 
 function revealFile(matchText: string): void {
   // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
@@ -41,6 +47,15 @@ export function openUrlExternal(url: string): void {
     return;
   }
   postToLocalHost({ type: "open-url", url });
+}
+
+// Open a terminal `#N` as its forge issue/PR page: the host-pushed prefix for the active session's origin +
+// the number. A no-op if the repo isn't a forge (prefix null) — the same gate that keeps the link from forming.
+function openRef(matchText: string): void {
+  const prefix = refLinkPrefix();
+  if (prefix !== null) {
+    openUrlExternal(prefix + matchText.slice(1));
+  }
 }
 
 // One regex hit within a logical (possibly wrapped) line: its flat char span in that line, whether it's a URL
@@ -154,6 +169,10 @@ export function wireTerminalLinks(term: Terminal): () => string | undefined {
       const matches: LinkMatch[] = [];
       const claimed: Array<[number, number]> = [];
       collect(text, URL_RE, true, openUrlExternal, matches, claimed);
+      // After URLs (so a URL's own `#anchor` is already claimed), and only when the origin resolves to a forge.
+      if (refLinkPrefix() !== null) {
+        collect(text, REF_RE, false, openRef, matches, claimed);
+      }
       collect(text, FILE_LINE, false, revealFile, matches, claimed);
       collect(text, TOOL_PATH, false, revealFile, matches, claimed);
       // Last, so a path already claimed as file:line, a tool path, or inside a URL isn't re-linked bare.

@@ -159,7 +159,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		}
 	}
 
-	private static void RunGit(string cwd, params string[] args) {
+	internal static void RunGit(string cwd, params string[] args) {
 		var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardError = true, RedirectStandardOutput = true };
 		foreach (string arg in args) {
 			psi.ArgumentList.Add(arg);

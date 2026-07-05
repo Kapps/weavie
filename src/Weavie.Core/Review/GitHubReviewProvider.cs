@@ -146,6 +146,19 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 			? "https://api.github.com"
 			: $"https://{host}/api/v3";
 
+	/// <summary>
+	/// The web-URL prefix a bare issue/PR number appends to — <c>https://{host}/{owner}/{repo}/pull/</c>. The web
+	/// host equals the remote host on GitHub (public and Enterprise; only the API base differs), so this is right
+	/// for both. Pure, for tests.
+	/// </summary>
+	public static string WebRefUrlBase(RepoRef repo) {
+		ArgumentNullException.ThrowIfNull(repo);
+		return $"https://{repo.Host}/{repo.Owner}/{repo.Name}/pull/";
+	}
+
+	/// <inheritdoc/>
+	public string RefUrlBase(RepoRef repo) => WebRefUrlBase(repo);
+
 	/// <summary>Parses the GitHub <c>GET /pulls</c> array into summaries. Pure, so it's testable without the network.</summary>
 	public static IReadOnlyList<PullRequestSummary> ParsePullRequests(string json) {
 		ArgumentNullException.ThrowIfNull(json);

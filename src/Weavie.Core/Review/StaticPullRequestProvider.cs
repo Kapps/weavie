@@ -48,6 +48,9 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	}
 
 	/// <inheritdoc/>
+	public string RefUrlBase(RepoRef repo) => GitHubReviewProvider.WebRefUrlBase(repo);
+
+	/// <inheritdoc/>
 	public Task<IReadOnlyList<ReviewComment>> ListAsync(RepoRef repo, int number, CancellationToken ct = default) {
 		lock (_gate) {
 			return Task.FromResult<IReadOnlyList<ReviewComment>>([.. _comments]);

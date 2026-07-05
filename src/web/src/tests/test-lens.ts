@@ -7,6 +7,7 @@ import * as monaco from "monaco-editor";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { uriHostPath } from "../editor/fs-path";
 import { activeCodeEditor } from "../editor/vscode-services";
 import { currentWorkspaceRoot, onLanguageClientStarted } from "../lsp/lsp-client";
 import { globMatches } from "./glob";
@@ -40,7 +41,9 @@ export function installTestLenses(): void {
         if (rule === undefined) {
           return { lenses: [], dispose() {} };
         }
-        const file = model.uri.fsPath;
+        // uriHostPath, never fsPath: this path is dispatched to Core to compose a shell command, so it must be
+        // host-native — a Windows client's fsPath backslashes a POSIX host's path and no test rule would match.
+        const file = uriHostPath(model.uri);
         const hits = await documentTestHits(model, rule);
         const lenses: monaco.languages.CodeLens[] = [];
         if (hits.length > 0) {
@@ -94,10 +97,10 @@ export async function runTestAtCursor(): Promise<boolean> {
   const hits = await documentTestHits(model, rule);
   const innermost = innermostHitAt(hits, position);
   if (innermost === undefined) {
-    void dispatchCommand(CommandIds.runTests, { file: model.uri.fsPath });
+    void dispatchCommand(CommandIds.runTests, { file: uriHostPath(model.uri) });
     return true;
   }
-  void dispatchCommand(CommandIds.runTests, { file: model.uri.fsPath, name: innermost.name });
+  void dispatchCommand(CommandIds.runTests, { file: uriHostPath(model.uri), name: innermost.name });
   return true;
 }
 

@@ -3,16 +3,15 @@
 // starts lazily — only when a document of its language first opens — so csharp-ls/gopls aren't spawned until a
 // .cs/.go file appears.
 //
-// Each session has its OWN worktree root + slot. A session switch pushes the incoming config and
-// `rebindLanguageServices` tears every client down and reconnects, so intelligence follows the worktree.
+// Each session has its OWN worktree root + slot. A session switch pushes the incoming config, but clients are
+// KEPT WARM per worktree (see language-client-pool.ts) so switching back is instant, not a cold re-index. An
+// open model is mapped to ITS OWN worktree's client by path, so a backgrounded worktree stays served correctly.
 
 import * as monaco from "monaco-editor";
-import { MonacoLanguageClient } from "monaco-languageclient";
-import { CloseAction, ErrorAction } from "vscode-languageclient";
-import { log } from "../bridge";
+import { activeBackendId, onSessionMessage } from "../bridge";
+import { isUnderRoot, uriHostPath, worktreeMatchBase } from "../editor/fs-path";
 import { initEditorServices } from "../editor/vscode-services";
-import { notify } from "../notify/notify";
-import { openLspChannel } from "./lsp-bridge-transport";
+import { ensureClient, pruneForeignBackend, pruneUnloaded } from "./language-client-pool";
 
 /** One language server the host offers: bridge selector id, the languages it serves, and its defaults. */
 export interface WeavieLspServer {
@@ -35,20 +34,12 @@ declare global {
   }
 }
 
-// Server ids with a live (or connecting) client, so we don't double-start one.
-const started = new Set<string>();
-// Server id → its teardown (dispose the client + close its bridge channel) plus a liveness probe. Keyed by id:
-// exactly one live client per language, and alive() lets a new connect detect + heal a stale duplicate (below).
-const clients = new Map<string, { teardown: () => void; alive: () => boolean }>();
-// The active session's config, read live (not captured) so lazy starts after a switch use the new session's
-// slot/root. Undefined until the host injects/pushes one.
+// The active session's config (its worktree root feeds currentWorkspaceRoot). Undefined until the host injects one.
 let activeConfig: WeavieLspConfig | undefined;
-let serverByLanguage = new Map<string, WeavieLspServer>();
-let modelHooksInstalled = false;
-// Bumped on every rebind; a connect() captures its generation and stands down if a switch superseded it.
-let generation = 0;
-// Monotonic per-page channel id, so even a fast stop/start on one server can't confuse stale frames.
-let channelSeq = 0;
+// Every LOADED session's config, keyed by slot, so an open model maps to its own worktree's client — not the
+// active session's. A session's config is recorded when it becomes active; dropped when it is unloaded.
+const slotConfigs = new Map<string, { config: WeavieLspConfig; backendId: string }>();
+let hooksInstalled = false;
 
 // Listeners notified when a language client finishes starting (and on rebind), so consumers that query LSP
 // providers — the test-lens provider — can refresh once a server is actually able to answer.
@@ -73,31 +64,97 @@ function notifyLanguageClientStarted(): void {
   }
 }
 
-function indexServers(config: WeavieLspConfig): void {
-  serverByLanguage = new Map();
-  for (const server of config.servers) {
-    for (const languageId of server.languageIds) {
-      serverByLanguage.set(languageId, server);
-    }
-  }
+function serverForLanguage(
+  config: WeavieLspConfig,
+  languageId: string,
+): WeavieLspServer | undefined {
+  return config.servers.find((server) => server.languageIds.includes(languageId));
 }
 
-function maybeStart(languageId: string): void {
-  const config = activeConfig;
-  if (config === undefined) {
+// The loaded session whose worktree contains `path` (longest matching root wins, so a nested worktree beats its
+// parent). Only the active backend's sessions are considered — a client can only reach its server over the
+// active backend's transport, so a stranded foreign-backend config must never re-create a pruned client.
+// Undefined for a path outside every reachable worktree.
+function configForPath(path: string): { config: WeavieLspConfig; backendId: string } | undefined {
+  const active = activeBackendId();
+  let best: { config: WeavieLspConfig; backendId: string } | undefined;
+  let bestLength = -1;
+  for (const entry of slotConfigs.values()) {
+    const root = worktreeMatchBase(entry.config.workspace);
+    if (entry.backendId === active && isUnderRoot(path, root) && root.length > bestLength) {
+      best = entry;
+      bestLength = root.length;
+    }
+  }
+  return best;
+}
+
+function hasOpenModelUnder(workspace: string, server: WeavieLspServer): boolean {
+  return monaco.editor.getModels().some((model) => {
+    if (model.uri.scheme !== "file" || !server.languageIds.includes(model.getLanguageId())) {
+      return false;
+    }
+    return isUnderRoot(uriHostPath(model.uri), workspace);
+  });
+}
+
+// Ensure the warm client that owns `model`'s worktree exists (idempotent). No-op for non-file models (review/diff
+// overlays), a path outside every worktree, or a language no server serves.
+function ensureForModel(model: monaco.editor.ITextModel): void {
+  if (model.uri.scheme !== "file") {
     return;
   }
-  const server = serverByLanguage.get(languageId);
-  if (server !== undefined && !started.has(server.id)) {
-    started.add(server.id);
-    connect(config, server);
+  const entry = configForPath(uriHostPath(model.uri));
+  if (entry === undefined) {
+    return;
   }
+  const server = serverForLanguage(entry.config, model.getLanguageId());
+  if (server === undefined) {
+    return;
+  }
+  ensureClient({
+    config: entry.config,
+    server,
+    backendId: entry.backendId,
+    onStarted: notifyLanguageClientStarted,
+    hasOpenDoc: () => hasOpenModelUnder(entry.config.workspace, server),
+  });
 }
 
 function startForOpenModels(): void {
   for (const model of monaco.editor.getModels()) {
-    maybeStart(model.getLanguageId());
+    ensureForModel(model);
   }
+}
+
+function recordConfig(config: WeavieLspConfig): void {
+  activeConfig = config;
+  slotConfigs.set(config.slot, { config, backendId: activeBackendId() });
+}
+
+function installHooks(): void {
+  if (hooksInstalled) {
+    return;
+  }
+  hooksInstalled = true;
+  monaco.editor.onDidCreateModel((model) => {
+    ensureForModel(model);
+    model.onDidChangeLanguage(() => ensureForModel(model));
+  });
+  // A session unload/delete pushes session-list with that slot no longer loaded: drop its config and tear its
+  // warm client down, else the client would keep serving — and a late frame would misroute to the active session.
+  onSessionMessage((message, backendId) => {
+    if (message.type !== "session-list") {
+      return;
+    }
+    const loaded = new Set(message.sessions.filter((s) => s.loaded).map((s) => s.id));
+    pruneUnloaded(backendId, loaded);
+    for (const [slot, entry] of slotConfigs) {
+      if (entry.backendId === backendId && !loaded.has(slot)) {
+        slotConfigs.delete(slot);
+      }
+    }
+  });
 }
 
 /**
@@ -113,203 +170,23 @@ export async function startLanguageServices(): Promise<void> {
   // touching monaco auto-initializes the standalone services, which then makes the editor host's initialize()
   // throw "Services are already initialized". initEditorServices() is idempotent, so this just enforces order.
   await initEditorServices();
-  activeConfig = config;
-  indexServers(config);
-  if (!modelHooksInstalled) {
-    modelHooksInstalled = true;
-    monaco.editor.onDidCreateModel((model) => {
-      maybeStart(model.getLanguageId());
-      model.onDidChangeLanguage((e) => maybeStart(e.newLanguage));
-    });
-  }
+  recordConfig(config);
+  installHooks();
   startForOpenModels();
 }
 
 /**
- * Rebind language services to a different session's bridge on a session switch: tear every (previous-bridge)
- * client down and reconnect against the incoming session's bridge, lazily for the open documents.
+ * Rebind language services on a session switch: record the incoming session and ensure its clients, but KEEP
+ * same-backend clients warm (only a backend switch strands them). Switching back reuses the warm client — no
+ * cold re-index. See language-client-pool.ts for the pool + per-worktree provider scoping.
  */
 export async function rebindLanguageServices(config: WeavieLspConfig): Promise<void> {
   // Same init-order guard as startLanguageServices (see there): our init must precede any monaco.editor touch.
   await initEditorServices();
-  generation += 1;
-  for (const { teardown } of clients.values()) {
-    teardown();
-  }
-  clients.clear();
-  started.clear();
-  activeConfig = config;
-  indexServers(config);
+  recordConfig(config);
+  installHooks();
+  pruneForeignBackend(activeBackendId());
   startForOpenModels();
-}
-
-// If a server crashes (or the WS drops) while documents are open, reconnect with capped exponential backoff
-// so a broken server doesn't storm; a connection that stayed up past HEALTHY_UPTIME_MS resets the backoff.
-const MAX_RECONNECT_ATTEMPTS = 5;
-const HEALTHY_UPTIME_MS = 10_000;
-
-function hasOpenDocumentFor(server: WeavieLspServer): boolean {
-  return monaco.editor.getModels().some((m) => server.languageIds.includes(m.getLanguageId()));
-}
-
-function describeError(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
-}
-
-// Drop a server's start guard and teardown in lockstep, so `started` and `clients` never disagree on liveness.
-function forget(id: string): void {
-  started.delete(id);
-  clients.delete(id);
-}
-
-function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0): void {
-  const channelId = `lsp${++channelSeq}`;
-  const gen = generation;
-  let openedAt = 0;
-  // Set on intentional teardown (session switch): the supervised reconnect stands down and a late exit is ignored.
-  let torn = false;
-  // Set once this attempt's outcome is decided, so a failed start and a server exit schedule at most one reconnect.
-  let handled = false;
-  let client: MonacoLanguageClient | undefined;
-  // `channel` and `startPromise` are const, assigned further down; the teardown closures here forward-reference
-  // them, which is safe because nothing calls these closures until this synchronous body has finished.
-
-  const disposeClient = (): void => {
-    const c = client;
-    client = undefined;
-    if (c === undefined) {
-      return;
-    }
-    // dispose() rejects while the client is still 'starting'; wait for start to settle, then dispose, and
-    // swallow either rejection — we're tearing down regardless. (This is the source of the stray
-    // "Client is not running ... state is: starting" unhandled rejections.)
-    void Promise.allSettled([startPromise])
-      .then(() => c.dispose())
-      .catch(() => {});
-  };
-
-  const superviseReconnect = (reason: string): void => {
-    // Stand down if this client was torn down, or a switch happened (a newer generation owns the bridge now).
-    if (torn || gen !== generation) {
-      return;
-    }
-    if (!hasOpenDocumentFor(server)) {
-      forget(server.id); // no document needs it — let a future open restart it
-      return;
-    }
-    const nextAttempt = openedAt > 0 && Date.now() - openedAt > HEALTHY_UPTIME_MS ? 1 : attempt + 1;
-    if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
-      forget(server.id);
-      log(
-        "error",
-        `lsp: ${server.id} gave up after ${MAX_RECONNECT_ATTEMPTS} reconnects (${reason})`,
-      );
-      notify(
-        "error",
-        `${server.id} language intelligence is unavailable (${reason}). Check that its language server is installed and on PATH.`,
-      );
-      return;
-    }
-    // First failure of a streak (the initial drop, or one after a healthy session): a self-dismissing warn so
-    // the user sees the hiccup immediately rather than only after the whole backoff budget runs out.
-    if (nextAttempt === 1) {
-      notify("warn", `${server.id} language intelligence interrupted (${reason}); reconnecting…`);
-    }
-    const delayMs = Math.min(1000 * 2 ** (nextAttempt - 1), 15_000);
-    log(
-      "warn",
-      `lsp: ${server.id} ${reason}; reconnecting in ${delayMs}ms (attempt ${nextAttempt})`,
-    );
-    setTimeout(() => {
-      // Superseded (a switch/teardown while pending): the current `started`/`clients` entries now belong to a
-      // newer live client — stand down, else deleting `started` lets the next open spawn a duplicate client.
-      if (torn || gen !== generation) {
-        return;
-      }
-      if (hasOpenDocumentFor(server)) {
-        connect(config, server, nextAttempt); // stays in `started` across the retry
-      } else {
-        forget(server.id); // no document needs it — let a future open restart it
-      }
-    }, delayMs);
-  };
-
-  // One funnel for every failure path — a failed initialize or a server exit/failure-to-start — so recovery (and
-  // the warn/give-up toasts) runs exactly once per attempt.
-  const fail = (reason: string): void => {
-    if (handled) {
-      return;
-    }
-    handled = true;
-    disposeClient();
-    channel?.dispose();
-    superviseReconnect(reason);
-  };
-
-  const teardown = (): void => {
-    torn = true;
-    disposeClient();
-    channel?.dispose();
-  };
-  // Invariant: one live client per server id. If a prior one is somehow still live here, a guard upstream let a
-  // duplicate through — tear it down (it would otherwise be orphaned by the overwrite and double every provider it
-  // registered, e.g. the "More Actions" menu) and log loudly so the real cause gets fixed, not masked.
-  const existing = clients.get(server.id);
-  if (existing?.alive()) {
-    log(
-      "error",
-      `lsp: ${server.id} still had a live client at connect — orphan-prevention tore it down`,
-    );
-    existing.teardown();
-  }
-  clients.set(server.id, { teardown, alive: () => client !== undefined });
-
-  // Open the bridge channel: the host spawns the server on lsp-start; its exit or failure-to-start arrives via
-  // onExit (carrying the host-side reason), routed through the same supervised reconnect as a dropped link. No
-  // socket handshake, so the channel is usable immediately — the client sends `initialize` once start() listens.
-  const channel = openLspChannel(config.slot, server.id, channelId, (code, reason) => {
-    if (torn || gen !== generation) {
-      return;
-    }
-    fail(reason ?? `server exited (code ${code})`);
-  });
-  openedAt = Date.now();
-
-  const settings = server.settings ?? {};
-  client = new MonacoLanguageClient({
-    name: `Weavie ${server.id} language client`,
-    clientOptions: {
-      documentSelector: server.languageIds,
-      workspaceFolder: {
-        uri: monaco.Uri.file(config.workspace),
-        name: "weavie",
-        index: 0,
-      },
-      // Feed the server its defaults both ways — initializationOptions and workspace/configuration answers
-      // (some servers gate features on config, e.g. gopls semantic tokens). No VSCode config service (§18).
-      initializationOptions: settings,
-      middleware: {
-        workspace: {
-          configuration: (params) => params.items.map(() => settings),
-        },
-      },
-      // The client itself stays passive on errors; recovery is the host-supervised reconnect above.
-      errorHandler: {
-        error: () => ({ action: ErrorAction.Continue }),
-        closed: () => ({ action: CloseAction.DoNotRestart }),
-      },
-    },
-    messageTransports: { reader: channel.reader, writer: channel.writer },
-  });
-
-  // start() rejects when the server faults on initialize (e.g. csharp-ls with no resolvable SDK). Route that
-  // through the same reconnect/give-up path as a server exit instead of leaking an unhandled rejection.
-  const startPromise = client.start();
-  void startPromise.then(
-    () => {
-      log("info", `lsp: ${server.id} client started`);
-      notifyLanguageClientStarted();
-    },
-    (err: unknown) => fail(`initialize failed: ${describeError(err)}`),
-  );
+  // Switch-back reuses a warm client and fires no per-client start event; nudge consumers (test-lens) once here.
+  notifyLanguageClientStarted();
 }

@@ -41,6 +41,21 @@ export function samePath(a: string, b: string): boolean {
   return normalizePath(a) === normalizePath(b);
 }
 
+/// A worktree root canonicalized for prefix/glob matching: lowercased drive, forward slashes, no trailing
+/// slash. BOTH an LSP client's documentSelector `pattern` (`<base>/**`) and the model→worktree mapping use
+/// this, so "which client owns a file" and "which client's glob matches it" apply the identical casing/separator
+/// rule and can never disagree (a mismatch would silently drop intelligence for the file).
+export function worktreeMatchBase(path: string): string {
+  return canonicalFsPath(path).replace(/\\/g, "/").replace(/\/+$/, "");
+}
+
+/// True when `path` is `root` itself or lies under it, using worktreeMatchBase normalization.
+export function isUnderRoot(path: string, root: string): boolean {
+  const base = worktreeMatchBase(root);
+  const target = worktreeMatchBase(path);
+  return target === base || target.startsWith(`${base}/`);
+}
+
 /** The final path segment (file name) of a path, keeping its original casing. */
 export function basename(path: string): string {
   const parts = path.split(/[\\/]/).filter((part) => part.length > 0);

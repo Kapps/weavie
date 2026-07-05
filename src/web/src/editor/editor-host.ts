@@ -13,6 +13,7 @@ import {
 } from "@codingame/monaco-vscode-api/services";
 import { log, postToHost } from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
+import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
 import { setDirtyPath } from "./dirty-store";
 import { setEditorStatus } from "./editor-status-store";
@@ -141,6 +142,11 @@ export async function createEditorHost(
   // Run-test lenses on test files (fed by LSP document symbols + the workspace test profile). Idempotent —
   // guarded against a second install across a hot reload.
   installTestLenses();
+
+  // Bridge the LSP "N Reference(s)" CodeLens commands to Monaco's references peek (idempotent). Otherwise the
+  // click no-ops: csharp-ls sends an unregistered command id, and the TypeScript ecosystem sends args Monaco's
+  // built-in handler can't consume.
+  installReferenceCommands();
 
   // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
   // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.

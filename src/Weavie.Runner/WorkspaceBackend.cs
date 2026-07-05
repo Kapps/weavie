@@ -12,8 +12,8 @@ public sealed class WorkspaceBackend {
 	/// <summary>Absolute path to the workspace (git repo) root the worker serves.</summary>
 	public required string WorkspaceRoot { get; init; }
 
-	/// <summary>The port the worker headless listens on.</summary>
-	public required int Port { get; init; }
+	/// <summary>The port the worker headless listens on. Mutable: an unpinned port is re-rolled on restart.</summary>
+	public required int Port { get; set; }
 
 	/// <summary>The token gating the worker's bridge.</summary>
 	public required string Token { get; init; }

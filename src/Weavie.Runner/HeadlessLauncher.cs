@@ -30,8 +30,12 @@ public sealed class HeadlessLauncher {
 	/// <summary>
 	/// Builds (does not start) a supervisor that keeps a headless worker for <paramref name="backend"/> alive
 	/// under <see cref="RestartPolicy.OnFailure"/>: a crash relaunches with backoff, a clean exit does not.
+	/// <paramref name="reallocatePort"/>, when not <c>null</c> (unpinned port), is called before every restart
+	/// past the first so a restart never retries the exact port that just failed to bind — <c>AllocatePort</c>'s
+	/// bind-then-release probe is inherently racy, and reusing a collided port would crash-loop forever on the
+	/// same address instead of recovering on the next attempt.
 	/// </summary>
-	public ProcessSupervisor BuildSupervisor(WorkspaceBackend backend) {
+	public ProcessSupervisor BuildSupervisor(WorkspaceBackend backend, Func<int>? reallocatePort) {
 		ArgumentNullException.ThrowIfNull(backend);
 
 		ProcessSupervisor supervisor = null!;
@@ -39,7 +43,11 @@ public sealed class HeadlessLauncher {
 
 		supervisor = new ProcessSupervisor(
 			name: "backend",
-			start: _ => {
+			start: attempt => {
+				if (attempt > 0 && reallocatePort is not null) {
+					backend.Port = reallocatePort();
+				}
+
 				var process = Spawn(backend);
 				current = process;
 				// Capture this launch's process so a later restart's exit can't be misattributed.

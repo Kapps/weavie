@@ -65,7 +65,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 				Port = _options.WorkerPort ?? AllocatePort(),
 				Token = RunnerOptions.NewToken(),
 			};
-			backend.Supervisor = _launcher.BuildSupervisor(backend);
+			backend.Supervisor = _launcher.BuildSupervisor(backend, _options.WorkerPort is null ? AllocatePort : null);
 			_backend = backend;
 			backend.Supervisor.Start();
 			return backend;

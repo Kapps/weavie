@@ -76,6 +76,11 @@ export function registerActiveEditor(editor: monaco.editor.IStandaloneCodeEditor
   servicesState.activeEditor = editor;
 }
 
+/** The editor weavie renders files into — focus-independent, so palette/keyboard commands can reach it. */
+export function activeCodeEditor(): monaco.editor.IStandaloneCodeEditor | undefined {
+  return servicesState.activeEditor;
+}
+
 // weavie owns layout: when the editor service is asked to open a model (go-to-def, peek, reveal-file), show
 // it in our own editor pane and reveal the requested range.
 const openEditor: OpenEditor = (modelRef, options) => {

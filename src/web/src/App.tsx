@@ -58,18 +58,13 @@ import { suggestions } from "./chrome/suggestions-store";
 import { TitleBar } from "./chrome/TitleBar";
 import { UpdateOverlay } from "./chrome/UpdateOverlay";
 import { UrlPrompt } from "./chrome/UrlPrompt";
-import {
-  surfacePostUpdateNotice,
-  type UpdateHold,
-  updateHolds,
-  updatePending,
-  updateRestarting,
-} from "./chrome/update-store";
+import { surfacePostUpdateNotice, updateRestarting } from "./chrome/update-store";
 import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
-import { formatKey, installKeybindings } from "./commands/keybindings";
-import { dispatchCommand, findCommand, registerCommand } from "./commands/registry";
+import { keyHint } from "./commands/key-hint";
+import { installKeybindings } from "./commands/keybindings";
+import { dispatchCommand, registerCommand } from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
@@ -705,30 +700,7 @@ export default function App(): JSX.Element {
     }
     setFullscreen((on) => !on);
   };
-  // A command's effective shortcut as a label suffix (" (Ctrl+…)"), read live from the catalog so
-  // buttons advertise the real (user-overridable) binding; empty when unbound.
-  const keyHint = (commandId: string): string => {
-    const keys = findCommand(commandId)?.keys ?? [];
-    return keys.length > 0 ? ` (${keys.map(formatKey).join(" / ")})` : "";
-  };
   const fullscreenKeyHint = (): string => keyHint(CommandIds.toggleFullscreenPane);
-  const holdReasonText: Record<UpdateHold["reason"], string> = {
-    working: "Claude is working",
-    "needs-input": "Claude awaits input",
-    "shell-job": "shell job running",
-    "waiting-on-task": "waiting on a scheduled task",
-  };
-  const updateHoldText = (hold: UpdateHold): string =>
-    `${hold.session}: ${holdReasonText[hold.reason]}`;
-  // The pending-update indicator rests as a corner chip; clicking expands it. Collapse when the episode
-  // genuinely ends (not on a reconnect's transient holds clear) so each new update starts collapsed but
-  // an open card survives a reconnect. The signal outlives the Show's unmount, hence the explicit reset.
-  const [updateExpanded, setUpdateExpanded] = createSignal(false);
-  createEffect(() => {
-    if (!updatePending()) {
-      setUpdateExpanded(false);
-    }
-  });
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
@@ -1192,56 +1164,6 @@ export default function App(): JSX.Element {
                 {connectionLabel()}…
               </span>
             </output>
-          </Show>
-          <Show when={!updateRestarting() && updateHolds()} keyed>
-            {(holds) => (
-              <Show
-                when={updateExpanded()}
-                fallback={
-                  <button
-                    type="button"
-                    class="update-chip"
-                    title="Update ready — applies when your sessions go idle. Click for details."
-                    onClick={() => setUpdateExpanded(true)}
-                  >
-                    <span class="update-chip-glyph" aria-hidden="true">
-                      ⟳
-                    </span>
-                    Update ready
-                  </button>
-                }
-              >
-                <output class="update-card">
-                  <div class="update-card-head">
-                    <span class="update-card-title">Update ready</span>
-                    <button
-                      type="button"
-                      class="update-card-collapse"
-                      title="Collapse"
-                      aria-label="Collapse update details"
-                      onClick={() => setUpdateExpanded(false)}
-                    >
-                      –
-                    </button>
-                  </div>
-                  <span class="update-card-body">
-                    Applies on its own once your sessions go idle. Restarting now reloads every
-                    session (conversations are kept) and ends background shell jobs.
-                  </span>
-                  <ul class="update-card-holds">
-                    <For each={holds}>{(hold) => <li>{updateHoldText(hold)}</li>}</For>
-                  </ul>
-                  <button
-                    type="button"
-                    class="update-card-restart"
-                    title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
-                    onClick={() => void dispatchCommand(CommandIds.restartForUpdate)}
-                  >
-                    Restart Now{keyHint(CommandIds.restartForUpdate)}
-                  </button>
-                </output>
-              </Show>
-            )}
           </Show>
         </div>
       </div>

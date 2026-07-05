@@ -1,6 +1,7 @@
 // Owns the Monaco editor lifecycle and diff/review orchestration on App's behalf. Drives the editor host +
 // inline-diff layer (editor-host.ts / inline-diff.ts).
 
+import type * as monaco from "monaco-editor";
 import { createSignal } from "solid-js";
 import {
   LOCAL_BACKEND_ID,
@@ -14,6 +15,14 @@ import {
 } from "../bridge";
 import { dismissSplash } from "../splash";
 import { mark } from "../startup-timing";
+// Type-only (erased at build): the symbol query surface's monaco glue is dynamically imported in start(), so it
+// stays in the lazily loaded editor chunk rather than the first-paint entry chunk.
+import type {
+  FlatSymbol,
+  SymbolActions,
+  SymbolQueryResult,
+  SymbolQuerySource,
+} from "../symbols/symbol-match";
 import type { CommentProse } from "./comment-prose";
 import type { EditorHost } from "./editor-host";
 import { normalizePath, samePath, uriHostPath } from "./fs-path";
@@ -165,6 +174,8 @@ export interface EditorController {
   readonly inline: InlineDiffActions;
   readonly tabs: TabActions;
   readonly nav: NavActions;
+  /** The omnibar's Go-to-Symbol surface: query document/workspace symbols and live-preview/commit the jump. */
+  readonly symbols: SymbolActions;
   dispose(): void;
 }
 
@@ -259,6 +270,65 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       return;
     }
     void applyActive(openTab(path, { line, preview, scratch }));
+  };
+
+  // The document/workspace symbol query surface (monaco glue), captured once the editor chunk loads in start().
+  let symbolSource: SymbolQuerySource | undefined;
+  // The active editor's scroll/cursor captured before the first preview reveal, restored if the user dismisses
+  // Go-to-Symbol without committing. Undefined when no preview is in flight.
+  let previewReturn: monaco.editor.ICodeEditorViewState | null | undefined;
+
+  const isActiveFile = (path: string): boolean => samePath(path, activePath() ?? "");
+
+  // Reveal + select a symbol in place in the REAL editor as the omnibar selection moves, but only when it lives in
+  // the file already showing — document-symbol (@) rows, and the occasional workspace (#) hit in the current file.
+  // A symbol in another file reveals only on commit: opening files just to skim whole-repo results would churn the
+  // editor more than it helps. The first reveal snapshots the view so cancelPreview can restore it.
+  const previewSymbol = (sym: FlatSymbol): void => {
+    if (host === undefined || !isActiveFile(sym.path)) {
+      return;
+    }
+    if (previewReturn === undefined) {
+      previewReturn = host.editor.saveViewState();
+    }
+    host.editor.setSelection(sym.range);
+    host.editor.revealRangeInCenterIfOutsideViewport(sym.range);
+  };
+
+  // Dismissed without choosing: restore the pre-preview scroll/cursor.
+  const cancelPreview = (): void => {
+    const viewState = previewReturn;
+    previewReturn = undefined;
+    if (viewState != null && host !== undefined) {
+      host.editor.restoreViewState(viewState);
+    }
+  };
+
+  // Committed: keep the jump. Re-reveal in place, or open the file as a real (non-preview) tab so it sticks. Self
+  // sufficient — works whether or not a preview fired (Enter on an unarrowed selection still lands).
+  const commitPreview = (sym: FlatSymbol): void => {
+    previewReturn = undefined;
+    if (host === undefined) {
+      return;
+    }
+    if (isActiveFile(sym.path)) {
+      host.editor.setSelection(sym.range);
+      host.editor.revealRangeInCenterIfOutsideViewport(sym.range);
+      host.editor.focus();
+    } else {
+      openFile(sym.path, sym.range.startLineNumber);
+    }
+  };
+
+  const noSymbols = (): Promise<SymbolQueryResult> =>
+    Promise.resolve({ providerAvailable: false, items: [] });
+  const symbols: SymbolActions = {
+    documentSymbols: () => symbolSource?.documentSymbols() ?? noSymbols(),
+    workspaceSymbols: (query, signal) =>
+      symbolSource?.workspaceSymbols(query, signal) ?? noSymbols(),
+    preview: previewSymbol,
+    cancelPreview,
+    commitPreview,
   };
 
   // Browser-style back/forward over visited editor locations. navigateTo reuses the open/activate path
@@ -572,10 +642,12 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         host = created;
         // inline-diff + comment-prose pull Monaco; import them here (the chunk is already loaded by the
         // editor host above) so they stay off the first-paint entry chunk.
-        const [diff, prose] = await Promise.all([
+        const [diff, prose, symbolMod] = await Promise.all([
           import("./inline-diff"),
           import("./comment-prose"),
+          import("../symbols/symbol-source"),
         ]);
+        symbolSource = symbolMod.createSymbolSource(created.editor);
         firstChangedLine = diff.firstChangedLine;
         inlineDiff = diff.createInlineDiff(created.editor);
         // Review undo/redo is session-global (not tied to a file), so its post-callbacks are bound once. `kind`
@@ -1127,6 +1199,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
       back: () => navHistory.back(),
       forward: () => navHistory.forward(),
     },
+    symbols,
     dispose: () => {
       window.clearTimeout(initTimer);
       if (navTimer !== undefined) {

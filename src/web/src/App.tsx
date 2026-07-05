@@ -880,6 +880,8 @@ export default function App(): JSX.Element {
       installTerminalClipboardCommands(),
       registerCommand(CommandIds.focusOmnibarFiles, () => focusOmnibar("file")),
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
+      registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
+      registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
       // Find in Files (Ctrl+Shift+F / palette): open the content-search panel (it focuses its input on mount).
       registerCommand(CommandIds.findInFiles, () => setSearchOpen(true)),
 
@@ -1115,6 +1117,7 @@ export default function App(): JSX.Element {
           onToggleFiles={toggleBrowser}
           onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
           onRequestIndex={() => postToHost({ type: "request-file-index" })}
+          symbols={editor.symbols}
         />
       </Show>
       <Show when={CUSTOM_TITLEBAR}>
@@ -1130,6 +1133,7 @@ export default function App(): JSX.Element {
           onToggleFiles={toggleBrowser}
           onOpenFile={(path) => postToHost({ type: "reveal-file", path, line: 1 })}
           onRequestIndex={() => postToHost({ type: "request-file-index" })}
+          symbols={editor.symbols}
         />
       </Show>
       <div class="app-body">

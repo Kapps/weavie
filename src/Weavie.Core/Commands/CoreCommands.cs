@@ -23,6 +23,12 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in command-palette mode.</summary>
 	public const string FocusOmnibarCommands = "weavie.omnibar.focusCommands";
 
+	/// <summary>Focuses the omnibar in document-symbol ("Go to Symbol in File", @) mode.</summary>
+	public const string GoToSymbol = "weavie.omnibar.goToSymbol";
+
+	/// <summary>Focuses the omnibar in workspace-symbol ("Go to Symbol in Workspace", #) mode.</summary>
+	public const string GoToWorkspaceSymbol = "weavie.omnibar.goToWorkspaceSymbol";
+
 	/// <summary>Opens the project-wide content-search ("find in files") panel.</summary>
 	public const string FindInFiles = "weavie.search.findInFiles";
 
@@ -302,6 +308,27 @@ public static class CoreCommands {
 			Description = "Open the command palette in the omnibar.",
 			Aliases = ["command palette", "show commands", "run command"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+p" }],
+		});
+
+		// Symbol navigation reachable by typing @ / # in the omnibar (or double-shift then the prefix); registered
+		// as commands for palette discovery + Claude. No default chord — @ would collide with Open Folder
+		// ($mod+Shift+o), and the prefix entry already covers the keyboard path.
+		registry.Register(new CommandDefinition {
+			Id = GoToSymbol,
+			Title = "Go to Symbol in File",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Focus the omnibar to jump to a symbol (function, type, method…) in the current file.",
+			Aliases = ["go to symbol", "document symbols", "symbols in file", "outline"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = GoToWorkspaceSymbol,
+			Title = "Go to Symbol in Workspace",
+			RunsIn = CommandLocation.Web,
+			Category = "Navigation",
+			Description = "Focus the omnibar to fuzzy-search symbols across the whole workspace by name.",
+			Aliases = ["go to symbol in workspace", "workspace symbols", "find symbol", "symbol search"],
 		});
 
 		registry.Register(new CommandDefinition {

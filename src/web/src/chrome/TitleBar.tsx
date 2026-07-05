@@ -1,5 +1,6 @@
 import { Copy, Minus, Square, X } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
+import type { SymbolActions } from "../symbols/symbol-match";
 import { Menu, type MenuAction } from "./Menu";
 import { Omnibar } from "./Omnibar";
 import { WeavieIcon } from "./WeavieIcon";
@@ -21,6 +22,7 @@ export function TitleBar(props: {
   onToggleFiles: () => void;
   onOpenFile: (abs: string) => void;
   onRequestIndex: () => void;
+  symbols: SymbolActions;
 }): JSX.Element {
   const shell = window.__WEAVIE_SHELL__;
   const recents = (): string[] => shell?.recents ?? [];
@@ -49,6 +51,7 @@ export function TitleBar(props: {
           workspaceLabel={label()}
           onOpenFile={props.onOpenFile}
           onRequestIndex={props.onRequestIndex}
+          symbols={props.symbols}
         />
       </div>
 

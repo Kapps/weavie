@@ -183,6 +183,32 @@
   color: var(--accent);
 }
 
+/* Symbol modes (@ / #): a kind glyph precedes the name; the container/file context is dimmed and flush right. */
+.tb-symbol-row {
+  align-items: center;
+}
+
+.tb-symbol-kind {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  min-width: 14px;
+  color: var(--dim);
+}
+
+.tb-symbol-kind svg {
+  width: 14px;
+  height: 14px;
+}
+
+/* Push the container/file to the right edge and let it ellipsis rather than shove the name off-screen. */
+.tb-symbol-row .tb-row-dir {
+  margin-left: auto;
+  min-width: 0;
+  padding-left: 12px;
+}
+
 /* Command-palette row: the keybinding hint sits flush right, dimmed and monospaced. */
 .tb-row-keys {
   margin-left: auto;

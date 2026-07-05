@@ -1,11 +1,16 @@
 import { Fzf, byLengthAsc } from "fzf";
 import {
+  Box,
+  Braces,
   ChevronDown,
   ChevronRight,
   File as FileIcon,
   Folder,
   FolderOpen,
+  Hash,
   Search,
+  Type,
+  Variable,
 } from "lucide-solid";
 import {
   For,
@@ -20,8 +25,10 @@ import {
 import { evaluateWhen, paneFocusContext } from "../commands/context";
 import { formatKey } from "../commands/keybindings";
 import { getCommands, onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
-import type { CommandInfo } from "../commands/types";
+import { CommandIds, type CommandInfo } from "../commands/types";
 import { canonicalFsPath, samePath } from "../editor/fs-path";
+import type { FlatSymbol, SymbolActions } from "../symbols/symbol-match";
+import { createSymbolSearch } from "../symbols/symbol-search";
 import {
   type FileRow,
   type ScoredFile,
@@ -30,11 +37,28 @@ import {
   splitPath,
 } from "./file-search";
 import { highlightSlice } from "./highlight";
-import { omnibarRequest } from "./omnibar-controller";
+import { type OmnibarMode, omnibarRequest } from "./omnibar-controller";
 import { recentFiles } from "./recent-files-store";
 
 // Max rows rendered at once — a safety cap so a giant workspace never mounts thousands of rows.
 const VIEW_CAP = 300;
+
+// The leading character that selects each mode (empty = the file tree/list).
+const MODE_PREFIX: Record<OmnibarMode, string> = {
+  file: "",
+  command: ">",
+  docSymbol: "@",
+  wsSymbol: "#",
+};
+
+// The omnibar's own focus commands → the mode they open. Run from the palette, they switch mode in place instead
+// of round-tripping through the dispatcher, whose close()+refocus races the query reset and drops the mode.
+const FOCUS_COMMAND_MODE: Record<string, OmnibarMode> = {
+  [CommandIds.focusOmnibarFiles]: "file",
+  [CommandIds.focusOmnibarCommands]: "command",
+  [CommandIds.goToSymbol]: "docSymbol",
+  [CommandIds.goToWorkspaceSymbol]: "wsSymbol",
+};
 
 // A node in the client-side file tree. `key` (the dir's relative path) is the expansion-state key.
 interface TreeNode {
@@ -115,6 +139,8 @@ export function Omnibar(props: {
   workspaceLabel: string;
   onOpenFile: (abs: string) => void;
   onRequestIndex: () => void;
+  // The editor's Go-to-Symbol surface (query + live preview/commit), used by the @ / # modes.
+  symbols: SymbolActions;
 }): JSX.Element {
   const [query, setQuery] = createSignal("");
   const [open, setOpen] = createSignal(false);
@@ -137,10 +163,22 @@ export function Omnibar(props: {
     return props.files.map((abs) => splitPath(abs, root));
   });
 
-  const commandMode = (): boolean => query().startsWith(">");
-  // Empty file query → the tree; with text → the flat ranked list.
-  const treeMode = (): boolean => !commandMode() && query().trim().length === 0;
-  const searchMode = (): boolean => !commandMode() && query().trim().length > 0;
+  // The active mode, chosen by the query's leading char: ">" palette, "@" this-file symbols, "#" workspace
+  // symbols, empty → the file tree, otherwise the fuzzy file list.
+  type Mode = "command" | "docSymbol" | "wsSymbol" | "tree" | "search";
+  const mode = createMemo<Mode>(() => {
+    const q = query();
+    if (q.startsWith(">")) return "command";
+    if (q.startsWith("@")) return "docSymbol";
+    if (q.startsWith("#")) return "wsSymbol";
+    return q.trim().length === 0 ? "tree" : "search";
+  });
+  const commandMode = (): boolean => mode() === "command";
+  const treeMode = (): boolean => mode() === "tree";
+  const searchMode = (): boolean => mode() === "search";
+  const docSymbolMode = (): boolean => mode() === "docSymbol";
+  const wsSymbolMode = (): boolean => mode() === "wsSymbol";
+  const symbolMode = (): boolean => docSymbolMode() || wsSymbolMode();
 
   // One fuzzy finder over the file index, rebuilt only when the index changes.
   const fileFinder = createMemo(() => createFileFinder(rows()));
@@ -154,6 +192,17 @@ export function Omnibar(props: {
   });
 
   const view = createMemo<ScoredFile[]>(() => filtered().slice(0, VIEW_CAP));
+
+  // Symbol modes (@ / #): the editor sources + ranks the symbols; this omnibar only renders and navigates. Active
+  // only while open and in a symbol mode. reloadKey (currentFile) forces a document-symbol refetch on a file swap.
+  const symbolSearch = createSymbolSearch({
+    active: () =>
+      !open() ? null : docSymbolMode() ? "docSymbol" : wsSymbolMode() ? "wsSymbol" : null,
+    query: () => query().slice(1),
+    reloadKey: () => props.currentFile,
+    symbols: props.symbols,
+  });
+  const symbolView = createMemo(() => symbolSearch.view().slice(0, VIEW_CAP));
 
   // The visible tree rows: a depth-first walk emitting a row only when all its ancestors are expanded.
   const treeNodes = createMemo<TreeNode[]>(() => buildTree(rows()));
@@ -209,9 +258,19 @@ export function Omnibar(props: {
   });
 
   const activeLen = (): number =>
-    commandMode() ? commandView().length : treeMode() ? visibleRows().length : view().length;
+    commandMode()
+      ? commandView().length
+      : symbolMode()
+        ? symbolView().length
+        : treeMode()
+          ? visibleRows().length
+          : view().length;
   const hiddenCount = (): number =>
-    searchMode() ? Math.max(0, filtered().length - view().length) : 0;
+    searchMode()
+      ? Math.max(0, filtered().length - view().length)
+      : symbolMode()
+        ? Math.max(0, symbolSearch.view().length - symbolView().length)
+        : 0;
 
   const scrollToSelected = (block: ScrollLogicalPosition): void => {
     (listRef?.children[selected()] as HTMLElement | undefined)?.scrollIntoView({ block });
@@ -252,7 +311,7 @@ export function Omnibar(props: {
         setPendingReveal(false);
         return;
       }
-      if (commandMode()) {
+      if (commandMode() || symbolMode()) {
         setSelected(0);
         return;
       }
@@ -290,6 +349,30 @@ export function Omnibar(props: {
     ),
   );
 
+  // Live-preview the selected symbol in the real editor as the selection moves. The editor only reveals symbols in
+  // the file it's already showing (see previewSymbol), so this is a cheap in-place reveal — no debounce needed.
+  createEffect(
+    on([selected, symbolView], ([sel, rows]) => {
+      if (!open() || !symbolMode()) {
+        return;
+      }
+      const sym = rows[sel]?.sym;
+      if (sym !== undefined) {
+        props.symbols.preview(sym);
+      }
+    }),
+  );
+
+  // Leaving symbol mode (deleting the @/#, or the omnibar closing, which resets the query) without committing
+  // restores the editor to where the preview started.
+  createEffect(
+    on(symbolMode, (isSymbol, wasSymbol) => {
+      if (wasSymbol && !isSymbol) {
+        props.symbols.cancelPreview();
+      }
+    }),
+  );
+
   // A focus-omnibar command opened us: switch to the requested mode, focus the input, refresh the index.
   createEffect(
     on(
@@ -298,7 +381,7 @@ export function Omnibar(props: {
         if (request === null) {
           return;
         }
-        setQuery(request.mode === "command" ? ">" : "");
+        setQuery(MODE_PREFIX[request.mode]);
         // Capture the element we're stealing focus from BEFORE focusing the input: a programmatic focus()
         // delivers a null relatedTarget, so the input's onFocus can't record it, and close would drop focus.
         const active = document.activeElement as HTMLElement | null;
@@ -354,7 +437,23 @@ export function Omnibar(props: {
     if (cmd === undefined) {
       return;
     }
+    // The omnibar's own focus commands just re-aim it at a mode — do that in place (the input already has focus)
+    // rather than close()+re-open, which races the reset and lands in plain file mode.
+    const focusMode = FOCUS_COMMAND_MODE[cmd.id];
+    if (focusMode !== undefined) {
+      setQuery(MODE_PREFIX[focusMode]);
+      setSelected(0);
+      return;
+    }
     void runCommandWithFeedback(cmd.id);
+    close();
+  };
+
+  const activateSymbol = (sym: FlatSymbol | undefined): void => {
+    if (sym === undefined) {
+      return;
+    }
+    props.symbols.commitPreview(sym);
     close();
   };
 
@@ -414,6 +513,8 @@ export function Omnibar(props: {
   const activate = (): void => {
     if (commandMode()) {
       runCommand(commandView()[selected()]?.cmd);
+    } else if (symbolMode()) {
+      activateSymbol(symbolView()[selected()]?.sym);
     } else if (treeMode()) {
       const r = visibleRows()[selected()];
       if (r === undefined) {
@@ -473,6 +574,60 @@ export function Omnibar(props: {
   window.addEventListener("pointerdown", onPointerDownOutside, true);
   onCleanup(() => window.removeEventListener("pointerdown", onPointerDownOutside, true));
 
+  // A glyph per symbol kind (see symbol-source's kindLabel), falling back to a generic mark.
+  const kindIcon = (kind: string): JSX.Element => {
+    switch (kind) {
+      case "class":
+      case "struct":
+      case "interface":
+      case "enum":
+      case "module":
+        return <Box />;
+      case "method":
+      case "function":
+      case "constructor":
+        return <Braces />;
+      case "property":
+      case "field":
+      case "variable":
+      case "constant":
+      case "enum-member":
+        return <Variable />;
+      case "type":
+        return <Type />;
+      default:
+        return <Hash />;
+    }
+  };
+
+  // The dimmed context after a symbol name: its container chain, plus the file for workspace symbols (which span
+  // the repo, so the row is ambiguous without it).
+  const symbolDir = (sym: FlatSymbol): string => {
+    if (!wsSymbolMode()) {
+      return sym.container;
+    }
+    const rel = splitPath(sym.path, props.root ?? "").rel;
+    return sym.container !== "" ? `${sym.container} · ${rel}` : rel;
+  };
+
+  // The honest empty/loading/no-provider line — never a silent blank list (no-fallbacks rule).
+  const symbolEmptyText = (): string => {
+    switch (symbolSearch.status()) {
+      case "loading":
+        return docSymbolMode() ? "Loading symbols…" : "Searching…";
+      case "idle":
+        return "Type to search workspace symbols";
+      case "noProvider":
+        return docSymbolMode()
+          ? "No symbols for this file"
+          : "No workspace symbol provider — is the language server running?";
+      default:
+        return query().slice(1).trim().length > 0
+          ? "No matching symbols"
+          : "No symbols in this file";
+    }
+  };
+
   return (
     <div class="tb-omnibar" ref={rootRef} onFocusOut={onFocusOut}>
       <div class="tb-omnibar-box" classList={{ open: open() }}>
@@ -484,7 +639,15 @@ export function Omnibar(props: {
           class="tb-omnibar-input"
           type="text"
           role="combobox"
-          aria-label={commandMode() ? "Command palette" : "Go to file"}
+          aria-label={
+            commandMode()
+              ? "Command palette"
+              : docSymbolMode()
+                ? "Go to symbol in file"
+                : wsSymbolMode()
+                  ? "Go to symbol in workspace"
+                  : "Go to file"
+          }
           aria-expanded={open() && activeLen() > 0}
           aria-controls={open() && activeLen() > 0 ? "tb-omnibar-listbox" : undefined}
           aria-activedescendant={
@@ -510,63 +673,166 @@ export function Omnibar(props: {
         />
       </div>
       <Show when={open()}>
-        <div class="tb-omnibar-pop">
-          <Show
-            when={!commandMode()}
-            fallback={
-              <Show
-                when={commandView().length > 0}
-                fallback={<div class="tb-omnibar-empty">No matching commands</div>}
-              >
-                <div
-                  class="tb-omnibar-list"
-                  ref={listRef}
-                  id="tb-omnibar-listbox"
-                  role="listbox"
-                  aria-label="Commands"
-                >
-                  <For each={commandView()}>
-                    {(item, i) => (
-                      <button
-                        type="button"
-                        class="tb-omnibar-row"
-                        role="option"
-                        tabindex={-1}
-                        id={`tb-omnibar-opt-${i()}`}
-                        aria-selected={i() === selected()}
-                        classList={{ selected: i() === selected() }}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setSelected(i());
-                          runCommand(item.cmd);
-                        }}
-                      >
-                        <span class="tb-row-leaf">
-                          {highlightSlice(item.cmd.title, item.positions, 0)}
-                        </span>
-                        <Show when={item.cmd.category}>
-                          <span class="tb-row-dir">{item.cmd.category}</span>
-                        </Show>
-                        <Show when={item.cmd.keys.length > 0}>
-                          <span class="tb-row-keys">
-                            {item.cmd.keys.map(formatKey).join(" / ")}
-                          </span>
-                        </Show>
-                      </button>
-                    )}
-                  </For>
-                </div>
-              </Show>
-            }
-          >
+        <div class="tb-omnibar-pop" classList={{ symbol: symbolMode() }}>
+          <Show when={symbolMode()}>
             <Show
-              when={treeMode()}
+              when={symbolView().length > 0}
+              fallback={<div class="tb-omnibar-empty">{symbolEmptyText()}</div>}
+            >
+              <div
+                class="tb-omnibar-list"
+                ref={listRef}
+                id="tb-omnibar-listbox"
+                role="listbox"
+                aria-label="Symbols"
+              >
+                <For each={symbolView()}>
+                  {(item, i) => (
+                    <button
+                      type="button"
+                      class="tb-omnibar-row tb-symbol-row"
+                      role="option"
+                      tabindex={-1}
+                      id={`tb-omnibar-opt-${i()}`}
+                      aria-selected={i() === selected()}
+                      classList={{ selected: i() === selected() }}
+                      onMouseDown={(e) => {
+                        // mousedown fires before the input's focusout closes the popover.
+                        e.preventDefault();
+                        setSelected(i());
+                        activateSymbol(item.sym);
+                      }}
+                    >
+                      <span class="tb-symbol-kind" aria-hidden="true">
+                        {kindIcon(item.sym.kind)}
+                      </span>
+                      <span class="tb-row-leaf">
+                        {highlightSlice(item.sym.name, item.positions, 0)}
+                      </span>
+                      <Show when={symbolDir(item.sym).length > 0}>
+                        <span class="tb-row-dir">{symbolDir(item.sym)}</span>
+                      </Show>
+                    </button>
+                  )}
+                </For>
+              </div>
+              <Show when={hiddenCount() > 0}>
+                <div class="tb-omnibar-more">+{hiddenCount()} more — type to filter</div>
+              </Show>
+            </Show>
+          </Show>
+          <Show when={!symbolMode()}>
+            <Show
+              when={!commandMode()}
               fallback={
                 <Show
-                  when={view().length > 0}
+                  when={commandView().length > 0}
+                  fallback={<div class="tb-omnibar-empty">No matching commands</div>}
+                >
+                  <div
+                    class="tb-omnibar-list"
+                    ref={listRef}
+                    id="tb-omnibar-listbox"
+                    role="listbox"
+                    aria-label="Commands"
+                  >
+                    <For each={commandView()}>
+                      {(item, i) => (
+                        <button
+                          type="button"
+                          class="tb-omnibar-row"
+                          role="option"
+                          tabindex={-1}
+                          id={`tb-omnibar-opt-${i()}`}
+                          aria-selected={i() === selected()}
+                          classList={{ selected: i() === selected() }}
+                          onMouseDown={(e) => {
+                            e.preventDefault();
+                            setSelected(i());
+                            runCommand(item.cmd);
+                          }}
+                        >
+                          <span class="tb-row-leaf">
+                            {highlightSlice(item.cmd.title, item.positions, 0)}
+                          </span>
+                          <Show when={item.cmd.category}>
+                            <span class="tb-row-dir">{item.cmd.category}</span>
+                          </Show>
+                          <Show when={item.cmd.keys.length > 0}>
+                            <span class="tb-row-keys">
+                              {item.cmd.keys.map(formatKey).join(" / ")}
+                            </span>
+                          </Show>
+                        </button>
+                      )}
+                    </For>
+                  </div>
+                </Show>
+              }
+            >
+              <Show
+                when={treeMode()}
+                fallback={
+                  <Show
+                    when={view().length > 0}
+                    fallback={
+                      <div class="tb-omnibar-empty">
+                        {props.filesPending ? "Loading files…" : "No matching files"}
+                      </div>
+                    }
+                  >
+                    <div
+                      class="tb-omnibar-list"
+                      ref={listRef}
+                      id="tb-omnibar-listbox"
+                      role="listbox"
+                      aria-label="Files"
+                    >
+                      <For each={view()}>
+                        {(item, i) => (
+                          <button
+                            type="button"
+                            class="tb-omnibar-row"
+                            role="option"
+                            tabindex={-1}
+                            id={`tb-omnibar-opt-${i()}`}
+                            aria-selected={i() === selected()}
+                            classList={{
+                              selected: i() === selected(),
+                              current:
+                                props.currentFile !== null &&
+                                samePath(item.row.abs, props.currentFile),
+                            }}
+                            onMouseDown={(e) => {
+                              // mousedown fires before the input's focusout closes the popover.
+                              e.preventDefault();
+                              setSelected(i());
+                              openFile(item.row.abs);
+                            }}
+                          >
+                            <span class="tb-row-leaf">
+                              {highlightSlice(item.row.leaf, item.positions, item.row.leafStart)}
+                            </span>
+                            <Show when={item.row.dir.length > 0}>
+                              <span class="tb-row-dir">
+                                {highlightSlice(item.row.dir, item.positions, 0)}
+                              </span>
+                            </Show>
+                          </button>
+                        )}
+                      </For>
+                    </div>
+                    <Show when={hiddenCount() > 0}>
+                      <div class="tb-omnibar-more">+{hiddenCount()} more — type to filter</div>
+                    </Show>
+                  </Show>
+                }
+              >
+                <Show
+                  when={visibleRows().length > 0}
                   fallback={
                     <div class="tb-omnibar-empty">
-                      {props.filesPending ? "Loading files…" : "No matching files"}
+                      {props.filesPending ? "Loading files…" : "No files"}
                     </div>
                   }
                 >
@@ -577,108 +843,54 @@ export function Omnibar(props: {
                     role="listbox"
                     aria-label="Files"
                   >
-                    <For each={view()}>
-                      {(item, i) => (
+                    <For each={visibleRows()}>
+                      {(r, i) => (
                         <button
                           type="button"
-                          class="tb-omnibar-row"
+                          class="tb-omnibar-row tb-tree-row"
                           role="option"
                           tabindex={-1}
                           id={`tb-omnibar-opt-${i()}`}
                           aria-selected={i() === selected()}
                           classList={{
+                            dir: r.node.isDir,
                             selected: i() === selected(),
                             current:
                               props.currentFile !== null &&
-                              samePath(item.row.abs, props.currentFile),
+                              r.node.abs !== undefined &&
+                              samePath(r.node.abs, props.currentFile),
                           }}
+                          style={`padding-left: ${10 + r.depth * 14}px`}
                           onMouseDown={(e) => {
-                            // mousedown fires before the input's focusout closes the popover.
                             e.preventDefault();
                             setSelected(i());
-                            openFile(item.row.abs);
+                            if (r.node.isDir) {
+                              toggleDir(r.node.key);
+                            } else {
+                              openFile(r.node.abs);
+                            }
                           }}
                         >
-                          <span class="tb-row-leaf">
-                            {highlightSlice(item.row.leaf, item.positions, item.row.leafStart)}
+                          <span class="tb-tree-twisty" aria-hidden="true">
+                            <Show when={r.node.isDir}>
+                              <Show when={expanded().has(r.node.key)} fallback={<ChevronRight />}>
+                                <ChevronDown />
+                              </Show>
+                            </Show>
                           </span>
-                          <Show when={item.row.dir.length > 0}>
-                            <span class="tb-row-dir">
-                              {highlightSlice(item.row.dir, item.positions, 0)}
-                            </span>
-                          </Show>
+                          <span class="tb-tree-icon" aria-hidden="true">
+                            <Show when={r.node.isDir} fallback={<FileIcon />}>
+                              <Show when={expanded().has(r.node.key)} fallback={<Folder />}>
+                                <FolderOpen />
+                              </Show>
+                            </Show>
+                          </span>
+                          <span class="tb-row-leaf">{r.node.name}</span>
                         </button>
                       )}
                     </For>
                   </div>
-                  <Show when={hiddenCount() > 0}>
-                    <div class="tb-omnibar-more">+{hiddenCount()} more — type to filter</div>
-                  </Show>
                 </Show>
-              }
-            >
-              <Show
-                when={visibleRows().length > 0}
-                fallback={
-                  <div class="tb-omnibar-empty">
-                    {props.filesPending ? "Loading files…" : "No files"}
-                  </div>
-                }
-              >
-                <div
-                  class="tb-omnibar-list"
-                  ref={listRef}
-                  id="tb-omnibar-listbox"
-                  role="listbox"
-                  aria-label="Files"
-                >
-                  <For each={visibleRows()}>
-                    {(r, i) => (
-                      <button
-                        type="button"
-                        class="tb-omnibar-row tb-tree-row"
-                        role="option"
-                        tabindex={-1}
-                        id={`tb-omnibar-opt-${i()}`}
-                        aria-selected={i() === selected()}
-                        classList={{
-                          dir: r.node.isDir,
-                          selected: i() === selected(),
-                          current:
-                            props.currentFile !== null &&
-                            r.node.abs !== undefined &&
-                            samePath(r.node.abs, props.currentFile),
-                        }}
-                        style={`padding-left: ${10 + r.depth * 14}px`}
-                        onMouseDown={(e) => {
-                          e.preventDefault();
-                          setSelected(i());
-                          if (r.node.isDir) {
-                            toggleDir(r.node.key);
-                          } else {
-                            openFile(r.node.abs);
-                          }
-                        }}
-                      >
-                        <span class="tb-tree-twisty" aria-hidden="true">
-                          <Show when={r.node.isDir}>
-                            <Show when={expanded().has(r.node.key)} fallback={<ChevronRight />}>
-                              <ChevronDown />
-                            </Show>
-                          </Show>
-                        </span>
-                        <span class="tb-tree-icon" aria-hidden="true">
-                          <Show when={r.node.isDir} fallback={<FileIcon />}>
-                            <Show when={expanded().has(r.node.key)} fallback={<Folder />}>
-                              <FolderOpen />
-                            </Show>
-                          </Show>
-                        </span>
-                        <span class="tb-row-leaf">{r.node.name}</span>
-                      </button>
-                    )}
-                  </For>
-                </div>
               </Show>
             </Show>
           </Show>

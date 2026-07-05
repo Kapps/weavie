@@ -8,7 +8,7 @@ import * as monaco from "monaco-editor";
 import { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction } from "vscode-languageclient";
 import { log } from "../bridge";
-import { canonicalFsPath } from "../editor/fs-path";
+import { worktreeMatchBase } from "../editor/fs-path";
 import { notify } from "../notify/notify";
 import { openLspChannel } from "./lsp-bridge-transport";
 import type { WeavieLspConfig, WeavieLspServer } from "./lsp-client";
@@ -79,10 +79,10 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
-// A glob that scopes a client's providers to its own worktree. Canonicalized the same way model URIs are
-// (`canonicalFsPath`, forward slashes, no trailing slash) so it matches this worktree's files and only those.
+// A glob that scopes a client's providers to its own worktree. Uses the SAME base normalization as the
+// model→worktree mapping (worktreeMatchBase), so a file this client owns always matches its glob.
 function worktreePattern(workspace: string): string {
-  return `${canonicalFsPath(workspace).replace(/\\/g, "/").replace(/\/+$/, "")}/**`;
+  return `${worktreeMatchBase(workspace)}/**`;
 }
 
 function connect(key: string, params: EnsureClientParams, attempt: number): void {
@@ -118,6 +118,17 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
     if (current()) {
       pool.delete(key);
     }
+  };
+
+  // Post lsp-stop at most once: a server exit's fail() and a later teardown() (prune) both tear down, but the
+  // channel must be stopped a single time.
+  let channelDisposed = false;
+  const disposeChannel = (): void => {
+    if (channelDisposed) {
+      return;
+    }
+    channelDisposed = true;
+    channel?.dispose();
   };
 
   const superviseReconnect = (reason: string): void => {
@@ -172,14 +183,14 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
     }
     handled = true;
     disposeClient();
-    channel?.dispose();
+    disposeChannel();
     superviseReconnect(reason);
   };
 
   const teardown = (): void => {
     torn = true;
     disposeClient();
-    channel?.dispose();
+    disposeChannel();
   };
 
   const entry: PooledClient = {

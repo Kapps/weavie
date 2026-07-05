@@ -270,4 +270,39 @@ describe("warm language-client pool", () => {
     await vi.advanceTimersByTimeAsync(1000);
     expect(liveClients()).toBe(1);
   });
+
+  it("maps a file to the longest-matching worktree root, not a prefix sibling", async () => {
+    const mod = await import("./lsp-client");
+    // Two sibling worktrees loaded, one a string-prefix of the other. No models open yet.
+    await mod.startLanguageServices(); // records A = /repo/a (window config)
+    await mod.rebindLanguageServices(csharpConfig("B", "/repo/ab"));
+    await settle();
+
+    // A file under /repo/ab must bind to B (/repo/ab), never the prefix sibling A (/repo/a).
+    openModel(model("/repo/ab/Bar.cs"));
+    await settle();
+    expect(mlc.instances.length).toBe(1);
+    expect(mlc.instances[0]?.selectors[0]?.pattern).toBe("/repo/ab/**");
+  });
+
+  it("does not resurrect a pruned client from a lingering foreign-backend model", async () => {
+    const mod = await import("./lsp-client");
+    openModel(model(`${ROOT_A}/Foo.cs`));
+    await mod.startLanguageServices();
+    await settle();
+    const channelA = channels.list[0];
+
+    // Switch to a remote backend while A's local model lingers in the editor (models persist across switches).
+    bus.backend = "remote";
+    monacoState.models = [model(`${ROOT_A}/Foo.cs`), model("/remote/w/Baz.cs")];
+    await mod.rebindLanguageServices(csharpConfig("R", "/remote/w"));
+    await settle();
+
+    // Local A was pruned and NOT re-created over the wrong bridge by its lingering model; only remote is live.
+    expect(channelA?.disposed).toBe(true);
+    const livePatterns = mlc.instances
+      .filter((c) => !c.disposed)
+      .map((c) => c.selectors[0]?.pattern);
+    expect(livePatterns).toEqual(["/remote/w/**"]);
+  });
 });

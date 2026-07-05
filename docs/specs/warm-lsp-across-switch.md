@@ -80,7 +80,14 @@ sequenceDiagram
 
 `lsp-client.test.ts` drives the manager + pool with monaco / the language client / the bridge transport
 stubbed (real `fs-path`): warm-across-switch, reuse-on-switch-back, per-worktree selector scoping (no
-double menu), teardown-on-unload, cross-backend teardown, and the #290 stale-reconnect fence. Runtime
-provider scoping in real Monaco (that a worktree's client answers for its own files and only those) is
-proven end-to-end by the tester, since importing vscode's glob matcher into the node unit env is not
-representative.
+double menu), teardown-on-unload, cross-backend teardown, longest-prefix worktree mapping (a sibling root
+that is a string prefix of another must not steal its files), no-resurrect-from-a-foreign-backend-model,
+and the #290 stale-reconnect fence. Runtime provider scoping in real Monaco (that a worktree's client
+answers for its own files and only those) is proven end-to-end by the tester, since importing vscode's
+glob matcher into the node unit env is not representative.
+
+The model→worktree mapping and the `documentSelector` glob share one normalization (`worktreeMatchBase`,
+`fs-path.ts`), so "which client owns a file" and "which client's glob matches it" can never disagree — a
+disagreement would silently drop intelligence for the file. `configForPath` only considers the **active
+backend's** sessions, so a stranded foreign-backend config can't re-create a client whose transport is
+gated off.

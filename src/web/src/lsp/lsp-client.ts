@@ -9,7 +9,7 @@
 
 import * as monaco from "monaco-editor";
 import { activeBackendId, onSessionMessage } from "../bridge";
-import { normalizePath, uriHostPath } from "../editor/fs-path";
+import { isUnderRoot, uriHostPath, worktreeMatchBase } from "../editor/fs-path";
 import { initEditorServices } from "../editor/vscode-services";
 import { ensureClient, pruneForeignBackend, pruneUnloaded } from "./language-client-pool";
 
@@ -72,14 +72,16 @@ function serverForLanguage(
 }
 
 // The loaded session whose worktree contains `path` (longest matching root wins, so a nested worktree beats its
-// parent). Undefined for a path outside every known worktree.
+// parent). Only the active backend's sessions are considered — a client can only reach its server over the
+// active backend's transport, so a stranded foreign-backend config must never re-create a pruned client.
+// Undefined for a path outside every reachable worktree.
 function configForPath(path: string): { config: WeavieLspConfig; backendId: string } | undefined {
-  const target = normalizePath(path);
+  const active = activeBackendId();
   let best: { config: WeavieLspConfig; backendId: string } | undefined;
   let bestLength = -1;
   for (const entry of slotConfigs.values()) {
-    const root = normalizePath(entry.config.workspace);
-    if ((target === root || target.startsWith(`${root}/`)) && root.length > bestLength) {
+    const root = worktreeMatchBase(entry.config.workspace);
+    if (entry.backendId === active && isUnderRoot(path, root) && root.length > bestLength) {
       best = entry;
       bestLength = root.length;
     }
@@ -88,13 +90,11 @@ function configForPath(path: string): { config: WeavieLspConfig; backendId: stri
 }
 
 function hasOpenModelUnder(workspace: string, server: WeavieLspServer): boolean {
-  const root = normalizePath(workspace);
   return monaco.editor.getModels().some((model) => {
     if (model.uri.scheme !== "file" || !server.languageIds.includes(model.getLanguageId())) {
       return false;
     }
-    const path = normalizePath(uriHostPath(model.uri));
-    return path === root || path.startsWith(`${root}/`);
+    return isUnderRoot(uriHostPath(model.uri), workspace);
   });
 }
 

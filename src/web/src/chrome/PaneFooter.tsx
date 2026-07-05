@@ -2,6 +2,7 @@ import { type JSX, Show } from "solid-js";
 import type { SessionStatusName } from "../bridge";
 import { gitStatus } from "./git-status-store";
 import { claudeStatus, STATUS_LABEL, STATUS_SHORT } from "./session-store";
+import { UpdateIndicator } from "./UpdateIndicator";
 
 /**
  * The shell pane's status footer, serving both terminal panes: the workspace git branch plus the Claude
@@ -25,6 +26,7 @@ export function PaneFooter(): JSX.Element {
         )}
       </Show>
       <span class="footer-spacer" />
+      <UpdateIndicator />
       <Show when={status() !== undefined}>
         <span class="footer-seg" title={STATUS_LABEL[status() as SessionStatusName]}>
           <span class={`session-status status-${status()}`} />

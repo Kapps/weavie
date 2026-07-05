@@ -35,8 +35,11 @@ import {
 } from "./session-store";
 import type { EditorSessionEntry } from "./session-types";
 
-// Generous: only a genuine hang trips it, not a slow cold start.
-const EDITOR_INIT_MS = 15_000;
+// Only a genuine hang trips this, never a slow cold start: the editor chunk (~750KB of Monaco + workers) plus
+// vscode-services init can legitimately run tens of seconds on a loaded machine or across the remote worker hop
+// (browser → Runner → worker). 15s misfired there — a slow-but-successful boot got killed and `data-ready` never
+// stamped — so it's set well above any real cold start while still bounding an init that truly never settles.
+const EDITOR_INIT_MS = 60_000;
 
 export interface EditorControllerDeps {
   /** Surface a debounced save that failed to reach disk. */

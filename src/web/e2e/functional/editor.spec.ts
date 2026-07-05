@@ -52,6 +52,10 @@ test("syntax highlighting survives typing new code (incremental re-tokenization)
 // clean signal is the dirty marker disappearing (the fs-write round-trip completed), never a fixed sleep.
 // Persistence is the host-side seam, so this also runs on remote (where the write lands on the worker).
 test("editing then saving persists to disk @cross", async ({ page, weavie }) => {
+  // @cross: on the remote worker hop under a loaded CI box the editor cold-boot alone can eat most of the 30s
+  // default before the edit/save round-trip even starts. Give it the room (test.slow triples the budget); this
+  // marks the test slow, it does not retry it.
+  test.slow();
   await openFile(page, "hello.ts");
 
   const marker = `// edit-${Date.now()}\n`;

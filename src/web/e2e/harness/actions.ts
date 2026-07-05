@@ -3,8 +3,11 @@ import { mediaTypeOf } from "../../src/editor/media/media-types";
 
 // The editor chunk is deferred past the shell's first paint, so it isn't up when the splash clears — it stamps
 // `data-ready` on `.editor` once Monaco is live. Editor-driving helpers wait on this; non-editor tests don't.
+// The ceiling tracks the app's own EDITOR_INIT_MS cold-boot deadline: on the remote worker hop under a loaded CI
+// box the boot legitimately runs tens of seconds, so waiting less than the app allows would flake the wait, not
+// the app. Pair with test.slow() on @cross editor tests so the whole test has budget beyond just this wait.
 export async function awaitEditorReady(page: Page): Promise<void> {
-  await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", { timeout: 30_000 });
+  await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", { timeout: 60_000 });
 }
 
 // Open a workspace file through the omnibar's "Go to File" and wait until the editor is ACTUALLY showing it.

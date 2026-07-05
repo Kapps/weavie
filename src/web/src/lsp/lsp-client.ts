@@ -37,8 +37,9 @@ declare global {
 
 // Server ids with a live (or connecting) client, so we don't double-start one.
 const started = new Set<string>();
-// Server id → teardown (dispose the client + close its bridge channel). A session switch tears every client down.
-const clients = new Map<string, () => void>();
+// Server id → its teardown (dispose the client + close its bridge channel) plus a liveness probe. Keyed by id:
+// exactly one live client per language, and alive() lets a new connect detect + heal a stale duplicate (below).
+const clients = new Map<string, { teardown: () => void; alive: () => boolean }>();
 // The active session's config, read live (not captured) so lazy starts after a switch use the new session's
 // slot/root. Undefined until the host injects/pushes one.
 let activeConfig: WeavieLspConfig | undefined;
@@ -132,7 +133,7 @@ export async function rebindLanguageServices(config: WeavieLspConfig): Promise<v
   // Same init-order guard as startLanguageServices (see there): our init must precede any monaco.editor touch.
   await initEditorServices();
   generation += 1;
-  for (const teardown of clients.values()) {
+  for (const { teardown } of clients.values()) {
     teardown();
   }
   clients.clear();
@@ -250,7 +251,18 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
     disposeClient();
     channel?.dispose();
   };
-  clients.set(server.id, teardown);
+  // Invariant: one live client per server id. If a prior one is somehow still live here, a guard upstream let a
+  // duplicate through — tear it down (it would otherwise be orphaned by the overwrite and double every provider it
+  // registered, e.g. the "More Actions" menu) and log loudly so the real cause gets fixed, not masked.
+  const existing = clients.get(server.id);
+  if (existing?.alive()) {
+    log(
+      "error",
+      `lsp: ${server.id} still had a live client at connect — orphan-prevention tore it down`,
+    );
+    existing.teardown();
+  }
+  clients.set(server.id, { teardown, alive: () => client !== undefined });
 
   // Open the bridge channel: the host spawns the server on lsp-start; its exit or failure-to-start arrives via
   // onExit (carrying the host-side reason), routed through the same supervised reconnect as a dropped link. No

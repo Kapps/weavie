@@ -5,10 +5,7 @@ Weavie is an agentic code editor that weaves Claude Code, terminal sessions, and
 It's designed for a terminal-first development flow where Claude Code handles the bulk of the changes, but you as a
 developer review each of the changes and make edits in a fully featured editor without breaking your flow.
 
-<img width="3403" height="1869" alt="Screenshot 2026-07-02 011930" src="https://github.com/user-attachments/assets/b37d3198-1fa4-4bc7-985a-1e27104b39a8" />
-<img width="3839" height="2159" alt="image" src="https://github.com/user-attachments/assets/e42dfa6e-9e05-44f8-991c-840fd0549f23" />
-
-
+<img width="3403" height="1869" alt="Screenshot" src="https://github.com/user-attachments/assets/b37d3198-1fa4-4bc7-985a-1e27104b39a8" />
 
 ## Features
 - **Fully featured editor**: The editor is a first class development environment with full LSP support. This includes autocomplete, go to definition, refactoring, running tests, and more.

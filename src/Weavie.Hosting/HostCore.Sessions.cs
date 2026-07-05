@@ -405,6 +405,12 @@ public sealed partial class HostCore {
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =
 			WeaviePaths.WorkspaceTerminalLogFile(Id, WorkspaceId.ForPath(cwd).Value, "shell");
+		// Seed the shell's pre-spawn size from the last real terminal size so a background-restored child is born at
+		// the width its reattaching xterm will use — else its raw scrollback replays 80×24-wrapped and stacks garbled.
+		if (_sessionStore.ShellSize is { } shellSize) {
+			session.Shell.Resize(shellSize.Cols, shellSize.Rows);
+		}
+
 		WireSession(session);
 		return session;
 	}

@@ -427,6 +427,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 		_hotkeys?.Dispose(); // unregisters the OS global hotkeys
 		_drainTick?.Cancel(); // ends a pending update drain's re-sample loop
+		_sessionStore.Flush(); // persist the latest shell terminal size for the next launch's pre-spawn seed
 
 		// Fail any web command still awaiting an ack so a runCommand in flight at close doesn't hang.
 		foreach (var pending in _pendingWebCommands.Values) {

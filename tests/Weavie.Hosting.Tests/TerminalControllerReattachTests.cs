@@ -10,7 +10,10 @@ namespace Weavie.Hosting.Tests;
 /// that mounts onto an already-live child gets a restore preamble carrying the child's latched terminal modes
 /// (alt screen, mouse tracking, bracketed paste…) <em>before</em> the redraw nudge — without it, a fullscreen
 /// TUI that entered the alt screen at startup renders into the fresh client's normal buffer forever (the
-/// claude-pane phantom-scrollbar bug). A first start and a relaunched child must get no preamble at all.
+/// claude-pane phantom-scrollbar bug). A first start and a relaunched child must get no preamble at all. It also
+/// pins the restored shell child's pre-spawn size: a size seeded before start (as <c>CreateSession</c> does from
+/// the persisted terminal size) must be the spawn size, not the placeholder 80×24 — otherwise the shell's raw
+/// scrollback replays at the wrong width and stacks garbled (the resume-console-scroll bug).
 /// </summary>
 public sealed class TerminalControllerReattachTests {
 	private const string ClaudeStartupModes = "\x1b[?1049h\x1b[?25l\x1b[?1000h\x1b[?2004h";
@@ -59,6 +62,27 @@ public sealed class TerminalControllerReattachTests {
 		Assert.Equal([(80, 23), (80, 24)], relaunched.Resizes);
 	}
 
+	[Fact]
+	public void RestoredShellChild_SpawnsAtSeededSize_NotThePlaceholder() {
+		using var h = new Harness("shell");
+		h.Controller.Resize(200, 50); // CreateSession seeds from the persisted size, before any pane mounts
+
+		h.Controller.EnsureStarted(); // background pre-spawn (RestoreSessionState), before the page's term-ready
+
+		Assert.Equal(200, h.Launcher.LastTerminal!.LastStartInfo!.Columns);
+		Assert.Equal(50, h.Launcher.LastTerminal!.LastStartInfo!.Rows);
+	}
+
+	[Fact]
+	public void RestoredShellChild_WithoutSeed_PreSpawnsAtThePlaceholder() {
+		using var h = new Harness("shell");
+
+		h.Controller.EnsureStarted();
+
+		Assert.Equal(80, h.Launcher.LastTerminal!.LastStartInfo!.Columns);
+		Assert.Equal(24, h.Launcher.LastTerminal!.LastStartInfo!.Rows);
+	}
+
 	private static string DecodeData(JsonElement message) =>
 		Encoding.UTF8.GetString(Convert.FromBase64String(message.GetProperty("dataB64").GetString()!));
 
@@ -67,12 +91,14 @@ public sealed class TerminalControllerReattachTests {
 		private readonly SettingsStore _settings;
 		private readonly string _settingsPath;
 
-		public Harness() {
+		public Harness() : this("claude") { }
+
+		public Harness(string session) {
 			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-reattach-" + Guid.NewGuid().ToString("n") + ".toml");
 			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
 			Bridge = new FakeHostBridge();
 			Launcher = new ScriptablePtyLauncher();
-			Controller = new TerminalController(Bridge, "claude", _settings, Launcher) {
+			Controller = new TerminalController(Bridge, session, _settings, Launcher) {
 				Workspace = Path.GetTempPath(),
 			};
 		}

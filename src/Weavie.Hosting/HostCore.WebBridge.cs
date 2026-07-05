@@ -53,9 +53,18 @@ public sealed partial class HostCore {
 			case "term-paste-image":
 				HandlePasteImage(root);
 				break;
-			case "term-resize":
-				TerminalFor(root)?.Resize(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
-				break;
+			case "term-resize": {
+					int cols = root.GetProperty("cols").GetInt32();
+					int rows = root.GetProperty("rows").GetInt32();
+					TerminalFor(root)?.Resize(cols, rows);
+					// Seed for the next restart: only the shell replays a raw scrollback log, so only its real size must
+					// survive. term-resize is active-pane-only, so this never records the 80×24 a hidden pane reports.
+					if (root.GetStringOrEmpty("session") == "shell") {
+						_sessionStore.RecordShellSize(cols, rows);
+					}
+
+					break;
+				}
 			case "term-ready":
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;

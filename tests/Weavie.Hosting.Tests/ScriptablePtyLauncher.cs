@@ -43,7 +43,11 @@ internal sealed class ScriptableTerminal : ITerminal {
 	/// <summary>Every <see cref="Resize"/> call in order, so a test can assert the reattach nudge.</summary>
 	public IReadOnlyList<(int Columns, int Rows)> Resizes => _resizes;
 
+	/// <summary>The start info of the spawn, so a test can assert the child's initial (pre-spawn) size.</summary>
+	public TerminalStartInfo? LastStartInfo { get; private set; }
+
 	public void Start(TerminalStartInfo startInfo) {
+		LastStartInfo = startInfo;
 		IsRunning = true;
 		_ = Exited; // ITerminal requires the event; this fake never exits on its own (CS0067 suppression)
 	}

@@ -325,6 +325,7 @@ public sealed partial class HostCore {
 				PushRecentFilesToWeb();
 				PushSessionList();
 				PushGitStatus();
+				PushRefLinkBase();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
 				// Re-advertise the active session's LSP catalog so a reconnect (a remote bridge drop, a refresh)

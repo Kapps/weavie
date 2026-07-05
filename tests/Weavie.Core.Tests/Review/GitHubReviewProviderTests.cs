@@ -55,6 +55,12 @@ public sealed class GitHubReviewProviderTests {
 	public void ApiBase_PicksPublicOrEnterprise(string host, string expected) =>
 		Assert.Equal(expected, GitHubReviewProvider.ApiBase(host));
 
+	[Theory]
+	[InlineData("github.com", "owner", "repo", "https://github.com/owner/repo/pull/")]
+	[InlineData("github.example.com", "org", "app", "https://github.example.com/org/app/pull/")]
+	public void WebRefUrlBase_BuildsForgePullPrefixFromHost(string host, string owner, string name, string expected) =>
+		Assert.Equal(expected, GitHubReviewProvider.WebRefUrlBase(new RepoRef(host, owner, name)));
+
 	[Fact]
 	public void ParseComments_MapsFieldsAndSideAndReply() {
 		string json = """

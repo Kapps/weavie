@@ -16,6 +16,12 @@ vi.mock("../bridge", () => ({
   isBrowserHostedShell: () => browserShell.value,
 }));
 
+// The active session's forge ref-link prefix (null = origin isn't a forge repo, so #N doesn't linkify).
+const refPrefix = vi.hoisted(() => ({ value: null as string | null }));
+vi.mock("./ref-link-store", () => ({
+  refLinkPrefix: () => refPrefix.value,
+}));
+
 const { wireTerminalLinks } = await import("./terminal-links");
 
 // A minimal xterm stand-in over an ordered set of buffer rows. Each row carries isWrapped (true = a soft-wrap
@@ -70,6 +76,7 @@ beforeEach(() => {
   posted.length = 0;
   postedLocal.length = 0;
   browserShell.value = false;
+  refPrefix.value = null;
 });
 
 describe("auto-link provider", () => {
@@ -216,6 +223,65 @@ describe("auto-link provider", () => {
 
   it("returns no links for a plain line", () => {
     expect(oneLine("just some prose here").provide()).toEqual([]);
+  });
+});
+
+describe("issue/PR references (#N)", () => {
+  const PREFIX = "https://github.com/Kapps/weavie/pull/";
+
+  it("links #123 and opens the forge page (prefix + number) via the LOCAL host", () => {
+    refPrefix.value = PREFIX;
+    const { provide } = oneLine("opened PR #123 for review");
+    const links = provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("#123");
+    links[0]?.activate({ button: 0 } as MouseEvent, "#123");
+    expect(postedLocal).toContainEqual({ type: "open-url", url: `${PREFIX}123` });
+  });
+
+  it("opens a ref via window.open in a browser-served shell", () => {
+    refPrefix.value = PREFIX;
+    browserShell.value = true;
+    const open = vi.fn();
+    vi.stubGlobal("window", { open });
+    oneLine("see #7 now")
+      .provide()[0]
+      ?.activate({ button: 0 } as MouseEvent, "#7");
+    expect(open).toHaveBeenCalledWith(`${PREFIX}7`, "_blank", "noopener");
+    vi.unstubAllGlobals();
+  });
+
+  it("does not link #N when origin isn't a forge repo (no prefix pushed)", () => {
+    refPrefix.value = null;
+    expect(oneLine("opened PR #123 now").provide()).toEqual([]);
+  });
+
+  it("does not link #0, an embedded #, an HTML entity, or a spaced heading", () => {
+    refPrefix.value = PREFIX;
+    expect(oneLine("nothing at #0 here").provide()).toEqual([]);
+    expect(oneLine("commit abc#123 sha").provide()).toEqual([]);
+    expect(oneLine("entity &#123; there").provide()).toEqual([]);
+    expect(oneLine("heading # 123 spaced").provide()).toEqual([]);
+  });
+
+  it("does not re-link a #anchor already claimed inside a URL", () => {
+    refPrefix.value = PREFIX;
+    const links = oneLine("see https://example.com/#123 now").provide();
+    expect(links).toHaveLength(1);
+    expect(links[0]?.text).toBe("https://example.com/#123");
+  });
+
+  it("does not track a #N ref as a hoverable URL (no open-in menu)", () => {
+    refPrefix.value = PREFIX;
+    expect(oneLine("PR #5 here").provide()[0]?.hover).toBeUndefined();
+  });
+
+  it("does not open a #N ref on a non-primary (right) click", () => {
+    refPrefix.value = PREFIX;
+    oneLine("PR #5 here")
+      .provide()[0]
+      ?.activate({ button: 2 } as MouseEvent, "#5");
+    expect(postedLocal).toEqual([]);
   });
 });
 

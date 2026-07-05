@@ -21,4 +21,12 @@ public interface IPullRequestProvider {
 	/// pasted URL / a picked search result resolves its branch refs at open time.
 	/// </summary>
 	Task<PullRequestSummary?> GetAsync(RepoRef repo, int number, CancellationToken ct = default);
+
+	/// <summary>
+	/// The forge web-URL prefix a bare issue/PR number appends to (e.g. <c>https://github.com/owner/repo/pull/</c>),
+	/// so a terminal <c>#N</c> can link to its page. Built from the repo identity, not a forge API call, so it needs
+	/// no credential. GitHub's <c>/pull/N</c> resolves an issue too (it redirects), so one form covers both; a forge
+	/// that separates issues from pull requests would need a richer contract than a bare number can carry.
+	/// </summary>
+	string RefUrlBase(RepoRef repo);
 }

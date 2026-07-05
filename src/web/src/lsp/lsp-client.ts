@@ -155,6 +155,12 @@ function describeError(err: unknown): string {
   return err instanceof Error ? err.message : String(err);
 }
 
+// Drop a server's start guard and teardown in lockstep, so `started` and `clients` never disagree on liveness.
+function forget(id: string): void {
+  started.delete(id);
+  clients.delete(id);
+}
+
 function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0): void {
   const channelId = `lsp${++channelSeq}`;
   const gen = generation;
@@ -187,14 +193,12 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
       return;
     }
     if (!hasOpenDocumentFor(server)) {
-      started.delete(server.id); // no document needs it — let a future open restart it
-      clients.delete(server.id);
+      forget(server.id); // no document needs it — let a future open restart it
       return;
     }
     const nextAttempt = openedAt > 0 && Date.now() - openedAt > HEALTHY_UPTIME_MS ? 1 : attempt + 1;
     if (nextAttempt > MAX_RECONNECT_ATTEMPTS) {
-      started.delete(server.id);
-      clients.delete(server.id);
+      forget(server.id);
       log(
         "error",
         `lsp: ${server.id} gave up after ${MAX_RECONNECT_ATTEMPTS} reconnects (${reason})`,
@@ -216,10 +220,15 @@ function connect(config: WeavieLspConfig, server: WeavieLspServer, attempt = 0):
       `lsp: ${server.id} ${reason}; reconnecting in ${delayMs}ms (attempt ${nextAttempt})`,
     );
     setTimeout(() => {
-      if (gen === generation && hasOpenDocumentFor(server)) {
+      // Superseded (a switch/teardown while pending): the current `started`/`clients` entries now belong to a
+      // newer live client — stand down, else deleting `started` lets the next open spawn a duplicate client.
+      if (torn || gen !== generation) {
+        return;
+      }
+      if (hasOpenDocumentFor(server)) {
         connect(config, server, nextAttempt); // stays in `started` across the retry
       } else {
-        started.delete(server.id);
+        forget(server.id); // no document needs it — let a future open restart it
       }
     }, delayMs);
   };

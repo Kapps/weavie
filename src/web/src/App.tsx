@@ -62,6 +62,7 @@ import {
   surfacePostUpdateNotice,
   type UpdateHold,
   updateHolds,
+  updatePending,
   updateRestarting,
 } from "./chrome/update-store";
 import { writeClipboard } from "./clipboard";
@@ -719,6 +720,15 @@ export default function App(): JSX.Element {
   };
   const updateHoldText = (hold: UpdateHold): string =>
     `${hold.session}: ${holdReasonText[hold.reason]}`;
+  // The pending-update indicator rests as a corner chip; clicking expands it. Collapse when the episode
+  // genuinely ends (not on a reconnect's transient holds clear) so each new update starts collapsed but
+  // an open card survives a reconnect. The signal outlives the Show's unmount, hence the explicit reset.
+  const [updateExpanded, setUpdateExpanded] = createSignal(false);
+  createEffect(() => {
+    if (!updatePending()) {
+      setUpdateExpanded(false);
+    }
+  });
 
   // When the browser is open and the active session's root listing hasn't loaded, request it. Keyed on
   // indexRoot() (the ACTIVE session's worktree, re-pushed on a switch), so the browser follows the session.
@@ -1185,20 +1195,52 @@ export default function App(): JSX.Element {
           </Show>
           <Show when={!updateRestarting() && updateHolds()} keyed>
             {(holds) => (
-              <output class="update-banner">
-                <span>
-                  Update pending — waiting on {holds.map(updateHoldText).join(", ")}. Applying it
-                  restarts the whole workspace: every session briefly reloads and returns as it was
-                  (conversations are kept); background shell jobs are terminated.
-                </span>
-                <button
-                  type="button"
-                  title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
-                  onClick={() => void dispatchCommand(CommandIds.restartForUpdate)}
-                >
-                  Restart Now{keyHint(CommandIds.restartForUpdate)}
-                </button>
-              </output>
+              <Show
+                when={updateExpanded()}
+                fallback={
+                  <button
+                    type="button"
+                    class="update-chip"
+                    title="Update ready — applies when your sessions go idle. Click for details."
+                    onClick={() => setUpdateExpanded(true)}
+                  >
+                    <span class="update-chip-glyph" aria-hidden="true">
+                      ⟳
+                    </span>
+                    Update ready
+                  </button>
+                }
+              >
+                <output class="update-card">
+                  <div class="update-card-head">
+                    <span class="update-card-title">Update ready</span>
+                    <button
+                      type="button"
+                      class="update-card-collapse"
+                      title="Collapse"
+                      aria-label="Collapse update details"
+                      onClick={() => setUpdateExpanded(false)}
+                    >
+                      –
+                    </button>
+                  </div>
+                  <span class="update-card-body">
+                    Applies on its own once your sessions go idle. Restarting now reloads every
+                    session (conversations are kept) and ends background shell jobs.
+                  </span>
+                  <ul class="update-card-holds">
+                    <For each={holds}>{(hold) => <li>{updateHoldText(hold)}</li>}</For>
+                  </ul>
+                  <button
+                    type="button"
+                    class="update-card-restart"
+                    title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
+                    onClick={() => void dispatchCommand(CommandIds.restartForUpdate)}
+                  >
+                    Restart Now{keyHint(CommandIds.restartForUpdate)}
+                  </button>
+                </output>
+              </Show>
             )}
           </Show>
         </div>

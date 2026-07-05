@@ -34,11 +34,12 @@ const deliver = (message: HostMsg): void => {
 
 describe("update-store", () => {
   beforeEach(() => {
-    reload.mockClear();
-    notifySpy.mockClear();
     session.clear();
-    // Reset by simulating a fresh ready cycle on the same build (no restart was in flight).
+    // Clean slate: a restart-in-flight returning on the same build (a rollback) clears the holds, the
+    // restarting flag, AND the episode-pending latch — the one message path that resets all three.
+    deliver({ type: "update-restarting" });
     deliver({ type: "host-info", buildNumber: "0.1.100" });
+    reload.mockClear();
     notifySpy.mockClear();
   });
 
@@ -57,8 +58,36 @@ describe("update-store", () => {
     expect(store.updateRestarting()).toBe(true);
   });
 
+  it("announces once when an update first stages, then refreshes holds silently", () => {
+    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+    expect(notifySpy).toHaveBeenCalledWith(
+      "info",
+      expect.stringContaining("Update ready"),
+      expect.any(String),
+    );
+
+    // A changed hold set while still pending must not re-toast.
+    deliver({ type: "update-pending", holds: [{ session: "loop", reason: "waiting-on-task" }] });
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+  });
+
+  it("announces only once across a mid-drain reconnect (host-info transiently clears holds)", () => {
+    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+
+    // A reconnect: the host answers `ready` with host-info (nulling holds) then re-pushes the pending
+    // state. The episode latch must survive that transient clear so the re-push does not re-announce.
+    deliver({ type: "host-info", buildNumber: "0.1.100" });
+    expect(store.updateHolds()).toBeNull();
+    deliver({ type: "update-pending", holds: [{ session: "main", reason: "working" }] });
+    expect(store.updatePending()).toBe(true);
+    expect(notifySpy).toHaveBeenCalledTimes(1);
+  });
+
   it("clears drain state on a same-build ready cycle without a restart in flight", () => {
     deliver({ type: "update-pending", holds: [{ session: "main", reason: "shell-job" }] });
+    notifySpy.mockClear(); // ignore the first-pending toast; this asserts the clear path itself is silent
 
     deliver({ type: "host-info", buildNumber: "0.1.100" });
     expect(store.updateHolds()).toBeNull();

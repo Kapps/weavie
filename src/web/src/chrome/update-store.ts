@@ -10,14 +10,27 @@ export type UpdateHold = {
 
 // The reloaded page's only memory that an update just landed (set right before the forced reload).
 const UPDATED_KEY = "weavie-updated-to";
+// Stable key for the "update ready" toast so a re-pushed pending (reconnect, changed holds) can't stack a row.
+const UPDATE_TOAST_KEY = "weavie-update-ready";
 
 // Active-backend drain state (top-level signals so they survive HMR). `holds` is null when no update
-// is pending; `restarting` flips on the commit push and drives the blocking overlay.
+// is pending; `restarting` flips on the commit push and drives the blocking overlay; `pending` is the
+// episode latch that gates the once-per-episode announce (see `updatePending`).
 const [holds, setHolds] = createSignal<UpdateHold[] | null>(null);
 const [restarting, setRestarting] = createSignal(false);
+const [pending, setPending] = createSignal(false);
 
 onHostMessage((message) => {
   if (message.type === "update-pending") {
+    // Announce once per episode; a re-pushed pending (reconnect, changed holds) only refreshes them.
+    if (!pending()) {
+      setPending(true);
+      notify(
+        "info",
+        "Update ready — it'll apply on its own once your sessions go idle.",
+        UPDATE_TOAST_KEY,
+      );
+    }
     setHolds(message.holds);
     setRestarting(false);
   } else if (message.type === "update-restarting") {
@@ -34,7 +47,9 @@ onHostMessage((message) => {
     }
     if (restarting()) {
       // We were told a restart was applying an update, but the worker came back on the same build —
-      // it was rolled back (or re-served the old build). The user must hear that, not infer it.
+      // it was rolled back (or re-served the old build). The user must hear that, not infer it. The
+      // episode is over, so drop the latch: a future update announces again.
+      setPending(false);
       notify(
         "warn",
         "The update didn't apply — the worker is back on the same build (it may have been rolled back). Check the runner page.",
@@ -59,6 +74,13 @@ export function surfacePostUpdateNotice(): void {
 
 /** What's holding the pending update, or null when no update is pending. */
 export const updateHolds = holds;
+
+/**
+ * True for the whole update episode — steady across a mid-drain reconnect's transient `holds` clear,
+ * unlike `updateHolds`. Drives "start the card collapsed for each new episode" so a reconnect doesn't
+ * collapse a card the user opened.
+ */
+export const updatePending = pending;
 
 /** True from the restart commit until the new worker's first ready cycle (or a reload). */
 export const updateRestarting = restarting;

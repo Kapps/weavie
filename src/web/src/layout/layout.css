@@ -49,36 +49,90 @@
   }
 }
 
-/* Update-pending pill (below the reconnect banner's spot): names what holds the pending update; the
-   button is the user's explicit restart-now — it kills running shell jobs and is never automatic. */
-.update-banner {
+/* Pending-update indicator: a quiet corner chip at rest (the update auto-applies once sessions go idle),
+   expanding in place to the card with the holds + the explicit Restart Now (which kills shell jobs). */
+.update-chip {
   position: absolute;
-  top: 3em;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 1em;
+  bottom: 1em;
+  z-index: 20;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4em;
+  padding: 0.35em 0.75em;
+  border: 1px solid var(--busy);
+  border-radius: 999px;
+  background: var(--bar);
+  color: var(--fg);
+  font-size: 0.8em;
+  cursor: pointer;
+  box-shadow: 0 2px 10px rgb(0 0 0 / 35%);
+}
+.update-chip:hover {
+  background: color-mix(in srgb, var(--busy) 15%, var(--bar));
+}
+.update-chip-glyph {
+  color: var(--busy);
+}
+
+.update-card {
+  position: absolute;
+  right: 1em;
+  bottom: 1em;
   z-index: 20;
   display: flex;
-  align-items: center;
-  gap: 0.75em;
-  max-width: min(80%, 46em);
-  padding: 0.45em 0.85em;
+  flex-direction: column;
+  gap: 0.5em;
+  width: min(90%, 26em);
+  padding: 0.7em 0.85em;
   border: 1px solid var(--busy);
-  border-radius: 6px;
+  border-radius: 8px;
   background: var(--bar);
   color: var(--fg);
   font-size: 0.85em;
-  box-shadow: 0 4px 18px rgb(0 0 0 / 45%);
+  box-shadow: 0 6px 22px rgb(0 0 0 / 50%);
 }
-.update-banner button {
-  flex: 0 0 auto;
-  padding: 0.25em 0.7em;
+.update-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.update-card-title {
+  font-weight: 600;
+}
+.update-card-collapse {
+  padding: 0 0.45em;
+  border: none;
+  background: transparent;
+  color: var(--dim);
+  font-size: 1.1em;
+  line-height: 1;
+  cursor: pointer;
+}
+.update-card-collapse:hover {
+  color: var(--fg);
+}
+.update-card-body {
+  color: var(--dim);
+  line-height: 1.35;
+}
+.update-card-holds {
+  margin: 0;
+  padding-left: 1.1em;
+  max-height: 6em;
+  overflow-y: auto;
+  color: var(--dim);
+}
+.update-card-restart {
+  align-self: flex-start;
+  padding: 0.3em 0.8em;
   border: 1px solid var(--busy);
-  border-radius: 5px;
+  border-radius: 6px;
   background: transparent;
   color: var(--fg);
   cursor: pointer;
 }
-.update-banner button:hover {
+.update-card-restart:hover {
   background: color-mix(in srgb, var(--busy) 20%, transparent);
 }
 

@@ -75,21 +75,21 @@ public sealed class SettingsStoreTests : IDisposable {
 		var registry = ScalarRegistry();
 
 		// File value, no env.
-		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile)) {
 			Assert.Equal("from-file", store.Resolve("t.str").Value);
 			Assert.Equal(SettingSource.UserFile, store.Resolve("t.str").Source);
 		}
 
 		// Env wins over file.
 		using (EnvScope("WEAVIE_T_STR", "from-env"))
-		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile)) {
 			Assert.Equal("from-env", store.Resolve("t.str").Value);
 			Assert.Equal(SettingSource.Environment, store.Resolve("t.str").Source);
 		}
 
 		// No file key, no env -> default.
 		File.WriteAllText(FilePath, "");
-		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile)) {
 			Assert.Equal("fallback", store.Resolve("t.str").Value);
 			Assert.Equal(SettingSource.Default, store.Resolve("t.str").Source);
 		}
@@ -98,7 +98,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void Coercion_FromFile_ProducesTypedValues() {
 		File.WriteAllText(FilePath, "t.str = \"hello\"\nt.flag = true\nt.num = 42\n");
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 
 		Assert.Equal("hello", store.Resolve("t.str").Value);
 		Assert.Equal(true, store.Resolve("t.flag").Value);
@@ -109,7 +109,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Coercion_FromEnv_ParsesBoolAndIntCaseInsensitively() {
 		using (EnvScope("WEAVIE_T_FLAG", "TRUE"))
 		using (EnvScope("WEAVIE_T_NUM", "-17")) {
-			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 			Assert.Equal(true, store.Resolve("t.flag").Value);
 			Assert.Equal(-17L, store.Resolve("t.num").Value);
 		}
@@ -119,7 +119,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Coercion_BadEnv_IsIgnoredLoudlyAndFallsBack() {
 		var logged = new List<string>();
 		using (EnvScope("WEAVIE_T_NUM", "not-a-number")) {
-			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 			store.Log += logged.Add;
 			Assert.Equal(0L, store.Resolve("t.num").Value); // default
 			Assert.Equal(SettingSource.Default, store.Resolve("t.num").Source);
@@ -130,7 +130,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public void Set_WritesValue_AndRaisesChange() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		var changes = new List<SettingChange>();
 		store.SettingChanged += changes.Add;
 
@@ -147,7 +147,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public void Set_InjectsDescriptionComment_AboveNewKey() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.Set("t.str", Json("\"x\""));
 
 		string text = File.ReadAllText(FilePath);
@@ -167,7 +167,7 @@ public sealed class SettingsStoreTests : IDisposable {
 			severity = "error"
 			""";
 		File.WriteAllText(FilePath, original);
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("t.str", Json("\"new\""));
 
@@ -183,7 +183,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Set_PathKind_WritesLiteralStringForWindowsPath() {
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition { Key = "claude.path", Kind = SettingKind.Path, Description = "claude" });
-		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("claude.path", Json("\"C:\\\\tools\\\\claude.exe\""));
 
@@ -191,7 +191,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		Assert.Contains("'C:\\tools\\claude.exe'", text, StringComparison.Ordinal); // single-quoted literal, no escaping
 		Assert.DoesNotContain("\\\\", text, StringComparison.Ordinal);
 		// Round-trips through a fresh store.
-		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Equal(@"C:\tools\claude.exe", reopened.Resolve("claude.path").Value);
 	}
 
@@ -199,19 +199,19 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Set_ThreeSegmentKey_WritesNestedDottedKey_AndRoundTrips() {
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Description = "editor font size", Default = 0L });
-		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("editor.font.size", Json("14"));
 
 		Assert.Contains("editor.font.size = 14", File.ReadAllText(FilePath), StringComparison.Ordinal);
 		// Round-trips through a fresh store, exercising the nested-table read path.
-		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var reopened = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Equal(14L, reopened.Resolve("editor.font.size").Value);
 	}
 
 	[Fact]
 	public void Set_AtomicWrite_LeavesNoTempFileAndParses() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.Set("t.num", Json("123"));
 
 		Assert.True(File.Exists(FilePath));
@@ -221,13 +221,13 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public void Set_UnknownKey_Throws() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Throws<UnknownSettingException>(() => store.Set("does.not.exist", Json("\"x\"")));
 	}
 
 	[Fact]
 	public void Set_KindMismatch_Throws() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Throws<SettingValidationException>(() => store.Set("t.flag", Json("\"not-a-bool\"")));
 		Assert.Throws<SettingValidationException>(() => store.Set("t.num", Json("\"NaN\"")));
 	}
@@ -236,7 +236,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Set_StringifiedScalars_AreCoerced_LikeEnvVars() {
 		// LLM tool calls routinely stringify scalars; the MCP boundary tolerates numeric/bool strings
 		// (like the env-var path) but still rejects genuinely non-numeric/non-bool strings.
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("t.num", Json("\"16\""));   // stringified int
 		Assert.Equal(16L, store.Resolve("t.num").Value);
@@ -254,7 +254,7 @@ public sealed class SettingsStoreTests : IDisposable {
 			Description = "color theme",
 			AllowedValues = ["dark", "light"],
 		});
-		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("theme", Json("\"dark\""));            // allowed
 		Assert.Equal("dark", store.Resolve("theme").Value);
@@ -273,7 +273,7 @@ public sealed class SettingsStoreTests : IDisposable {
 				? ValidationResult.Success
 				: ValidationResult.Failure("must be even"),
 		});
-		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Set("t.even", Json("4"));
 		Assert.Throws<SettingValidationException>(() => store.Set("t.even", Json("5")));
@@ -285,7 +285,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(FilePath, broken);
 		var logged = new List<string>();
 
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.Log += logged.Add;
 
 		Assert.True(store.IsMalformed);
@@ -297,7 +297,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void EnvShadow_IsReported_AndEffectiveValueUnchanged() {
 		using (EnvScope("WEAVIE_T_STR", "env-wins")) {
-			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 			var changes = new List<SettingChange>();
 			store.SettingChanged += changes.Add;
 
@@ -314,7 +314,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void Clear_RemovesOverride_FallsBackToDefault_AndRaisesChange() {
 		File.WriteAllText(FilePath, "t.str = \"from-file\"\n");
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Equal("from-file", store.Resolve("t.str").Value);
 		var changes = new List<SettingChange>();
 		store.SettingChanged += changes.Add;
@@ -333,7 +333,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public void Clear_NoOverride_IsNoOp_AndRaisesNoChange() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		var changes = new List<SettingChange>();
 		store.SettingChanged += changes.Add;
 
@@ -350,7 +350,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(FilePath, "[editor.font]\nsize = 22\n");
 		var registry = new SettingsRegistry();
 		registry.Register(new SettingDefinition { Key = "editor.font.size", Kind = SettingKind.Int, Description = "size", Default = 0L });
-		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Equal(22L, store.Resolve("editor.font.size").Value);
 
 		var result = store.Clear("editor.font.size");
@@ -370,7 +370,7 @@ public sealed class SettingsStoreTests : IDisposable {
 			severity = "error"
 			""";
 		File.WriteAllText(FilePath, original);
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 
 		store.Clear("t.num");
 
@@ -387,7 +387,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Clear_EnvShadow_IsReported_AndEffectiveValueUnchanged() {
 		File.WriteAllText(FilePath, "t.str = \"file-value\"\n");
 		using (EnvScope("WEAVIE_T_STR", "env-wins")) {
-			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+			using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 			var changes = new List<SettingChange>();
 			store.SettingChanged += changes.Add;
 
@@ -403,7 +403,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public void Clear_UnknownKey_Throws() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		Assert.Throws<UnknownSettingException>(() => store.Clear("does.not.exist"));
 	}
 
@@ -411,7 +411,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	public void Clear_OnMalformedFile_Throws_NonDestructively() {
 		const string broken = "t.str = = oops\n[unterminated\n";
 		File.WriteAllText(FilePath, broken);
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 
 		Assert.True(store.IsMalformed);
 		Assert.Throws<SettingsFileMalformedException>(() => store.Clear("t.str"));
@@ -431,7 +431,7 @@ public sealed class SettingsStoreTests : IDisposable {
 			Apply = ApplyMode.Live,
 		});
 		File.WriteAllText(FilePath, "theme = \"light\"\n");
-		using var store = new SettingsStore(registry, FilePath, enableWatcher: false);
+		using var store = new SettingsStore(registry, FilePath, enableWatcher: false, WorkspaceFile);
 
 		using var doc = JsonDocument.Parse(store.BuildCatalogJson());
 		var entry = doc.RootElement.GetProperty("settings")[0];
@@ -447,7 +447,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public async Task Watcher_ExternalEdit_RaisesDiffedChange() {
 		File.WriteAllText(FilePath, "t.num = 1\n");
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
 		var signal = new TaskCompletionSource<SettingChange>(TaskCreationOptions.RunContinuationsAsynchronously);
 		store.Subscribe("t.num", c => signal.TrySetResult(c));
 
@@ -460,7 +460,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 	[Fact]
 	public async Task Watcher_DoesNotDoubleFire_OnSelfWrite() {
-		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true);
+		using var store = new SettingsStore(ScalarRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
 		int count = 0;
 		store.Subscribe("t.str", _ => Interlocked.Increment(ref count));
 
@@ -478,7 +478,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"from-workspace\"\n");
 
 		// Workspace file wins over user file.
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-workspace", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.WorkspaceFile, store.Resolve("t.wsstr", root).Source);
@@ -490,7 +490,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		// Env wins over everything.
 		using (EnvScope("WEAVIE_T_WSSTR", "from-env"))
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-env", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.Environment, store.Resolve("t.wsstr", root).Source);
@@ -498,7 +498,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		// No workspace value -> user file.
 		File.WriteAllText(WorkspaceFile(root), "");
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("from-user", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.UserFile, store.Resolve("t.wsstr", root).Source);
@@ -506,7 +506,7 @@ public sealed class SettingsStoreTests : IDisposable {
 
 		// No workspace, no user -> default.
 		File.WriteAllText(FilePath, "");
-		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false)) {
+		using (var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile)) {
 			store.RegisterWorkspace(root);
 			Assert.Equal("ws-default", store.Resolve("t.wsstr", root).Value);
 			Assert.Equal(SettingSource.Default, store.Resolve("t.wsstr", root).Source);
@@ -516,7 +516,7 @@ public sealed class SettingsStoreTests : IDisposable {
 	[Fact]
 	public void Set_WorkspaceScopedKey_WithRoot_WritesWorkspaceFile_NotUserFile() {
 		string root = WorkspaceRoot;
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.RegisterWorkspace(root);
 
 		var result = store.Set("t.wsstr", Json("\"repo-value\""), root);
@@ -531,9 +531,25 @@ public sealed class SettingsStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Set_WorkspaceScopedKey_UsesTheInjectedOverlay_NeverUnderTheRepo() {
+		string root = WorkspaceRoot;
+		string overlay = Path.Combine(_dir, "out-of-repo", "settings.toml");
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, _ => overlay);
+		store.RegisterWorkspace(root);
+
+		store.Set("t.wsstr", Json("\"out-of-repo\""), root);
+
+		Assert.True(File.Exists(overlay));
+		Assert.Contains("t.wsstr = \"out-of-repo\"", File.ReadAllText(overlay), StringComparison.Ordinal);
+		Assert.Equal("out-of-repo", store.Resolve("t.wsstr", root).Value);
+		// The overlay lives wherever the resolver says — never a fixed .weavie under the workspace root.
+		Assert.False(File.Exists(Path.Combine(root, ".weavie", "settings.toml")));
+	}
+
+	[Fact]
 	public void Set_UserScopedKey_WithRoot_WritesUserFile_IgnoringWorkspace() {
 		string root = WorkspaceRoot;
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.RegisterWorkspace(root);
 
 		store.Set("t.userstr", Json("\"u\""), root);
@@ -547,7 +563,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		string root = WorkspaceRoot;
 		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
 		File.WriteAllText(WorkspaceFile(root), "t.wsstr = \"one\"\n");
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: true);
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: true, WorkspaceFile);
 		store.RegisterWorkspace(root);
 		var signal = new TaskCompletionSource<SettingChange>(TaskCreationOptions.RunContinuationsAsynchronously);
 		store.Subscribe("t.wsstr", c => signal.TrySetResult(c));
@@ -566,7 +582,7 @@ public sealed class SettingsStoreTests : IDisposable {
 		Directory.CreateDirectory(Path.GetDirectoryName(WorkspaceFile(root))!);
 		File.WriteAllText(WorkspaceFile(root), "t.wsstr = = broken\n[unterminated\n");
 		File.WriteAllText(FilePath, "t.wsstr = \"from-user\"\n");
-		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false);
+		using var store = new SettingsStore(ScopedRegistry(), FilePath, enableWatcher: false, WorkspaceFile);
 		store.RegisterWorkspace(root);
 
 		Assert.True(store.IsMalformed);

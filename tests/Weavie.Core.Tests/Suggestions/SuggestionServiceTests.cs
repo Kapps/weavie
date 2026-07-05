@@ -179,12 +179,12 @@ public sealed class SuggestionServiceTests : IDisposable {
 	}
 
 	private SettingsStore EmptySettings() =>
-		new(CoreSettings.CreateRegistry(), Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false);
+		new(CoreSettings.CreateRegistry(), Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
 
 	private SettingsStore SettingsWith(string toml) {
 		string path = Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml");
 		File.WriteAllText(path, toml + "\n");
-		return new SettingsStore(CoreSettings.CreateRegistry(), path, enableWatcher: false);
+		return new SettingsStore(CoreSettings.CreateRegistry(), path, enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
 	}
 
 	// Generous probe timeout for the fast in-memory fs: the scan always wins the race, so the manifest result is

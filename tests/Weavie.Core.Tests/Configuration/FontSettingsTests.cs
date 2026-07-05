@@ -33,7 +33,7 @@ public sealed class FontSettingsTests : IDisposable {
 		return registry;
 	}
 
-	private SettingsStore NewStore() => new(Registry(), FilePath, enableWatcher: false);
+	private SettingsStore NewStore() => new(Registry(), FilePath, enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
 
 	// The registered global default size, read from resolution instead of hardcoded — a change to the default
 	// const ripples here automatically, keeping these tests about inheritance rather than a magic number.

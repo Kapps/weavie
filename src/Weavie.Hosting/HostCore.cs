@@ -116,7 +116,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		WorkspaceRoot = workspaceRoot;
 		Id = WorkspaceId.ForPath(workspaceRoot);
 
-		// Back per-workspace settings (worktree.setupCommand, test.profile) from this repo's .weavie/settings.toml.
+		// Back per-workspace settings (worktree.setupCommand, test.profile) from the workspace's out-of-repo overlay.
 		// On single-workspace hosts the store gets one workspace; on Windows the shared store gets one per window.
 		_settings.RegisterWorkspace(workspaceRoot);
 

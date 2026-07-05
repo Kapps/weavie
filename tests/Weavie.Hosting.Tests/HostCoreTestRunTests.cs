@@ -1,4 +1,6 @@
 using System.Text.Json;
+using Weavie.Core;
+using Weavie.Core.Workspaces;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -38,7 +40,7 @@ public sealed class HostCoreTestRunTests {
 
 	[Fact]
 	public async Task NoProfile_FailsLoudly_AndWritesNothing() {
-		await using var host = await TestHost.StartAsync(); // no .weavie/settings.toml
+		await using var host = await TestHost.StartAsync(); // no test profile configured
 		string file = Path.Combine(host.RepoRoot, "a.test.ts");
 		host.Core.ActiveSessionForTest()!.Shell.EnsureStarted();
 		var shell = Assert.Single(host.Platform.NoopLauncher.Created);
@@ -77,8 +79,10 @@ public sealed class HostCoreTestRunTests {
 	}
 
 	private static void WriteProfile(string repo, string profileLine) {
-		Directory.CreateDirectory(Path.Combine(repo, ".weavie"));
-		File.WriteAllText(Path.Combine(repo, ".weavie", "settings.toml"), profileLine);
+		// Workspace settings live out-of-repo, keyed by path (WEAVIE_ROOT is redirected under the test root).
+		string overlay = WeaviePaths.WorkspaceSettingsFile(WorkspaceId.ForPath(repo));
+		Directory.CreateDirectory(Path.GetDirectoryName(overlay)!);
+		File.WriteAllText(overlay, profileLine);
 	}
 
 	// Invokes a Core command with a token and returns the posted command-result (synchronous: the handlers and

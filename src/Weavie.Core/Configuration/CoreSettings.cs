@@ -1,3 +1,5 @@
+using Weavie.Core.Workspaces;
+
 namespace Weavie.Core.Configuration;
 
 /// <summary>
@@ -14,7 +16,7 @@ public static class CoreSettings {
 
 	/// <summary>Creates a store backed by the core registry over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>).</summary>
 	public static SettingsStore CreateStore(string? filePath, bool enableWatcher) =>
-		new(CreateRegistry(), filePath, enableWatcher);
+		new(CreateRegistry(), filePath, enableWatcher, root => WeaviePaths.WorkspaceSettingsFile(WorkspaceId.ForPath(root)));
 
 	/// <summary>Registers the built-in settings (workspace, shell, claude path, worktree commands, fonts, editor, theme, diagnostics) into <paramref name="registry"/>.</summary>
 	public static void Register(SettingsRegistry registry) {
@@ -122,7 +124,7 @@ public static class CoreSettings {
 			Aliases = ["worktree setup", "post-create command", "install deps on new session",
 				"bootstrap worktree", "provision worktree", "worktree install command"],
 			Apply = ApplyMode.NextSession,
-			// Per-repo: stored in the workspace's .weavie/settings.toml (reads fall back to the user file).
+			// Per-workspace: stored out-of-repo in ~/.weavie/workspaces/<id>/settings.toml (reads fall back to the user file).
 			Scope = SettingScope.Workspace,
 			Default = "",
 		});

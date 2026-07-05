@@ -180,7 +180,7 @@ TUI treats it as one paste rather than submitting line-by-line.
 Claude reads the repo, proposes, **and asks the user to confirm in the Claude pane** — the confirmation
 is conversational, which is exactly the desired "Claude figures it out and asks you to confirm". On
 confirmation it persists each value through the existing `setSetting` MCP tool (routed to the workspace's
-`.weavie/settings.toml`); the existing `ShellWorktreeProvisioner` picks up the setup command on the next
+out-of-repo overlay, `~/.weavie/workspaces/<id>/settings.toml`); the existing `ShellWorktreeProvisioner` picks up the setup command on the next
 worktree create, and the run lenses pick up the test profile. No new save path. Because the values are
 now set, the next `Evaluate()` (via `SettingChanged`) drops the card.
 

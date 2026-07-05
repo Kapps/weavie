@@ -57,9 +57,12 @@ spec introduces a user-level settings system that is:
 - **`weavie config` CLI verb.** Wanted eventually, but there's no `weavie` on PATH today (the app
   is a GUI exe). The CLI will be a thin wrapper over the same Core store, so deferring it costs
   nothing architecturally. MCP is the only editing surface in this milestone.
-- **Workspace/project-level settings** (`.weavie/settings.toml` in the repo). Now built: a setting
+- **Workspace/project-level settings** (a per-workspace `settings.toml`). Now built: a setting
   declares `Scope = Workspace` and resolves env > workspace file > user file > default, keyed per
-  workspace. See [test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).
+  workspace. Stored **out of the repo** under `~/.weavie/workspaces/<id>/settings.toml` (never in
+  source control), so a cloned repo can't ship an auto-run setup command; committed in-repo settings
+  behind a trust prompt are a deliberate later feature. See
+  [test-running-and-workspace-setup.md](test-running-and-workspace-setup.md).
 - **In-app settings UI** (web panel over the bridge). Later.
 - **Secrets.** Settings are plaintext. API keys / tokens do **not** belong here; a separate
   secret-storage mechanism is out of scope.
@@ -78,6 +81,13 @@ Linux. Chosen over OS-standard config dirs (`%APPDATA%`, `~/Library/Application 
 `$XDG_CONFIG_HOME`) because it is trivial to `cd ~/.weavie` and hand-edit, identical everywhere, and
 mirrors `~/.claude` — the tool Weavie weaves. The `~/.weavie/` directory is created on first write
 and is the natural home for future per-user state; this spec only defines `settings.toml`.
+
+**Workspace overlay.** `Scope = Workspace` keys (e.g. `test.profile`, `worktree.setupCommand`) don't
+live in the repo — they persist to a per-workspace file, `~/.weavie/workspaces/<id>/settings.toml`
+(`<id>` = `WorkspaceId.ForPath(root)`, the same keying as terminal logs and pasted images). Keeping
+them out of source control means configuring a workspace never touches the repo, and an untrusted
+clone can't inject a committed, auto-executed setup command. `SettingsStore` takes the root→file
+mapping as an injected resolver so tests stay off a real `~/.weavie`.
 
 ## File format — TOML
 

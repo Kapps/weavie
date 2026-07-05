@@ -57,8 +57,8 @@ public static class WorkspaceSetupPrompt {
 			   whole suite or a build to explore. Set `test.profile` to `[]` (explicitly) if this repo has no tests.
 
 			When you finish, report exactly which settings you wrote and their values, note that they are stored
-			per-repo in `.weavie/settings.toml`, and tell me I can re-run this setup any time with
-			`/mcp__weavie__setup-workspace` or by editing that file.
+			per-workspace in Weavie's own config outside the repo (so nothing is committed to source control), and
+			tell me I can re-run this setup any time with `/mcp__weavie__setup-workspace`.
 			""",
 	};
 }

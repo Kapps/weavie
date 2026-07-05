@@ -445,6 +445,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
+	// The primary workspace root (empty when none) — where a workspace-scoped write/clear is routed.
+	private string PrimaryWorkspaceRoot => _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty;
+
 	private async Task HandleSetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
 		string? key = args.GetStringOrNull("key");
@@ -459,7 +462,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			var result = settings.Set(key, valueElement);
+			// Route a workspace-scoped key (test.profile, worktree.*) to its out-of-repo overlay via the primary
+			// workspace root; SettingsStore ignores the root for user-scoped keys.
+			string root = PrimaryWorkspaceRoot;
+			var result = root.Length > 0 ? settings.Set(key, valueElement, root) : settings.Set(key, valueElement);
 			await SendToolTextAsync(ws, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
 			Emit($"setSetting {key} = {valueElement.GetRawText()}");
 		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
@@ -489,7 +495,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			var result = settings.Clear(key);
+			// Match setSetting's routing so a workspace override is cleared from its overlay, not the user file.
+			string root = PrimaryWorkspaceRoot;
+			var result = root.Length > 0 ? settings.Clear(key, root) : settings.Clear(key);
 			await SendToolTextAsync(ws, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
 			Emit($"clearSetting {key} (removed={result.Removed})");
 		} catch (Exception ex) when (ex is UnknownSettingException or SettingsFileMalformedException) {
@@ -651,7 +659,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 			}
 
 			writer.WriteEndArray();
-			writer.WriteString("rootPath", _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty);
+			writer.WriteString("rootPath", PrimaryWorkspaceRoot);
 			writer.WriteEndObject();
 		}
 

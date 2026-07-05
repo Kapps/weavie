@@ -702,7 +702,7 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	// A workspace-scoped write may have just created the .weavie directory, so try to attach its watcher now.
+	// A workspace-scoped write may have just created the overlay's directory, so try to attach its watcher now.
 	private void EnsureWatcherForLayerLocked(SettingDefinition definition, string? workspaceRoot) {
 		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
 			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)) {

@@ -221,11 +221,12 @@ public sealed partial class HostCore {
 		var registry = new WorktreeRegistry(new LocalFileSystem(), WeaviePaths.WorkspaceWorktreesFile(Id));
 		registry.Log += line => Console.WriteLine($"[worktrees] {line}");
 
-		// Runs worktree.setupCommand/teardownCommand around create/discard. The command strings are read
-		// live from settings; progress + results surface as toasts (and full output to the console).
+		// Runs worktree.setupCommand/teardownCommand around create/discard. The command strings are read live
+		// from settings, resolved against this workspace so its out-of-repo overlay is consulted (like test.profile);
+		// progress + results surface as toasts (and full output to the console).
 		var provisioner = new ShellWorktreeProvisioner(
-			() => _settings.GetString("worktree.setupCommand"),
-			() => _settings.GetString("worktree.teardownCommand"));
+			() => _settings.GetString("worktree.setupCommand", WorkspaceRoot),
+			() => _settings.GetString("worktree.teardownCommand", WorkspaceRoot));
 		provisioner.Starting += OnWorktreeCommandStarting;
 		provisioner.Finished += OnWorktreeCommandFinished;
 		_worktreeProvisioner = provisioner;

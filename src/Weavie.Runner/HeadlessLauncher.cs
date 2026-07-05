@@ -30,25 +30,33 @@ public sealed class HeadlessLauncher {
 	/// <summary>
 	/// Builds (does not start) a supervisor that keeps a headless worker for <paramref name="backend"/> alive
 	/// under <see cref="RestartPolicy.OnFailure"/>: a crash relaunches with backoff, a clean exit does not.
-	/// <paramref name="reallocatePort"/>, when not <c>null</c> (unpinned port), is called before every restart
-	/// past the first so a restart never retries the exact port that just failed to bind — <c>AllocatePort</c>'s
-	/// bind-then-release probe is inherently racy, and reusing a collided port would crash-loop forever on the
-	/// same address instead of recovering on the next attempt.
+	/// <paramref name="reallocatePort"/>, when not <c>null</c> (unpinned port), is called before a restart whose
+	/// PREVIOUS attempt logged a bind conflict (<c>AllocatePort</c>'s bind-then-release probe is inherently
+	/// racy) — so that specific restart doesn't retry the exact port that just failed to bind. Any other crash
+	/// restarts on the same port: a worker that had actually bound and was serving tabs must come back on the
+	/// same address, or every open tab's WebSocket reconnect (which retries a fixed URL, never re-resolves a
+	/// new port) would be stranded pointing at a dead port forever.
 	/// </summary>
 	public ProcessSupervisor BuildSupervisor(WorkspaceBackend backend, Func<int>? reallocatePort) {
 		ArgumentNullException.ThrowIfNull(backend);
 
 		ProcessSupervisor supervisor = null!;
 		Process? current = null;
+		bool addressInUse = false;
 
 		supervisor = new ProcessSupervisor(
 			name: "backend",
 			start: attempt => {
-				if (attempt > 0 && reallocatePort is not null) {
+				if (attempt > 0 && reallocatePort is not null && addressInUse) {
 					backend.Port = reallocatePort();
 				}
 
-				var process = Spawn(backend);
+				addressInUse = false;
+				var process = Spawn(backend, line => {
+					if (line.Contains("AddressInUseException", StringComparison.Ordinal)) {
+						addressInUse = true;
+					}
+				});
 				current = process;
 				// Capture this launch's process so a later restart's exit can't be misattributed.
 				process.Exited += (_, _) => supervisor.NotifyExited(SafeExitCode(process));
@@ -72,7 +80,10 @@ public sealed class HeadlessLauncher {
 		return supervisor;
 	}
 
-	private Process Spawn(WorkspaceBackend backend) {
+	// `onOutputLine` sees every stdout/stderr line (mirroring what's already printed to the console) so the
+	// caller can watch for a specific failure signature — e.g. a bind conflict — without a second read of the
+	// process output.
+	private Process Spawn(WorkspaceBackend backend, Action<string> onOutputLine) {
 		string workerPath = _workerPath();
 		bool isDll = workerPath.EndsWith(".dll", StringComparison.OrdinalIgnoreCase);
 		var info = new ProcessStartInfo {
@@ -99,9 +110,18 @@ public sealed class HeadlessLauncher {
 		info.ArgumentList.Add(backend.Token);
 
 		var process = new Process { StartInfo = info, EnableRaisingEvents = true };
-		process.OutputDataReceived += (_, e) => { if (e.Data is not null) { Console.WriteLine($"[backend] {e.Data}"); } };
-		process.ErrorDataReceived += (_, e) => { if (e.Data is not null) { Console.WriteLine($"[backend] {e.Data}"); } };
+		process.OutputDataReceived += (_, e) => Report(e.Data);
+		process.ErrorDataReceived += (_, e) => Report(e.Data);
 		return process;
+
+		void Report(string? data) {
+			if (data is null) {
+				return;
+			}
+
+			Console.WriteLine($"[backend] {data}");
+			onOutputLine(data);
+		}
 	}
 
 	private static int SafeExitCode(Process process) {

@@ -349,20 +349,6 @@ export function Omnibar(props: {
     ),
   );
 
-  // Live-preview the selected symbol in the real editor as the selection moves. The editor only reveals symbols in
-  // the file it's already showing (see previewSymbol), so this is a cheap in-place reveal — no debounce needed.
-  createEffect(
-    on([selected, symbolView], ([sel, rows]) => {
-      if (!open() || !symbolMode()) {
-        return;
-      }
-      const sym = rows[sel]?.sym;
-      if (sym !== undefined) {
-        props.symbols.preview(sym);
-      }
-    }),
-  );
-
   // Leaving symbol mode (deleting the @/#, or the omnibar closing, which resets the query) without committing
   // restores the editor to where the preview started.
   createEffect(
@@ -530,15 +516,29 @@ export function Omnibar(props: {
     }
   };
 
+  // Live-preview the selected symbol in the real editor — driven ONLY by explicit arrow navigation, never by
+  // opening the omnibar or typing to filter, so searching for a symbol never yanks the editor off the user's
+  // spot. The reveal is same-file only (see the editor's previewSymbol); Esc restores the pre-preview view.
+  const previewSelected = (): void => {
+    if (symbolMode()) {
+      const sym = symbolView()[selected()]?.sym;
+      if (sym !== undefined) {
+        props.symbols.preview(sym);
+      }
+    }
+  };
+
   const onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setSelected((i) => Math.min(i + 1, activeLen() - 1));
       scrollToSelected("nearest");
+      previewSelected();
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
       setSelected((i) => Math.max(i - 1, 0));
       scrollToSelected("nearest");
+      previewSelected();
     } else if (e.key === "ArrowRight" && treeMode()) {
       e.preventDefault();
       treeMoveLevel(1);

@@ -7,10 +7,11 @@ import * as monaco from "monaco-editor";
 import { formatKey } from "../commands/keybindings";
 import { dispatchCommand, findCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
+import { activeCodeEditor } from "../editor/vscode-services";
 import { currentWorkspaceRoot, onLanguageClientStarted } from "../lsp/lsp-client";
 import { globMatches } from "./glob";
 import { onTestProfileChanged, type TestRule, testRules } from "./test-profile";
-import { documentTestHits } from "./test-symbols";
+import { documentTestHits, innermostHitAt } from "./test-symbols";
 
 // An internal monaco command the lens click invokes; it forwards to the Core weavie.tests.run command.
 const LENS_COMMAND = "weavie.tests._runLens";
@@ -78,7 +79,9 @@ export function installTestLenses(): void {
 
 /** weavie.tests.runAtCursor: run the innermost test block containing the cursor (or the file if none). */
 export async function runTestAtCursor(): Promise<boolean> {
-  const editor = monaco.editor.getEditors().find((e) => e.hasTextFocus());
+  // Prefer the focused editor, but fall back to the active one so this runs from the palette too (there the
+  // omnibar input holds focus, not the editor) — acting on the editor's last cursor position.
+  const editor = monaco.editor.getEditors().find((e) => e.hasTextFocus()) ?? activeCodeEditor();
   const model = editor?.getModel();
   const position = editor?.getPosition();
   if (model == null || position == null) {
@@ -89,9 +92,7 @@ export async function runTestAtCursor(): Promise<boolean> {
     return false;
   }
   const hits = await documentTestHits(model, rule);
-  const innermost = hits
-    .filter((h) => rangeContains(h.fullRange, position))
-    .sort((a, b) => rangeArea(a.fullRange) - rangeArea(b.fullRange))[0];
+  const innermost = innermostHitAt(hits, position);
   if (innermost === undefined) {
     void dispatchCommand(CommandIds.runTests, { file: model.uri.fsPath });
     return true;
@@ -128,24 +129,4 @@ function relativePath(uri: monaco.Uri): string | undefined {
 function shortcut(commandId: string): string {
   const key = findCommand(commandId)?.keys[0];
   return key !== undefined ? ` (${formatKey(key)})` : "";
-}
-
-function rangeContains(
-  range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number },
-  position: monaco.Position,
-): boolean {
-  if (position.lineNumber < range.startLineNumber || position.lineNumber > range.endLineNumber) {
-    return false;
-  }
-  if (position.lineNumber === range.startLineNumber && position.column < range.startColumn) {
-    return false;
-  }
-  if (position.lineNumber === range.endLineNumber && position.column > range.endColumn) {
-    return false;
-  }
-  return true;
-}
-
-function rangeArea(range: { startLineNumber: number; endLineNumber: number }): number {
-  return range.endLineNumber - range.startLineNumber;
 }

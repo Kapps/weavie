@@ -62,3 +62,31 @@ export function collectTests(
   walk(symbols, []);
   return hits;
 }
+
+/**
+ * The innermost (smallest) matching test whose block contains `position`, or undefined when the cursor is in
+ * none. Containment is by line — the start line counts at any column, since a server may range a test over its
+ * callback body (tsgo starts at `() => {`, past the `it(` call and the test name).
+ */
+export function innermostHitAt(
+  hits: TestHit[],
+  position: { lineNumber: number; column: number },
+): TestHit | undefined {
+  return hits
+    .filter((h) => containsByLine(h.fullRange, position))
+    .sort((a, b) => lineSpan(a.fullRange) - lineSpan(b.fullRange))[0];
+}
+
+function containsByLine(
+  range: SymbolRange,
+  position: { lineNumber: number; column: number },
+): boolean {
+  if (position.lineNumber < range.startLineNumber || position.lineNumber > range.endLineNumber) {
+    return false;
+  }
+  return position.lineNumber !== range.endLineNumber || position.column <= range.endColumn;
+}
+
+function lineSpan(range: SymbolRange): number {
+  return range.endLineNumber - range.startLineNumber;
+}

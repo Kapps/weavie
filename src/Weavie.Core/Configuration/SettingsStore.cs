@@ -41,8 +41,8 @@ public readonly record struct SettingChange(string Key, object? OldValue, object
 /// <summary>
 /// Loads, resolves, and persists settings as TOML and is the change hub the host reacts to. Cross-workspace
 /// (<see cref="SettingScope.User"/>) keys live in the shared user file (<c>~/.weavie/settings.toml</c>);
-/// per-workspace (<see cref="SettingScope.Workspace"/>) keys live in each registered workspace's
-/// <c>.weavie/settings.toml</c>. Resolution precedence is env var → workspace file → user file → registered
+/// per-workspace (<see cref="SettingScope.Workspace"/>) keys live in each registered workspace's out-of-repo
+/// overlay (<c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>). Resolution precedence is env var → workspace file → user file → registered
 /// default; values are coerced to their declared <see cref="SettingKind"/> and validated. Writes go through
 /// Tomlyn's comment-preserving document so unknown subtrees and user comments survive a round-trip. A debounced,
 /// parse-guarded <see cref="FileSystemWatcher"/> per watched file turns hand-edits into <see cref="SettingChanged"/>
@@ -50,10 +50,9 @@ public readonly record struct SettingChange(string Key, object? OldValue, object
 /// </summary>
 public sealed class SettingsStore : IDisposable {
 	private const string WorkspaceKey = "workspace";
-	private const string WorkspaceSettingsDir = ".weavie";
-	private const string WorkspaceSettingsFileName = "settings.toml";
 
 	private readonly SettingsRegistry _registry;
+	private readonly Func<string, string> _workspaceSettingsPath;
 	private readonly Lock _gate = new();
 	private readonly bool _enableWatcher;
 	private readonly SettingsFileLayer _userLayer;
@@ -68,11 +67,14 @@ public sealed class SettingsStore : IDisposable {
 	/// <summary>
 	/// Creates a store over <paramref name="filePath"/> (default <c>~/.weavie/settings.toml</c>), loading
 	/// current values and — unless <paramref name="enableWatcher"/> is false — watching files for edits.
-	/// Register per-workspace overlays afterwards with <see cref="RegisterWorkspace"/>.
+	/// <paramref name="workspaceSettingsPath"/> maps a workspace root to its out-of-repo overlay file. Register
+	/// per-workspace overlays afterwards with <see cref="RegisterWorkspace"/>.
 	/// </summary>
-	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher) {
+	public SettingsStore(SettingsRegistry registry, string? filePath, bool enableWatcher, Func<string, string> workspaceSettingsPath) {
 		ArgumentNullException.ThrowIfNull(registry);
+		ArgumentNullException.ThrowIfNull(workspaceSettingsPath);
 		_registry = registry;
+		_workspaceSettingsPath = workspaceSettingsPath;
 		_enableWatcher = enableWatcher;
 		FilePath = filePath ?? WeaviePaths.SettingsFile;
 		_userLayer = new SettingsFileLayer(FilePath);
@@ -116,7 +118,7 @@ public sealed class SettingsStore : IDisposable {
 	}
 
 	/// <summary>
-	/// Registers a workspace so its <c>.weavie/settings.toml</c> overlay is loaded and (if watching is on)
+	/// Registers a workspace so its out-of-repo settings overlay is loaded and (if watching is on)
 	/// watched, backing <see cref="SettingScope.Workspace"/> resolution for <paramref name="workspaceRoot"/>.
 	/// Idempotent per root; the caller reads current values fresh after registering.
 	/// </summary>
@@ -128,7 +130,7 @@ public sealed class SettingsStore : IDisposable {
 				return;
 			}
 
-			string file = Path.Combine(root, WorkspaceSettingsDir, WorkspaceSettingsFileName);
+			string file = _workspaceSettingsPath(root);
 			var registration = new WorkspaceRegistration(root, new SettingsFileLayer(file));
 			LogAll(registration.Layer.Load());
 			_workspaces[root] = registration; // register before seeding so ResolveLocked sees the overlay
@@ -188,7 +190,7 @@ public sealed class SettingsStore : IDisposable {
 
 	/// <summary>
 	/// As <see cref="Set(string, JsonElement)"/>, but a <see cref="SettingScope.Workspace"/> key is written to
-	/// <paramref name="workspaceRoot"/>'s <c>.weavie/settings.toml</c> (registering the workspace if needed);
+	/// <paramref name="workspaceRoot"/>'s out-of-repo overlay (registering the workspace if needed);
 	/// a <see cref="SettingScope.User"/> key ignores <paramref name="workspaceRoot"/> and writes the user file.
 	/// </summary>
 	public SetResult Set(string key, JsonElement value, string workspaceRoot) {
@@ -279,7 +281,7 @@ public sealed class SettingsStore : IDisposable {
 			return _userLayer; // nothing registered and not creating: clearing a never-set overlay is a no-op on the user file
 		}
 
-		string file = Path.Combine(root, WorkspaceSettingsDir, WorkspaceSettingsFileName);
+		string file = _workspaceSettingsPath(root);
 		var registration = new WorkspaceRegistration(root, new SettingsFileLayer(file));
 		LogAll(registration.Layer.Load());
 		_workspaces[root] = registration; // register before seeding so ResolveLocked sees the overlay
@@ -700,7 +702,7 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	// A workspace-scoped write may have just created the .weavie directory, so try to attach its watcher now.
+	// A workspace-scoped write may have just created the overlay's directory, so try to attach its watcher now.
 	private void EnsureWatcherForLayerLocked(SettingDefinition definition, string? workspaceRoot) {
 		if (definition.Scope == SettingScope.Workspace && workspaceRoot is not null
 			&& _workspaces.TryGetValue(NormalizeRoot(workspaceRoot), out var registration)) {

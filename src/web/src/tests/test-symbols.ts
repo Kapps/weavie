@@ -9,7 +9,7 @@ import { collectTests, type SymbolNode, type TestHit } from "./test-match";
 import type { TestRule } from "./test-profile";
 
 export type { SymbolNode, SymbolRange, TestHit } from "./test-match";
-export { collectTests } from "./test-match";
+export { collectTests, innermostHitAt } from "./test-match";
 
 /** Queries the registered document-symbol providers for `model` and returns the raw hierarchical symbols. */
 export async function getDocumentSymbols(model: monaco.editor.ITextModel): Promise<SymbolNode[]> {

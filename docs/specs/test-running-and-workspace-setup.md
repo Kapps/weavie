@@ -162,9 +162,9 @@ The prompt instructs Claude to: inspect the repo; propose `worktree.setupCommand
 profile (teaching only the rule schema and placeholders — Claude derives globs and commands from the
 repo); ask for confirmation; persist each confirmed value via `setSetting`; set `test.profile` to
 `[]` explicitly when the repo has no tests; write only registered settings; run nothing else; and
-**close by reporting what was decided** — each setting written, that they live in
-`<root>/.weavie/settings.toml`, and that setup can be re-run anytime via
-`/mcp__weavie__setup-workspace` or by editing that file.
+**close by reporting what was decided** — each setting written, that they live per-workspace in
+Weavie's own config outside the repo (`~/.weavie/workspaces/<id>/settings.toml`, never committed), and
+that setup can be re-run anytime via `/mcp__weavie__setup-workspace`.
 
 ```mermaid
 flowchart LR
@@ -199,8 +199,8 @@ flowchart LR
    glob/matcher/name composition against captured tsserver/gopls symbol fixtures; one headless lens
    smoke gated on a real `typescript-language-server`.
 5. **MCP prompts** — `McpServer.Prompts.cs` + `WorkspaceSetupPrompt`; xUnit list/get round-trip;
-   fake-claude script fetches the prompt, calls `setSetting` → assert `.weavie/settings.toml` written
-   and the card disappears.
+   fake-claude script fetches the prompt, calls `setSetting` → assert the workspace overlay
+   (`~/.weavie/workspaces/<id>/settings.toml`) is written and the card disappears.
 6. **Setup flow swap** — new suggestion + `weavie.workspace.setup` + seeding; delete
    `SuggestSetupCommand`/`SetupCommandPrompt`; dismissal-id mapping. Gate: verify the pasted slash
    command executes in real Claude Code first (6a); otherwise seed the prompt's full text.

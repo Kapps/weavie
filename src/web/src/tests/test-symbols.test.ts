@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectTests, type SymbolNode } from "./test-match";
+import { collectTests, innermostHitAt, type SymbolNode, type TestHit } from "./test-match";
 import type { TestRule } from "./test-profile";
 
 const RANGE = { startLineNumber: 1, startColumn: 1, endLineNumber: 1, endColumn: 1 };
@@ -66,5 +66,41 @@ describe("collectTests", () => {
       (h) => h.name,
     );
     expect(names).toEqual(["TestAdds"]);
+  });
+});
+
+describe("innermostHitAt", () => {
+  // tsserver/tsgo shape: each test's fullRange spans its `() => {}` body, starting past the it()/describe() name.
+  const hit = (name: string, sl: number, sc: number, el: number, ec: number): TestHit => {
+    const r = { startLineNumber: sl, startColumn: sc, endLineNumber: el, endColumn: ec };
+    return { name, range: r, fullRange: r };
+  };
+  // describe "outer" [L4→16], with two nested it()s [L5→9] and [L11→15]; ranges start at col 35 (the callback).
+  const hits = [
+    hit("outer", 4, 35, 16, 4),
+    hit("outer inner-a", 5, 35, 9, 4),
+    hit("outer inner-b", 11, 35, 15, 4),
+  ];
+  const nameAt = (line: number, column: number): string | undefined =>
+    innermostHitAt(hits, { lineNumber: line, column })?.name;
+
+  it("selects the test from its own name line, left of the callback's start column", () => {
+    expect(nameAt(5, 10)).toBe("outer inner-a");
+  });
+
+  it("selects the inner test from inside its body", () => {
+    expect(nameAt(6, 8)).toBe("outer inner-a");
+  });
+
+  it("selects the enclosing describe from its name line", () => {
+    expect(nameAt(4, 15)).toBe("outer");
+  });
+
+  it("falls back to the enclosing block in the gap between siblings", () => {
+    expect(nameAt(10, 1)).toBe("outer");
+  });
+
+  it("returns undefined when the cursor is in no test block", () => {
+    expect(nameAt(20, 1)).toBeUndefined();
   });
 });

@@ -146,6 +146,13 @@ public static class WeaviePaths {
 	public static string WorkspaceSessionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "sessions.json");
 
 	/// <summary>
+	/// A workspace's settings overlay: <c>~/.weavie/workspaces/&lt;id&gt;/settings.toml</c>. Workspace-scoped
+	/// settings (test.profile, worktree.*) live here, outside the repo, so a cloned repo can't ship an auto-run
+	/// setup command and configuring a workspace never touches source control.
+	/// </summary>
+	public static string WorkspaceSettingsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "settings.toml");
+
+	/// <summary>
 	/// A workspace's per-session terminal scrollback logs: <c>~/.weavie/workspaces/&lt;id&gt;/terminal-logs</c>.
 	/// One capped append log per (worktree, pane) lets a re-attaching client replay a coherent shell screen
 	/// instead of a blank pane. See <see cref="Terminal.ScrollbackLog"/>.

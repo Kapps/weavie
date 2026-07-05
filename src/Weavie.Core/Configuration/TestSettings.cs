@@ -21,7 +21,7 @@ public static class TestSettings {
 				+ "nested names, default space), optional \"header\": regex over a symbol's attribute/annotation "
 				+ "lines }. Templates support ${file}, ${fileDir} (absolute paths) and ${name} (runOne only). The "
 				+ "first rule whose glob matches a file wins. Empty means unconfigured (no buttons); [] means this "
-				+ "repo has no tests. Stored per-repo in .weavie/settings.toml; set it via 'Set Up This Workspace'.",
+				+ "repo has no tests. Stored per-workspace in Weavie's config, outside the repo; set it via 'Set Up This Workspace'.",
 			Aliases = ["test profile", "test runner", "how to run tests", "test command", "run tests config",
 				"test running", "configure tests"],
 			Apply = ApplyMode.Live,

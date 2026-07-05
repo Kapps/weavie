@@ -167,13 +167,13 @@ suite's LSP gating pattern).
   schema + placeholders exactly as in the spec — no framework examples); ask the user to confirm;
   persist each confirmed value via `setSetting`; write `[]` for `test.profile` when the repo has no
   tests; touch only registered settings; run nothing else; and close by listing every setting
-  written, that they live in `<workspaceRoot>/.weavie/settings.toml`, and that setup can be re-run
-  anytime via `/mcp__weavie__setup-workspace` or by editing that file.
+  written, that they live per-workspace outside the repo (`~/.weavie/workspaces/<id>/settings.toml`),
+  and that setup can be re-run anytime via `/mcp__weavie__setup-workspace`.
 - Wire the prompt list into the registry server where it's constructed (follow `IdeIntegration` /
   server construction path).
 - Tests: xUnit round-trip — `prompts/list` shows the prompt, `prompts/get` returns the text;
   extend the FakeClaude-driven integration test so a scripted `setSetting` for `test.profile`
-  lands in `.weavie/settings.toml` and fires `SettingChanged`.
+  lands in the per-workspace overlay (`~/.weavie/workspaces/<id>/settings.toml`) and fires `SettingChanged`.
 
 Gate: Core + Hosting tests green.
 

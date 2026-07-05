@@ -1,4 +1,5 @@
 import type { JSX } from "solid-js";
+import type { SymbolActions } from "../symbols/symbol-match";
 import { Omnibar } from "./Omnibar";
 
 // The macOS title-bar strip: omnibar (center) plus Files toggle (left). Renders below the native title bar,
@@ -12,6 +13,7 @@ export function MacTitleBar(props: {
   onToggleFiles: () => void;
   onOpenFile: (abs: string) => void;
   onRequestIndex: () => void;
+  symbols: SymbolActions;
 }): JSX.Element {
   return (
     <div class="mac-titlebar">
@@ -29,6 +31,7 @@ export function MacTitleBar(props: {
           workspaceLabel={props.workspaceLabel}
           onOpenFile={props.onOpenFile}
           onRequestIndex={props.onRequestIndex}
+          symbols={props.symbols}
         />
       </div>
       <div class="mac-tb-right" />

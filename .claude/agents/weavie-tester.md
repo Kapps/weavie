@@ -79,8 +79,14 @@ manufacture a green run (no fallbacks). A failing result, clearly shown, is a su
 
 - The scenario list, each as **scenario → expected → result (pass/fail) → evidence** (spec name +
   assertion, the `.webm` path, or the Playwright trace retained on failure).
-- The path(s) to the recorded `.webm`(s) under `e2e/.recordings/` — surface them so they can be
-  watched.
+- **A video is a required deliverable of every run** — record at least one `.webm` that actually
+  *shows the feature in action* (the headline behavior on screen, not the app idling). Prefer short,
+  focused clips per scenario over one long take, and slow the interactions enough that the behavior is
+  visible on screen. List **every** clip you recorded.
+- Surface each `.webm` path so it can be watched, and write it as a **repo-relative path** (e.g.
+  `src/web/e2e/.recordings/<clip>.webm`) — never a bare filename or an absolute `/home/...` path — each
+  on its own line with a one-line label of what it shows, so the caller can forward it straight to the
+  user as a clickable link.
 - Any committed spec you added (and why it earns its keep), versus what you drove ad-hoc.
 - A one-line verdict: proven / partially proven / does-not-work.
 

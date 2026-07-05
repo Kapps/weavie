@@ -3,7 +3,7 @@
 
 import { createSignal } from "solid-js";
 
-export type OmnibarMode = "file" | "command";
+export type OmnibarMode = "file" | "command" | "docSymbol" | "wsSymbol";
 
 const [request, setRequest] = createSignal<{ mode: OmnibarMode; nonce: number } | null>(null);
 
@@ -12,7 +12,7 @@ export const omnibarRequest = request;
 
 let nonce = 0;
 
-/** Asks the omnibar to open + focus in the given mode (file quick-open or command palette). */
+/** Asks the omnibar to open + focus in the given mode (file quick-open, command palette, or symbol search). */
 export function focusOmnibar(mode: OmnibarMode): void {
   nonce += 1;
   setRequest({ mode, nonce });

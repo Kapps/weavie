@@ -3,17 +3,15 @@
 # Startup optimization = ReadyToRun (PublishReadyToRun): IL is precompiled to native so there's
 # little JIT work at launch. Native AOT is NOT usable here — WinForms (and WPF, which Weavie.Win
 # enables for the WebView2 control) and WebView2 rely on reflection/COM that AOT doesn't support —
-# so R2R + self-contained is the right lever. Output is a plain folder (no single-file compression,
-# which would decompress at launch and hurt cold start).
+# so R2R + self-contained is the right lever. The publish output is a plain folder (no single-file
+# compression, which would decompress at launch and hurt cold start), packaged into one downloadable
+# archive per shell.
 #
-# Each shell publishes on its own OS (Weavie.Win needs Windows; Weavie.Mac needs the macOS workload)
-# and the result is uploaded as a build artifact. The remote control plane (Weavie.Runner) ships too:
-# publishing it stages the Weavie.Headless worker beside it, so that one artifact is the complete
-# runner + headless deploy. Triggered manually or by pushing a v* tag.
-#
-# Green main additionally republishes the runner bundle as the rolling `main-latest` prerelease
-# (the main-latest job) — the update feed `weavie-runner --auto-update` polls. See
-# docs/specs/runner-auto-update.md.
+# Each shell publishes on its own OS (Weavie.Win needs Windows; Weavie.Mac needs the macOS workload).
+# On a v* tag or manual dispatch the archive is uploaded as a build artifact. On green main
+# (workflow_run) each shell archive is ALSO attached to the rolling `main-latest` prerelease as a
+# downloadable app binary, alongside the runner+worker bundle the main_latest job publishes there for
+# `weavie-runner --auto-update`. See docs/specs/runner-auto-update.md.
 name: release
 
 on:
@@ -28,118 +26,9 @@ permissions:
   contents: read
 
 jobs:
-  publish:
-    name: publish (${{ matrix.name }})
-    # workflow_run (green main) feeds only the main-latest job below.
-    if: github.event_name != 'workflow_run'
-    runs-on: ${{ matrix.os }}
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - name: linux-x64
-            os: ubuntu-latest
-            project: src/Weavie.Linux/Weavie.Linux.csproj
-            rid: linux-x64
-            # R2R + self-contained: native-precompiled, no machine .NET dependency.
-            extra: --self-contained -p:PublishReadyToRun=true
-          - name: runner-linux-x64
-            os: ubuntu-latest
-            project: src/Weavie.Runner/Weavie.Runner.csproj
-            rid: linux-x64
-            # The remote control plane. Its publish stages the Weavie.Headless worker into worker/,
-            # propagating RID + self-contained, so this single artifact is the full runner + headless
-            # deploy. Same R2R + self-contained lever as the linux shell.
-            extra: --self-contained -p:PublishReadyToRun=true
-          - name: win-x64
-            os: windows-latest
-            project: src/Weavie.Win/Weavie.Win.csproj
-            rid: win-x64
-            extra: --self-contained -p:PublishReadyToRun=true
-          - name: osx-arm64
-            # macOS 26 (Tahoe) image — ships Xcode 26, which net10.0-macos requires. See ci.yml.
-            os: macos-26
-            project: src/Weavie.Mac/Weavie.Mac.csproj
-            rid: osx-arm64
-            # net10.0-macos publishes a self-contained .app via the macos workload. Trimming is
-            # disabled in the csproj (PublishTrimmed=false): Weavie.Core's reflection-based
-            # System.Text.Json isn't trim-safe, so full trimming fails publish (and risks runtime
-            # breakage). R2R isn't the lever here, so it's left to the workload's Release defaults.
-            extra: ""
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up toolchain and build web app
-        uses: ./.github/actions/publish-setup
-
-      - name: Restore macOS workload
-        if: matrix.name == 'osx-arm64'
-        run: dotnet workload restore ${{ matrix.project }}
-
-      - name: Publish
-        run: >
-          dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }}
-          ${{ matrix.extra }} -o artifacts/${{ matrix.name }}
-
-      # Package the macOS app. `dotnet publish` for the macOS SDK emits a .pkg installer
-      # (artifacts/<name>/Weavie.Mac-*.pkg) whose payload is staged from the publish item pipeline and
-      # does NOT include the build's hand-copied web UI / PTY shim / hook relay — that .pkg boots to a
-      # blank white WKWebView (app://app/index.html 404s). The COMPLETE bundle is the one the build
-      # assembles at the project's bin/ output (CopyWebAssets + BuildPtyShim + the hook-relay
-      # co-location all populate it). So verify THAT .app, then ship it zipped (a drag-to-Applications
-      # bundle — friendlier for an unsigned app than an unsigned .pkg) instead of the .pkg.
-      - name: Verify and package macOS app
-        if: matrix.name == 'osx-arm64'
-        shell: bash
-        run: |
-          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.rid }}/Weavie.Mac.app"
-          required=(
-            "$app/Contents/MacOS/Weavie.Mac"
-            "$app/Contents/Resources/wwwroot/index.html"
-            "$app/Contents/MonoBundle/libweavie_pty.dylib"
-            "$app/Contents/MonoBundle/weavie-hook-relay"
-          )
-          missing=0
-          for f in "${required[@]}"; do
-            if [ -e "$f" ]; then
-              echo "ok: $f"
-            else
-              echo "MISSING: $f"
-              missing=1
-            fi
-          done
-          if [ "$missing" -ne 0 ]; then
-            echo "::error::Built Weavie.Mac.app is incomplete — see MISSING entries above."
-            echo "Bundle contents:"; find "$app" -maxdepth 3 -print
-            exit 1
-          fi
-          # Re-sign the fully-assembled bundle. The macOS SDK ad-hoc signs the .app mid-build, but the
-          # post-build copies (web UI, PTY shim, hook relay) change the sealed contents and invalidate
-          # that signature — and on Apple Silicon an invalid signature reads as "damaged and can't be
-          # opened". Re-sign (ad-hoc, inside-out via --deep) so the seal matches the final contents.
-          # It's still not Developer-ID-signed/notarized, so a downloaded copy is quarantined: first
-          # launch is right-click > Open (or `xattr -dr com.apple.quarantine Weavie.Mac.app`).
-          codesign --force --deep --sign - "$app"
-          codesign --verify --deep --strict --verbose=2 "$app"
-          # Replace the .pkg-containing publish dir with just the zipped .app.
-          rm -rf "artifacts/${{ matrix.name }}"
-          mkdir -p "artifacts/${{ matrix.name }}"
-          ditto -c -k --sequesterRsrc --keepParent "$app" "artifacts/${{ matrix.name }}/Weavie.Mac.app.zip"
-          echo "Packaged $(du -h "artifacts/${{ matrix.name }}/Weavie.Mac.app.zip" | cut -f1) zip."
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: weavie-${{ matrix.name }}
-          path: artifacts/${{ matrix.name }}
-          if-no-files-found: error
-
-  # Rolling prerelease consumed by `weavie-runner --auto-update`: every green-main CI run
-  # republishes the complete runner+worker bundle as the `main-latest` prerelease, packaged as the
-  # managed layout (versions/<build>/ + current symlink) so extracting the tarball IS an install.
-  # manifest.json (buildNumber + spawnContract) is written by the publish itself. See
-  # docs/specs/runner-auto-update.md.
-  main-latest:
+  # main_latest runs first (green main only): it delete/recreates the rolling prerelease with the
+  # runner+worker bundle. The publish matrix then attaches each shell archive to that release.
+  main_latest:
     name: main-latest prerelease
     # Only a PUSH-triggered ci success qualifies: workflow_run also fires for fork-PR ci runs, and a
     # fork branch named "main" must never reach a contents:write job (it could rewrite the release
@@ -167,6 +56,8 @@ jobs:
       - name: Set up toolchain and build web app
         uses: ./.github/actions/publish-setup
 
+      # The remote control plane. Its publish stages the Weavie.Headless worker into worker/,
+      # propagating RID + self-contained, so this single bundle is the full runner + headless deploy.
       - name: Publish runner bundle into the managed layout
         run: >
           dotnet publish src/Weavie.Runner/Weavie.Runner.csproj -c Release -r linux-x64
@@ -179,6 +70,8 @@ jobs:
           ln -s versions/${{ github.run_number }} layout/current
           tar -C layout -czf weavie-runner-linux-x64.tar.gz versions current
 
+      # Managed layout (versions/<build>/ + current symlink) so extracting the tarball IS an install.
+      # manifest.json (buildNumber + spawnContract) is written by the publish itself.
       - name: Publish rolling prerelease
         env:
           GH_TOKEN: ${{ github.token }}
@@ -188,5 +81,132 @@ jobs:
           gh release create main-latest --prerelease \
             --target "$built" \
             --title "main latest (build ${{ github.run_number }})" \
-            --notes "Rolling prerelease of green main ($built), build ${{ github.run_number }}. Consumed by weavie-runner --auto-update; extract into ~/.weavie/runner and launch current/Weavie.Runner." \
+            --notes "Rolling prerelease of green main ($built), build ${{ github.run_number }}. weavie-runner-linux-x64.tar.gz is the runner+worker bundle consumed by weavie-runner --auto-update (extract into ~/.weavie/runner and launch current/Weavie.Runner); the weavie-{linux,win,osx}-* archives are downloadable app binaries. See docs/specs/runner-auto-update.md." \
             weavie-runner-linux-x64.tar.gz
+
+  publish:
+    name: publish (${{ matrix.name }})
+    # Tag/dispatch always; on workflow_run only for a green main PUSH (never a fork-PR ci run, which
+    # must not reach the contents:write release upload). !cancelled() lets this run past the skipped
+    # main_latest need on the tag/dispatch path.
+    if: >-
+      !cancelled() && (
+        github.event_name != 'workflow_run' ||
+        ( github.event.workflow_run.event == 'push' &&
+          github.event.workflow_run.conclusion == 'success' &&
+          github.event.workflow_run.head_branch == 'main' )
+      )
+    needs: main_latest
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
+    # An older run's slow shell uploads must not --clobber a newer run's freshly recreated release.
+    # Scope the guard to the green-main path (a fixed group) so a newer merge cancels the stale run;
+    # tag/dispatch runs get a unique group (run_id) and never cancel each other.
+    concurrency:
+      group: main-latest-publish-${{ github.event_name == 'workflow_run' && 'main' || github.run_id }}
+      cancel-in-progress: true
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-x64
+            os: ubuntu-latest
+            project: src/Weavie.Linux/Weavie.Linux.csproj
+            rid: linux-x64
+            # R2R + self-contained: native-precompiled, no machine .NET dependency.
+            extra: --self-contained -p:PublishReadyToRun=true
+            asset: weavie-linux-x64.tar.gz
+          - name: win-x64
+            os: windows-latest
+            project: src/Weavie.Win/Weavie.Win.csproj
+            rid: win-x64
+            extra: --self-contained -p:PublishReadyToRun=true
+            asset: weavie-win-x64.zip
+          - name: osx-arm64
+            # macOS 26 (Tahoe) image — ships Xcode 26, which net10.0-macos requires. See ci.yml.
+            os: macos-26
+            project: src/Weavie.Mac/Weavie.Mac.csproj
+            rid: osx-arm64
+            # net10.0-macos publishes a self-contained .app via the macos workload. Trimming is
+            # disabled in the csproj (PublishTrimmed=false): Weavie.Core's reflection-based
+            # System.Text.Json isn't trim-safe. R2R isn't the lever here, so it's left to the
+            # workload's Release defaults.
+            extra: ""
+            asset: weavie-osx-arm64.zip
+    steps:
+      # On green main, build the trusted main tip — never an event-supplied sha — since the archive
+      # is attached to the auto-update release feed. Tag/dispatch check out their own ref.
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_run' && 'main' || github.ref }}
+
+      - name: Set up toolchain and build web app
+        uses: ./.github/actions/publish-setup
+
+      - name: Restore macOS workload
+        if: matrix.name == 'osx-arm64'
+        run: dotnet workload restore ${{ matrix.project }}
+
+      - name: Publish
+        run: >
+          dotnet publish ${{ matrix.project }} -c Release -r ${{ matrix.rid }}
+          ${{ matrix.extra }} -o artifacts/${{ matrix.name }}
+
+      # The COMPLETE macOS bundle is the .app the build assembles at bin/ (populated by CopyWebAssets +
+      # BuildPtyShim + the hook-relay co-location), NOT the .pkg `dotnet publish` emits — that .pkg
+      # lacks the hand-copied web UI / PTY shim / hook relay and boots to a blank WKWebView. Verify
+      # that .app, re-sign it (the post-build copies invalidate the SDK's mid-build ad-hoc signature,
+      # and on Apple Silicon an invalid signature reads as "damaged and can't be opened"), and zip it
+      # (a drag-to-Applications bundle — friendlier for an unsigned app than an unsigned .pkg). It's
+      # still not Developer-ID-signed/notarized, so first launch is right-click > Open (or
+      # `xattr -dr com.apple.quarantine Weavie.Mac.app`).
+      - name: Package macOS app
+        if: matrix.name == 'osx-arm64'
+        shell: bash
+        run: |
+          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.rid }}/Weavie.Mac.app"
+          required=(
+            "$app/Contents/MacOS/Weavie.Mac"
+            "$app/Contents/Resources/wwwroot/index.html"
+            "$app/Contents/MonoBundle/libweavie_pty.dylib"
+            "$app/Contents/MonoBundle/weavie-hook-relay"
+          )
+          missing=0
+          for f in "${required[@]}"; do
+            if [ -e "$f" ]; then echo "ok: $f"; else echo "MISSING: $f"; missing=1; fi
+          done
+          if [ "$missing" -ne 0 ]; then
+            echo "::error::Built Weavie.Mac.app is incomplete — see MISSING entries above."
+            echo "Bundle contents:"; find "$app" -maxdepth 3 -print
+            exit 1
+          fi
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          ditto -c -k --sequesterRsrc --keepParent "$app" "${{ matrix.asset }}"
+
+      # tar (not zip) so the self-contained executable's +x bit survives download+extract on Linux.
+      - name: Package Linux archive
+        if: matrix.name == 'linux-x64'
+        run: tar -C artifacts/${{ matrix.name }} -czf "${{ matrix.asset }}" .
+
+      - name: Package Windows archive
+        if: matrix.name == 'win-x64'
+        shell: pwsh
+        run: Compress-Archive -Path artifacts/${{ matrix.name }}/* -DestinationPath "${{ matrix.asset }}"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: weavie-${{ matrix.name }}
+          path: ${{ matrix.asset }}
+          if-no-files-found: error
+
+      # Green main: attach the archive to the rolling prerelease as a downloadable binary. Gated on
+      # main_latest having (re)created the release with the runner bundle first; --clobber replaces a
+      # prior run's asset of the same name.
+      - name: Attach to main-latest prerelease
+        if: github.event_name == 'workflow_run' && needs.main_latest.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload main-latest "${{ matrix.asset }}" --clobber

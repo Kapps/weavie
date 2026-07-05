@@ -21,9 +21,11 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Roslyn: builds the in-repo Weavie.Analyzers (compile-time only, never shipped). Pinned to (not above)
-         the SDK's bundled compiler so the analyzer always loads against an equal-or-newer Roslyn. -->
-    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="5.6.0" />
+    <!-- Roslyn: builds the in-repo Weavie.Analyzers (compile-time only, never shipped). Must stay at or below
+         the OLDEST Roslyn compiler across every build machine (all dev SDKs + CI), NOT the newest — CS9057
+         fails the build on any machine whose SDK ships an older Roslyn than this reference. .NET 10 SDK patches
+         ship Roslyn 5.0.x–5.6.x, so 4.8.0 sits safely below all of them. Do NOT bump to match your local SDK. -->
+    <PackageVersion Include="Microsoft.CodeAnalysis.CSharp" Version="4.8.0" />
   </ItemGroup>
 
   <ItemGroup>

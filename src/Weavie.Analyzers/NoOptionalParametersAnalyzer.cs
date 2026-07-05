@@ -27,7 +27,7 @@ public sealed class NoOptionalParametersAnalyzer : DiagnosticAnalyzer {
 		description: "A default value lets a new parameter be added without touching any call site, hiding the change and letting every caller silently inherit the default. Removing defaults turns 'add a parameter' into a compile error at each call site, so the decision is made explicitly.");
 
 	/// <inheritdoc/>
-	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => [Rule];
+	public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(Rule);
 
 	/// <inheritdoc/>
 	public override void Initialize(AnalysisContext context) {

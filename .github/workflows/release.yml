@@ -101,10 +101,10 @@ jobs:
     permissions:
       contents: write
     # An older run's slow shell uploads must not --clobber a newer run's freshly recreated release.
-    # Scope the guard to the green-main path (a fixed group) so a newer merge cancels the stale run;
-    # tag/dispatch runs get a unique group (run_id) and never cancel each other.
+    # Each platform gets its own green-main group so matrix jobs run together while a newer merge
+    # still cancels the stale build for that platform. Tag/dispatch runs never cancel each other.
     concurrency:
-      group: main-latest-publish-${{ github.event_name == 'workflow_run' && 'main' || github.run_id }}
+      group: main-latest-publish-${{ github.event_name == 'workflow_run' && 'main' || github.run_id }}-${{ matrix.name }}
       cancel-in-progress: true
     strategy:
       fail-fast: false

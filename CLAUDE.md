@@ -141,8 +141,8 @@ hit a number.
 - **Minimal comments, each carrying its own weight.** Prefer self-explanatory code over narration;
   write a comment only when it tells the reader something the code can't. Keep it to 1–2 lines (one
   ideal, two max) — anything longer needs an extremely good reason, so push the detail into the code
-  or a linked doc. Public APIs are the exception: XML doc comments are required there (CS1591) —
-  put `<summary>`, its text, and `</summary>` each on its own line.
+  or a linked doc. Public APIs are the exception: XML doc comments are required there (CS1591);
+  single-line summaries are fine when they stay readable.
 - **State the final state, not the path to it.** Never narrate the order of operations that produced
   something ("first X, then Y, now Z"); say only what it *is* now. Applies to comments, commit
   messages, and docs.

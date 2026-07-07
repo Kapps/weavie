@@ -1,4 +1,5 @@
 using Weavie.Core;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
@@ -9,6 +10,7 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Sources;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
+using Weavie.Hosting.Agents.Claude;
 
 namespace Weavie.Hosting;
 
@@ -33,11 +35,8 @@ public sealed record HostServices {
 	/// <summary>Per-theme colour overrides (<c>~/.weavie/theme-overrides.json</c>).</summary>
 	public required ThemeOverridesStore ThemeOverrides { get; init; }
 
-	/// <summary>
-	/// The Claude-session-id map (<c>~/.weavie/claude-sessions.json</c>), keyed by working directory — app-global
-	/// so every window/session resumes its own directory's previous Claude conversation across launches.
-	/// </summary>
-	public required ClaudeSessionStore ClaudeSessions { get; init; }
+	/// <summary>The required embedded-agent provider catalog.</summary>
+	public required AgentProviderRegistry AgentProviders { get; init; }
 
 	/// <summary>
 	/// The registered remote agents (<c>~/.weavie/remote-agents.json</c>) — app-global so every window shares
@@ -86,6 +85,8 @@ public sealed record HostServices {
 		themeOverrides.Log += Log;
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), WeaviePaths.ClaudeSessionsFile);
 		claudeSessions.Log += Log;
+		var agentProviders = new AgentProviderRegistry();
+		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
@@ -97,7 +98,7 @@ public sealed record HostServices {
 			SuggestionRegistry = suggestions,
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
-			ClaudeSessions = claudeSessions,
+			AgentProviders = agentProviders,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			PullRequests = github,

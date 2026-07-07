@@ -1,3 +1,5 @@
+using Weavie.Core.Agents;
+
 namespace Weavie.Core.Hooks;
 
 /// <summary>
@@ -25,14 +27,14 @@ public sealed class ObservedPermissionMode {
 	public bool AutoAppliesEdits => _current is "acceptEdits" or "bypassPermissions";
 
 	/// <summary>Folds a hook event in: records its reported <c>permission_mode</c>, if it carries one (else a no-op).</summary>
-	/// <param name="request">The observed hook event.</param>
-	public void Observe(HookRequest request) {
-		ArgumentNullException.ThrowIfNull(request);
-		if (string.IsNullOrEmpty(request.PermissionMode) || request.PermissionMode == _current) {
+	/// <param name="value">The observed provider-neutral agent event.</param>
+	public void Observe(AgentEvent value) {
+		ArgumentNullException.ThrowIfNull(value);
+		if (value is not AgentEditDispositionObserved observed || observed.Disposition == _current) {
 			return;
 		}
 
-		_current = request.PermissionMode;
+		_current = observed.Disposition;
 		Changed?.Invoke();
 	}
 }

@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Xunit;
 
@@ -98,7 +99,12 @@ public sealed class TerminalControllerReattachTests {
 			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
 			Bridge = new FakeHostBridge();
 			Launcher = new ScriptablePtyLauncher();
-			Controller = new TerminalController(Bridge, session, _settings, Launcher) {
+			Controller = new TerminalController(
+				Bridge,
+				session,
+				_settings,
+				Launcher,
+				new TestTerminalProcess(Path.GetTempPath(), AgentWorkingDirectoryMode.Fixed)) {
 				Workspace = Path.GetTempPath(),
 			};
 		}

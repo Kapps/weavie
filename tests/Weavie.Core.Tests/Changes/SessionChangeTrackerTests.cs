@@ -232,16 +232,19 @@ public sealed class SessionChangeTrackerTests {
 	public void Observe_RelativeFilePathWithoutCwd_ResolvesAgainstWorkspaceRoot() {
 		// A model-supplied relative file_path on an event with no cwd still lands on the real file.
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText("/w/src/a.txt", "one\n");
-		var tracker = Tracker(fileSystem);
+		string root = Path.GetFullPath("w");
+		string path = Path.Combine(root, "src", "a.txt");
+		fileSystem.WriteAllText(path, "one\n");
+		var tracker = new SessionChangeTracker(
+			fileSystem, root, candidate => candidate.StartsWith(root, StringComparison.Ordinal));
 
 		tracker.Observe(Edit(HookEventKind.PreToolUse, "src/a.txt"));
-		fileSystem.WriteAllText("/w/src/a.txt", "ONE\n");
+		fileSystem.WriteAllText(path, "ONE\n");
 		var post = Edit(HookEventKind.PostToolUse, "src/a.txt");
 		tracker.Observe(post);
 
 		var change = Assert.Single(tracker.Changes());
-		Assert.Equal("/w/src/a.txt", change.Path);
+		Assert.Equal(path, change.Path);
 		Assert.Equal("src/a.txt:1", tracker.EditLocationFor(post));
 	}
 

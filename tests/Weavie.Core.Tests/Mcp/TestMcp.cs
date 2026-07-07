@@ -1,7 +1,7 @@
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
-using Weavie.Core.Hooks;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Theming;
@@ -31,20 +31,24 @@ internal static class TestMcp {
 		Func<string>? currentSessionId = null) =>
 		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, layout, editor, commands, keybindings, themeOverrides, currentSessionId);
 
-	/// <summary>Builds an <see cref="IdeIntegration"/> with test defaults for every unspecified dependency.</summary>
-	internal static IdeIntegration Ide(
+	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
+	internal static CapabilityRegistryHost Registry(
+		string authToken,
 		IDiffPresenter presenter,
 		IReadOnlyList<string> workspaceFolders,
-		string ideName = "weavie",
-		SettingsStore? settings = null,
-		LayoutStore? layout = null,
-		EditorStore? editor = null,
-		CommandDispatcher? commands = null,
-		KeybindingStore? keybindings = null,
-		ThemeOverridesStore? themeOverrides = null,
-		Func<HookRequest, string?>? editLocator = null,
-		Func<string>? currentSessionId = null,
-		HostRuntimeInfo? runtime = null) =>
-		new(presenter, workspaceFolders, ideName, settings, layout, editor, commands, keybindings, themeOverrides, editLocator,
-			currentSessionId ?? (() => "test-session"), runtime ?? new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"));
+		SettingsStore settings) {
+		var fileSystem = new InMemoryFileSystem();
+		var registry = CoreCommands.CreateRegistry();
+		return new CapabilityRegistryHost(
+			new AgentSessionCredential { Token = authToken },
+			presenter,
+			workspaceFolders,
+			"weavie",
+			settings,
+			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
+			new CommandDispatcher(registry),
+			new KeybindingStore(registry, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
+			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
+			() => "test-session");
+	}
 }

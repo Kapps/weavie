@@ -401,7 +401,7 @@ public sealed partial class HostCore {
 			// one session's images never touches another's.
 			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _claudeSessions, _runtime);
+			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _agentProviders.Sole(), _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =

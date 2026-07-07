@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Terminal;
 using Xunit;
@@ -77,7 +78,12 @@ public sealed class TerminalControllerResyncTests {
 				Path.Combine(Path.GetTempPath(), "weavie-resync-" + Guid.NewGuid().ToString("n"))).FullName;
 			_settings = CoreSettings.CreateStore(Path.Combine(_root, "settings.toml"), enableWatcher: false);
 			Launcher = new RecordingPtyLauncher();
-			Controller = new TerminalController(Bridge, session, _settings, Launcher) {
+			Controller = new TerminalController(
+				Bridge,
+				session,
+				_settings,
+				Launcher,
+				new TestTerminalProcess(_root, AgentWorkingDirectoryMode.Fixed)) {
 				Workspace = _root,
 			};
 			if (withScrollback) {
@@ -107,11 +113,11 @@ public sealed class TerminalControllerResyncTests {
 
 		public ITerminal CreateTerminal() => Terminal = new RecordingTerminal();
 
-		public PtyLaunch Resolve(PtyLaunchRequest request) => new() {
-			Command = "noop",
-			Arguments = [],
-			RemoveEnvironment = [],
-			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+		public PtyLaunch Resolve(AgentLaunch launch) => new() {
+			Command = launch.Command,
+			Arguments = launch.Arguments,
+			RemoveEnvironment = launch.RemoveEnvironment,
+			Environment = launch.Environment,
 		};
 	}
 

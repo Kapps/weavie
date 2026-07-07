@@ -1,4 +1,4 @@
-using Weavie.Core.Hooks;
+using Weavie.Core.Agents;
 using Weavie.Core.Processes;
 
 namespace Weavie.Core.Sessions;
@@ -27,39 +27,26 @@ public sealed class SessionStatusMachine {
 		}
 	}
 
-	/// <summary>Feeds a hook event into the machine — wire to <see cref="HookBridgeServer.Observed"/>.</summary>
-	public void Observe(HookRequest request) {
-		ArgumentNullException.ThrowIfNull(request);
-		Apply(current => request.Event switch {
-			HookEventKind.UserPromptSubmit => SessionStatus.Working,
-			HookEventKind.PreToolUse => SessionStatus.Working,
+	/// <summary>Feeds a normalized agent event into the machine.</summary>
+	public void Observe(AgentEvent value) {
+		ArgumentNullException.ThrowIfNull(value);
+		Apply(current => value switch {
+			AgentPromptSubmitted => SessionStatus.Working,
+			AgentToolStarting => SessionStatus.Working,
 			// The tool ran — in particular, the user approved its permission prompt — so the turn is live again.
-			HookEventKind.PostToolUse => SessionStatus.Working,
-			HookEventKind.Notification => ClassifyNotification(request, current),
+			AgentToolCompleted => SessionStatus.Working,
+			AgentNotification notification => ClassifyNotification(notification, current),
 			// A turn ending with a pending wakeup / in-flight background task is idle-but-not-done: it will
 			// resume itself, so it settles to Waiting (which holds the update drain) rather than Idle.
-			HookEventKind.Stop => request.SessionWillResume ? SessionStatus.Waiting : SessionStatus.Idle,
+			AgentTurnStopped stopped => stopped.WillResume ? SessionStatus.Waiting : SessionStatus.Idle,
 			// A mid-turn auto-compact also fires SessionStart (source=compact); only the other sources
 			// (startup/resume/clear) mean claude is up and waiting.
-			HookEventKind.SessionStart when request.Source != "compact" => SessionStatus.Idle,
+			AgentSessionStarted started when started.Source != "compact" => SessionStatus.Idle,
+			AgentPermissionResolved permission => permission.RequiresUserInput
+				? SessionStatus.NeedsInput
+				: SessionStatus.Working,
 			_ => null,
 		});
-	}
-
-	/// <summary>
-	/// Feeds the bridge's reply to a hook event — wire to <see cref="HookBridgeServer.Decided"/>. A
-	/// PermissionRequest fires exactly when a dialog would appear, so a pass-through means the user is about to
-	/// be asked (NeedsInput) — regardless of the notification text — while an auto-answered one keeps the turn
-	/// running (Working).
-	/// </summary>
-	public void ObserveDecision(HookRequest request, HookDecision decision) {
-		ArgumentNullException.ThrowIfNull(request);
-		ArgumentNullException.ThrowIfNull(decision);
-		if (request.Event != HookEventKind.PermissionRequest) {
-			return;
-		}
-
-		Set(decision.Kind == HookDecisionKind.PassThrough ? SessionStatus.NeedsInput : SessionStatus.Working);
 	}
 
 	/// <summary>
@@ -85,8 +72,8 @@ public sealed class SessionStatusMachine {
 	/// (the user interrupted), so it settles to Idle; from NeedsInput or Idle it changes nothing (it also fires
 	/// right after Stop and while a prompt is open, and must not disturb those states).
 	/// </summary>
-	private static SessionStatus? ClassifyNotification(HookRequest request, SessionStatus current) {
-		if (request.Message is not { } message
+	private static SessionStatus? ClassifyNotification(AgentNotification notification, SessionStatus current) {
+		if (notification.Message is not { } message
 			|| !message.Contains("waiting for your input", StringComparison.OrdinalIgnoreCase)) {
 			return SessionStatus.NeedsInput;
 		}

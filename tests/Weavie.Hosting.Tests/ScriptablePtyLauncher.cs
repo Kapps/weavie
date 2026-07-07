@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Terminal;
 
 namespace Weavie.Hosting.Tests;
@@ -18,15 +19,46 @@ internal sealed class ScriptablePtyLauncher : IPtyLauncher {
 	public ITerminal CreateTerminal() => LastTerminal = new ScriptableTerminal();
 
 	/// <inheritdoc/>
-	public PtyLaunch Resolve(PtyLaunchRequest request) {
-		LastClaudeSessionArguments = request.ClaudeSessionArguments;
+	public PtyLaunch Resolve(AgentLaunch launch) {
+		int index = launch.Arguments.ToList().FindIndex(arg => arg is "--resume" or "--session-id");
+		LastClaudeSessionArguments = index < 0 ? [] : launch.Arguments.Skip(index).Take(2).ToArray();
 		return new PtyLaunch {
-			Command = "noop",
-			Arguments = request.BuildClaudeArguments(),
-			RemoveEnvironment = [],
-			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+			Command = launch.Command,
+			Arguments = launch.Arguments,
+			RemoveEnvironment = launch.RemoveEnvironment,
+			Environment = launch.Environment,
 		};
 	}
+}
+
+/// <summary>A fixed terminal process for controller tests that do not exercise provider behavior.</summary>
+internal sealed class TestTerminalProcess : ITerminalProcess {
+	private static readonly IReadOnlyDictionary<string, string> EmptyEnvironment =
+		new Dictionary<string, string>(StringComparer.Ordinal);
+	private readonly string _workspace;
+	private readonly AgentWorkingDirectoryMode _cwdMode;
+
+	public TestTerminalProcess(string workspace, AgentWorkingDirectoryMode cwdMode) {
+		_workspace = workspace;
+		_cwdMode = cwdMode;
+	}
+
+	public AgentLaunch ResolveLaunch() => new() {
+		Command = "noop",
+		Arguments = [],
+		WorkingDirectory = _workspace,
+		RemoveEnvironment = [],
+		Environment = EmptyEnvironment,
+		ExecutableMode = AgentExecutableMode.Direct,
+		WorkingDirectoryMode = _cwdMode,
+		OutputCapture = new AgentOutputCapture.Disabled(),
+	};
+
+	public void ObserveTerminalOutput(ReadOnlyMemory<byte> data) { }
+
+	public void ObserveTerminalInput(ReadOnlyMemory<byte> data) { }
+
+	public void ObserveProcessExit(AgentProcessExit exit) { }
 }
 
 /// <summary>An <see cref="ITerminal"/> that never spawns a child but lets the test raise its output/exit events.</summary>

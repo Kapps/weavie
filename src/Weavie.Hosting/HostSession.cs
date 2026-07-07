@@ -354,7 +354,7 @@ public sealed class HostSession : IAsyncDisposable {
 			return;
 		}
 
-		Agent.Structured?.Interrupt();
+		Agent.Structured?.Restart();
 	}
 
 	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>

@@ -36,6 +36,9 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Interrupts the active turn.</summary>
 	void Interrupt();
 
+	/// <summary>Restarts the structured runtime process.</summary>
+	void Restart();
+
 	/// <summary>Resolves a provider approval request.</summary>
 	void ResolveApproval(string requestId, string decision);
 

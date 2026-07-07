@@ -109,6 +109,47 @@ public sealed class CodexAppServerClientTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Restart_StartsFreshServer() {
+		var starts = new List<int>();
+		await using var client = EmptyClient(_ => { });
+		client.ProcessStarted += starts.Add;
+
+		client.Start();
+		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+		var first = await client.RequestAsync(
+			1,
+			"""{"id":1,"method":"initialize","params":{"clientInfo":{"name":"weavie-test","title":"Weavie Test","version":"0"}}}""",
+			timeout.Token);
+
+		client.Restart();
+		await WaitForAsync(() => starts.Count >= 2);
+		var second = await client.RequestAsync(
+			2,
+			"""{"id":2,"method":"initialize","params":{"clientInfo":{"name":"weavie-test","title":"Weavie Test","version":"0"}}}""",
+			timeout.Token);
+
+		Assert.Equal("fake-codex", first.GetProperty("userAgent").GetString());
+		Assert.Equal("fake-codex", second.GetProperty("userAgent").GetString());
+		Assert.Equal([0, 0], starts);
+	}
+
+	[Fact]
+	public async Task Restart_FailsPendingRequests() {
+		await using var client = EmptyClient(_ => { });
+
+		client.Start();
+		using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+		var pending = client.RequestAsync(
+			1,
+			"""{"id":1,"method":"test/hang","params":{}}""",
+			timeout.Token);
+		client.Restart();
+
+		var error = await Assert.ThrowsAsync<IOException>(() => pending);
+		Assert.Equal("Codex app-server restarted.", error.Message);
+	}
+
+	[Fact]
 	public async Task ServerRequest_WithStringId_IsAnsweredWithStringId() {
 		var requests = new List<CodexServerRequest>();
 		var logs = new List<string>();

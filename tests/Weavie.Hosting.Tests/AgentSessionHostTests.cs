@@ -92,6 +92,8 @@ public sealed class AgentSessionHostTests {
 
 		public void Interrupt() => throw new NotSupportedException();
 
+		public void Restart() => throw new NotSupportedException();
+
 		public void ResolveApproval(string requestId, string decision) => throw new NotSupportedException();
 
 		public void ResolveInput(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) =>

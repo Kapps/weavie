@@ -67,6 +67,13 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 	/// <summary>Starts the supervised app-server process.</summary>
 	public void Start() => _supervisor.Start();
 
+	/// <summary>Stops and immediately starts a fresh app-server process.</summary>
+	public void Restart() {
+		FailPending(new IOException("Codex app-server restarted."));
+		_supervisor.Stop();
+		_supervisor.Start();
+	}
+
 	/// <summary>Sends a request line and completes with the response result.</summary>
 	public async Task<JsonElement> RequestAsync(long id, string line, CancellationToken ct) {
 		ArgumentException.ThrowIfNullOrEmpty(line);

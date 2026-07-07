@@ -46,6 +46,8 @@ internal sealed class UnavailableStructuredAgentSession : IStructuredAgentSessio
 	public void Interrupt() {
 	}
 
+	public void Restart() => Emit();
+
 	public void ResolveApproval(string requestId, string decision) {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(decision);

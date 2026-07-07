@@ -127,6 +127,9 @@ public sealed partial class CodexAppServerSession {
 	}
 
 	/// <inheritdoc/>
+	public void Restart() => _client.Restart();
+
+	/// <inheritdoc/>
 	public void ResolveApproval(string requestId, string decision) {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(decision);

@@ -29,7 +29,28 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
 		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
-		await using var session = new HostSession(
+		await using var session = CreateSession(structured, settings, commandRegistry);
+
+		session.SendAgentImagePath(Path.Combine(_dir, "pasted", "paste-1.png"));
+
+		Assert.Equal([Path.Combine(_dir, "pasted", "paste-1.png")], structured.Images);
+	}
+
+	[Fact]
+	public async Task RestartAgent_RestartsStructuredProvider() {
+		var structured = new RecordingStructuredSession();
+		var commandRegistry = CoreCommands.CreateRegistry();
+		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		await using var session = CreateSession(structured, settings, commandRegistry);
+
+		session.RestartAgent();
+
+		Assert.Equal(1, structured.Restarts);
+		Assert.Equal(0, structured.Interruptions);
+	}
+
+	private HostSession CreateSession(RecordingStructuredSession structured, SettingsStore settings, CommandRegistry commandRegistry) =>
+		new(
 			new FakeHostBridge(),
 			settings,
 			new LayoutStore(new Weavie.Core.FileSystem.LocalFileSystem(), LayoutPanes.CreateRegistry(), Path.Combine(_dir, "layout.json")),
@@ -43,11 +64,6 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"));
-
-		session.SendAgentImagePath(Path.Combine(_dir, "pasted", "paste-1.png"));
-
-		Assert.Equal([Path.Combine(_dir, "pasted", "paste-1.png")], structured.Images);
-	}
 
 	private sealed class FakeStructuredProvider(RecordingStructuredSession session) : IAgentProvider {
 		public AgentProviderInfo Info { get; } = new() {
@@ -67,6 +83,10 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public List<string> Images { get; } = [];
 
+		public int Interruptions { get; private set; }
+
+		public int Restarts { get; private set; }
+
 		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
 
 		public void SubmitPrompt(string prompt) => Prompts.Add(prompt);
@@ -75,7 +95,9 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public void PrefillPrompt(string prompt) { }
 
-		public void Interrupt() { }
+		public void Interrupt() => Interruptions++;
+
+		public void Restart() => Restarts++;
 
 		public void ResolveApproval(string requestId, string decision) { }
 

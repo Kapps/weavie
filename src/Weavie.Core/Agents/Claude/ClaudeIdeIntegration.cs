@@ -88,12 +88,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 	/// <summary>Writes Claude hook settings and returns their path.</summary>
 	public string WriteSettingsFile() {
 		string relay = RelayBinaryPath();
-		if (!File.Exists(relay)) {
-			throw new InvalidOperationException(
-				$"Hook relay '{RelayBinaryName}' was not found at '{relay}'. "
-				+ "The build co-locates it (see HookRelay.targets); a Release build requires the NativeAOT C++ toolchain.");
-		}
-
+		HookRelayBinary.RequireExists(relay);
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
@@ -117,9 +112,5 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		await Server.DisposeAsync().ConfigureAwait(false);
 	}
 
-	private static string RelayBinaryName => OperatingSystem.IsWindows() ? "weavie-hook-relay.exe" : "weavie-hook-relay";
-
-	private static string RelayBinaryPath() =>
-		ManagedRunnerLayout.CurrentRelayPath(AppContext.BaseDirectory, RelayBinaryName)
-		?? Path.Combine(AppContext.BaseDirectory, RelayBinaryName);
+	private static string RelayBinaryPath() => HookRelayBinary.PathIn(AppContext.BaseDirectory);
 }

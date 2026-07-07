@@ -11,6 +11,7 @@ namespace Weavie.Hosting.Agents.Codex;
 public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly AgentSessionContext _context;
 	private readonly CodexAppServerClient _client;
+	private readonly ICodexHookIntegration _hooks;
 	private readonly CodexThreadStore _threads;
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
@@ -29,11 +30,38 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		_context = context;
 		_threads = threads;
-		_client = new CodexAppServerClient(
+		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
+		_client = Client(command, _hooks);
+		WireClient();
+	}
+
+	internal CodexAppServerSession(
+		AgentSessionContext context,
+		CodexThreadStore threads,
+		string command,
+		ICodexHookIntegration hooks) {
+		ArgumentNullException.ThrowIfNull(context);
+		ArgumentNullException.ThrowIfNull(threads);
+		ArgumentException.ThrowIfNullOrEmpty(command);
+		ArgumentNullException.ThrowIfNull(hooks);
+		_context = context;
+		_threads = threads;
+		_hooks = hooks;
+		_client = Client(command, hooks);
+		WireClient();
+	}
+
+	private CodexAppServerClient Client(string command, ICodexHookIntegration hooks) =>
+		new(
 			command,
-			context.Workspace,
-			CodexAppServerConfig.Arguments(context),
+			_context.Workspace,
+			hooks.GlobalArguments,
+			CodexAppServerConfig.Arguments(_context),
+			hooks.AppServerArguments,
+			hooks.Environment,
 			LogClient);
+
+	private void WireClient() {
 		_client.ProcessStarted += OnClientStarted;
 		_client.ProcessStateChanged += OnProcessStateChanged;
 		_client.NotificationReceived += HandleNotification;
@@ -59,6 +87,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		await _client.DisposeAsync().ConfigureAwait(false);
+		await _hooks.DisposeAsync().ConfigureAwait(false);
 		await _context.Registry.DisposeAsync().ConfigureAwait(false);
 	}
 

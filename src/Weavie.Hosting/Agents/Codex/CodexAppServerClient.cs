@@ -6,10 +6,13 @@ using Weavie.Core.Processes;
 namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Supervises <c>codex app-server --stdio</c> and exchanges JSON-RPC messages over JSONL.</summary>
-public sealed class CodexAppServerClient : IAsyncDisposable {
+public sealed partial class CodexAppServerClient : IAsyncDisposable {
 	private readonly string _command;
 	private readonly string _workingDirectory;
+	private readonly IReadOnlyList<string> _globalArguments;
 	private readonly IReadOnlyList<string> _configArguments;
+	private readonly IReadOnlyList<string> _appServerArguments;
+	private readonly IReadOnlyDictionary<string, string> _environment;
 	private readonly Action<string> _log;
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
 	private readonly Lock _gate = new();
@@ -17,14 +20,27 @@ public sealed class CodexAppServerClient : IAsyncDisposable {
 	private Process? _process;
 
 	/// <summary>Creates a client for a Codex executable rooted at <paramref name="workingDirectory"/>.</summary>
-	public CodexAppServerClient(string command, string workingDirectory, IReadOnlyList<string> configArguments, Action<string> log) {
+	public CodexAppServerClient(
+		string command,
+		string workingDirectory,
+		IReadOnlyList<string> globalArguments,
+		IReadOnlyList<string> configArguments,
+		IReadOnlyList<string> appServerArguments,
+		IReadOnlyDictionary<string, string> environment,
+		Action<string> log) {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		ArgumentNullException.ThrowIfNull(globalArguments);
 		ArgumentNullException.ThrowIfNull(configArguments);
+		ArgumentNullException.ThrowIfNull(appServerArguments);
+		ArgumentNullException.ThrowIfNull(environment);
 		ArgumentNullException.ThrowIfNull(log);
 		_command = command;
 		_workingDirectory = workingDirectory;
+		_globalArguments = globalArguments;
 		_configArguments = configArguments;
+		_appServerArguments = appServerArguments;
+		_environment = environment;
 		_log = log;
 		_supervisor = new ProcessSupervisor(
 			"codex:app-server",
@@ -101,84 +117,6 @@ public sealed class CodexAppServerClient : IAsyncDisposable {
 		return ValueTask.CompletedTask;
 	}
 
-	private void StartProcess(int attempt) {
-		var process = new Process {
-			StartInfo = new ProcessStartInfo(_command) {
-				WorkingDirectory = _workingDirectory,
-				RedirectStandardInput = true,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-			},
-			EnableRaisingEvents = true,
-		};
-		process.StartInfo.ArgumentList.Add("app-server");
-		foreach (string argument in _configArguments) {
-			process.StartInfo.ArgumentList.Add(argument);
-		}
-
-		process.StartInfo.ArgumentList.Add("--stdio");
-		process.Exited += (_, _) => {
-			int exitCode = ReadExitCode(process);
-			_log($"[codex-app-server] exited {exitCode}");
-			FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
-			_supervisor.NotifyExited(exitCode);
-		};
-		if (!process.Start()) {
-			throw new InvalidOperationException("Codex app-server did not start.");
-		}
-
-		lock (_gate) {
-			_process = process;
-		}
-
-		ProcessStarted?.Invoke(attempt);
-		_ = ReadStdoutAsync(process);
-		_ = ReadStderrAsync(process);
-	}
-
-	private void StopProcess() {
-		Process? process;
-		lock (_gate) {
-			process = _process;
-			_process = null;
-		}
-
-		if (process is null) {
-			return;
-		}
-
-		try {
-			if (!process.HasExited) {
-				process.Kill(entireProcessTree: true);
-			}
-		} catch (Exception ex) when (ex is InvalidOperationException or NotSupportedException) {
-			_log($"[codex-app-server] stop failed: {ex.Message}");
-		} finally {
-			process.Dispose();
-		}
-	}
-
-	private async Task ReadStdoutAsync(Process process) {
-		try {
-			while (!process.HasExited && await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line) {
-				HandleLine(line);
-			}
-		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or JsonException) {
-			_log($"[codex-app-server] stdout closed: {ex.Message}");
-		}
-	}
-
-	private async Task ReadStderrAsync(Process process) {
-		try {
-			while (!process.HasExited && await process.StandardError.ReadLineAsync().ConfigureAwait(false) is { } line) {
-				_log($"[codex-app-server] {line}");
-			}
-		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
-			_log($"[codex-app-server] stderr closed: {ex.Message}");
-		}
-	}
-
 	private void HandleLine(string line) {
 		if (string.IsNullOrWhiteSpace(line)) {
 			return;
@@ -242,33 +180,11 @@ public sealed class CodexAppServerClient : IAsyncDisposable {
 		}
 	}
 
-	private void WriteLine(string line) {
-		Process? process;
-		lock (_gate) {
-			process = _process;
-		}
-
-		if (process is null || process.HasExited) {
-			throw new InvalidOperationException("Codex app-server is not running.");
-		}
-
-		process.StandardInput.WriteLine(line);
-		process.StandardInput.Flush();
-	}
-
 	private void FailPending(Exception exception) {
 		foreach (long id in _pending.Keys) {
 			if (_pending.TryRemove(id, out var pending)) {
 				pending.TrySetException(exception);
 			}
-		}
-	}
-
-	private static int ReadExitCode(Process process) {
-		try {
-			return process.ExitCode;
-		} catch (Exception ex) when (ex is InvalidOperationException or ObjectDisposedException) {
-			return -1;
 		}
 	}
 

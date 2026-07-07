@@ -23,4 +23,22 @@ public sealed class AgentEventRouterTests {
 
 		Assert.Equal(["app.cs:2"], feedback.Messages);
 	}
+
+	[Fact]
+	public void Observe_WorkspaceMutationCompletion_RecordsChangedFiles() {
+		var fs = new InMemoryFileSystem();
+		string root = Path.Combine(Path.GetTempPath(), "weavie-router-workspace-test");
+		string file = Path.Combine(root, "app.cs");
+		fs.WriteAllText(file, "one\ntwo\n");
+		var changes = new SessionChangeTracker(fs, root, _ => true);
+		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine());
+
+		router.Observe(new AgentToolStarting(new AgentMutation.Workspace()));
+		fs.WriteAllText(file, "one\nTWO\n");
+		router.Observe(new AgentToolCompleted(new AgentMutation.Workspace()));
+
+		var turn = Assert.Single(changes.TurnChanges());
+		Assert.Equal("one\ntwo\n", turn.BaselineText);
+		Assert.Equal("one\nTWO\n", turn.CurrentText);
+	}
 }

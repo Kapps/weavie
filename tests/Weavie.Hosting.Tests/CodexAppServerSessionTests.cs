@@ -60,7 +60,7 @@ public sealed class CodexAppServerSessionTests : IDisposable {
 			Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			Events = new NullAgentEventSink(),
 			CurrentSessionId = () => "slot-1",
-		}, threads, "node");
+		}, threads, "node", NoopCodexHookIntegration.Instance);
 		session.PaneMessage += messages.Add;
 
 		session.Start();
@@ -166,7 +166,7 @@ public sealed class CodexAppServerSessionTests : IDisposable {
 			Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			Events = events,
 			CurrentSessionId = () => "slot-1",
-		}, new CodexThreadStore(fileSystem, "/codex-threads.json"), "node");
+		}, new CodexThreadStore(fileSystem, "/codex-threads.json"), "node", NoopCodexHookIntegration.Instance);
 		session.PaneMessage += messages.Add;
 		return session;
 	}
@@ -194,6 +194,18 @@ public sealed class CodexAppServerSessionTests : IDisposable {
 			Values.Add(value);
 			return AgentEventFeedback.None;
 		}
+	}
+
+	private sealed class NoopCodexHookIntegration : ICodexHookIntegration {
+		public static NoopCodexHookIntegration Instance { get; } = new();
+
+		public IReadOnlyList<string> GlobalArguments => [];
+
+		public IReadOnlyList<string> AppServerArguments => [];
+
+		public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}
 
 	private const string FakeServerScript = """

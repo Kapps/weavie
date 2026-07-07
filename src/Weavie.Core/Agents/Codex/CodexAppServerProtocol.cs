@@ -215,9 +215,14 @@ public static class CodexAppServerProtocol {
 			return true;
 		}
 
-		return string.Equals(type, "commandExecution", StringComparison.Ordinal)
+		if (string.Equals(type, "commandExecution", StringComparison.Ordinal)
 			|| string.Equals(type, "mcpToolCall", StringComparison.Ordinal)
-			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal);
+			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal)) {
+			mutation = new AgentMutation.Workspace();
+			return true;
+		}
+
+		return false;
 	}
 
 	private static AgentMutation ReadFileChangeMutation(JsonElement item) {

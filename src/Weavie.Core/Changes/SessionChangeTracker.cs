@@ -97,6 +97,16 @@ public sealed partial class SessionChangeTracker {
 			AgentToolCompleted completed => completed.Mutation,
 			_ => new AgentMutation.None(),
 		};
+		if (mutation is AgentMutation.Workspace) {
+			if (value is AgentToolStarting) {
+				CaptureWorkspaceBaselines();
+			} else if (value is AgentToolCompleted) {
+				RecordWorkspaceChanges();
+			}
+
+			return;
+		}
+
 		string? path = ExtractEditPath(mutation);
 		if (path is null || !_isInScope(path)) {
 			return;

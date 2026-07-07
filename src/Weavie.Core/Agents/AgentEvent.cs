@@ -36,6 +36,9 @@ public abstract record AgentMutation {
 	/// <summary>The tool is not a recognized direct file mutation.</summary>
 	public sealed record None : AgentMutation;
 
+	/// <summary>The tool may mutate files, but the provider did not give per-file paths before it runs.</summary>
+	public sealed record Workspace : AgentMutation;
+
 	/// <summary>The tool directly mutates <paramref name="Path"/>, resolved relative to <paramref name="Cwd"/>.</summary>
 	public sealed record File(string Path, string? Cwd, bool ProvidesEditLocation) : AgentMutation;
 }

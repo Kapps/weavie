@@ -25,7 +25,14 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		var notifications = new List<string>();
 		var starts = new List<int>();
 		var logs = new List<string>();
-		await using var client = new CodexAppServerClient("node", _dir, ["-c", "mcp_servers.weavie.enabled=true"], logs.Add);
+		await using var client = new CodexAppServerClient(
+			"node",
+			_dir,
+			["--no-warnings"],
+			["-c", "mcp_servers.weavie.enabled=true"],
+			["-c", "hooks.PreToolUse=[]"],
+			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_HOOK_PIPE"] = "weavie-hook-test" },
+			logs.Add);
 		client.ProcessStarted += starts.Add;
 		client.NotificationReceived += root => {
 			if (root.GetProperty("method").GetString() == "turn/started") {
@@ -67,14 +74,20 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		Assert.Contains("turn/interrupted", notifications);
 		Assert.Contains(logs, line => line.Contains("exited 7", StringComparison.Ordinal));
 		Assert.Contains(logs, line => line.Contains("notification handler failed: boom", StringComparison.Ordinal));
-		Assert.Contains("--stdio", File.ReadAllText(Path.Combine(_dir, "args.json")), StringComparison.Ordinal);
+		using var argsDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "args.json")));
+		using var execArgsDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "exec-args.json")));
+		Assert.Equal("--no-warnings", execArgsDoc.RootElement[0].GetString());
+		Assert.Equal("-c", argsDoc.RootElement[0].GetString());
+		Assert.Contains(argsDoc.RootElement.EnumerateArray(), value => value.GetString() == "hooks.PreToolUse=[]");
+		Assert.Contains(argsDoc.RootElement.EnumerateArray(), value => value.GetString() == "--stdio");
+		Assert.Equal("weavie-hook-test", File.ReadAllText(Path.Combine(_dir, "env.txt")));
 	}
 
 	[Fact]
 	public async Task NotificationHandlerFailure_DoesNotStopOtherSubscribers() {
 		var notifications = new List<string>();
 		var logs = new List<string>();
-		await using var client = new CodexAppServerClient("node", _dir, [], logs.Add);
+		await using var client = EmptyClient(logs.Add);
 		client.NotificationReceived += _ => throw new InvalidOperationException("boom");
 		client.NotificationReceived += root => notifications.Add(root.GetProperty("method").GetString() ?? string.Empty);
 
@@ -99,7 +112,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 	public async Task ServerRequest_WithStringId_IsAnsweredWithStringId() {
 		var requests = new List<CodexServerRequest>();
 		var logs = new List<string>();
-		await using var client = new CodexAppServerClient("node", _dir, [], logs.Add);
+		await using var client = EmptyClient(logs.Add);
 		client.RequestReceived += request => {
 			requests.Add(request);
 			client.Respond(request.ResponseId, new { decision = "accept" });
@@ -124,7 +137,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 
 	[Fact]
 	public async Task ServerRequest_CanBeAnsweredWithJsonRpcError() {
-		await using var client = new CodexAppServerClient("node", _dir, [], _ => { });
+		await using var client = EmptyClient(_ => { });
 		client.RequestReceived += request => client.RespondError(request.ResponseId, -32601, "unsupported");
 
 		client.Start();
@@ -153,10 +166,15 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		throw new TimeoutException("Condition was not met within the timeout.");
 	}
 
+	private CodexAppServerClient EmptyClient(Action<string> log) =>
+		new("node", _dir, [], [], [], new Dictionary<string, string>(StringComparer.Ordinal), log);
+
 	private const string FakeServerScript = """
 const fs = require("fs");
 const readline = require("readline");
 fs.writeFileSync("args.json", JSON.stringify(process.argv.slice(2)));
+fs.writeFileSync("exec-args.json", JSON.stringify(process.execArgv));
+fs.writeFileSync("env.txt", process.env.WEAVIE_HOOK_PIPE || "");
 function send(value) {
   process.stdout.write(JSON.stringify(value) + "\n");
 }

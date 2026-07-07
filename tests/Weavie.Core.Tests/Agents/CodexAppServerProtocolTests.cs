@@ -95,7 +95,8 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
 			out var toolStarted));
-		Assert.IsType<AgentToolStarting>(toolStarted);
+		var tool = Assert.IsType<AgentToolStarting>(toolStarted);
+		Assert.IsType<AgentMutation.Workspace>(tool.Mutation);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
@@ -184,5 +185,80 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal(file, turn.Path);
 		Assert.Equal("old\n", turn.BaselineText);
 		Assert.Equal("old\nnew\n", turn.CurrentText);
+	}
+
+	[Fact]
+	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForMcpWrites() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-workspace-review"));
+		string file = Path.Combine(workspace, "src", "App.cs");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(file, "old\n");
+		var changes = new SessionChangeTracker(
+			fileSystem,
+			workspace,
+			_ => true);
+		string startedJson = """{"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"item_1","status":"inProgress","server":"node_repl","tool":"js","arguments":{}}}}""";
+		string completedJson = """{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"item_1","status":"completed","server":"node_repl","tool":"js","arguments":{}}}}""";
+
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
+		changes.Observe(started);
+		fileSystem.WriteAllText(file, "old\nnew\n");
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
+		changes.Observe(completed);
+
+		var turn = Assert.Single(changes.TurnChanges());
+		Assert.Equal(file, turn.Path);
+		Assert.Equal("old\n", turn.BaselineText);
+		Assert.Equal("old\nnew\n", turn.CurrentText);
+	}
+
+	[Fact]
+	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForCreatedFiles() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-created-review"));
+		string file = Path.Combine(workspace, "created.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(Path.Combine(workspace, "README.md"), "seed\n");
+		var changes = new SessionChangeTracker(
+			fileSystem,
+			workspace,
+			_ => true);
+		string startedJson = """{"method":"item/started","params":{"item":{"type":"dynamicToolCall","id":"item_1","status":"inProgress","tool":"write","arguments":{}}}}""";
+		string completedJson = """{"method":"item/completed","params":{"item":{"type":"dynamicToolCall","id":"item_1","status":"completed","tool":"write","arguments":{}}}}""";
+
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
+		changes.Observe(started);
+		fileSystem.WriteAllText(file, "new\n");
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
+		changes.Observe(completed);
+
+		var turn = Assert.Single(changes.TurnChanges());
+		Assert.Equal(file, turn.Path);
+		Assert.Equal(string.Empty, turn.BaselineText);
+		Assert.Equal("new\n", turn.CurrentText);
+	}
+
+	[Fact]
+	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForDeletedFiles() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-deleted-review"));
+		string file = Path.Combine(workspace, "deleted.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(file, "gone\n");
+		var changes = new SessionChangeTracker(
+			fileSystem,
+			workspace,
+			_ => true);
+		string startedJson = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
+		string completedJson = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_1","status":"completed","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
+
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
+		changes.Observe(started);
+		fileSystem.DeleteFile(file);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
+		changes.Observe(completed);
+
+		var turn = Assert.Single(changes.TurnChanges());
+		Assert.Equal(file, turn.Path);
+		Assert.Equal("gone\n", turn.BaselineText);
+		Assert.Equal(string.Empty, turn.CurrentText);
 	}
 }

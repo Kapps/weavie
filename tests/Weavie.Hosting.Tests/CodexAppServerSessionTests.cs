@@ -134,6 +134,9 @@ public sealed class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal("describe it", input[0].GetProperty("text").GetString());
 		Assert.Equal("localImage", input[1].GetProperty("type").GetString());
 		Assert.Equal(Path.Combine(_dir, "paste-1.png"), input[1].GetProperty("path").GetString());
+		await WaitForAsync(() =>
+			messages.Any(message => message.Type == "user-message" && message.Text == "describe it")
+			&& messages.Any(message => message.Type == "user-image" && message.Status == "submitted"));
 		Assert.Contains(messages, message => message.Type == "user-image" && message.Status == "attached");
 		Assert.Contains(messages, message => message.Type == "user-message" && message.Text == "describe it");
 		Assert.Contains(messages, message => message.Type == "user-image" && message.Status == "submitted");

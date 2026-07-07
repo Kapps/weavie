@@ -1,30 +1,27 @@
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
-using Weavie.Core.Hooks;
 using Weavie.Core.Processes;
-using Weavie.Core.Sessions;
 using Weavie.Core.Terminal;
 
 namespace Weavie.Hosting;
 
 /// <summary>
-/// Ties one real PTY to an xterm.js pane over the bridge. Each controller drives one <em>session</em>:
-/// <c>"claude"</c> launches the interactive <c>claude</c> TUI (with <c>ANTHROPIC_API_KEY</c> stripped so
-/// billing stays on the user's subscription — interactive CLI = full plan, never <c>-p</c>/SDK);
-/// <c>"shell"</c> launches the <c>terminal.shell</c> setting's shell. The OS-specific half is an injected
-/// <see cref="IPtyLauncher"/>, so the controller is identical on every host. The child runs under a
+/// Ties one provider-neutral child lifecycle to a real PTY and xterm.js pane over the bridge. The launch source
+/// owns executable, environment, cwd, capture, and restart-time state; the OS-specific half is an injected
+/// <see cref="IPtyLauncher"/>, so the controller is identical for agents and shells on every host. The child runs under a
 /// <see cref="ProcessSupervisor"/> with <see cref="RestartPolicy.Always"/> (a pane is a permanent fixture, so
 /// any exit relaunches it; only the crash-loop breaker leaves it stopped). The session id tags every
 /// <c>term-*</c> message so the page routes it to the matching pane.
 /// </summary>
 public sealed class TerminalController : IDisposable {
-	private static readonly IReadOnlyList<string> NoSessionArgs = [];
 	private readonly IHostBridge _bridge;
 	private readonly string _session;
 	private readonly SettingsStore _settings;
 	private readonly IPtyLauncher _launcher;
+	private readonly ITerminalProcess _process;
 	private readonly Lock _gate = new();
 	private readonly ProcessSupervisor _supervisor;
 	private ITerminal? _terminal;
@@ -34,17 +31,12 @@ public sealed class TerminalController : IDisposable {
 	// The slot id pre-encoded as a JSON string value (see SlotId), written into every term message so the
 	// page routes this pane's output to its own session's xterm — encoded once per bind, not per chunk.
 	private JsonEncodedText _slotEncoded = JsonEncodedText.Encode("");
-	// Per-launch claude startup detection (claude session only): watches early output so that, on exit, it can
-	// tell a launch that came up from one that died at startup (a dead/poison session id) and heal
-	// ClaudeSessionStore. Does NOT mark the session resumable (that's ObserveHook). Null for an unmanaged launch.
-	private ClaudeStartupWatcher? _startupWatcher;
 	// Shell-only: the on-disk scrollback log this pane's output is tee'd to, for replay on (re)attach and faded
-	// history on resume. Unlike _ptyLog it survives process restarts and is closed only on dispose. Null = not
-	// configured (the claude pane, or persistence disabled).
+	// history on resume. Unlike _ptyLog it survives process restarts and is closed only on dispose.
 	private ScrollbackLog? _scrollback;
-	// Shell-only: the directory the shell last reported via OSC 7, so a reopen relaunches there instead of the
-	// workspace root. Null until reported (or for the claude pane, which always runs in the IDE workspace).
+	// The last valid directory reported via OSC 7, used only when the launch source opts into following it.
 	private string? _reportedCwd;
+	private AgentWorkingDirectoryMode _workingDirectoryMode = AgentWorkingDirectoryMode.Fixed;
 	// Per-launch latched terminal state (alt screen, mouse modes, bracketed paste, title…), replayed to a client
 	// that mounts onto the already-live child — the resize nudge redraws content but can't re-establish modes.
 	// Replaced with a fresh instance per launch in StartTerminal, which is also the reset on restart.
@@ -57,18 +49,25 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) <paramref name="bridge"/>, resolving its
-	/// shell/claude/workspace from <paramref name="settings"/> and spawning the child through
-	/// <paramref name="launcher"/>. <paramref name="session"/> is the pane it feeds: <c>"claude"</c> or <c>"shell"</c>.
+	/// pane state from <paramref name="settings"/> and spawning the child through <paramref name="launcher"/>.
+	/// <paramref name="session"/> is the compatibility wire id of the pane it feeds.
 	/// </summary>
-	public TerminalController(IHostBridge bridge, string session, SettingsStore settings, IPtyLauncher launcher) {
+	public TerminalController(
+		IHostBridge bridge,
+		string session,
+		SettingsStore settings,
+		IPtyLauncher launcher,
+		ITerminalProcess process) {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentException.ThrowIfNullOrEmpty(session);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(launcher);
+		ArgumentNullException.ThrowIfNull(process);
 		_bridge = bridge;
 		_session = session;
 		_settings = settings;
 		_launcher = launcher;
+		_process = process;
 		Workspace = settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_supervisor = new ProcessSupervisor(
@@ -81,17 +80,13 @@ public sealed class TerminalController : IDisposable {
 		_supervisor.StateChanged += OnSupervisorStateChanged;
 	}
 
-	/// <summary>Extra environment to inject into the spawned claude (used by the MCP wiring).</summary>
-	public IReadOnlyDictionary<string, string> ExtraEnvironment { get; set; } =
-		new Dictionary<string, string>(StringComparer.Ordinal);
-
-	/// <summary>The directory claude runs in (and the IDE workspace). Defaults to the <c>workspace</c> setting.</summary>
+	/// <summary>The directory this terminal is rooted in. Defaults to the <c>workspace</c> setting.</summary>
 	public string Workspace { get; set; }
 
 	/// <summary>
-	/// When set (shell session only), the file this pane's output is persisted to so a reattaching/resumed client
+	/// When set, the file this pane's output is persisted to so a reattaching/resumed client
 	/// replays a coherent screen (faded). Setting it opens the log, capped by <c>terminal.persistScrollbackKb</c>
-	/// (0 disables). Null for the claude pane, which resumes via <c>--resume</c> and repaints itself.
+	/// (0 disables). A null path leaves replay to the child process.
 	/// </summary>
 	public string? ScrollbackLogPath {
 		get;
@@ -100,38 +95,6 @@ public sealed class TerminalController : IDisposable {
 			EnsureScrollbackLog();
 		}
 	}
-
-	/// <summary>
-	/// MCP config file passed as <c>--mcp-config</c> when launching claude, exposing the capability registry
-	/// server's tools (<c>mcp__weavie__*</c>) to the model. Claude session only.
-	/// </summary>
-	public string? McpConfigPath { get; set; }
-
-	/// <summary>
-	/// Settings file passed as <c>--settings</c> when launching claude — the hooks block routing its tool calls
-	/// to Weavie's hook relay. Claude session only.
-	/// </summary>
-	public string? SettingsFilePath { get; set; }
-
-	/// <summary>
-	/// Text file passed as <c>--append-system-prompt-file</c> when launching claude — the embedded-claude
-	/// guidance pointing it at the <c>mcp__weavie__*</c> tools for live app state. Claude session only.
-	/// </summary>
-	public string? SystemPromptFilePath { get; set; }
-
-	/// <summary>
-	/// When set (claude session only), the store assigning this <see cref="Workspace"/> a stable Claude session id
-	/// so the spawned claude <c>--resume</c>s its previous conversation across launches instead of cold-starting.
-	/// Honored only while <c>claude.resumeSession</c> is on; null disables the feature.
-	/// </summary>
-	public ClaudeSessionStore? ClaudeSessions { get; set; }
-
-	/// <summary>
-	/// Locator for Claude's on-disk transcripts, wired alongside <see cref="ClaudeSessions"/> (claude session only),
-	/// so a <c>--resume</c> is only launched when its conversation actually exists — otherwise the id is re-created
-	/// fresh instead of resuming into "No conversation found". Null disables the check (the launch resumes as before).
-	/// </summary>
-	public IClaudeTranscripts? ClaudeTranscripts { get; set; }
 
 	/// <summary>
 	/// Raised on every supervisor transition for this session's process, so a per-session status indicator can map
@@ -174,8 +137,8 @@ public sealed class TerminalController : IDisposable {
 			}
 		}
 
-		// Replay persisted scrollback (shell only) before (re)starting, so faded history paints above the new
-		// child's live output. File I/O stays outside _gate. (BuildReplay is empty for claude / no persistence.)
+		// Replay persisted scrollback before (re)starting, so faded history paints above the new child's live
+		// output. File I/O stays outside _gate. BuildReplay is empty when persistence is not configured.
 		// Under _replayGate with the pending-resync clear: output logged before this snapshot arrives via the
 		// replay, output logged after posts live below it — once each, in order (see OnOutput).
 		lock (_replayGate) {
@@ -205,8 +168,8 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Re-syncs this pane's already-mounted xterm after a bridge reconnect: output posted while the link was down
-	/// never reached the page. A scrollback-backed pane (the shell) is reset, and its <c>term-ready</c> reply
-	/// replays the log — gap included — via <see cref="OnReady"/>; a pane with no log (claude) keeps its buffer
+	/// never reached the page. A scrollback-backed pane is reset, and its <c>term-ready</c> reply
+	/// replays the log — gap included — via <see cref="OnReady"/>; a pane with no log keeps its buffer
 	/// and gets the size nudge so the running TUI repaints its screen. No-op until the child has started.
 	/// </summary>
 	public void ResyncPane() {
@@ -290,13 +253,15 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>
-	/// Records the working directory the shell child reported via OSC 7, so a reopen relaunches there. OSC 7 is
+	/// Records the working directory the child reported via OSC 7 when its launch opts into following it. OSC 7 is
 	/// untrusted terminal output, so the path is confined to this session's worktree — it can't point the
-	/// relaunched shell at an arbitrary directory (a binary/DLL-planting or info-disclosure vector). Ignored for
-	/// the claude pane (always the IDE workspace) and for a path outside the workspace or one that no longer exists.
+	/// relaunched process at an arbitrary directory (a binary/DLL-planting or info-disclosure vector). Fixed launches,
+	/// paths outside the workspace, and paths that no longer exist are ignored.
 	/// </summary>
 	public void OnCwdReported(string cwd) {
-		if (_session == "claude" || !BufferStore.IsWithinWorkspace(Workspace, cwd) || !Directory.Exists(cwd)) {
+		if (_workingDirectoryMode == AgentWorkingDirectoryMode.Fixed
+			|| !BufferStore.IsWithinWorkspace(Workspace, cwd)
+			|| !Directory.Exists(cwd)) {
 			return;
 		}
 
@@ -307,40 +272,21 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
 	private void StartTerminal(int attempt) {
-		bool isClaude = _session == "claude";
 		lock (_gate) {
-			// The shell relaunches in its last reported cwd (OSC 7) when it has one; claude always uses the workspace.
-			string workspace = _reportedCwd ?? Workspace;
 			_terminal?.Dispose();
-
-			// Only the claude session tees to WEAVIE_PTY_LOG: both sessions sharing one path would
-			// clash on the exclusive FileStream, and the log exists for the IDE-MCP handshake anyway.
 			_ptyLog?.Dispose();
-			string? logPath = Environment.GetEnvironmentVariable("WEAVIE_PTY_LOG");
-			_ptyLog = isClaude && !string.IsNullOrEmpty(logPath)
-				? new FileStream(logPath, FileMode.Create, FileAccess.Write, FileShare.Read)
-				: null;
 
-			// Resolve this claude launch's managed session id (if any) and watch it, so a launch that died at startup
-			// (a dead/poison id) self-heals instead of crash-looping the pane (see OnTerminalExited). Resumability is
-			// decided by ObserveHook, not here. Unmanaged launches (shell, or resume off) skip all this.
-			var managedLaunch = isClaude ? ResolveClaudeLaunch() : null;
-			_startupWatcher = managedLaunch is { } resolved ? new ClaudeStartupWatcher(resuming: resolved.Resume) : null;
+			var logical = _process.ResolveLaunch();
+			_workingDirectoryMode = logical.WorkingDirectoryMode;
+			string workspace = logical.WorkingDirectoryMode == AgentWorkingDirectoryMode.FollowReported
+				? _reportedCwd ?? logical.WorkingDirectory
+				: logical.WorkingDirectory;
+			_ptyLog = logical.OutputCapture is AgentOutputCapture.File capture
+				? new FileStream(capture.Path, FileMode.Create, FileAccess.Write, FileShare.Read)
+				: null;
 			var modes = new TerminalModeTracker();
 			_modes = modes;
-			var sessionArgs = managedLaunch is { } managed
-				? (IReadOnlyList<string>)[managed.Resume ? "--resume" : "--session-id", managed.SessionId]
-				: NoSessionArgs;
-
-			var launch = _launcher.Resolve(new PtyLaunchRequest {
-				IsClaude = isClaude,
-				Settings = _settings,
-				McpConfigPath = McpConfigPath,
-				SettingsFilePath = SettingsFilePath,
-				SystemPromptFilePath = SystemPromptFilePath,
-				ExtraEnvironment = ExtraEnvironment,
-				ClaudeSessionArguments = sessionArgs,
-			});
+			var launch = _launcher.Resolve(logical);
 
 			var terminal = _launcher.CreateTerminal();
 			// The tracker is captured per launch (not read from the field) so a late chunk from a dying child can
@@ -369,56 +315,10 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
-	/// <summary>
-	/// Keeps <see cref="ClaudeSessions"/> aligned with the conversation claude is actually in (off the hook
-	/// stream), so <c>--resume</c> tracks reality across a <c>/clear</c>: a <c>/clear</c> abandons the tracked id
-	/// (next launch cold-starts), and the next UserPromptSubmit adopts the id claude settled on. No-op for the
-	/// shell pane, when <c>claude.resumeSession</c> is off, or for any other event.
-	/// </summary>
-	public void ObserveHook(HookRequest request) {
-		ArgumentNullException.ThrowIfNull(request);
-		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
-			return;
-		}
-
-		switch (request.Event) {
-			case HookEventKind.SessionStart when request.Source == "clear":
-				store.Clear(Workspace);
-				break;
-			case HookEventKind.UserPromptSubmit when !string.IsNullOrEmpty(request.SessionId):
-				store.Adopt(Workspace, request.SessionId);
-				break;
-			default:
-				break;
-		}
-	}
-
-	/// <summary>
-	/// Resolves this directory's managed Claude launch — the stable session id and whether to <c>--resume</c> or
-	/// create it with <c>--session-id</c>. Null when resume is unconfigured or off (claude then picks its own id).
-	/// The resume policy lives in <see cref="ClaudeSessionStore"/>.
-	/// </summary>
-	private ClaudeLaunch? ResolveClaudeLaunch() {
-		if (ClaudeSessions is not { } store || !_settings.GetBool("claude.resumeSession", fallback: true)) {
-			return null;
-		}
-
-		var launch = store.Resolve(Workspace);
-		// A resume only works if Claude still holds the transcript for this id under this cwd. When it doesn't
-		// (the conversation was cleared, or filed under a different directory), create it fresh under the same id
-		// rather than launch a doomed --resume that greets the user with "No conversation found".
-		if (launch.Resume && ClaudeTranscripts is { } transcripts && !transcripts.Exists(Workspace, launch.SessionId)) {
-			return launch with { Resume = false };
-		}
-
-		return launch;
-	}
-
 	/// <summary>Tears down the current PTY child and its optional log; the supervisor calls this on stop/dispose.</summary>
 	private void StopTerminal() {
-		// Detach under the gate, dispose outside it: disposing a ConPTY blocks until the child exits, and that
-		// child's final output can fire OnOutput → ObserveClaudeStartup, which itself takes _gate — holding the
-		// gate across Dispose would deadlock the two.
+		// Detach under the gate, dispose outside it: disposing a ConPTY blocks until the child exits, whose final
+		// output can re-enter this controller. Holding the gate across Dispose would deadlock the two.
 		ITerminal? terminal;
 		FileStream? ptyLog;
 		lock (_gate) {
@@ -452,8 +352,7 @@ public sealed class TerminalController : IDisposable {
 
 	/// <summary>
 	/// Raised (on the caller's thread) with each chunk written to the PTY via <see cref="Write"/> — the input
-	/// side of the pane. The session status uses the claude pane's stream to see a permission prompt being
-	/// answered, which no hook reports.
+	/// side of the pane. Consumers may use it for interactions that structured provider events do not report.
 	/// </summary>
 	public event Action<byte[]>? InputWritten;
 
@@ -463,13 +362,13 @@ public sealed class TerminalController : IDisposable {
 			_terminal?.Write(data);
 		}
 
+		_process.ObserveTerminalInput(data);
 		InputWritten?.Invoke(data);
 	}
 
 	/// <summary>
 	/// Writes <paramref name="text"/> to the PTY wrapped in bracketed-paste markers (<c>ESC[200~</c>…<c>ESC[201~</c>)
-	/// — the framing that makes a full-screen TUI (Claude) treat it as pasted input, e.g. converting a pasted image
-	/// path into an <c>[Image #N]</c> attachment rather than typed text.
+	/// — the framing that makes a full-screen TUI treat it as pasted input rather than typed text.
 	/// </summary>
 	public void WriteBracketedPaste(string text) {
 		ArgumentNullException.ThrowIfNull(text);
@@ -504,8 +403,7 @@ public sealed class TerminalController : IDisposable {
 		// of the resync suppression below: a suppressed chunk still changes the child's mode state.
 		modes.Feed(data);
 
-		// Confirm a managed claude launch came up (and self-heal on a failed resume), independent of the page.
-		ObserveClaudeStartup(data);
+		_process.ObserveTerminalOutput(data);
 
 		// Output always posts, tagged by slot: a background session paints into its own hidden pane (instant
 		// switch). The page drops a background backend's traffic at the bridge, so this never bleeds across backends.
@@ -524,48 +422,18 @@ public sealed class TerminalController : IDisposable {
 		$"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
 
 	/// <summary>
-	/// Feeds claude's early output to the per-launch <see cref="ClaudeStartupWatcher"/> so it can later tell a
-	/// launch that came up from one that died at startup (consumed by <see cref="OnTerminalExited"/>). Does NOT
-	/// mark the session resumable — that's <see cref="ObserveHook"/>, on a real user message.
-	/// </summary>
-	private void ObserveClaudeStartup(byte[] data) {
-		lock (_gate) {
-			// Only decode while a managed launch is still unconfirmed; once up, output is irrelevant here.
-			if (_startupWatcher is { Confirmed: false } watcher) {
-				watcher.Observe(Encoding.UTF8.GetString(data));
-			}
-		}
-	}
-
-	/// <summary>
-	/// The PTY child exited. A managed claude launch that died before confirming startup (a dead/poison session
-	/// id, not a healthy run the user quit) heals the session store so the relaunch recovers: a failed
-	/// <c>--resume</c> re-creates the same id, a failed <c>--session-id</c> forgets it (next launch cold-starts).
-	/// An intentional stop and a clean exit are left alone; the supervisor is notified last to apply its policy.
+	/// Reports the PTY exit to the launch source before notifying the supervisor, preserving provider recovery
+	/// decisions before the next supervised start.
 	/// </summary>
 	private void OnTerminalExited(int code) {
 		try {
 			// A deliberate stop (Stop/Dispose/Restart) flips the supervisor out of Running before killing the
 			// child, so a non-Running state here means the exit was intentional — never a startup failure to heal.
-			bool unexpected = _supervisor.State == SupervisorState.Running;
-			ClaudeStartupWatcher? watcher;
-			lock (_gate) {
-				watcher = _startupWatcher;
-				_startupWatcher = null;
-			}
+			_process.ObserveProcessExit(new AgentProcessExit {
+				ExitCode = code,
+				Unexpected = _supervisor.State == SupervisorState.Running,
+			});
 
-			if (unexpected && ClaudeSessions is { } store && watcher is not null) {
-				switch (watcher.OnExit(code)) {
-					case ClaudeStartupRecovery.RecreateSameId:
-						store.MarkResumeFailed(Workspace);
-						break;
-					case ClaudeStartupRecovery.ForgetId:
-						store.Forget(Workspace);
-						break;
-					default:
-						break; // None: came up, or a clean exit — leave the store as-is
-				}
-			}
 		} finally {
 			_supervisor.NotifyExited(code);
 		}

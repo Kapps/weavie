@@ -22,12 +22,15 @@ Console.WriteLine($"[harness] workspace: {workspace}");
 
 var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
-await using var ide = new IdeIntegration(
-	presenter, [workspace], "weavie", settings: null, layout: null, editor: null,
-	commands: null, keybindings: null, themeOverrides: null, editLocator: null, currentSessionId: () => "harness",
-	runtime: HostRuntimeInfo.Resolve(HostTransport.Local, AppContext.BaseDirectory, "harness"));
+var credential = AgentSessionCredential.Create();
+await using var server = new McpServer(
+	credential.Token, presenter, [workspace], "weavie", settings: null, registryMode: false, layout: null,
+	editor: null, commands: null, keybindings: null, themeOverrides: null, currentSessionId: null);
+int port = server.Start();
+IdeLockFile.Write(port, [workspace], "weavie", credential.Token);
+using var lockCleanup = new LockCleanup(port);
 
-ide.Server.Log += line => {
+server.Log += line => {
 	Console.WriteLine($"[mcp] {line}");
 	if (line.Contains("connected + authenticated", StringComparison.Ordinal)) {
 		flags.Connected = true;
@@ -42,9 +45,9 @@ ide.Server.Log += line => {
 	}
 };
 
-Console.WriteLine($"[harness] IDE-MCP server on 127.0.0.1:{ide.Port}");
-Console.WriteLine($"[harness] lock file: {ide.LockFilePath}");
-Console.WriteLine($"[harness] env inject: CLAUDE_CODE_SSE_PORT={ide.Port} ENABLE_IDE_INTEGRATION=true");
+Console.WriteLine($"[harness] IDE-MCP server on 127.0.0.1:{port}");
+Console.WriteLine($"[harness] lock file: {IdeLockFile.PathForPort(port)}");
+Console.WriteLine($"[harness] env inject: CLAUDE_CODE_SSE_PORT={port} ENABLE_IDE_INTEGRATION=true");
 
 const string claudeCmd = "exec claude";
 string? shell = Environment.GetEnvironmentVariable("SHELL");
@@ -62,7 +65,10 @@ terminal.Output += bytes => {
 	ptyLog.Flush();
 };
 
-var env = new Dictionary<string, string>(ide.EnvironmentVariables, StringComparer.Ordinal);
+var env = new Dictionary<string, string>(StringComparer.Ordinal) {
+	["CLAUDE_CODE_SSE_PORT"] = port.ToString(System.Globalization.CultureInfo.InvariantCulture),
+	["ENABLE_IDE_INTEGRATION"] = "true",
+};
 terminal.Start(new TerminalStartInfo {
 	Command = shell,
 	Arguments = ["-l", "-c", claudeCmd],
@@ -116,4 +122,8 @@ internal sealed class HandshakeFlags {
 	public bool Connected;
 	public bool Initialized;
 	public bool ToolsListed;
+}
+
+internal sealed class LockCleanup(int port) : IDisposable {
+	public void Dispose() => IdeLockFile.Delete(port);
 }

@@ -2,6 +2,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Weavie.Core.Sessions;
+using Weavie.Hosting.Agents.Claude;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -35,7 +36,7 @@ public sealed class TerminalControllerResumeTests {
 		string id = h.SessionId;
 		Assert.False(h.Resumable); // came up, but not messaged yet
 
-		h.Controller.ObserveHook(new HookRequest {
+		h.Agent.ObserveHook(new HookRequest {
 			Event = HookEventKind.UserPromptSubmit,
 			ToolName = string.Empty,
 			ToolInputJson = "{}",
@@ -68,10 +69,10 @@ public sealed class TerminalControllerResumeTests {
 		// The reported bug: a prior run marked the session resumable, but Claude no longer has its transcript under
 		// this cwd (cleared, or filed under a different directory). The launch must NOT --resume a doomed id — it
 		// re-creates it under --session-id instead of greeting the user with "No conversation found".
-		using var h = new Harness();
+		var transcripts = new ClaudeTranscripts(new InMemoryFileSystem(), "/claude/projects");
+		using var h = new Harness(transcripts);
 		string id = h.SessionId;
 		h.Store.Adopt(h.Workspace, id);
-		h.Controller.ClaudeTranscripts = new ClaudeTranscripts(new InMemoryFileSystem(), "/claude/projects");
 
 		h.Controller.OnReady(80, 24);
 
@@ -80,13 +81,12 @@ public sealed class TerminalControllerResumeTests {
 
 	[Fact]
 	public void ResumeWhoseTranscriptExists_LaunchesWithResume() {
-		using var h = new Harness();
-		string id = h.SessionId;
-		h.Store.Adopt(h.Workspace, id);
 		var fs = new InMemoryFileSystem();
 		var transcripts = new ClaudeTranscripts(fs, "/claude/projects");
+		using var h = new Harness(transcripts);
+		string id = h.SessionId;
+		h.Store.Adopt(h.Workspace, id);
 		fs.WriteAllText(transcripts.TranscriptPath(h.Workspace, id), "{}"); // Claude has the conversation
-		h.Controller.ClaudeTranscripts = transcripts;
 
 		h.Controller.OnReady(80, 24);
 
@@ -102,7 +102,7 @@ public sealed class TerminalControllerResumeTests {
 
 		// A /clear surfaces as a SessionStart hook sourced "clear": it abandons the tracked id so the next launch
 		// cold-starts (only a SessionStart from /clear does this — a different source must not).
-		h.Controller.ObserveHook(new HookRequest {
+		h.Agent.ObserveHook(new HookRequest {
 			Event = HookEventKind.SessionStart,
 			Source = "clear",
 			ToolName = string.Empty,
@@ -117,22 +117,35 @@ public sealed class TerminalControllerResumeTests {
 		private readonly SettingsStore _settings;
 		private readonly string _settingsPath;
 
-		public Harness() {
+		public Harness() : this(new ExistingClaudeTranscripts()) { }
+
+		public Harness(IClaudeTranscripts transcripts) {
 			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-tc-" + Guid.NewGuid().ToString("n") + ".toml");
 			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
 			Bridge = new FakeHostBridge();
 			Store = new ClaudeSessionStore(new InMemoryFileSystem(), "/weavie-tc/claude-sessions.json");
 			Launcher = new ScriptablePtyLauncher();
 			Workspace = Path.Combine(Path.GetTempPath(), "weavie-tc-ws-" + Guid.NewGuid().ToString("n"));
-			Controller = new TerminalController(Bridge, "claude", _settings, Launcher) {
+			Agent = new ClaudeTerminalLifecycle(
+				_settings,
+				Workspace,
+				Store,
+				transcripts,
+				new ClaudeLaunchConfiguration {
+					Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+					McpConfigPath = string.Empty,
+					SettingsFilePath = string.Empty,
+					SystemPromptFilePath = string.Empty,
+				});
+			Controller = new TerminalController(Bridge, "claude", _settings, Launcher, Agent) {
 				Workspace = Workspace,
-				ClaudeSessions = Store,
 			};
 		}
 
 		public FakeHostBridge Bridge { get; }
 		public ClaudeSessionStore Store { get; }
 		public ScriptablePtyLauncher Launcher { get; }
+		public ClaudeTerminalLifecycle Agent { get; }
 		public TerminalController Controller { get; }
 		public string Workspace { get; }
 
@@ -151,6 +164,10 @@ public sealed class TerminalControllerResumeTests {
 				// best-effort temp cleanup
 			}
 		}
+	}
+
+	private sealed class ExistingClaudeTranscripts : IClaudeTranscripts {
+		public bool Exists(string workspace, string sessionId) => true;
 	}
 
 }

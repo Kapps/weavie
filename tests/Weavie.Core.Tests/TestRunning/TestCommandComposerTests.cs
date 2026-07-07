@@ -19,9 +19,10 @@ public sealed class TestCommandComposerTests {
 	[Fact]
 	public void RunFile_SubstitutesFileDir() {
 		var rule = Rule("go test ${fileDir} -run ${name}", "go test ${fileDir}");
+		string file = Path.GetFullPath(Path.Combine("repo", "pkg", "x_test.go"));
 		Assert.True(TestCommandComposer.TryCompose(
-			rule, TestCommandKind.RunFile, "/repo/pkg/x_test.go", null, ShellQuoting.Posix, out string cmd, out _));
-		Assert.Equal("go test '/repo/pkg'", cmd);
+			rule, TestCommandKind.RunFile, file, null, ShellQuoting.Posix, out string cmd, out _));
+		Assert.Equal($"go test '{Path.GetDirectoryName(file)}'", cmd);
 	}
 
 	[Fact]

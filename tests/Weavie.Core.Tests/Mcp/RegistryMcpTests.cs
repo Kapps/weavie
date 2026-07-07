@@ -2,6 +2,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 using Weavie.Core.Configuration;
+using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Theming;
@@ -182,30 +183,28 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task IdeIntegration_WithSettings_WritesPortScopedConfig() {
+	public async Task ClaudeIntegration_WritesPortScopedRegistryConfig() {
 		using var store = NewStore();
-		await using var ide = TestMcp.Ide(FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store);
+		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], store);
+		await using var ide = new Weavie.Core.Agents.Claude.ClaudeIdeIntegration(
+			registry,
+			FakeDiffPresenter.AlwaysKeep(),
+			[_dir],
+			"weavie",
+			store,
+			new EditorStore(),
+			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+			_ => Weavie.Core.Agents.AgentEventFeedback.None,
+			(_, _) => { });
 
-		Assert.NotNull(ide.RegistryServer);
-		Assert.True(ide.RegistryPort > 0);
+		string path = ide.WriteMcpConfigFile();
+		Assert.Contains(registry.Port.ToString(System.Globalization.CultureInfo.InvariantCulture), Path.GetFileName(path), StringComparison.Ordinal);
 
-		string? path = ide.WriteMcpConfigFile();
-		Assert.NotNull(path);
-		Assert.Contains(ide.RegistryPort.ToString(System.Globalization.CultureInfo.InvariantCulture), Path.GetFileName(path!), StringComparison.Ordinal);
-
-		using var doc = JsonDocument.Parse(File.ReadAllText(path!));
+		using var doc = JsonDocument.Parse(File.ReadAllText(path));
 		var weavie = doc.RootElement.GetProperty("mcpServers").GetProperty("weavie");
 		Assert.Equal("ws", weavie.GetProperty("type").GetString());
-		Assert.Equal($"ws://127.0.0.1:{ide.RegistryPort}", weavie.GetProperty("url").GetString());
-		Assert.Equal($"Bearer {ide.AuthToken}", weavie.GetProperty("headers").GetProperty("Authorization").GetString());
-	}
-
-	[Fact]
-	public async Task IdeIntegration_WithoutSettings_HasNoRegistry() {
-		await using var ide = TestMcp.Ide(FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie");
-		Assert.Null(ide.RegistryServer);
-		Assert.Equal(0, ide.RegistryPort);
-		Assert.Null(ide.WriteMcpConfigFile());
+		Assert.Equal($"ws://127.0.0.1:{registry.Port}", weavie.GetProperty("url").GetString());
+		Assert.Equal($"Bearer {Token}", weavie.GetProperty("headers").GetProperty("Authorization").GetString());
 	}
 
 	[Fact]

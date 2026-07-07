@@ -21,7 +21,7 @@ public static class HookSettings {
 
 	/// <summary>
 	/// Renders the settings JSON, every hook running the standalone relay at <paramref name="relayBinaryPath"/>.
-	/// The host resolves the relay and fails loudly when it's absent (see <c>IdeIntegration</c>).
+	/// The Claude provider resolves the relay and fails loudly when it's absent.
 	/// </summary>
 	/// <param name="relayBinaryPath">Absolute path to the standalone hook-relay executable.</param>
 	public static string BuildJson(string relayBinaryPath) {

@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
@@ -9,6 +10,7 @@ using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
 using Weavie.Core.Theming;
+using Weavie.Hosting.Agents.Claude;
 
 namespace Weavie.Hosting.Tests;
 
@@ -131,6 +133,8 @@ internal sealed class TestHost : IAsyncDisposable {
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
 		var themeOverrides = new ThemeOverridesStore(new LocalFileSystem(), Path.Combine(tempRoot, "theme-overrides.json"));
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), Path.Combine(tempRoot, "claude-sessions.json"));
+		var agentProviders = new AgentProviderRegistry();
+		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		return new HostServices {
@@ -139,7 +143,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			SuggestionRegistry = Weavie.Core.Suggestions.CoreSuggestions.CreateRegistry(),
 			Keybindings = keybindings,
 			ThemeOverrides = themeOverrides,
-			ClaudeSessions = claudeSessions,
+			AgentProviders = agentProviders,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
 			PullRequests = new Weavie.Core.Review.StaticPullRequestProvider([], []),
@@ -254,11 +258,11 @@ internal sealed class NoopPtyLauncher : IPtyLauncher {
 		return terminal;
 	}
 
-	public PtyLaunch Resolve(PtyLaunchRequest request) => new() {
-		Command = "noop",
-		Arguments = [],
-		RemoveEnvironment = [],
-		Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+	public PtyLaunch Resolve(AgentLaunch launch) => new() {
+		Command = launch.Command,
+		Arguments = launch.Arguments,
+		RemoveEnvironment = launch.RemoveEnvironment,
+		Environment = launch.Environment,
 	};
 }
 

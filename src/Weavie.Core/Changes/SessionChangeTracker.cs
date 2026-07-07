@@ -1,6 +1,5 @@
-using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.FileSystem;
-using Weavie.Core.Hooks;
 
 namespace Weavie.Core.Changes;
 
@@ -80,27 +79,32 @@ public sealed partial class SessionChangeTracker {
 	/// set. Out-of-scope edits are dropped. A new prompt (UserPromptSubmit) commits the faded accepted band —
 	/// kept hunks leave the diff view — but never resets the review baseline, so pending changes accumulate.
 	/// </summary>
-	public void Observe(HookRequest request) {
-		ArgumentNullException.ThrowIfNull(request);
+	public void Observe(AgentEvent value) {
+		ArgumentNullException.ThrowIfNull(value);
 
-		if (request.Event == HookEventKind.UserPromptSubmit) {
+		if (value is AgentPromptSubmitted) {
 			CommitAccepted();
 			return;
 		}
 
 		// Reconcile deletions before recording this tool's edit, so a Bash rm/mv drops the vanished file first.
-		if (request.Event == HookEventKind.PostToolUse) {
+		if (value is AgentToolCompleted) {
 			ReconcileDeletions();
 		}
 
-		string? path = ExtractEditPath(request);
+		var mutation = value switch {
+			AgentToolStarting starting => starting.Mutation,
+			AgentToolCompleted completed => completed.Mutation,
+			_ => new AgentMutation.None(),
+		};
+		string? path = ExtractEditPath(mutation);
 		if (path is null || !_isInScope(path)) {
 			return;
 		}
 
-		if (request.Event == HookEventKind.PreToolUse) {
+		if (value is AgentToolStarting) {
 			CaptureBaseline(path);
-		} else if (request.Event == HookEventKind.PostToolUse) {
+		} else if (value is AgentToolCompleted) {
 			RecordChange(path);
 		}
 	}
@@ -468,15 +472,16 @@ public sealed partial class SessionChangeTracker {
 	/// <see langword="null"/> for non-edit/non-PostToolUse events, notebooks, and no-op edits. Call after
 	/// <see cref="Observe"/> folds in the PostToolUse event.
 	/// </summary>
-	/// <param name="request">The observed hook event (only PostToolUse edits yield a location).</param>
-	public string? EditLocationFor(HookRequest request) {
-		ArgumentNullException.ThrowIfNull(request);
-		if (request.Event != HookEventKind.PostToolUse
-			|| request.ToolName is not ("Edit" or "Write" or "MultiEdit")) {
+	/// <param name="value">The completed tool event whose mutation may yield a location.</param>
+	public string? EditLocationFor(AgentEvent value) {
+		ArgumentNullException.ThrowIfNull(value);
+		if (value is not AgentToolCompleted {
+			Mutation: AgentMutation.File { ProvidesEditLocation: true } mutation,
+		}) {
 			return null;
 		}
 
-		string? path = ExtractEditPath(request);
+		string? path = ExtractEditPath(mutation);
 		if (path is null) {
 			return null;
 		}
@@ -587,27 +592,14 @@ public sealed partial class SessionChangeTracker {
 		return true;
 	}
 
-	private string? ExtractEditPath(HookRequest request) {
-		string? key = request.ToolName switch {
-			"Edit" or "Write" or "MultiEdit" => "file_path",
-			"NotebookEdit" => "notebook_path",
-			_ => null,
-		};
-		if (key is null) {
+	private string? ExtractEditPath(AgentMutation mutation) {
+		if (mutation is not AgentMutation.File file) {
 			return null;
 		}
 
 		try {
-			using var doc = JsonDocument.Parse(request.ToolInputJson);
-			if (doc.RootElement.ValueKind != JsonValueKind.Object
-				|| !doc.RootElement.TryGetProperty(key, out var value)
-				|| value.ValueKind != JsonValueKind.String) {
-				return null;
-			}
-
-			string raw = value.GetString() ?? string.Empty;
-			return string.IsNullOrEmpty(raw) ? null : Resolve(raw, request.Cwd);
-		} catch (Exception ex) when (ex is JsonException or ArgumentException) {
+			return Resolve(file.Path, file.Cwd);
+		} catch (ArgumentException) {
 			// ToolInputJson is untrusted model output: malformed JSON or a malformed path is "not a trackable edit".
 			return null;
 		}

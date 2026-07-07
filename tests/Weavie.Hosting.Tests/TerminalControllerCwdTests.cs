@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Terminal;
 using Xunit;
@@ -65,7 +66,12 @@ public sealed class TerminalControllerCwdTests {
 			Workspace = Directory.CreateDirectory(
 				Path.Combine(Path.GetTempPath(), "weavie-tcwd-ws-" + Guid.NewGuid().ToString("n"))).FullName;
 			Launcher = new RecordingPtyLauncher();
-			Controller = new TerminalController(new FakeHostBridge(), "shell", _settings, Launcher) {
+			Controller = new TerminalController(
+				new FakeHostBridge(),
+				"shell",
+				_settings,
+				Launcher,
+				new TestTerminalProcess(Workspace, AgentWorkingDirectoryMode.FollowReported)) {
 				Workspace = Workspace,
 			};
 		}
@@ -108,11 +114,11 @@ public sealed class TerminalControllerCwdTests {
 
 		public ITerminal CreateTerminal() => _last = new RecordingTerminal();
 
-		public PtyLaunch Resolve(PtyLaunchRequest request) => new() {
-			Command = "noop",
-			Arguments = [],
-			RemoveEnvironment = [],
-			Environment = new Dictionary<string, string>(StringComparer.Ordinal),
+		public PtyLaunch Resolve(AgentLaunch launch) => new() {
+			Command = launch.Command,
+			Arguments = launch.Arguments,
+			RemoveEnvironment = launch.RemoveEnvironment,
+			Environment = launch.Environment,
 		};
 	}
 

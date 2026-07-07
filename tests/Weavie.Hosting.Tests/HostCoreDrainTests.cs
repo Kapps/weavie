@@ -34,7 +34,7 @@ public sealed class HostCoreDrainTests {
 	public async Task WorkingSession_HoldsDrain_ThenCommitsOnStop() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
-		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
@@ -46,7 +46,7 @@ public sealed class HostCoreDrainTests {
 		Assert.Equal("working", hold.GetProperty("reason").GetString());
 
 		// The turn settles (Stop hook) → the gate re-evaluates via the session's status subscription.
-		session.Status.Observe(Hook(HookEventKind.Stop));
+		session.Status.ObserveHook(Hook(HookEventKind.Stop));
 		Assert.True(exited);
 		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
 	}
@@ -55,7 +55,7 @@ public sealed class HostCoreDrainTests {
 	public async Task PendingPermissionPrompt_HoldsDrain() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
-		session.Status.Observe(Hook(HookEventKind.Notification, message: "Claude needs your permission to use Bash"));
+		session.Status.ObserveHook(Hook(HookEventKind.Notification, message: "Claude needs your permission to use Bash"));
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
@@ -82,7 +82,7 @@ public sealed class HostCoreDrainTests {
 
 		// The job ends; any status transition re-evaluates the gate (the 2s re-sample tick would too).
 		shellTerminal.HasForegroundJob = false;
-		session.Status.Observe(Hook(HookEventKind.Stop));
+		session.Status.ObserveHook(Hook(HookEventKind.Stop));
 		Assert.True(exited);
 	}
 
@@ -92,8 +92,8 @@ public sealed class HostCoreDrainTests {
 		// reads Idle to the eye but must hold the update, or the restart kills the pending step.
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
-		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
-		session.Status.Observe(Stop(sessionWillResume: true));
+		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.ObserveHook(Stop(sessionWillResume: true));
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
@@ -103,8 +103,8 @@ public sealed class HostCoreDrainTests {
 		Assert.Equal("waiting-on-task", hold.GetProperty("reason").GetString());
 
 		// The wake fires (new turn) and the follow-up ends with nothing pending → genuinely Idle → the gate commits.
-		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
-		session.Status.Observe(Stop(sessionWillResume: false));
+		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.ObserveHook(Stop(sessionWillResume: false));
 		Assert.True(exited);
 		Assert.NotNull(host.Bridge.LastOfType("update-restarting"));
 	}
@@ -113,7 +113,7 @@ public sealed class HostCoreDrainTests {
 	public async Task ReadyMidDrain_RepushesPendingState() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
-		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 		host.Core.BeginDrain(() => { });
 
 		// A tab (re)connecting mid-drain must learn the pending state it missed.
@@ -134,7 +134,7 @@ public sealed class HostCoreDrainTests {
 	public async Task RestartNow_SkipsTheGate() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
-		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 
 		bool exited = false;
 		host.Core.BeginDrain(() => exited = true);
@@ -156,13 +156,13 @@ public sealed class HostCoreDrainTests {
 	public async Task BeginDrain_IsIdempotent_FirstExitWins() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest()!;
-		session.Status.Observe(Hook(HookEventKind.UserPromptSubmit));
+		session.Status.ObserveHook(Hook(HookEventKind.UserPromptSubmit));
 
 		int exits = 0;
 		host.Core.BeginDrain(() => exits++);
 		host.Core.BeginDrain(() => exits += 100);
 
-		session.Status.Observe(Hook(HookEventKind.Stop));
+		session.Status.ObserveHook(Hook(HookEventKind.Stop));
 		Assert.Equal(1, exits);
 	}
 

@@ -17,7 +17,7 @@ public sealed class HostCoreWorkspaceSetupTests {
 		// The manifest probe is async; wait for the suggestions push that offers workspace.setup.
 		await WaitForSuggestionAsync(host, "workspace.setup");
 
-		host.Core.ActiveSessionForTest()!.Claude.EnsureStarted();
+		host.Core.ActiveSessionForTest()!.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		host.Send("{\"type\":\"invoke-command\",\"id\":\"weavie.workspace.setup\"}");

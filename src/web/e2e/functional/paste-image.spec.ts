@@ -49,9 +49,8 @@ async function pasteInto(
   await page.evaluate((arg) => {
     const target =
       document.querySelector<HTMLElement>(
-        '.terminal-surface[data-kind="terminal:claude"] .xterm-helper-textarea',
-      ) ??
-      document.querySelector<HTMLElement>('.terminal-surface[data-kind="terminal:claude"] .term');
+        '.terminal-surface[data-kind="agent"] .xterm-helper-textarea',
+      ) ?? document.querySelector<HTMLElement>('.terminal-surface[data-kind="agent"] .term');
     if (target === null) {
       throw new Error("claude terminal container not found");
     }
@@ -81,7 +80,7 @@ test("a real image-paste DOM event on the claude pane writes the bytes to a back
   weavie,
 }) => {
   // The claude pane must be mounted (its capture-phase paste listener is attached on mount).
-  await expect(page.locator('.terminal-surface[data-kind="terminal:claude"] .term')).toBeVisible();
+  await expect(page.locator('.terminal-surface[data-kind="agent"] .term')).toBeVisible();
 
   // Spy on the outbound bridge socket so we can see exactly which host-bound messages the paste produces —
   // isolating the browser capture from its downstream host effect. `send` is on the prototype, so patching it
@@ -120,7 +119,7 @@ test("a text-only paste on the claude pane never posts term-paste-image (falls t
   page,
   weavie,
 }) => {
-  await expect(page.locator('.terminal-surface[data-kind="terminal:claude"] .term')).toBeVisible();
+  await expect(page.locator('.terminal-surface[data-kind="agent"] .term')).toBeVisible();
 
   await page.evaluate(() => {
     (window as unknown as { __PASTE_MSGS__: unknown[] }).__PASTE_MSGS__ = [];

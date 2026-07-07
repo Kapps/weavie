@@ -10,6 +10,7 @@ function railSession(over: Partial<RailSession>): RailSession {
     active: false,
     loaded: true,
     primary: false,
+    providerId: "claude",
     status: "idle",
     hue: 120,
     monogram: "FX",

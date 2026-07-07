@@ -10,7 +10,7 @@ import type { LayoutNode } from "./types";
 
 // Pane kinds are singletons in v1, so slots are a stable, never-reordered list — surfaces are repositioned,
 // not remounted (a remount would wipe terminal scrollback / editor state). The tree drives geometry only.
-const KINDS = ["terminal:claude", "terminal:shell", "editor"] as const;
+const KINDS = ["agent", "terminal:shell", "editor"] as const;
 
 function slotStyle(rect: Rect | undefined): string {
   if (rect === undefined) {

@@ -53,6 +53,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string ideName,
 		SettingsStore? settings,
 		bool registryMode,
+		bool exposeIdeTools,
 		LayoutStore? layout,
 		EditorStore? editor,
 		CommandDispatcher? commands,
@@ -64,6 +65,9 @@ public sealed partial class McpServer : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(workspaceFolders);
 		if (registryMode && settings is null) {
 			throw new ArgumentNullException(nameof(settings), "Registry-mode server requires a settings store.");
+		}
+		if (registryMode && exposeIdeTools && editor is null) {
+			throw new ArgumentNullException(nameof(editor), "A registry exposing IDE tools requires an editor store.");
 		}
 
 		_authToken = authToken;
@@ -86,6 +90,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string entries;
 		if (registryMode) {
 			var parts = new List<string> { SettingsToolEntries };
+			if (exposeIdeTools) {
+				parts.Add(IdeToolEntries);
+			}
+
 			if (currentSessionId is not null) {
 				parts.Add(CurrentSessionToolEntries);
 			}
@@ -165,26 +173,13 @@ public sealed partial class McpServer : IAsyncDisposable {
 					return;
 				}
 
-				var headers = request.Value.Headers;
+				var headers = request.Headers;
 				if (!headers.TryGetValue("sec-websocket-key", out string? wsKey)) {
-					await WebSocketHandshake.WriteStatusAsync(stream, "400 Bad Request", ct).ConfigureAwait(false);
+					await HandleHttpClientAsync(stream, request, ct).ConfigureAwait(false);
 					return;
 				}
 
-				// CVE-2025-52882: never upgrade without the per-session token. Accept it via the IDE header
-				// (lock-file discovery) or `Authorization: Bearer` (the .mcp.json ws / capability-registry path).
-				headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
-				string? bearer = null;
-				if (headers.TryGetValue("authorization", out string? authHeader)
-					&& authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) {
-					bearer = authHeader["Bearer ".Length..].Trim();
-				}
-
-				// Constant-time compare so the token can't be recovered via early-exit timing.
-				static bool TokenEquals(string? presented, string expected) =>
-					presented is not null && CryptographicOperations.FixedTimeEquals(
-						Encoding.ASCII.GetBytes(presented), Encoding.ASCII.GetBytes(expected));
-				if (!TokenEquals(ideToken, _authToken) && !TokenEquals(bearer, _authToken)) {
+				if (!IsAuthorized(headers)) {
 					Emit("rejected connection: missing/invalid auth token");
 					await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
 					return;
@@ -198,7 +193,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 				_activeWebSocket = ws;
 				ClientConnected?.Invoke();
 				try {
-					await MessageLoopAsync(ws, ct).ConfigureAwait(false);
+					await MessageLoopAsync(ws, new WebSocketResponder(this, ws), ct).ConfigureAwait(false);
 				} finally {
 					if (ReferenceEquals(_activeWebSocket, ws)) {
 						_activeWebSocket = null;
@@ -210,7 +205,44 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 	}
 
-	private async Task MessageLoopAsync(WebSocket ws, CancellationToken ct) {
+	private async Task HandleHttpClientAsync(NetworkStream stream, HttpRequestHead request, CancellationToken ct) {
+		if (!IsAuthorized(request.Headers)) {
+			Emit("rejected HTTP MCP request: missing/invalid auth token");
+			await WebSocketHandshake.WriteStatusAsync(stream, "401 Unauthorized", ct).ConfigureAwait(false);
+			return;
+		}
+
+		if (!string.Equals(request.Method, "POST", StringComparison.OrdinalIgnoreCase) || !IsMcpTarget(request.Target)) {
+			await WebSocketHandshake.WriteStatusAsync(stream, "404 Not Found", ct).ConfigureAwait(false);
+			return;
+		}
+
+		string body = await WebSocketHandshake.ReadBodyAsync(stream, request.Headers, ct).ConfigureAwait(false);
+		var responder = new HttpResponder();
+		await DispatchAsync(responder, body, ct).ConfigureAwait(false);
+		if (responder.ResponseJson is { } response) {
+			await WebSocketHandshake.WriteJsonAsync(stream, "200 OK", response, ct).ConfigureAwait(false);
+		} else {
+			await WebSocketHandshake.WriteStatusAsync(stream, "202 Accepted", ct).ConfigureAwait(false);
+		}
+	}
+
+	private bool IsAuthorized(IReadOnlyDictionary<string, string> headers) {
+		headers.TryGetValue("x-claude-code-ide-authorization", out string? ideToken);
+		string? bearer = null;
+		if (headers.TryGetValue("authorization", out string? authHeader)
+			&& authHeader.StartsWith("Bearer ", StringComparison.OrdinalIgnoreCase)) {
+			bearer = authHeader["Bearer ".Length..].Trim();
+		}
+
+		return TokenEquals(ideToken, _authToken) || TokenEquals(bearer, _authToken);
+	}
+
+	private static bool TokenEquals(string? presented, string expected) =>
+		presented is not null && CryptographicOperations.FixedTimeEquals(
+			Encoding.ASCII.GetBytes(presented), Encoding.ASCII.GetBytes(expected));
+
+	private async Task MessageLoopAsync(WebSocket ws, IMcpResponder responder, CancellationToken ct) {
 		byte[] buffer = new byte[16 * 1024];
 		var message = new MemoryStream();
 		while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested) {
@@ -235,17 +267,19 @@ public sealed partial class McpServer : IAsyncDisposable {
 			message.SetLength(0);
 
 			// Dispatch off the receive loop so a blocking openDiff doesn't stall other messages.
-			_ = DispatchAsync(ws, json, ct);
+			_ = DispatchAsync(responder, json, ct);
 		}
 	}
 
-	private async Task DispatchAsync(WebSocket ws, string json, CancellationToken ct) {
+	private async Task DispatchAsync(IMcpResponder responder, string json, CancellationToken ct) {
+		string? idForError = null;
 		try {
 			using var doc = JsonDocument.Parse(json);
 			var root = doc.RootElement;
 			string? method = root.TryGetProperty("method", out var m) ? m.GetString() : null;
 			bool hasId = root.TryGetProperty("id", out var idElement);
 			string? idRaw = hasId ? idElement.GetRawText() : null;
+			idForError = idRaw;
 
 			Emit($"recv: method={method ?? "(response)"} id={idRaw ?? "-"}");
 
@@ -255,44 +289,51 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 			switch (method) {
 				case "initialize":
-					await HandleInitializeAsync(ws, root, idRaw, ct).ConfigureAwait(false);
+					await HandleInitializeAsync(responder, root, idRaw, ct).ConfigureAwait(false);
 					break;
 				case "notifications/initialized":
 				case "notifications/cancelled":
 					break; // notifications: no reply
 				case "ping":
-					await SendResultAsync(ws, idRaw, "{}", ct).ConfigureAwait(false);
+					await responder.SendResultAsync(idRaw, "{}", ct).ConfigureAwait(false);
 					break;
 				case "tools/list":
-					await SendResultAsync(ws, idRaw, _toolsListJson, ct).ConfigureAwait(false);
+					await responder.SendResultAsync(idRaw, _toolsListJson, ct).ConfigureAwait(false);
 					break;
 				case "tools/call":
-					await HandleToolCallAsync(ws, root, idRaw, ct).ConfigureAwait(false);
+					await HandleToolCallAsync(responder, root, idRaw, ct).ConfigureAwait(false);
 					break;
 				case "prompts/list":
-					await SendResultAsync(ws, idRaw, BuildPromptsListJson(), ct).ConfigureAwait(false);
+					await responder.SendResultAsync(idRaw, BuildPromptsListJson(), ct).ConfigureAwait(false);
 					break;
 				case "prompts/get":
-					await HandlePromptsGetAsync(ws, root, idRaw, ct).ConfigureAwait(false);
+					await HandlePromptsGetAsync(responder, root, idRaw, ct).ConfigureAwait(false);
 					break;
 				default:
 					if (idRaw is not null) {
-						await SendErrorAsync(ws, idRaw, -32601, $"Method not found: {method}", ct).ConfigureAwait(false);
+						await responder.SendErrorAsync(idRaw, -32601, $"Method not found: {method}", ct).ConfigureAwait(false);
 					}
 
 					break;
 			}
+		} catch (JsonException ex) {
+			Emit($"dispatch parse error: {ex.Message}");
+			await responder.SendErrorAsync(null, -32700, "Parse error", ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is not OperationCanceledException) {
 			Emit($"dispatch error: {ex.Message}");
+			await responder.SendErrorAsync(idForError, -32603, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
+
+	private static bool IsMcpTarget(string target) =>
+		string.Equals(target, "/mcp", StringComparison.Ordinal) || target.StartsWith("/mcp?", StringComparison.Ordinal);
 
 	// Returns the registry or reports it as unavailable (caught in HandleToolCallAsync). Lets each tool handler
 	// open with `var x = Require(_x, "X");` instead of repeating a null-guard + early SendToolError.
 	private static T Require<T>(T? registry, string what) where T : class =>
 		registry ?? throw new ToolUnavailableException($"{what} is not available.");
 
-	private async Task HandleInitializeAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
+	private async Task HandleInitializeAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {
 		// Echo the client's protocolVersion (echoing is robust to version disagreement).
 		string protocolVersion = "2025-03-26";
 		if (root.TryGetProperty("params", out var p) &&
@@ -305,21 +346,21 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string result = "{\"protocolVersion\":" + JsonString(protocolVersion) +
 			",\"capabilities\":{\"tools\":{\"listChanged\":false}" + promptsCapability +
 			"},\"serverInfo\":{\"name\":\"weavie\",\"version\":\"0.1.0\"}}";
-		await SendResultAsync(ws, idRaw, result, ct).ConfigureAwait(false);
+		await responder.SendResultAsync(idRaw, result, ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleToolCallAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
+	private async Task HandleToolCallAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {
 		try {
-			await DispatchToolAsync(ws, root, idRaw, ct).ConfigureAwait(false);
+			await DispatchToolAsync(responder, root, idRaw, ct).ConfigureAwait(false);
 		} catch (ToolUnavailableException ex) {
 			// A handler asked for a registry the IDE-mode server wasn't wired with; report it as a tool error.
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
-	private async Task DispatchToolAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
+	private async Task DispatchToolAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {
 		if (!root.TryGetProperty("params", out var p) || !p.TryGetProperty("name", out var nameEl)) {
-			await SendErrorAsync(ws, idRaw, -32602, "Invalid params", ct).ConfigureAwait(false);
+			await responder.SendErrorAsync(idRaw, -32602, "Invalid params", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -329,7 +370,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 		switch (name) {
 			case "openDiff":
-				await HandleOpenDiffAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleOpenDiffAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "openFile":
 				string? path = args.TryGetProperty("filePath", out var fp) ? fp.GetString() : null;
@@ -339,23 +380,23 @@ public sealed partial class McpServer : IAsyncDisposable {
 					await _presenter.OpenFileAsync(path, ReadLenientBool(args, "preview"), ct).ConfigureAwait(false);
 				}
 
-				await SendToolTextAsync(ws, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, "FILE_OPENED", ct).ConfigureAwait(false);
 				break;
 			case "getWorkspaceFolders":
-				await SendToolTextAsync(ws, idRaw, BuildWorkspaceFoldersJson(), ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, BuildWorkspaceFoldersJson(), ct).ConfigureAwait(false);
 				break;
 			case "getOpenEditors":
 				// JSON-stringified {tabs:[...]} in the text item (claudecode.nvim shape). The page reports the
 				// open-tab set via open-editors-changed; empty until it does.
-				await SendToolTextAsync(ws, idRaw, BuildOpenEditorsResult(_editor?.OpenEditors, _editor?.Active), ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, BuildOpenEditorsResult(_editor?.OpenEditors, _editor?.Active), ct).ConfigureAwait(false);
 				break;
 			case "getCurrentSelection":
 			case "getLatestSelection":
 				// Stringified {success, text, filePath, selection} in the text item (the shape claude parses).
-				await SendToolTextAsync(ws, idRaw, BuildSelectionResult(_editor?.Active), ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, BuildSelectionResult(_editor?.Active), ct).ConfigureAwait(false);
 				break;
 			case "getDiagnostics":
-				await SendResultAsync(ws, idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}", ct).ConfigureAwait(false);
+				await responder.SendResultAsync(idRaw, "{\"content\":[{\"type\":\"text\",\"text\":\"[]\"}]}", ct).ConfigureAwait(false);
 				break;
 			case "close_tab":
 				// Resolve the tab name (label or path) against the reported open set, then ask the page to
@@ -366,98 +407,98 @@ public sealed partial class McpServer : IAsyncDisposable {
 					await _presenter.CloseTabAsync(closePath, ct).ConfigureAwait(false);
 				}
 
-				await SendToolTextAsync(ws, idRaw, "OK", ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, "OK", ct).ConfigureAwait(false);
 				break;
 			case "closeAllDiffTabs":
 			case "saveDocument":
-				await SendToolTextAsync(ws, idRaw, "OK", ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, "OK", ct).ConfigureAwait(false);
 				break;
 			case "currentSession":
-				await HandleCurrentSessionAsync(ws, idRaw, ct).ConfigureAwait(false);
+				await HandleCurrentSessionAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listSettings":
-				await HandleListSettingsAsync(ws, idRaw, ct).ConfigureAwait(false);
+				await HandleListSettingsAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "getSetting":
-				await HandleGetSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleGetSettingAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "setSetting":
-				await HandleSetSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleSetSettingAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "clearSetting":
-				await HandleClearSettingAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleClearSettingAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "getLayout":
-				await HandleGetLayoutAsync(ws, idRaw, ct).ConfigureAwait(false);
+				await HandleGetLayoutAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "setLayout":
-				await HandleSetLayoutAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleSetLayoutAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listCommands":
-				await HandleListCommandsAsync(ws, idRaw, ct).ConfigureAwait(false);
+				await HandleListCommandsAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "runCommand":
-				await HandleRunCommandAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleRunCommandAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "listThemes":
-				await HandleListThemesAsync(ws, idRaw, ct).ConfigureAwait(false);
+				await HandleListThemesAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "describeTheme":
-				await HandleDescribeThemeAsync(ws, idRaw, ct).ConfigureAwait(false);
+				await HandleDescribeThemeAsync(responder, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "setThemeOverride":
-				await HandleSetThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleSetThemeOverrideAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "applyThemeTransform":
-				await HandleApplyThemeTransformAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleApplyThemeTransformAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			case "removeThemeOverride":
-				await HandleRemoveThemeOverrideAsync(ws, args, idRaw, ct).ConfigureAwait(false);
+				await HandleRemoveThemeOverrideAsync(responder, args, idRaw, ct).ConfigureAwait(false);
 				break;
 			default:
-				await SendErrorAsync(ws, idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
+				await responder.SendErrorAsync(idRaw, -32601, $"Unknown tool: {name}", ct).ConfigureAwait(false);
 				break;
 		}
 	}
 
-	private async Task HandleCurrentSessionAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+	private async Task HandleCurrentSessionAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var currentSessionId = Require(_currentSessionId, "Current session");
-		await SendToolTextAsync(ws, idRaw, $"{{\"id\":{JsonString(currentSessionId())}}}", ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, $"{{\"id\":{JsonString(currentSessionId())}}}", ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleListSettingsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
-		await SendToolTextAsync(ws, idRaw, settings.BuildCatalogJson(), ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, settings.BuildCatalogJson(), ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleGetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleGetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
 		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(ws, idRaw, "getSetting requires a 'key'.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "getSetting requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		try {
-			await SendToolTextAsync(ws, idRaw, settings.BuildGetJson(key), ct).ConfigureAwait(false);
+			await SendToolTextAsync(responder, idRaw, settings.BuildGetJson(key), ct).ConfigureAwait(false);
 		} catch (UnknownSettingException ex) {
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
 	// The primary workspace root (empty when none) — where a workspace-scoped write/clear is routed.
 	private string PrimaryWorkspaceRoot => _workspaceFolders.Count > 0 ? _workspaceFolders[0] : string.Empty;
 
-	private async Task HandleSetSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleSetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
 		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(ws, idRaw, "setSetting requires a 'key'.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setSetting requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("value", out var valueElement)) {
-			await SendToolErrorAsync(ws, idRaw, "setSetting requires a 'value'.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setSetting requires a 'value'.", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -466,10 +507,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 			// workspace root; SettingsStore ignores the root for user-scoped keys.
 			string root = PrimaryWorkspaceRoot;
 			var result = root.Length > 0 ? settings.Set(key, valueElement, root) : settings.Set(key, valueElement);
-			await SendToolTextAsync(ws, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
+			await SendToolTextAsync(responder, idRaw, FormatSetSummary(key, valueElement, result), ct).ConfigureAwait(false);
 			Emit($"setSetting {key} = {valueElement.GetRawText()}");
 		} catch (Exception ex) when (ex is UnknownSettingException or SettingValidationException or SettingsFileMalformedException) {
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
@@ -486,11 +527,11 @@ public sealed partial class McpServer : IAsyncDisposable {
 		return $"Set {key} to {value.GetRawText()}.{note}{shadow}";
 	}
 
-	private async Task HandleClearSettingAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleClearSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
 		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(ws, idRaw, "clearSetting requires a 'key'.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "clearSetting requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -498,10 +539,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 			// Match setSetting's routing so a workspace override is cleared from its overlay, not the user file.
 			string root = PrimaryWorkspaceRoot;
 			var result = root.Length > 0 ? settings.Clear(key, root) : settings.Clear(key);
-			await SendToolTextAsync(ws, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
+			await SendToolTextAsync(responder, idRaw, FormatClearSummary(key, result), ct).ConfigureAwait(false);
 			Emit($"clearSetting {key} (removed={result.Removed})");
 		} catch (Exception ex) when (ex is UnknownSettingException or SettingsFileMalformedException) {
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
@@ -522,15 +563,15 @@ public sealed partial class McpServer : IAsyncDisposable {
 		return $"Cleared {key}; it now falls back to its default.{note}{shadow}";
 	}
 
-	private async Task HandleGetLayoutAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+	private async Task HandleGetLayoutAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var layout = Require(_layout, "Layout");
-		await SendToolTextAsync(ws, idRaw, LayoutSerialization.SerializeCompact(layout.Current), ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, LayoutSerialization.SerializeCompact(layout.Current), ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleSetLayoutAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleSetLayoutAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var layout = Require(_layout, "Layout");
 		if (args.ValueKind != JsonValueKind.Object || !args.TryGetProperty("root", out var rootElement)) {
-			await SendToolErrorAsync(ws, idRaw, "setLayout requires a 'root' layout tree.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setLayout requires a 'root' layout tree.", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -538,41 +579,41 @@ public sealed partial class McpServer : IAsyncDisposable {
 		try {
 			root = JsonSerializer.Deserialize<LayoutNode>(rootElement.GetRawText(), LayoutSerialization.Options);
 		} catch (JsonException ex) {
-			await SendToolErrorAsync(ws, idRaw, $"setLayout: invalid root ({ex.Message}).", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, $"setLayout: invalid root ({ex.Message}).", ct).ConfigureAwait(false);
 			return;
 		}
 
 		if (root is null) {
-			await SendToolErrorAsync(ws, idRaw, "setLayout: 'root' was null.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setLayout: 'root' was null.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		string? focused = args.GetStringOrNull("focused");
 		try {
 			var result = layout.SetPanes(root, focused, LayoutSource.Mcp);
-			await SendToolTextAsync(ws, idRaw, result.Summary, ct).ConfigureAwait(false);
+			await SendToolTextAsync(responder, idRaw, result.Summary, ct).ConfigureAwait(false);
 			Emit($"setLayout applied ({result.Summary})");
 		} catch (LayoutValidationException ex) {
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
-	private async Task HandleListCommandsAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+	private async Task HandleListCommandsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var commands = Require(_commands, "Commands");
 		// Prefer the keybinding store's catalog (it includes each command's current keys); fall back to the
 		// registry alone (no keys) when no keybinding store was wired.
 		string commandsArray = _keybindings is not null
 			? _keybindings.BuildCommandsJson()
 			: CommandCatalog.BuildCommandsArrayJson(commands.Registry.Definitions, []);
-		await SendToolTextAsync(ws, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, $"{{\"commands\":{commandsArray}}}", ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleRunCommandAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleRunCommandAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var commands = Require(_commands, "Commands");
 		bool hasArgs = args.ValueKind == JsonValueKind.Object;
 		string? id = args.GetStringOrNull("id");
 		if (string.IsNullOrEmpty(id)) {
-			await SendToolErrorAsync(ws, idRaw, "runCommand requires an 'id'.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "runCommand requires an 'id'.", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -585,21 +626,21 @@ public sealed partial class McpServer : IAsyncDisposable {
 		try {
 			var result = await commands.InvokeAsync(id, argsJson, ct).ConfigureAwait(false);
 			if (result.Ok) {
-				await SendToolTextAsync(ws, idRaw, result.Message ?? $"Ran {id}.", ct).ConfigureAwait(false);
+				await SendToolTextAsync(responder, idRaw, result.Message ?? $"Ran {id}.", ct).ConfigureAwait(false);
 				Emit($"runCommand {id} ok");
 			} else {
-				await SendToolErrorAsync(ws, idRaw, result.Error ?? $"Command '{id}' failed.", ct).ConfigureAwait(false);
+				await SendToolErrorAsync(responder, idRaw, result.Error ?? $"Command '{id}' failed.", ct).ConfigureAwait(false);
 				Emit($"runCommand {id} failed: {result.Error}");
 			}
 		} catch (UnknownCommandException ex) {
-			await SendToolErrorAsync(ws, idRaw, ex.Message, ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}
 	}
 
-	private Task SendToolErrorAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
-		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}],\"isError\":true}}", ct);
+	private static Task SendToolErrorAsync(IMcpResponder responder, string? idRaw, string text, CancellationToken ct) =>
+		responder.SendResultAsync(idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}],\"isError\":true}}", ct);
 
-	private async Task HandleOpenDiffAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleOpenDiffAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		string? GetArg(string key) => args.ValueKind == JsonValueKind.Object && args.TryGetProperty(key, out var v) ? v.GetString() : null;
 
 		string? oldPath = GetArg("old_file_path");
@@ -608,7 +649,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 		string tabName = GetArg("tab_name") ?? "Claude Code";
 
 		if (string.IsNullOrEmpty(oldPath) || string.IsNullOrEmpty(newPath)) {
-			await SendErrorAsync(ws, idRaw, -32602, "openDiff requires old_file_path/new_file_path", ct).ConfigureAwait(false);
+			await responder.SendErrorAsync(idRaw, -32602, "openDiff requires old_file_path/new_file_path", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -624,22 +665,22 @@ public sealed partial class McpServer : IAsyncDisposable {
 			// Return FILE_SAVED + the (possibly user-edited) final contents but do NOT write the file: Claude does the
 			// disk write; a server-side write double-writes and desyncs Claude's permission prompt.
 			// See docs/specs/permission-modes-and-change-tracking.md.
-			await SendToolTextsAsync(ws, idRaw, ["FILE_SAVED", outcome.FinalContents ?? newContents], ct).ConfigureAwait(false);
+			await SendToolTextsAsync(responder, idRaw, ["FILE_SAVED", outcome.FinalContents ?? newContents], ct).ConfigureAwait(false);
 			Emit($"openDiff KEEP -> {newPath} (Claude writes)");
 		} else {
-			await SendToolTextsAsync(ws, idRaw, ["DIFF_REJECTED", tabName], ct).ConfigureAwait(false);
+			await SendToolTextsAsync(responder, idRaw, ["DIFF_REJECTED", tabName], ct).ConfigureAwait(false);
 			Emit("openDiff REJECT");
 		}
 	}
 
-	private Task SendToolTextAsync(WebSocket ws, string? idRaw, string text, CancellationToken ct) =>
-		SendResultAsync(ws, idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}]}}", ct);
+	private static Task SendToolTextAsync(IMcpResponder responder, string? idRaw, string text, CancellationToken ct) =>
+		responder.SendResultAsync(idRaw, $"{{\"content\":[{{\"type\":\"text\",\"text\":{JsonString(text)}}}]}}", ct);
 
 	// Multi-item text content — the MCP shape openDiff expects: [FILE_SAVED, <final contents>] on accept,
 	// [DIFF_REJECTED, <tab_name>] on reject (matches coder/claudecode.nvim).
-	private Task SendToolTextsAsync(WebSocket ws, string? idRaw, IReadOnlyList<string> texts, CancellationToken ct) {
+	private static Task SendToolTextsAsync(IMcpResponder responder, string? idRaw, IReadOnlyList<string> texts, CancellationToken ct) {
 		string items = string.Join(",", texts.Select(t => $"{{\"type\":\"text\",\"text\":{JsonString(t)}}}"));
-		return SendResultAsync(ws, idRaw, $"{{\"content\":[{items}]}}", ct);
+		return responder.SendResultAsync(idRaw, $"{{\"content\":[{items}]}}", ct);
 	}
 
 	// getWorkspaceFolders: a JSON-stringified {success, folders:[{name,uri,path}], rootPath} inside one text
@@ -796,19 +837,6 @@ public sealed partial class McpServer : IAsyncDisposable {
 		writer.WriteNumber("line", position.Line);
 		writer.WriteNumber("character", position.Character);
 		writer.WriteEndObject();
-	}
-
-	private async Task SendResultAsync(WebSocket ws, string? idRaw, string resultJson, CancellationToken ct) {
-		if (idRaw is null) {
-			return;
-		}
-
-		await SendRawAsync(ws, $"{{\"jsonrpc\":\"2.0\",\"id\":{idRaw},\"result\":{resultJson}}}", ct).ConfigureAwait(false);
-	}
-
-	private async Task SendErrorAsync(WebSocket ws, string? idRaw, int code, string messageText, CancellationToken ct) {
-		string id = idRaw ?? "null";
-		await SendRawAsync(ws, $"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"error\":{{\"code\":{code},\"message\":{JsonString(messageText)}}}}}", ct).ConfigureAwait(false);
 	}
 
 	private async Task SendRawAsync(WebSocket ws, string json, CancellationToken ct) {

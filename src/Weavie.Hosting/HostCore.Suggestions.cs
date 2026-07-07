@@ -61,7 +61,7 @@ public sealed partial class HostCore {
 	// the same artifact the /mcp__weavie__setup-workspace slash command serves.
 	private void SeedWorkspaceSetup() {
 		if (_primarySession is { } primary) {
-			primary.Claude.WriteBracketedPaste(WorkspaceSetupPrompt.Prompt.Text);
+			primary.PrefillAgentPrompt(WorkspaceSetupPrompt.Prompt.Text);
 		}
 	}
 }

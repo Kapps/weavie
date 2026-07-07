@@ -23,13 +23,14 @@ internal static class TestMcp {
 		string ideName = "weavie",
 		SettingsStore? settings = null,
 		bool registryMode = false,
+		bool exposeIdeTools = false,
 		LayoutStore? layout = null,
 		EditorStore? editor = null,
 		CommandDispatcher? commands = null,
 		KeybindingStore? keybindings = null,
 		ThemeOverridesStore? themeOverrides = null,
 		Func<string>? currentSessionId = null) =>
-		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, layout, editor, commands, keybindings, themeOverrides, currentSessionId);
+		new(authToken, presenter, workspaceFolders, ideName, settings, registryMode, exposeIdeTools, layout, editor, commands, keybindings, themeOverrides, currentSessionId);
 
 	/// <summary>Builds a provider-neutral capability registry with isolated stores.</summary>
 	internal static CapabilityRegistryHost Registry(
@@ -46,6 +47,8 @@ internal static class TestMcp {
 			"weavie",
 			settings,
 			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
+			new EditorStore(),
+			exposeIdeTools: false,
 			new CommandDispatcher(registry),
 			new KeybindingStore(registry, Path.Combine(Path.GetTempPath(), Guid.NewGuid() + ".json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),

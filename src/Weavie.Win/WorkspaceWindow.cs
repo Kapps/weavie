@@ -87,6 +87,10 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		var github = new Weavie.Core.Review.GitHubReviewProvider(http: null, new Weavie.Core.Review.GitHubTokenSource());
 		var agentProviders = new Weavie.Core.Agents.AgentProviderRegistry();
 		agentProviders.Register(new Weavie.Hosting.Agents.Claude.ClaudeAgentProvider(_app.ClaudeSessions));
+		agentProviders.Register(new Weavie.Hosting.Agents.Codex.CodexAgentProvider(
+			new Weavie.Core.Sessions.CodexThreadStore(
+				new Weavie.Core.FileSystem.LocalFileSystem(),
+				Weavie.Core.WeaviePaths.CodexThreadsFile)));
 		_core = new HostCore(this, new HostServices {
 			Settings = _app.Settings,
 			CommandRegistry = _app.CommandRegistry,

@@ -1,3 +1,5 @@
+using Weavie.Core.Processes;
+
 namespace Weavie.Core.Agents;
 
 /// <summary>A provider-neutral fact observed from an agent session.</summary>
@@ -5,6 +7,9 @@ public abstract record AgentEvent;
 
 /// <summary>The agent session started or restarted.</summary>
 public sealed record AgentSessionStarted(string? Source) : AgentEvent;
+
+/// <summary>The provider's supervised runtime process changed state.</summary>
+public sealed record AgentProcessChanged(SupervisorStateChanged Change) : AgentEvent;
 
 /// <summary>A user prompt entered the agentic loop.</summary>
 public sealed record AgentPromptSubmitted(string? SessionId) : AgentEvent;

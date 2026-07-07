@@ -48,9 +48,23 @@ export interface SessionChip {
   active: boolean;
   loaded: boolean;
   primary: boolean;
+  providerId: "claude" | "codex";
   status: SessionStatusName;
   hue: number;
   monogram: string;
+}
+
+export interface AgentPaneUpdate {
+  type: string;
+  providerId: "claude" | "codex";
+  threadId?: string | null;
+  turnId?: string | null;
+  itemId?: string | null;
+  itemType?: string | null;
+  summary?: string | null;
+  text?: string | null;
+  status?: string | null;
+  payload?: unknown;
 }
 
 // One button on a contextual-suggestion card. A `RunCommand` action dispatches `commandId` (advertising its
@@ -137,10 +151,14 @@ export type HostBoundMessage =
   // this pane belongs to; `session` is the pane within it.
   | { type: "term-ready"; slot: string; session: TermSession; cols: number; rows: number }
   | { type: "term-input"; slot: string; session: TermSession; dataB64: string }
-  // An image pasted into the claude pane: its bytes (base64) + MIME. The host writes a scratch file on the
-  // backend and injects its path into claude, which attaches it as an [Image #N]. See paste-image.ts.
+  // An image pasted into an agent pane: bytes + MIME. The host writes a scratch file and delivers its path through
+  // the provider's native image path. `session` is legacy and ignored for routing.
   | { type: "term-paste-image"; slot: string; session: TermSession; mime: string; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
+  | { type: "agent-submit"; slot: string; prompt: string }
+  | { type: "agent-interrupt"; slot: string }
+  | { type: "agent-approval"; slot: string; requestId: string; decision: string }
+  | { type: "agent-input"; slot: string; requestId: string; answers: Record<string, string[]> }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
   // on that one command, not its own messages). See docs/specs/command-responses.md.
@@ -148,7 +166,13 @@ export type HostBoundMessage =
   // Create a new session. `existing` ⇒ check out the EXISTING `branch` (base ignored); else create a new
   // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
-  | { type: "new-session"; branch?: string; base?: "head" | "main"; existing?: boolean }
+  | {
+      type: "new-session";
+      branch?: string;
+      base?: "head" | "main";
+      existing?: boolean;
+      agentProviderId?: "claude" | "codex";
+    }
   // Dismiss a contextual suggestion: `forever` ⇒ persist ("don't ask again"); else snooze for this run ("not now").
   | { type: "dismiss-suggestion"; id: string; forever: boolean }
   // The user pasted a source's access token into the connect dialog; the host validates + saves it and replies
@@ -194,8 +218,7 @@ export type HostBoundMessage =
   | { type: "clipboard-write"; text: string }
   // Terminal paste -> read the OS clipboard; the host replies with clipboard-content tagged by `id`.
   | { type: "clipboard-read"; id: string }
-  // Claude-pane paste in a native WebView -> read the OS clipboard as an image (the DOM paste event can't reach
-  // it); the host replies with clipboard-image-content tagged by `id`. Empty reply => paste text instead.
+  // Native-WebView terminal paste can ask the local host for a clipboard image before falling back to text paste.
   | { type: "clipboard-read-image"; id: string }
   // A terminal hyperlink / Claude's OAuth URL -> open in the OS default browser.
   | { type: "open-url"; url: string }
@@ -348,6 +371,8 @@ export type WebBoundMessage =
   // Host asks this pane to reset + re-emit term-ready. The sole caller is a deliberate child relaunch (shell
   // setting changed), so `respawn` is true for a full reset. Session switches don't reset (pure show/hide).
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
+  | { type: "agent-pane"; slot: string; workspace: string; message: AgentPaneUpdate }
+  | { type: "agent-pane-reset"; slot: string; workspace: string }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the active session's git branch + dirty flag for the terminal-column footer (active-backend
@@ -360,8 +385,8 @@ export type WebBoundMessage =
   | { type: "session-list"; sessions: SessionChip[] }
   // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.
   | { type: "suggestions"; items: Suggestion[] }
-  // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
-  // session switch so a new / selected session lands focus in Claude.
+  // Host asks the web to move keyboard focus into a pane (kind, e.g. "agent") — pushed after a
+  // session switch so a new / selected session lands focus in the agent.
   | { type: "focus-pane"; kind: string }
   // Connect a source: the host opened its token page in the browser; show the dialog to paste the token, which
   // goes back as set-source-token. See docs/specs/notion-source-auth.md.

@@ -187,7 +187,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 		// The primary session: the workspace's own checkout. Built after the login-shell env import so its language
 		// servers + git resolve from PATH. CreateSession wires its handlers + gated push subscriptions.
-		_primarySession = CreateSession(WorkspaceRoot);
+		_primarySession = CreateSession(WorkspaceRoot, "claude");
 		_session = _primarySession;
 		// The active session drives the page's single editor: unmute its editor output (sessions start muted).
 		_primarySession.SetEditorOutputActive(true);

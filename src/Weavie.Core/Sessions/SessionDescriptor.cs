@@ -19,4 +19,7 @@ public sealed record SessionDescriptor {
 
 	/// <summary>Whether this session had a live backend at last persist — the flag a reopen restores (loading + <c>--resume</c>ing it).</summary>
 	public required bool Loaded { get; init; }
+
+	/// <summary>The agent provider persisted with this session. Existing documents without a value are Claude.</summary>
+	public required string AgentProviderId { get; init; }
 }

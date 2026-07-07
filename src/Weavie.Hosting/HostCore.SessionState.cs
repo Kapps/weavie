@@ -21,6 +21,7 @@ public sealed partial class HostCore {
 				WorktreePath = slot.WorktreePath,
 				IsPrimary = false,
 				Loaded = slot.Loaded,
+				AgentProviderId = slot.AgentProviderId,
 			})
 			.ToList();
 		// A null active means the primary is active — it's always loaded, so it needs no overlay entry.

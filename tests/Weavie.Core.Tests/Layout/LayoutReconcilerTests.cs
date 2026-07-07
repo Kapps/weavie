@@ -22,6 +22,33 @@ public sealed class LayoutReconcilerTests {
 	}
 
 	[Fact]
+	public void MigratesLegacyClaudeTerminalPane_ToAgentPane() {
+		var registry = BaseRegistry();
+		var doc = new LayoutDocument {
+			SeenPaneLevel = registry.CurrentPaneLevel,
+			Focused = "p_claude",
+			Root = new SplitNode {
+				Dir = SplitDirection.Row,
+				Weights = [0.3, 0.7],
+				Children = [
+					new PaneNode { Id = "p_claude", Kind = LayoutPanes.TerminalClaude },
+					new PaneNode { Id = "p_editor", Kind = LayoutPanes.Editor },
+				],
+			},
+		};
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		var split = Assert.IsType<SplitNode>(outcome.Document.Root);
+		var agent = Assert.IsType<PaneNode>(split.Children[0]);
+		Assert.True(outcome.Mutated);
+		Assert.Equal(LayoutPanes.Agent, agent.Kind);
+		Assert.Equal("p_claude", agent.Id);
+		Assert.Equal([0.3, 0.7], split.Weights);
+		Assert.Equal("p_claude", outcome.Document.Focused);
+	}
+
+	[Fact]
 	public void Reconcile_IsIdempotent() {
 		var registry = BaseRegistry();
 		var once = LayoutReconciler.Reconcile(LayoutPanes.Default(registry), registry);

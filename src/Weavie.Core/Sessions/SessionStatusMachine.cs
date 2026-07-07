@@ -45,6 +45,7 @@ public sealed class SessionStatusMachine {
 			AgentPermissionResolved permission => permission.RequiresUserInput
 				? SessionStatus.NeedsInput
 				: SessionStatus.Working,
+			AgentProcessChanged process => StatusForSupervisor(process.Change),
 			_ => null,
 		});
 	}
@@ -86,16 +87,19 @@ public sealed class SessionStatusMachine {
 	/// <see cref="ProcessSupervisor.StateChanged"/>. A crash becomes Error; a post-crash restart becomes Starting.
 	/// </summary>
 	public void ObserveSupervisor(SupervisorStateChanged change) {
-		SessionStatus? next = change.State switch {
+		var next = StatusForSupervisor(change);
+		if (next is { } status) {
+			Set(status);
+		}
+	}
+
+	private static SessionStatus? StatusForSupervisor(SupervisorStateChanged change) =>
+		change.State switch {
 			SupervisorState.Failed => SessionStatus.Error,
 			SupervisorState.BackingOff when change.ExitCode is not null => SessionStatus.Error,
 			SupervisorState.Running when change.RestartCount > 0 => SessionStatus.Starting,
 			_ => null,
 		};
-		if (next is { } status) {
-			Set(status);
-		}
-	}
 
 	private void Set(SessionStatus next) => Apply(_ => next);
 

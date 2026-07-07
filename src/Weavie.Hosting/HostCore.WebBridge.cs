@@ -39,6 +39,28 @@ public sealed partial class HostCore {
 		}
 	}
 
+	private static IReadOnlyDictionary<string, IReadOnlyList<string>> ReadAgentInputAnswers(JsonElement root) {
+		var answers = new Dictionary<string, IReadOnlyList<string>>(StringComparer.Ordinal);
+		if (!root.TryGetProperty("answers", out var payload) || payload.ValueKind != JsonValueKind.Object) {
+			return answers;
+		}
+
+		foreach (var property in payload.EnumerateObject()) {
+			var values = new List<string>();
+			if (property.Value.ValueKind == JsonValueKind.Array) {
+				foreach (var value in property.Value.EnumerateArray()) {
+					if (value.ValueKind == JsonValueKind.String && value.GetString() is { } text) {
+						values.Add(text);
+					}
+				}
+			}
+
+			answers[property.Name] = values;
+		}
+
+		return answers;
+	}
+
 	/// <summary>Routes one parsed web message to its handler. Isolated from <see cref="OnWebMessage"/> so a throw is contained, not fatal.</summary>
 	private void Dispatch(string type, JsonElement root, string json) {
 		switch (type) {
@@ -68,6 +90,22 @@ public sealed partial class HostCore {
 			case "term-ready":
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
+			case "agent-submit":
+				SessionForSlot(root)?.Agent.Structured?.SubmitPrompt(root.GetStringOrEmpty("prompt"));
+				break;
+			case "agent-interrupt":
+				SessionForSlot(root)?.Agent.Structured?.Interrupt();
+				break;
+			case "agent-approval":
+				SessionForSlot(root)?.Agent.Structured?.ResolveApproval(
+					root.GetStringOrEmpty("requestId"),
+					root.GetStringOrEmpty("decision"));
+				break;
+			case "agent-input":
+				SessionForSlot(root)?.Agent.Structured?.ResolveInput(
+					root.GetStringOrEmpty("requestId"),
+					ReadAgentInputAnswers(root));
+				break;
 			case "switch-session": {
 					string switchId = root.GetStringOrEmpty("id");
 					if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
@@ -86,7 +124,7 @@ public sealed partial class HostCore {
 					string? resolvedBase = baseSpec is null
 						? null
 						: string.Equals(baseSpec, "main", StringComparison.OrdinalIgnoreCase) ? "main" : "current";
-					_ = CreateSessionFromWebAsync(branch, resolvedBase, existing);
+					_ = CreateSessionFromWebAsync(branch, resolvedBase, existing, root.GetStringOrNull("agentProviderId"));
 					break;
 				}
 
@@ -350,7 +388,8 @@ public sealed partial class HostCore {
 				// Terminal output posted while the link was down never reached the page: re-sync every loaded
 				// session's panes (replay the shell's log, nudge claude's TUI) — see TerminalController.ResyncPane.
 				foreach (var slot in _sessions?.Slots ?? []) {
-					slot.Session?.Claude.ResyncPane();
+					slot.Session?.Claude?.ResyncPane();
+					slot.Session?.Agent.ReplayPane();
 					slot.Session?.Shell.ResyncPane();
 				}
 
@@ -1117,9 +1156,14 @@ public sealed partial class HostCore {
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the
 	/// rail's "+" is fire-and-forget, so the error would otherwise only reach the log).
 	/// </summary>
-	private async Task CreateSessionFromWebAsync(string? branch, string? baseSpec, bool attachExisting) {
+	private async Task CreateSessionFromWebAsync(string? branch, string? baseSpec, bool attachExisting, string? agentProviderId) {
 		var result = await NewSessionAsync(
-			new NewSessionRequest { Branch = branch, Base = baseSpec, AttachExisting = attachExisting }, CancellationToken.None).ConfigureAwait(false);
+			new NewSessionRequest {
+				Branch = branch,
+				Base = baseSpec,
+				AttachExisting = attachExisting,
+				AgentProviderId = agentProviderId,
+			}, CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
 			Notify("error", result.Error ?? "Couldn't create the session.");
 		}

@@ -11,7 +11,10 @@ public static class LayoutPanes {
 	/// <summary>Pane kind for the Monaco editor.</summary>
 	public const string Editor = "editor";
 
-	/// <summary>Pane kind for the embedded Claude Code session.</summary>
+	/// <summary>Pane kind for the embedded agent session.</summary>
+	public const string Agent = "agent";
+
+	/// <summary>Legacy pane kind for the embedded Claude Code session.</summary>
 	public const string TerminalClaude = "terminal:claude";
 
 	/// <summary>Pane kind for the plain shell terminal.</summary>
@@ -39,8 +42,8 @@ public static class LayoutPanes {
 			DefaultAnchor = PaneAnchor.Main,
 		});
 		registry.Register(new PaneDefinition {
-			Kind = TerminalClaude,
-			Description = "Embedded Claude Code session.",
+			Kind = Agent,
+			Description = "Embedded agent session.",
 			IntroducedIn = 1,
 			DefaultAnchor = PaneAnchor.LeftTop,
 		});
@@ -53,7 +56,7 @@ public static class LayoutPanes {
 	}
 
 	/// <summary>
-	/// The built-in default layout: a left column stacking the Claude and shell terminals beside the editor
+	/// The built-in default layout: a left column stacking the agent and shell terminals beside the editor
 	/// on the right (40/60). The seen-pane watermark is set to the current level so a brand-new user already
 	/// has every current default.
 	/// </summary>
@@ -67,7 +70,7 @@ public static class LayoutPanes {
 					Dir = SplitDirection.Column,
 					Weights = [0.5, 0.5],
 					Children = [
-						new PaneNode { Id = "p_claude", Kind = TerminalClaude },
+						new PaneNode { Id = "p_agent", Kind = Agent },
 						new PaneNode { Id = "p_shell", Kind = TerminalShell },
 					],
 				},

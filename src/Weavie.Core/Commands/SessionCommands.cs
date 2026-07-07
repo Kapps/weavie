@@ -65,13 +65,14 @@ public static class SessionCommands {
 				+ "auto-names one (avoiding existing branches). 'base' is 'current' (the active session's HEAD; the "
 				+ "default) or 'main'. Set 'existing' true to instead check out an existing branch named by 'branch' "
 				+ "(no new branch; 'base' is ignored), switching to that session if one already exists. An optional "
-				+ "'prompt' is sent to the new session's Claude as its first message. This is the programmatic entry "
-				+ "(for Claude); the interactive UI uses 'New Session…' (weavie.session.newPrompt).",
+				+ "'prompt' is sent as the new session's first message. 'agentProviderId' may be 'claude' or 'codex'; "
+				+ "omitting it uses agent.defaultProvider. This is the programmatic entry; the interactive UI uses "
+				+ "'New Session…' (weavie.session.newPrompt).",
 			Aliases = ["new session", "create session", "new worktree", "branch session", "new agent", "another claude", "spin up a session", "check out branch", "open existing branch"],
 			// Hidden from the palette: the human-facing entry is the interactive prompt (NewSessionPrompt). Still
 			// reachable by Claude via listCommands/runCommand.
 			ShowInPalette = false,
-			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"}}",
+			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"base\":{\"type\":\"string\",\"enum\":[\"current\",\"main\"]},\"existing\":{\"type\":\"boolean\"},\"prompt\":{\"type\":\"string\"},\"agentProviderId\":{\"type\":\"string\",\"enum\":[\"claude\",\"codex\"]}}",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -90,7 +91,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Web,
 			Category = "Session",
 			Description = "Open one of the repository's open pull requests as a session checked out on its head "
-				+ "branch, seeding Claude with the PR's context.",
+				+ "branch, seeding the session's agent with the PR's context.",
 			Aliases = ["open pr", "open pull request", "review pr", "check out pr", "open github pr", "pull request"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+r" }],
 		});
@@ -101,7 +102,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Fork the current session into a new worktree branched off its HEAD, carrying a handoff "
-				+ "brief to the new session's Claude. With no 'branch' the host derives one. 'handoff' is the "
+				+ "brief to the new session's agent. With no 'branch' the host derives one. 'handoff' is the "
 				+ "summary/instruction seeded as the fork's first message.",
 			Aliases = ["fork session", "branch this", "spin off", "fork this conversation", "branch off here", "try this in a branch"],
 			ArgsSchemaJson = "{\"branch\":{\"type\":\"string\"},\"handoff\":{\"type\":\"string\"}}",
@@ -166,8 +167,8 @@ public static class SessionCommands {
 			Title = "Load Session",
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
-			Description = "Load a dormant session's backend (Claude / terminals / LSP) in the background, by 'id', "
-				+ "WITHOUT switching the page to it — so its Claude runs and reports status while you stay where you "
+			Description = "Load a dormant session's backend (agent / terminals / LSP) in the background, by 'id', "
+				+ "WITHOUT switching the page to it — so its agent runs and reports status while you stay where you "
 				+ "are. Use Switch Session to bring it to the foreground instead.",
 			Aliases = ["load session", "start session", "wake session", "resume session in background"],
 			// id-targeted (a specific dormant chip); loading the active session is meaningless, so not in the palette.
@@ -181,7 +182,7 @@ public static class SessionCommands {
 			RunsIn = CommandLocation.Core,
 			Category = "Session",
 			Description = "Unload a session (the active one, or the session 'id') into a dormant chip: tear its live "
-				+ "backend (Claude / terminals / LSP) down but keep its worktree on disk so it can be reloaded later. "
+				+ "backend (agent / terminals / LSP) down but keep its worktree on disk so it can be reloaded later. "
 				+ "Dormant chips sort to the bottom of the rail and are skipped when cycling. To unload your OWN session "
 				+ "rather than the focused one, get its id from the mcp__weavie__currentSession tool. To remove the "
 				+ "worktree entirely, use Delete Session.",
@@ -200,7 +201,7 @@ public static class SessionCommands {
 				+ "'classify' true it deletes nothing and instead returns the worktree's state (clean/untracked/modified) "
 				+ "for a confirm prompt. To delete your OWN session (e.g. when finishing it), get its id from the "
 				+ "mcp__weavie__currentSession tool — a no-id call is rejected so you never delete the user's focused "
-				+ "session by mistake. This is the programmatic entry (for Claude); the interactive UI uses 'Delete "
+				+ "session by mistake. This is the programmatic entry (for agents); the interactive UI uses 'Delete "
 				+ "Session…' (weavie.session.deletePrompt).",
 			Aliases = ["delete session", "remove session", "delete worktree", "remove worktree", "discard session"],
 			// The human-facing entry is the guarded prompt (DeleteSessionPrompt); the raw delete stays reachable by Claude.
@@ -264,6 +265,7 @@ public static class SessionCommands {
 					Branch = GetString(argsJson, "branch"),
 					Base = GetString(argsJson, "base"),
 					Prompt = GetString(argsJson, "prompt"),
+					AgentProviderId = GetString(argsJson, "agentProviderId"),
 					AttachExisting = GetBool(argsJson, "existing"),
 				},
 				ct)),

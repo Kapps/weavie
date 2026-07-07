@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Net.WebSockets;
 using System.Text.Json;
 using Weavie.Core.Configuration;
 using Weavie.Core.Json;
@@ -11,7 +10,7 @@ namespace Weavie.Core.Mcp;
 // overrides, which persist per theme in ~/.weavie/theme-overrides.json. Verb actions (install/select/undo/
 // reset) are COMMANDS (see ThemeCommands), reached via runCommand.
 public sealed partial class McpServer {
-	private async Task HandleListThemesAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+	private async Task HandleListThemesAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		string active = ActiveThemeId();
 		string json = JsonWrite.Object(writer => {
 			writer.WriteStartArray("themes");
@@ -37,10 +36,10 @@ public sealed partial class McpServer {
 
 			writer.WriteEndArray();
 		});
-		await SendToolTextAsync(ws, idRaw, json, ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleDescribeThemeAsync(WebSocket ws, string? idRaw, CancellationToken ct) {
+	private async Task HandleDescribeThemeAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var themeOverrides = Require(_themeOverrides, "Theming");
 		string active = ActiveThemeId();
 		var overrides = themeOverrides.Get(active);
@@ -58,20 +57,20 @@ public sealed partial class McpServer {
 			writer.WritePropertyName("overrides");
 			ThemeJson.WriteOps(writer, overrides);
 		});
-		await SendToolTextAsync(ws, idRaw, json, ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleSetThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleSetThemeOverrideAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var themeOverrides = Require(_themeOverrides, "Theming");
 		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'key' (a VS Code color id, e.g. editor.background).", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setThemeOverride requires a 'key' (a VS Code color id, e.g. editor.background).", ct).ConfigureAwait(false);
 			return;
 		}
 
 		string? table = args.GetStringOrNull("table");
 		if (table is not (null or "colors" or "tokenColors" or "semanticTokenColors")) {
-			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'table' must be one of: colors, tokenColors, semanticTokenColors.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setThemeOverride 'table' must be one of: colors, tokenColors, semanticTokenColors.", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -82,17 +81,17 @@ public sealed partial class McpServer {
 		string? fontStyle = args.GetStringOrNull("fontStyle");
 		bool hasFontStyle = fontStyle is not null;
 		if (!hasValue && !hasFontStyle) {
-			await SendToolErrorAsync(ws, idRaw, "setThemeOverride requires a 'value' (a hex color, e.g. #000000) and/or a 'fontStyle' (e.g. italic).", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setThemeOverride requires a 'value' (a hex color, e.g. #000000) and/or a 'fontStyle' (e.g. italic).", ct).ConfigureAwait(false);
 			return;
 		}
 
 		if (hasFontStyle && table is null or "colors") {
-			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'fontStyle' applies only to syntax; set 'table' to tokenColors or semanticTokenColors.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setThemeOverride 'fontStyle' applies only to syntax; set 'table' to tokenColors or semanticTokenColors.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		if (hasFontStyle && !IsValidFontStyle(fontStyle!)) {
-			await SendToolErrorAsync(ws, idRaw, "setThemeOverride 'fontStyle' must be a space-separated subset of: italic, bold, underline, strikethrough (or \"\" to clear inherited styles).", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "setThemeOverride 'fontStyle' must be a space-separated subset of: italic, bold, underline, strikethrough (or \"\" to clear inherited styles).", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -103,7 +102,7 @@ public sealed partial class McpServer {
 			Value = hasValue ? value : null,
 			FontStyle = fontStyle,
 		});
-		await SendToolTextAsync(ws, idRaw, DescribeSet(key, value, hasValue, fontStyle, hasFontStyle, table, active), ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, DescribeSet(key, value, hasValue, fontStyle, hasFontStyle, table, active), ct).ConfigureAwait(false);
 	}
 
 	// "Set <key> = <color>, fontStyle '<style>' (<table>) on theme '<id>'." — only the parts that were set.
@@ -132,36 +131,36 @@ public sealed partial class McpServer {
 		return true;
 	}
 
-	private async Task HandleApplyThemeTransformAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleApplyThemeTransformAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var themeOverrides = Require(_themeOverrides, "Theming");
 		string? op = args.GetStringOrNull("op");
 		if (string.IsNullOrEmpty(op) || !IsValidTransformOp(op)) {
-			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform requires 'op' one of: darken, lighten, saturate, desaturate, contrast.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "applyThemeTransform requires 'op' one of: darken, lighten, saturate, desaturate, contrast.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		if (!TryGetDoubleArg(args, "amount", out double amount) || double.IsNaN(amount) || amount <= 0 || amount > 1) {
-			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform requires 'amount', a number between 0 and 1 (e.g. 0.2 for 20%).", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "applyThemeTransform requires 'amount', a number between 0 and 1 (e.g. 0.2 for 20%).", ct).ConfigureAwait(false);
 			return;
 		}
 
 		string? target = args.GetStringOrNull("target");
 		if (target is not (null or "all" or "colors" or "tokenColors" or "semanticTokenColors" or "syntax")) {
-			await SendToolErrorAsync(ws, idRaw, "applyThemeTransform 'target' must be one of: all, colors, tokenColors, semanticTokenColors, syntax.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "applyThemeTransform 'target' must be one of: all, colors, tokenColors, semanticTokenColors, syntax.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		string active = ActiveThemeId();
 		themeOverrides.Append(active, new ThemeOverrideTransform { Op = op, Amount = amount, Target = target });
 		string scope = target is null or "all" ? string.Empty : $" ({target})";
-		await SendToolTextAsync(ws, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)}{scope} to theme '{active}'.", ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, $"Applied {op} {amount.ToString(CultureInfo.InvariantCulture)}{scope} to theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
-	private async Task HandleRemoveThemeOverrideAsync(WebSocket ws, JsonElement args, string? idRaw, CancellationToken ct) {
+	private async Task HandleRemoveThemeOverrideAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
 		var themeOverrides = Require(_themeOverrides, "Theming");
 		string? key = args.GetStringOrNull("key");
 		if (string.IsNullOrEmpty(key)) {
-			await SendToolErrorAsync(ws, idRaw, "removeThemeOverride requires a 'key'.", ct).ConfigureAwait(false);
+			await SendToolErrorAsync(responder, idRaw, "removeThemeOverride requires a 'key'.", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -169,12 +168,12 @@ public sealed partial class McpServer {
 		var ops = themeOverrides.Get(active);
 		var kept = ops.Where(op => op is not ThemeOverrideSet set || set.Key != key).ToList();
 		if (kept.Count == ops.Count) {
-			await SendToolTextAsync(ws, idRaw, $"No 'set' override for {key} on theme '{active}'.", ct).ConfigureAwait(false);
+			await SendToolTextAsync(responder, idRaw, $"No 'set' override for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 			return;
 		}
 
 		themeOverrides.SetOps(active, kept);
-		await SendToolTextAsync(ws, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
+		await SendToolTextAsync(responder, idRaw, $"Removed override(s) for {key} on theme '{active}'.", ct).ConfigureAwait(false);
 	}
 
 	private string ActiveThemeId() =>

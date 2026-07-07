@@ -3,9 +3,14 @@ using Weavie.Core.Configuration;
 
 namespace Weavie.Hosting.Agents;
 
-/// <summary>Composes one provider session with Weavie's generic supervised terminal.</summary>
+/// <summary>Composes one provider session with Weavie's terminal or structured runtime host.</summary>
 public sealed class AgentSessionHost : IAsyncDisposable {
-	/// <summary>Creates the provider session and its existing <c>claude</c> compatibility pane.</summary>
+	private readonly AgentSessionContext _context;
+	private readonly IHostBridge _bridge;
+	private readonly List<AgentPaneMessage> _paneMessages = [];
+	private readonly Lock _paneGate = new();
+
+	/// <summary>Creates the provider session and its pane runtime.</summary>
 	public AgentSessionHost(
 		IAgentProvider provider,
 		AgentSessionContext context,
@@ -17,11 +22,20 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
+		_context = context;
+		_bridge = bridge;
 		Provider = provider.Info;
 		Session = provider.CreateSession(context);
-		Terminal = new TerminalController(bridge, "claude", settings, ptyLauncher, new AgentTerminalProcess(Session)) {
-			Workspace = context.Workspace,
-		};
+		if (Session is ITerminalAgentSession terminalSession) {
+			Terminal = new TerminalController(bridge, "claude", settings, ptyLauncher, new AgentTerminalProcess(terminalSession)) {
+				Workspace = context.Workspace,
+			};
+		} else if (Session is IStructuredAgentSession structuredSession) {
+			Structured = structuredSession;
+			structuredSession.PaneMessage += PublishPaneMessage;
+		} else {
+			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
+		}
 	}
 
 	/// <summary>The selected provider identity.</summary>
@@ -30,19 +44,43 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	/// <summary>The live provider session.</summary>
 	public IAgentSession Session { get; }
 
-	/// <summary>The provider's compatibility terminal pane.</summary>
-	public TerminalController Terminal { get; }
+	/// <summary>The provider's compatibility terminal pane, when terminal-backed.</summary>
+	public TerminalController? Terminal { get; }
+
+	/// <summary>The provider's structured runtime, when native-pane backed.</summary>
+	public IStructuredAgentSession? Structured { get; }
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		Terminal.Dispose();
+		Terminal?.Dispose();
 		await DisposeProviderAsync().ConfigureAwait(false);
+	}
+
+	/// <summary>Replays the structured pane state accumulated for this session.</summary>
+	public void ReplayPane() {
+		List<AgentPaneMessage> snapshot;
+		lock (_paneGate) {
+			snapshot = [.. _paneMessages];
+		}
+
+		_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
+		foreach (var message in snapshot) {
+			_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
+		}
 	}
 
 	/// <summary>Disposes provider integration after the terminal has already stopped.</summary>
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
-	private sealed class AgentTerminalProcess(IAgentSession session) : ITerminalProcess {
+	private void PublishPaneMessage(AgentPaneMessage message) {
+		lock (_paneGate) {
+			_paneMessages.Add(message);
+		}
+
+		_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
+	}
+
+	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {
 		public AgentLaunch ResolveLaunch() => session.ResolveLaunch();
 
 		public void ObserveTerminalOutput(ReadOnlyMemory<byte> data) => session.ObserveTerminalOutput(data);

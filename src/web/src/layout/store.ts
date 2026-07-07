@@ -2,7 +2,7 @@ import { createSignal } from "solid-js";
 import { onHostMessage, postToHost } from "../bridge";
 import type { LayoutDocument, LayoutNode } from "./types";
 
-// The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the Claude and
+// The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the agent and
 // shell terminals beside the editor, 40/60. Shown until the host pushes the persisted layout.
 export const DEFAULT_LAYOUT_ROOT: LayoutNode = {
   type: "split",
@@ -14,7 +14,7 @@ export const DEFAULT_LAYOUT_ROOT: LayoutNode = {
       dir: "column",
       weights: [0.5, 0.5],
       children: [
-        { type: "pane", id: "p_claude", kind: "terminal:claude" },
+        { type: "pane", id: "p_agent", kind: "agent" },
         { type: "pane", id: "p_shell", kind: "terminal:shell" },
       ],
     },

@@ -5,8 +5,8 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
-/// End-to-end tests for pasting an image into the claude pane: the host writes the bytes to a per-session scratch
-/// file and injects its path into the claude PTY as a bracketed paste (which the TUI attaches as an [Image #N]).
+/// End-to-end tests for pasting an image into an agent pane: the host writes the bytes to a per-session scratch
+/// file and delivers its path through the session's provider.
 /// A disallowed type or oversize paste is surfaced as a toast and never written. See docs/specs/remote-paste-image.md.
 /// </summary>
 [Collection("host-integration")]
@@ -31,7 +31,7 @@ public sealed class HostCorePasteImageTests {
 	}
 
 	private static NoopTerminal StartClaude(TestHost host) {
-		host.Core.ActiveSessionForTest()!.Claude.EnsureStarted();
+		host.Core.ActiveSessionForTest()!.Claude!.EnsureStarted();
 		return Assert.Single(host.Platform.NoopLauncher.Created);
 	}
 
@@ -101,7 +101,7 @@ public sealed class HostCorePasteImageTests {
 			dataB64 = Convert.ToBase64String(PngBytes),
 		}));
 
-		Assert.Equal(0, shellTerminal.WriteCount); // pasted images only ever reach claude
+		Assert.Equal(0, shellTerminal.WriteCount);
 	}
 
 	[Fact]
@@ -115,8 +115,7 @@ public sealed class HostCorePasteImageTests {
 		Assert.Equal(0, claudeTerminal.WriteCount);
 	}
 
-	// The native-WebView half: on the claude pane the paste command reads the OS clipboard IMAGE through the local
-	// host (clipboard-read-image), since the DOM paste event never fires there. The host replies with the bytes.
+	// Native-WebView paste reads clipboard images through the local host because the DOM paste event never fires.
 	[Fact]
 	public async Task ClipboardReadImage_RepliesWithThePlatformsClipboardImage() {
 		await using var host = await TestHost.StartAsync();

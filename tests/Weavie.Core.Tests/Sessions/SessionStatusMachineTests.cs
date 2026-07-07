@@ -1,3 +1,4 @@
+using Weavie.Core.Agents;
 using Weavie.Core.Hooks;
 using Weavie.Core.Processes;
 using Weavie.Core.Sessions;
@@ -293,6 +294,14 @@ public sealed class SessionStatusMachineTests {
 		var machine = new SessionStatusMachine();
 		machine.Observe(Hook(HookEventKind.Stop));
 		machine.ObserveSupervisor(new SupervisorStateChanged(SupervisorState.Running, null, 1));
+		Assert.Equal(SessionStatus.Starting, machine.Status);
+	}
+
+	[Fact]
+	public void ProviderProcessRestartEvent_GoesStarting() {
+		var machine = new SessionStatusMachine();
+		machine.Observe(Hook(HookEventKind.Stop));
+		machine.Observe(new AgentProcessChanged(new SupervisorStateChanged(SupervisorState.Running, null, 1)));
 		Assert.Equal(SessionStatus.Starting, machine.Status);
 	}
 

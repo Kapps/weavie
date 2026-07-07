@@ -4,15 +4,13 @@ namespace Weavie.Core.Changes;
 
 /// <summary>Workspace-wide change observation for tools whose touched files are unknown before execution.</summary>
 public sealed partial class SessionChangeTracker {
-	private readonly HashSet<string> _workspaceMutationBaseline = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, HashSet<string>> _workspaceMutationBaselines = new(StringComparer.Ordinal);
 
-	private void CaptureWorkspaceBaselines() {
+	private void CaptureWorkspaceBaselines(string invocationId) {
+		ArgumentException.ThrowIfNullOrEmpty(invocationId);
 		var files = WorkspaceFiles();
 		lock (_gate) {
-			_workspaceMutationBaseline.Clear();
-			foreach (string path in files) {
-				_workspaceMutationBaseline.Add(path);
-			}
+			_workspaceMutationBaselines[invocationId] = new HashSet<string>(files, StringComparer.Ordinal);
 		}
 
 		foreach (string path in files) {
@@ -20,15 +18,16 @@ public sealed partial class SessionChangeTracker {
 		}
 	}
 
-	private void RecordWorkspaceChanges() {
-		foreach (string path in WorkspaceMutationCandidates()) {
+	private void RecordWorkspaceChanges(string invocationId) {
+		ArgumentException.ThrowIfNullOrEmpty(invocationId);
+		foreach (string path in WorkspaceMutationCandidates(invocationId)) {
 			if (WorkspaceFileChanged(path)) {
 				RecordChange(path);
 			}
 		}
 
 		lock (_gate) {
-			_workspaceMutationBaseline.Clear();
+			_workspaceMutationBaselines.Remove(invocationId);
 		}
 	}
 
@@ -73,11 +72,13 @@ public sealed partial class SessionChangeTracker {
 		return files;
 	}
 
-	private IReadOnlyList<string> WorkspaceMutationCandidates() {
+	private IReadOnlyList<string> WorkspaceMutationCandidates(string invocationId) {
 		var candidates = new HashSet<string>(WorkspaceFiles(), StringComparer.Ordinal);
 		lock (_gate) {
-			foreach (string path in _workspaceMutationBaseline) {
-				candidates.Add(path);
+			if (_workspaceMutationBaselines.TryGetValue(invocationId, out var baseline)) {
+				foreach (string path in baseline) {
+					candidates.Add(path);
+				}
 			}
 		}
 

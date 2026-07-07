@@ -101,7 +101,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		string directory = WeaviePaths.Internal("mcp");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{_registry.Port}.system-prompt.txt");
-		File.WriteAllText(path, EmbeddedClaudeGuidance.Compose(_runtime));
+		File.WriteAllText(path, EmbeddedAgentGuidance.Compose(_runtime));
 		return path;
 	}
 

@@ -36,6 +36,7 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private TcpListener? _listener;
 	private CancellationTokenSource? _cts;
+	private int _disposed;
 
 	// The connected, authenticated client socket, so a host-driven active-editor change can push an unsolicited
 	// selection_changed. volatile: written by the accept task, read from the thread raising ActiveEditorStore.Changed.
@@ -856,6 +857,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+		if (Interlocked.Exchange(ref _disposed, 1) != 0) {
+			return;
+		}
+
 		_editor?.Changed -= OnActiveEditorChanged;
 
 		if (_cts is not null) {

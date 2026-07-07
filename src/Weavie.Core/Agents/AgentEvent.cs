@@ -37,10 +37,13 @@ public abstract record AgentMutation {
 	public sealed record None : AgentMutation;
 
 	/// <summary>The tool may mutate files, but the provider did not give per-file paths before it runs.</summary>
-	public sealed record Workspace : AgentMutation;
+	public sealed record Workspace(string InvocationId) : AgentMutation;
 
 	/// <summary>The tool directly mutates <paramref name="Path"/>, resolved relative to <paramref name="Cwd"/>.</summary>
 	public sealed record File(string Path, string? Cwd, bool ProvidesEditLocation) : AgentMutation;
+
+	/// <summary>The tool directly mutates multiple files.</summary>
+	public sealed record Files(IReadOnlyList<File> Items) : AgentMutation;
 }
 
 /// <summary>A tool is about to run.</summary>

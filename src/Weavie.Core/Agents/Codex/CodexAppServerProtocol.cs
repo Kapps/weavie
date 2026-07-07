@@ -28,28 +28,49 @@ public static class CodexAppServerProtocol {
 	public static string Initialized() =>
 		"{\"method\":\"initialized\",\"params\":{}}";
 
+	/// <summary>Builds a hooks/list request for the session working directory.</summary>
+	public static string HooksList(long id, string cwd) {
+		ArgumentException.ThrowIfNullOrEmpty(cwd);
+		return JsonSerializer.Serialize(new { method = "hooks/list", id, @params = new { cwds = new[] { cwd } } });
+	}
+
 	/// <summary>Builds a thread/start request, omitting an empty model so Codex uses its configured default.</summary>
-	public static string ThreadStart(long id, string model, string cwd, string sandbox, string approvalPolicy) {
+	public static string ThreadStart(
+		long id,
+		string model,
+		string cwd,
+		string sandbox,
+		string approvalPolicy,
+		string developerInstructions) {
 		ArgumentNullException.ThrowIfNull(model);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
+		ArgumentException.ThrowIfNullOrEmpty(developerInstructions);
 		object parameters = string.IsNullOrWhiteSpace(model)
-			? new { cwd, sandbox, approvalPolicy }
-			: new { cwd, sandbox, approvalPolicy, model };
+			? new { cwd, sandbox, approvalPolicy, developerInstructions }
+			: new { cwd, sandbox, approvalPolicy, developerInstructions, model };
 		return JsonSerializer.Serialize(new { method = "thread/start", id, @params = parameters });
 	}
 
 	/// <summary>Builds a thread/resume request for a persisted Codex thread id, preserving Weavie's session policy.</summary>
-	public static string ThreadResume(long id, string threadId, string model, string cwd, string sandbox, string approvalPolicy) {
+	public static string ThreadResume(
+		long id,
+		string threadId,
+		string model,
+		string cwd,
+		string sandbox,
+		string approvalPolicy,
+		string developerInstructions) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentNullException.ThrowIfNull(model);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
+		ArgumentException.ThrowIfNullOrEmpty(developerInstructions);
 		object parameters = string.IsNullOrWhiteSpace(model)
-			? new { threadId, cwd, sandbox, approvalPolicy }
-			: new { threadId, cwd, sandbox, approvalPolicy, model };
+			? new { threadId, cwd, sandbox, approvalPolicy, developerInstructions }
+			: new { threadId, cwd, sandbox, approvalPolicy, developerInstructions, model };
 		return JsonSerializer.Serialize(new { method = "thread/resume", id, @params = parameters });
 	}
 
@@ -218,7 +239,12 @@ public static class CodexAppServerProtocol {
 		if (string.Equals(type, "commandExecution", StringComparison.Ordinal)
 			|| string.Equals(type, "mcpToolCall", StringComparison.Ordinal)
 			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal)) {
-			mutation = new AgentMutation.Workspace();
+			string itemId = item.GetStringOrEmpty("id");
+			if (itemId.Length == 0) {
+				return false;
+			}
+
+			mutation = new AgentMutation.Workspace(itemId);
 			return true;
 		}
 
@@ -230,14 +256,19 @@ public static class CodexAppServerProtocol {
 			return new AgentMutation.None();
 		}
 
+		List<AgentMutation.File> files = [];
 		foreach (var change in changes.EnumerateArray()) {
 			string path = change.GetStringOrEmpty("path");
 			if (path.Length > 0) {
-				return new AgentMutation.File(path, Cwd: null, ProvidesEditLocation: true);
+				files.Add(new AgentMutation.File(path, Cwd: null, ProvidesEditLocation: true));
 			}
 		}
 
-		return new AgentMutation.None();
+		return files.Count switch {
+			0 => new AgentMutation.None(),
+			1 => files[0],
+			_ => new AgentMutation.Files(files),
+		};
 	}
 
 	private static object SandboxPolicy(string sandbox, string cwd) =>

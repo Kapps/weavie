@@ -21,22 +21,32 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
+	public void HooksList_SendsSessionCwd() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.HooksList(7, "/repo"));
+		var parameters = doc.RootElement.GetProperty("params");
+
+		Assert.Equal("hooks/list", doc.RootElement.GetProperty("method").GetString());
+		Assert.Equal("/repo", parameters.GetProperty("cwds")[0].GetString());
+	}
+
+	[Fact]
 	public void ThreadStart_OmitsEmptyModel() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.ThreadStart(
-			8, "", "/repo", "workspace-write", "on-request"));
+			8, "", "/repo", "workspace-write", "on-request", "use weavie tools"));
 		var parameters = doc.RootElement.GetProperty("params");
 
 		Assert.Equal("thread/start", doc.RootElement.GetProperty("method").GetString());
 		Assert.Equal("/repo", parameters.GetProperty("cwd").GetString());
 		Assert.Equal("workspace-write", parameters.GetProperty("sandbox").GetString());
 		Assert.Equal("on-request", parameters.GetProperty("approvalPolicy").GetString());
+		Assert.Equal("use weavie tools", parameters.GetProperty("developerInstructions").GetString());
 		Assert.False(parameters.TryGetProperty("model", out _));
 	}
 
 	[Fact]
 	public void ThreadResume_CarriesWorkspacePolicyAndOptionalModel() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.ThreadResume(
-			12, "thr_1", "gpt-5.1-codex", "/repo", "workspace-write", "on-request"));
+			12, "thr_1", "gpt-5.1-codex", "/repo", "workspace-write", "on-request", "use weavie tools"));
 		var parameters = doc.RootElement.GetProperty("params");
 
 		Assert.Equal("thread/resume", doc.RootElement.GetProperty("method").GetString());
@@ -44,6 +54,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("/repo", parameters.GetProperty("cwd").GetString());
 		Assert.Equal("workspace-write", parameters.GetProperty("sandbox").GetString());
 		Assert.Equal("on-request", parameters.GetProperty("approvalPolicy").GetString());
+		Assert.Equal("use weavie tools", parameters.GetProperty("developerInstructions").GetString());
 		Assert.Equal("gpt-5.1-codex", parameters.GetProperty("model").GetString());
 	}
 
@@ -96,7 +107,8 @@ public sealed class CodexAppServerProtocolTests {
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
 			out var toolStarted));
 		var tool = Assert.IsType<AgentToolStarting>(toolStarted);
-		Assert.IsType<AgentMutation.Workspace>(tool.Mutation);
+		var workspace = Assert.IsType<AgentMutation.Workspace>(tool.Mutation);
+		Assert.Equal("item_1", workspace.InvocationId);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
@@ -160,6 +172,17 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
+	public void TryAdaptNotification_MapsMultiFileChangeToFileSetMutation() {
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
+			"""{"method":"item/completed","params":{"item":{"type":"fileChange","id":"item_1","status":"completed","changes":[{"path":"src/App.cs","diff":"@@","kind":{"type":"update"}},{"path":"src/Other.cs","diff":"@@","kind":{"type":"update"}}]}}}""",
+			out var value));
+
+		var completed = Assert.IsType<AgentToolCompleted>(value);
+		var files = Assert.IsType<AgentMutation.Files>(completed.Mutation);
+		Assert.Equal(["src/App.cs", "src/Other.cs"], files.Items.Select(file => file.Path));
+	}
+
+	[Fact]
 	public void FileChangeLifecycle_FeedsTurnReviewDiff() {
 		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-review"));
 		string file = Path.Combine(workspace, "src", "App.cs");
@@ -210,6 +233,37 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal(file, turn.Path);
 		Assert.Equal("old\n", turn.BaselineText);
 		Assert.Equal("old\nnew\n", turn.CurrentText);
+	}
+
+	[Fact]
+	public void WorkspaceMutationLifecycle_IsCorrelatedByItemId() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-overlap-review"));
+		string file = Path.Combine(workspace, "deleted.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(file, "gone\n");
+		var changes = new SessionChangeTracker(
+			fileSystem,
+			workspace,
+			_ => true);
+		string startedA = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_a","status":"inProgress","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
+		string startedB = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_b","status":"inProgress","command":"true","commandActions":[],"cwd":"/repo"}}}""";
+		string completedB = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_b","status":"completed","command":"true","commandActions":[],"cwd":"/repo"}}}""";
+		string completedA = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_a","status":"completed","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
+
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedA, out var aStarted));
+		changes.Observe(aStarted);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedB, out var bStarted));
+		changes.Observe(bStarted);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedB, out var bCompleted));
+		changes.Observe(bCompleted);
+		fileSystem.DeleteFile(file);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedA, out var aCompleted));
+		changes.Observe(aCompleted);
+
+		var turn = Assert.Single(changes.TurnChanges());
+		Assert.Equal(file, turn.Path);
+		Assert.Equal("gone\n", turn.BaselineText);
+		Assert.Equal(string.Empty, turn.CurrentText);
 	}
 
 	[Fact]

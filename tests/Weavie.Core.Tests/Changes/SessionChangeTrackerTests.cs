@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
@@ -153,6 +154,28 @@ public sealed class SessionChangeTrackerTests {
 
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Single(tracker.Changes()); // session diff (v0 -> v1) survives
+	}
+
+	[Fact]
+	public void Observe_OverlappingWorkspaceMutations_KeepsEachToolBaseline() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a0\n");
+		fileSystem.WriteAllText("/w/b.txt", "b0\n");
+		var tracker = Tracker(fileSystem);
+
+		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("tool-a")));
+		fileSystem.WriteAllText("/w/a.txt", "a1\n");
+		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("tool-b")));
+		fileSystem.WriteAllText("/w/b.txt", "b1\n");
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("tool-a")));
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("tool-b")));
+
+		var changes = tracker.TurnChanges().OrderBy(change => change.Path, StringComparer.Ordinal).ToList();
+		Assert.Equal([Path.Combine("/w", "a.txt"), Path.Combine("/w", "b.txt")], changes.Select(change => change.Path));
+		Assert.Equal("a0\n", changes[0].BaselineText);
+		Assert.Equal("a1\n", changes[0].CurrentText);
+		Assert.Equal("b0\n", changes[1].BaselineText);
+		Assert.Equal("b1\n", changes[1].CurrentText);
 	}
 
 	[Fact]

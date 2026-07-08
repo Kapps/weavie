@@ -115,8 +115,9 @@ public sealed class WorktreeManager {
 			seen.Add(normalized);
 			var record = Registry.FindByPath(normalized);
 			bool isPrimary = PathComparer.Equals(normalized, normalizedRoot);
-			bool isDirty = !isPrimary && await _git.HasUncommittedChangesAsync(worktree.Path, ct).ConfigureAwait(false);
-			bool isMerged = !isPrimary
+			bool exists = !worktree.IsPrunable;
+			bool isDirty = exists && !isPrimary && await _git.HasUncommittedChangesAsync(worktree.Path, ct).ConfigureAwait(false);
+			bool isMerged = exists && !isPrimary
 				&& worktree.Branch is { } branch
 				&& defaultBranch is { } target
 				&& !string.Equals(branch, target, StringComparison.Ordinal)
@@ -128,7 +129,7 @@ public sealed class WorktreeManager {
 				BaseRef = record?.BaseRef,
 				IsManaged = record is not null,
 				IsPrimary = isPrimary,
-				Exists = true,
+				Exists = exists,
 				IsDirty = isDirty,
 				IsMerged = isMerged,
 				CreatedAtUtc = record?.CreatedAtUtc,

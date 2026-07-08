@@ -153,6 +153,21 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task List_PrunableGitWorktree_DoesNotProbeMissingDirectory() {
+		var (manager, _, git) = NewManager();
+		string stalePath = Path.Combine(WorktreesDir, "stale");
+		git.Worktrees.Add(new GitWorktree { Path = stalePath, Branch = "stale", Head = "s1", IsPrunable = true });
+		git.DirtyProbeFailures.Add(stalePath);
+
+		var list = await manager.ListAsync();
+
+		var stale = list.Single(s => s.Branch == "stale");
+		Assert.False(stale.Exists);
+		Assert.False(stale.IsDirty);
+		Assert.False(stale.IsMerged);
+	}
+
+	[Fact]
 	public async Task Remove_Dirty_WithoutForce_Throws_AndKeepsWorktree() {
 		var (manager, registry, git) = NewManager();
 		string wipPath = Path.Combine(WorktreesDir, "wip");
@@ -381,6 +396,8 @@ public sealed class WorktreeManagerTests {
 
 		public HashSet<string> DirtyPaths { get; } = new(StringComparer.Ordinal);
 
+		public HashSet<string> DirtyProbeFailures { get; } = new(StringComparer.Ordinal);
+
 		public HashSet<string> MergedBranches { get; } = new(StringComparer.Ordinal);
 
 		public string? DefaultBranch { get; set; }
@@ -450,8 +467,13 @@ public sealed class WorktreeManagerTests {
 			return Task.CompletedTask;
 		}
 
-		public Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) =>
-			Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory)));
+		public Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default) {
+			if (DirtyProbeFailures.Any(p => PathEquals(p, worktreeDirectory))) {
+				return Task.FromException<bool>(new GitException("dirty probe should not run"));
+			}
+
+			return Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory)));
+		}
 
 		public Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) =>
 			Task.FromResult(DirtyPaths.Any(p => PathEquals(p, worktreeDirectory))

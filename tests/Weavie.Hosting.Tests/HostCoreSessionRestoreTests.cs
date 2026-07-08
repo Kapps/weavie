@@ -84,4 +84,18 @@ public sealed class HostCoreSessionRestoreTests {
 			host.Bridge.LastOfType("session-list")!.Value.GetProperty("sessions").EnumerateArray(),
 			s => s.GetProperty("id").GetString() == "ghost");
 	}
+
+	[Fact]
+	public async Task BranchList_IncludesSurfacedSessionBranches_ForSwitching() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		host.Bridge.Clear();
+
+		host.Send("""{"type":"list-branches","id":"branches-1"}""");
+
+		var reply = await Wait.ForAsync(() => host.Bridge.LastOfType("branches-result"));
+		Assert.Contains(
+			"branch-a",
+			reply.GetProperty("branches").EnumerateArray().Select(branch => branch.GetString()));
+	}
 }

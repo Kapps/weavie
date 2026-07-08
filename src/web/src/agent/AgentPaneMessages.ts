@@ -51,7 +51,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
     upsertStep(activity, update);
   }
 
-  return entries.map((entry) => stripMutable(entry));
+  return collapseAssistantUpdates(entries.map((entry) => stripMutable(entry)));
 }
 
 function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<string, string> {
@@ -254,6 +254,86 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
     text: entry.text,
     tone: entry.tone,
   };
+}
+
+function collapseAssistantUpdates(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
+  const output: AgentTranscriptEntry[] = [];
+  let group: AgentTranscriptEntry[] = [];
+  for (const entry of entries) {
+    if (isUserMessage(entry)) {
+      flushGroup(output, group);
+      group = [];
+      output.push(entry);
+    } else {
+      group.push(entry);
+    }
+  }
+
+  flushGroup(output, group);
+  return output;
+}
+
+function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[]): void {
+  const assistantIndexes = group.flatMap((entry, index) =>
+    isAssistantMessage(entry) ? [index] : [],
+  );
+  if (assistantIndexes.length <= 1) {
+    output.push(...group);
+    return;
+  }
+
+  const lastAssistantIndex = assistantIndexes[assistantIndexes.length - 1];
+  const collapsed = assistantIndexes
+    .slice(0, -1)
+    .map((index) => group[index])
+    .filter((entry) => entry !== undefined);
+  const collapsedIndexes = new Set(assistantIndexes.slice(0, -1));
+  for (let i = 0; i < group.length; i += 1) {
+    const entry = group[i];
+    if (entry === undefined || collapsedIndexes.has(i)) {
+      continue;
+    }
+
+    if (i === lastAssistantIndex) {
+      output.push(earlierUpdatesEntry(collapsed));
+    }
+
+    output.push(entry);
+  }
+}
+
+function earlierUpdatesEntry(entries: AgentTranscriptEntry[]): AgentTranscriptEntry {
+  return {
+    actionMessage: null,
+    details: entries.map((entry, index) => ({
+      category: "update",
+      detailText: entry.text ?? entry.summary,
+      id: `${entry.id}:update`,
+      label: updateLabel(entry, index),
+      status: null,
+      tone: "muted",
+    })),
+    id: `updates-${entries[0]?.id ?? "empty"}`,
+    kind: "activity",
+    label: "Earlier updates",
+    status: null,
+    summary: null,
+    text: null,
+    tone: "activity",
+  };
+}
+
+function updateLabel(entry: AgentTranscriptEntry, index: number): string {
+  const firstLine = (entry.text ?? entry.summary)?.split(/\r?\n/, 1)[0]?.trim();
+  return firstLine === undefined || firstLine.length === 0 ? `update ${index + 1}` : firstLine;
+}
+
+function isAssistantMessage(entry: AgentTranscriptEntry): boolean {
+  return entry.kind === "message" && entry.tone === "assistant";
+}
+
+function isUserMessage(entry: AgentTranscriptEntry): boolean {
+  return entry.kind === "message" && entry.tone === "user";
 }
 
 function activityPrefix(message: AgentPaneUpdate): string {

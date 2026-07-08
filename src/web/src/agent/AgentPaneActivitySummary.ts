@@ -61,6 +61,21 @@ function completedSummary(steps: readonly AgentActivityStep[]): string | null {
   }
 
   return Array.from(counts.entries())
-    .map(([category, count]) => `${count} ${category}${count === 1 ? "" : "s"}`)
+    .map(([category, count]) => completedCategorySummary(category, count))
     .join(", ");
+}
+
+function completedCategorySummary(category: string, count: number): string {
+  switch (category) {
+    case "command":
+      return `ran ${count} command${count === 1 ? "" : "s"}`;
+    case "edit":
+      return `edited ${count} file${count === 1 ? "" : "s"}`;
+    case "search":
+      return `searched ${count} time${count === 1 ? "" : "s"}`;
+    case "tool":
+      return `used ${count} tool${count === 1 ? "" : "s"}`;
+    default:
+      return `${count} ${category}${count === 1 ? "" : "s"}`;
+  }
 }

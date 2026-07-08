@@ -33,7 +33,7 @@ describe("toAgentTranscript", () => {
       ["activity", "Working", null],
       ["message", "Codex", null],
     ]);
-    expect(transcript[0]?.summary).toBe("1 command");
+    expect(transcript[0]?.summary).toBe("ran 1 command");
     expect(transcript[0]?.details).toHaveLength(1);
     expect(transcript[1]?.text).toBe("You're on branch `test/codex-4`.");
   });
@@ -77,7 +77,7 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript).toHaveLength(1);
-    expect(transcript[0]?.summary).toBe("1 command");
+    expect(transcript[0]?.summary).toBe("ran 1 command");
     expect(transcript[0]?.status).toBeNull();
     expect(transcript[0]?.details).toEqual([
       {
@@ -173,11 +173,76 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript).toHaveLength(1);
-    expect(transcript[0]?.summary).toBe("1 edit");
+    expect(transcript[0]?.summary).toBe("edited 1 file");
     expect(transcript[0]?.details.map((step) => [step.label, step.status])).toEqual([
       ["edit src/App.cs", "updated"],
       ["diff ready", "ready"],
     ]);
     expect(transcript[0]?.details[1]?.detailText).toBe("diff --git a/file b/file");
+  });
+
+  it("collapses earlier assistant narration into expandable updates", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", text: "edit a comment" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-1",
+        itemType: "agentMessage",
+        text: "I'll scan for a low-risk comment.",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-2",
+        itemType: "agentMessage",
+        text: "I found a safe candidate.",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-3",
+        itemType: "agentMessage",
+        text: "Edited one comment in src/file.ts.",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript.map((entry) => [entry.label, entry.text])).toEqual([
+      ["You", "edit a comment"],
+      ["Earlier updates", null],
+      ["Codex", "Edited one comment in src/file.ts."],
+    ]);
+    expect(transcript[1]?.details.map((step) => step.detailText)).toEqual([
+      "I'll scan for a low-risk comment.",
+      "I found a safe candidate.",
+    ]);
+  });
+
+  it("does not collapse final assistant messages across prompts", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", text: "first" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-1",
+        itemType: "agentMessage",
+        text: "First result.",
+        status: "completed",
+      },
+      { type: "user-message", providerId: "codex", text: "second" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-2",
+        itemType: "agentMessage",
+        text: "Second result.",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
   });
 });

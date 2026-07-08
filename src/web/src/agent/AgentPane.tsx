@@ -203,7 +203,7 @@ function TranscriptEntry(props: {
         </Show>
         <Show when={failure()}>{(text) => <pre class="agent-entry-failure">{text()}</pre>}</Show>
         <Show when={props.entry.details.length > 0}>
-          <ActivityDetails steps={props.entry.details} />
+          <ActivityDetails entry={props.entry} steps={props.entry.details} />
         </Show>
         <EntryActions entry={props.entry} slot={props.slot} />
       </div>
@@ -280,10 +280,13 @@ function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null 
   return null;
 }
 
-function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
+function ActivityDetails(props: {
+  entry: AgentTranscriptEntry;
+  steps: AgentActivityStep[];
+}): JSX.Element {
   return (
     <details class="agent-activity-details">
-      <summary>{props.steps.length === 1 ? "history" : `history ${props.steps.length}`}</summary>
+      <summary>{activityDetailsSummary(props.entry, props.steps.length)}</summary>
       <div class="agent-activity-list">
         <For each={props.steps}>
           {(step) => (
@@ -299,6 +302,14 @@ function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
       </div>
     </details>
   );
+}
+
+function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
+  if (entry.label === "Earlier updates") {
+    return `show ${count} earlier update${count === 1 ? "" : "s"}`;
+  }
+
+  return count === 1 ? "history" : `history ${count}`;
 }
 
 function entryLabel(entry: AgentTranscriptEntry): string {

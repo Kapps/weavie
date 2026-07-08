@@ -428,6 +428,8 @@ export default function App(): JSX.Element {
     id: string;
     label: string;
     state: DeleteSessionState;
+    untrackedFiles: string[];
+    untrackedCount: number;
     backendId: string;
   } | null>(null);
   // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Classify the
@@ -449,8 +451,22 @@ export default function App(): JSX.Element {
       addToast("error", result.error ?? "Couldn't check the session for changes.");
       return;
     }
-    const info = result.data as { state?: DeleteSessionState; label?: string } | undefined;
-    setDeleteReq({ id, label: info?.label ?? id, state: info?.state ?? "clean", backendId });
+    const info = result.data as
+      | {
+          state?: DeleteSessionState;
+          label?: string;
+          untrackedFiles?: string[];
+          untrackedCount?: number;
+        }
+      | undefined;
+    setDeleteReq({
+      id,
+      label: info?.label ?? id,
+      state: info?.state ?? "clean",
+      untrackedFiles: info?.untrackedFiles ?? [],
+      untrackedCount: info?.untrackedCount ?? 0,
+      backendId,
+    });
   };
   const confirmDeleteSession = async (): Promise<void> => {
     const req = deleteReq();
@@ -1353,6 +1369,8 @@ export default function App(): JSX.Element {
           <DeleteSessionDialog
             label={req().label}
             state={req().state}
+            untrackedFiles={req().untrackedFiles}
+            untrackedCount={req().untrackedCount}
             onConfirm={confirmDeleteSession}
             onCancel={() => setDeleteReq(null)}
           />

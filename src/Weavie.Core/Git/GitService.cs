@@ -16,6 +16,7 @@ public sealed class GitService : IGitService {
 	// `.git/index.lock`, so this background/footer poll can never collide with a concurrent `git diff` or
 	// `git add` on the same repo (the index-lock race behind the diff-against CI flakes).
 	private static readonly string[] PorcelainStatusArgs = ["--no-optional-locks", "status", "--porcelain"];
+	private static readonly string[] PorcelainStatusZArgs = ["--no-optional-locks", "status", "--porcelain", "-z"];
 
 	/// <inheritdoc/>
 	public async Task<bool> IsRepositoryAsync(string directory, CancellationToken ct = default) {
@@ -158,20 +159,27 @@ public sealed class GitService : IGitService {
 	}
 
 	/// <inheritdoc/>
-	public async Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
+	public async Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusArgs, ct).ConfigureAwait(false);
-		string[] lines = result.StdOut.Replace("\r", "", StringComparison.Ordinal)
-			.Split('\n', StringSplitOptions.RemoveEmptyEntries);
-		if (lines.Length == 0) {
-			return WorktreeChangeState.Clean;
+		// -z NUL-separates entries and drops the C-style path quoting, so untracked names come out verbatim. A
+		// rename adds a bare source-path entry (no status code); it reads as tracked, which a rename is anyway.
+		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusZArgs, ct).ConfigureAwait(false);
+		string[] entries = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries);
+		// Porcelain marks untracked paths with a leading "?? "; any other code is a tracked change.
+		var untracked = new List<string>();
+		bool tracked = false;
+		foreach (string entry in entries) {
+			if (entry.StartsWith("?? ", StringComparison.Ordinal)) {
+				untracked.Add(entry[3..]);
+			} else {
+				tracked = true;
+			}
 		}
 
-		// Porcelain marks untracked paths with a leading "??"; any other code is a tracked change. All
-		// untracked ⇒ untracked-only; otherwise tracked changes exist.
-		return lines.All(line => line.StartsWith("??", StringComparison.Ordinal))
-			? WorktreeChangeState.UntrackedOnly
-			: WorktreeChangeState.Modified;
+		var state = entries.Length == 0 ? WorktreeChangeState.Clean
+			: tracked ? WorktreeChangeState.Modified
+			: WorktreeChangeState.UntrackedOnly;
+		return new WorktreeChangeStatus(state, untracked);
 	}
 
 	/// <inheritdoc/>

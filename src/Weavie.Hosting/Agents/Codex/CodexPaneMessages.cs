@@ -8,6 +8,9 @@ namespace Weavie.Hosting.Agents.Codex;
 internal static class CodexPaneMessages {
 	public static AgentPaneMessage? FromNotification(string method, string? _, JsonElement root) =>
 		method switch {
+			"turn/started" => FromTurn("turn-started", root),
+			"turn/completed" => FromTurn("turn-completed", root),
+			"turn/interrupted" => FromTurn("turn-interrupted", root),
 			"item/started" => FromStartedItem(root),
 			"item/completed" => FromCompletedItem(root),
 			"item/fileChange/patchUpdated" => FromPatch(root),
@@ -73,7 +76,7 @@ internal static class CodexPaneMessages {
 			ItemType = itemType,
 			Summary = SummarizeItem(itemType, item),
 			Status = item.GetStringOrEmpty("status"),
-			Text = item.GetStringOrEmpty("text"),
+			Text = ItemText(itemType, item),
 			PayloadJson = root.GetRawText(),
 		};
 	}
@@ -86,6 +89,23 @@ internal static class CodexPaneMessages {
 			ThreadId = parameters.GetStringOrEmpty("threadId"),
 			TurnId = parameters.GetStringOrEmpty("turnId"),
 			Text = parameters.GetStringOrEmpty("diff"),
+			PayloadJson = root.GetRawText(),
+		};
+	}
+
+	private static AgentPaneMessage FromTurn(string type, JsonElement root) {
+		var parameters = root.GetProperty("params");
+		var turn = parameters.TryGetProperty("turn", out var value) ? value : default;
+		return new AgentPaneMessage {
+			Type = type,
+			ProviderId = "codex",
+			ThreadId = parameters.GetStringOrEmpty("threadId"),
+			TurnId = turn.ValueKind == JsonValueKind.Object
+				? turn.GetStringOrEmpty("id")
+				: parameters.GetStringOrEmpty("turnId"),
+			Status = turn.ValueKind == JsonValueKind.Object
+				? turn.GetStringOrEmpty("status")
+				: parameters.GetStringOrEmpty("status"),
 			PayloadJson = root.GetRawText(),
 		};
 	}
@@ -157,6 +177,13 @@ internal static class CodexPaneMessages {
 			"agentMessage" => null,
 			_ => itemType,
 		};
+
+	private static string? ItemText(string itemType, JsonElement item) {
+		string text = itemType == "commandExecution"
+			? item.GetStringOrEmpty("aggregatedOutput")
+			: item.GetStringOrEmpty("text");
+		return text.Length == 0 ? null : text;
+	}
 
 	private static bool IsVisibleStartedItem(string itemType) =>
 		itemType is "commandExecution" or "fileChange" or "mcpToolCall" or "dynamicToolCall" or "webSearch";

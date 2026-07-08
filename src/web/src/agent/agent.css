@@ -123,6 +123,27 @@
   padding: 0 12px;
 }
 
+.agent-entry-message.agent-tone-assistant.agent-entry-result {
+  padding: 9px 12px 10px;
+  border-left: 3px solid var(--accent);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      color-mix(in srgb, var(--bar) 44%, transparent) 56%,
+      transparent
+    ),
+    color-mix(in srgb, var(--bar) 30%, transparent);
+}
+
+.agent-entry-result .agent-entry-head {
+  margin-bottom: 5px;
+}
+
+.agent-entry-result .agent-entry-label {
+  color: var(--accent);
+}
+
 .agent-entry-message.agent-tone-assistant + .agent-entry-message.agent-tone-assistant {
   margin-top: 4px;
 }
@@ -168,6 +189,33 @@
   background: color-mix(in srgb, var(--warn) 10%, var(--bar));
 }
 
+.agent-entry-edit {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 8px;
+}
+
+.agent-entry-edit .agent-entry-head {
+  margin: 0;
+}
+
+.agent-entry-edit .agent-entry-main {
+  display: contents;
+}
+
+.agent-entry-edit .agent-entry-summary {
+  display: none;
+}
+
+.agent-entry-edit .agent-entry-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .agent-tone-error .agent-entry-label,
 .agent-step-failed .agent-step-status {
   color: var(--bad);
@@ -184,6 +232,14 @@
 .agent-activity-details {
   margin-top: 4px;
   color: var(--dim);
+}
+
+.agent-entry-failure {
+  margin: 4px 0 0;
+  color: color-mix(in srgb, var(--bad) 78%, var(--fg));
+  font: inherit;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
 }
 
 .agent-activity-details summary {
@@ -312,6 +368,10 @@
   align-items: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.agent-entry-edit .agent-approval-actions {
+  justify-self: end;
 }
 
 .agent-entry-message.agent-tone-assistant .agent-entry-text + .agent-approval-actions {

@@ -117,6 +117,22 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]?.summary).toBe("command failed: git diff --check");
   });
 
+  it("keeps failed command output with the failed activity", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git diff --check",
+        text: "src/App.cs: trailing whitespace",
+        status: "failed",
+      },
+    ]);
+
+    expect(transcript[0]?.details[0]?.detailText).toBe("src/App.cs: trailing whitespace");
+  });
+
   it("shows only the latest running step in the activity summary", () => {
     const transcript = toAgentTranscript([
       {

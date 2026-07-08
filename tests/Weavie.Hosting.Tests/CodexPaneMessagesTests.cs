@@ -79,13 +79,16 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
-	public void FromNotification_DropsTurnAndStatusLifecycleNoise() {
+	public void FromNotification_MapsTurnLifecycleAsHiddenPaneState() {
 		using var turn = JsonDocument.Parse(
 			"""{"method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"completed"}}}""");
+		using var interrupted = JsonDocument.Parse(
+			"""{"method":"turn/interrupted","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"interrupted"}}}""");
 		using var status = JsonDocument.Parse(
 			"""{"method":"thread/status/changed","params":{"threadId":"thread_1","status":""}}""");
 
-		Assert.Null(CodexPaneMessages.FromNotification("turn/completed", "thread_1", turn.RootElement));
+		Assert.Equal("turn-completed", CodexPaneMessages.FromNotification("turn/completed", "thread_1", turn.RootElement)?.Type);
+		Assert.Equal("turn-interrupted", CodexPaneMessages.FromNotification("turn/interrupted", "thread_1", interrupted.RootElement)?.Type);
 		Assert.Null(CodexPaneMessages.FromNotification("thread/status/changed", "thread_1", status.RootElement));
 	}
 
@@ -98,6 +101,17 @@ public sealed class CodexPaneMessagesTests {
 
 		Assert.NotNull(message);
 		Assert.Equal("git status --short --branch", message.Summary);
+	}
+
+	[Fact]
+	public void FromNotification_MapsCommandOutputIntoText() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"item/completed","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"item_1","type":"commandExecution","status":"failed","command":"git diff --check","aggregatedOutput":"src/App.cs: trailing whitespace","exitCode":1}}}""");
+
+		var message = CodexPaneMessages.FromNotification("item/completed", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("src/App.cs: trailing whitespace", message.Text);
 	}
 
 	[Fact]

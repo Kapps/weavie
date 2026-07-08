@@ -33,6 +33,7 @@ export function AgentPane(props: {
     () => props.slot !== null && (draft().trim().length > 0 || pendingImages() > 0),
   );
   const transcript = createMemo(() => toAgentTranscript(props.messages));
+  const canInterrupt = createMemo(() => props.slot !== null && hasActiveTurn(props.messages));
 
   const isNearBottom = (): boolean => {
     if (bodyRef === undefined) {
@@ -117,7 +118,13 @@ export function AgentPane(props: {
           }
         >
           <For each={transcript()}>
-            {(entry) => <TranscriptEntry entry={entry} slot={props.slot} />}
+            {(entry, index) => (
+              <TranscriptEntry
+                entry={entry}
+                result={isResultEntry(transcript(), index())}
+                slot={props.slot}
+              />
+            )}
           </For>
         </Show>
       </div>
@@ -141,17 +148,22 @@ export function AgentPane(props: {
             }
           }}
           onKeyDown={(event) => {
-            if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) {
+            if (event.key === "Enter" && !event.shiftKey && !event.isComposing) {
               event.preventDefault();
               submit();
             }
           }}
         />
         <div class="agent-compose-actions">
-          <button type="button" title="Interrupt" onClick={interrupt}>
+          <button
+            type="button"
+            title="Interrupt active Codex turn"
+            disabled={!canInterrupt()}
+            onClick={interrupt}
+          >
             Interrupt
           </button>
-          <button type="submit" title="Run prompt (Ctrl+Enter)" disabled={!canSubmit()}>
+          <button type="submit" title="Run prompt (Enter)" disabled={!canSubmit()}>
             Run
           </button>
         </div>
@@ -160,12 +172,23 @@ export function AgentPane(props: {
   );
 }
 
-function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | null }): JSX.Element {
+function TranscriptEntry(props: {
+  entry: AgentTranscriptEntry;
+  result: boolean;
+  slot: string | null;
+}): JSX.Element {
+  const failure = createMemo(() => failureDetail(props.entry));
   return (
-    <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}>
-      <Show when={showEntryHeader(props.entry)}>
+    <article
+      class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
+      classList={{
+        "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
+        "agent-entry-result": props.result,
+      }}
+    >
+      <Show when={props.result || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">{entryLabel(props.entry)}</span>
+          <span class="agent-entry-label">{props.result ? "Result" : entryLabel(props.entry)}</span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
@@ -178,6 +201,7 @@ function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | nu
         <Show when={props.entry.text !== null}>
           <pre class="agent-entry-text">{props.entry.text}</pre>
         </Show>
+        <Show when={failure()}>{(text) => <pre class="agent-entry-failure">{text()}</pre>}</Show>
         <Show when={props.entry.details.length > 0}>
           <ActivityDetails steps={props.entry.details} />
         </Show>
@@ -185,6 +209,50 @@ function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | nu
       </div>
     </article>
   );
+}
+
+function isResultEntry(entries: AgentTranscriptEntry[], index: number): boolean {
+  const entry = entries[index];
+  if (entry === undefined || entry.kind !== "message" || entry.tone !== "assistant") {
+    return false;
+  }
+
+  for (let i = index + 1; i < entries.length; i += 1) {
+    const next = entries[i];
+    if (next?.kind !== "message") {
+      continue;
+    }
+    return next.tone === "user";
+  }
+
+  return true;
+}
+
+function hasActiveTurn(messages: AgentPaneUpdate[]): boolean {
+  let active = false;
+  for (const message of messages) {
+    if (message.type === "turn-started") {
+      active = true;
+    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+      active = false;
+    }
+  }
+  return active;
+}
+
+function failureDetail(entry: AgentTranscriptEntry): string | null {
+  if (entry.kind !== "activity") {
+    return null;
+  }
+
+  for (let i = entry.details.length - 1; i >= 0; i -= 1) {
+    const step = entry.details[i];
+    if (step !== undefined && step.tone === "failed" && step.detailText !== null) {
+      return step.detailText;
+    }
+  }
+
+  return null;
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {

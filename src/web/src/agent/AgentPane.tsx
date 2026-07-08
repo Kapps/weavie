@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, For, type JSX, Show } from "sol
 import { type AgentPaneUpdate, postToHost } from "../bridge";
 import { sendPastedImagesFromClipboard } from "../terminal/paste-image";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
+import { toVisibleAgentMessages } from "./AgentPaneMessages";
 
 export function AgentPane(props: {
   slot: string | null;
@@ -27,9 +28,7 @@ export function AgentPane(props: {
   const canSubmit = createMemo(
     () => props.slot !== null && (draft().trim().length > 0 || pendingImages() > 0),
   );
-  const visibleMessages = createMemo(() =>
-    props.messages.filter((message) => message.type !== "draft"),
-  );
+  const visibleMessages = createMemo(() => toVisibleAgentMessages(props.messages));
 
   createEffect(() => {
     const messages = props.messages;
@@ -78,21 +77,25 @@ export function AgentPane(props: {
           {(message) => (
             <article class={`agent-card agent-card-${message.type}`}>
               <header class="agent-card-head">
-                <span>{message.itemType ?? message.type}</span>
-                <Show when={message.status !== null && message.status !== undefined}>
-                  <small>{message.status}</small>
+                <span>{message.displayType}</span>
+                <Show when={message.displayStatus !== null}>
+                  <small>{message.displayStatus}</small>
                 </Show>
               </header>
-              <Show when={message.summary !== null && message.summary !== undefined}>
-                <div class="agent-card-summary">{message.summary}</div>
+              <Show when={message.displaySummary !== null}>
+                <div class="agent-card-summary">{message.displaySummary}</div>
               </Show>
-              <Show when={message.text !== null && message.text !== undefined}>
-                <pre class="agent-card-text">{message.text}</pre>
+              <Show when={message.displayText !== null}>
+                <pre class="agent-card-text">{message.displayText}</pre>
               </Show>
-              <Show when={message.type === "approval-requested"}>
+              <Show
+                when={message.type === "approval-requested" && message.displayStatus === "pending"}
+              >
                 <ApprovalActions slot={props.slot} requestId={message.itemId} />
               </Show>
-              <Show when={message.type === "input-requested"}>
+              <Show
+                when={message.type === "input-requested" && message.displayStatus === "pending"}
+              >
                 <InputRequestActions slot={props.slot} message={message} />
               </Show>
               <Show when={message.type === "edit-location"}>

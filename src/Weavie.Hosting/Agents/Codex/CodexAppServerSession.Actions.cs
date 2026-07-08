@@ -134,7 +134,6 @@ public sealed partial class CodexAppServerSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(decision);
 		if (!_pendingRequests.TryGetValue(requestId, out var request)) {
-			EmitError($"Codex approval request {requestId} is not pending.");
 			return;
 		}
 
@@ -165,7 +164,6 @@ public sealed partial class CodexAppServerSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentNullException.ThrowIfNull(answers);
 		if (!_pendingRequests.TryGetValue(requestId, out var request)) {
-			EmitError($"Codex input request {requestId} is not pending.");
 			return;
 		}
 

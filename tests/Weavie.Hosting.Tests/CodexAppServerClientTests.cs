@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 using Weavie.Hosting.Agents.Codex;
 using Xunit;
@@ -37,6 +38,9 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		Assert.True(info.RedirectStandardInput);
 		Assert.True(info.RedirectStandardOutput);
 		Assert.True(info.RedirectStandardError);
+		AssertUtf8WithoutBom(info.StandardInputEncoding);
+		AssertUtf8WithoutBom(info.StandardOutputEncoding);
+		AssertUtf8WithoutBom(info.StandardErrorEncoding);
 		Assert.Equal("app-server", info.ArgumentList[1]);
 		Assert.Equal("--stdio", info.ArgumentList[^1]);
 		Assert.Equal("pipe", info.Environment["WEAVIE_HOOK_PIPE"]);
@@ -231,6 +235,12 @@ public sealed class CodexAppServerClientTests : IDisposable {
 
 	private CodexAppServerClient EmptyClient(Action<string> log) =>
 		new("node", _dir, [], [], [], new Dictionary<string, string>(StringComparer.Ordinal), log);
+
+	private static void AssertUtf8WithoutBom(Encoding? encoding) {
+		Assert.NotNull(encoding);
+		Assert.Equal(Encoding.UTF8.WebName, encoding.WebName);
+		Assert.Empty(encoding.GetPreamble());
+	}
 
 	private const string FakeServerScript = """
 const fs = require("fs");

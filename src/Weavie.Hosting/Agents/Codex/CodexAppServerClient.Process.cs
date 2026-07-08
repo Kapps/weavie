@@ -1,10 +1,13 @@
 using System.Diagnostics;
+using System.Text;
 using System.Text.Json;
 
 namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Supervises <c>codex app-server --stdio</c> process launch and stdio pumps.</summary>
 public sealed partial class CodexAppServerClient {
+	private static readonly Encoding StdioEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
+
 	private void StartProcess(int attempt) {
 		var process = new Process {
 			StartInfo = StartInfo(
@@ -71,11 +74,14 @@ public sealed partial class CodexAppServerClient {
 		ArgumentNullException.ThrowIfNull(configArguments);
 		ArgumentNullException.ThrowIfNull(appServerArguments);
 		ArgumentNullException.ThrowIfNull(environment);
-		var info = new ProcessStartInfo(command) {
+		ProcessStartInfo info = new(command) {
 			WorkingDirectory = workingDirectory,
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
+			StandardInputEncoding = StdioEncoding,
+			StandardOutputEncoding = StdioEncoding,
+			StandardErrorEncoding = StdioEncoding,
 			UseShellExecute = false,
 			CreateNoWindow = true,
 			WindowStyle = ProcessWindowStyle.Hidden,

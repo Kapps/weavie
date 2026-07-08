@@ -6,17 +6,13 @@ namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Maps Codex app-server protocol objects into provider-neutral pane updates.</summary>
 internal static class CodexPaneMessages {
-	public static AgentPaneMessage? FromNotification(string method, string? threadId, JsonElement root) =>
+	public static AgentPaneMessage? FromNotification(string method, string? _, JsonElement root) =>
 		method switch {
-			"turn/started" => FromTurn("turn-started", threadId, root),
-			"turn/completed" => FromTurn("turn-completed", threadId, root),
-			"turn/interrupted" => FromTurn("turn-interrupted", threadId, root),
 			"item/started" => FromStartedItem(root),
 			"item/completed" => FromCompletedItem(root),
 			"item/fileChange/patchUpdated" => FromPatch(root),
 			"turn/diff/updated" => FromDiff(root),
 			"serverRequest/resolved" => FromResolved(root),
-			"thread/status/changed" => FromStatus(root),
 			"mcpServer/startupStatus/updated" => FromMcpStartupStatus(root),
 			_ => null,
 		};
@@ -52,18 +48,6 @@ internal static class CodexPaneMessages {
 		return string.Join(" ", questions.EnumerateArray()
 			.Select(question => question.GetStringOrEmpty("question"))
 			.Where(question => question.Length > 0));
-	}
-
-	private static AgentPaneMessage FromTurn(string type, string? threadId, JsonElement root) {
-		var turn = root.GetProperty("params").GetProperty("turn");
-		return new AgentPaneMessage {
-			Type = type,
-			ProviderId = "codex",
-			ThreadId = threadId,
-			TurnId = turn.GetStringOrEmpty("id"),
-			Status = turn.GetStringOrEmpty("status"),
-			PayloadJson = root.GetRawText(),
-		};
 	}
 
 	private static AgentPaneMessage? FromStartedItem(JsonElement root) {
@@ -125,19 +109,8 @@ internal static class CodexPaneMessages {
 			Type = "approval-resolved",
 			ProviderId = "codex",
 			ThreadId = parameters.GetStringOrEmpty("threadId"),
-			ItemId = parameters.TryGetProperty("requestId", out var id) ? id.GetRawText() : null,
+			ItemId = parameters.TryGetProperty("requestId", out var id) ? RequestId(id) : null,
 			Status = "resolved",
-			PayloadJson = root.GetRawText(),
-		};
-	}
-
-	private static AgentPaneMessage FromStatus(JsonElement root) {
-		var parameters = root.GetProperty("params");
-		return new AgentPaneMessage {
-			Type = "status",
-			ProviderId = "codex",
-			ThreadId = parameters.GetStringOrEmpty("threadId"),
-			Status = parameters.GetStringOrEmpty("status"),
 			PayloadJson = root.GetRawText(),
 		};
 	}
@@ -177,11 +150,11 @@ internal static class CodexPaneMessages {
 
 	private static string? SummarizeItem(string itemType, JsonElement item) =>
 		itemType switch {
-			"commandExecution" => item.GetStringOrEmpty("command"),
+			"commandExecution" => SummarizeCommand(item.GetStringOrEmpty("command")),
 			"fileChange" => SummarizeFileChange(item),
 			"mcpToolCall" => $"{item.GetStringOrEmpty("server")}.{item.GetStringOrEmpty("tool")}",
 			"webSearch" => item.GetStringOrEmpty("query"),
-			"agentMessage" => item.GetStringOrEmpty("text"),
+			"agentMessage" => null,
 			_ => itemType,
 		};
 
@@ -192,6 +165,29 @@ internal static class CodexPaneMessages {
 		itemType == "agentMessage" || IsVisibleStartedItem(itemType);
 
 	private static string SummarizeFileChange(JsonElement item) => SummarizeChanges(item);
+
+	private static string? RequestId(JsonElement id) =>
+		id.ValueKind == JsonValueKind.String ? id.GetString() : id.GetRawText();
+
+	private static string? SummarizeCommand(string command) {
+		if (command.Length == 0) {
+			return null;
+		}
+
+		const string marker = " -Command ";
+		int commandStart = command.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
+		return TrimCommand(commandStart >= 0 ? command[(commandStart + marker.Length)..] : command);
+	}
+
+	private static string TrimCommand(string command) {
+		string trimmed = command.Trim();
+		if (trimmed.Length >= 2
+			&& ((trimmed[0] == '\'' && trimmed[^1] == '\'') || (trimmed[0] == '"' && trimmed[^1] == '"'))) {
+			return trimmed[1..^1];
+		}
+
+		return trimmed;
+	}
 
 	private static string SummarizeChanges(JsonElement item) {
 		if (!item.TryGetProperty("changes", out var changes) || changes.ValueKind != JsonValueKind.Array) {

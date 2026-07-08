@@ -79,6 +79,51 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void FromNotification_DropsTurnAndStatusLifecycleNoise() {
+		using var turn = JsonDocument.Parse(
+			"""{"method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"completed"}}}""");
+		using var status = JsonDocument.Parse(
+			"""{"method":"thread/status/changed","params":{"threadId":"thread_1","status":""}}""");
+
+		Assert.Null(CodexPaneMessages.FromNotification("turn/completed", "thread_1", turn.RootElement));
+		Assert.Null(CodexPaneMessages.FromNotification("thread/status/changed", "thread_1", status.RootElement));
+	}
+
+	[Fact]
+	public void FromNotification_SummarizesPowerShellCommand() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"item/completed","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"item_1","type":"commandExecution","status":"completed","command":"\"C:\\WINDOWS\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -Command 'git status --short --branch'"}}}""");
+
+		var message = CodexPaneMessages.FromNotification("item/completed", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("git status --short --branch", message.Summary);
+	}
+
+	[Fact]
+	public void FromNotification_DoesNotDuplicateAgentTextIntoSummary() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"item/completed","params":{"threadId":"thread_1","turnId":"turn_1","item":{"id":"item_1","type":"agentMessage","status":"completed","text":"Hello"}}}""");
+
+		var message = CodexPaneMessages.FromNotification("item/completed", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Null(message.Summary);
+		Assert.Equal("Hello", message.Text);
+	}
+
+	[Fact]
+	public void FromNotification_MapsResolvedRequestIdWithoutJsonQuotes() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"serverRequest/resolved","params":{"threadId":"thread_1","requestId":"approval-1"}}""");
+
+		var message = CodexPaneMessages.FromNotification("serverRequest/resolved", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("approval-1", message.ItemId);
+	}
+
+	[Fact]
 	public void FromNotification_MapsFailedMcpStartupToWarning() {
 		using var doc = JsonDocument.Parse(
 			"""{"method":"mcpServer/startupStatus/updated","params":{"name":"github","status":"failed","error":"No access token was provided"}}""");

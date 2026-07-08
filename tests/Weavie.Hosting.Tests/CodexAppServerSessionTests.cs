@@ -130,6 +130,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "approval-response.json")));
 		Assert.Equal("approval-1", doc.RootElement.GetProperty("id").GetString());
 		Assert.Equal("accept", doc.RootElement.GetProperty("result").GetProperty("decision").GetString());
+
+		int errorCount = messages.Count(message => message.Type == "error");
+		session.ResolveApproval("approval-1", "accept");
+
+		Assert.Equal(errorCount, messages.Count(message => message.Type == "error"));
 	}
 
 	[Fact]

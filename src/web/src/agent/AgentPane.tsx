@@ -2,7 +2,8 @@ import { createEffect, createMemo, createSignal, For, type JSX, Show } from "sol
 import { type AgentPaneUpdate, postToHost } from "../bridge";
 import { sendPastedImagesFromClipboard } from "../terminal/paste-image";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
-import { toVisibleAgentMessages } from "./AgentPaneMessages";
+import { toAgentTranscript } from "./AgentPaneMessages";
+import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 export function AgentPane(props: {
   slot: string | null;
@@ -30,7 +31,7 @@ export function AgentPane(props: {
   const canSubmit = createMemo(
     () => props.slot !== null && (draft().trim().length > 0 || pendingImages() > 0),
   );
-  const visibleMessages = createMemo(() => toVisibleAgentMessages(props.messages));
+  const transcript = createMemo(() => toAgentTranscript(props.messages));
 
   const isNearBottom = (): boolean => {
     if (bodyRef === undefined) {
@@ -61,7 +62,7 @@ export function AgentPane(props: {
   });
 
   createEffect(() => {
-    visibleMessages();
+    transcript();
     if (stickToBottom()) {
       scrollToBottom();
     }
@@ -98,37 +99,16 @@ export function AgentPane(props: {
         <span class="pane-shortcut">{props.shortcut}</span>
       </div>
       <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isNearBottom())}>
-        <For each={visibleMessages()}>
-          {(message) => (
-            <article class={`agent-card agent-card-${message.type}`}>
-              <header class="agent-card-head">
-                <span>{message.displayType}</span>
-                <Show when={message.displayStatus !== null}>
-                  <small>{message.displayStatus}</small>
-                </Show>
-              </header>
-              <Show when={message.displaySummary !== null}>
-                <div class="agent-card-summary">{message.displaySummary}</div>
-              </Show>
-              <Show when={message.displayText !== null}>
-                <pre class="agent-card-text">{message.displayText}</pre>
-              </Show>
-              <Show
-                when={message.type === "approval-requested" && message.displayStatus === "pending"}
-              >
-                <ApprovalActions slot={props.slot} requestId={message.itemId} />
-              </Show>
-              <Show
-                when={message.type === "input-requested" && message.displayStatus === "pending"}
-              >
-                <InputRequestActions slot={props.slot} message={message} />
-              </Show>
-              <Show when={message.type === "edit-location"}>
-                <EditLocationActions target={message.text} />
-              </Show>
-            </article>
-          )}
-        </For>
+        <Show
+          when={transcript().length > 0}
+          fallback={
+            <div class="agent-empty">codex is idle — ask for a plan, a change, or a review.</div>
+          }
+        >
+          <For each={transcript()}>
+            {(entry) => <TranscriptEntry entry={entry} slot={props.slot} />}
+          </For>
+        </Show>
       </div>
       <form
         class="agent-compose"
@@ -165,4 +145,89 @@ export function AgentPane(props: {
       </form>
     </div>
   );
+}
+
+function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | null }): JSX.Element {
+  return (
+    <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}>
+      <div class="agent-entry-mark">{entryMark(props.entry)}</div>
+      <div class="agent-entry-main">
+        <header class="agent-entry-head">
+          <span class="agent-entry-label">{props.entry.label}</span>
+          <Show when={props.entry.status !== null}>
+            <small>{props.entry.status}</small>
+          </Show>
+        </header>
+        <Show when={props.entry.summary !== null}>
+          <div class="agent-entry-summary">{props.entry.summary}</div>
+        </Show>
+        <Show when={props.entry.text !== null}>
+          <pre class="agent-entry-text">{props.entry.text}</pre>
+        </Show>
+        <Show when={props.entry.details.length > 0}>
+          <ActivityDetails steps={props.entry.details} />
+        </Show>
+        <EntryActions entry={props.entry} slot={props.slot} />
+      </div>
+    </article>
+  );
+}
+
+function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null }): JSX.Element {
+  const message = props.entry.actionMessage;
+  if (message === null) {
+    return null;
+  }
+
+  if (message.type === "approval-requested" && props.entry.status === "pending") {
+    return <ApprovalActions slot={props.slot} requestId={message.itemId} />;
+  }
+
+  if (message.type === "input-requested" && props.entry.status === "pending") {
+    return <InputRequestActions slot={props.slot} message={message} />;
+  }
+
+  if (message.type === "edit-location") {
+    return <EditLocationActions target={message.text} />;
+  }
+
+  return null;
+}
+
+function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
+  return (
+    <details class="agent-activity-details">
+      <summary>{props.steps.length === 1 ? "1 step" : `${props.steps.length} steps`}</summary>
+      <div class="agent-activity-list">
+        <For each={props.steps}>
+          {(step) => (
+            <div class={`agent-activity-step agent-step-${step.tone}`}>
+              <span class="agent-step-status">{step.status ?? "done"}</span>
+              <span class="agent-step-label">{step.label}</span>
+              <Show when={step.detailText !== null}>
+                <pre>{step.detailText}</pre>
+              </Show>
+            </div>
+          )}
+        </For>
+      </div>
+    </details>
+  );
+}
+
+function entryMark(entry: AgentTranscriptEntry): string {
+  switch (entry.tone) {
+    case "assistant":
+      return "◆";
+    case "error":
+      return "!";
+    case "pending":
+      return "?";
+    case "user":
+      return "›";
+    case "warning":
+      return "△";
+    default:
+      return "·";
+  }
 }

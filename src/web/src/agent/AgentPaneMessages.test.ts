@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { toVisibleAgentMessages } from "./AgentPaneMessages";
+import { toAgentTranscript } from "./AgentPaneMessages";
 
-describe("toVisibleAgentMessages", () => {
-  it("turns protocol chatter into conversation cards", () => {
+describe("toAgentTranscript", () => {
+  it("projects protocol chatter into a dense working transcript", () => {
     const messages: AgentPaneUpdate[] = [
       { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
       { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "resolved" },
@@ -27,17 +27,19 @@ describe("toVisibleAgentMessages", () => {
       { type: "turn-completed", providerId: "codex", status: "completed" },
     ];
 
-    const visible = toVisibleAgentMessages(messages);
+    const transcript = toAgentTranscript(messages);
 
-    expect(visible.map((message) => [message.displayType, message.displayStatus])).toEqual([
-      ["Codex", null],
+    expect(transcript.map((entry) => [entry.kind, entry.label, entry.status])).toEqual([
+      ["activity", "Working", "completed"],
+      ["message", "Codex", null],
     ]);
-    expect(visible[0]?.displaySummary).toBeNull();
-    expect(visible[0]?.displayText).toBe("You're on branch `test/codex-4`.");
+    expect(transcript[0]?.summary).toBe("cmd git status --short --branch");
+    expect(transcript[0]?.details).toHaveLength(1);
+    expect(transcript[1]?.text).toBe("You're on branch `test/codex-4`.");
   });
 
-  it("resolves approval cards in place", () => {
-    const visible = toVisibleAgentMessages([
+  it("resolves approval rows in place", () => {
+    const transcript = toAgentTranscript([
       {
         type: "approval-requested",
         providerId: "codex",
@@ -48,13 +50,14 @@ describe("toVisibleAgentMessages", () => {
       { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
     ]);
 
-    expect(visible).toHaveLength(1);
-    expect(visible[0]?.displayType).toBe("Permission request");
-    expect(visible[0]?.displayStatus).toBe("accepted");
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.kind).toBe("request");
+    expect(transcript[0]?.label).toBe("Permission");
+    expect(transcript[0]?.status).toBe("accepted");
   });
 
-  it("hides successful completed items after replacing their started card", () => {
-    const visible = toVisibleAgentMessages([
+  it("replaces a started step with the completed state for the same item", () => {
+    const transcript = toAgentTranscript([
       {
         type: "item-started",
         providerId: "codex",
@@ -73,11 +76,22 @@ describe("toVisibleAgentMessages", () => {
       },
     ]);
 
-    expect(visible).toHaveLength(0);
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.summary).toBe("cmd git status");
+    expect(transcript[0]?.status).toBe("completed");
+    expect(transcript[0]?.details).toEqual([
+      {
+        detailText: null,
+        id: "cmd-1",
+        label: "cmd git status",
+        status: "completed",
+        tone: "muted",
+      },
+    ]);
   });
 
-  it("keeps failed completed items", () => {
-    const visible = toVisibleAgentMessages([
+  it("keeps failed work visible as an error-toned activity", () => {
+    const transcript = toAgentTranscript([
       {
         type: "item-started",
         providerId: "codex",
@@ -96,22 +110,29 @@ describe("toVisibleAgentMessages", () => {
       },
     ]);
 
-    expect(visible).toHaveLength(1);
-    expect(visible[0]?.displayStatus).toBe("failed");
-    expect(visible[0]?.displaySummary).toBe("git diff --check");
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.tone).toBe("error");
+    expect(transcript[0]?.status).toBe("failed");
+    expect(transcript[0]?.summary).toBe("cmd git diff --check");
   });
 
-  it("hides turn diffs and file patch protocol cards", () => {
-    const visible = toVisibleAgentMessages([
-      { type: "turn-diff", providerId: "codex", text: "diff --git a/file b/file" },
+  it("compacts patch and diff protocol updates into expandable activity", () => {
+    const transcript = toAgentTranscript([
       {
         type: "file-patch-updated",
         providerId: "codex",
         itemId: "patch-1",
         summary: "src/App.cs",
       },
+      { type: "turn-diff", providerId: "codex", text: "diff --git a/file b/file" },
     ]);
 
-    expect(visible).toHaveLength(0);
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.summary).toBe("patch src/App.cs");
+    expect(transcript[0]?.details.map((step) => [step.label, step.status])).toEqual([
+      ["patch src/App.cs", "updated"],
+      ["diff ready", "ready"],
+    ]);
+    expect(transcript[0]?.details[1]?.detailText).toBe("diff --git a/file b/file");
   });
 });

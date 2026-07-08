@@ -64,6 +64,9 @@ node_modules/
 dist/
 .vite/
 *.tsbuildinfo
+# pnpm-only workspace: reject npm/yarn lockfiles so a stray `npm install` can't commit one.
+package-lock.json
+yarn.lock
 
 # Playwright (e2e) output
 test-results/

@@ -133,6 +133,9 @@ export const test = base.extend<WeavieOptions & WeavieFixtures>({
           await testInfo.attach(name, { path, contentType: "text/plain" });
         }
       }
+      if (!page.isClosed()) {
+        await page.close();
+      }
       await host.stop();
     },
     { auto: true },

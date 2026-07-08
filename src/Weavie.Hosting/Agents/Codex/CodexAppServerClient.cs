@@ -7,8 +7,7 @@ namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Supervises <c>codex app-server --stdio</c> and exchanges JSON-RPC messages over JSONL.</summary>
 public sealed partial class CodexAppServerClient : IAsyncDisposable {
-	private readonly string _command;
-	private readonly string _workingDirectory;
+	private readonly CodexAppServerLaunch _launch;
 	private readonly IReadOnlyList<string> _globalArguments;
 	private readonly IReadOnlyList<string> _configArguments;
 	private readonly IReadOnlyList<string> _appServerArguments;
@@ -27,16 +26,31 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 		IReadOnlyList<string> configArguments,
 		IReadOnlyList<string> appServerArguments,
 		IReadOnlyDictionary<string, string> environment,
+		Action<string> log)
+		: this(
+			CodexAppServerLaunch.Raw(command, workingDirectory),
+			globalArguments,
+			configArguments,
+			appServerArguments,
+			environment,
+			log) {
+	}
+
+	/// <summary>Creates a client for a resolved Codex app-server launch.</summary>
+	internal CodexAppServerClient(
+		CodexAppServerLaunch launch,
+		IReadOnlyList<string> globalArguments,
+		IReadOnlyList<string> configArguments,
+		IReadOnlyList<string> appServerArguments,
+		IReadOnlyDictionary<string, string> environment,
 		Action<string> log) {
-		ArgumentException.ThrowIfNullOrEmpty(command);
-		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		ArgumentNullException.ThrowIfNull(launch);
 		ArgumentNullException.ThrowIfNull(globalArguments);
 		ArgumentNullException.ThrowIfNull(configArguments);
 		ArgumentNullException.ThrowIfNull(appServerArguments);
 		ArgumentNullException.ThrowIfNull(environment);
 		ArgumentNullException.ThrowIfNull(log);
-		_command = command;
-		_workingDirectory = workingDirectory;
+		_launch = launch;
 		_globalArguments = globalArguments;
 		_configArguments = configArguments;
 		_appServerArguments = appServerArguments;

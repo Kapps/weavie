@@ -11,8 +11,7 @@ public sealed partial class CodexAppServerClient {
 	private void StartProcess(int attempt) {
 		var process = new Process {
 			StartInfo = StartInfo(
-				_command,
-				_workingDirectory,
+				_launch,
 				_globalArguments,
 				_configArguments,
 				_appServerArguments,
@@ -62,20 +61,18 @@ public sealed partial class CodexAppServerClient {
 	}
 
 	internal static ProcessStartInfo StartInfo(
-		string command,
-		string workingDirectory,
+		CodexAppServerLaunch launch,
 		IReadOnlyList<string> globalArguments,
 		IReadOnlyList<string> configArguments,
 		IReadOnlyList<string> appServerArguments,
 		IReadOnlyDictionary<string, string> environment) {
-		ArgumentException.ThrowIfNullOrEmpty(command);
-		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		ArgumentNullException.ThrowIfNull(launch);
 		ArgumentNullException.ThrowIfNull(globalArguments);
 		ArgumentNullException.ThrowIfNull(configArguments);
 		ArgumentNullException.ThrowIfNull(appServerArguments);
 		ArgumentNullException.ThrowIfNull(environment);
-		ProcessStartInfo info = new(command) {
-			WorkingDirectory = workingDirectory,
+		ProcessStartInfo info = new(launch.Command) {
+			WorkingDirectory = launch.WorkingDirectory,
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
 			RedirectStandardError = true,
@@ -100,11 +97,42 @@ public sealed partial class CodexAppServerClient {
 		}
 
 		info.ArgumentList.Add("--stdio");
-		foreach (var (name, value) in environment) {
+		foreach (var entry in environment) {
+			string name = entry.Key;
+			string value = entry.Value;
 			info.Environment[name] = value;
 		}
 
+		PrependPath(info, launch.PathEntries);
+
 		return info;
+	}
+
+	private static void PrependPath(ProcessStartInfo info, IReadOnlyList<string> entries) {
+		if (entries.Count == 0) {
+			return;
+		}
+
+		string key = PathKey(info.Environment);
+		string existing = info.Environment.TryGetValue(key, out string? path) && path is not null
+			? path
+			: Environment.GetEnvironmentVariable(key) ?? string.Empty;
+		var parts = entries.Where(entry => entry.Length > 0).ToList();
+		if (existing.Length > 0) {
+			parts.Add(existing);
+		}
+
+		info.Environment[key] = string.Join(Path.PathSeparator, parts);
+	}
+
+	private static string PathKey(IDictionary<string, string?> environment) {
+		foreach (string key in environment.Keys) {
+			if (string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase)) {
+				return key;
+			}
+		}
+
+		return "PATH";
 	}
 
 	private async Task ReadStdoutAsync(Process process) {

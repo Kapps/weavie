@@ -32,7 +32,19 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		_context = context;
 		_threads = threads;
 		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
-		_client = Client(command, _hooks);
+		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace), _hooks);
+		WireClient();
+	}
+
+	/// <summary>Creates a worktree-scoped Codex app-server session from a resolved Codex launch.</summary>
+	internal CodexAppServerSession(AgentSessionContext context, CodexThreadStore threads, CodexAppServerLaunch launch) {
+		ArgumentNullException.ThrowIfNull(context);
+		ArgumentNullException.ThrowIfNull(threads);
+		ArgumentNullException.ThrowIfNull(launch);
+		_context = context;
+		_threads = threads;
+		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
+		_client = Client(launch, _hooks);
 		WireClient();
 	}
 
@@ -48,14 +60,13 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		_context = context;
 		_threads = threads;
 		_hooks = hooks;
-		_client = Client(command, hooks);
+		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace), hooks);
 		WireClient();
 	}
 
-	private CodexAppServerClient Client(string command, ICodexHookIntegration hooks) =>
+	private CodexAppServerClient Client(CodexAppServerLaunch launch, ICodexHookIntegration hooks) =>
 		new(
-			command,
-			_context.Workspace,
+			launch,
 			hooks.GlobalArguments,
 			CodexAppServerConfig.Arguments(_context),
 			hooks.AppServerArguments,
@@ -185,7 +196,13 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private string DeveloperInstructions() => EmbeddedAgentGuidance.Compose(_context.Runtime);
 
 	private void LogClient(string text) {
-		if (CodexStderrMessages.TryFromLine(text, CurrentThreadId(), out var message)) {
+		if (CodexUnavailableMessages.TryLaunchFailure(
+			text,
+			CurrentThreadId(),
+			_context.Settings.GetString("codex.path"),
+			_context.Settings.FilePath,
+			out var message)
+			|| CodexStderrMessages.TryFromLine(text, CurrentThreadId(), out message)) {
 			Emit(message);
 		}
 	}

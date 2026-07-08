@@ -24,14 +24,16 @@ public sealed class CodexAppServerClientTests : IDisposable {
 
 	[Fact]
 	public void StartInfo_HidesAppServerConsoleWindow() {
+		string resources = Path.Combine(_dir, "codex-resources");
+		string pathDir = Path.Combine(_dir, "codex-path");
 		var info = CodexAppServerClient.StartInfo(
-			"codex",
-			_dir,
+			new CodexAppServerLaunch("codex", _dir, [resources, pathDir]),
 			["--dangerously-bypass-hook-trust"],
 			["-c", "mcp_servers.weavie.enabled=true"],
 			["-c", "hooks.PreToolUse=[]"],
 			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_HOOK_PIPE"] = "pipe" });
 
+		Assert.Equal(_dir, info.WorkingDirectory);
 		Assert.False(info.UseShellExecute);
 		Assert.True(info.CreateNoWindow);
 		Assert.Equal(ProcessWindowStyle.Hidden, info.WindowStyle);
@@ -44,6 +46,11 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		Assert.Equal("app-server", info.ArgumentList[1]);
 		Assert.Equal("--stdio", info.ArgumentList[^1]);
 		Assert.Equal("pipe", info.Environment["WEAVIE_HOOK_PIPE"]);
+		string pathKey = Assert.Single(info.Environment.Keys, key => string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase));
+		Assert.StartsWith(
+			resources + Path.PathSeparator + pathDir + Path.PathSeparator,
+			info.Environment[pathKey],
+			StringComparison.Ordinal);
 	}
 
 	[Fact]

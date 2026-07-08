@@ -20,7 +20,9 @@ public sealed class CodexAgentProviderTests {
 		Directory.CreateDirectory(dir);
 		InMemoryFileSystem fileSystem = new();
 		using var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
-		using var path = JsonDocument.Parse("\"codex.exe\"");
+		string codex = Path.Combine(dir, OperatingSystem.IsWindows() ? "codex.exe" : "codex");
+		File.WriteAllText(codex, string.Empty);
+		using var path = JsonDocument.Parse(JsonSerializer.Serialize(codex));
 		settings.Set("codex.path", path.RootElement);
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var registry = new CapabilityRegistryHost(
@@ -59,7 +61,10 @@ public sealed class CodexAgentProviderTests {
 		var error = Assert.Single(messages);
 		Assert.Equal("error", error.Type);
 		Assert.Equal("codex", error.ProviderId);
-		Assert.Equal("relay missing", error.Text);
+		Assert.Contains("Native Codex could not start.", error.Text, StringComparison.Ordinal);
+		Assert.Contains("relay missing", error.Text, StringComparison.Ordinal);
+		Assert.Contains("codex.path", error.Text, StringComparison.Ordinal);
+		Assert.Contains(settings.FilePath, error.Text, StringComparison.Ordinal);
 	}
 
 	private sealed class NullAgentEventSink : IAgentEventSink {

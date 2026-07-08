@@ -6,7 +6,7 @@ namespace Weavie.Hosting.Agents.Codex;
 /// <summary>Native Codex provider identity and app-server session factory.</summary>
 public sealed class CodexAgentProvider : IAgentProvider {
 	private readonly CodexThreadStore _threads;
-	private readonly Func<AgentSessionContext, CodexThreadStore, string, IAgentSession> _createSession;
+	private readonly Func<AgentSessionContext, CodexThreadStore, CodexAppServerLaunch, IAgentSession> _createSession;
 
 	/// <summary>Creates the native Codex provider over the app-global thread store.</summary>
 	public CodexAgentProvider(CodexThreadStore threads)
@@ -15,7 +15,7 @@ public sealed class CodexAgentProvider : IAgentProvider {
 
 	internal CodexAgentProvider(
 		CodexThreadStore threads,
-		Func<AgentSessionContext, CodexThreadStore, string, IAgentSession> createSession) {
+		Func<AgentSessionContext, CodexThreadStore, CodexAppServerLaunch, IAgentSession> createSession) {
 		ArgumentNullException.ThrowIfNull(threads);
 		ArgumentNullException.ThrowIfNull(createSession);
 		_threads = threads;
@@ -40,17 +40,20 @@ public sealed class CodexAgentProvider : IAgentProvider {
 		if (string.IsNullOrWhiteSpace(command)) {
 			return new UnavailableStructuredAgentSession(
 				"codex",
-				"Native Codex requires codex.path to point to codex.exe.",
+				CodexUnavailableMessages.SettingsFix(
+					"Native Codex could not find an auto-detected Codex install.",
+					context.Settings.FilePath),
 				context.Registry);
 		}
 
 		try {
-			return _createSession(context, _threads, command);
+			var launch = CodexInstallResolver.Resolve(command, context.Workspace);
+			return _createSession(context, _threads, launch);
 		} catch (InvalidOperationException ex) {
-			return new UnavailableStructuredAgentSession("codex", ex.Message, context.Registry);
+			return new UnavailableStructuredAgentSession("codex", CodexUnavailableMessages.SettingsFix(ex.Message, context.Settings.FilePath), context.Registry);
 		}
 	}
 
-	private static IAgentSession CreateCodexSession(AgentSessionContext context, CodexThreadStore threads, string command) =>
-		new CodexAppServerSession(context, threads, command);
+	private static IAgentSession CreateCodexSession(AgentSessionContext context, CodexThreadStore threads, CodexAppServerLaunch launch) =>
+		new CodexAppServerSession(context, threads, launch);
 }

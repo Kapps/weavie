@@ -119,7 +119,9 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = "codex.path",
 			Kind = SettingKind.Path,
-			Description = "Path to the codex binary used for native Codex app-server sessions. Auto-detected when unset.",
+			Description = "Path to the codex binary used for native Codex app-server sessions. Auto-detected when "
+				+ "unset; set this when the Codex found on PATH cannot launch app-server correctly. Takes effect "
+				+ "on the next Codex session.",
 			Aliases = ["codex", "codex binary", "codex path"],
 			Apply = ApplyMode.NextSession,
 			ComputeDefault = DefaultCodexPath,
@@ -263,6 +265,13 @@ public static class CoreSettings {
 	/// <summary>The auto-detected Codex binary; Windows avoids the packaged alias because child processes cannot reliably execute it.</summary>
 	private static object? DefaultCodexPath() {
 		if (OperatingSystem.IsWindows()) {
+			string standalone = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+				".codex", "packages", "standalone", "current", "bin", "codex.exe");
+			if (File.Exists(standalone)) {
+				return standalone;
+			}
+
 			string localApp = Path.Combine(
 				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
 				"Programs", "OpenAI", "Codex", "bin", "codex.exe");

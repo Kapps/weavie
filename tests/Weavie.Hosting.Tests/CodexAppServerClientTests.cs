@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Text.Json;
 using Weavie.Hosting.Agents.Codex;
 using Xunit;
@@ -18,6 +19,27 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		} catch (IOException) {
 		} catch (UnauthorizedAccessException) {
 		}
+	}
+
+	[Fact]
+	public void StartInfo_HidesAppServerConsoleWindow() {
+		var info = CodexAppServerClient.StartInfo(
+			"codex",
+			_dir,
+			["--dangerously-bypass-hook-trust"],
+			["-c", "mcp_servers.weavie.enabled=true"],
+			["-c", "hooks.PreToolUse=[]"],
+			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_HOOK_PIPE"] = "pipe" });
+
+		Assert.False(info.UseShellExecute);
+		Assert.True(info.CreateNoWindow);
+		Assert.Equal(ProcessWindowStyle.Hidden, info.WindowStyle);
+		Assert.True(info.RedirectStandardInput);
+		Assert.True(info.RedirectStandardOutput);
+		Assert.True(info.RedirectStandardError);
+		Assert.Equal("app-server", info.ArgumentList[1]);
+		Assert.Equal("--stdio", info.ArgumentList[^1]);
+		Assert.Equal("pipe", info.Environment["WEAVIE_HOOK_PIPE"]);
 	}
 
 	[Fact]

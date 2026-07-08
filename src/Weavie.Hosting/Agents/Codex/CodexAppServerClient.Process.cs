@@ -7,32 +7,15 @@ namespace Weavie.Hosting.Agents.Codex;
 public sealed partial class CodexAppServerClient {
 	private void StartProcess(int attempt) {
 		var process = new Process {
-			StartInfo = new ProcessStartInfo(_command) {
-				WorkingDirectory = _workingDirectory,
-				RedirectStandardInput = true,
-				RedirectStandardOutput = true,
-				RedirectStandardError = true,
-				UseShellExecute = false,
-			},
+			StartInfo = StartInfo(
+				_command,
+				_workingDirectory,
+				_globalArguments,
+				_configArguments,
+				_appServerArguments,
+				_environment),
 			EnableRaisingEvents = true,
 		};
-		foreach (string argument in _globalArguments) {
-			process.StartInfo.ArgumentList.Add(argument);
-		}
-
-		process.StartInfo.ArgumentList.Add("app-server");
-		foreach (string argument in _configArguments) {
-			process.StartInfo.ArgumentList.Add(argument);
-		}
-
-		foreach (string argument in _appServerArguments) {
-			process.StartInfo.ArgumentList.Add(argument);
-		}
-
-		process.StartInfo.ArgumentList.Add("--stdio");
-		foreach (var (name, value) in _environment) {
-			process.StartInfo.Environment[name] = value;
-		}
 
 		process.Exited += (_, _) => {
 			int exitCode = ReadExitCode(process);
@@ -73,6 +56,49 @@ public sealed partial class CodexAppServerClient {
 		} finally {
 			process.Dispose();
 		}
+	}
+
+	internal static ProcessStartInfo StartInfo(
+		string command,
+		string workingDirectory,
+		IReadOnlyList<string> globalArguments,
+		IReadOnlyList<string> configArguments,
+		IReadOnlyList<string> appServerArguments,
+		IReadOnlyDictionary<string, string> environment) {
+		ArgumentException.ThrowIfNullOrEmpty(command);
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		ArgumentNullException.ThrowIfNull(globalArguments);
+		ArgumentNullException.ThrowIfNull(configArguments);
+		ArgumentNullException.ThrowIfNull(appServerArguments);
+		ArgumentNullException.ThrowIfNull(environment);
+		var info = new ProcessStartInfo(command) {
+			WorkingDirectory = workingDirectory,
+			RedirectStandardInput = true,
+			RedirectStandardOutput = true,
+			RedirectStandardError = true,
+			UseShellExecute = false,
+			CreateNoWindow = true,
+			WindowStyle = ProcessWindowStyle.Hidden,
+		};
+		foreach (string argument in globalArguments) {
+			info.ArgumentList.Add(argument);
+		}
+
+		info.ArgumentList.Add("app-server");
+		foreach (string argument in configArguments) {
+			info.ArgumentList.Add(argument);
+		}
+
+		foreach (string argument in appServerArguments) {
+			info.ArgumentList.Add(argument);
+		}
+
+		info.ArgumentList.Add("--stdio");
+		foreach (var (name, value) in environment) {
+			info.Environment[name] = value;
+		}
+
+		return info;
 	}
 
 	private async Task ReadStdoutAsync(Process process) {

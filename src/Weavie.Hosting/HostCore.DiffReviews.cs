@@ -34,20 +34,20 @@ public sealed partial class HostCore {
 		IReadOnlyList<DiffFileChange> changes;
 		try {
 			if (await git.ResolveCommitAsync(worktree, reference, CancellationToken.None).ConfigureAwait(false) is not { } target) {
-				Notify("error", $"'{reference}' isn't a branch, tag, or commit here.");
+				Notify("warn", $"'{reference}' isn't a branch, tag, or commit here.");
 				return;
 			}
 
 			string head = await git.GetHeadCommitAsync(worktree, CancellationToken.None).ConfigureAwait(false);
 			if (await git.MergeBaseAsync(worktree, target, head, CancellationToken.None).ConfigureAwait(false) is not { } mergeBase) {
-				Notify("error", $"'{reference}' shares no history with HEAD — there's no base to diff from.");
+				Notify("warn", $"'{reference}' shares no history with HEAD — there's no base to diff from.");
 				return;
 			}
 
 			review = new DiffReview(0, $"vs {reference}", string.Empty, mergeBase, head, null, worktree);
 			changes = await ComputeReviewChangesAsync(review).ConfigureAwait(false);
 		} catch (GitException ex) {
-			Notify("error", $"Couldn't diff against '{reference}': {ex.Message}");
+			Notify("warn", $"Couldn't diff against '{reference}': {ex.Message}");
 			return;
 		}
 

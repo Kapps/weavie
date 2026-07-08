@@ -113,7 +113,7 @@ export function AgentPane(props: {
         <Show
           when={transcript().length > 0}
           fallback={
-            <div class="agent-empty">codex is idle - ask for a plan, a change, or a review.</div>
+            <div class="agent-empty">Codex is idle. Write a prompt to plan, change, or review.</div>
           }
         >
           <For each={transcript()}>
@@ -128,11 +128,11 @@ export function AgentPane(props: {
           submit();
         }}
       >
-        <span class="agent-compose-prompt">codex&gt;</span>
+        <span class="agent-compose-prompt">prompt&gt;</span>
         <textarea
           rows={1}
           value={draft()}
-          placeholder="Ask Codex..."
+          placeholder="Write a prompt for Codex..."
           onInput={(event) => setDraft(event.currentTarget.value)}
           onPaste={(event) => {
             const slot = props.slot;
@@ -151,8 +151,8 @@ export function AgentPane(props: {
           <button type="button" title="Interrupt" onClick={interrupt}>
             Interrupt
           </button>
-          <button type="submit" title="Send (Ctrl+Enter)" disabled={!canSubmit()}>
-            Send
+          <button type="submit" title="Run prompt (Ctrl+Enter)" disabled={!canSubmit()}>
+            Run
           </button>
         </div>
       </form>
@@ -163,14 +163,15 @@ export function AgentPane(props: {
 function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | null }): JSX.Element {
   return (
     <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}>
-      <div class="agent-entry-mark">{entryMark(props.entry)}</div>
-      <div class="agent-entry-meta" title={entryTitle(props.entry)}>
-        <span class="agent-entry-label">{entryLabel(props.entry)}</span>
-      </div>
+      <Show when={showEntryHeader(props.entry)}>
+        <div class="agent-entry-head" title={entryTitle(props.entry)}>
+          <span class="agent-entry-label">{entryLabel(props.entry)}</span>
+          <Show when={props.entry.status !== null}>
+            <small class="agent-entry-status">{props.entry.status}</small>
+          </Show>
+        </div>
+      </Show>
       <div class="agent-entry-main">
-        <Show when={props.entry.status !== null && props.entry.kind !== "activity"}>
-          <small class="agent-entry-status">{props.entry.status}</small>
-        </Show>
         <Show when={props.entry.summary !== null}>
           <div class="agent-entry-summary">{props.entry.summary}</div>
         </Show>
@@ -184,6 +185,10 @@ function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | nu
       </div>
     </article>
   );
+}
+
+function showEntryHeader(entry: AgentTranscriptEntry): boolean {
+  return entry.kind !== "message" || entry.tone !== "assistant";
 }
 
 function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null }): JSX.Element {
@@ -228,37 +233,22 @@ function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
   );
 }
 
-function entryMark(entry: AgentTranscriptEntry): string {
-  switch (entry.tone) {
-    case "assistant":
-      return "<";
-    case "error":
-      return "!";
-    case "pending":
-      return "?";
-    case "user":
-      return ">";
-    case "warning":
-      return "^";
-    case "activity":
-      return "~";
-    default:
-      return ".";
-  }
-}
-
 function entryLabel(entry: AgentTranscriptEntry): string {
+  if (entry.kind === "message" && entry.tone === "user") {
+    return "Prompt";
+  }
+
   switch (entry.label) {
     case "Interrupted":
-      return "intr";
+      return "Interrupted";
     case "Permission":
-      return "perm";
+      return "Permission";
     case "Warning":
-      return "warn";
+      return "Warning";
     case "Working":
-      return "work";
+      return "Working";
     default:
-      return entry.label.toLowerCase();
+      return entry.label;
   }
 }
 

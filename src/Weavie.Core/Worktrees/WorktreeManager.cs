@@ -47,9 +47,17 @@ public sealed class WorktreeManager {
 	/// Creates a worktree on a new branch <paramref name="branch"/> started from <paramref name="baseRef"/>,
 	/// records it, and returns the record. Throws when <paramref name="branch"/> already exists.
 	/// </summary>
-	public async Task<WorktreeRecord> CreateAsync(string branch, string baseRef, CancellationToken ct = default) {
+	public Task<WorktreeRecord> CreateAsync(string branch, string baseRef, CancellationToken ct = default) =>
+		CreateAsync(branch, baseRef, "claude", ct);
+
+	/// <summary>
+	/// Creates a provider-bound worktree on a new branch <paramref name="branch"/> started from
+	/// <paramref name="baseRef"/>, records it, and returns the record.
+	/// </summary>
+	public async Task<WorktreeRecord> CreateAsync(string branch, string baseRef, string agentProviderId, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(branch);
 		ArgumentException.ThrowIfNullOrEmpty(baseRef);
+		ArgumentException.ThrowIfNullOrEmpty(agentProviderId);
 		if (await _git.BranchExistsAsync(_repositoryRoot, branch, ct).ConfigureAwait(false)) {
 			throw new InvalidOperationException($"Branch '{branch}' already exists; pick a new branch name or open the existing session.");
 		}
@@ -61,6 +69,7 @@ public sealed class WorktreeManager {
 			Path = Normalize(path),
 			BaseRef = baseRef,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
+			AgentProviderId = agentProviderId,
 		};
 		Registry.Add(record);
 		return record;
@@ -71,8 +80,16 @@ public sealed class WorktreeManager {
 	/// Returns the existing record if Weavie already tracks this branch, so callers don't duplicate it. Throws
 	/// when the branch doesn't exist.
 	/// </summary>
-	public async Task<WorktreeRecord> AttachAsync(string branch, CancellationToken ct = default) {
+	public Task<WorktreeRecord> AttachAsync(string branch, CancellationToken ct = default) =>
+		AttachAsync(branch, "claude", ct);
+
+	/// <summary>
+	/// Creates a provider-bound worktree on the existing branch <paramref name="branch"/>, records it, and returns
+	/// the record. Existing tracked records keep their original provider.
+	/// </summary>
+	public async Task<WorktreeRecord> AttachAsync(string branch, string agentProviderId, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(branch);
+		ArgumentException.ThrowIfNullOrEmpty(agentProviderId);
 		if (Registry.FindByBranch(branch) is { } existing) {
 			return existing;
 		}
@@ -89,6 +106,7 @@ public sealed class WorktreeManager {
 			// No distinct base; record the branch itself. Persisted bookkeeping only, nothing branches on it.
 			BaseRef = branch,
 			CreatedAtUtc = DateTimeOffset.UtcNow,
+			AgentProviderId = agentProviderId,
 		};
 		Registry.Add(record);
 		return record;
@@ -126,6 +144,7 @@ public sealed class WorktreeManager {
 				Path = worktree.Path,
 				Branch = worktree.Branch,
 				BaseRef = record?.BaseRef,
+				AgentProviderId = record?.AgentProviderId,
 				IsManaged = record is not null,
 				IsPrimary = isPrimary,
 				Exists = true,
@@ -144,6 +163,7 @@ public sealed class WorktreeManager {
 				Path = record.Path,
 				Branch = record.Branch,
 				BaseRef = record.BaseRef,
+				AgentProviderId = record.AgentProviderId,
 				IsManaged = true,
 				IsPrimary = false,
 				Exists = false,

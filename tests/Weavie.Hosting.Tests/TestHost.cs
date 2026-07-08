@@ -118,8 +118,16 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// fresh one up over the same repo — same workspace id, so it re-reads the persisted per-workspace stores. A
 	/// fresh bridge is used because a disposed core does not detach its <c>OnWebMessage</c> handler.
 	/// </summary>
-	public async Task RestartAsync() {
+	public Task RestartAsync() => RestartAsync(static () => {
+	});
+
+	/// <summary>
+	/// Simulates a worker restart and lets tests mutate persisted state after shutdown, before the fresh core starts.
+	/// </summary>
+	public async Task RestartAsync(Action beforeRestart) {
+		ArgumentNullException.ThrowIfNull(beforeRestart);
 		await Core.DisposeAsync().ConfigureAwait(false);
+		beforeRestart();
 		Bridge = new FakeHostBridge();
 		Platform = new TestPlatform(Bridge);
 		Core = new HostCore(Platform, _services, RepoRoot);
@@ -135,6 +143,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), Path.Combine(tempRoot, "claude-sessions.json"));
 		var agentProviders = new AgentProviderRegistry();
 		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
+		agentProviders.Register(new FakeCodexAgentProvider());
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		return new HostServices {

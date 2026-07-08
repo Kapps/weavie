@@ -16,4 +16,7 @@ public sealed record WorktreeRecord {
 
 	/// <summary>When Weavie created the worktree (UTC).</summary>
 	public required DateTimeOffset CreatedAtUtc { get; init; }
+
+	/// <summary>The agent provider this worktree-backed session was created with, or <c>null</c> for legacy records.</summary>
+	public string? AgentProviderId { get; init; }
 }

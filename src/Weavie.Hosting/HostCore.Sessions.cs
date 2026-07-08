@@ -321,6 +321,8 @@ public sealed partial class HostCore {
 
 				string label = status.Branch ?? Path.GetFileName(
 					status.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+				string agentProviderId = ProviderFor(status, label);
+				BackfillWorktreeProvider(status, agentProviderId);
 				if (_sessions.Find(label) is not null) {
 					continue; // already surfaced
 				}
@@ -330,7 +332,7 @@ public sealed partial class HostCore {
 					Label = label,
 					WorktreePath = status.Path,
 					IsPrimary = false,
-					AgentProviderId = PersistedProviderFor(label),
+					AgentProviderId = agentProviderId,
 					Session = null,
 				}, activate: false);
 			}
@@ -342,9 +344,36 @@ public sealed partial class HostCore {
 		}
 	}
 
-	private string PersistedProviderFor(string slotId) =>
-		_sessionStore.Items.FirstOrDefault(item => string.Equals(item.Id.Value, slotId, StringComparison.Ordinal))?.AgentProviderId
+	private string ProviderFor(WorktreeStatus status, string slotId) =>
+		ProviderOrNull(status.AgentProviderId)
+		?? PersistedProviderFor(slotId, status.Path)
 		?? "claude";
+
+	private string? PersistedProviderFor(string slotId, string worktreePath) {
+		string? provider = _sessionStore.Items.FirstOrDefault(item =>
+			string.Equals(item.Id.Value, slotId, StringComparison.Ordinal)
+			|| PathsEqual(item.WorktreePath, worktreePath))?.AgentProviderId;
+		return ProviderOrNull(provider);
+	}
+
+	private void BackfillWorktreeProvider(WorktreeStatus status, string agentProviderId) {
+		if (!status.IsManaged || ProviderOrNull(status.AgentProviderId) is not null) {
+			return;
+		}
+
+		if (_worktrees?.Registry.FindByPath(status.Path) is { } record) {
+			_worktrees.Registry.Add(record with { AgentProviderId = agentProviderId });
+		}
+	}
+
+	private static string? ProviderOrNull(string? provider) =>
+		string.IsNullOrWhiteSpace(provider) ? null : provider.Trim();
+
+	private static bool PathsEqual(string a, string b) =>
+		string.Equals(
+			Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
 	private string ResolveNewSessionProvider(string? requestedProvider) {
 		if (!string.IsNullOrWhiteSpace(requestedProvider)) {
@@ -787,7 +816,7 @@ public sealed partial class HostCore {
 
 		WorktreeRecord record;
 		try {
-			record = await _worktrees.CreateAsync(branch, baseRef, ct).ConfigureAwait(false);
+			record = await _worktrees.CreateAsync(branch, baseRef, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't create the worktree: {ex.Message}");
 		}
@@ -842,9 +871,15 @@ public sealed partial class HostCore {
 		bool freshWorktree = worktrees.Registry.FindByBranch(branch) is null;
 		WorktreeRecord record;
 		try {
-			record = await worktrees.AttachAsync(branch, ct).ConfigureAwait(false);
+			record = await worktrees.AttachAsync(branch, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
+		}
+
+		string slotProviderId = ProviderOrNull(record.AgentProviderId) ?? agentProviderId;
+		if (!freshWorktree && ProviderOrNull(record.AgentProviderId) is null) {
+			record = record with { AgentProviderId = slotProviderId };
+			worktrees.Registry.Add(record);
 		}
 
 		if (freshWorktree) {
@@ -853,7 +888,7 @@ public sealed partial class HostCore {
 
 		// Seed the first prompt only on this fresh-checkout path; switching to an existing session (above) must
 		// never re-seed it. The Open-PR flow uses this to brief Claude on the PR it just checked out.
-		return await BuildAndSwitchSlotAsync(branch, record, prompt, agentProviderId, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
+		return await BuildAndSwitchSlotAsync(branch, record, prompt, slotProviderId, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>

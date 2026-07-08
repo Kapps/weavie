@@ -11,11 +11,14 @@ namespace Weavie.Core.Tests;
 public sealed class WorktreeRegistryTests {
 	private const string RegistryPath = "/weavie-worktree-tests/worktrees.json";
 
-	private static WorktreeRecord Record(string branch, string path) => new() {
+	private static WorktreeRecord Record(string branch, string path) => Record(branch, path, null);
+
+	private static WorktreeRecord Record(string branch, string path, string? agentProviderId) => new() {
 		Branch = branch,
 		Path = path,
 		BaseRef = "main",
 		CreatedAtUtc = DateTimeOffset.UnixEpoch,
+		AgentProviderId = agentProviderId,
 	};
 
 	[Fact]
@@ -30,6 +33,28 @@ public sealed class WorktreeRegistryTests {
 		Assert.Single(reloaded.Items);
 		Assert.Equal("feature", reloaded.Items[0].Branch);
 		Assert.Equal("main", reloaded.Items[0].BaseRef);
+	}
+
+	[Fact]
+	public void Add_PersistsProvider() {
+		var fs = new InMemoryFileSystem();
+		var registry = new WorktreeRegistry(fs, RegistryPath);
+
+		registry.Add(Record("feature", "/wt/feature", "codex"));
+
+		var reloaded = new WorktreeRegistry(fs, RegistryPath);
+		Assert.Equal("codex", Assert.Single(reloaded.Items).AgentProviderId);
+	}
+
+	[Fact]
+	public void Load_MissingProvider_RemainsUnknown() {
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(RegistryPath,
+			"""{"version":1,"worktrees":[{"branch":"feature","path":"/wt/feature","baseRef":"main","createdAt":"1970-01-01T00:00:00+00:00"}]}""");
+
+		var registry = new WorktreeRegistry(fs, RegistryPath);
+
+		Assert.Null(Assert.Single(registry.Items).AgentProviderId);
 	}
 
 	[Fact]

@@ -72,10 +72,10 @@ internal sealed class TestHost : IAsyncDisposable {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
-		RunGit(repo, "init", "-b", "main");
+		RunGit(repo, "init", "--quiet", "-b", "main");
 		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
 		RunGit(repo, "add", "-A");
-		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "initial");
+		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial");
 		prepareRepo(repo);
 
 		EnsureRelayBinary();
@@ -174,7 +174,10 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	internal static void RunGit(string cwd, params string[] args) {
-		var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardError = true, RedirectStandardOutput = true };
+		ProcessStartInfo psi = new("git") {
+			WorkingDirectory = cwd,
+			UseShellExecute = false,
+		};
 		foreach (string arg in args) {
 			psi.ArgumentList.Add(arg);
 		}
@@ -182,7 +185,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		using var process = Process.Start(psi) ?? throw new InvalidOperationException("git failed to start");
 		process.WaitForExit();
 		if (process.ExitCode != 0) {
-			throw new InvalidOperationException($"git {string.Join(' ', args)} failed: {process.StandardError.ReadToEnd()}");
+			throw new InvalidOperationException($"git {string.Join(' ', args)} failed with exit code {process.ExitCode}.");
 		}
 	}
 

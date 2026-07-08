@@ -504,6 +504,10 @@ public sealed class GitService : IGitService {
 	}
 
 	private static async Task<GitResult> RunAsync(string workingDirectory, IReadOnlyList<string> args, CancellationToken ct) {
+		if (!Directory.Exists(workingDirectory)) {
+			throw new GitException($"Git working directory does not exist: {workingDirectory}");
+		}
+
 		var info = new ProcessStartInfo {
 			FileName = "git",
 			WorkingDirectory = workingDirectory,
@@ -522,7 +526,7 @@ public sealed class GitService : IGitService {
 		try {
 			process.Start();
 		} catch (Win32Exception ex) {
-			throw new GitException("Unable to start 'git' — is it installed and on PATH?", ex);
+			throw new GitException($"Unable to start 'git' from '{workingDirectory}': {ex.Message}", ex);
 		}
 
 		var stdoutTask = process.StandardOutput.ReadToEndAsync(ct);

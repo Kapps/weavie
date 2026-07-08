@@ -519,7 +519,7 @@ public sealed partial class HostCore {
 		// panes. Pushed before focus so the target pane is shown first.
 		PushSessionList();
 		// Land keyboard focus in the new session's Claude pane.
-		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"agent\"}");
+		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
 		// Record the new active slot (and any load it just triggered) so a reopen restores it.
 		PersistSessionState();
 	}

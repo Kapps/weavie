@@ -11,11 +11,11 @@ public static class LayoutPanes {
 	/// <summary>Pane kind for the Monaco editor.</summary>
 	public const string Editor = "editor";
 
-	/// <summary>Pane kind for the embedded agent session.</summary>
-	public const string Agent = "agent";
-
 	/// <summary>Legacy pane kind for the embedded Claude Code session.</summary>
 	public const string TerminalClaude = "terminal:claude";
+
+	/// <summary>Historical provider-neutral pane kind written by an early native-agent build.</summary>
+	public const string Agent = "agent";
 
 	/// <summary>Pane kind for the plain shell terminal.</summary>
 	public const string TerminalShell = "terminal:shell";
@@ -42,7 +42,7 @@ public static class LayoutPanes {
 			DefaultAnchor = PaneAnchor.Main,
 		});
 		registry.Register(new PaneDefinition {
-			Kind = Agent,
+			Kind = TerminalClaude,
 			Description = "Embedded agent session.",
 			IntroducedIn = 1,
 			DefaultAnchor = PaneAnchor.LeftTop,
@@ -70,7 +70,7 @@ public static class LayoutPanes {
 					Dir = SplitDirection.Column,
 					Weights = [0.5, 0.5],
 					Children = [
-						new PaneNode { Id = "p_agent", Kind = Agent },
+						new PaneNode { Id = "p_claude", Kind = TerminalClaude },
 						new PaneNode { Id = "p_shell", Kind = TerminalShell },
 					],
 				},

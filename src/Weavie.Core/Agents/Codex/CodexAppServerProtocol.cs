@@ -19,6 +19,15 @@ public static class CodexAppServerProtocol {
 				},
 				capabilities = new {
 					experimentalApi = true,
+					optOutNotificationMethods = new[] {
+						"hook/started",
+						"hook/completed",
+						"item/agentMessage/delta",
+						"item/plan/delta",
+						"item/commandExecution/outputDelta",
+						"item/fileChange/outputDelta",
+						"remoteControl/status/changed",
+					},
 				},
 			},
 		});

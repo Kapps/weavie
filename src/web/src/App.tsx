@@ -136,8 +136,10 @@ const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
 
-// Maps a terminal-backed pane kind ("agent" / "terminal:shell") to its pane id.
-const paneOf = (kind: string): TermSession => (kind === "agent" ? "claude" : "shell");
+const AGENT_PANE_KIND = "terminal:claude";
+
+// Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
+const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
@@ -316,7 +318,7 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    if (kind === "agent" && activeProviderId() === "codex") {
+    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
       document.querySelector<HTMLTextAreaElement>(".agent-surface textarea")?.focus();
       return;
     }
@@ -602,13 +604,13 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    if (kind === "agent" && activeProviderId() === "codex") {
+    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
       const sid = activeTermSessionId();
       return (
         <AgentPane
           slot={sid}
           providerId={activeProviderId()}
-          active={focusedKind() === "agent"}
+          active={focusedKind() === AGENT_PANE_KIND}
           messages={sid === null ? [] : (agentPaneMessages()[sid] ?? [])}
           shortcut={`${CTRL_LABEL}${numberOf(kind)}`}
           onFocus={() => focusPane(kind)}
@@ -618,14 +620,14 @@ export default function App(): JSX.Element {
     const pane = paneOf(kind);
     // The shell pane shows the child-set title (cwd / running command) when it has one; the agent pane stays fixed.
     const paneTitle = (): string => {
-      if (kind === "agent") {
+      if (kind === AGENT_PANE_KIND) {
         return "Claude Code";
       }
       const title = paneTitles()[`${activeTermSessionId()}:${pane}`];
       return title !== undefined && title.length > 0 ? title : "Terminal";
     };
     const paneSessionIds = (): string[] =>
-      kind === "agent"
+      kind === AGENT_PANE_KIND
         ? sessions()
             .filter(
               (s) => s.loaded && s.backendId === activeBackendId() && s.providerId === "claude",

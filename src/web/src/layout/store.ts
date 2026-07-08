@@ -14,7 +14,7 @@ export const DEFAULT_LAYOUT_ROOT: LayoutNode = {
       dir: "column",
       weights: [0.5, 0.5],
       children: [
-        { type: "pane", id: "p_agent", kind: "agent" },
+        { type: "pane", id: "p_claude", kind: "terminal:claude" },
         { type: "pane", id: "p_shell", kind: "terminal:shell" },
       ],
     },

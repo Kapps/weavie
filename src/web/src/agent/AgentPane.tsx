@@ -61,7 +61,7 @@ export function AgentPane(props: {
   };
 
   return (
-    <div class="agent-surface" classList={{ active: props.active }} data-kind="agent">
+    <div class="agent-surface" classList={{ active: props.active }} data-kind="terminal:claude">
       <div
         class="pane-head"
         role="toolbar"

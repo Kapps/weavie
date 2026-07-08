@@ -84,7 +84,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			ForgetTurn();
 		}
 
-		Emit(CodexPaneMessages.FromNotification(method, CurrentThreadId(), root));
+		var paneMessage = CodexPaneMessages.FromNotification(method, CurrentThreadId(), root);
+		if (paneMessage is not null) {
+			Emit(paneMessage);
+		}
 	}
 
 	private void HandleRequest(CodexServerRequest request) {
@@ -182,11 +185,9 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private string DeveloperInstructions() => EmbeddedAgentGuidance.Compose(_context.Runtime);
 
 	private void LogClient(string text) {
-		Emit(new AgentPaneMessage {
-			Type = "stderr",
-			ProviderId = "codex",
-			Text = text,
-		});
+		if (CodexStderrMessages.TryFromLine(text, CurrentThreadId(), out var message)) {
+			Emit(message);
+		}
 	}
 
 	private void Run(Func<Task> action) => CodexSessionTasks.Run(action, Emit);

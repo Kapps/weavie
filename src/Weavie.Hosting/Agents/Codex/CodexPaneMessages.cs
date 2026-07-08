@@ -6,27 +6,19 @@ namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>Maps Codex app-server protocol objects into provider-neutral pane updates.</summary>
 internal static class CodexPaneMessages {
-	public static AgentPaneMessage FromNotification(string method, string? threadId, JsonElement root) =>
+	public static AgentPaneMessage? FromNotification(string method, string? threadId, JsonElement root) =>
 		method switch {
 			"turn/started" => FromTurn("turn-started", threadId, root),
 			"turn/completed" => FromTurn("turn-completed", threadId, root),
 			"turn/interrupted" => FromTurn("turn-interrupted", threadId, root),
-			"item/agentMessage/delta" => FromDelta(root),
-			"item/plan/delta" => FromDelta(root),
-			"item/commandExecution/outputDelta" => FromDelta(root),
-			"item/fileChange/outputDelta" => FromDelta(root),
-			"item/started" => FromItem("item-started", root),
-			"item/completed" => FromItem("item-completed", root),
+			"item/started" => FromStartedItem(root),
+			"item/completed" => FromCompletedItem(root),
 			"item/fileChange/patchUpdated" => FromPatch(root),
 			"turn/diff/updated" => FromDiff(root),
 			"serverRequest/resolved" => FromResolved(root),
 			"thread/status/changed" => FromStatus(root),
-			_ => new AgentPaneMessage {
-				Type = "notification",
-				ProviderId = "codex",
-				Summary = method,
-				PayloadJson = root.GetRawText(),
-			},
+			"mcpServer/startupStatus/updated" => FromMcpStartupStatus(root),
+			_ => null,
 		};
 
 	public static AgentPaneMessage FromRequest(CodexServerRequest request) =>
@@ -74,6 +66,16 @@ internal static class CodexPaneMessages {
 		};
 	}
 
+	private static AgentPaneMessage? FromStartedItem(JsonElement root) {
+		var item = root.GetProperty("params").GetProperty("item");
+		return IsVisibleStartedItem(item.GetStringOrEmpty("type")) ? FromItem("item-started", root) : null;
+	}
+
+	private static AgentPaneMessage? FromCompletedItem(JsonElement root) {
+		var item = root.GetProperty("params").GetProperty("item");
+		return IsVisibleCompletedItem(item.GetStringOrEmpty("type")) ? FromItem("item-completed", root) : null;
+	}
+
 	private static AgentPaneMessage FromItem(string type, JsonElement root) {
 		var parameters = root.GetProperty("params");
 		var item = parameters.GetProperty("item");
@@ -88,19 +90,6 @@ internal static class CodexPaneMessages {
 			Summary = SummarizeItem(itemType, item),
 			Status = item.GetStringOrEmpty("status"),
 			Text = item.GetStringOrEmpty("text"),
-			PayloadJson = root.GetRawText(),
-		};
-	}
-
-	private static AgentPaneMessage FromDelta(JsonElement root) {
-		var parameters = root.GetProperty("params");
-		return new AgentPaneMessage {
-			Type = "delta",
-			ProviderId = "codex",
-			ThreadId = parameters.GetStringOrEmpty("threadId"),
-			TurnId = parameters.GetStringOrEmpty("turnId"),
-			ItemId = parameters.GetStringOrEmpty("itemId"),
-			Text = parameters.GetStringOrEmpty("delta"),
 			PayloadJson = root.GetRawText(),
 		};
 	}
@@ -153,6 +142,26 @@ internal static class CodexPaneMessages {
 		};
 	}
 
+	private static AgentPaneMessage? FromMcpStartupStatus(JsonElement root) {
+		var parameters = root.GetProperty("params");
+		string status = parameters.GetStringOrEmpty("status");
+		if (!string.Equals(status, "failed", StringComparison.Ordinal)) {
+			return null;
+		}
+
+		string name = parameters.GetStringOrEmpty("name");
+		string error = parameters.GetStringOrEmpty("error");
+		return new AgentPaneMessage {
+			Type = "warning",
+			ProviderId = "codex",
+			ThreadId = parameters.GetStringOrEmpty("threadId"),
+			Summary = name.Length == 0 ? "MCP server failed" : $"MCP server '{name}' failed",
+			Text = error.Length == 0 ? null : error,
+			Status = "failed",
+			PayloadJson = root.GetRawText(),
+		};
+	}
+
 	private static string? SummarizeItem(string itemType, JsonElement item) =>
 		itemType switch {
 			"commandExecution" => item.GetStringOrEmpty("command"),
@@ -162,6 +171,12 @@ internal static class CodexPaneMessages {
 			"agentMessage" => item.GetStringOrEmpty("text"),
 			_ => itemType,
 		};
+
+	private static bool IsVisibleStartedItem(string itemType) =>
+		itemType is "commandExecution" or "fileChange" or "mcpToolCall" or "dynamicToolCall" or "webSearch";
+
+	private static bool IsVisibleCompletedItem(string itemType) =>
+		itemType == "agentMessage" || IsVisibleStartedItem(itemType);
 
 	private static string SummarizeFileChange(JsonElement item) => SummarizeChanges(item);
 

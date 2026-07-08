@@ -19,7 +19,7 @@ public static class LayoutReconciler {
 
 		var notes = new List<string>();
 
-		// 1. Migrate legacy Claude terminal panes, then prune panes whose kind is no longer registered.
+		// 1. Migrate unstable pane kinds, then prune panes whose kind is no longer registered.
 		var root = Prune(MigrateLegacyKinds(document.Root, notes), registry, notes) ?? FallbackRoot(registry, notes);
 
 		// 2. Inject newly-introduced default panes (each appears exactly once).
@@ -91,9 +91,9 @@ public static class LayoutReconciler {
 
 	private static LayoutNode MigrateLegacyKinds(LayoutNode node, List<string> notes) {
 		switch (node) {
-			case PaneNode pane when pane.Kind == LayoutPanes.TerminalClaude:
-				notes.Add("migrated legacy pane kind 'terminal:claude' to 'agent'");
-				return pane with { Kind = LayoutPanes.Agent };
+			case PaneNode pane when pane.Kind == LayoutPanes.Agent:
+				notes.Add("migrated pane kind 'agent' to 'terminal:claude'");
+				return pane with { Kind = LayoutPanes.TerminalClaude };
 			case SplitNode split:
 				return split with { Children = [.. split.Children.Select(child => MigrateLegacyKinds(child, notes))] };
 			default:

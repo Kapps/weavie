@@ -49,7 +49,7 @@ test("typing after clicking the terminal head does not leak into the editor", as
 // Two stacked terminals: clicking the inactive one's head switches focus between them. Same root cause — the
 // head was an inert click target — and the main way a user moves between the claude and shell panes by mouse.
 test("clicking a second terminal's head switches focus between terminals", async ({ page }) => {
-  const claude = page.locator('.terminal-surface[data-kind="agent"]');
+  const claude = page.locator('.terminal-surface[data-kind="terminal:claude"]');
   const shell = page.locator('.terminal-surface[data-kind="terminal:shell"]');
 
   await shell.locator(".pane-head").click();
@@ -59,5 +59,5 @@ test("clicking a second terminal's head switches focus between terminals", async
   await claude.locator(".pane-head").click();
   await expect(claude).toHaveClass(/\bactive\b/);
   await expect(shell).not.toHaveClass(/\bactive\b/);
-  expect(await focusedKind(page)).toBe("agent");
+  expect(await focusedKind(page)).toBe("terminal:claude");
 });

@@ -22,7 +22,7 @@ public sealed class LayoutReconcilerTests {
 	}
 
 	[Fact]
-	public void MigratesLegacyClaudeTerminalPane_ToAgentPane() {
+	public void KeepsClaudeTerminalPaneKind_ForBackwardCompatibility() {
 		var registry = BaseRegistry();
 		var doc = new LayoutDocument {
 			SeenPaneLevel = registry.CurrentPaneLevel,
@@ -40,12 +40,29 @@ public sealed class LayoutReconcilerTests {
 		var outcome = LayoutReconciler.Reconcile(doc, registry);
 
 		var split = Assert.IsType<SplitNode>(outcome.Document.Root);
-		var agent = Assert.IsType<PaneNode>(split.Children[0]);
-		Assert.True(outcome.Mutated);
-		Assert.Equal(LayoutPanes.Agent, agent.Kind);
-		Assert.Equal("p_claude", agent.Id);
+		var claude = Assert.IsType<PaneNode>(split.Children[0]);
+		Assert.False(outcome.Mutated);
+		Assert.Equal(LayoutPanes.TerminalClaude, claude.Kind);
+		Assert.Equal("p_claude", claude.Id);
 		Assert.Equal([0.3, 0.7], split.Weights);
 		Assert.Equal("p_claude", outcome.Document.Focused);
+	}
+
+	[Fact]
+	public void MigratesUnstableAgentPaneKind_BackToClaudeTerminalPane() {
+		var registry = BaseRegistry();
+		var doc = LayoutPanes.Default(registry) with {
+			Root = new PaneNode { Id = "p_agent", Kind = LayoutPanes.Agent },
+			Focused = "p_agent",
+		};
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		var pane = Assert.IsType<PaneNode>(outcome.Document.Root);
+		Assert.True(outcome.Mutated);
+		Assert.Equal(LayoutPanes.TerminalClaude, pane.Kind);
+		Assert.Equal("p_agent", pane.Id);
+		Assert.Equal("p_agent", outcome.Document.Focused);
 	}
 
 	[Fact]

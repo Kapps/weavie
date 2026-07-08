@@ -14,7 +14,7 @@ function tree(): LayoutNode {
         dir: "column",
         weights: [0.5, 0.5],
         children: [
-          { type: "pane", id: "p_agent", kind: "agent" },
+          { type: "pane", id: "p_claude", kind: "terminal:claude" },
           { type: "pane", id: "p_shell", kind: "terminal:shell" },
         ],
       },
@@ -25,7 +25,7 @@ function tree(): LayoutNode {
 
 describe("paneOrder", () => {
   it("lists pane kinds in DFS (Ctrl+1..9) order", () => {
-    expect(paneOrder(tree())).toEqual(["agent", "terminal:shell", "editor"]);
+    expect(paneOrder(tree())).toEqual(["terminal:claude", "terminal:shell", "editor"]);
   });
 });
 
@@ -33,7 +33,7 @@ describe("computeRects", () => {
   it("turns weights into percentage rectangles", () => {
     const rects = computeRects(tree());
     expect(rects.get("editor")).toEqual({ x: 40, y: 0, w: 60, h: 100 });
-    expect(rects.get("agent")).toEqual({ x: 0, y: 0, w: 40, h: 50 });
+    expect(rects.get("terminal:claude")).toEqual({ x: 0, y: 0, w: 40, h: 50 });
     expect(rects.get("terminal:shell")).toEqual({ x: 0, y: 50, w: 40, h: 50 });
   });
 

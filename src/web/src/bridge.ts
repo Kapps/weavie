@@ -385,7 +385,7 @@ export type WebBoundMessage =
   | { type: "session-list"; sessions: SessionChip[] }
   // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.
   | { type: "suggestions"; items: Suggestion[] }
-  // Host asks the web to move keyboard focus into a pane (kind, e.g. "agent") — pushed after a
+  // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
   // session switch so a new / selected session lands focus in the agent.
   | { type: "focus-pane"; kind: string }
   // Connect a source: the host opened its token page in the browser; show the dialog to paste the token, which

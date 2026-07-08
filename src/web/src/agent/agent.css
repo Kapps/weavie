@@ -3,7 +3,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 8px 0 14px;
+  padding: 0;
   background:
     radial-gradient(
       90% 70% at 0% 0%,
@@ -19,16 +19,16 @@
 }
 
 .agent-empty {
-  width: min(100% - 16px, 116ch);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   padding: 8px 0;
   color: var(--dim);
 }
 
 .agent-entry {
   box-sizing: border-box;
-  width: min(100% - 16px, 124ch);
-  margin: 0 auto;
+  width: 100%;
+  margin: 0;
   color: var(--fg);
 }
 

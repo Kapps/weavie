@@ -9,7 +9,7 @@ namespace Weavie.Hosting.Tests;
 /// worktree-setup card is correctly absent — the assertions cover the host plumbing, not relevance (which
 /// <c>SuggestionServiceTests</c> covers).
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSuggestionsTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 

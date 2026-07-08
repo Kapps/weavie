@@ -7,7 +7,7 @@ namespace Weavie.Hosting.Tests;
 /// End-to-end tests for the terminal's host-OS actions (clipboard + open-url), driving the same web messages
 /// the page sends and asserting the host routes them to the platform — and replies to a clipboard read.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreTerminalActionsTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 

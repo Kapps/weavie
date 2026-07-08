@@ -12,7 +12,7 @@ namespace Weavie.Hosting.Tests;
 /// to the primary without breaking startup. This is the regression behind an idle auto-update silently
 /// unloading remote sessions. Requires <c>git</c> on PATH.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionRestoreTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 

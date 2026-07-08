@@ -8,6 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// settings surfaces the card, and taking it ("Yes" → weavie.workspace.setup) pre-fills the setup prompt into
 /// the primary session's Claude pane as a bracketed paste with no trailing submit.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreWorkspaceSetupTests {
 	[Fact]
 	public async Task ManifestRepo_SurfacesCard_AndYesSeedsClaudePane_WithoutSubmitting() {

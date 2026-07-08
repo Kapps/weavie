@@ -9,7 +9,7 @@ namespace Weavie.Hosting.Tests;
 /// file and delivers its path through the session's provider.
 /// A disallowed type or oversize paste is surfaced as a toast and never written. See docs/specs/remote-paste-image.md.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCorePasteImageTests {
 	private static readonly byte[] PngBytes = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4, 5];
 	private const string PasteBegin = "\x1b[200~";

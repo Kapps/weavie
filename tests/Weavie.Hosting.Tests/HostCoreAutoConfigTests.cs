@@ -8,7 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// the setup command + test profile, drops the setup card, and toasts — deterministically, no model. An
 /// unsupported repo leaves the card up (the Claude fallback). See docs/concepts/workspace-autoconfig.md.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreAutoConfigTests {
 	[Fact]
 	public async Task SupportedRepo_AutoConfigures_DropsCard_AndNotifies() {

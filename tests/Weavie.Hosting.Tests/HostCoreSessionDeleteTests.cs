@@ -10,7 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// here too so the split stays intentional. Runs against a real <see cref="HostCore"/> over a temp git repo.
 /// Requires <c>git</c> on PATH.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionDeleteTests {
 	private static IReadOnlyList<string?> SessionIds(TestHost host) {
 		var list = host.Bridge.LastOfType("session-list");

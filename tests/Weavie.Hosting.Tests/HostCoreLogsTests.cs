@@ -8,7 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// <c>source-loading</c> FIRST — the only message the web opens a source tab on — then a <c>source-doc</c>
 /// carrying the buffer as pre-rendered <c>html</c> (and an <c>editedTime</c>, per the source-doc contract).
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreLogsTests {
 	[Fact]
 	public async Task ViewLogs_OpensTheTabThenFillsItWithEscapedHtml() {

@@ -270,6 +270,15 @@ public sealed class TerminalController : IDisposable {
 		}
 	}
 
+	/// <summary>The last worktree-confined directory this pane reported via OSC 7, or <see langword="null"/> when none has been (a fixed-cwd pane, or before the first prompt). Used to resolve a clicked relative path against the shell's live directory.</summary>
+	public string? ReportedCwd {
+		get {
+			lock (_gate) {
+				return _reportedCwd;
+			}
+		}
+	}
+
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
 	private void StartTerminal(int attempt) {
 		lock (_gate) {

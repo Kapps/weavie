@@ -24,6 +24,11 @@ vi.mock("./ref-link-store", () => ({
 
 const { wireTerminalLinks } = await import("./terminal-links");
 
+// The pane every reveal-file is stamped with, so the host resolves a relative path against this shell's cwd.
+const CTX = { slot: "slot-1", pane: "shell" } as const;
+// A reveal-file post always carries the originating pane; spread this into the expected payload.
+const PANE = { slot: CTX.slot, session: CTX.pane };
+
 // A minimal xterm stand-in over an ordered set of buffer rows. Each row carries isWrapped (true = a soft-wrap
 // continuation of the row above), so the provider's logical-line reconstruction can be exercised. `provide`
 // queries a single buffer row (1-based), mirroring how xterm invokes the provider once per row.
@@ -50,7 +55,7 @@ function fakeTerminal(...rows: Array<{ text: string; isWrapped: boolean }>): {
     },
   } as unknown as Terminal;
 
-  const hoveredUrl = wireTerminalLinks(term);
+  const hoveredUrl = wireTerminalLinks(term, CTX);
 
   return {
     term,
@@ -86,14 +91,19 @@ describe("auto-link provider", () => {
     expect(links).toHaveLength(1);
     expect(links[0]?.text).toBe("src/foo.ts:42");
     links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
+    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42, ...PANE });
   });
 
   it("keeps a Windows drive colon in the path, splitting only the trailing :line", () => {
     const { provide } = oneLine("at C:\\src\\foo.ts:7:3 now");
     const links = provide();
     links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "reveal-file", path: "C:\\src\\foo.ts", line: 7 });
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "C:\\src\\foo.ts",
+      line: 7,
+      ...PANE,
+    });
   });
 
   it("links a bare URL and posts open-url to the LOCAL host (the browser is the user's, not the backend's)", () => {
@@ -157,6 +167,7 @@ describe("auto-link provider", () => {
       type: "reveal-file",
       path: "src/web/src/terminal/terminal-links.ts",
       line: 1,
+      ...PANE,
     });
   });
 
@@ -165,7 +176,7 @@ describe("auto-link provider", () => {
     const links = provide();
     expect(links).toHaveLength(1);
     links[0]?.activate({ button: 0 } as MouseEvent, links[0].text);
-    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42 });
+    expect(posted).toContainEqual({ type: "reveal-file", path: "src/foo.ts", line: 42, ...PANE });
   });
 
   it("links a URL inside a tool-call wrapper as a URL, not a reveal-file", () => {
@@ -191,6 +202,7 @@ describe("auto-link provider", () => {
       type: "reveal-file",
       path: "src/web/e2e/.recordings/clip.webm",
       line: 1,
+      ...PANE,
     });
   });
 
@@ -223,6 +235,12 @@ describe("auto-link provider", () => {
 
   it("returns no links for a plain line", () => {
     expect(oneLine("just some prose here").provide()).toEqual([]);
+  });
+
+  it("stamps the originating pane (slot/session) so the host resolves against that shell's cwd", () => {
+    const { provide } = oneLine("see src/foo.ts:42 now");
+    provide()[0]?.activate({ button: 0 } as MouseEvent, "src/foo.ts:42");
+    expect(posted[0]).toMatchObject({ slot: "slot-1", session: "shell" });
   });
 });
 
@@ -302,6 +320,7 @@ describe("soft-wrapped links", () => {
         type: "reveal-file",
         path: "src/web/src/terminal/terminal-links.ts",
         line: 104,
+        ...PANE,
       });
     }
   });
@@ -340,7 +359,12 @@ describe("soft-wrapped links", () => {
 describe("OSC 8 link handler", () => {
   it("reveals a file:// URI at its line hash", () => {
     oneLine("").activateOsc("file:///home/user/a.ts#12");
-    expect(posted).toContainEqual({ type: "reveal-file", path: "/home/user/a.ts", line: 12 });
+    expect(posted).toContainEqual({
+      type: "reveal-file",
+      path: "/home/user/a.ts",
+      line: 12,
+      ...PANE,
+    });
   });
 
   it("opens an http(s) URI via the LOCAL host", () => {

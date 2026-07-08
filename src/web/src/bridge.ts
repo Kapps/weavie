@@ -187,8 +187,17 @@ export type HostBoundMessage =
   // IDE-MCP: the user's Keep/Reject decision for an openDiff.
   | { type: "diff-resolved"; id: string; kept: boolean; finalContents: string }
   // Clickable file:line in the terminal -> ask the host to load + reveal the file. `preview` opens it as a
-  // reusable preview tab (single-click / go-to-def); omitted/false opens a persistent tab.
-  | { type: "reveal-file"; path: string; line: number; preview?: boolean }
+  // reusable preview tab (single-click / go-to-def); omitted/false opens a persistent tab. `slot`/`session`
+  // identify the originating pane so the host resolves a relative path against that shell's live OSC 7 cwd
+  // (e.g. a filename printed by `ls` in a subdir) instead of the worktree root; absent for non-terminal opens.
+  | {
+      type: "reveal-file";
+      path: string;
+      line: number;
+      preview?: boolean;
+      slot?: string;
+      session?: TermSession;
+    }
   // Terminal copy (an explicit copy command, or Claude's OSC 52) -> write to the OS clipboard via the host,
   // which dodges the WebView clipboard API's focus/permission gate.
   | { type: "clipboard-write"; text: string }

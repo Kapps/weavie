@@ -161,6 +161,14 @@ public sealed partial class HostCore {
 				break;
 			case "reveal-file":
 				string revealPath = root.GetProperty("path").GetString() ?? string.Empty;
+				// A terminal link carries its pane (slot/session); resolve a relative path against that shell's live
+				// OSC 7 cwd (already worktree-confined) so a filename printed by `ls` in a subdir opens the right
+				// file. Absent/rooted → FileOpener resolves against the worktree root as before. CanRead re-gates.
+				string? paneCwd = root.TryGetProperty("session", out _) ? TerminalFor(root)?.ReportedCwd : null;
+				if (paneCwd is not null && !Path.IsPathRooted(revealPath)) {
+					revealPath = Path.GetFullPath(Path.Combine(paneCwd, revealPath));
+				}
+
 				_session?.FileOpener.Open(
 					revealPath, root.GetIntOr("line", 1), preview: root.GetBoolOrFalse("preview"), scratch: false);
 				break;

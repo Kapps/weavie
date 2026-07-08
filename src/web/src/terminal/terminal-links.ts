@@ -3,7 +3,7 @@
 // file-reveal both round-trip the host.
 
 import type { ILink, Terminal } from "@xterm/xterm";
-import { isBrowserHostedShell, postToHost, postToLocalHost } from "../bridge";
+import { isBrowserHostedShell, postToHost, postToLocalHost, type TermSession } from "../bridge";
 import { refLinkPrefix } from "./ref-link-store";
 
 // A path with an extension, e.g. src/foo.ts or C:\src\foo.ts. An optional Windows drive prefix (C:\…)
@@ -28,14 +28,9 @@ const BARE_PATH =
 // matches (\d only).
 const REF_RE = /(?<![\w#&])#[1-9]\d*(?!\w)/g;
 
-function revealFile(matchText: string): void {
-  // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
-  const match = /^(.*?):(\d+)(?::\d+)?$/.exec(matchText);
-  const path = match?.[1] ?? matchText;
-  if (path.length > 0) {
-    postToHost({ type: "reveal-file", path, line: match ? Number(match[2]) : 1 });
-  }
-}
+// The originating pane, stamped on every reveal-file so the host resolves a relative path against that shell's
+// live OSC 7 cwd (see wireTerminalLinks). `pane` is the TermSession ("shell"/"claude").
+type PaneContext = { slot: string; pane: TermSession };
 
 /** Opens a URL in the OS/default browser (the terminal's left-click + the "Open in Browser" menu). */
 export function openUrlExternal(url: string): void {
@@ -96,8 +91,23 @@ function collect(
  * open it (browser vs Weavie) instead of activating it — xterm activates links on mouseup for ANY button, so
  * the activate handlers below open only on the primary button and a right-click falls through to the menu.
  */
-export function wireTerminalLinks(term: Terminal): () => string | undefined {
+export function wireTerminalLinks(term: Terminal, context: PaneContext): () => string | undefined {
   let hoveredUrl: string | undefined;
+
+  const revealFile = (matchText: string): void => {
+    // Split the trailing :line (or :line:col) from the RIGHT, so a Windows drive colon (C:\…) stays in the path.
+    const match = /^(.*?):(\d+)(?::\d+)?$/.exec(matchText);
+    const path = match?.[1] ?? matchText;
+    if (path.length > 0) {
+      postToHost({
+        type: "reveal-file",
+        path,
+        line: match ? Number(match[2]) : 1,
+        slot: context.slot,
+        session: context.pane,
+      });
+    }
+  };
   // Only track web URLs, so a right-click on a file:// OSC link shows the plain terminal menu, not "open in…".
   const isHttp = (uri: string): boolean => uri.startsWith("http:") || uri.startsWith("https:");
 
@@ -114,6 +124,8 @@ export function wireTerminalLinks(term: Terminal): () => string | undefined {
             type: "reveal-file",
             path: decodeURIComponent(url.pathname),
             line: lineMatch ? Number(lineMatch[1]) : 1,
+            slot: context.slot,
+            session: context.pane,
           });
         } else if (url.protocol === "http:" || url.protocol === "https:") {
           openUrlExternal(uri);

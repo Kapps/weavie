@@ -49,6 +49,19 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = "terminal.shellIntegration",
+			Kind = SettingKind.Bool,
+			Description = "Make filenames printed in the shell pane (e.g. by 'ls') clickable, opening them in the "
+				+ "editor. Weavie injects a tiny startup snippet so bash/zsh report their working directory each "
+				+ "prompt (OSC 7); it sources your own shell config unchanged and only appends a cwd emitter. On by "
+				+ "default. Takes effect on the next terminal (reopen the shell pane).",
+			Aliases = ["shell integration", "clickable filenames", "terminal cwd tracking", "clickable files",
+				"terminal shell integration", "osc7"],
+			Apply = ApplyMode.ReopensTerminal,
+			Default = true,
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = "terminal.persistScrollbackKb",
 			Kind = SettingKind.Int,
 			Description = "How much of the shell terminal's recent output (in KiB) to persist on disk per "

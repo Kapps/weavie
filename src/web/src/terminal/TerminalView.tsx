@@ -169,8 +169,9 @@ export function TerminalView(props: {
       props.onFirstRender?.();
     });
 
-    // OSC 8 + auto-detected file:line and http(s) links (file:// → Monaco, URLs → OS browser).
-    hoveredUrl = wireTerminalLinks(term);
+    // OSC 8 + auto-detected file:line and http(s) links (file:// → Monaco, URLs → OS browser). The pane
+    // identity lets the host resolve a relative path against this shell's live OSC 7 cwd.
+    hoveredUrl = wireTerminalLinks(term, { slot: props.slot, pane: props.pane });
 
     // Clipboard: register this pane for the copy/paste commands, route Claude's OSC 52 to the OS clipboard,
     // and note focus so the commands act on the terminal the user is in.

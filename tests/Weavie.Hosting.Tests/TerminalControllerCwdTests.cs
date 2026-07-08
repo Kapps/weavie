@@ -27,6 +27,22 @@ public sealed class TerminalControllerCwdTests {
 	}
 
 	[Fact]
+	public void ReportedCwd_ExposesTheConfinedDirectory_ButStaysNullForAnOutsideReport() {
+		using var h = new Harness();
+		string nested = Directory.CreateDirectory(Path.Combine(h.Workspace, "src", "nested")).FullName;
+		string evil = Directory.CreateDirectory(h.Workspace + "-evil").FullName;
+
+		h.Controller.OnReady(80, 24);
+		Assert.Null(h.Controller.ReportedCwd); // nothing reported yet
+
+		h.Controller.OnCwdReported(nested);
+		Assert.Equal(nested, h.Controller.ReportedCwd); // resolution base for a clicked relative path
+
+		h.Controller.OnCwdReported(evil);
+		Assert.Equal(nested, h.Controller.ReportedCwd); // an out-of-worktree report is rejected, not latched
+	}
+
+	[Fact]
 	public void ExistingSiblingOutsideTheWorkspace_IsIgnored() {
 		using var h = new Harness();
 		// A directory that genuinely EXISTS (so Directory.Exists passes) but is OUTSIDE the worktree, and whose

@@ -55,15 +55,15 @@
 }
 
 .diff-actions .keep {
-  background: #1d5a2a;
-  border-color: #2e8b3d;
-  color: #e8ffe8;
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 28%, var(--bg));
+  border-color: var(--diff-added, #5a9a6a);
+  color: var(--fg);
 }
 
 .diff-actions .reject {
-  background: #5a1d1d;
-  border-color: #a33;
-  color: #ffe8e8;
+  background: color-mix(in srgb, var(--diff-removed, #c47a7a) 28%, var(--bg));
+  border-color: var(--diff-removed, #c47a7a);
+  color: var(--fg);
 }
 
 .diff-editor {
@@ -72,16 +72,19 @@
 }
 
 /* Inline diff rendered inside the live editor (no standalone diff viewer): green added lines, red removed
-   "ghost" view-zones in place, char-level highlights, and a floating Accept/Reject(/Undo) toolbar. */
-/* Kept a dark, low-alpha wash so the line still reads as the editor's syntax-coloured text over a green
-   tint — not a bright fill. The whole-line wash and the char-level overlay below stack on a fully-changed
-   line, so both are held down to keep dark text (e.g. comments at #45484f) legible on top of them. */
+   "ghost" view-zones in place, char-level highlights, and a floating Accept/Reject(/Undo) toolbar. All
+   colours come from the standard VS Code diff ids (--diff-* in chrome-vars.ts) so they track the active
+   theme; the fallbacks mirror the built-in dark family for themes that omit a key. */
+/* A low-alpha wash so the line still reads as the editor's syntax-coloured text over a green tint — not a
+   bright fill. The whole-line wash (diffEditor.insertedLineBackground) and the char-level overlay
+   (insertedTextBackground) stack on a fully-changed line; the theme keys carry alpha so dark text stays
+   legible on top of both, and light themes supply their own lighter washes. */
 .weavie-inline-added {
-  background: rgba(46, 160, 67, 0.1);
+  background: var(--diff-added-line, #5a9a6a21);
 }
 
 .weavie-inline-added-gutter {
-  background: #2ea043;
+  background: var(--diff-added, #5a9a6a);
   /* Overrides Monaco's inline width:6px on the linesDecorations element (lineDecorationsWidth) — only
      !important beats an inline style; a plain rule leaves the accent bar double-width and overflowing. */
   width: 3px !important;
@@ -89,27 +92,17 @@
 }
 
 .weavie-inline-added-text {
-  background: rgba(46, 160, 67, 0.16);
-}
-
-/* The same green reads heavier over the light theme's bright canvas, crowding the text — fade both washes
-   further there so the syntax colours stay legible. */
-:root[data-theme-type="light"] .weavie-inline-added {
-  background: rgba(46, 160, 67, 0.06);
-}
-
-:root[data-theme-type="light"] .weavie-inline-added-text {
-  background: rgba(46, 160, 67, 0.1);
+  background: var(--diff-added-text, #5a9a6a3d);
 }
 
 /* The user's OWN typing over a changed file — a washed-out green, much fainter than Claude's solid added
    lines, so a person's edits read as theirs (not something to "review/accept" like Claude's changes). */
 .weavie-inline-user {
-  background: rgba(46, 160, 67, 0.05);
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 8%, transparent);
 }
 
 .weavie-inline-user-gutter {
-  background: rgba(46, 160, 67, 0.4);
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 40%, transparent);
   width: 3px !important;
   margin-left: 3px;
 }
@@ -118,38 +111,34 @@
    would shift the ghost text rightward, but the live (green) lines aren't shifted, so the deleted text
    has to start at the same x to line up column-for-column with the code it replaced. */
 .weavie-inline-removed {
-  background: rgba(210, 90, 90, 0.1);
-  box-shadow: inset 3px 0 0 #d25a5a;
+  background: var(--diff-removed-line, #c47a7a21);
+  box-shadow: inset 3px 0 0 var(--diff-removed, #c47a7a);
   white-space: pre;
   overflow: hidden;
 }
 
 .weavie-inline-removed-line {
-  color: #d29a9a;
+  color: color-mix(in srgb, var(--diff-removed, #c47a7a) 70%, var(--fg));
   text-decoration: line-through;
-  text-decoration-color: rgba(210, 90, 90, 0.5);
+  text-decoration-color: color-mix(in srgb, var(--diff-removed, #c47a7a) 50%, transparent);
 }
 
 /* Faded "accepted" band: a kept-but-uncommitted hunk, still visible as proof it was accepted and still undoable.
    The same green as .weavie-inline-added at a much lower alpha, so it reads as "done, not pending". */
 .weavie-inline-accepted {
-  background: rgba(46, 160, 67, 0.04);
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 6%, transparent);
 }
 
 .weavie-inline-accepted-gutter {
-  background: rgba(46, 160, 67, 0.4);
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 40%, transparent);
   width: 3px !important;
   margin-left: 3px;
 }
 
-:root[data-theme-type="light"] .weavie-inline-accepted {
-  background: rgba(46, 160, 67, 0.03);
-}
-
 /* A removed line inside an accepted hunk — the dimmed counterpart of .weavie-inline-removed (replacement keeps). */
 .weavie-inline-removed-faded {
-  background: rgba(210, 90, 90, 0.05);
-  box-shadow: inset 3px 0 0 rgba(210, 90, 90, 0.4);
+  background: color-mix(in srgb, var(--diff-removed, #c47a7a) 5%, transparent);
+  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--diff-removed, #c47a7a) 40%, transparent);
   opacity: 0.7;
 }
 
@@ -192,19 +181,19 @@
 
 /* Keep/revert take the diff's own green/red so the pair reads accept vs reject at a glance. */
 .weavie-inline-pending-keep {
-  color: #2ea043;
+  color: var(--diff-added, #5a9a6a);
 }
 
 .weavie-inline-pending-keep:hover {
-  border-color: #2ea043;
+  border-color: var(--diff-added, #5a9a6a);
 }
 
 .weavie-inline-pending-revert {
-  color: #d25a5a;
+  color: var(--diff-removed, #c47a7a);
 }
 
 .weavie-inline-pending-revert:hover {
-  border-color: #d25a5a;
+  border-color: var(--diff-removed, #c47a7a);
 }
 
 /* Floating action bar for the inline diff: a DOM child of the editor, pinned bottom-center so it clears
@@ -308,15 +297,15 @@
 }
 
 .weavie-inline-toolbar .weavie-inline-accept {
-  background: #1d5a2a;
-  border-color: #2e8b3d;
-  color: #e8ffe8;
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 28%, var(--bg));
+  border-color: var(--diff-added, #5a9a6a);
+  color: var(--fg);
 }
 
 .weavie-inline-toolbar .weavie-inline-reject {
-  background: #5a1d1d;
-  border-color: #a33;
-  color: #ffe8e8;
+  background: color-mix(in srgb, var(--diff-removed, #c47a7a) 28%, var(--bg));
+  border-color: var(--diff-removed, #c47a7a);
+  color: var(--fg);
 }
 
 /* Undo / redo of review actions: ghost buttons like the nav arrows, dimmed when there's nothing to do. */

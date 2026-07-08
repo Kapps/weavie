@@ -40,7 +40,16 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     "editorGutter.addedBackground": "#5a9a6a",
     "editorGutter.modifiedBackground": "#54c6a4",
     "editorGutter.deletedBackground": "#c47a7a",
+    "editorOverviewRuler.addedForeground": "#5a9a6ab3",
+    "editorOverviewRuler.deletedForeground": "#c47a7ab3",
     "editorError.foreground": "#e07a7a",
+
+    // ── Diff (inline change review + standalone diff editor) ────────────────────────────────────────
+    // One green/red family shared with the gutter markers above; the washes carry their own alpha.
+    "diffEditor.insertedLineBackground": "#5a9a6a21",
+    "diffEditor.insertedTextBackground": "#5a9a6a3d",
+    "diffEditor.removedLineBackground": "#c47a7a21",
+    "diffEditor.removedTextBackground": "#c47a7a3d",
     "editorWarning.foreground": "#e0b060",
     "editorInfo.foreground": "#54c6a4",
 

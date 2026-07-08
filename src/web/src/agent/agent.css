@@ -3,7 +3,7 @@
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 12px 0 22px;
+  padding: 8px 0 14px;
   background:
     radial-gradient(
       90% 70% at 0% 0%,
@@ -19,29 +19,29 @@
 }
 
 .agent-empty {
-  width: min(100% - 32px, 116ch);
+  width: min(100% - 16px, 116ch);
   margin: 0 auto;
-  padding: 12px 0;
+  padding: 8px 0;
   color: var(--dim);
 }
 
 .agent-entry {
   box-sizing: border-box;
-  width: min(100% - 32px, 124ch);
+  width: min(100% - 16px, 124ch);
   margin: 0 auto;
   color: var(--fg);
 }
 
 .agent-entry + .agent-entry {
-  margin-top: 7px;
+  margin-top: 5px;
 }
 
 .agent-entry-head {
   display: flex;
   align-items: baseline;
-  gap: 9px;
+  gap: 7px;
   min-width: 0;
-  margin-bottom: 3px;
+  margin-bottom: 2px;
   color: var(--dim);
 }
 
@@ -89,9 +89,9 @@
 }
 
 .agent-entry-message.agent-tone-user {
-  margin-top: 12px;
-  margin-bottom: 10px;
-  padding: 9px 12px 10px;
+  margin-top: 9px;
+  margin-bottom: 7px;
+  padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
   background:
     linear-gradient(
@@ -108,7 +108,7 @@
 }
 
 .agent-entry-message.agent-tone-user .agent-entry-head {
-  margin-bottom: 5px;
+  margin-bottom: 3px;
 }
 
 .agent-entry-message.agent-tone-user .agent-entry-label {
@@ -120,11 +120,11 @@
 }
 
 .agent-entry-message.agent-tone-assistant {
-  padding: 0 12px;
+  padding: 0 8px;
 }
 
 .agent-entry-message.agent-tone-assistant.agent-entry-result {
-  padding: 9px 12px 10px;
+  padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
   background:
     linear-gradient(
@@ -137,7 +137,7 @@
 }
 
 .agent-entry-result .agent-entry-head {
-  margin-bottom: 5px;
+  margin-bottom: 3px;
 }
 
 .agent-entry-result .agent-entry-label {
@@ -155,7 +155,7 @@
 .agent-entry-activity,
 .agent-entry-notice,
 .agent-entry-request {
-  padding: 7px 11px 8px;
+  padding: 5px 8px 6px;
   border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
   border-left-width: 3px;
   background: color-mix(in srgb, var(--bar) 58%, transparent);
@@ -193,8 +193,8 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: 10px;
-  padding: 5px 8px;
+  gap: 8px;
+  padding: 3px 6px;
 }
 
 .agent-entry-edit .agent-entry-head {
@@ -230,12 +230,12 @@
 }
 
 .agent-activity-details {
-  margin-top: 4px;
+  margin-top: 3px;
   color: var(--dim);
 }
 
 .agent-entry-failure {
-  margin: 4px 0 0;
+  margin: 3px 0 0;
   color: color-mix(in srgb, var(--bad) 78%, var(--fg));
   font: inherit;
   overflow-wrap: break-word;
@@ -244,7 +244,7 @@
 
 .agent-activity-details summary {
   display: inline-flex;
-  gap: 5px;
+  gap: 4px;
   color: color-mix(in srgb, var(--dim) 78%, transparent);
   cursor: pointer;
   list-style: none;
@@ -265,15 +265,15 @@
 .agent-activity-list {
   display: grid;
   gap: 2px;
-  margin-top: 4px;
-  padding-left: 12px;
+  margin-top: 3px;
+  padding-left: 10px;
   border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .agent-activity-step {
   display: grid;
   grid-template-columns: minmax(54px, max-content) minmax(0, 1fr);
-  gap: 8px;
+  gap: 6px;
   min-width: 0;
 }
 

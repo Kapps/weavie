@@ -164,13 +164,13 @@ function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | nu
   return (
     <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}>
       <div class="agent-entry-mark">{entryMark(props.entry)}</div>
-      <div class="agent-entry-meta">
-        <span class="agent-entry-label">{props.entry.label}</span>
-        <Show when={props.entry.status !== null}>
-          <small>{props.entry.status}</small>
-        </Show>
+      <div class="agent-entry-meta" title={entryTitle(props.entry)}>
+        <span class="agent-entry-label">{entryLabel(props.entry)}</span>
       </div>
       <div class="agent-entry-main">
+        <Show when={props.entry.status !== null && props.entry.kind !== "activity"}>
+          <small class="agent-entry-status">{props.entry.status}</small>
+        </Show>
         <Show when={props.entry.summary !== null}>
           <div class="agent-entry-summary">{props.entry.summary}</div>
         </Show>
@@ -245,4 +245,23 @@ function entryMark(entry: AgentTranscriptEntry): string {
     default:
       return ".";
   }
+}
+
+function entryLabel(entry: AgentTranscriptEntry): string {
+  switch (entry.label) {
+    case "Interrupted":
+      return "intr";
+    case "Permission":
+      return "perm";
+    case "Warning":
+      return "warn";
+    case "Working":
+      return "work";
+    default:
+      return entry.label.toLowerCase();
+  }
+}
+
+function entryTitle(entry: AgentTranscriptEntry): string {
+  return entry.status === null ? entry.label : `${entry.label} ${entry.status}`;
 }

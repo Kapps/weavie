@@ -22,13 +22,12 @@ public static class LayoutReconciler {
 		// 1. Migrate unstable pane kinds, then prune panes whose kind is no longer registered.
 		var root = Prune(MigrateLegacyKinds(document.Root, notes), registry, notes) ?? FallbackRoot(registry, notes);
 
-		// 2. Inject newly-introduced default panes (each appears exactly once).
+		// 2. Inject missing default panes unless the user explicitly dismissed them.
 		var present = new HashSet<string>(StringComparer.Ordinal);
 		CollectKinds(root, present);
 		var dismissed = new HashSet<string>(document.Dismissed, StringComparer.Ordinal);
 		foreach (var pane in registry.All) {
 			if (pane.ShowByDefault
-				&& pane.IntroducedIn > document.SeenPaneLevel
 				&& !dismissed.Contains(pane.Kind)
 				&& !present.Contains(pane.Kind)) {
 				root = InjectAt(root, pane, notes);
@@ -110,6 +109,8 @@ public static class LayoutReconciler {
 				Weights = [1 - InjectWeight, InjectWeight],
 				Children = [root, leaf],
 			},
+			PaneAnchor.LeftTop => InjectLeft(root, leaf, top: true),
+			PaneAnchor.LeftBottom => InjectLeft(root, leaf, top: false),
 			PaneAnchor.Top => new SplitNode {
 				Dir = SplitDirection.Column,
 				Weights = [InjectWeight, 1 - InjectWeight],
@@ -120,8 +121,8 @@ public static class LayoutReconciler {
 				Weights = [1 - InjectWeight, InjectWeight],
 				Children = [root, leaf],
 			},
-			// FarLeft / LeftTop / LeftBottom land on the left; Main only seeds an empty tree, so with a
-			// non-empty tree it falls through to the same left placement.
+			// FarLeft lands on the left; Main only seeds an empty tree, so with a non-empty tree it falls
+			// through to the same left placement.
 			_ => new SplitNode {
 				Dir = SplitDirection.Row,
 				Weights = [InjectWeight, 1 - InjectWeight],
@@ -129,6 +130,23 @@ public static class LayoutReconciler {
 			},
 		};
 	}
+
+	private static LayoutNode InjectLeft(LayoutNode root, PaneNode leaf, bool top) {
+		if (root is SplitNode { Dir: SplitDirection.Row, Children.Count: > 1 } row) {
+			var children = row.Children.ToArray();
+			children[0] = Stack(children[0], leaf, top);
+			return row with { Children = children };
+		}
+
+		return Stack(root, leaf, top);
+	}
+
+	private static SplitNode Stack(LayoutNode existing, PaneNode leaf, bool top) =>
+		new() {
+			Dir = SplitDirection.Column,
+			Weights = top ? [InjectWeight, 1 - InjectWeight] : [1 - InjectWeight, InjectWeight],
+			Children = top ? [leaf, existing] : [existing, leaf],
+		};
 
 	private static LayoutNode Normalize(LayoutNode node) {
 		if (node is not SplitNode split) {

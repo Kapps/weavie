@@ -1,4 +1,4 @@
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 
 // How dirty the session's worktree is (host git status), driving the confirm friction: clean = one click,
@@ -13,6 +13,9 @@ export type DeleteSessionState = "clean" | "untracked" | "modified";
 export function DeleteSessionDialog(props: {
   label: string;
   state: DeleteSessionState;
+  // The first few untracked files a delete would remove, plus the total, to name them in the confirm.
+  untrackedFiles: string[];
+  untrackedCount: number;
   onConfirm: () => void;
   onCancel: () => void;
 }): JSX.Element {
@@ -77,6 +80,16 @@ export function DeleteSessionDialog(props: {
                 <strong>untracked files</strong> — they aren't committed, so they can't be
                 recovered. The branch is kept.
               </div>
+              <Show when={props.untrackedFiles.length > 0}>
+                <ul class="confirm-file-list">
+                  <For each={props.untrackedFiles}>{(file) => <li>{file}</li>}</For>
+                  <Show when={props.untrackedCount > props.untrackedFiles.length}>
+                    <li class="confirm-file-more">
+                      …and {props.untrackedCount - props.untrackedFiles.length} more
+                    </li>
+                  </Show>
+                </ul>
+              </Show>
               <Show when={armed()}>
                 <div class="confirm-warn">
                   Click confirm to delete the worktree and its untracked files.

@@ -76,17 +76,23 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		var manager = NewManager();
 		var record = await manager.CreateAsync("changes", "main");
 
-		// Fresh worktree off a commit: clean.
-		Assert.Equal(WorktreeChangeState.Clean, await _git.GetChangeStateAsync(record.Path));
+		// Fresh worktree off a commit: clean, no untracked files.
+		var clean = await _git.GetChangeStateAsync(record.Path);
+		Assert.Equal(WorktreeChangeState.Clean, clean.State);
+		Assert.Empty(clean.UntrackedFiles);
 
-		// A file git doesn't know about: untracked-only.
+		// A file git doesn't know about: untracked-only, and named in the list.
 		File.WriteAllText(Path.Combine(record.Path, "temp.txt"), "scratch\n");
-		Assert.Equal(WorktreeChangeState.UntrackedOnly, await _git.GetChangeStateAsync(record.Path));
+		var untracked = await _git.GetChangeStateAsync(record.Path);
+		Assert.Equal(WorktreeChangeState.UntrackedOnly, untracked.State);
+		Assert.Equal(["temp.txt"], untracked.UntrackedFiles);
 
 		// Editing a tracked file is a tracked change even with the untracked file present — the stronger
-		// classification wins.
+		// classification wins, and the untracked file is still listed.
 		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
-		Assert.Equal(WorktreeChangeState.Modified, await _git.GetChangeStateAsync(record.Path));
+		var modified = await _git.GetChangeStateAsync(record.Path);
+		Assert.Equal(WorktreeChangeState.Modified, modified.State);
+		Assert.Equal(["temp.txt"], modified.UntrackedFiles);
 	}
 
 	[Fact]

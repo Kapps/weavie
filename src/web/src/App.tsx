@@ -270,7 +270,7 @@ export default function App(): JSX.Element {
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
     onSaveError: (message) => addToast("error", message),
-    onOpenError: (message) => addToast("error", message),
+    onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
     confirmDiscard,
     confirm,
@@ -448,7 +448,7 @@ export default function App(): JSX.Element {
       classify: true,
     });
     if (!result.ok) {
-      addToast("error", result.error ?? "Couldn't check the session for changes.");
+      addToast("warn", result.error ?? "Couldn't check the session for changes.");
       return;
     }
     const info = result.data as
@@ -481,7 +481,7 @@ export default function App(): JSX.Element {
       force: req.state !== "clean",
     });
     addToast(
-      result.ok ? "info" : "error",
+      result.ok ? "info" : "warn",
       result.ok
         ? (result.message ?? "Session deleted.")
         : (result.error ?? "Couldn't delete the session."),

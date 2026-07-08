@@ -51,7 +51,7 @@ public sealed partial class HostCore {
 		}
 
 		if (session.Shell.HasForegroundJob) {
-			Notify("error", "Tests not started: the shell is busy running a job.", "tests-shell-busy");
+			Notify("warn", "Tests not started: the shell is busy running a job.", "tests-shell-busy");
 			return CommandResult.Failure("The shell is busy running a job; wait for it to finish and retry.");
 		}
 

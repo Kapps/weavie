@@ -250,7 +250,7 @@ public sealed partial class HostCore {
 			} catch (Exception ex) {
 				Console.WriteLine($"[weavie] worktree setup command failed to run: {ex}");
 				_ui.Post(() => Notify(
-					"error", $"Worktree setup for '{WorktreeLabel(worktreePath)}' couldn't run: {ex.Message}"));
+					"warn", $"Worktree setup for '{WorktreeLabel(worktreePath)}' couldn't run: {ex.Message}"));
 			}
 		});
 	}
@@ -280,7 +280,7 @@ public sealed partial class HostCore {
 					? $"Worktree '{label}' is ready."
 					: $"Worktree '{label}' cleaned up.");
 			} else {
-				Notify("error", $"Worktree {phase} command failed (exit {result.ExitCode}) — see console.");
+				Notify("warn", $"Worktree {phase} command failed (exit {result.ExitCode}) — see console.");
 			}
 		});
 	}

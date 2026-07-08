@@ -155,7 +155,7 @@ describe("runCommandWithFeedback", () => {
       error: "No active session.",
     } as unknown as CommandResult;
     await reg.runCommandWithFeedback("core.fail");
-    expect(env.notified).toEqual([{ level: "error", message: "No active session." }]);
+    expect(env.notified).toEqual([{ level: "warn", message: "No active session." }]);
   });
 });
 

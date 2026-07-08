@@ -45,6 +45,19 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Start_DoesNotSurfaceInternalLifecycleCards() {
+		var events = new CapturingAgentEventSink();
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		Assert.DoesNotContain(messages, message => message.Type == "process-started");
+		Assert.DoesNotContain(messages, message => message.Type == "thread-ready");
+	}
+
+	[Fact]
 	public async Task ThreadResume_SendsWeavieDeveloperInstructions() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
@@ -71,7 +84,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
 
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "thread-ready"));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
 		Assert.False(threads.Resolve(_dir).Resume);
 
@@ -103,7 +116,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "thread-ready"));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
 		session.SubmitPrompt("approval");
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
@@ -141,7 +154,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "thread-ready"));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
 		session.SubmitPrompt("unsupported");
 		await WaitForAsync(() => messages.Any(message => message.ItemType == "item/tool/call"));
@@ -158,7 +171,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "thread-ready"));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
 		session.AttachImage(Path.Combine(_dir, "paste-1.png"));
 		Assert.False(File.Exists(Path.Combine(_dir, "image-turn.json")));

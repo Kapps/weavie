@@ -151,6 +151,19 @@ internal static class CodexPaneMessages {
 
 		string name = parameters.GetStringOrEmpty("name");
 		string error = parameters.GetStringOrEmpty("error");
+		if (string.Equals(name, "github", StringComparison.OrdinalIgnoreCase)
+			&& error.Contains("CODEX_GITHUB_PERSONAL_ACCESS_TOKEN", StringComparison.Ordinal)) {
+			return new AgentPaneMessage {
+				Type = "warning",
+				ProviderId = "codex",
+				ThreadId = parameters.GetStringOrEmpty("threadId"),
+				Summary = "GitHub MCP is not authenticated",
+				Text = "Set CODEX_GITHUB_PERSONAL_ACCESS_TOKEN or disable the Codex github MCP server.",
+				Status = "failed",
+				PayloadJson = root.GetRawText(),
+			};
+		}
+
 		return new AgentPaneMessage {
 			Type = "warning",
 			ProviderId = "codex",

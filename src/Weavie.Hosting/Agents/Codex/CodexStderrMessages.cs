@@ -8,7 +8,12 @@ namespace Weavie.Hosting.Agents.Codex;
 internal static class CodexStderrMessages {
 	public static bool TryFromLine(string line, string? threadId, out AgentPaneMessage message) {
 		ArgumentNullException.ThrowIfNull(line);
-		string text = StripPrefix(line);
+		string text = StripAnsi(StripPrefix(line));
+		if (IsDuplicateMcpAuthFailure(text)) {
+			message = null!;
+			return false;
+		}
+
 		if (TryFromStructuredLog(text, threadId, out message)) {
 			return true;
 		}
@@ -56,6 +61,28 @@ internal static class CodexStderrMessages {
 		const string prefix = "[codex-app-server] ";
 		return line.StartsWith(prefix, StringComparison.Ordinal) ? line[prefix.Length..] : line;
 	}
+
+	private static string StripAnsi(string text) {
+		char[] result = new char[text.Length];
+		int length = 0;
+		for (int i = 0; i < text.Length; i++) {
+			if (text[i] == '\u001b' && i + 1 < text.Length && text[i + 1] == '[') {
+				i += 2;
+				while (i < text.Length && !char.IsLetter(text[i])) {
+					i++;
+				}
+				continue;
+			}
+
+			result[length++] = text[i];
+		}
+
+		return new string(result, 0, length);
+	}
+
+	private static bool IsDuplicateMcpAuthFailure(string text) =>
+		text.Contains("api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/", StringComparison.OrdinalIgnoreCase)
+		&& text.Contains("No access token was provided", StringComparison.OrdinalIgnoreCase);
 
 	private static AgentPaneMessage Error(string? threadId, string summary, string? text) =>
 		ErrorWithPayload(threadId, summary, text, null);

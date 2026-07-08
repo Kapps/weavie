@@ -23,14 +23,7 @@ internal sealed class CodexHookIntegration : ICodexHookIntegration {
 		Environment = new Dictionary<string, string>(StringComparer.Ordinal) {
 			[HookProtocol.PipeEnvVar] = pipe,
 		};
-		StartupMessages = [
-			new AgentPaneMessage {
-				Type = "warning",
-				ProviderId = "codex",
-				Status = "warning",
-				Text = "Codex hook observation is active. Weavie blocks startup if Codex reports any enabled, untrusted, non-Weavie hook before the session starts.",
-			},
-		];
+		StartupMessages = [];
 	}
 
 	public IReadOnlyList<string> GlobalArguments { get; }

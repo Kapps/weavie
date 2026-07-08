@@ -27,4 +27,14 @@ public sealed class CodexStderrMessagesTests {
 		Assert.Equal("No access token was provided", message.Text);
 		Assert.Equal("thread_1", message.ThreadId);
 	}
+
+	[Fact]
+	public void TryFromLine_DropsDuplicateGitHubMcpAuthFailure() {
+		bool emitted = CodexStderrMessages.TryFromLine(
+			"[codex-app-server] \u001b[2m2026-07-08T02:15:38Z\u001b[0m \u001b[31mERROR\u001b[0m mcp::transport::worker: worker quit with fatal: Transport channel closed, when AuthRequired(AuthRequiredError { www_authenticate_header: \"Bearer error=\\\"invalid_request\\\", error_description=\\\"No access token was provided in this request\\\", resource_metadata=\\\"https://api.githubcopilot.com/.well-known/oauth-protected-resource/mcp/\\\"\" })",
+			"thread_1",
+			out _);
+
+		Assert.False(emitted);
+	}
 }

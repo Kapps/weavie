@@ -90,4 +90,17 @@ public sealed class CodexPaneMessagesTests {
 		Assert.Equal("MCP server 'github' failed", message.Summary);
 		Assert.Equal("No access token was provided", message.Text);
 	}
+
+	[Fact]
+	public void FromNotification_CompactsGitHubMcpTokenFailure() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"mcpServer/startupStatus/updated","params":{"name":"github","status":"failed","error":"GitHub MCP does not support OAuth. bearer_token_env_var = CODEX_GITHUB_PERSONAL_ACCESS_TOKEN"}}""");
+
+		var message = CodexPaneMessages.FromNotification("mcpServer/startupStatus/updated", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("warning", message.Type);
+		Assert.Equal("GitHub MCP is not authenticated", message.Summary);
+		Assert.Equal("Set CODEX_GITHUB_PERSONAL_ACCESS_TOKEN or disable the Codex github MCP server.", message.Text);
+	}
 }

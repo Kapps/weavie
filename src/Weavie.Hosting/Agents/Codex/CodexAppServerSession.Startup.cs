@@ -33,11 +33,6 @@ public sealed partial class CodexAppServerSession {
 		}
 		_pendingRequests.Clear();
 
-		Emit(new AgentPaneMessage {
-			Type = "process-started",
-			ProviderId = "codex",
-			Status = attempt == 0 ? "starting" : "restarting",
-		});
 		foreach (var message in _hooks.StartupMessages) {
 			Emit(message);
 		}
@@ -98,12 +93,6 @@ public sealed partial class CodexAppServerSession {
 			_threadId = threadId;
 		}
 
-		Emit(new AgentPaneMessage {
-			Type = "thread-ready",
-			ProviderId = "codex",
-			ThreadId = threadId,
-			Status = "ready",
-		});
 		FlushPendingInputs();
 	}
 }

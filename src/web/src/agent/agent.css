@@ -145,7 +145,7 @@
 }
 
 .agent-entry-message.agent-tone-assistant + .agent-entry-message.agent-tone-assistant {
-  margin-top: 4px;
+  margin-top: 10px;
 }
 
 .agent-entry-message.agent-tone-assistant .agent-entry-text {

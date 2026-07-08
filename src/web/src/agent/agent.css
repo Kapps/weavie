@@ -234,14 +234,6 @@
   color: var(--dim);
 }
 
-.agent-entry-failure {
-  margin: 3px 0 0;
-  color: color-mix(in srgb, var(--bad) 78%, var(--fg));
-  font: inherit;
-  overflow-wrap: break-word;
-  white-space: pre-wrap;
-}
-
 .agent-activity-details summary {
   display: inline-flex;
   gap: 4px;
@@ -272,8 +264,9 @@
 
 .agent-activity-step {
   display: grid;
-  grid-template-columns: minmax(54px, max-content) minmax(0, 1fr);
+  grid-template-columns: minmax(54px, max-content) minmax(0, 1fr) auto;
   gap: 6px;
+  align-items: center;
   min-width: 0;
 }
 
@@ -293,12 +286,16 @@
 }
 
 .agent-activity-step pre {
-  grid-column: 2;
+  grid-column: 2 / -1;
   margin: 0;
   white-space: pre-wrap;
   color: var(--dim);
   font: inherit;
   overflow-wrap: break-word;
+}
+
+.agent-step-actions {
+  justify-self: end;
 }
 
 .agent-input-question {
@@ -324,36 +321,39 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: end;
-  gap: 9px;
-  padding: 5px 8px 6px;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 5px 8px;
   border-top: 1px solid var(--border);
   background:
     linear-gradient(180deg, color-mix(in srgb, var(--bar) 92%, transparent), var(--bar)), var(--bar);
   font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
   font-size: var(--terminal-font-size, 16px);
   font-weight: var(--terminal-font-weight, normal);
-  line-height: 1;
+  line-height: 1.24;
 }
 
 .agent-compose-prompt {
-  padding-bottom: 7px;
   color: var(--accent);
   font-weight: 650;
   user-select: none;
+  white-space: nowrap;
 }
 
 .agent-compose textarea {
-  min-height: 30px;
+  min-height: 26px;
   max-height: 116px;
-  resize: vertical;
+  field-sizing: content;
+  resize: none;
   color: var(--fg);
   background: transparent;
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
-  padding: 6px 0 5px;
+  padding: 3px 0 2px;
   font: inherit;
+  line-height: 1.24;
 }
 
 .agent-compose textarea:focus {
@@ -378,8 +378,8 @@
   margin-top: 7px;
 }
 
-.agent-compose-actions {
-  padding-bottom: 4px;
+.agent-step-actions .agent-approval-actions {
+  justify-content: flex-end;
 }
 
 .agent-compose button,

@@ -51,7 +51,9 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
     upsertStep(activity, update);
   }
 
-  return collapseAssistantUpdates(entries.map((entry) => stripMutable(entry)));
+  return collapseAssistantUpdates(
+    collapseEditLocations(entries.map((entry) => stripMutable(entry))),
+  );
 }
 
 function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<string, string> {
@@ -273,6 +275,59 @@ function collapseAssistantUpdates(entries: AgentTranscriptEntry[]): AgentTranscr
   return output;
 }
 
+function collapseEditLocations(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
+  const output: AgentTranscriptEntry[] = [];
+  let edits: AgentTranscriptEntry[] = [];
+  for (const entry of entries) {
+    if (isEditLocation(entry)) {
+      edits.push(entry);
+      continue;
+    }
+
+    flushEdits(output, edits);
+    edits = [];
+    output.push(entry);
+  }
+
+  flushEdits(output, edits);
+  return output;
+}
+
+function flushEdits(output: AgentTranscriptEntry[], edits: AgentTranscriptEntry[]): void {
+  if (edits.length === 0) {
+    return;
+  }
+
+  if (edits.length === 1) {
+    output.push(edits[0]!);
+    return;
+  }
+
+  output.push({
+    actionMessage: null,
+    details: edits.map((entry) => editStep(entry)),
+    id: `edits-${edits[0]?.id ?? "empty"}`,
+    kind: "activity",
+    label: "Edits",
+    status: null,
+    summary: `edited ${edits.length} files`,
+    text: null,
+    tone: "activity",
+  });
+}
+
+function editStep(entry: AgentTranscriptEntry): AgentActivityStep {
+  const step: AgentActivityStep = {
+    category: "edit",
+    detailText: null,
+    id: `${entry.id}:edit`,
+    label: entry.text ?? entry.summary ?? "edit",
+    status: null,
+    tone: "muted",
+  };
+  return entry.actionMessage === null ? step : { ...step, actionMessage: entry.actionMessage };
+}
+
 function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[]): void {
   const assistantIndexes = group.flatMap((entry, index) =>
     isAssistantMessage(entry) ? [index] : [],
@@ -334,6 +389,10 @@ function isAssistantMessage(entry: AgentTranscriptEntry): boolean {
 
 function isUserMessage(entry: AgentTranscriptEntry): boolean {
   return entry.kind === "message" && entry.tone === "user";
+}
+
+function isEditLocation(entry: AgentTranscriptEntry): boolean {
+  return entry.actionMessage?.type === "edit-location";
 }
 
 function activityPrefix(message: AgentPaneUpdate): string {

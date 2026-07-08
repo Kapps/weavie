@@ -10,6 +10,7 @@ export type AgentTranscriptTone =
   | "warning";
 
 export interface AgentActivityStep {
+  actionMessage?: AgentPaneUpdate;
   category: string;
   detailText: string | null;
   id: string;

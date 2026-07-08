@@ -177,7 +177,6 @@ function TranscriptEntry(props: {
   result: boolean;
   slot: string | null;
 }): JSX.Element {
-  const failure = createMemo(() => failureDetail(props.entry));
   return (
     <article
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
@@ -201,7 +200,6 @@ function TranscriptEntry(props: {
         <Show when={props.entry.text !== null}>
           <pre class="agent-entry-text">{props.entry.text}</pre>
         </Show>
-        <Show when={failure()}>{(text) => <pre class="agent-entry-failure">{text()}</pre>}</Show>
         <Show when={props.entry.details.length > 0}>
           <ActivityDetails entry={props.entry} steps={props.entry.details} />
         </Show>
@@ -238,21 +236,6 @@ function hasActiveTurn(messages: AgentPaneUpdate[]): boolean {
     }
   }
   return active;
-}
-
-function failureDetail(entry: AgentTranscriptEntry): string | null {
-  if (entry.kind !== "activity") {
-    return null;
-  }
-
-  for (let i = entry.details.length - 1; i >= 0; i -= 1) {
-    const step = entry.details[i];
-    if (step !== undefined && step.tone === "failed" && step.detailText !== null) {
-      return step.detailText;
-    }
-  }
-
-  return null;
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {
@@ -293,6 +276,11 @@ function ActivityDetails(props: {
             <div class={`agent-activity-step agent-step-${step.tone}`}>
               <span class="agent-step-status">{step.status ?? "done"}</span>
               <span class="agent-step-label">{step.label}</span>
+              <Show when={step.actionMessage?.type === "edit-location"}>
+                <span class="agent-step-actions">
+                  <EditLocationActions target={step.actionMessage?.text} />
+                </span>
+              </Show>
               <Show when={step.detailText !== null}>
                 <pre>{step.detailText}</pre>
               </Show>
@@ -307,6 +295,10 @@ function ActivityDetails(props: {
 function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
   if (entry.label === "Earlier updates") {
     return `show ${count} earlier update${count === 1 ? "" : "s"}`;
+  }
+
+  if (entry.label === "Edits") {
+    return `show ${count} edit${count === 1 ? "" : "s"}`;
   }
 
   return count === 1 ? "history" : `history ${count}`;

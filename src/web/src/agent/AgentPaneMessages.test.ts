@@ -181,6 +181,38 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]?.details[1]?.detailText).toBe("diff --git a/file b/file");
   });
 
+  it("collapses multiple edit locations into one expandable edit group", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "edit-location",
+        providerId: "codex",
+        itemId: "edit-1",
+        text: "src/a.ts:1",
+      },
+      {
+        type: "edit-location",
+        providerId: "codex",
+        itemId: "edit-2",
+        text: "src/b.ts:2",
+      },
+      {
+        type: "edit-location",
+        providerId: "codex",
+        itemId: "edit-3",
+        text: "src/c.ts:3",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.label).toBe("Edits");
+    expect(transcript[0]?.summary).toBe("edited 3 files");
+    expect(transcript[0]?.details.map((step) => [step.label, step.actionMessage?.itemId])).toEqual([
+      ["src/a.ts:1", "edit-1"],
+      ["src/b.ts:2", "edit-2"],
+      ["src/c.ts:3", "edit-3"],
+    ]);
+  });
+
   it("collapses earlier assistant narration into expandable updates", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "codex", text: "edit a comment" },

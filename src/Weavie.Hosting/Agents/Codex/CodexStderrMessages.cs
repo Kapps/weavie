@@ -18,14 +18,8 @@ internal static class CodexStderrMessages {
 			return true;
 		}
 
-		if (!text.Contains("ERROR", StringComparison.OrdinalIgnoreCase)
-			&& !text.Contains("fatal:", StringComparison.OrdinalIgnoreCase)) {
-			message = null!;
-			return false;
-		}
-
-		message = Error(threadId, "Codex app-server error", text);
-		return true;
+		message = null!;
+		return false;
 	}
 
 	private static bool TryFromStructuredLog(string text, string? threadId, out AgentPaneMessage message) {
@@ -45,6 +39,11 @@ internal static class CodexStderrMessages {
 			var fields = doc.RootElement.TryGetProperty("fields", out var value) ? value : default;
 			string summary = fields.GetStringOrEmpty("message");
 			string error = fields.GetStringOrEmpty("error");
+			if (error.StartsWith("Exit code:", StringComparison.OrdinalIgnoreCase)) {
+				message = null!;
+				return false;
+			}
+
 			message = ErrorWithPayload(
 				threadId,
 				summary.Length == 0 ? "Codex app-server error" : summary,

@@ -30,12 +30,10 @@ describe("toVisibleAgentMessages", () => {
     const visible = toVisibleAgentMessages(messages);
 
     expect(visible.map((message) => [message.displayType, message.displayStatus])).toEqual([
-      ["Command", "completed"],
-      ["Codex", "completed"],
+      ["Codex", null],
     ]);
-    expect(visible[0]?.displaySummary).toBe("git status --short --branch");
-    expect(visible[1]?.displaySummary).toBeNull();
-    expect(visible[1]?.displayText).toBe("You're on branch `test/codex-4`.");
+    expect(visible[0]?.displaySummary).toBeNull();
+    expect(visible[0]?.displayText).toBe("You're on branch `test/codex-4`.");
   });
 
   it("resolves approval cards in place", () => {
@@ -55,7 +53,7 @@ describe("toVisibleAgentMessages", () => {
     expect(visible[0]?.displayStatus).toBe("accepted");
   });
 
-  it("replaces started items with their completed item", () => {
+  it("hides successful completed items after replacing their started card", () => {
     const visible = toVisibleAgentMessages([
       {
         type: "item-started",
@@ -75,7 +73,45 @@ describe("toVisibleAgentMessages", () => {
       },
     ]);
 
+    expect(visible).toHaveLength(0);
+  });
+
+  it("keeps failed completed items", () => {
+    const visible = toVisibleAgentMessages([
+      {
+        type: "item-started",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git diff --check",
+        status: "inProgress",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git diff --check",
+        status: "failed",
+      },
+    ]);
+
     expect(visible).toHaveLength(1);
-    expect(visible[0]?.displayStatus).toBe("completed");
+    expect(visible[0]?.displayStatus).toBe("failed");
+    expect(visible[0]?.displaySummary).toBe("git diff --check");
+  });
+
+  it("hides turn diffs and file patch protocol cards", () => {
+    const visible = toVisibleAgentMessages([
+      { type: "turn-diff", providerId: "codex", text: "diff --git a/file b/file" },
+      {
+        type: "file-patch-updated",
+        providerId: "codex",
+        itemId: "patch-1",
+        summary: "src/App.cs",
+      },
+    ]);
+
+    expect(visible).toHaveLength(0);
   });
 });

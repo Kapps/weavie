@@ -49,10 +49,13 @@ function isHiddenMessage(message: AgentPaneUpdate, completedItems: ReadonlySet<s
   return (
     message.type === "draft" ||
     message.type === "status" ||
+    message.type === "file-patch-updated" ||
+    message.type === "turn-diff" ||
     message.type === "turn-started" ||
     message.type === "turn-completed" ||
     message.type === "turn-interrupted" ||
     (message.type === "item-started" && hasItemId(message) && completedItems.has(message.itemId)) ||
+    isQuietCompletedItem(message) ||
     isResolutionMessage(message)
   );
 }
@@ -71,10 +74,22 @@ function isResolutionMessage(message: AgentPaneUpdate): boolean {
   return message.type === "approval-resolved" || message.type === "input-resolved";
 }
 
+function isQuietCompletedItem(message: AgentPaneUpdate): boolean {
+  return (
+    message.type === "item-completed" &&
+    message.itemType !== "agentMessage" &&
+    normalizeStatus(message.status) === "completed"
+  );
+}
+
 function displayStatus(
   message: AgentPaneUpdate,
   resolved: ReadonlyMap<string, string>,
 ): string | null {
+  if (message.itemType === "agentMessage" && normalizeStatus(message.status) === "completed") {
+    return null;
+  }
+
   if (hasItemId(message)) {
     return resolved.get(message.itemId) ?? normalizeStatus(message.status);
   }

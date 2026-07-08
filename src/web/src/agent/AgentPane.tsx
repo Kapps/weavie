@@ -12,8 +12,10 @@ export function AgentPane(props: {
   shortcut: string;
   onFocus: () => void;
 }): JSX.Element {
+  let bodyRef: HTMLDivElement | undefined;
   const [draft, setDraft] = createSignal("");
   const [lastDraftIndex, setLastDraftIndex] = createSignal(-1);
+  const [stickToBottom, setStickToBottom] = createSignal(true);
   const pendingImages = createMemo(() =>
     props.messages.reduce((count, message) => {
       if (message.type !== "user-image") {
@@ -30,6 +32,22 @@ export function AgentPane(props: {
   );
   const visibleMessages = createMemo(() => toVisibleAgentMessages(props.messages));
 
+  const isNearBottom = (): boolean => {
+    if (bodyRef === undefined) {
+      return true;
+    }
+
+    return bodyRef.scrollHeight - bodyRef.scrollTop - bodyRef.clientHeight <= 96;
+  };
+
+  const scrollToBottom = (): void => {
+    queueMicrotask(() => {
+      if (bodyRef !== undefined) {
+        bodyRef.scrollTop = bodyRef.scrollHeight;
+      }
+    });
+  };
+
   createEffect(() => {
     const messages = props.messages;
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -39,6 +57,13 @@ export function AgentPane(props: {
         setDraft(message.text ?? "");
         break;
       }
+    }
+  });
+
+  createEffect(() => {
+    visibleMessages();
+    if (stickToBottom()) {
+      scrollToBottom();
     }
   });
 
@@ -72,7 +97,7 @@ export function AgentPane(props: {
         <span class="pane-label">{props.providerId === "codex" ? "Codex" : "Agent"}</span>
         <span class="pane-shortcut">{props.shortcut}</span>
       </div>
-      <div class="agent-body">
+      <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isNearBottom())}>
         <For each={visibleMessages()}>
           {(message) => (
             <article class={`agent-card agent-card-${message.type}`}>

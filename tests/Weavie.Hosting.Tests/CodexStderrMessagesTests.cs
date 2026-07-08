@@ -37,4 +37,24 @@ public sealed class CodexStderrMessagesTests {
 
 		Assert.False(emitted);
 	}
+
+	[Fact]
+	public void TryFromLine_DropsPlainTextCommandStderr() {
+		bool emitted = CodexStderrMessages.TryFromLine(
+			"[codex-app-server] --check warn if changes introduce conflict markers or whitespace errors",
+			"thread_1",
+			out _);
+
+		Assert.False(emitted);
+	}
+
+	[Fact]
+	public void TryFromLine_DropsStructuredCommandExitNoise() {
+		bool emitted = CodexStderrMessages.TryFromLine(
+			"""[codex-app-server] {"level":"ERROR","fields":{"message":"tool failed","error":"Exit code:1"}}""",
+			"thread_1",
+			out _);
+
+		Assert.False(emitted);
+	}
 }

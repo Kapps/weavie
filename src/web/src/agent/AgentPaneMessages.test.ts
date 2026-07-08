@@ -114,7 +114,35 @@ describe("toAgentTranscript", () => {
     expect(transcript).toHaveLength(1);
     expect(transcript[0]?.tone).toBe("error");
     expect(transcript[0]?.status).toBe("failed");
-    expect(transcript[0]?.summary).toBe("command failed");
+    expect(transcript[0]?.summary).toBe("command failed: git diff --check");
+  });
+
+  it("shows only the latest running step in the activity summary", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-started",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "rg -n agent src/web/src",
+        status: "inProgress",
+      },
+      {
+        type: "item-started",
+        providerId: "codex",
+        itemId: "cmd-2",
+        itemType: "commandExecution",
+        summary: "pnpm verify",
+        status: "inProgress",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.summary).toBe("running command: pnpm verify");
+    expect(transcript[0]?.details.map((step) => step.label)).toEqual([
+      "command rg -n agent src/web/src",
+      "command pnpm verify",
+    ]);
   });
 
   it("compacts patch and diff protocol updates into expandable activity", () => {

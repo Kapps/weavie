@@ -9,16 +9,29 @@ export interface AgentActivitySummary {
 export function summarizeActivity(steps: readonly AgentActivityStep[]): AgentActivitySummary {
   const failed = latestStep(steps, (step) => step.tone === "failed");
   if (failed !== null) {
-    return { status: "failed", summary: `${failed.category} failed`, tone: "error" };
+    return {
+      status: "failed",
+      summary: `${failed.category} failed: ${stepSubject(failed)}`,
+      tone: "error",
+    };
   }
 
   const active = latestStep(steps, (step) => step.tone === "running" || step.tone === "pending");
   if (active !== null) {
     const verb = active.status === "pending" ? "waiting on" : "running";
-    return { status: active.status, summary: `${verb} ${active.category}`, tone: "activity" };
+    return {
+      status: active.status,
+      summary: `${verb} ${active.category}: ${stepSubject(active)}`,
+      tone: "activity",
+    };
   }
 
   return { status: null, summary: completedSummary(steps), tone: "activity" };
+}
+
+function stepSubject(step: AgentActivityStep): string {
+  const prefix = `${step.category} `;
+  return step.label.startsWith(prefix) ? step.label.slice(prefix.length) : step.label;
 }
 
 function latestStep(

@@ -128,7 +128,9 @@ export function AgentPane(props: {
           submit();
         }}
       >
+        <span class="agent-compose-prompt">codex&gt;</span>
         <textarea
+          rows={1}
           value={draft()}
           placeholder="Ask Codex..."
           onInput={(event) => setDraft(event.currentTarget.value)}
@@ -162,13 +164,13 @@ function TranscriptEntry(props: { entry: AgentTranscriptEntry; slot: string | nu
   return (
     <article class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}>
       <div class="agent-entry-mark">{entryMark(props.entry)}</div>
+      <div class="agent-entry-meta">
+        <span class="agent-entry-label">{props.entry.label}</span>
+        <Show when={props.entry.status !== null}>
+          <small>{props.entry.status}</small>
+        </Show>
+      </div>
       <div class="agent-entry-main">
-        <header class="agent-entry-head">
-          <span class="agent-entry-label">{props.entry.label}</span>
-          <Show when={props.entry.status !== null}>
-            <small>{props.entry.status}</small>
-          </Show>
-        </header>
         <Show when={props.entry.summary !== null}>
           <div class="agent-entry-summary">{props.entry.summary}</div>
         </Show>
@@ -208,7 +210,7 @@ function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null 
 function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
   return (
     <details class="agent-activity-details">
-      <summary>{props.steps.length === 1 ? "details" : `${props.steps.length} details`}</summary>
+      <summary>{props.steps.length === 1 ? "history" : `history ${props.steps.length}`}</summary>
       <div class="agent-activity-list">
         <For each={props.steps}>
           {(step) => (
@@ -229,7 +231,7 @@ function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
 function entryMark(entry: AgentTranscriptEntry): string {
   switch (entry.tone) {
     case "assistant":
-      return "*";
+      return "<";
     case "error":
       return "!";
     case "pending":
@@ -238,6 +240,8 @@ function entryMark(entry: AgentTranscriptEntry): string {
       return ">";
     case "warning":
       return "^";
+    case "activity":
+      return "~";
     default:
       return ".";
   }

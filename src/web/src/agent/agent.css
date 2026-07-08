@@ -1,13 +1,20 @@
 .agent-body {
+  position: relative;
   flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
-  padding: 8px 0 10px;
+  padding: 6px 0 8px;
   background:
-    linear-gradient(90deg, color-mix(in srgb, var(--accent) 6%, transparent), transparent 22em),
+    linear-gradient(90deg, color-mix(in srgb, var(--accent) 5%, transparent), transparent 18rem),
+    linear-gradient(
+      90deg,
+      transparent 28px,
+      color-mix(in srgb, var(--border) 60%, transparent) 28px 29px,
+      transparent 29px
+    ),
     var(--bg);
   font:
-    12px / 1.42 "Cascadia Mono",
+    12px / 1.34 "Cascadia Mono",
     "SFMono-Regular",
     Consolas,
     "Liberation Mono",
@@ -15,49 +22,45 @@
 }
 
 .agent-empty {
-  padding: 8px 14px;
+  padding: 8px 12px 8px 38px;
   color: var(--dim);
 }
 
 .agent-entry {
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr);
-  gap: 8px;
-  padding: 2px 12px 3px 6px;
+  grid-template-columns: 18px 126px minmax(0, 1fr);
+  gap: 7px;
+  min-height: 18px;
+  padding: 1px 12px 1px 6px;
   color: var(--fg);
 }
 
-.agent-entry + .agent-entry {
-  margin-top: 1px;
-}
-
 .agent-entry-mark {
-  padding-top: 1px;
   color: var(--dim);
   text-align: right;
   user-select: none;
 }
 
-.agent-entry-main {
-  min-width: 0;
-}
-
-.agent-entry-head {
+.agent-entry-meta {
   display: flex;
   align-items: baseline;
-  gap: 7px;
-  min-height: 17px;
+  gap: 5px;
+  min-width: 0;
   color: var(--dim);
+  white-space: nowrap;
 }
 
 .agent-entry-label {
-  color: color-mix(in srgb, var(--fg) 72%, var(--dim));
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--fg) 66%, var(--dim));
   font-weight: 650;
   letter-spacing: 0.01em;
+  text-overflow: ellipsis;
   text-transform: lowercase;
 }
 
-.agent-entry-head small,
+.agent-entry-meta small,
 .agent-step-status {
   color: var(--dim);
   font-size: 10px;
@@ -65,10 +68,13 @@
   text-transform: lowercase;
 }
 
+.agent-entry-main {
+  min-width: 0;
+}
+
 .agent-entry-summary,
-.agent-entry-text,
-.agent-activity-details {
-  max-width: 120ch;
+.agent-entry-text {
+  max-width: 150ch;
 }
 
 .agent-entry-summary {
@@ -84,22 +90,42 @@
   overflow-wrap: anywhere;
 }
 
+.agent-entry-summary + .agent-entry-text {
+  margin-top: 1px;
+  color: color-mix(in srgb, var(--fg) 84%, var(--dim));
+}
+
 .agent-entry-activity {
-  color: var(--dim);
+  opacity: 0.78;
+}
+
+.agent-entry-activity .agent-entry-main {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  flex-wrap: wrap;
 }
 
 .agent-entry-activity .agent-entry-summary {
   color: var(--dim);
 }
 
+.agent-entry-activity .agent-entry-meta small {
+  display: none;
+}
+
 .agent-entry-request,
 .agent-entry-notice.agent-tone-error,
 .agent-entry-notice.agent-tone-warning {
-  margin: 4px 8px 4px 0;
-  padding-top: 6px;
-  padding-bottom: 7px;
+  margin: 2px 8px 2px 0;
+  padding-top: 4px;
+  padding-bottom: 4px;
   border-left: 2px solid var(--accent);
-  background: color-mix(in srgb, var(--bar) 72%, transparent);
+  background: linear-gradient(
+    90deg,
+    color-mix(in srgb, var(--bar) 82%, transparent),
+    transparent 72%
+  );
 }
 
 .agent-entry-request {
@@ -141,14 +167,13 @@
 }
 
 .agent-activity-details {
-  margin-top: 1px;
   color: var(--dim);
 }
 
 .agent-activity-details summary {
   display: inline-flex;
   gap: 5px;
-  color: color-mix(in srgb, var(--dim) 82%, transparent);
+  color: color-mix(in srgb, var(--dim) 78%, transparent);
   cursor: pointer;
   list-style: none;
 }
@@ -159,7 +184,10 @@
 
 .agent-activity-details summary::before {
   content: ">";
-  color: var(--dim);
+}
+
+.agent-activity-details[open] {
+  flex-basis: 100%;
 }
 
 .agent-activity-details[open] summary::before {
@@ -169,14 +197,15 @@
 .agent-activity-list {
   display: grid;
   gap: 1px;
+  width: min(100%, 132ch);
   margin-top: 2px;
-  padding-left: 14px;
+  padding-left: 12px;
   border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
 }
 
 .agent-activity-step {
   display: grid;
-  grid-template-columns: 52px minmax(0, 1fr);
+  grid-template-columns: 62px minmax(0, 1fr);
   gap: 8px;
   min-width: 0;
 }
@@ -191,7 +220,7 @@
 
 .agent-step-label {
   overflow: hidden;
-  color: color-mix(in srgb, var(--fg) 72%, var(--dim));
+  color: color-mix(in srgb, var(--fg) 70%, var(--dim));
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -206,8 +235,8 @@
 
 .agent-input-question {
   display: grid;
-  gap: 4px;
-  margin-top: 6px;
+  gap: 3px;
+  margin-top: 5px;
 }
 
 .agent-input-question small {
@@ -219,57 +248,73 @@
   color: var(--fg);
   background: var(--bg);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 5px 6px;
+  border-radius: 2px;
+  padding: 4px 5px;
 }
 
 .agent-compose {
   flex: 0 0 auto;
-  display: flex;
-  gap: 8px;
-  padding: 7px 8px;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 9px;
+  padding: 5px 8px 6px;
   border-top: 1px solid var(--border);
-  background: var(--bar);
-}
-
-.agent-compose textarea {
-  flex: 1 1 auto;
-  min-height: 40px;
-  max-height: 120px;
-  resize: vertical;
-  color: var(--fg);
-  background: #000;
-  border: 1px solid var(--border);
-  border-radius: 4px;
-  padding: 7px;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bar) 92%, transparent), var(--bar)), var(--bar);
   font:
-    12px / 1.4 "Cascadia Mono",
+    12px / 1.34 "Cascadia Mono",
     "SFMono-Regular",
     Consolas,
     "Liberation Mono",
     monospace;
 }
 
+.agent-compose-prompt {
+  padding-bottom: 7px;
+  color: var(--accent);
+  font-weight: 650;
+  user-select: none;
+}
+
+.agent-compose textarea {
+  min-height: 30px;
+  max-height: 116px;
+  resize: vertical;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 6px 0 5px;
+  font: inherit;
+}
+
 .agent-compose textarea:focus {
-  outline: 1px solid var(--accent);
-  outline-offset: 0;
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 1px 0 var(--accent);
 }
 
 .agent-compose-actions,
 .agent-approval-actions {
   display: flex;
   align-items: center;
-  gap: 7px;
+  gap: 6px;
   flex-wrap: wrap;
+}
+
+.agent-compose-actions {
+  padding-bottom: 4px;
 }
 
 .agent-compose button,
 .agent-approval-actions button {
   color: var(--fg);
-  background: color-mix(in srgb, var(--bar) 82%, white);
+  background: color-mix(in srgb, var(--bar) 84%, white);
   border: 1px solid var(--border);
-  border-radius: 3px;
-  padding: 4px 8px;
+  border-radius: 2px;
+  padding: 3px 7px;
   font: inherit;
   cursor: pointer;
 }
@@ -281,5 +326,5 @@
 
 .agent-compose button:disabled {
   cursor: default;
-  opacity: 0.55;
+  opacity: 0.5;
 }

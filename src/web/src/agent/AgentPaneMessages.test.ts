@@ -30,10 +30,10 @@ describe("toAgentTranscript", () => {
     const transcript = toAgentTranscript(messages);
 
     expect(transcript.map((entry) => [entry.kind, entry.label, entry.status])).toEqual([
-      ["activity", "Working", "completed"],
+      ["activity", "Working", null],
       ["message", "Codex", null],
     ]);
-    expect(transcript[0]?.summary).toBe("cmd git status --short --branch");
+    expect(transcript[0]?.summary).toBe("1 command");
     expect(transcript[0]?.details).toHaveLength(1);
     expect(transcript[1]?.text).toBe("You're on branch `test/codex-4`.");
   });
@@ -77,13 +77,14 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript).toHaveLength(1);
-    expect(transcript[0]?.summary).toBe("cmd git status");
-    expect(transcript[0]?.status).toBe("completed");
+    expect(transcript[0]?.summary).toBe("1 command");
+    expect(transcript[0]?.status).toBeNull();
     expect(transcript[0]?.details).toEqual([
       {
+        category: "command",
         detailText: null,
         id: "cmd-1",
-        label: "cmd git status",
+        label: "command git status",
         status: "completed",
         tone: "muted",
       },
@@ -113,7 +114,7 @@ describe("toAgentTranscript", () => {
     expect(transcript).toHaveLength(1);
     expect(transcript[0]?.tone).toBe("error");
     expect(transcript[0]?.status).toBe("failed");
-    expect(transcript[0]?.summary).toBe("cmd git diff --check");
+    expect(transcript[0]?.summary).toBe("command failed");
   });
 
   it("compacts patch and diff protocol updates into expandable activity", () => {
@@ -128,9 +129,9 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript).toHaveLength(1);
-    expect(transcript[0]?.summary).toBe("patch src/App.cs");
+    expect(transcript[0]?.summary).toBe("1 edit");
     expect(transcript[0]?.details.map((step) => [step.label, step.status])).toEqual([
-      ["patch src/App.cs", "updated"],
+      ["edit src/App.cs", "updated"],
       ["diff ready", "ready"],
     ]);
     expect(transcript[0]?.details[1]?.detailText).toBe("diff --git a/file b/file");

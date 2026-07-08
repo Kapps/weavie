@@ -49,6 +49,16 @@ public sealed class CodexStderrMessagesTests {
 	}
 
 	[Fact]
+	public void TryFromLine_DropsPlainTextCommandExitLogs() {
+		bool emitted = CodexStderrMessages.TryFromLine(
+			"[codex-app-server] 2026-07-08T05:01:56Z ERROR codex_core::tools::router: error=Exit code:1",
+			"thread_1",
+			out _);
+
+		Assert.False(emitted);
+	}
+
+	[Fact]
 	public void TryFromLine_DropsStructuredCommandExitNoise() {
 		bool emitted = CodexStderrMessages.TryFromLine(
 			"""[codex-app-server] {"level":"ERROR","fields":{"message":"tool failed","error":"Exit code:1"}}""",

@@ -48,7 +48,7 @@ async function resolveWorkerUrl(
         const res = await getOverAgent(`${control}/backend?token=${token}`, agent);
         if (res.status >= 200 && res.status < 300) {
           const body = JSON.parse(res.body) as { url?: string; status?: string };
-          if (body.url && body.status !== "failed") {
+          if (body.url && body.status === "running") {
             return body.url;
           }
         }

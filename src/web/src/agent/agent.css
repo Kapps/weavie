@@ -158,12 +158,12 @@
 }
 
 .agent-activity-details summary::before {
-  content: "▸";
+  content: ">";
   color: var(--dim);
 }
 
 .agent-activity-details[open] summary::before {
-  content: "▾";
+  content: "v";
 }
 
 .agent-activity-list {

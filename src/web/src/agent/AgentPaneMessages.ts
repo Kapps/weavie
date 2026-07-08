@@ -1,4 +1,12 @@
 import type { AgentPaneUpdate } from "../bridge";
+import { summarizeActivity } from "./AgentPaneActivitySummary";
+import {
+  displayStatus,
+  hasItemId,
+  isResolutionMessage,
+  normalizeStatus,
+  normalizeText,
+} from "./AgentPaneMessageFormat";
 import type {
   AgentActivityStep,
   AgentTranscriptEntry,
@@ -128,7 +136,7 @@ function actionMessage(message: AgentPaneUpdate): AgentPaneUpdate | null {
 function activityStep(message: AgentPaneUpdate): ActivityStepUpdate | null {
   switch (message.type) {
     case "file-patch-updated":
-      return promotedStep(message, "patch", message.summary, "updated", "muted");
+      return promotedStep(message, "edit", message.summary, "updated", "muted");
     case "item-completed":
       return message.itemType === "agentMessage"
         ? null
@@ -150,36 +158,37 @@ function activityStep(message: AgentPaneUpdate): ActivityStepUpdate | null {
 
 function promotedStep(
   message: AgentPaneUpdate,
-  prefix: string,
+  category: string,
   summary: string | null | undefined,
   status: string | null,
   tone: AgentActivityStep["tone"],
 ): ActivityStepUpdate {
-  return { promote: true, step: step(message, prefix, summary, status, tone) };
+  return { promote: true, step: step(message, category, summary, status, tone) };
 }
 
 function detailStep(
   message: AgentPaneUpdate,
-  prefix: string,
+  category: string,
   summary: string | null | undefined,
   status: string | null,
   tone: AgentActivityStep["tone"],
 ): ActivityStepUpdate {
-  return { promote: false, step: step(message, prefix, summary, status, tone) };
+  return { promote: false, step: step(message, category, summary, status, tone) };
 }
 
 function step(
   message: AgentPaneUpdate,
-  prefix: string,
+  category: string,
   summary: string | null | undefined,
   status: string | null,
   tone: AgentActivityStep["tone"],
 ): AgentActivityStep {
   const normalized = normalizeText(summary);
   return {
+    category,
     detailText: normalizeText(message.text),
-    id: message.itemId ?? `${message.type}:${message.turnId ?? "session"}:${prefix}`,
-    label: normalized === null ? prefix : `${prefix} ${normalized}`,
+    id: message.itemId ?? `${message.type}:${message.turnId ?? "session"}:${category}`,
+    label: normalized === null ? category : `${category} ${normalized}`,
     status,
     tone,
   };
@@ -223,12 +232,14 @@ function upsertStep(activity: MutableActivity, update: ActivityStepUpdate): void
     activity.details[index] = step;
   }
 
-  if (update.promote || activity.latestStepId === null) {
+  if (update.promote) {
     activity.latestStepId = step.id;
-    activity.summary = step.label;
-    activity.status = step.status;
-    activity.tone = step.tone === "failed" ? "error" : "activity";
   }
+
+  const state = summarizeActivity(activity.details);
+  activity.summary = state.summary;
+  activity.status = state.status;
+  activity.tone = state.tone;
 }
 
 function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTranscriptEntry {
@@ -248,7 +259,7 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
 function activityPrefix(message: AgentPaneUpdate): string {
   switch (message.itemType) {
     case "commandExecution":
-      return "cmd";
+      return "command";
     case "dynamicToolCall":
     case "mcpToolCall":
       return "tool";
@@ -257,7 +268,7 @@ function activityPrefix(message: AgentPaneUpdate): string {
     case "webSearch":
       return "search";
     default:
-      return humanize(message.itemType ?? message.type).toLowerCase();
+      return "step";
   }
 }
 
@@ -273,58 +284,4 @@ function stepTone(message: AgentPaneUpdate): AgentActivityStep["tone"] {
     return "running";
   }
   return "muted";
-}
-
-function displayStatus(
-  message: AgentPaneUpdate,
-  resolved: ReadonlyMap<string, string>,
-): string | null {
-  if (hasItemId(message)) {
-    return resolved.get(message.itemId) ?? normalizeStatus(message.status);
-  }
-
-  return normalizeStatus(message.status);
-}
-
-function normalizeStatus(status: string | null | undefined): string | null {
-  switch (status) {
-    case "":
-    case null:
-    case undefined:
-      return null;
-    case "accept":
-      return "accepted";
-    case "acceptForSession":
-      return "accepted for session";
-    case "decline":
-    case "reject":
-      return "denied";
-    case "inProgress":
-      return "running";
-    default:
-      return status;
-  }
-}
-
-function normalizeText(text: string | null | undefined): string | null {
-  if (text === null || text === undefined || text.length === 0) {
-    return null;
-  }
-
-  return text;
-}
-
-function hasItemId(message: AgentPaneUpdate): message is AgentPaneUpdate & { itemId: string } {
-  return message.itemId !== null && message.itemId !== undefined && message.itemId.length > 0;
-}
-
-function isResolutionMessage(message: AgentPaneUpdate): boolean {
-  return message.type === "approval-resolved" || message.type === "input-resolved";
-}
-
-function humanize(value: string): string {
-  return value
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/[-_/]+/g, " ")
-    .replace(/^./, (first) => first.toUpperCase());
 }

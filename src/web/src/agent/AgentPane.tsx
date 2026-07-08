@@ -14,6 +14,7 @@ export function AgentPane(props: {
   onFocus: () => void;
 }): JSX.Element {
   let bodyRef: HTMLDivElement | undefined;
+  let scrollScheduled = false;
   const [draft, setDraft] = createSignal("");
   const [lastDraftIndex, setLastDraftIndex] = createSignal(-1);
   const [stickToBottom, setStickToBottom] = createSignal(true);
@@ -38,11 +39,18 @@ export function AgentPane(props: {
       return true;
     }
 
-    return bodyRef.scrollHeight - bodyRef.scrollTop - bodyRef.clientHeight <= 96;
+    const distance = bodyRef.scrollHeight - bodyRef.scrollTop - bodyRef.clientHeight;
+    return distance <= Math.max(160, bodyRef.clientHeight * 0.18);
   };
 
   const scrollToBottom = (): void => {
-    queueMicrotask(() => {
+    if (scrollScheduled) {
+      return;
+    }
+
+    scrollScheduled = true;
+    requestAnimationFrame(() => {
+      scrollScheduled = false;
       if (bodyRef !== undefined) {
         bodyRef.scrollTop = bodyRef.scrollHeight;
       }
@@ -74,6 +82,9 @@ export function AgentPane(props: {
     if (slot === null || (prompt.length === 0 && pendingImages() === 0)) {
       return;
     }
+    if (isNearBottom()) {
+      setStickToBottom(true);
+    }
     setDraft("");
     postToHost({ type: "agent-submit", slot, prompt });
   };
@@ -102,7 +113,7 @@ export function AgentPane(props: {
         <Show
           when={transcript().length > 0}
           fallback={
-            <div class="agent-empty">codex is idle — ask for a plan, a change, or a review.</div>
+            <div class="agent-empty">codex is idle - ask for a plan, a change, or a review.</div>
           }
         >
           <For each={transcript()}>
@@ -119,7 +130,7 @@ export function AgentPane(props: {
       >
         <textarea
           value={draft()}
-          placeholder="Ask Codex…"
+          placeholder="Ask Codex..."
           onInput={(event) => setDraft(event.currentTarget.value)}
           onPaste={(event) => {
             const slot = props.slot;
@@ -197,7 +208,7 @@ function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null 
 function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
   return (
     <details class="agent-activity-details">
-      <summary>{props.steps.length === 1 ? "1 step" : `${props.steps.length} steps`}</summary>
+      <summary>{props.steps.length === 1 ? "details" : `${props.steps.length} details`}</summary>
       <div class="agent-activity-list">
         <For each={props.steps}>
           {(step) => (
@@ -218,16 +229,16 @@ function ActivityDetails(props: { steps: AgentActivityStep[] }): JSX.Element {
 function entryMark(entry: AgentTranscriptEntry): string {
   switch (entry.tone) {
     case "assistant":
-      return "◆";
+      return "*";
     case "error":
       return "!";
     case "pending":
       return "?";
     case "user":
-      return "›";
+      return ">";
     case "warning":
-      return "△";
+      return "^";
     default:
-      return "·";
+      return ".";
   }
 }

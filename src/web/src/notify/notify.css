@@ -101,6 +101,28 @@
   --toast-accent: #cca700;
 }
 
+.toast-busy {
+  --toast-accent: var(--accent);
+}
+
+/* Leading spinner on an in-flight `busy` toast; reuses the global weavie-spin keyframes (session-rail.css). */
+.toast-spinner {
+  flex: 0 0 auto;
+  width: 12px;
+  height: 12px;
+  margin-top: 2px;
+  border: 2px solid color-mix(in srgb, var(--toast-accent) 35%, transparent);
+  border-top-color: var(--toast-accent);
+  border-radius: 50%;
+  animation: weavie-spin 0.7s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-spinner {
+    animation: none;
+  }
+}
+
 .toast-msg {
   flex: 1 1 auto;
   word-break: break-word;

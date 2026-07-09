@@ -555,6 +555,7 @@ export type WebBoundMessage =
   // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"
   // info clearing the lingering "settings malformed" error).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string; key?: string }
+  | { type: "notify-clear"; key: string }
   // Update drain state (docs/specs/runner-auto-update.md): what's holding a pending update restart
   // (re-pushed on every change, and on `ready` for a tab that connected mid-drain)…
   | {

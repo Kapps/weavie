@@ -29,11 +29,12 @@ internal static class ControlApi {
 
 		// Ensure the workspace backend is running and return its connect URL + status (+ the updater's state,
 		// which the picker page renders — runner staleness and a rollback must be visible where the user is).
-		app.MapGet("/backend", (HttpContext ctx) => {
+		app.MapGet("/backend", async (HttpContext ctx) => {
 			var backend = backends.Ensure();
+			string status = await backends.StatusAsync(backend).ConfigureAwait(false);
 			return Results.Json(new {
 				url = front.WorkerPageUrl(HostOf(ctx), backend),
-				status = backend.Status,
+				status,
 				workspace = backend.WorkspaceRoot,
 				update = updateStatus(),
 			});

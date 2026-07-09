@@ -1,0 +1,404 @@
+.agent-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 0;
+  background:
+    radial-gradient(
+      90% 70% at 0% 0%,
+      color-mix(in srgb, var(--accent) 7%, transparent),
+      transparent 58%
+    ),
+    var(--bg);
+  color: var(--fg);
+  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
+  font-size: var(--terminal-font-size, 16px);
+  font-weight: var(--terminal-font-weight, normal);
+  line-height: 1.24;
+}
+
+.agent-empty {
+  width: 100%;
+  margin: 0;
+  padding: 8px 0;
+  color: var(--dim);
+}
+
+.agent-entry {
+  box-sizing: border-box;
+  width: 100%;
+  margin: 0;
+  color: var(--fg);
+}
+
+.agent-entry + .agent-entry {
+  margin-top: 5px;
+}
+
+.agent-entry-head {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  min-width: 0;
+  margin-bottom: 2px;
+  color: var(--dim);
+}
+
+.agent-entry-label {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: color-mix(in srgb, var(--fg) 68%, var(--dim));
+  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.agent-entry-status,
+.agent-step-status {
+  color: var(--dim);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.agent-entry-main {
+  min-width: 0;
+}
+
+.agent-entry-summary,
+.agent-entry-text {
+  max-width: 100%;
+}
+
+.agent-entry-summary {
+  color: color-mix(in srgb, var(--fg) 76%, var(--dim));
+  overflow-wrap: break-word;
+}
+
+.agent-entry-text {
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--fg);
+  font: inherit;
+  overflow-wrap: break-word;
+}
+
+.agent-entry-message.agent-tone-user {
+  margin-top: 9px;
+  margin-bottom: 7px;
+  padding: 7px 9px 8px;
+  border-left: 3px solid var(--accent);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 14%, transparent),
+      color-mix(in srgb, var(--bar) 72%, transparent) 52%,
+      transparent
+    ),
+    color-mix(in srgb, var(--bar) 46%, transparent);
+}
+
+.agent-entry-message.agent-tone-user:first-child {
+  margin-top: 0;
+}
+
+.agent-entry-message.agent-tone-user .agent-entry-head {
+  margin-bottom: 3px;
+}
+
+.agent-entry-message.agent-tone-user .agent-entry-label {
+  color: var(--accent);
+}
+
+.agent-entry-message.agent-tone-user .agent-entry-text {
+  color: color-mix(in srgb, var(--fg) 92%, white);
+}
+
+.agent-entry-message.agent-tone-assistant {
+  padding: 0 8px;
+}
+
+.agent-entry-message.agent-tone-assistant.agent-entry-result {
+  padding: 7px 9px 8px;
+  border-left: 3px solid var(--accent);
+  background:
+    linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--accent) 9%, transparent),
+      color-mix(in srgb, var(--bar) 44%, transparent) 56%,
+      transparent
+    ),
+    color-mix(in srgb, var(--bar) 30%, transparent);
+}
+
+.agent-entry-result .agent-entry-head {
+  margin-bottom: 3px;
+}
+
+.agent-entry-result .agent-entry-label {
+  color: var(--accent);
+}
+
+.agent-entry-message.agent-tone-assistant + .agent-entry-message.agent-tone-assistant {
+  margin-top: 10px;
+}
+
+.agent-entry-message.agent-tone-assistant .agent-entry-text {
+  color: color-mix(in srgb, var(--fg) 91%, var(--dim));
+}
+
+.agent-entry-activity,
+.agent-entry-notice,
+.agent-entry-request {
+  padding: 5px 8px 6px;
+  border: 1px solid color-mix(in srgb, var(--border) 82%, transparent);
+  border-left-width: 3px;
+  background: color-mix(in srgb, var(--bar) 58%, transparent);
+}
+
+.agent-entry-activity {
+  border-left-color: color-mix(in srgb, var(--dim) 78%, transparent);
+  opacity: 0.86;
+}
+
+.agent-entry-activity .agent-entry-summary {
+  color: var(--dim);
+}
+
+.agent-entry-request {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 12%, var(--bar));
+}
+
+.agent-entry-notice.agent-tone-system {
+  border-left-color: var(--accent);
+}
+
+.agent-entry-notice.agent-tone-error {
+  border-left-color: var(--bad);
+  background: color-mix(in srgb, var(--bad) 11%, var(--bar));
+}
+
+.agent-entry-notice.agent-tone-warning {
+  border-left-color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 10%, var(--bar));
+}
+
+.agent-entry-edit {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 3px 6px;
+}
+
+.agent-entry-edit .agent-entry-head {
+  margin: 0;
+}
+
+.agent-entry-edit .agent-entry-main {
+  display: contents;
+}
+
+.agent-entry-edit .agent-entry-summary {
+  display: none;
+}
+
+.agent-entry-edit .agent-entry-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-tone-error .agent-entry-label,
+.agent-step-failed .agent-step-status {
+  color: var(--bad);
+}
+
+.agent-tone-warning .agent-entry-label {
+  color: var(--warn);
+}
+
+.agent-tone-pending .agent-entry-label {
+  color: var(--warn);
+}
+
+.agent-activity-details {
+  margin-top: 3px;
+  color: var(--dim);
+}
+
+.agent-activity-details summary {
+  display: inline-flex;
+  gap: 4px;
+  color: color-mix(in srgb, var(--dim) 78%, transparent);
+  cursor: pointer;
+  list-style: none;
+}
+
+.agent-activity-details summary::-webkit-details-marker {
+  display: none;
+}
+
+.agent-activity-details summary::before {
+  content: ">";
+}
+
+.agent-activity-details[open] summary::before {
+  content: "v";
+}
+
+.agent-activity-list {
+  display: grid;
+  gap: 2px;
+  margin-top: 3px;
+  padding-left: 10px;
+  border-left: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.agent-activity-step {
+  display: grid;
+  grid-template-columns: minmax(54px, max-content) minmax(0, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  min-width: 0;
+}
+
+.agent-step-running .agent-step-status {
+  color: var(--busy);
+}
+
+.agent-step-pending .agent-step-status {
+  color: var(--warn);
+}
+
+.agent-step-label {
+  overflow: hidden;
+  color: color-mix(in srgb, var(--fg) 70%, var(--dim));
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-activity-step pre {
+  grid-column: 2 / -1;
+  margin: 0;
+  white-space: pre-wrap;
+  color: var(--dim);
+  font: inherit;
+  overflow-wrap: break-word;
+}
+
+.agent-step-actions {
+  justify-self: end;
+}
+
+.agent-input-question {
+  display: grid;
+  gap: 3px;
+  margin-top: 5px;
+}
+
+.agent-input-question small {
+  color: var(--dim);
+}
+
+.agent-input-question input,
+.agent-input-question select {
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 4px 5px;
+}
+
+.agent-compose {
+  flex: 0 0 auto;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 5px 8px;
+  border-top: 1px solid var(--border);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--bar) 92%, transparent), var(--bar)), var(--bar);
+  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
+  font-size: var(--terminal-font-size, 16px);
+  font-weight: var(--terminal-font-weight, normal);
+  line-height: 1.24;
+}
+
+.agent-compose-prompt {
+  color: var(--accent);
+  font-weight: 650;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.agent-compose textarea {
+  min-height: 26px;
+  max-height: 116px;
+  field-sizing: content;
+  resize: none;
+  color: var(--fg);
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
+  padding: 3px 0 2px;
+  font: inherit;
+  line-height: 1.24;
+}
+
+.agent-compose textarea:focus {
+  outline: 0;
+  border-color: var(--accent);
+  box-shadow: 0 1px 0 var(--accent);
+}
+
+.agent-compose-actions,
+.agent-approval-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.agent-entry-edit .agent-approval-actions {
+  justify-self: end;
+}
+
+.agent-entry-message.agent-tone-assistant .agent-entry-text + .agent-approval-actions {
+  margin-top: 7px;
+}
+
+.agent-step-actions .agent-approval-actions {
+  justify-content: flex-end;
+}
+
+.agent-compose button,
+.agent-approval-actions button {
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bar) 84%, white);
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  padding: 3px 7px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.agent-compose button:hover,
+.agent-approval-actions button:hover {
+  border-color: var(--accent);
+}
+
+.agent-compose button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}

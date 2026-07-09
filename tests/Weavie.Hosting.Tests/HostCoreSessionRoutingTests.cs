@@ -12,7 +12,7 @@ namespace Weavie.Hosting.Tests;
 /// guard rejects post-switch stragglers, and a switch re-points the LSP at the incoming worktree. Requires
 /// <c>git</c> on PATH.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionRoutingTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 

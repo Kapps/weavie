@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
 using Xunit;
 
@@ -12,7 +13,7 @@ namespace Weavie.Hosting.Tests;
 /// to the primary without breaking startup. This is the regression behind an idle auto-update silently
 /// unloading remote sessions. Requires <c>git</c> on PATH.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSessionRestoreTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 
@@ -64,6 +65,43 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.False(a.GetProperty("loaded").GetBoolean()); // no spurious reload
 		Assert.False(a.GetProperty("active").GetBoolean());
 		Assert.True(PrimaryIsActive(host.Bridge));
+	}
+
+	[Fact]
+	public async Task CodexSession_RestoresAsCodexAfterRestart() {
+		await using var host = await TestHost.StartAsync();
+		var result = await host.Core.NewSessionAsync(new NewSessionRequest {
+			Branch = "codex-branch",
+			Base = "main",
+			AgentProviderId = "codex",
+		}, CancellationToken.None);
+		Assert.True(result.Ok);
+
+		await host.RestartAsync();
+
+		var session = SessionById(host.Bridge, "codex-branch");
+		Assert.Equal("codex", session.GetProperty("providerId").GetString());
+		Assert.True(session.GetProperty("loaded").GetBoolean());
+		Assert.True(session.GetProperty("active").GetBoolean());
+	}
+
+	[Fact]
+	public async Task CodexWorktree_RestoresProvider_WhenSessionOverlayIsMissing() {
+		await using var host = await TestHost.StartAsync();
+		var result = await host.Core.NewSessionAsync(new NewSessionRequest {
+			Branch = "codex-branch",
+			Base = "main",
+			AgentProviderId = "codex",
+		}, CancellationToken.None);
+		Assert.True(result.Ok);
+		string overlay = WeaviePaths.WorkspaceSessionsFile(WorkspaceId.ForPath(host.RepoRoot));
+
+		await host.RestartAsync(() => File.WriteAllText(overlay, """{"version":1,"activeId":null,"sessions":[]}"""));
+
+		var session = SessionById(host.Bridge, "codex-branch");
+		Assert.Equal("codex", session.GetProperty("providerId").GetString());
+		Assert.False(session.GetProperty("loaded").GetBoolean());
+		Assert.False(session.GetProperty("active").GetBoolean());
 	}
 
 	[Fact]

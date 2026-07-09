@@ -36,7 +36,8 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		_runtime = runtime;
 		Server = new McpServer(
 			registry.Credential.Token, presenter, workspaceFolders, ideName, settings: null, registryMode: false,
-			layout: null, editor, commands: null, keybindings: null, themeOverrides: null, currentSessionId: null);
+			exposeIdeTools: true, layout: null, editor, commands: null, keybindings: null,
+			themeOverrides: null, currentSessionId: null);
 		Port = Server.Start();
 		IdeLockFile.Write(Port, workspaceFolders, ideName, registry.Credential.Token);
 		HookBridge = new HookBridgeServer(
@@ -87,12 +88,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 	/// <summary>Writes Claude hook settings and returns their path.</summary>
 	public string WriteSettingsFile() {
 		string relay = RelayBinaryPath();
-		if (!File.Exists(relay)) {
-			throw new InvalidOperationException(
-				$"Hook relay '{RelayBinaryName}' was not found at '{relay}'. "
-				+ "The build co-locates it (see HookRelay.targets); a Release build requires the NativeAOT C++ toolchain.");
-		}
-
+		HookRelayBinary.RequireExists(relay);
 		string directory = WeaviePaths.Internal("hooks");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{Port}.settings.json");
@@ -105,7 +101,7 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		string directory = WeaviePaths.Internal("mcp");
 		Directory.CreateDirectory(directory);
 		string path = Path.Combine(directory, $"weavie-{_registry.Port}.system-prompt.txt");
-		File.WriteAllText(path, EmbeddedClaudeGuidance.Compose(_runtime));
+		File.WriteAllText(path, EmbeddedAgentGuidance.Compose(_runtime));
 		return path;
 	}
 
@@ -116,9 +112,5 @@ public sealed class ClaudeIdeIntegration : IAsyncDisposable {
 		await Server.DisposeAsync().ConfigureAwait(false);
 	}
 
-	private static string RelayBinaryName => OperatingSystem.IsWindows() ? "weavie-hook-relay.exe" : "weavie-hook-relay";
-
-	private static string RelayBinaryPath() =>
-		ManagedRunnerLayout.CurrentRelayPath(AppContext.BaseDirectory, RelayBinaryName)
-		?? Path.Combine(AppContext.BaseDirectory, RelayBinaryName);
+	private static string RelayBinaryPath() => HookRelayBinary.PathIn(AppContext.BaseDirectory);
 }

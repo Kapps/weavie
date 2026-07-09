@@ -8,6 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// and re-emits the trimmed review set, so the now-clean file leaves the review walk. Mirrors the per-hunk
 /// reject + whole-turn undo paths scoped to one path; the underlying restore is covered by SessionChangeTracker.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class TurnRevertTests {
 	[Fact]
 	public async Task RevertFile_RestoresBaseline_AndDropsFileFromReviewSet() {

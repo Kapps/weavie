@@ -10,7 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// and saved, and fetch serves canned Notion API JSON. Proves the whole stack (web message → HostCore →
 /// SourceConnector → validate/save/fetch → toast / source-doc) without the network.
 /// </summary>
-[Collection("host-integration")]
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreSourcesTests {
 	private static string Msg(object value) => JsonSerializer.Serialize(value);
 

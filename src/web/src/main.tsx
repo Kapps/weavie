@@ -7,6 +7,7 @@ import "./fonts.css";
 // per-feature; confirm-dialog.css must precede new-session-prompt.css (the prompt scopes overrides onto it).
 import "./styles.css";
 import "./layout/layout.css";
+import "./agent/agent.css";
 import "./chrome/session-rail.css";
 import "./chrome/context-menu.css";
 import "./editor/editor.css";

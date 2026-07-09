@@ -22,6 +22,9 @@ public enum AgentProviderCapabilities {
 
 	/// <summary>The provider reports its edit disposition.</summary>
 	EditDisposition = 16,
+
+	/// <summary>The provider renders through Weavie's structured native agent pane rather than a PTY.</summary>
+	StructuredPane = 32,
 }
 
 /// <summary>Stable identity and capability metadata for an agent provider.</summary>
@@ -34,6 +37,12 @@ public sealed record AgentProviderInfo {
 
 	/// <summary>The explicitly supported provider features.</summary>
 	public required AgentProviderCapabilities Capabilities { get; init; }
+
+	/// <summary>Whether this provider may be selected for a live session.</summary>
+	public required bool Available { get; init; }
+
+	/// <summary>The user-facing reason this provider is unavailable, when <see cref="Available"/> is false.</summary>
+	public string? UnavailableReason { get; init; }
 }
 
 /// <summary>Required provider-neutral dependencies for one worktree-scoped agent session.</summary>
@@ -61,6 +70,9 @@ public sealed record AgentSessionContext {
 
 	/// <summary>The synchronous normalized event sink.</summary>
 	public required IAgentEventSink Events { get; init; }
+
+	/// <summary>The rail/session id this provider instance belongs to.</summary>
+	public required Func<string> CurrentSessionId { get; init; }
 }
 
 /// <summary>Creates provider sessions without exposing provider protocols to the host composition.</summary>

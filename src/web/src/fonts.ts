@@ -46,11 +46,12 @@ export function onFontsChanged(handler: (config: FontConfig) => void): () => voi
   };
 }
 
-// Publish the editor font size as a :root CSS var so CSS-styled DOM surfaces (the Markdown Preview) can scale
-// to it declaratively, the way chrome/theme vars work — Monaco/xterm instead push the size into their own
-// options. Set now and on every change (it's registered as a subscriber below).
+// Publish CSS font vars so DOM-rendered companions can track Monaco/xterm typography.
 function publishFontVars(config: FontConfig): void {
   document.documentElement.style.setProperty("--editor-font-size", `${config.editor.size}px`);
+  document.documentElement.style.setProperty("--terminal-font-family", config.terminal.family);
+  document.documentElement.style.setProperty("--terminal-font-size", `${config.terminal.size}px`);
+  document.documentElement.style.setProperty("--terminal-font-weight", config.terminal.weight);
 }
 publishFontVars(current);
 subscribers.add(publishFontVars);

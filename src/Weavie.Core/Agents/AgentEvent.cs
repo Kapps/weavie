@@ -1,3 +1,5 @@
+using Weavie.Core.Processes;
+
 namespace Weavie.Core.Agents;
 
 /// <summary>A provider-neutral fact observed from an agent session.</summary>
@@ -5,6 +7,9 @@ public abstract record AgentEvent;
 
 /// <summary>The agent session started or restarted.</summary>
 public sealed record AgentSessionStarted(string? Source) : AgentEvent;
+
+/// <summary>The provider's supervised runtime process changed state.</summary>
+public sealed record AgentProcessChanged(SupervisorStateChanged Change) : AgentEvent;
 
 /// <summary>A user prompt entered the agentic loop.</summary>
 public sealed record AgentPromptSubmitted(string? SessionId) : AgentEvent;
@@ -31,8 +36,14 @@ public abstract record AgentMutation {
 	/// <summary>The tool is not a recognized direct file mutation.</summary>
 	public sealed record None : AgentMutation;
 
+	/// <summary>The tool may mutate files, but the provider did not give per-file paths before it runs.</summary>
+	public sealed record Workspace(string InvocationId) : AgentMutation;
+
 	/// <summary>The tool directly mutates <paramref name="Path"/>, resolved relative to <paramref name="Cwd"/>.</summary>
 	public sealed record File(string Path, string? Cwd, bool ProvidesEditLocation) : AgentMutation;
+
+	/// <summary>The tool directly mutates multiple files.</summary>
+	public sealed record Files(IReadOnlyList<File> Items) : AgentMutation;
 }
 
 /// <summary>A tool is about to run.</summary>

@@ -66,6 +66,21 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = "agent.defaultProvider",
+			Kind = SettingKind.String,
+			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider. "
+				+ "Claude is the default; Codex is selectable only once its native parity gate is available.",
+			Aliases = ["agent provider", "default agent", "new session agent", "provider", "codex provider"],
+			Apply = ApplyMode.NextSession,
+			Default = "claude",
+			Validate = static value => value is string provider
+				&& (string.Equals(provider, "claude", StringComparison.Ordinal)
+					|| string.Equals(provider, "codex", StringComparison.Ordinal))
+				? ValidationResult.Success
+				: ValidationResult.Failure("agent.defaultProvider must be 'claude' or 'codex'."),
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = "claude.path",
 			Kind = SettingKind.Path,
 			Description = "Path to the claude binary (auto-detected when unset).",
@@ -99,6 +114,60 @@ public static class CoreSettings {
 				"bypass permissions", "skip permissions", "auto run commands", "allow all"],
 			Apply = ApplyMode.Live,
 			Default = false,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.path",
+			Kind = SettingKind.Path,
+			Description = "Path to the codex binary used for native Codex app-server sessions. Auto-detected when "
+				+ "unset; set this when the Codex found on PATH cannot launch app-server correctly. Takes effect "
+				+ "on the next Codex session.",
+			Aliases = ["codex", "codex binary", "codex path"],
+			Apply = ApplyMode.NextSession,
+			ComputeDefault = DefaultCodexPath,
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.model",
+			Kind = SettingKind.String,
+			Description = "Model passed to Codex app-server when starting a native Codex thread. Empty means Codex "
+				+ "uses its own configured default. Takes effect on the next Codex session.",
+			Aliases = ["codex model", "codex default model"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.sandbox",
+			Kind = SettingKind.String,
+			Description = "Sandbox mode passed to native Codex sessions: read-only, workspace-write, or "
+				+ "danger-full-access. Takes effect on the next Codex session.",
+			Aliases = ["codex sandbox", "codex permissions sandbox"],
+			Apply = ApplyMode.NextSession,
+			Default = "workspace-write",
+			Validate = static value => value is string mode
+				&& (string.Equals(mode, "read-only", StringComparison.Ordinal)
+					|| string.Equals(mode, "workspace-write", StringComparison.Ordinal)
+					|| string.Equals(mode, "danger-full-access", StringComparison.Ordinal))
+				? ValidationResult.Success
+				: ValidationResult.Failure("codex.sandbox must be read-only, workspace-write, or danger-full-access."),
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.approvalPolicy",
+			Kind = SettingKind.String,
+			Description = "Approval policy passed to native Codex sessions: untrusted, on-failure, on-request, or never. "
+				+ "Takes effect on the next Codex session.",
+			Aliases = ["codex approvals", "codex approval policy", "codex ask approval"],
+			Apply = ApplyMode.NextSession,
+			Default = "on-request",
+			Validate = static value => value is string policy
+				&& (string.Equals(policy, "untrusted", StringComparison.Ordinal)
+					|| string.Equals(policy, "on-request", StringComparison.Ordinal)
+					|| string.Equals(policy, "on-failure", StringComparison.Ordinal)
+					|| string.Equals(policy, "never", StringComparison.Ordinal))
+				? ValidationResult.Success
+				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-failure, on-request, or never."),
 		});
 
 		registry.Register(new SettingDefinition {
@@ -192,4 +261,40 @@ public static class CoreSettings {
 
 		return "claude";
 	}
+
+	/// <summary>The auto-detected Codex binary; Windows avoids the packaged alias because child processes cannot reliably execute it.</summary>
+	private static object? DefaultCodexPath() {
+		if (OperatingSystem.IsWindows()) {
+			string standalone = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile),
+				".codex", "packages", "standalone", "current", "bin", "codex.exe");
+			if (File.Exists(standalone)) {
+				return standalone;
+			}
+
+			string localApp = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+				"Programs", "OpenAI", "Codex", "bin", "codex.exe");
+			if (File.Exists(localApp)) {
+				return localApp;
+			}
+
+			string local = Path.Combine(
+				Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".local", "bin", "codex.exe");
+			if (File.Exists(local)) {
+				return local;
+			}
+		}
+
+		string? onPath = ExecutableFinder.FindOnPath("codex");
+		if (onPath is not null && !IsWindowsAppsAlias(onPath)) {
+			return onPath;
+		}
+
+		return null;
+	}
+
+	private static bool IsWindowsAppsAlias(string path) =>
+		OperatingSystem.IsWindows()
+		&& path.Contains(@"\WindowsApps\", StringComparison.OrdinalIgnoreCase);
 }

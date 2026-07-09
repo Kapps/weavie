@@ -10,8 +10,11 @@ public sealed record NewSessionRequest {
 	/// <summary>The base to branch from: <c>"current"</c> (the active session's HEAD), <c>"main"</c>, or a ref; <c>null</c> ⇒ host default. Ignored when <see cref="AttachExisting"/> is set.</summary>
 	public string? Base { get; init; }
 
-	/// <summary>An optional first prompt to seed into the new session's Claude.</summary>
+	/// <summary>An optional first prompt to seed into the new session's agent.</summary>
 	public string? Prompt { get; init; }
+
+	/// <summary>The provider for this new session; <c>null</c> means the host's default provider setting.</summary>
+	public string? AgentProviderId { get; init; }
 
 	/// <summary>
 	/// When true, <see cref="Branch"/> names an <em>existing</em> branch to check out into a new worktree

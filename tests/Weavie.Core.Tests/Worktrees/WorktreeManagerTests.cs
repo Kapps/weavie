@@ -37,6 +37,16 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task Create_WithProvider_RecordsProvider() {
+		var (manager, registry, _) = NewManager();
+
+		var record = await manager.CreateAsync("feature", "main", "codex");
+
+		Assert.Equal("codex", record.AgentProviderId);
+		Assert.Equal("codex", Assert.Single(registry.Items).AgentProviderId);
+	}
+
+	[Fact]
 	public async Task Create_SlugCollision_AllocatesSuffixedPath() {
 		var (manager, _, _) = NewManager();
 
@@ -82,6 +92,17 @@ public sealed class WorktreeManagerTests {
 	}
 
 	[Fact]
+	public async Task Attach_WithProvider_RecordsProvider() {
+		var (manager, registry, git) = NewManager();
+		git.Branches.Add("feature");
+
+		var record = await manager.AttachAsync("feature", "codex");
+
+		Assert.Equal("codex", record.AgentProviderId);
+		Assert.Equal("codex", Assert.Single(registry.Items).AgentProviderId);
+	}
+
+	[Fact]
 	public async Task Attach_MissingBranch_Throws() {
 		var (manager, _, _) = NewManager();
 
@@ -101,6 +122,18 @@ public sealed class WorktreeManagerTests {
 		Assert.Equal(first.Path, second.Path);
 		Assert.Single(registry.Items);
 		Assert.Equal(worktreeCountAfterFirst, git.Worktrees.Count); // no duplicate git worktree add
+	}
+
+	[Fact]
+	public async Task Attach_AlreadyTracked_PreservesProvider() {
+		var (manager, _, git) = NewManager();
+		git.Branches.Add("feature");
+		var first = await manager.AttachAsync("feature", "codex");
+
+		var second = await manager.AttachAsync("feature", "claude");
+
+		Assert.Equal(first.Path, second.Path);
+		Assert.Equal("codex", second.AgentProviderId);
 	}
 
 	[Fact]

@@ -8,6 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// change leaves the pending diff for good — without touching disk — and re-emit the trimmed review set. The
 /// durability + slicing is covered by SessionChangeTracker; here we assert the host wires the messages through.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class TurnKeepTests {
 	[Fact]
 	public async Task KeepFile_AdvancesBaseline_LeavingFileFadedInReviewSet() {

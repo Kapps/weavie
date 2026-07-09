@@ -1,4 +1,3 @@
-using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
 
@@ -46,12 +45,12 @@ public sealed partial class McpServer {
 		return Encoding.UTF8.GetString(stream.ToArray());
 	}
 
-	private async Task HandlePromptsGetAsync(WebSocket ws, JsonElement root, string? idRaw, CancellationToken ct) {
+	private async Task HandlePromptsGetAsync(IMcpResponder responder, JsonElement root, string? idRaw, CancellationToken ct) {
 		string? name = root.TryGetProperty("params", out var p) && p.TryGetProperty("name", out var n)
 			&& n.ValueKind == JsonValueKind.String ? n.GetString() : null;
 		var prompt = _prompts.FirstOrDefault(candidate => string.Equals(candidate.Name, name, StringComparison.Ordinal));
 		if (prompt is null) {
-			await SendErrorAsync(ws, idRaw, -32602, $"Unknown prompt: {name}", ct).ConfigureAwait(false);
+			await responder.SendErrorAsync(idRaw, -32602, $"Unknown prompt: {name}", ct).ConfigureAwait(false);
 			return;
 		}
 
@@ -71,6 +70,6 @@ public sealed partial class McpServer {
 			writer.WriteEndObject();
 		}
 
-		await SendResultAsync(ws, idRaw, Encoding.UTF8.GetString(stream.ToArray()), ct).ConfigureAwait(false);
+		await responder.SendResultAsync(idRaw, Encoding.UTF8.GetString(stream.ToArray()), ct).ConfigureAwait(false);
 	}
 }

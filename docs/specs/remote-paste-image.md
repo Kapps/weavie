@@ -1,15 +1,16 @@
-# Remote image paste into Claude
+# Remote image paste into agents
 
-Status: **built, verified by tests + the real `claude` TUI.** Covers both entry points: the browser-served
-DOM paste capture and the native-WebView Ctrl/Cmd+V read (see [Native WebView](#native-webview)).
+Status: **built, verified by tests, the real `claude` TUI, and live Codex app-server `localImage`
+acceptance.** Covers browser-served DOM paste capture, native-WebView Ctrl/Cmd+V read, Claude PTY
+delivery, and structured-provider delivery.
 
-Pasting an image into the embedded `claude` pane works when the backend is remote/headless — where Claude
-can't reach any OS clipboard. The image is captured in the browser (or, on a native WebView, read from the OS
-clipboard through the local host), shipped to the backend, written to a scratch file there, and its **path
-injected into the claude PTY as a bracketed paste**, which the TUI renders as an `[Image #N]` chip and attaches
-on submit.
+Pasting an image into an agent works when the backend is remote/headless and the provider cannot reach the
+desktop clipboard. The image is captured in the browser (or, on a native WebView, read from the OS clipboard
+through the local host), shipped to the backend, written to a scratch file there, and delivered through the
+provider's native image path: Claude receives a bracketed-pasted path in its PTY, while Codex attaches the
+path and includes it as a `localImage` app-server input item with the next prompt.
 
-## Why path-injection (and not a clipboard or a protocol push)
+## Why Claude uses path-injection
 
 Claude Code ingests an image exactly two ways: the **OS clipboard** (native APIs — unavailable on the
 headless/remote Linux backend, which has no clipboard, and where Claude's Linux clipboard-image support
@@ -23,33 +24,35 @@ carries no image message, and the protocol is Claude-defined, so Weavie can't in
   `[Image #N]` chip; the raw path never shows. Bare path, not `@`-prefixed.
 
 So temp-file-plus-path isn't a workaround — it's what Anthropic's own IDE integration and every community
-extension do. All backend work is filesystem + PTY, so it lives once in `Core`/`HostCore` with **zero** per-OS
-code (unlike the text clipboard, which needed `IHostPlatform.ReadClipboard`).
+extension do. Codex uses the same scratch-file boundary, then attaches that path to the next app-server
+`localImage` input instead of PTY paste.
 
 ## Flow
 
 ```mermaid
 flowchart LR
   subgraph web [WebView / browser tab]
-    paste[paste event, capture-phase<br/>on the claude container] -->|image item?| enc[read blob -> bytesToBase64]
+    paste[paste event on agent input] -->|image item?| enc[read blob -> bytesToBase64]
     paste -->|text only| xterm[xterm native text paste]
     enc -->|size/mime pre-check, else notify| post["postToHost term-paste-image"]
   end
   post --> disp["HostCore.Dispatch"]
   disp --> h["HandlePasteImage"]
   h -->|validate mime + size, else Notify| store["session.PastedImages.Write -> path"]
-  h -->|!_drainInputFrozen| inject["session.Claude.WriteBracketedPaste(path)"]
-  inject --> pty[(claude PTY)] --> chip["TUI: [Image #N], attaches on submit"]
+  h -->|!_drainInputFrozen| deliver["session.SendAgentImagePath(path)"]
+  deliver --> claude["Claude: WriteBracketedPaste(path)"]
+  deliver --> codex["Codex: attach path for next localImage input"]
+  claude --> pty[(claude PTY)] --> chip["TUI: [Image #N], attaches on submit"]
 ```
 
-- **Web** (`src/web/src/terminal/paste-image.ts`, wired in `TerminalView.tsx`, claude pane only): a
-  capture-phase `paste` listener pre-empts xterm's textarea handler for image items only (`preventDefault` +
-  `stopImmediatePropagation`); text pastes fall through untouched. Pre-checks size (mirrors the host cap) so
-  oversize bytes never ride the bridge, then posts `term-paste-image { slot, session, mime, dataB64 }` to the
-  **active** backend.
+- **Web** (`src/web/src/terminal/paste-image.ts`, wired in `TerminalView.tsx` and `AgentPane.tsx`): an image
+  paste listener consumes image items only (`preventDefault` + `stopImmediatePropagation`); text pastes fall
+  through untouched. Pre-checks size (mirrors the host cap) so oversize bytes never ride the bridge, then posts
+  `term-paste-image { slot, session, mime, dataB64 }` to the backend that owns the session slot.
 - **Host** (`HostCore.PasteImage.cs`): drain-guard → validate MIME→extension + decoded size (reject with a
   `Notify`) → `PastedImageStore.Write` (host picks the filename; the client never supplies a path) →
-  `TerminalController.WriteBracketedPaste(path)`.
+  `HostSession.SendAgentImagePath(path)`. Claude gets a bracketed paste immediately; Codex stores it as a
+  pending image attachment for the next prompt.
 - **Storage** (`PastedImageStore`, `WeaviePaths.WorkspacePastedImagesDir`): a per-session subdir keyed by
   worktree digest (`~/.weavie/workspaces/<id>/pasted-images/<digest>/paste-N.<ext>`), outside the workspace so
   it never reaches the tree/index/git. Wiped on session unload (`HostSession.DisposeAsync`).
@@ -59,8 +62,8 @@ flowchart LR
 - **Event, not a command.** Driven by the native paste gesture carrying image bytes (only reachable inside the
   event); no palette action to advertise. Mirrors how browser-served **text** paste already rides the native
   paste event rather than `weavie.terminal.paste`.
-- **Claude pane only.** A pasted path in a shell would just try to run; the host targets `.Claude` regardless
-  of the message's `session`, and the web only attaches on the claude pane.
+- **Agent panes only.** A pasted path in a shell would just try to run; the host targets the session's agent
+  regardless of the message's `session`.
 - **Allowlist + cap are one source of truth** (`PastedImageMedia`): png/jpeg/gif/webp, `MaxBytes` = 5 MB
   (Claude's per-image limit). The web mirrors the values; the **host is the authoritative gate**. A rejected
   paste (bad type / oversize) is surfaced as a toast — never a silent drop.
@@ -92,5 +95,11 @@ text paste, unchanged.
   extension; a disallowed type / oversize paste is toasted and never written; a shell-named paste never
   reaches the shell; a paste is suppressed while input is frozen for an update. Plus the native-WebView read:
   `clipboard-read-image` replies with the platform's clipboard image (bytes + MIME), or an empty MIME for none.
+- `HostSessionAgentImageTests` (host session seam): structured providers receive pasted images through
+  `AttachImage(path)`, not prompt text.
+- `CodexAppServerProtocolTests` / `CodexAppServerSessionTests`: Codex image attachment is serialized with
+  the next prompt as app-server `localImage` input.
+- `paste-image.test.ts` (web): the shared DOM paste helper posts image paste messages and leaves text-only
+  paste untouched.
 - `PastedImageStoreTests` (Core): sequential `paste-N` allocation, byte-exact writes, `Clear` on unload, and
   the `PastedImageMedia` allowlist.

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { computeRects, computeSplitters, paneOrder, setBoundary } from "./geometry";
 import type { LayoutNode } from "./types";
 
-// The seeded default: a 40/60 row split whose left child is a 50/50 column of the two terminals.
+// The seeded default: a 40/60 row split whose left child is a 50/50 column of agent + shell.
 function tree(): LayoutNode {
   return {
     type: "split",

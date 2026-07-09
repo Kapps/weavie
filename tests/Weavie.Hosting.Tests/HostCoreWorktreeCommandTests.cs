@@ -10,6 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// resolve it against the workspace root, or a rootless resolve reads empty and the command silently never runs
 /// on worktree create.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreWorktreeCommandTests {
 	[Fact]
 	public async Task SetupCommand_FromWorkspaceOverlay_RunsOnWorktreeCreate() {

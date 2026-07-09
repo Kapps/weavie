@@ -11,6 +11,7 @@ using Weavie.Core.Sources;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
+using Weavie.Hosting.Agents.Codex;
 
 namespace Weavie.Hosting;
 
@@ -87,6 +88,8 @@ public sealed record HostServices {
 		claudeSessions.Log += Log;
 		var agentProviders = new AgentProviderRegistry();
 		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
+		agentProviders.Register(new CodexAgentProvider(
+			new CodexThreadStore(new LocalFileSystem(), WeaviePaths.CodexThreadsFile)));
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), path: null);
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);

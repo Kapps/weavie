@@ -83,6 +83,16 @@ public sealed partial class BackendManager : IAsyncDisposable {
 		return ValueTask.CompletedTask;
 	}
 
+	/// <summary>Returns <c>running</c> only after the worker's own control endpoint is ready.</summary>
+	public async Task<string> StatusAsync(WorkspaceBackend backend) {
+		ArgumentNullException.ThrowIfNull(backend);
+		if (backend.Supervisor?.State != SupervisorState.Running) {
+			return backend.Status;
+		}
+
+		return await TryReadBuildAsync(backend).ConfigureAwait(false) is null ? "starting" : "running";
+	}
+
 	/// <summary>Grabs a free TCP port by binding to port 0 and releasing it. Inherently racy, fine here.</summary>
 	private static int AllocatePort() {
 		var listener = new TcpListener(IPAddress.Loopback, 0);

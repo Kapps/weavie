@@ -1,3 +1,4 @@
+using System.Net.Http.Headers;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -54,6 +55,37 @@ public sealed class RegistryMcpTests : IDisposable {
 		Assert.DoesNotContain("openDiff", names);   // IDE RPC not on the registry server
 		Assert.DoesNotContain("openFile", names);
 		Assert.DoesNotContain("currentSession", names);   // gated on a session-id provider, absent here
+	}
+
+	[Fact]
+	public async Task RegistryMode_WithIdeTools_ExposesEditorContextOverHttp() {
+		using var store = NewStore();
+		var editor = new EditorStore();
+		editor.SetActive(new ActiveEditor(
+			Path.Combine(_dir, "a.cs"),
+			"csharp",
+			"selected",
+			new EditorSelection(new EditorPosition(3, 1), new EditorPosition(3, 9), IsEmpty: false)));
+		await using var server = TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true,
+			exposeIdeTools: true, editor: editor);
+		int port = server.Start();
+
+		using var listed = await PostHttpAsync(port, Request(1, "tools/list", "{}"));
+		using var listDocument = JsonDocument.Parse(await listed.Content.ReadAsStringAsync());
+		var names = listDocument.RootElement.GetProperty("result").GetProperty("tools")
+			.EnumerateArray().Select(t => t.GetProperty("name").GetString()).ToList();
+		Assert.Contains("listSettings", names);
+		Assert.Contains("openDiff", names);
+		Assert.Contains("getCurrentSelection", names);
+
+		using var called = await PostHttpAsync(port, Request(2, "tools/call", "{\"name\":\"getCurrentSelection\",\"arguments\":{}}"));
+		using var callDocument = JsonDocument.Parse(await called.Content.ReadAsStringAsync());
+		string text = callDocument.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString()!;
+		using var payload = JsonDocument.Parse(text);
+		Assert.True(payload.RootElement.GetProperty("success").GetBoolean());
+		Assert.Equal("selected", payload.RootElement.GetProperty("text").GetString());
+		Assert.Equal(3, payload.RootElement.GetProperty("selection").GetProperty("start").GetProperty("line").GetInt32());
 	}
 
 	[Fact]
@@ -183,6 +215,13 @@ public sealed class RegistryMcpTests : IDisposable {
 	}
 
 	[Fact]
+	public void RegistryMode_WithIdeTools_RequiresEditorStore() {
+		using var store = NewStore();
+		Assert.Throws<ArgumentNullException>(() => TestMcp.Server(
+			Token, FakeDiffPresenter.AlwaysKeep(), [_dir], "weavie", store, registryMode: true, exposeIdeTools: true));
+	}
+
+	[Fact]
 	public async Task ClaudeIntegration_WritesPortScopedRegistryConfig() {
 		using var store = NewStore();
 		await using var registry = TestMcp.Registry(Token, FakeDiffPresenter.AlwaysKeep(), [_dir], store);
@@ -295,4 +334,13 @@ public sealed class RegistryMcpTests : IDisposable {
 
 	private static string Request(int id, string method, string paramsJson) =>
 		$"{{\"jsonrpc\":\"2.0\",\"id\":{id},\"method\":\"{method}\",\"params\":{paramsJson}}}";
+
+	private static async Task<HttpResponseMessage> PostHttpAsync(int port, string json) {
+		using var client = new HttpClient();
+		using var request = new HttpRequestMessage(HttpMethod.Post, $"http://127.0.0.1:{port}/mcp") {
+			Content = new StringContent(json, Encoding.UTF8, "application/json"),
+		};
+		request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", Token);
+		return await client.SendAsync(request);
+	}
 }

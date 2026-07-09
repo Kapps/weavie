@@ -9,7 +9,7 @@ using Weavie.Core.Sessions;
 namespace Weavie.Hosting.Agents.Claude;
 
 /// <summary>A complete Claude provider session: CLI lifecycle, IDE integration, hooks, and capability registry.</summary>
-public sealed class ClaudeAgentSession : IAgentSession {
+public sealed class ClaudeAgentSession : ITerminalAgentSession {
 	private readonly IAgentEventSink _events;
 	private readonly ClaudeTerminalLifecycle _terminal;
 

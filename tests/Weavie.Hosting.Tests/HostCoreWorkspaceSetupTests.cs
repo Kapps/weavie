@@ -8,6 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// settings surfaces the card, and taking it ("Yes" → weavie.workspace.setup) pre-fills the setup prompt into
 /// the primary session's Claude pane as a bracketed paste with no trailing submit.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreWorkspaceSetupTests {
 	[Fact]
 	public async Task ManifestRepo_SurfacesCard_AndYesSeedsClaudePane_WithoutSubmitting() {
@@ -17,7 +18,7 @@ public sealed class HostCoreWorkspaceSetupTests {
 		// The manifest probe is async; wait for the suggestions push that offers workspace.setup.
 		await WaitForSuggestionAsync(host, "workspace.setup");
 
-		host.Core.ActiveSessionForTest()!.Claude.EnsureStarted();
+		host.Core.ActiveSessionForTest()!.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 
 		host.Send("{\"type\":\"invoke-command\",\"id\":\"weavie.workspace.setup\"}");

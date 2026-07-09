@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
@@ -119,6 +120,7 @@ public sealed class HostSession : IAsyncDisposable {
 		Status = new SessionStatusMachine();
 		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status);
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
+		bool exposeRegistryIdeTools = agentProvider.Info.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
 		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			agentDiffPresenter,
@@ -126,6 +128,8 @@ public sealed class HostSession : IAsyncDisposable {
 			"weavie",
 			settings,
 			layout,
+			Editor,
+			exposeRegistryIdeTools,
 			Commands,
 			keybindings,
 			themeOverrides,
@@ -142,6 +146,7 @@ public sealed class HostSession : IAsyncDisposable {
 				Editor = Editor,
 				Runtime = runtime,
 				Events = eventRouter,
+				CurrentSessionId = () => SlotId,
 			},
 			bridge,
 			settings,
@@ -157,8 +162,10 @@ public sealed class HostSession : IAsyncDisposable {
 		};
 		// The agent pane's input stream resolves an answered permission prompt (no hook fires at approval;
 		// the tool only reports back at PostToolUse — minutes later for a long build).
-		Claude.InputWritten += Status.ObserveUserInput;
-		Claude.SupervisorChanged += Status.ObserveSupervisor;
+		if (Claude is not null) {
+			Claude.InputWritten += Status.ObserveUserInput;
+			Claude.SupervisorChanged += Status.ObserveSupervisor;
+		}
 
 		// LSP: language servers spawned on demand and multiplexed over the SAME web bridge as the terminal — each
 		// monaco-languageclient gets a (slot, channel) the host routes to its server's stdio. No socket/port/token of
@@ -197,8 +204,8 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>Flat recursive file list under the session root, for the omnibar "Go to File" quick-open.</summary>
 	public WorkspaceFileIndex FileIndex { get; }
 
-	/// <summary>The embedded-agent terminal, kept under the legacy <c>claude</c> wire id for compatibility.</summary>
-	public TerminalController Claude { get; }
+	/// <summary>The embedded-agent terminal, kept under the legacy <c>claude</c> wire id for compatibility when terminal-backed.</summary>
+	public TerminalController? Claude { get; }
 
 	/// <summary>The selected provider session and its compatibility terminal.</summary>
 	public AgentSessionHost Agent { get; }
@@ -325,8 +332,63 @@ public sealed class HostSession : IAsyncDisposable {
 	/// </summary>
 	public void BindTerminalsToSlot(string slotId) {
 		SlotId = slotId;
-		Claude.SlotId = slotId;
+		if (Claude is { } agentTerminal) {
+			agentTerminal.SlotId = slotId;
+		}
 		Shell.SlotId = slotId;
+	}
+
+	/// <summary>Starts the active agent runtime.</summary>
+	public void EnsureAgentStarted() {
+		if (Claude is not null) {
+			Claude.EnsureStarted();
+		} else {
+			Agent.Structured?.Start();
+		}
+	}
+
+	/// <summary>Restarts the active agent runtime when the provider supports process restart from Weavie.</summary>
+	public void RestartAgent() {
+		if (Claude is not null) {
+			Claude.Restart();
+			return;
+		}
+
+		Agent.Structured?.Restart();
+	}
+
+	/// <summary>Sends a prompt to the active agent using the provider's native input path.</summary>
+	public void SendAgentPrompt(string text) {
+		ArgumentNullException.ThrowIfNull(text);
+		if (Claude is not null) {
+			Claude.Write(Encoding.UTF8.GetBytes(text));
+			Claude.Write([(byte)'\r']);
+			return;
+		}
+
+		Agent.Structured?.SubmitPrompt(text);
+	}
+
+	/// <summary>Prefills a prompt in the active agent without submitting it, when the provider supports draft input.</summary>
+	public void PrefillAgentPrompt(string text) {
+		ArgumentNullException.ThrowIfNull(text);
+		if (Claude is not null) {
+			Claude.WriteBracketedPaste(text);
+			return;
+		}
+
+		Agent.Structured?.PrefillPrompt(text);
+	}
+
+	/// <summary>Sends an image path to the active agent using the provider's native input path.</summary>
+	public void SendAgentImagePath(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		if (Claude is not null) {
+			Claude.WriteBracketedPaste(path);
+			return;
+		}
+
+		Agent.Structured?.AttachImage(path);
 	}
 
 	// Fan a debounced watcher batch to the editor's file:// provider (so VSCode reloads externally-edited models)
@@ -355,7 +417,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a process
 		// still rooted there). Run it off the calling (often UI) thread so a slow-closing child can't freeze the app.
 		await Task.Run(() => {
-			Claude.Dispose();
+			Claude?.Dispose();
 			Shell.Dispose();
 		}).ConfigureAwait(false);
 		await Agent.DisposeProviderAsync().ConfigureAwait(false);

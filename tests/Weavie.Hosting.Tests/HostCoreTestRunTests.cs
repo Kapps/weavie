@@ -10,6 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// profile composes a command into the shell PTY; an unset profile and a busy shell both fail loudly and write
 /// nothing. The profile uses <c>echo</c> templates (pure data — no framework knowledge in the test).
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreTestRunTests {
 	private const string Profile =
 		"test.profile = '[{\"glob\":\"**/*.test.ts\",\"symbol\":\"^(?:it|test)\\\\(\",\"runOne\":\"echo RUN ${file} -t ${name}\",\"runFile\":\"echo RUN ${file}\"}]'\n";

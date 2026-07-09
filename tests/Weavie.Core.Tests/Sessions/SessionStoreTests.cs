@@ -19,6 +19,7 @@ public sealed class SessionStoreTests {
 		WorktreePath = "/wt/" + label,
 		IsPrimary = false,
 		Loaded = loaded,
+		AgentProviderId = "claude",
 	};
 
 	[Fact]
@@ -26,12 +27,16 @@ public sealed class SessionStoreTests {
 		var fs = new InMemoryFileSystem();
 		var store = new SessionStore(fs, StorePath);
 
-		store.Save([Descriptor("aaaa", "a", loaded: true), Descriptor("bbbb", "b", loaded: false)], new SessionId("aaaa"));
+		store.Save([
+			Descriptor("aaaa", "a", loaded: true),
+			Descriptor("bbbb", "b", loaded: false) with { AgentProviderId = "codex" },
+		], new SessionId("aaaa"));
 
 		var reloaded = new SessionStore(fs, StorePath);
 		Assert.Equal(2, reloaded.Items.Count);
 		Assert.True(reloaded.Items.Single(i => i.Id.Value == "aaaa").Loaded);
 		Assert.False(reloaded.Items.Single(i => i.Id.Value == "bbbb").Loaded);
+		Assert.Equal("codex", reloaded.Items.Single(i => i.Id.Value == "bbbb").AgentProviderId);
 		Assert.Equal(new SessionId("aaaa"), reloaded.ActiveId);
 	}
 
@@ -67,6 +72,7 @@ public sealed class SessionStoreTests {
 		var store = new SessionStore(fs, StorePath);
 
 		Assert.False(Assert.Single(store.Items).Loaded);
+		Assert.Equal("claude", Assert.Single(store.Items).AgentProviderId);
 	}
 
 	[Fact]

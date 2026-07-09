@@ -10,7 +10,9 @@ import {
   Show,
   Suspense,
 } from "solid-js";
+import { AgentPane } from "./agent/AgentPane";
 import {
+  type AgentPaneUpdate,
   activeBackendId,
   activeBackendOffline,
   activeBackendPhase,
@@ -134,8 +136,10 @@ const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 // Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
 const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
 
-// Maps a terminal pane kind ("terminal:claude" / "terminal:shell") to its pane id.
-const paneOf = (kind: string): TermSession => (kind === "terminal:claude" ? "claude" : "shell");
+const AGENT_PANE_KIND = "terminal:claude";
+
+// Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
+const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
 
 export default function App(): JSX.Element {
   let editorContainer!: HTMLDivElement;
@@ -167,6 +171,9 @@ export default function App(): JSX.Element {
   // The child-set terminal title (OSC 0/2) per `${slot}:${pane}`, shown in the shell pane header (the claude
   // pane keeps its fixed "Claude Code" label).
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
+  const [agentPaneMessages, setAgentPaneMessages] = createSignal<Record<string, AgentPaneUpdate[]>>(
+    {},
+  );
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
@@ -181,6 +188,9 @@ export default function App(): JSX.Element {
   // The session whose panes are shown (null before the first rail push); flipping it switches which
   // session's terminals are visible.
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
+  const activeProviderId = createMemo<"claude" | "codex" | null>(
+    () => sessions().find((s) => s.active)?.providerId ?? null,
+  );
 
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
   const [newSessionOpen, setNewSessionOpen] = createSignal(false);
@@ -306,6 +316,10 @@ export default function App(): JSX.Element {
     setActivePane(kind);
     if (kind === "editor") {
       editor.focusEditor();
+      return;
+    }
+    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
+      document.querySelector<HTMLTextAreaElement>(".agent-surface textarea")?.focus();
       return;
     }
     // Resolve the focusable xterm by the active session id, so focus lands correctly regardless of
@@ -606,15 +620,36 @@ export default function App(): JSX.Element {
         </div>
       );
     }
+    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
+      const sid = activeTermSessionId();
+      return (
+        <AgentPane
+          slot={sid}
+          providerId={activeProviderId()}
+          active={focusedKind() === AGENT_PANE_KIND}
+          messages={sid === null ? [] : (agentPaneMessages()[sid] ?? [])}
+          shortcut={`${CTRL_LABEL}${numberOf(kind)}`}
+          onFocus={() => focusPane(kind)}
+        />
+      );
+    }
     const pane = paneOf(kind);
-    // The shell pane shows the child-set title (cwd / running command) when it has one; claude stays fixed.
+    // The shell pane shows the child-set title (cwd / running command) when it has one; the agent pane stays fixed.
     const paneTitle = (): string => {
-      if (kind === "terminal:claude") {
+      if (kind === AGENT_PANE_KIND) {
         return "Claude Code";
       }
       const title = paneTitles()[`${activeTermSessionId()}:${pane}`];
       return title !== undefined && title.length > 0 ? title : "Terminal";
     };
+    const paneSessionIds = (): string[] =>
+      kind === AGENT_PANE_KIND
+        ? sessions()
+            .filter(
+              (s) => s.loaded && s.backendId === activeBackendId() && s.providerId === "claude",
+            )
+            .map((s) => s.id)
+        : termSessionIds();
     return (
       <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
         {/* The head holds no focusable element, so a bare click would blur to <body> and strand keystrokes;
@@ -638,7 +673,7 @@ export default function App(): JSX.Element {
         <div class="pane-body">
           {/* One live xterm per loaded session, only the active shown. Keyed by session id so a session keeps
               its xterm across rail pushes — switching is pure show/hide, no reset/replay. */}
-          <For each={termSessionIds()}>
+          <For each={paneSessionIds()}>
             {(sid) => {
               const isActive = (): boolean => sid === activeTermSessionId();
               onCleanup(() => terminalFocus.delete(`${sid}:${pane}`));
@@ -751,6 +786,13 @@ export default function App(): JSX.Element {
       }
       if (message.type === "notify") {
         addToast(message.level, message.message, message.key);
+      } else if (message.type === "agent-pane") {
+        setAgentPaneMessages((prev) => ({
+          ...prev,
+          [message.slot]: [...(prev[message.slot] ?? []), message.message],
+        }));
+      } else if (message.type === "agent-pane-reset") {
+        setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: [] }));
       } else if (message.type === "focus-pane") {
         // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
         // xterms persist across switches, so focusing the slot is valid even mid-respawn. Never steal from
@@ -1190,7 +1232,7 @@ export default function App(): JSX.Element {
       <Show when={newSessionOpen()}>
         <NewSessionPrompt
           initialBackendId={defaultLocation()}
-          onCreate={(branch, base, location) => {
+          onCreate={(branch, base, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
             // A remote session lands nested under its agent; promote it onto the rail like a local one.
@@ -1198,16 +1240,26 @@ export default function App(): JSX.Element {
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
             // term-ready) wires the panes to it; then create the session there.
             bindBackend(location, () =>
-              postToBackend(location, { type: "new-session", branch, base }),
+              postToBackend(location, {
+                type: "new-session",
+                branch,
+                base,
+                ...(agentProviderId === undefined ? {} : { agentProviderId }),
+              }),
             );
           }}
-          onCheckout={(branch, location) => {
+          onCheckout={(branch, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
             promoteNextSessionOn(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
             bindBackend(location, () =>
-              postToBackend(location, { type: "new-session", branch, existing: true }),
+              postToBackend(location, {
+                type: "new-session",
+                branch,
+                existing: true,
+                ...(agentProviderId === undefined ? {} : { agentProviderId }),
+              }),
             );
           }}
           onCancel={() => setNewSessionOpen(false)}

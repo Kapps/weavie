@@ -97,15 +97,29 @@ public sealed partial class SessionChangeTracker {
 			AgentToolCompleted completed => completed.Mutation,
 			_ => new AgentMutation.None(),
 		};
-		string? path = ExtractEditPath(mutation);
-		if (path is null || !_isInScope(path)) {
+		if (mutation is AgentMutation.Workspace workspace) {
+			if (value is AgentToolStarting) {
+				CaptureWorkspaceBaselines(workspace.InvocationId);
+			} else if (value is AgentToolCompleted) {
+				RecordWorkspaceChanges(workspace.InvocationId);
+			}
+
+			return;
+		}
+
+		var paths = ExtractEditPaths(mutation).Where(_isInScope).ToList();
+		if (paths.Count == 0) {
 			return;
 		}
 
 		if (value is AgentToolStarting) {
-			CaptureBaseline(path);
+			foreach (string path in paths) {
+				CaptureBaseline(path);
+			}
 		} else if (value is AgentToolCompleted) {
-			RecordChange(path);
+			foreach (string path in paths) {
+				RecordChange(path);
+			}
 		}
 	}
 
@@ -475,28 +489,35 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="value">The completed tool event whose mutation may yield a location.</param>
 	public string? EditLocationFor(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
-		if (value is not AgentToolCompleted {
-			Mutation: AgentMutation.File { ProvidesEditLocation: true } mutation,
-		}) {
-			return null;
+		return EditLocationsFor(value).FirstOrDefault();
+	}
+
+	/// <summary>The edit locations changed by a completed tool event, one per directly reported file.</summary>
+	/// <param name="value">The completed tool event whose mutation may yield locations.</param>
+	public IReadOnlyList<string> EditLocationsFor(AgentEvent value) {
+		ArgumentNullException.ThrowIfNull(value);
+		if (value is not AgentToolCompleted completed) {
+			return [];
 		}
 
-		string? path = ExtractEditPath(mutation);
-		if (path is null) {
-			return null;
-		}
-
-		string before, after;
-		lock (_gate) {
-			if (!_current.TryGetValue(path, out string? current)) {
-				return null;
+		var locations = new List<string>();
+		foreach (string path in ExtractEditLocationPaths(completed.Mutation)) {
+			string before, after;
+			lock (_gate) {
+				if (!_current.TryGetValue(path, out string? current)) {
+					continue;
+				}
+				after = current;
+				before = _preEdit.GetValueOrDefault(path, string.Empty);
 			}
-			after = current;
-			before = _preEdit.GetValueOrDefault(path, string.Empty);
+
+			int? line = LineDiff.FirstChangedLine(before, after);
+			if (line is not null) {
+				locations.Add($"{Relativize(path)}:{line}");
+			}
 		}
 
-		int? line = LineDiff.FirstChangedLine(before, after);
-		return line is null ? null : $"{Relativize(path)}:{line}";
+		return locations;
 	}
 
 	/// <summary>The files whose current content differs from their session baseline.</summary>
@@ -592,11 +613,36 @@ public sealed partial class SessionChangeTracker {
 		return true;
 	}
 
-	private string? ExtractEditPath(AgentMutation mutation) {
-		if (mutation is not AgentMutation.File file) {
-			return null;
+	private IReadOnlyList<string> ExtractEditPaths(AgentMutation mutation) {
+		var paths = new List<string>();
+		foreach (var file in ExtractFiles(mutation)) {
+			if (ExtractEditPath(file) is { } path) {
+				paths.Add(path);
+			}
 		}
 
+		return paths;
+	}
+
+	private IReadOnlyList<string> ExtractEditLocationPaths(AgentMutation mutation) {
+		var paths = new List<string>();
+		foreach (var file in ExtractFiles(mutation)) {
+			if (file.ProvidesEditLocation && ExtractEditPath(file) is { } path) {
+				paths.Add(path);
+			}
+		}
+
+		return paths;
+	}
+
+	private static IReadOnlyList<AgentMutation.File> ExtractFiles(AgentMutation mutation) =>
+		mutation switch {
+			AgentMutation.File file => [file],
+			AgentMutation.Files files => files.Items,
+			_ => [],
+		};
+
+	private string? ExtractEditPath(AgentMutation.File file) {
 		try {
 			return Resolve(file.Path, file.Cwd);
 		} catch (ArgumentException) {

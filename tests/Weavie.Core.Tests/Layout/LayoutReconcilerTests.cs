@@ -22,6 +22,79 @@ public sealed class LayoutReconcilerTests {
 	}
 
 	[Fact]
+	public void KeepsClaudeTerminalPaneKind_ForBackwardCompatibility() {
+		var registry = BaseRegistry();
+		var doc = new LayoutDocument {
+			SeenPaneLevel = registry.CurrentPaneLevel,
+			Focused = "p_claude",
+			Dismissed = [LayoutPanes.TerminalShell],
+			Root = new SplitNode {
+				Dir = SplitDirection.Row,
+				Weights = [0.3, 0.7],
+				Children = [
+					new PaneNode { Id = "p_claude", Kind = LayoutPanes.TerminalClaude },
+					new PaneNode { Id = "p_editor", Kind = LayoutPanes.Editor },
+				],
+			},
+		};
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		var split = Assert.IsType<SplitNode>(outcome.Document.Root);
+		var claude = Assert.IsType<PaneNode>(split.Children[0]);
+		Assert.False(outcome.Mutated);
+		Assert.Equal(LayoutPanes.TerminalClaude, claude.Kind);
+		Assert.Equal("p_claude", claude.Id);
+		Assert.Equal([0.3, 0.7], split.Weights);
+		Assert.Equal("p_claude", outcome.Document.Focused);
+	}
+
+	[Fact]
+	public void RestoresMissingDefaultAgentPane_WhenNotDismissed() {
+		var registry = BaseRegistry();
+		var doc = new LayoutDocument {
+			SeenPaneLevel = registry.CurrentPaneLevel,
+			Focused = "p_editor",
+			Root = new SplitNode {
+				Dir = SplitDirection.Row,
+				Weights = [0.4, 0.6],
+				Children = [
+					new PaneNode { Id = "p_shell", Kind = LayoutPanes.TerminalShell },
+					new PaneNode { Id = "p_editor", Kind = LayoutPanes.Editor },
+				],
+			},
+		};
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		Assert.True(outcome.Mutated);
+		var row = Assert.IsType<SplitNode>(outcome.Document.Root);
+		var left = Assert.IsType<SplitNode>(row.Children[0]);
+		Assert.Equal(SplitDirection.Column, left.Dir);
+		Assert.Equal(LayoutPanes.TerminalClaude, Assert.IsType<PaneNode>(left.Children[0]).Kind);
+		Assert.Equal(LayoutPanes.TerminalShell, Assert.IsType<PaneNode>(left.Children[1]).Kind);
+		Assert.Equal(LayoutPanes.Editor, Assert.IsType<PaneNode>(row.Children[1]).Kind);
+	}
+
+	[Fact]
+	public void MigratesUnstableAgentPaneKind_BackToClaudeTerminalPane() {
+		var registry = BaseRegistry();
+		var doc = LayoutPanes.Default(registry) with {
+			Root = new PaneNode { Id = "p_agent", Kind = LayoutPanes.Agent },
+			Focused = "p_agent",
+			Dismissed = [LayoutPanes.Editor, LayoutPanes.TerminalShell],
+		};
+
+		var outcome = LayoutReconciler.Reconcile(doc, registry);
+
+		var pane = Assert.IsType<PaneNode>(outcome.Document.Root);
+		Assert.True(outcome.Mutated);
+		Assert.Equal(LayoutPanes.TerminalClaude, pane.Kind);
+		Assert.Equal("p_agent", pane.Id);
+		Assert.Equal("p_agent", outcome.Document.Focused);
+	}
+
+	[Fact]
 	public void Reconcile_IsIdempotent() {
 		var registry = BaseRegistry();
 		var once = LayoutReconciler.Reconcile(LayoutPanes.Default(registry), registry);
@@ -48,8 +121,9 @@ public sealed class LayoutReconcilerTests {
 
 		Assert.True(outcome.Mutated);
 		Assert.Contains(outcome.Notes, n => n.Contains("ghost:removed"));
-		var pane = Assert.IsType<PaneNode>(outcome.Document.Root);
-		Assert.Equal(LayoutPanes.Editor, pane.Kind);
+		Assert.Contains(LayoutPanes.Editor, KindsOf(outcome.Document.Root));
+		Assert.Contains(LayoutPanes.TerminalClaude, KindsOf(outcome.Document.Root));
+		Assert.Contains(LayoutPanes.TerminalShell, KindsOf(outcome.Document.Root));
 	}
 
 	[Fact]

@@ -122,6 +122,7 @@ public sealed class WorktreeRegistry {
 					Path = e.Path,
 					BaseRef = e.BaseRef,
 					CreatedAtUtc = e.CreatedAt,
+					AgentProviderId = string.IsNullOrWhiteSpace(e.AgentProviderId) ? null : e.AgentProviderId,
 				})];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[worktrees] {FilePath} is malformed ({ex.Message}); backing up to worktrees.json.bad and resetting");
@@ -139,6 +140,7 @@ public sealed class WorktreeRegistry {
 					Path = r.Path,
 					BaseRef = r.BaseRef,
 					CreatedAt = r.CreatedAtUtc,
+					AgentProviderId = r.AgentProviderId,
 				})],
 			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
@@ -167,5 +169,8 @@ public sealed class WorktreeRegistry {
 
 		[JsonPropertyName("createdAt")]
 		public DateTimeOffset CreatedAt { get; set; }
+
+		[JsonPropertyName("agentProviderId")]
+		public string? AgentProviderId { get; set; }
 	}
 }

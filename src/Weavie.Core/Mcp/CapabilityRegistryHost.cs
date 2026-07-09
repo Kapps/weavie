@@ -16,6 +16,8 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		string ideName,
 		SettingsStore settings,
 		LayoutStore layout,
+		EditorStore editor,
+		bool exposeIdeTools,
 		CommandDispatcher commands,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
@@ -26,14 +28,15 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(ideName);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(layout);
+		ArgumentNullException.ThrowIfNull(editor);
 		ArgumentNullException.ThrowIfNull(commands);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
 		ArgumentNullException.ThrowIfNull(currentSessionId);
 		Credential = credential;
 		Server = new McpServer(
-			credential.Token, presenter, workspaceFolders, ideName, settings, registryMode: true, layout,
-			editor: null, commands, keybindings, themeOverrides, currentSessionId);
+			credential.Token, presenter, workspaceFolders, ideName, settings, registryMode: true, exposeIdeTools,
+			layout, editor, commands, keybindings, themeOverrides, currentSessionId);
 		Port = Server.Start();
 	}
 
@@ -45,6 +48,9 @@ public sealed class CapabilityRegistryHost : IAsyncDisposable {
 
 	/// <summary>The loopback registry port.</summary>
 	public int Port { get; }
+
+	/// <summary>The Streamable HTTP MCP endpoint URL for Codex.</summary>
+	public string StreamableHttpUrl => $"http://127.0.0.1:{Port}/mcp";
 
 	/// <inheritdoc/>
 	public ValueTask DisposeAsync() => Server.DisposeAsync();

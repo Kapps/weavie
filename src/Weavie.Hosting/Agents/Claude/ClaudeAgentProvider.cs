@@ -23,6 +23,7 @@ public sealed class ClaudeAgentProvider : IAgentProvider {
 			| AgentProviderCapabilities.Ide
 			| AgentProviderCapabilities.Events
 			| AgentProviderCapabilities.EditDisposition,
+		Available = true,
 	};
 
 	/// <inheritdoc/>

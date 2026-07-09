@@ -8,6 +8,7 @@ namespace Weavie.Hosting.Tests;
 /// forge issue/PR URL prefix so a terminal <c>#N</c> links to its page, or pushes null when origin isn't a forge
 /// repo (so <c>#N</c> stays plain text). Requires <c>git</c> on PATH. See <c>HostCore.RefLinks.cs</c>.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreRefLinksTests {
 	[Fact]
 	public async Task RefLinkBase_PushesForgePullPrefix_ForAGitHubOrigin() {

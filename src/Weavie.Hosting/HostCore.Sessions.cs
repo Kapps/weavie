@@ -33,8 +33,8 @@ public sealed partial class HostCore {
 			return Task.FromResult(CommandResult.Success("Reopened the terminal."));
 		});
 		session.Commands.RegisterHandler(CoreCommands.RestartClaude, (_, _) => {
-			_ui.Post(() => session.Claude.Restart());
-			return Task.FromResult(CommandResult.Success("Restarted Claude."));
+			_ui.Post(session.RestartAgent);
+			return Task.FromResult(CommandResult.Success("Restarted the agent."));
 		});
 		// Restart-now for a pending update: the user's explicit choice to skip the drain gate (kills
 		// running shell jobs); fails cleanly when no update is pending.
@@ -295,6 +295,7 @@ public sealed partial class HostCore {
 			Label = label,
 			WorktreePath = WorkspaceRoot,
 			IsPrimary = true,
+			AgentProviderId = "claude",
 			Session = _primarySession,
 			LastActiveUtc = DateTimeOffset.UtcNow,
 		};
@@ -320,6 +321,8 @@ public sealed partial class HostCore {
 
 				string label = status.Branch ?? Path.GetFileName(
 					status.Path.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar));
+				string agentProviderId = ProviderFor(status, label);
+				BackfillWorktreeProvider(status, agentProviderId);
 				if (_sessions.Find(label) is not null) {
 					continue; // already surfaced
 				}
@@ -329,6 +332,7 @@ public sealed partial class HostCore {
 					Label = label,
 					WorktreePath = status.Path,
 					IsPrimary = false,
+					AgentProviderId = agentProviderId,
 					Session = null,
 				}, activate: false);
 			}
@@ -338,6 +342,45 @@ public sealed partial class HostCore {
 			Console.WriteLine($"[weavie] worktree reconcile failed: {ex.Message}");
 			Notify("warn", "Couldn't list existing worktrees — some sessions may not appear on the rail.");
 		}
+	}
+
+	private string ProviderFor(WorktreeStatus status, string slotId) =>
+		ProviderOrNull(status.AgentProviderId)
+		?? PersistedProviderFor(slotId, status.Path)
+		?? "claude";
+
+	private string? PersistedProviderFor(string slotId, string worktreePath) {
+		string? provider = _sessionStore.Items.FirstOrDefault(item =>
+			string.Equals(item.Id.Value, slotId, StringComparison.Ordinal)
+			|| PathsEqual(item.WorktreePath, worktreePath))?.AgentProviderId;
+		return ProviderOrNull(provider);
+	}
+
+	private void BackfillWorktreeProvider(WorktreeStatus status, string agentProviderId) {
+		if (!status.IsManaged || ProviderOrNull(status.AgentProviderId) is not null) {
+			return;
+		}
+
+		if (_worktrees?.Registry.FindByPath(status.Path) is { } record) {
+			_worktrees.Registry.Add(record with { AgentProviderId = agentProviderId });
+		}
+	}
+
+	private static string? ProviderOrNull(string? provider) =>
+		string.IsNullOrWhiteSpace(provider) ? null : provider.Trim();
+
+	private static bool PathsEqual(string a, string b) =>
+		string.Equals(
+			Path.GetFullPath(a).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+			Path.GetFullPath(b).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar),
+			OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+
+	private string ResolveNewSessionProvider(string? requestedProvider) {
+		if (!string.IsNullOrWhiteSpace(requestedProvider)) {
+			return requestedProvider.Trim();
+		}
+
+		return _settings.RequireString("agent.defaultProvider");
 	}
 
 	/// <summary>Pushes the session list (id, label, active, loaded, status, identity) to the page's rail.</summary>
@@ -356,6 +399,7 @@ public sealed partial class HostCore {
 				active = ReferenceEquals(_sessions.ActiveSlot, slot),
 				loaded = slot.Loaded,
 				primary = slot.IsPrimary,
+				providerId = slot.AgentProviderId,
 				status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
 				hue = SessionIdentity.Hue(slot.Label),
 				monogram = SessionIdentity.Monogram(slot.Label),
@@ -394,14 +438,15 @@ public sealed partial class HostCore {
 	};
 
 	/// <summary>Builds + wires a new <see cref="HostSession"/> rooted at <paramref name="cwd"/> (the live backend for a slot).</summary>
-	private HostSession CreateSession(string cwd) {
+	private HostSession CreateSession(string cwd, string agentProviderId) {
+		var provider = _agentProviders.RequireAvailable(agentProviderId);
 		var session = new HostSession(
 			_bridge, _settings, _layout, cwd, WeaviePaths.WorkspaceScratchDir(Id),
 			// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
 			// one session's images never touches another's.
 			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, _agentProviders.Sole(), _runtime);
+			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, provider, _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =
@@ -423,7 +468,7 @@ public sealed partial class HostCore {
 	/// </summary>
 	private void LoadSlot(SessionSlot slot) {
 		if (!slot.Loaded) {
-			slot.Session = CreateSession(slot.WorktreePath);
+			slot.Session = CreateSession(slot.WorktreePath, slot.AgentProviderId);
 		}
 
 		slot.Session!.BindTerminalsToSlot(slot.Id);
@@ -443,7 +488,7 @@ public sealed partial class HostCore {
 		var session = slot.Session!;
 		// Start the backends now so Claude runs even before its pane mounts (else it spawns on term-ready); the
 		// resize nudge on first mount repaints the live TUI.
-		session.Claude.EnsureStarted();
+		session.EnsureAgentStarted();
 		session.Shell.EnsureStarted();
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 		PushSessionList();
@@ -480,6 +525,9 @@ public sealed partial class HostCore {
 		// Unmute the incoming session's editor output AFTER the rebind, so work it held while muted (a background
 		// openDiff, files Claude opened) replays onto the rebound editor instead of being wiped by the rebind.
 		session.SetEditorOutputActive(true);
+		if (session.Agent.Structured is not null) {
+			session.EnsureAgentStarted();
+		}
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb(invalidate: true);
 		// Re-point the editor's language clients at this session's own LSP bridge (rooted at its worktree).
@@ -517,17 +565,17 @@ public sealed partial class HostCore {
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
 		if (request.AttachExisting) {
-			return AttachExistingSessionAsync(request.Branch, request.Prompt, ct);
+			return AttachExistingSessionAsync(request.Branch, request.Prompt, ResolveNewSessionProvider(request.AgentProviderId), ct);
 		}
 
-		return CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, ct);
+		return CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, ResolveNewSessionProvider(request.AgentProviderId), ct);
 	}
 
 	/// <inheritdoc/>
 	public Task<CommandResult> ForkSessionAsync(ForkSessionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
-		// A new worktree off the current session's HEAD, seeded with the handoff brief (PTY-injected).
-		return CreateWorktreeSessionAsync(request.Branch, "current", request.Handoff, ct);
+		string providerId = _sessions?.ActiveSlot?.AgentProviderId ?? ResolveNewSessionProvider(null);
+		return CreateWorktreeSessionAsync(request.Branch, "current", request.Handoff, providerId, ct);
 	}
 
 	/// <inheritdoc/>
@@ -543,6 +591,12 @@ public sealed partial class HostCore {
 
 		if (target.Loaded) {
 			return Task.FromResult(CommandResult.Success("That session is already loaded."));
+		}
+
+		try {
+			_agentProviders.RequireAvailable(target.AgentProviderId);
+		} catch (InvalidOperationException ex) {
+			return Task.FromResult(CommandResult.Failure(ex.Message));
 		}
 
 		var result = new TaskCompletionSource<CommandResult>();
@@ -741,7 +795,13 @@ public sealed partial class HostCore {
 	private static bool IsLiveWorktree(string worktreePath) =>
 		Directory.Exists(worktreePath) && Path.Exists(Path.Combine(worktreePath, ".git"));
 
-	private async Task<CommandResult> CreateWorktreeSessionAsync(string? requestedBranch, string? baseSpec, string? prompt, CancellationToken ct) {
+	private async Task<CommandResult> CreateWorktreeSessionAsync(string? requestedBranch, string? baseSpec, string? prompt, string agentProviderId, CancellationToken ct) {
+		try {
+			_agentProviders.RequireAvailable(agentProviderId);
+		} catch (InvalidOperationException ex) {
+			return CommandResult.Failure(ex.Message);
+		}
+
 		if (_worktrees is null) {
 			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
 		}
@@ -766,7 +826,7 @@ public sealed partial class HostCore {
 
 		WorktreeRecord record;
 		try {
-			record = await _worktrees.CreateAsync(branch, baseRef, ct).ConfigureAwait(false);
+			record = await _worktrees.CreateAsync(branch, baseRef, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't create the worktree: {ex.Message}");
 		}
@@ -774,14 +834,20 @@ public sealed partial class HostCore {
 		// Run the user's setup command (e.g. `pnpm install`) in the background so the session opens now; it
 		// toasts "setting up… → ready/failed" as it goes.
 		StartWorktreeSetup(record.Path);
-		return await BuildAndSwitchSlotAsync(branch, record, prompt, $"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
+		return await BuildAndSwitchSlotAsync(branch, record, prompt, agentProviderId, $"Created session on branch '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>
 	/// Creates a session by checking out an existing branch into a new worktree. If Weavie already has a session
 	/// for that branch — or it's the primary checkout's own branch — switches to that instead of duplicating.
 	/// </summary>
-	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, string? prompt, CancellationToken ct) {
+	private async Task<CommandResult> AttachExistingSessionAsync(string? requestedBranch, string? prompt, string agentProviderId, CancellationToken ct) {
+		try {
+			_agentProviders.RequireAvailable(agentProviderId);
+		} catch (InvalidOperationException ex) {
+			return CommandResult.Failure(ex.Message);
+		}
+
 		if (_worktrees is not { } worktrees) {
 			return CommandResult.Failure("This workspace isn't a git repository, so worktree-backed sessions aren't available.");
 		}
@@ -815,9 +881,15 @@ public sealed partial class HostCore {
 		bool freshWorktree = worktrees.Registry.FindByBranch(branch) is null;
 		WorktreeRecord record;
 		try {
-			record = await worktrees.AttachAsync(branch, ct).ConfigureAwait(false);
+			record = await worktrees.AttachAsync(branch, agentProviderId, ct).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or GitException) {
 			return CommandResult.Failure($"Couldn't check out '{branch}': {ex.Message}");
+		}
+
+		string slotProviderId = ProviderOrNull(record.AgentProviderId) ?? agentProviderId;
+		if (!freshWorktree && ProviderOrNull(record.AgentProviderId) is null) {
+			record = record with { AgentProviderId = slotProviderId };
+			worktrees.Registry.Add(record);
 		}
 
 		if (freshWorktree) {
@@ -826,14 +898,14 @@ public sealed partial class HostCore {
 
 		// Seed the first prompt only on this fresh-checkout path; switching to an existing session (above) must
 		// never re-seed it. The Open-PR flow uses this to brief Claude on the PR it just checked out.
-		return await BuildAndSwitchSlotAsync(branch, record, prompt, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
+		return await BuildAndSwitchSlotAsync(branch, record, prompt, slotProviderId, $"Checked out '{branch}' at {record.Path}.").ConfigureAwait(false);
 	}
 
 	/// <summary>
 	/// Builds a <see cref="SessionSlot"/> for a worktree <paramref name="record"/>, adds it to the rail, and
 	/// switches to it on the UI thread (optionally seeding a first prompt).
 	/// </summary>
-	private Task<CommandResult> BuildAndSwitchSlotAsync(string branch, WorktreeRecord record, string? prompt, string successMessage) {
+	private Task<CommandResult> BuildAndSwitchSlotAsync(string branch, WorktreeRecord record, string? prompt, string agentProviderId, string successMessage) {
 		var result = new TaskCompletionSource<CommandResult>();
 		_ui.Post(() => {
 			try {
@@ -842,7 +914,8 @@ public sealed partial class HostCore {
 					Label = branch,
 					WorktreePath = record.Path,
 					IsPrimary = false,
-					Session = CreateSession(record.Path),
+					AgentProviderId = agentProviderId,
+					Session = CreateSession(record.Path, agentProviderId),
 				};
 				_sessions?.Add(slot, activate: false);
 				SwitchToSlot(slot);
@@ -927,14 +1000,11 @@ public sealed partial class HostCore {
 		return candidate;
 	}
 
-	// Seed claude's first prompt by typing it into the PTY once the TUI is up. Best-effort; not load-bearing.
+	// Seed the agent's first prompt once the runtime has had a moment to attach. Best-effort; not load-bearing.
 	private static void SeedFirstPrompt(HostSession session, string prompt) {
 		_ = Task.Run(async () => {
 			await Task.Delay(2500).ConfigureAwait(false);
-			byte[] text = System.Text.Encoding.UTF8.GetBytes(prompt);
-			session.Claude.Write(text);
-			await Task.Delay(150).ConfigureAwait(false);
-			session.Claude.Write([(byte)'\r']);
+			session.SendAgentPrompt(prompt);
 		});
 	}
 }

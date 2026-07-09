@@ -52,7 +52,7 @@ string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
 var transport = listen is ListenMode.Remote ? HostTransport.Remote : HostTransport.Local;
 await using var core = new HostCore(new HeadlessPlatform(bridge, dispatcher, transport), services, workspace);
-await core.StartAsync().ConfigureAwait(false);
+bool coreReady = false;
 
 var builder = WebApplication.CreateBuilder(args);
 builder.Logging.ClearProviders(); // We print our own status; Kestrel request logging is noise here.
@@ -86,6 +86,16 @@ if (listen is ListenMode.Remote remote) {
 		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
 	});
 }
+
+app.Use(async (context, next) => {
+	if (System.Threading.Volatile.Read(ref coreReady)) {
+		await next().ConfigureAwait(false);
+		return;
+	}
+
+	context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
+	await context.Response.WriteAsync("weavie-headless is starting").ConfigureAwait(false);
+});
 
 // Serve index.html ourselves to inject the bootstrap globals before the module graph runs; must precede
 // the static middleware, which would otherwise serve it verbatim.
@@ -145,7 +155,10 @@ if (tokenGated) {
 
 // Start before printing the ready line so it reports the port actually bound (port 0 asks the OS for a
 // free one — the race-free way for a supervisor to spawn many hosts) and never precedes the listener.
+// Kestrel owns the worker port before HostCore starts, so HostCore children cannot claim it.
 await app.StartAsync().ConfigureAwait(false);
+await core.StartAsync().ConfigureAwait(false);
+System.Threading.Volatile.Write(ref coreReady, true);
 int boundPort = new Uri(app.Urls.First()).Port;
 string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
 string tokenSuffix = listen is ListenMode.Remote shown ? $"/?token={shown.Token}" : string.Empty;

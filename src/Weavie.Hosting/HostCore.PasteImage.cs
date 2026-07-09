@@ -4,11 +4,8 @@ using Weavie.Core.Json;
 
 namespace Weavie.Hosting;
 
-// Remote image paste into Claude: the web captures a pasted image and sends its bytes here; the host writes a
-// scratch file on the backend's disk and injects the path into the claude PTY as a bracketed paste, which the TUI
-// renders as an [Image #N] chip and attaches on submit. Claude ingests images only from the OS clipboard (absent
-// on a remote/headless box) or a file path, so path-injection is the delivery that works everywhere. See
-// docs/specs/remote-paste-image.md.
+// Remote image paste into an agent: the web captures bytes, the host writes a scratch file, and the active
+// provider receives that file through its native image path. See docs/specs/remote-paste-image.md.
 public sealed partial class HostCore {
 	private void HandlePasteImage(JsonElement root) {
 		// Frozen while an update restart commits: injecting now would seed a turn the restart discards (the same
@@ -31,7 +28,7 @@ public sealed partial class HostCore {
 		if (approxBytes > PastedImageMedia.MaxBytes) {
 			Notify(
 				"warn",
-				$"That image is {approxBytes / (1024.0 * 1024.0):0.0} MB — Claude accepts images up to {PastedImageMedia.MaxBytes / (1024 * 1024)} MB. Resize it and paste again.");
+				$"That image is {approxBytes / (1024.0 * 1024.0):0.0} MB — Weavie accepts agent images up to {PastedImageMedia.MaxBytes / (1024 * 1024)} MB. Resize it and paste again.");
 			return;
 		}
 
@@ -41,12 +38,11 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		// The web only pastes into the claude pane; always target claude (a shell would try to run the path).
 		if (SessionForSlot(root) is not { } session) {
 			return;
 		}
 
 		string path = session.PastedImages.Write(extension, bytes);
-		session.Claude.WriteBracketedPaste(path);
+		session.SendAgentImagePath(path);
 	}
 }

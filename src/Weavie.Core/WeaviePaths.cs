@@ -48,6 +48,12 @@ public static class WeaviePaths {
 	public static string ClaudeSessionsFile { get; } = Path.Combine(Root, "claude-sessions.json");
 
 	/// <summary>
+	/// The Codex app-server thread id per working directory: <c>~/.weavie/codex-threads.json</c>, so a reopened
+	/// native Codex session resumes its prior thread. App-global. See <see cref="Sessions.CodexThreadStore"/>.
+	/// </summary>
+	public static string CodexThreadsFile { get; } = Path.Combine(Root, "codex-threads.json");
+
+	/// <summary>
 	/// The registered remote agents: <c>~/.weavie/remote-agents.json</c>. Its own file, never settings.toml — it
 	/// holds bearer tokens, so it stays off the Claude-facing settings surface. See <see cref="Remote.RemoteAgentStore"/>.
 	/// </summary>

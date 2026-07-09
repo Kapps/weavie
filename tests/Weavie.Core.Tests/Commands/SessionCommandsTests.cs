@@ -87,13 +87,14 @@ public sealed class SessionCommandsTests {
 
 		var result = await dispatcher.InvokeAsync(
 			SessionCommands.NewSession,
-			"{\"branch\":\"feature\",\"base\":\"main\",\"prompt\":\"do it\"}",
+			"{\"branch\":\"feature\",\"base\":\"main\",\"prompt\":\"do it\",\"agentProviderId\":\"codex\"}",
 			CancellationToken.None);
 
 		Assert.True(result.Ok);
 		Assert.Equal("feature", host.LastNew?.Branch);
 		Assert.Equal("main", host.LastNew?.Base);
 		Assert.Equal("do it", host.LastNew?.Prompt);
+		Assert.Equal("codex", host.LastNew?.AgentProviderId);
 	}
 
 	[Fact]

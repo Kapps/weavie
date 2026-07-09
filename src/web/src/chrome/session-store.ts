@@ -49,6 +49,11 @@ const [sessionsReceived, setSessionsReceived] = createSignal(false);
 
 export { sessionsReceived };
 
+const normalizeProvider = (chip: SessionChip): SessionChip => ({
+  ...chip,
+  providerId: chip.providerId ?? "claude",
+});
+
 // Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so
 // overlapping ops don't clear the spinner early. The chip shows a spinner while its count is positive.
 const [pendingSessions, setPendingSessions] = createSignal<Map<string, number>>(new Map());
@@ -82,7 +87,7 @@ onSessionMessage((message, backendId) => {
     setSessionsReceived(true);
     setByBackend((prev) => {
       const next = new Map(prev);
-      next.set(backendId, message.sessions);
+      next.set(backendId, message.sessions.map(normalizeProvider));
       return next;
     });
   } else if (

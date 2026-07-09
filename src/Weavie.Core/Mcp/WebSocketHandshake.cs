@@ -12,10 +12,10 @@ internal static class WebSocketHandshake {
 	private const int MaxHeaderBytes = 64 * 1024;
 
 	/// <summary>
-	/// Reads the request line + headers up to the blank-line terminator. Returns the request target (path +
-	/// query) and a case-insensitive header map, or null if the peer closed or flooded the header buffer.
+	/// Reads the request line + headers up to the blank-line terminator, or null if the peer closed or flooded
+	/// the header buffer.
 	/// </summary>
-	public static async Task<(string Target, Dictionary<string, string> Headers)?> ReadRequestAsync(
+	public static async Task<HttpRequestHead?> ReadRequestAsync(
 		NetworkStream stream, CancellationToken ct) {
 		var sb = new StringBuilder();
 		byte[] one = new byte[1];
@@ -45,6 +45,7 @@ internal static class WebSocketHandshake {
 		}
 
 		string[] requestParts = lines[0].Split(' ', StringSplitOptions.RemoveEmptyEntries);
+		string method = requestParts.Length >= 1 ? requestParts[0] : "GET";
 		string target = requestParts.Length >= 2 ? requestParts[1] : "/";
 
 		var headers = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
@@ -55,13 +56,47 @@ internal static class WebSocketHandshake {
 			}
 		}
 
-		return (target, headers);
+		return new HttpRequestHead(method, target, headers);
+	}
+
+	/// <summary>Reads the request body declared by <c>Content-Length</c>.</summary>
+	public static async Task<string> ReadBodyAsync(
+		NetworkStream stream, IReadOnlyDictionary<string, string> headers, CancellationToken ct) {
+		if (!headers.TryGetValue("content-length", out string? value) || !int.TryParse(value, out int length) || length < 0) {
+			return string.Empty;
+		}
+
+		byte[] bytes = new byte[length];
+		int offset = 0;
+		while (offset < bytes.Length) {
+			int read = await stream.ReadAsync(bytes.AsMemory(offset, bytes.Length - offset), ct).ConfigureAwait(false);
+			if (read == 0) {
+				throw new IOException("HTTP request body ended early.");
+			}
+
+			offset += read;
+		}
+
+		return Encoding.UTF8.GetString(bytes);
 	}
 
 	/// <summary>Writes a bare HTTP status response (no body) and flushes.</summary>
 	public static async Task WriteStatusAsync(NetworkStream stream, string status, CancellationToken ct) {
 		string response = $"HTTP/1.1 {status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n";
 		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
+		await stream.FlushAsync(ct).ConfigureAwait(false);
+	}
+
+	/// <summary>Writes a JSON HTTP response and flushes.</summary>
+	public static async Task WriteJsonAsync(NetworkStream stream, string status, string json, CancellationToken ct) {
+		byte[] body = Encoding.UTF8.GetBytes(json);
+		string response =
+			$"HTTP/1.1 {status}\r\n" +
+			"Connection: close\r\n" +
+			"Content-Type: application/json\r\n" +
+			$"Content-Length: {body.Length}\r\n\r\n";
+		await stream.WriteAsync(Encoding.ASCII.GetBytes(response), ct).ConfigureAwait(false);
+		await stream.WriteAsync(body, ct).ConfigureAwait(false);
 		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}
 
@@ -77,3 +112,8 @@ internal static class WebSocketHandshake {
 		await stream.FlushAsync(ct).ConfigureAwait(false);
 	}
 }
+
+internal sealed record HttpRequestHead(
+	string Method,
+	string Target,
+	Dictionary<string, string> Headers);

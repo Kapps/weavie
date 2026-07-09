@@ -10,6 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// settles; the commit freezes terminal input and pushes
 /// <c>update-restarting</c>; restart-now skips the gate.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreDrainTests {
 	[Fact]
 	public async Task QuietHost_CommitsImmediately_AndFreezesInput() {

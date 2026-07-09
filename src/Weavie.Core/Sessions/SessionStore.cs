@@ -135,6 +135,7 @@ public sealed class SessionStore {
 					WorktreePath = e.WorktreePath,
 					IsPrimary = e.IsPrimary,
 					Loaded = e.Loaded,
+					AgentProviderId = string.IsNullOrWhiteSpace(e.AgentProviderId) ? "claude" : e.AgentProviderId,
 				})];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[sessions] {FilePath} is malformed ({ex.Message}); backing up to sessions.json.bad and resetting");
@@ -156,6 +157,7 @@ public sealed class SessionStore {
 					WorktreePath = s.WorktreePath,
 					IsPrimary = s.IsPrimary,
 					Loaded = s.Loaded,
+					AgentProviderId = s.AgentProviderId,
 				})],
 			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
@@ -196,5 +198,8 @@ public sealed class SessionStore {
 
 		[JsonPropertyName("loaded")]
 		public bool Loaded { get; set; }
+
+		[JsonPropertyName("agentProviderId")]
+		public string AgentProviderId { get; set; } = "claude";
 	}
 }

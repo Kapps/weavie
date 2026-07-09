@@ -72,10 +72,10 @@ internal sealed class TestHost : IAsyncDisposable {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
-		RunGit(repo, "init", "-b", "main");
+		RunGit(repo, "init", "--quiet", "-b", "main");
 		File.WriteAllText(Path.Combine(repo, "readme.txt"), "hello\n");
 		RunGit(repo, "add", "-A");
-		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "-m", "initial");
+		RunGit(repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "-c", "commit.gpgsign=false", "commit", "--quiet", "-m", "initial");
 		prepareRepo(repo);
 
 		EnsureRelayBinary();
@@ -118,8 +118,16 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// fresh one up over the same repo — same workspace id, so it re-reads the persisted per-workspace stores. A
 	/// fresh bridge is used because a disposed core does not detach its <c>OnWebMessage</c> handler.
 	/// </summary>
-	public async Task RestartAsync() {
+	public Task RestartAsync() => RestartAsync(static () => {
+	});
+
+	/// <summary>
+	/// Simulates a worker restart and lets tests mutate persisted state after shutdown, before the fresh core starts.
+	/// </summary>
+	public async Task RestartAsync(Action beforeRestart) {
+		ArgumentNullException.ThrowIfNull(beforeRestart);
 		await Core.DisposeAsync().ConfigureAwait(false);
+		beforeRestart();
 		Bridge = new FakeHostBridge();
 		Platform = new TestPlatform(Bridge);
 		Core = new HostCore(Platform, _services, RepoRoot);
@@ -135,6 +143,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		var claudeSessions = new ClaudeSessionStore(new LocalFileSystem(), Path.Combine(tempRoot, "claude-sessions.json"));
 		var agentProviders = new AgentProviderRegistry();
 		agentProviders.Register(new ClaudeAgentProvider(claudeSessions));
+		agentProviders.Register(new FakeCodexAgentProvider());
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
 		return new HostServices {
@@ -174,7 +183,10 @@ internal sealed class TestHost : IAsyncDisposable {
 	}
 
 	internal static void RunGit(string cwd, params string[] args) {
-		var psi = new ProcessStartInfo("git") { WorkingDirectory = cwd, RedirectStandardError = true, RedirectStandardOutput = true };
+		ProcessStartInfo psi = new("git") {
+			WorkingDirectory = cwd,
+			UseShellExecute = false,
+		};
 		foreach (string arg in args) {
 			psi.ArgumentList.Add(arg);
 		}
@@ -182,7 +194,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		using var process = Process.Start(psi) ?? throw new InvalidOperationException("git failed to start");
 		process.WaitForExit();
 		if (process.ExitCode != 0) {
-			throw new InvalidOperationException($"git {string.Join(' ', args)} failed: {process.StandardError.ReadToEnd()}");
+			throw new InvalidOperationException($"git {string.Join(' ', args)} failed with exit code {process.ExitCode}.");
 		}
 	}
 

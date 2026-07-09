@@ -30,9 +30,9 @@ public sealed class AgentEventRouter : IAgentEventSink {
 		_changes.Observe(value);
 		_mode.Observe(value);
 		_status.Observe(value);
-		string? location = _changes.EditLocationFor(value);
-		return location is null
+		var locations = _changes.EditLocationsFor(value);
+		return locations.Count == 0
 			? AgentEventFeedback.None
-			: new AgentEventFeedback { Messages = [location] };
+			: new AgentEventFeedback { Messages = locations };
 	}
 }

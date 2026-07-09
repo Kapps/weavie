@@ -10,6 +10,7 @@ namespace Weavie.Hosting.Tests;
 /// as a turn — feeding the navigator over <c>turn-changes</c> / <c>turn-diff</c>, with keep/revert acting on disk.
 /// A toast answers an unknown ref or nothing differing. See docs/specs/diff-against.md.
 /// </summary>
+[Collection(TestCollections.HostIntegration)]
 public sealed class DiffAgainstTests {
 	[Fact]
 	public async Task DiffAgainstHead_PushesUncommittedChanges_AndServesTheFileDiff() {

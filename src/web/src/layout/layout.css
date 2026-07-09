@@ -283,7 +283,8 @@
   overflow: hidden;
 }
 
-.terminal-surface {
+.terminal-surface,
+.agent-surface {
   display: flex;
   flex-direction: column;
   width: 100%;
@@ -367,11 +368,13 @@
 
 /* Focused pane: accent the border and its label / badge. */
 .terminal-surface.active,
+.agent-surface.active,
 .editor-surface.active {
   border-color: var(--accent);
 }
 
 .terminal-surface.active .pane-label,
+.agent-surface.active .pane-label,
 .editor-surface.active .pane-shortcut {
   color: var(--accent);
 }

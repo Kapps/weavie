@@ -9,13 +9,19 @@ import { BranchTypeahead, branchSuggestions } from "./BranchTypeahead";
 export function NewSessionPrompt(props: {
   // The location to preselect (last-used, or a freshly-added agent); the caller passes a connected backend id.
   initialBackendId: string;
-  onCreate: (branch: string, base: "head" | "main", backendId: string) => void;
-  onCheckout: (branch: string, backendId: string) => void;
+  onCreate: (
+    branch: string,
+    base: "head" | "main",
+    backendId: string,
+    agentProviderId?: "claude" | "codex",
+  ) => void;
+  onCheckout: (branch: string, backendId: string, agentProviderId?: "claude" | "codex") => void;
   onCancel: () => void;
   onAddRemote: () => void;
   onDisconnect: (backendId: string) => void;
 }): JSX.Element {
   const [backendId, setBackendId] = createSignal(props.initialBackendId);
+  const [agentProviderId, setAgentProviderId] = createSignal<"" | "claude" | "codex">("");
   const [branch, setBranch] = createSignal("");
   const [branches, setBranches] = createSignal<string[]>([]);
   const [loadingBranches, setLoadingBranches] = createSignal(false);
@@ -51,12 +57,12 @@ export function NewSessionPrompt(props: {
 
   const create = (base: "head" | "main"): void => {
     if (trimmed().length > 0) {
-      props.onCreate(trimmed(), base, backendId());
+      props.onCreate(trimmed(), base, backendId(), agentProviderId() || undefined);
     }
   };
   const checkout = (name: string): void => {
     if (name.length > 0) {
-      props.onCheckout(name, backendId());
+      props.onCheckout(name, backendId(), agentProviderId() || undefined);
     }
   };
 
@@ -114,6 +120,20 @@ export function NewSessionPrompt(props: {
                 Disconnect
               </button>
             </Show>
+          </div>
+          <div class="session-prompt-location">
+            <span class="session-prompt-location-label">Agent</span>
+            <select
+              class="session-prompt-select"
+              value={agentProviderId()}
+              onChange={(event) =>
+                setAgentProviderId(event.currentTarget.value as "" | "claude" | "codex")
+              }
+            >
+              <option value="">default</option>
+              <option value="claude">Claude Code</option>
+              <option value="codex">Codex (WIP)</option>
+            </select>
           </div>
           <div class="session-prompt-field">
             <BranchTypeahead

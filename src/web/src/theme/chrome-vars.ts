@@ -2,7 +2,7 @@
 // palette, mapping each to the closest VS Code workbench color id (spec §5) so all chrome tracks the active
 // theme. Higher-level names complementing apply.ts, which publishes the raw --weavie-<key> vars.
 
-/** Sets the chrome's --bg/--bar/--border/--fg/--accent/--dim vars on :root from a resolved palette. */
+/** Sets the chrome's --bg/--bar/--border/--fg/--accent/--dim (+ status & diff) vars on :root from a resolved palette. */
 export function deriveChromeVars(colors: Readonly<Record<string, string>>): void {
   const root = document.documentElement;
   const pick = (...keys: string[]): string | undefined => {
@@ -35,4 +35,14 @@ export function deriveChromeVars(colors: Readonly<Record<string, string>>): void
   set("--warn", pick("terminal.ansiYellow", "charts.yellow", "editorWarning.foreground"));
   set("--bad", pick("errorForeground", "terminal.ansiRed", "editorError.foreground"));
   set("--busy", pick("terminal.ansiBlue", "charts.blue", "focusBorder"));
+
+  // Diff surfaces (inline change review) mapped to the standard VS Code diff color ids so they track the
+  // active theme instead of hardcoding green/red: solid markers from the gutter ids, line/char washes from
+  // the diffEditor ids. diff.css consumes these (with fallbacks for themes that omit a key).
+  set("--diff-added", pick("editorGutter.addedBackground"));
+  set("--diff-removed", pick("editorGutter.deletedBackground"));
+  set("--diff-added-line", pick("diffEditor.insertedLineBackground"));
+  set("--diff-added-text", pick("diffEditor.insertedTextBackground"));
+  set("--diff-removed-line", pick("diffEditor.removedLineBackground"));
+  set("--diff-removed-text", pick("diffEditor.removedTextBackground"));
 }

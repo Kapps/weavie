@@ -85,6 +85,16 @@ public sealed class GitServiceTests {
 	}
 
 	[Fact]
+	public async Task CommandInMissingWorkingDirectory_ReportsThatDirectory() {
+		string missing = Path.Combine(Path.GetTempPath(), "weavie-git-missing-" + Guid.NewGuid().ToString("n"));
+		var ex = await Assert.ThrowsAsync<GitException>(() =>
+			new GitService().GetCurrentBranchAsync(missing));
+
+		Assert.Contains("working directory does not exist", ex.Message, StringComparison.Ordinal);
+		Assert.Contains(missing, ex.Message, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void ParseGrep_ParsesPathLinePreview() {
 		string sample = "src/a.ts:12:const x = 1;\nsrc/a.ts:30:import y;\ndocs/b.md:3:see foo\n";
 

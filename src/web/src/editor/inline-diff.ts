@@ -1176,7 +1176,9 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
                 ? "weavie-inline-user-gutter"
                 : "weavie-inline-added-gutter",
               overviewRuler: {
-                color: fromUser ? "rgba(78, 201, 120, 0.3)" : "rgba(78, 201, 120, 0.7)",
+                // Standard VS Code added-marker id so the ruler tracks the theme; the added/user shade
+                // distinction is carried by the in-editor line wash, not the ruler.
+                color: { id: "editorOverviewRuler.addedForeground" },
                 position: monaco.editor.OverviewRulerLane.Left,
               },
             },
@@ -1228,7 +1230,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
               className: "weavie-inline-accepted",
               linesDecorationsClassName: "weavie-inline-accepted-gutter",
               overviewRuler: {
-                color: "rgba(78, 201, 120, 0.3)",
+                color: { id: "editorOverviewRuler.addedForeground" },
                 position: monaco.editor.OverviewRulerLane.Left,
               },
             },

@@ -280,7 +280,7 @@ export default function App(): JSX.Element {
   // The Monaco editor + all diff/review orchestration; App feeds it host messages and commands.
   const editor = createEditorController({
     onSaveError: (message) => addToast("error", message),
-    onOpenError: (message) => addToast("error", message),
+    onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
     confirmDiscard,
     confirm,
@@ -442,6 +442,8 @@ export default function App(): JSX.Element {
     id: string;
     label: string;
     state: DeleteSessionState;
+    untrackedFiles: string[];
+    untrackedCount: number;
     backendId: string;
   } | null>(null);
   // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Classify the
@@ -460,11 +462,25 @@ export default function App(): JSX.Element {
       classify: true,
     });
     if (!result.ok) {
-      addToast("error", result.error ?? "Couldn't check the session for changes.");
+      addToast("warn", result.error ?? "Couldn't check the session for changes.");
       return;
     }
-    const info = result.data as { state?: DeleteSessionState; label?: string } | undefined;
-    setDeleteReq({ id, label: info?.label ?? id, state: info?.state ?? "clean", backendId });
+    const info = result.data as
+      | {
+          state?: DeleteSessionState;
+          label?: string;
+          untrackedFiles?: string[];
+          untrackedCount?: number;
+        }
+      | undefined;
+    setDeleteReq({
+      id,
+      label: info?.label ?? id,
+      state: info?.state ?? "clean",
+      untrackedFiles: info?.untrackedFiles ?? [],
+      untrackedCount: info?.untrackedCount ?? 0,
+      backendId,
+    });
   };
   const confirmDeleteSession = async (): Promise<void> => {
     const req = deleteReq();
@@ -479,7 +495,7 @@ export default function App(): JSX.Element {
       force: req.state !== "clean",
     });
     addToast(
-      result.ok ? "info" : "error",
+      result.ok ? "info" : "warn",
       result.ok
         ? (result.message ?? "Session deleted.")
         : (result.error ?? "Couldn't delete the session."),
@@ -1405,6 +1421,8 @@ export default function App(): JSX.Element {
           <DeleteSessionDialog
             label={req().label}
             state={req().state}
+            untrackedFiles={req().untrackedFiles}
+            untrackedCount={req().untrackedCount}
             onConfirm={confirmDeleteSession}
             onCancel={() => setDeleteReq(null)}
           />

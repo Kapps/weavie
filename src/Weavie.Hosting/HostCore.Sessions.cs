@@ -250,7 +250,7 @@ public sealed partial class HostCore {
 			} catch (Exception ex) {
 				Console.WriteLine($"[weavie] worktree setup command failed to run: {ex}");
 				_ui.Post(() => Notify(
-					"error", $"Worktree setup for '{WorktreeLabel(worktreePath)}' couldn't run: {ex.Message}"));
+					"warn", $"Worktree setup for '{WorktreeLabel(worktreePath)}' couldn't run: {ex.Message}"));
 			}
 		});
 	}
@@ -280,7 +280,7 @@ public sealed partial class HostCore {
 					? $"Worktree '{label}' is ready."
 					: $"Worktree '{label}' cleaned up.");
 			} else {
-				Notify("error", $"Worktree {phase} command failed (exit {result.ExitCode}) — see console.");
+				Notify("warn", $"Worktree {phase} command failed (exit {result.ExitCode}) — see console.");
 			}
 		});
 	}
@@ -739,19 +739,29 @@ public sealed partial class HostCore {
 
 		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
 		string state = "clean";
+		IReadOnlyList<string> untracked = [];
 		if (IsLiveWorktree(target.WorktreePath)) {
 			try {
-				state = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false) switch {
+				var status = await new GitService().GetChangeStateAsync(target.WorktreePath, ct).ConfigureAwait(false);
+				state = status.State switch {
 					WorktreeChangeState.UntrackedOnly => "untracked",
 					WorktreeChangeState.Modified => "modified",
 					_ => "clean",
 				};
+				untracked = status.UntrackedFiles;
 			} catch (GitException ex) {
 				return CommandResult.Failure($"Couldn't check '{target.Label}' for changes: {ex.Message}");
 			}
 		}
 
-		return CommandResult.Success(null, JsonSerializer.Serialize(new { state, label = target.Label }));
+		// Name the first few files the confirm would delete; the dialog renders "…and N more" from the total.
+		const int previewLimit = 5;
+		return CommandResult.Success(null, JsonSerializer.Serialize(new {
+			state,
+			label = target.Label,
+			untrackedFiles = untracked.Take(previewLimit).ToArray(),
+			untrackedCount = untracked.Count,
+		}));
 	}
 
 	/// <summary>

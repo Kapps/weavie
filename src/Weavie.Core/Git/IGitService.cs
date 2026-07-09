@@ -16,6 +16,14 @@ public enum WorktreeChangeState {
 }
 
 /// <summary>
+/// A worktree's change classification plus the untracked files a delete would remove — so the confirm can name
+/// the first few of them.
+/// </summary>
+/// <param name="State">How dirty the worktree is.</param>
+/// <param name="UntrackedFiles">Repo-relative paths of the untracked files, path-ordered.</param>
+public sealed record WorktreeChangeStatus(WorktreeChangeState State, IReadOnlyList<string> UntrackedFiles);
+
+/// <summary>
 /// The git operations Weavie's worktree-per-session feature needs, behind an interface so the worktree
 /// manager can be unit-tested against a fake. The real <see cref="GitService"/> shells out to <c>git</c>.
 /// All methods throw <see cref="GitException"/> on unexpected failures rather than returning a default.
@@ -71,8 +79,11 @@ public interface IGitService {
 	/// <summary>True when <paramref name="worktreeDirectory"/> has uncommitted changes (tracked or untracked).</summary>
 	Task<bool> HasUncommittedChangesAsync(string worktreeDirectory, CancellationToken ct = default);
 
-	/// <summary>Classifies <paramref name="worktreeDirectory"/>'s working tree (clean / untracked-only / modified).</summary>
-	Task<WorktreeChangeState> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default);
+	/// <summary>
+	/// Classifies <paramref name="worktreeDirectory"/>'s working tree (clean / untracked-only / modified) and
+	/// lists its untracked files, so a delete confirm can name the ones it would remove.
+	/// </summary>
+	Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default);
 
 	/// <summary>True when <paramref name="branch"/> is an ancestor of <paramref name="into"/> (fully merged).</summary>
 	Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default);

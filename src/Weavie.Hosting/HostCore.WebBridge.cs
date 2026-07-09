@@ -823,7 +823,7 @@ public sealed partial class HostCore {
 		// Workspace-guard every file before touching disk: one path outside the worktree aborts the whole revert.
 		foreach (var change in session.Changes.TurnChanges()) {
 			if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, change.Path)) {
-				Notify("error", $"Couldn't revert {Path.GetFileName(change.Path)}: path is outside the workspace.");
+				Notify("warn", $"Couldn't revert {Path.GetFileName(change.Path)}: path is outside the workspace.");
 				return;
 			}
 		}
@@ -831,7 +831,7 @@ public sealed partial class HostCore {
 		try {
 			ApplyHistoryResult(session.Changes.RevertAll()); // one undoable step for the whole set
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't revert all changes: {ex.Message}");
+			Notify("warn", $"Couldn't revert all changes: {ex.Message}");
 		}
 	}
 
@@ -947,7 +947,7 @@ public sealed partial class HostCore {
 		}
 
 		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
-			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
+			Notify("warn", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
 			return;
 		}
 
@@ -967,7 +967,7 @@ public sealed partial class HostCore {
 			PushTurnChangesToWeb(); // the file may have left the review set
 			PushReviewHistoryToWeb(); // a revert is now undoable
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+			Notify("warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
 
@@ -987,7 +987,7 @@ public sealed partial class HostCore {
 		}
 
 		if (!BufferStore.IsWithinWorkspace(session.WorkspaceRoot, path)) {
-			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
+			Notify("warn", $"Couldn't revert {Path.GetFileName(path)}: path is outside the workspace.");
 			return;
 		}
 
@@ -996,7 +996,7 @@ public sealed partial class HostCore {
 			PushTurnChangesToWeb(); // the file has left the review set
 			PushReviewHistoryToWeb(); // a revert is now undoable
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			Notify("error", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
+			Notify("warn", $"Couldn't revert {Path.GetFileName(path)}: {ex.Message}");
 		}
 	}
 
@@ -1165,7 +1165,7 @@ public sealed partial class HostCore {
 				AgentProviderId = agentProviderId,
 			}, CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
-			Notify("error", result.Error ?? "Couldn't create the session.");
+			Notify("warn", result.Error ?? "Couldn't create the session.");
 		}
 	}
 
@@ -1180,8 +1180,14 @@ public sealed partial class HostCore {
 		try {
 			var all = await git.ListBranchesAsync(WorkspaceRoot, CancellationToken.None).ConfigureAwait(false);
 			var worktrees = await git.ListWorktreesAsync(WorkspaceRoot, CancellationToken.None).ConfigureAwait(false);
+			var sessionBranches = new HashSet<string>(
+				_sessions?.Slots.Where(slot => !slot.IsPrimary).Select(slot => slot.Id) ?? [],
+				StringComparer.Ordinal);
 			var checkedOut = new HashSet<string>(
-				worktrees.Where(w => w.Branch is not null).Select(w => w.Branch!), StringComparer.Ordinal);
+				worktrees
+					.Where(w => w.Branch is not null && !sessionBranches.Contains(w.Branch))
+					.Select(w => w.Branch!),
+				StringComparer.Ordinal);
 			branches = [.. all.Where(b => !checkedOut.Contains(b))];
 		} catch (GitException ex) {
 			Log($"[weavie] list-branches failed: {ex.Message}");

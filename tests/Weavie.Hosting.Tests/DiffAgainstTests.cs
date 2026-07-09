@@ -121,7 +121,7 @@ public sealed class DiffAgainstTests {
 		host.Send("""{"type":"diff-against","ref":"no-such-ref"}""");
 
 		var toast = await Wait.ForAsync(() => host.Bridge.LastOfType("notify"));
-		Assert.Equal("error", toast.GetProperty("level").GetString());
+		Assert.Equal("warn", toast.GetProperty("level").GetString());
 		Assert.Contains("no-such-ref", toast.GetProperty("message").GetString());
 		Assert.Null(host.Bridge.LastOfType("turn-changes"));
 	}

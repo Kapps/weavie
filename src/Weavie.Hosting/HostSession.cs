@@ -282,7 +282,7 @@ public sealed class HostSession : IAsyncDisposable {
 			// a folder that never fills); the page still gets an (empty) listing so its spinner resolves.
 			entries = [];
 			_bridge.PostToWeb(ShellProtocol.BuildNotify(
-				"error", $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}"));
+				"warn", $"Couldn't list {(string.IsNullOrEmpty(requestedPath) ? Browser.Root : requestedPath)}: {ex.Message}"));
 		}
 
 		string json = JsonSerializer.Serialize(new {

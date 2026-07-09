@@ -47,7 +47,7 @@ public sealed partial class AppDelegate {
 
 		if (!Directory.Exists(path)) {
 			_recents?.Remove(path);
-			Frontmost?.Notify("error", $"Folder not found: {path}");
+			Frontmost?.Notify("warn", $"Folder not found: {path}");
 			_welcome?.RefreshRecents(); // drop the dead row if the welcome screen is showing it
 			return null;
 		}

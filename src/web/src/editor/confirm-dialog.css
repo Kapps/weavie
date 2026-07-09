@@ -128,6 +128,25 @@
   cursor: pointer;
 }
 
+/* The named untracked files a delete would remove: a monospace, scrollable list with an "…and N more" tail. */
+.confirm-file-list {
+  margin: 0.7em 0 0;
+  padding: 0.5em 0.7em;
+  max-height: 8em;
+  overflow-y: auto;
+  list-style: none;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-size: 0.9em;
+  color: var(--fg);
+}
+
+.confirm-file-more {
+  color: var(--dim);
+}
+
 /* URL prompt (UrlPrompt.tsx) — a single value field reusing the confirm-dialog shell. */
 .url-prompt-input {
   width: 100%;

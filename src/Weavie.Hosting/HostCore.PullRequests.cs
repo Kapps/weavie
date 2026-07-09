@@ -25,7 +25,7 @@ public sealed partial class HostCore {
 					? await _pullRequests.ListOpenAsync(repo, CancellationToken.None).ConfigureAwait(false)
 					: await _pullRequests.SearchAsync(repo, query, CancellationToken.None).ConfigureAwait(false);
 			} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-				Notify("error", $"Couldn't list pull requests: {ex.Message}");
+				Notify("warn", $"Couldn't list pull requests: {ex.Message}");
 			}
 		} else {
 			Notify("warn", "This workspace's 'origin' isn't a recognized GitHub repository.");
@@ -96,12 +96,12 @@ public sealed partial class HostCore {
 		try {
 			pr = await _pullRequests.GetAsync(repo, number, CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Notify("error", $"Couldn't open PR #{number}: {ex.Message}");
+			Notify("warn", $"Couldn't open PR #{number}: {ex.Message}");
 			return;
 		}
 
 		if (pr is null || string.IsNullOrWhiteSpace(pr.HeadRef)) {
-			Notify("error", $"PR #{number} wasn't found in {repo.Owner}/{repo.Name}.");
+			Notify("warn", $"PR #{number} wasn't found in {repo.Owner}/{repo.Name}.");
 			return;
 		}
 
@@ -110,7 +110,7 @@ public sealed partial class HostCore {
 		string title = pr.Title;
 		string url = pr.Url;
 		if (!GitService.IsValidBranchName(headRef)) {
-			Notify("error", $"PR #{number} has an unexpected branch name ('{headRef}').");
+			Notify("warn", $"PR #{number} has an unexpected branch name ('{headRef}').");
 			return;
 		}
 
@@ -124,7 +124,7 @@ public sealed partial class HostCore {
 				await git.FetchAsync(WorkspaceRoot, "origin", $"{headRef}:{headRef}", CancellationToken.None).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
-			Notify("error", $"Couldn't fetch PR #{number} ('{headRef}'): {ex.Message}");
+			Notify("warn", $"Couldn't fetch PR #{number} ('{headRef}'): {ex.Message}");
 			return;
 		}
 
@@ -136,7 +136,7 @@ public sealed partial class HostCore {
 			},
 			CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
-			Notify("error", result.Error ?? $"Couldn't open PR #{number}.");
+			Notify("warn", result.Error ?? $"Couldn't open PR #{number}.");
 			return;
 		}
 
@@ -231,7 +231,7 @@ public sealed partial class HostCore {
 					new NewReviewComment { Path = relative, Line = line, Side = resolvedSide, Body = body }, CancellationToken.None).ConfigureAwait(false);
 			}
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Notify("error", $"Couldn't post the comment: {ex.Message}");
+			Notify("warn", $"Couldn't post the comment: {ex.Message}");
 			return;
 		}
 

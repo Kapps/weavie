@@ -5,7 +5,7 @@ namespace Weavie.Hosting.Tests;
 internal sealed class FakeCodexAgentProvider : IAgentProvider {
 	public AgentProviderInfo Info { get; } = new() {
 		Id = "codex",
-		Name = "Codex",
+		Name = "Codex (WIP)",
 		Capabilities = AgentProviderCapabilities.StructuredPane
 			| AgentProviderCapabilities.CapabilityRegistry
 			| AgentProviderCapabilities.Ide

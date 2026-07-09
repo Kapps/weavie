@@ -132,7 +132,7 @@ export function NewSessionPrompt(props: {
             >
               <option value="">default</option>
               <option value="claude">Claude Code</option>
-              <option value="codex">Codex</option>
+              <option value="codex">Codex (WIP)</option>
             </select>
           </div>
           <div class="session-prompt-field">

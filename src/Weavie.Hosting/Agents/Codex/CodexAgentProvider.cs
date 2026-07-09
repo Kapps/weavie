@@ -25,7 +25,7 @@ public sealed class CodexAgentProvider : IAgentProvider {
 	/// <inheritdoc/>
 	public AgentProviderInfo Info { get; } = new() {
 		Id = "codex",
-		Name = "Codex",
+		Name = "Codex (WIP)",
 		Capabilities = AgentProviderCapabilities.StructuredPane
 			| AgentProviderCapabilities.CapabilityRegistry
 			| AgentProviderCapabilities.Ide

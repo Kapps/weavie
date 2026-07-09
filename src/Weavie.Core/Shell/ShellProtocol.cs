@@ -115,6 +115,12 @@ public static class ShellProtocol {
 		return JsonSerializer.Serialize(new { type = "notify", level, message, key });
 	}
 
+	/// <summary>Builds the <c>notify-clear</c> message: dismisses the live toast carrying <paramref name="key"/> (e.g. a resolved in-flight spinner).</summary>
+	public static string BuildNotifyClear(string key) {
+		ArgumentException.ThrowIfNullOrEmpty(key);
+		return JsonSerializer.Serialize(new { type = "notify-clear", key });
+	}
+
 	/// <summary>Builds the <c>window-state</c> message (maximize glyph + blur dim) the host pushes on focus/size changes.</summary>
 	public static string BuildWindowState(bool maximized, bool focused) =>
 		JsonSerializer.Serialize(new { type = "window-state", maximized, focused });

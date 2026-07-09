@@ -16,14 +16,19 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   await expect(page.locator(".session-prompt")).toBeVisible();
   await expect(page.locator(".pr-suggestion-number", { hasText: "#101" })).toBeVisible();
 
-  // Pick it (Enter on the highlighted row) → a second session lands on the rail, on the PR's head branch.
+  // Pick it (Enter on the highlighted row) → a busy spinner toast names the PR while the host does its silent
+  // fetch/checkout/seed chain, then a second session lands on the rail, on the PR's head branch.
   await page.locator(".session-prompt-input").press("Enter");
+  await expect(page.locator(".toast-busy", { hasText: "#101" })).toBeVisible();
   await expect(page.locator(".session-chip")).toHaveCount(2, { timeout: 20_000 });
 
   // The diff navigator surfaces automatically on the PR's first changed file — feature.ts, a new file, so it
   // shows the "New file" band rather than a per-line green wash.
   const toolbar = page.locator(".weavie-inline-toolbar");
   await expect(toolbar).toBeVisible({ timeout: 20_000 });
+
+  // The diff rendering is the success signal: the host clears the spinner (notify-clear) once it's on screen.
+  await expect(page.locator(".toast-busy")).toHaveCount(0, { timeout: 20_000 });
   await expect(page.locator(".weavie-inline-newfile-tag")).toBeVisible();
 
   // It's a two-file walk (feature.ts added, hello.ts modified): the stacked label names the current file and

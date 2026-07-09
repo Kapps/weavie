@@ -95,6 +95,25 @@
   background: var(--diff-added-text, #5a9a6a3d);
 }
 
+/* A wholly-new file: the whole file is added, so per-line green (wash + char overlay) would slab the editor. It
+   gets only the continuous gutter edge above plus this header band — the file's single green signal, named once. */
+.weavie-inline-newfile {
+  display: flex;
+  align-items: center;
+  padding-left: 12px;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+}
+
+.weavie-inline-newfile-tag {
+  padding: 1px 8px;
+  border: 1px solid color-mix(in srgb, var(--diff-added, #5a9a6a) 45%, transparent);
+  border-radius: 5px;
+  background: color-mix(in srgb, var(--diff-added, #5a9a6a) 20%, transparent);
+  color: var(--diff-added, #5a9a6a);
+  font-size: 11px;
+  font-weight: 600;
+}
+
 /* The user's OWN typing over a changed file — a washed-out green, much fainter than Claude's solid added
    lines, so a person's edits read as theirs (not something to "review/accept" like Claude's changes). */
 .weavie-inline-user {

@@ -20,11 +20,11 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   await page.locator(".session-prompt-input").press("Enter");
   await expect(page.locator(".session-chip")).toHaveCount(2, { timeout: 20_000 });
 
-  // The diff navigator surfaces automatically with the PR's changes: a floating toolbar over the editor and
-  // bright added lines (feature.ts is a new file — all additions).
+  // The diff navigator surfaces automatically on the PR's first changed file — feature.ts, a new file, so it
+  // shows the "New file" band rather than a per-line green wash.
   const toolbar = page.locator(".weavie-inline-toolbar");
   await expect(toolbar).toBeVisible({ timeout: 20_000 });
-  await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
+  await expect(page.locator(".weavie-inline-newfile-tag")).toBeVisible();
 
   // It's a two-file walk (feature.ts added, hello.ts modified): the stacked label names the current file and
   // ← / → moves between them.
@@ -36,6 +36,7 @@ test("opening a PR checks out its branch and pops up the diff navigator", async 
   await expect
     .poll(async () => (await label.textContent())?.trim(), { timeout: 10_000 })
     .not.toBe(first);
+  // The modified file (hello.ts) still shows the per-line added wash.
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
 });
 

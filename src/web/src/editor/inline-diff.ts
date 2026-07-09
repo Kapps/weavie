@@ -26,6 +26,9 @@ const RECOMPUTE_DEBOUNCE_MS = 120;
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
 const MAX_CHANGE_DOTS = 7;
 
+// Height of the "New file" header band shown above a wholly-new file's first line.
+const NEW_FILE_BADGE_HEIGHT = 24;
+
 export type InlineDiffMode = "review" | "applied" | "view";
 
 // Which scope the applied-review toolbar's Keep / Revert buttons act on; sticky across files (reset only on a
@@ -344,6 +347,18 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       row.textContent = line.length === 0 ? " " : line;
       node.appendChild(row);
     }
+    return node;
+  };
+
+  // The "New file" header band: a sans-serif green pill above a wholly-new file's first line, so an all-added
+  // file is labelled once instead of washed green on every line.
+  const buildNewFileBadge = (): HTMLElement => {
+    const node = document.createElement("div");
+    node.className = "weavie-inline-newfile";
+    const tag = document.createElement("span");
+    tag.className = "weavie-inline-newfile-tag";
+    tag.textContent = "New file";
+    node.appendChild(tag);
     return node;
   };
 
@@ -1128,6 +1143,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return; // no net change and nothing kept — nothing to render
     }
 
+    // A wholly-new file (empty baseline) has every line "added"; stacking the per-line wash + char overlay across
+    // all of them slabs the editor in green. Mark it with one continuous gutter edge + a "New file" header instead.
+    const isNewFile = options.original.length === 0;
+
     // Lines the user typed (diff the live model against `claudeVersion`) render fainter. Empty when
     // claudeVersion is omitted or the model still matches it.
     const userLines = new Set<number>();
@@ -1160,7 +1179,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         currentEndExclusive: change.modified.endLineNumberExclusive,
       });
       if (!change.modified.isEmpty) {
-        // Per-line so a block mixing Claude's lines with the user's tweaks paints each in its own shade.
+        // Per-line so a block mixing Claude's lines with the user's tweaks paints each in its own shade. A new file
+        // skips the wash + char overlay (isNewFile) — only the continuous gutter edge marks it.
         for (
           let ln = change.modified.startLineNumber;
           ln < change.modified.endLineNumberExclusive;
@@ -1171,10 +1191,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             range: new monaco.Range(ln, 1, ln, 1),
             options: {
               isWholeLine: true,
-              className: fromUser ? "weavie-inline-user" : "weavie-inline-added",
-              linesDecorationsClassName: fromUser
-                ? "weavie-inline-user-gutter"
-                : "weavie-inline-added-gutter",
+              className: isNewFile ? null : fromUser ? "weavie-inline-user" : "weavie-inline-added",
+              linesDecorationsClassName: isNewFile
+                ? "weavie-inline-added-gutter"
+                : fromUser
+                  ? "weavie-inline-user-gutter"
+                  : "weavie-inline-added-gutter",
               overviewRuler: {
                 // Standard VS Code added-marker id so the ruler tracks the theme; the added/user shade
                 // distinction is carried by the in-editor line wash, not the ruler.
@@ -1184,19 +1206,22 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             },
           });
         }
-        for (const inner of change.innerChanges ?? []) {
-          const r = inner.modifiedRange;
-          // Char-level emphasis is for Claude's edits; skip it on the user's own faint lines.
-          if (userLines.has(r.startLineNumber)) {
-            continue;
-          }
-          const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
-          if (!empty) {
-            deltas.push({ range: r, options: { inlineClassName: "weavie-inline-added-text" } });
+        if (!isNewFile) {
+          for (const inner of change.innerChanges ?? []) {
+            const r = inner.modifiedRange;
+            // Char-level emphasis is for Claude's edits; skip it on the user's own faint lines.
+            if (userLines.has(r.startLineNumber)) {
+              continue;
+            }
+            const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
+            if (!empty) {
+              deltas.push({ range: r, options: { inlineClassName: "weavie-inline-added-text" } });
+            }
           }
         }
       }
-      if (!change.original.isEmpty) {
+      // A new file's "removed" side is only the empty baseline line — no ghost worth showing.
+      if (!isNewFile && !change.original.isEmpty) {
         ghosts.push({
           afterLineNumber: Math.max(0, change.modified.startLineNumber - 1),
           lines: original.slice(
@@ -1262,6 +1287,15 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     decorations = editor.createDecorationsCollection(deltas);
     editor.changeViewZones((accessor) => {
+      if (isNewFile) {
+        zoneIds.push(
+          accessor.addZone({
+            afterLineNumber: 0,
+            heightInPx: NEW_FILE_BADGE_HEIGHT,
+            domNode: buildNewFileBadge(),
+          }),
+        );
+      }
       for (const ghost of ghosts) {
         zoneIds.push(
           accessor.addZone({

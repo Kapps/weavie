@@ -286,6 +286,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // makes the review chords fall through to it — so Ctrl+Enter submits the comment instead of Keeping a hunk,
   // and Ctrl+Backspace deletes a word instead of Reverting one on disk.
   let focusedComposers = 0;
+  // Content observers for the sized zones (threads in zoneIds, plus the new-comment composer's own),
+  // disconnected when their zone is removed.
+  let zoneObservers: ResizeObserver[] = [];
+  let composerObserver: ResizeObserver | undefined;
 
   const clearRender = (): void => {
     decorations?.clear();
@@ -304,6 +308,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       // focus tally here. The new-comment composer (not in zoneIds) survives and stays gated by composerZoneId.
       focusedComposers = 0;
     }
+    for (const observer of zoneObservers) {
+      observer.disconnect();
+    }
+    zoneObservers = [];
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
     }
@@ -390,6 +398,35 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return wrap;
   };
 
+  // A view zone sized by its content. Monaco force-sets the zone node's own height, so `content` lives inside a
+  // bare wrapper and its measured height (margins included) drives heightInPx via layoutZone; the ResizeObserver
+  // keeps the zone in sync as comment bodies wrap on editor resize.
+  const addContentSizedZone = (
+    accessor: monaco.editor.IViewZoneChangeAccessor,
+    afterLineNumber: number,
+    content: HTMLElement,
+  ): { id: string; observer: ResizeObserver } => {
+    const domNode = document.createElement("div");
+    domNode.appendChild(content);
+    const zone: monaco.editor.IViewZone & { heightInPx: number } = {
+      afterLineNumber,
+      heightInPx: 0,
+      domNode,
+    };
+    const id = accessor.addZone(zone);
+    const observer = new ResizeObserver(() => {
+      const style = getComputedStyle(content);
+      const height =
+        content.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+      if (height > 0 && Math.abs(height - zone.heightInPx) >= 1) {
+        zone.heightInPx = height;
+        editor.changeViewZones((a) => a.layoutZone(id));
+      }
+    });
+    observer.observe(content);
+    return { id, observer };
+  };
+
   // A comment thread for one line: its comments (root + replies, in order) and a reply composer. The reply posts
   // against the thread's root id (onReply); the host re-fetches and re-renders.
   const buildCommentThread = (
@@ -420,6 +457,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   // Remove the transient new-comment composer zone, if one is open.
   const closeNewComposer = (): void => {
+    composerObserver?.disconnect();
+    composerObserver = undefined;
     if (composerZoneId !== undefined) {
       const id = composerZoneId;
       composerZoneId = undefined;
@@ -437,22 +476,23 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     closeNewComposer();
     const node = document.createElement("div");
     node.className = "weavie-pr-thread weavie-pr-thread-new";
-    node.appendChild(
-      // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
-      // keeps every review chord declining (composerFocused stays true).
-      buildComposer("Add a comment…", "Comment", (body) => {
-        onAddComment(line, body);
-        closeNewComposer();
-      }),
-    );
+    // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
+    // keeps every review chord declining (composerFocused stays true).
+    const composer = buildComposer("Add a comment…", "Comment", (body) => {
+      onAddComment(line, body);
+      closeNewComposer();
+    });
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "weavie-pr-composer-cancel";
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", closeNewComposer);
-    node.appendChild(cancel);
+    composer.appendChild(cancel);
+    node.appendChild(composer);
     editor.changeViewZones((accessor) => {
-      composerZoneId = accessor.addZone({ afterLineNumber: line, heightInPx: 96, domNode: node });
+      const { id, observer } = addContentSizedZone(accessor, line, node);
+      composerZoneId = id;
+      composerObserver = observer;
     });
     queueMicrotask(() => node.querySelector("textarea")?.focus());
   };
@@ -475,14 +515,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     editor.changeViewZones((accessor) => {
       for (const [line, comments] of byLine) {
         const clamped = Math.min(model.getLineCount(), Math.max(1, line));
-        const height = comments.length * 28 + (options.onReply !== undefined ? 84 : 12);
-        zoneIds.push(
-          accessor.addZone({
-            afterLineNumber: clamped,
-            heightInPx: height,
-            domNode: buildCommentThread(comments, options),
-          }),
+        const { id, observer } = addContentSizedZone(
+          accessor,
+          clamped,
+          buildCommentThread(comments, options),
         );
+        zoneIds.push(id);
+        zoneObservers.push(observer);
       }
     });
   };
@@ -1547,6 +1586,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       onModel.dispose();
       onContent.dispose();
       offFonts();
+      closeNewComposer();
       clearRender();
     },
   };

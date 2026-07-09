@@ -1152,6 +1152,10 @@ public sealed partial class HostCore {
 	public void Notify(string level, string message, string key) =>
 		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message, key));
 
+	/// <summary>Dismisses the live toast carrying <paramref name="key"/> in the page (an in-flight spinner whose operation finished).</summary>
+	public void ClearNotify(string key) =>
+		_bridge.PostToWeb(ShellProtocol.BuildNotifyClear(key));
+
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the
 	/// rail's "+" is fire-and-forget, so the error would otherwise only reach the log).

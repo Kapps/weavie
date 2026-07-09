@@ -3,7 +3,9 @@ import { createSignal, For, type JSX } from "solid-js";
 /** One transient notification surfaced to the user (e.g. an autosave write that failed). */
 export interface Toast {
   id: number;
-  level: "error" | "warn" | "info";
+  // `busy` is an untimed spinner toast for an in-flight operation (e.g. opening a PR); it persists like an
+  // error until its keyed replacement (a warn on failure) or a dismissKeyed on success clears it.
+  level: "error" | "warn" | "info" | "busy";
   message: string;
   // Optional dedupe key: a new toast with the same key replaces the live one in place (e.g. a "Reconnected"
   // info replacing the lingering "Lost connection" error), instead of stacking a second row.
@@ -12,8 +14,8 @@ export interface Toast {
 
 /** How long a non-error toast lingers before auto-dismissing. Errors are exempt — see addToast. */
 const AUTO_DISMISS_MS = 4000;
-// Timed toasts auto-dismiss and show the drain fill; errors persist until dismissed.
-const isTimed = (level: Toast["level"]): boolean => level !== "error";
+// Timed toasts auto-dismiss and show the drain fill; errors and in-flight `busy` toasts persist until cleared.
+const isTimed = (level: Toast["level"]): boolean => level !== "error" && level !== "busy";
 // How long the collapse-out animation runs before the toast is actually removed. Keep in sync with the
 // `.toast.leaving` transition in notify.css so the row is gone exactly when its animation finishes.
 const EXIT_MS = 200;
@@ -28,6 +30,7 @@ export function createToasts(): {
   toasts: () => Toast[];
   addToast: (level: Toast["level"], message: string, key?: string) => void;
   dismissToast: (id: number) => void;
+  dismissKeyed: (key: string) => void;
   isLeaving: (id: number) => boolean;
   pauseToast: (id: number) => void;
   resumeToast: (id: number) => void;
@@ -106,6 +109,14 @@ export function createToasts(): {
     paused.delete(id);
     startTimer(id, remaining);
   };
+  // Dismisses the live toast carrying `key` (e.g. the "Opening PR…" spinner once its diff has rendered). A no-op
+  // if none is live — a failure toast may have already replaced it keyed, and that one auto-dismisses on its own.
+  const dismissKeyed = (key: string): void => {
+    const current = toasts().find((t) => t.key === key && !leaving().has(t.id));
+    if (current !== undefined) {
+      dismissToast(current.id);
+    }
+  };
   const addToast = (level: Toast["level"], message: string, key?: string): void => {
     // A keyed toast replaces the live one with the same key in place — e.g. the "Reconnected" info supersedes
     // the lingering "Lost connection" error, so a resolved condition never leaves a stale toast on screen.
@@ -126,6 +137,7 @@ export function createToasts(): {
     toasts,
     addToast,
     dismissToast,
+    dismissKeyed,
     isLeaving: (id) => leaving().has(id),
     pauseToast,
     resumeToast,
@@ -154,6 +166,7 @@ export function Toasts(props: {
             onMouseEnter={() => props.onPause(toast.id)}
             onMouseLeave={() => props.onResume(toast.id)}
           >
+            {toast.level === "busy" && <span class="toast-spinner" aria-hidden="true" />}
             <span class="toast-msg">{toast.message}</span>
             <button
               type="button"

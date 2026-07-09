@@ -216,7 +216,8 @@ export default function App(): JSX.Element {
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
-  const { toasts, addToast, dismissToast, isLeaving, pauseToast, resumeToast } = createToasts();
+  const { toasts, addToast, dismissToast, dismissKeyed, isLeaving, pauseToast, resumeToast } =
+    createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
   // Now that toasts render, surface "updated to build N" if this page load followed an update reload.
@@ -786,6 +787,8 @@ export default function App(): JSX.Element {
       }
       if (message.type === "notify") {
         addToast(message.level, message.message, message.key);
+      } else if (message.type === "notify-clear") {
+        dismissKeyed(message.key);
       } else if (message.type === "agent-pane") {
         setAgentPaneMessages((prev) => ({
           ...prev,
@@ -1281,6 +1284,9 @@ export default function App(): JSX.Element {
           onOpen={(target, location) => {
             setOpenPrOpen(false);
             setLastLocation(location);
+            // The host's fetch→checkout→seed chain renders nothing for seconds; show a spinner toast now (keyed by
+            // PR). The host clears it (notify-clear) when the diff lands, or replaces it with a keyed warn on failure.
+            addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
             // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
             // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
             promoteNextSessionOn(location);

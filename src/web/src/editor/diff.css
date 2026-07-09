@@ -397,12 +397,11 @@
   z-index: 5;
   pointer-events: auto;
   padding: 6px 10px;
-  margin: 2px 0 2px 40px;
+  margin: 2px 12px 2px 40px;
   border-left: 2px solid var(--accent);
   background: color-mix(in srgb, var(--accent) 7%, transparent);
   border-radius: 4px;
   font-size: 12px;
-  overflow: auto;
 }
 
 .weavie-pr-comment {
@@ -419,6 +418,7 @@
 .weavie-pr-comment-body {
   color: var(--fg);
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .weavie-pr-composer {

@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Processes;
 
 namespace Weavie.Hosting.Agents.Codex;
 
@@ -8,7 +9,7 @@ namespace Weavie.Hosting.Agents.Codex;
 public sealed partial class CodexAppServerClient {
 	private static readonly Encoding StdioEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-	private void StartProcess(int attempt) {
+	private void StartProcess(SupervisedLaunch launch) {
 		var process = new Process {
 			StartInfo = StartInfo(
 				_launch,
@@ -23,7 +24,7 @@ public sealed partial class CodexAppServerClient {
 			int exitCode = ReadExitCode(process);
 			_log($"[codex-app-server] exited {exitCode}");
 			FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
-			_supervisor.NotifyExited(exitCode);
+			launch.NotifyExited(exitCode);
 		};
 		if (!process.Start()) {
 			throw new InvalidOperationException("Codex app-server did not start.");
@@ -33,7 +34,7 @@ public sealed partial class CodexAppServerClient {
 			_process = process;
 		}
 
-		ProcessStarted?.Invoke(attempt);
+		ProcessStarted?.Invoke(launch.Attempt);
 		_ = ReadStdoutAsync(process);
 		_ = ReadStderrAsync(process);
 	}

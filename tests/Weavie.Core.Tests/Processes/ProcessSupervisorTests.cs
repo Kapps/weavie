@@ -27,7 +27,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(0);
+		h.NotifyExited(0);
 
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
 		Assert.Contains(h.Changes, c => c.State == SupervisorState.Idle && c.ExitCode == 0);
@@ -41,7 +41,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 
 		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
 		Assert.Equal(1, h.StartCount); // not yet — still backing off
@@ -61,7 +61,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
 		await Task.Delay(100);
@@ -74,7 +74,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(0); // Always relaunches even on clean exit
+		h.NotifyExited(0); // Always relaunches even on clean exit
 		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
 
 		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
@@ -90,14 +90,14 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 
 		// First crash: 100ms backoff.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(99));
 		Assert.Equal(1, h.StartCount); // not due yet
 		h.Clock.Advance(TimeSpan.FromMilliseconds(1));
 		Assert.True(await h.WaitStartAsync());
 
 		// Second consecutive crash: doubled to 200ms.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(199));
 		Assert.Equal(2, h.StartCount); // 200ms not elapsed
 		h.Clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -112,13 +112,13 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 
 		// One crash grows the consecutive count (next backoff would be 200ms).
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
 		Assert.True(await h.WaitStartAsync());
 
 		// A 2s healthy run before the next crash resets the count.
 		h.Clock.Advance(TimeSpan.FromMilliseconds(2000));
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 
 		// Backoff is back to the initial 100ms, not 200ms.
 		h.Clock.Advance(TimeSpan.FromMilliseconds(99));
@@ -135,12 +135,12 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 
 		// First crash: 100ms (under the cap).
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(100));
 		Assert.True(await h.WaitStartAsync());
 
 		// Second consecutive crash: grown would be 200ms but the cap clamps it to 150ms.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(149));
 		Assert.Equal(2, h.StartCount); // not yet
 		h.Clock.Advance(TimeSpan.FromMilliseconds(1));
@@ -155,16 +155,16 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 
 		// Two restarts are permitted.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
 
 		// The third crash trips the breaker instead of restarting.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 
 		Assert.Equal(SupervisorState.Failed, h.Sup.State);
 		Assert.Contains(h.Changes, c => c.State == SupervisorState.Failed && c.ExitCode == 1);
@@ -182,10 +182,10 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 
 		// Use up both permitted restarts inside the crash-loop window.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
 
@@ -194,7 +194,7 @@ public sealed class ProcessSupervisorTests {
 		Assert.True(await h.WaitStartAsync());
 
 		// With history cleared, a crash restarts instead of tripping the breaker.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		h.Clock.Advance(TimeSpan.FromMilliseconds(10));
 		Assert.True(await h.WaitStartAsync());
 		Assert.NotEqual(SupervisorState.Failed, h.Sup.State);
@@ -212,7 +212,7 @@ public sealed class ProcessSupervisorTests {
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
 
 		// The kill's exit must not count as a crash.
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		await Task.Delay(100);
 		Assert.Equal(1, h.StartCount);
 		Assert.Equal(SupervisorState.Idle, h.Sup.State);
@@ -224,7 +224,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Start();
 		Assert.True(await h.WaitStartAsync());
 
-		h.Sup.NotifyExited(1);
+		h.NotifyExited(1);
 		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
 
 		h.Sup.Stop();
@@ -253,6 +253,31 @@ public sealed class ProcessSupervisorTests {
 	}
 
 	[Fact]
+	public async Task StaleExit_AfterStopStart_DoesNotRestartReplacement() {
+		using var h = new Harness(Opts(RestartPolicy.Always, initialMs: 10));
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		var predecessor = h.LastLaunch;
+
+		// Stop kills the child, but its exit event hasn't been delivered yet when Start launches a replacement.
+		h.Sup.Stop();
+		h.Sup.Start();
+		Assert.True(await h.WaitStartAsync());
+		Assert.Equal(2, h.StartCount);
+
+		// The killed predecessor's late exit must not be attributed to the healthy replacement.
+		predecessor.NotifyExited(137);
+		Assert.Equal(SupervisorState.Running, h.Sup.State);
+		h.Clock.Advance(TimeSpan.FromMilliseconds(1000));
+		await Task.Delay(100);
+		Assert.Equal(2, h.StartCount); // no duplicate launch
+
+		// The replacement's own exit is still handled normally.
+		h.NotifyExited(1);
+		Assert.Equal(SupervisorState.BackingOff, h.Sup.State);
+	}
+
+	[Fact]
 	public async Task Dispose_StopsAndIgnoresFurtherExits() {
 		using var h = new Harness(Opts(RestartPolicy.OnFailure));
 		h.Sup.Start();
@@ -261,7 +286,7 @@ public sealed class ProcessSupervisorTests {
 		h.Sup.Dispose();
 		Assert.Equal(1, h.Stops);
 
-		h.Sup.NotifyExited(1); // ignored after dispose
+		h.NotifyExited(1); // ignored after dispose
 		h.Sup.Start();         // no-op after dispose
 		await Task.Delay(100);
 		Assert.Equal(1, h.StartCount);
@@ -295,6 +320,7 @@ public sealed class ProcessSupervisorTests {
 		private readonly SemaphoreSlim _started = new(0);
 		private readonly HashSet<int> _throwOn;
 		private readonly object _gate = new();
+		private readonly List<SupervisedLaunch> _launches = [];
 
 		public Harness(SupervisionOptions options, params int[] throwOnAttempts) {
 			_throwOn = [.. throwOnAttempts];
@@ -320,13 +346,26 @@ public sealed class ProcessSupervisorTests {
 
 		public void Dispose() => Sup.Dispose();
 
-		private void OnStart(int attempt) {
-			if (_throwOn.Contains(attempt)) {
-				throw new InvalidOperationException($"boom on attempt {attempt}");
+		/// <summary>The most recently launched instance's handle.</summary>
+		public SupervisedLaunch LastLaunch {
+			get {
+				lock (_gate) {
+					return _launches[^1];
+				}
+			}
+		}
+
+		/// <summary>Reports an exit for the most recently launched instance.</summary>
+		public void NotifyExited(int exitCode) => LastLaunch.NotifyExited(exitCode);
+
+		private void OnStart(SupervisedLaunch launch) {
+			if (_throwOn.Contains(launch.Attempt)) {
+				throw new InvalidOperationException($"boom on attempt {launch.Attempt}");
 			}
 
 			lock (_gate) {
-				Starts.Add(attempt);
+				Starts.Add(launch.Attempt);
+				_launches.Add(launch);
 			}
 
 			_started.Release();

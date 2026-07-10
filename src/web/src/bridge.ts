@@ -1054,13 +1054,24 @@ export function backendName(id: string): string {
   return backends.get(id)?.info.name ?? id;
 }
 
+// Terminal keystrokes are live input, not queueable work: while a backend's link is down they are dropped
+// (the offline overlay is the user-facing signal), never buffered — replaying stale keystrokes (with their
+// Enters) into the PTY on reconnect would execute commands nobody is watching. Mirrors the LSP writer's
+// reject-while-offline.
+function dropWhileOffline(backendId: string, message: HostBoundMessage): boolean {
+  return message.type === "term-input" && (phases().get(backendId) ?? "online") !== "online";
+}
+
 /** Send to the active backend (the page's current backend). */
 export function postToHost(message: HostBoundMessage): void {
-  backends.get(activeBackend())?.transport.send(JSON.stringify(message));
+  postToBackend(activeBackend(), message);
 }
 
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */
 export function postToBackend(backendId: string, message: HostBoundMessage): void {
+  if (dropWhileOffline(backendId, message)) {
+    return;
+  }
   backends.get(backendId)?.transport.send(JSON.stringify(message));
 }
 

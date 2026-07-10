@@ -108,7 +108,9 @@ export function AgentPane(props: {
         }}
       >
         <span class="pane-label">{props.providerId === "codex" ? "Codex (WIP)" : "Agent"}</span>
-        <span class="pane-shortcut">{props.shortcut}</span>
+        <Show when={props.shortcut !== ""}>
+          <span class="pane-shortcut">{props.shortcut}</span>
+        </Show>
       </div>
       <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isNearBottom())}>
         <Show

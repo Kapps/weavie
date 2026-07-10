@@ -65,8 +65,13 @@ import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
-import { installKeybindings } from "./commands/keybindings";
-import { dispatchCommand, registerCommand } from "./commands/registry";
+import { formatKey, installKeybindings } from "./commands/keybindings";
+import {
+  dispatchCommand,
+  getKeybindings,
+  onCommandsChanged,
+  registerCommand,
+} from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
@@ -133,9 +138,6 @@ const MAC_TITLEBAR = SHELL?.titleBar === "mac";
 // Either title-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
 const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
-// Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
-const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
-
 const AGENT_PANE_KIND = "terminal:claude";
 
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
@@ -158,6 +160,20 @@ export default function App(): JSX.Element {
   // stay stable in fullscreen.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
+  // Pane-switch badges show the effective focusPaneByIndex binding for their index (user-overridable in
+  // keybindings.json), never a hardcoded key; empty when unbound. The version signal re-resolves them when
+  // the host re-pushes the catalog (a live keybindings.json edit).
+  const [keybindingsVersion, setKeybindingsVersion] = createSignal(0);
+  onCleanup(onCommandsChanged(() => setKeybindingsVersion((v) => v + 1)));
+  const paneShortcut = (index: number): string => {
+    keybindingsVersion();
+    const binding = getKeybindings().find(
+      (b) =>
+        b.command === CommandIds.focusPaneByIndex &&
+        (b.args as { index?: number } | undefined)?.index === index,
+    );
+    return binding === undefined ? "" : formatKey(binding.key);
+  };
   // What LayoutView renders: in fullscreen, just the active pane (filling the pane area); the others collapse
   // to display:none but stay mounted, preserving their terminal/editor state. Switching panes re-points this,
   // keeping each pane fullscreen. Off ⇒ the real layout, never mutated by fullscreen.
@@ -549,11 +565,8 @@ export default function App(): JSX.Element {
             actions={editor.tabs}
             trailing={
               // Pane-switch badge: its own cell at the right of the tab bar (no longer floating over the tabs).
-              <Show when={showPaneHints()}>
-                <span class="pane-shortcut">
-                  {CTRL_LABEL}
-                  {numberOf("editor")}
-                </span>
+              <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
+                <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
               </Show>
             }
           />
@@ -629,7 +642,7 @@ export default function App(): JSX.Element {
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
           messages={sid === null ? [] : (agentPaneMessages()[sid] ?? [])}
-          shortcut={`${CTRL_LABEL}${numberOf(kind)}`}
+          shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => focusPane(kind)}
         />
       );
@@ -664,11 +677,8 @@ export default function App(): JSX.Element {
           }}
         >
           <span class="pane-label">{paneTitle()}</span>
-          <Show when={showPaneHints()}>
-            <span class="pane-shortcut">
-              {CTRL_LABEL}
-              {numberOf(kind)}
-            </span>
+          <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
+            <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
           </Show>
         </div>
         <div class="pane-body">

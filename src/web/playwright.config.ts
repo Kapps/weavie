@@ -37,6 +37,9 @@ export default defineConfig({
   use: {
     headless: true,
     trace: "retain-on-failure",
+    // Same override capture.mjs honors: run on a preinstalled Chromium (e.g. a sandbox's /opt/pw-browsers)
+    // instead of the version-pinned download. Unset in normal use.
+    launchOptions: { executablePath: process.env.WEAVIE_CHROMIUM || undefined },
   },
   projects: [
     {

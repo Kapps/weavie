@@ -87,6 +87,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private Action<string>? _onThemeOverridesChanged;
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
+	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
 	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved window
@@ -265,7 +266,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
-		_settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
+		_shellSettingSubscription = _settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
 
 		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them in
 		// place. PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
@@ -401,6 +402,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			_onKeybindingsMalformedChanged = null;
 		}
 
+		_shellSettingSubscription?.Dispose();
+		_shellSettingSubscription = null;
 		if (_onSettingChanged is not null) {
 			_settings.SettingChanged -= _onSettingChanged;
 			_onSettingChanged = null;

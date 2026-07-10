@@ -1255,8 +1255,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
             if (!empty) {
               // className (not inlineClassName): an overlay div spanning the full line height, like VS Code's
-              // own char-insert — an inline span's background stops at the font's text box, leaving a light
-              // seam between the lines of a multi-line change. Fill-on-break paints the wrap-around solid too.
+              // char-insert — an inline span's background stops short of it, leaving a seam between lines.
               deltas.push({
                 range: r,
                 options: { className: "weavie-inline-added-text", shouldFillLineOnLineBreak: true },

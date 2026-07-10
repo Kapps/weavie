@@ -400,16 +400,18 @@ test.describe("applied review — a multi-line change is one solid block", () =>
   }) => {
     await openFile(page, "hello.ts");
     await expect(page.locator(ADDED)).toHaveCount(3); // one hunk spanning three added lines
-    // Every char-level overlay must be exactly as tall as its overlay line — any shortfall is the seam.
-    const seams = await page.evaluate(() =>
-      [...document.querySelectorAll(".weavie-inline-added-text")].map(
-        (el) =>
-          (el.parentElement as HTMLElement).getBoundingClientRect().height -
-          el.getBoundingClientRect().height,
+    // Every char-level overlay must be exactly as tall as the whole-line wash (always full line height) —
+    // any shortfall is the seam. Measured against the wash, not parentElement, whose height depends on
+    // inline-layout quirks under the buggy rendering.
+    const heights = await page.evaluate(() => ({
+      line: (document.querySelector(".weavie-inline-added") as HTMLElement).getBoundingClientRect()
+        .height,
+      overlays: [...document.querySelectorAll(".weavie-inline-added-text")].map(
+        (el) => el.getBoundingClientRect().height,
       ),
-    );
-    expect(seams.length).toBeGreaterThan(0);
-    expect(seams.every((s) => s === 0)).toBe(true);
+    }));
+    expect(heights.overlays.length).toBeGreaterThan(0);
+    expect(heights.overlays).toEqual(heights.overlays.map(() => heights.line));
   });
 });
 

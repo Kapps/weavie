@@ -97,6 +97,7 @@ public sealed class ProcessSupervisor : IDisposable {
 	/// </summary>
 	public void Start() {
 		SupervisorStateChanged change;
+		SupervisedLaunch launch;
 		lock (_gate) {
 			if (_disposed || _state is SupervisorState.Running or SupervisorState.BackingOff) {
 				return;
@@ -107,12 +108,16 @@ public sealed class ProcessSupervisor : IDisposable {
 			_state = SupervisorState.Running;
 			_attempt = 0;
 			_startedAt = _clock.UtcNow;
+			// The handle becomes current in the same lock hold that flips to Running, so a predecessor's late
+			// exit can never slip through the Running check while still matching _current.
+			launch = new SupervisedLaunch(this, 0);
+			_current = launch;
 			change = new SupervisorStateChanged(SupervisorState.Running, null, _restartCount);
 		}
 
 		Raise(change);
 		Log(SupervisorLogLevel.Info, "starting");
-		Launch(0);
+		Launch(launch);
 	}
 
 	internal void NotifyLaunchExited(SupervisedLaunch launch, int exitCode) => OnInstanceEnded(launch, exitCode);
@@ -130,6 +135,7 @@ public sealed class ProcessSupervisor : IDisposable {
 
 			_cts?.Cancel();
 			_state = SupervisorState.Idle;
+			_current = null; // the instance being stopped is no longer anyone's current — its exit is stale
 			_consecutiveCrashes = 0;
 			_recentRestarts.Clear();
 			change = new SupervisorStateChanged(SupervisorState.Idle, null, _restartCount);
@@ -150,6 +156,7 @@ public sealed class ProcessSupervisor : IDisposable {
 			_disposed = true;
 			_cts?.Cancel();
 			_state = SupervisorState.Idle;
+			_current = null;
 		}
 
 		SafeStop();
@@ -221,6 +228,7 @@ public sealed class ProcessSupervisor : IDisposable {
 		}
 
 		SupervisorStateChanged change;
+		SupervisedLaunch launch;
 		lock (_gate) {
 			if (_disposed || token.IsCancellationRequested || _state != SupervisorState.BackingOff) {
 				return;
@@ -230,25 +238,28 @@ public sealed class ProcessSupervisor : IDisposable {
 			_attempt = attempt;
 			_restartCount++;
 			_startedAt = _clock.UtcNow;
+			launch = new SupervisedLaunch(this, attempt);
+			_current = launch;
 			change = new SupervisorStateChanged(SupervisorState.Running, null, _restartCount);
 		}
 
 		Raise(change);
 		Log(SupervisorLogLevel.Info, $"restarting (attempt {attempt})");
-		Launch(attempt);
+		Launch(launch);
 	}
 
-	private void Launch(int attempt) {
-		var launch = new SupervisedLaunch(this, attempt);
-		lock (_gate) {
-			_current = launch;
-		}
-
+	private void Launch(SupervisedLaunch launch) {
 		try {
 			_start(launch);
 		} catch (Exception ex) {
 			Log(SupervisorLogLevel.Warning, $"launch failed: {ex.Message}");
 			OnInstanceEnded(launch, exitCode: -1);
+		}
+	}
+
+	internal bool IsCurrentLaunch(SupervisedLaunch launch) {
+		lock (_gate) {
+			return ReferenceEquals(_current, launch);
 		}
 	}
 

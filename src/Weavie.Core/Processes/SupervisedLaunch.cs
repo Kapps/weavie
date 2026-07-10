@@ -17,6 +17,12 @@ public sealed class SupervisedLaunch {
 	public int Attempt { get; }
 
 	/// <summary>
+	/// Whether this instance is still the supervisor's current one. False for a stopped predecessor, letting
+	/// exit handlers skip side effects (e.g. recovery bookkeeping) that only the live instance's exit should drive.
+	/// </summary>
+	public bool IsCurrent => _supervisor.IsCurrentLaunch(this);
+
+	/// <summary>
 	/// Reports that this instance has exited with <paramref name="exitCode"/>. May be called from any thread;
 	/// ignored once this instance is no longer the supervisor's current one.
 	/// </summary>

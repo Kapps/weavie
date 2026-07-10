@@ -1060,11 +1060,7 @@ function dropWhileOffline(backendId: string, message: HostBoundMessage): boolean
 
 /** Send to the active backend (the page's current backend). */
 export function postToHost(message: HostBoundMessage): void {
-  const backendId = activeBackend();
-  if (dropWhileOffline(backendId, message)) {
-    return;
-  }
-  backends.get(backendId)?.transport.send(JSON.stringify(message));
+  postToBackend(activeBackend(), message);
 }
 
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */

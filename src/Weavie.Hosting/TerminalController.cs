@@ -427,13 +427,16 @@ public sealed class TerminalController : IDisposable {
 	/// </summary>
 	private void OnTerminalExited(int code, SupervisedLaunch launch) {
 		try {
-			// A deliberate stop (Stop/Dispose/Restart) flips the supervisor out of Running before killing the
-			// child, so a non-Running state here means the exit was intentional — never a startup failure to heal.
-			_process.ObserveProcessExit(new AgentProcessExit {
-				ExitCode = code,
-				Unexpected = _supervisor.State == SupervisorState.Running,
-			});
-
+			// Only the current instance's exit informs the launch source — a stopped predecessor's late exit
+			// must not consume the replacement's startup watcher or fail a healthy session's resume state.
+			if (launch.IsCurrent) {
+				// A deliberate stop clears the current launch before killing the child, so reaching here while
+				// Running means the exit was unexpected — a startup failure to heal.
+				_process.ObserveProcessExit(new AgentProcessExit {
+					ExitCode = code,
+					Unexpected = _supervisor.State == SupervisorState.Running,
+				});
+			}
 		} finally {
 			launch.NotifyExited(code);
 		}

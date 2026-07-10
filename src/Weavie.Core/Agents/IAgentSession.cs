@@ -24,11 +24,8 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Starts the structured runtime.</summary>
 	void Start();
 
-	/// <summary>Submits a user prompt to the current provider thread.</summary>
-	void SubmitPrompt(string prompt);
-
-	/// <summary>Attaches a local image file to the next provider turn.</summary>
-	void AttachImage(string path);
+	/// <summary>Submits text and its exact staged attachments to the current provider thread.</summary>
+	void Submit(AgentTurnSubmission submission);
 
 	/// <summary>Places text in the provider's compose surface without submitting it.</summary>
 	void PrefillPrompt(string prompt);

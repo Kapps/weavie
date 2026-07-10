@@ -47,6 +47,15 @@ public static class CoreCommands {
 	/// <summary>Pastes the OS clipboard into the focused terminal; bound to <c>Ctrl+V</c> / <c>⌘V</c>.</summary>
 	public const string TerminalPaste = "weavie.terminal.paste";
 
+	/// <summary>Pastes the local clipboard into the focused structured-agent composer.</summary>
+	public const string AgentPaste = "weavie.agent.paste";
+
+	/// <summary>Submits the focused structured-agent composer.</summary>
+	public const string AgentSubmit = "weavie.agent.submit";
+
+	/// <summary>Interrupts the active structured-agent turn.</summary>
+	public const string AgentInterrupt = "weavie.agent.interrupt";
+
 	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
 	public const string TerminalClear = "weavie.terminal.clear";
 
@@ -486,6 +495,39 @@ public static class CoreCommands {
 			// Not on a browser shell: it can't read the clipboard programmatically, so this command (and its
 			// palette row) would be a dead end there — Ctrl+V falls through to xterm's native paste instead.
 			When = "terminalFocused && !browserShell",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentPaste,
+			Title = "Paste",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Paste the local clipboard into the focused agent composer, including images.",
+			Aliases = ["paste", "paste clipboard", "agent paste", "paste image"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+v" }],
+			When = "agentFocused && !browserShell",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentSubmit,
+			Title = "Submit Agent Prompt",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Submit the focused agent composer.",
+			Aliases = ["submit prompt", "run prompt", "send prompt", "agent submit"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "enter" }],
+			When = "agentComposerFocused",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentInterrupt,
+			Title = "Interrupt Agent Turn",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Interrupt the active agent turn.",
+			Aliases = ["interrupt", "stop agent", "cancel turn"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "escape" }],
+			When = "agentFocused",
 		});
 
 		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);

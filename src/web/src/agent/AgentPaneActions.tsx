@@ -1,5 +1,6 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import { type AgentPaneUpdate, postToHost } from "../bridge";
+import { type AgentInputQuestion, type AgentPaneUpdate, postToHost } from "../bridge";
+import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
   slot: string | null;
@@ -35,7 +36,7 @@ export function InputRequestActions(props: {
   slot: string | null;
   message: AgentPaneUpdate;
 }): JSX.Element {
-  const questions = createMemo(() => readQuestions(props.message.payload));
+  const questions = createMemo(() => inputQuestions(props.message));
   const [answers, setAnswers] = createSignal(defaultAnswers(questions()));
 
   const submit = (): void => {
@@ -109,62 +110,13 @@ export function EditLocationActions(props: { target: string | null | undefined }
   );
 }
 
-interface InputQuestion {
-  id: string;
-  header: string;
-  question: string;
-  isSecret: boolean;
-  options: InputOption[];
-}
-
-interface InputOption {
-  label: string;
-  description: string;
-}
-
-function defaultAnswers(questions: InputQuestion[]): Record<string, string[]> {
+function defaultAnswers(questions: AgentInputQuestion[]): Record<string, string[]> {
   const answers: Record<string, string[]> = {};
   for (const question of questions) {
     const first = question.options[0]?.label ?? "";
     answers[question.id] = first.length > 0 ? [first] : [];
   }
   return answers;
-}
-
-function readQuestions(payload: unknown): InputQuestion[] {
-  if (!isRecord(payload) || !isRecord(payload.params) || !Array.isArray(payload.params.questions)) {
-    return [];
-  }
-  return payload.params.questions.flatMap((value): InputQuestion[] => {
-    if (!isRecord(value) || typeof value.id !== "string" || typeof value.question !== "string") {
-      return [];
-    }
-    return [
-      {
-        id: value.id,
-        header: typeof value.header === "string" ? value.header : "",
-        question: value.question,
-        isSecret: value.isSecret === true,
-        options: Array.isArray(value.options) ? value.options.flatMap(readOption) : [],
-      },
-    ];
-  });
-}
-
-function readOption(value: unknown): InputOption[] {
-  if (!isRecord(value) || typeof value.label !== "string") {
-    return [];
-  }
-  return [
-    {
-      label: value.label,
-      description: typeof value.description === "string" ? value.description : "",
-    },
-  ];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function parseLocation(value: string | null | undefined): { path: string; line: number } | null {

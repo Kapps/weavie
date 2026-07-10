@@ -88,19 +88,122 @@
   overflow-wrap: break-word;
 }
 
+.agent-markdown {
+  max-width: 100%;
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+.agent-markdown > :first-child {
+  margin-top: 0;
+}
+
+.agent-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-markdown p,
+.agent-markdown ul,
+.agent-markdown ol,
+.agent-markdown blockquote,
+.agent-markdown table,
+.agent-markdown pre {
+  margin: 0.55em 0;
+}
+
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4 {
+  margin: 0.9em 0 0.35em;
+  color: color-mix(in srgb, var(--fg) 94%, white);
+  font-size: 1em;
+  line-height: 1.2;
+}
+
+.agent-markdown h1,
+.agent-markdown h2 {
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.agent-markdown ul,
+.agent-markdown ol {
+  padding-left: 1.55em;
+}
+
+.agent-markdown li + li {
+  margin-top: 0.2em;
+}
+
+.agent-markdown blockquote {
+  padding-left: 0.75em;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: color-mix(in srgb, var(--fg) 70%, var(--dim));
+}
+
+.agent-markdown a {
+  color: color-mix(in srgb, var(--accent) 88%, white);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.agent-markdown code {
+  padding: 0.08em 0.28em;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bar) 75%, var(--bg));
+  font: inherit;
+}
+
+.agent-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--bar) 62%, var(--bg));
+  white-space: pre;
+}
+
+.agent-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.agent-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.agent-markdown th {
+  background: color-mix(in srgb, var(--bar) 78%, var(--bg));
+  color: color-mix(in srgb, var(--fg) 88%, var(--dim));
+}
+
+.markdown-image-blocked {
+  color: var(--dim);
+  font-style: italic;
+}
+
 .agent-entry-message.agent-tone-user {
   margin-top: 9px;
   margin-bottom: 7px;
   padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent) 14%, transparent),
-      color-mix(in srgb, var(--bar) 72%, transparent) 52%,
-      transparent
-    ),
-    color-mix(in srgb, var(--bar) 46%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bar));
 }
 
 .agent-entry-message.agent-tone-user:first-child {
@@ -126,14 +229,7 @@
 .agent-entry-message.agent-tone-assistant.agent-entry-result {
   padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent) 9%, transparent),
-      color-mix(in srgb, var(--bar) 44%, transparent) 56%,
-      transparent
-    ),
-    color-mix(in srgb, var(--bar) 30%, transparent);
+  background: color-mix(in srgb, var(--bar) 38%, var(--bg));
 }
 
 .agent-entry-result .agent-entry-head {
@@ -149,6 +245,10 @@
 }
 
 .agent-entry-message.agent-tone-assistant .agent-entry-text {
+  color: color-mix(in srgb, var(--fg) 91%, var(--dim));
+}
+
+.agent-entry-message.agent-tone-assistant .agent-markdown {
   color: color-mix(in srgb, var(--fg) 91%, var(--dim));
 }
 
@@ -339,6 +439,65 @@
   font-weight: 650;
   user-select: none;
   white-space: nowrap;
+}
+
+.agent-attachments {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 0 3px;
+}
+
+.agent-attachment {
+  position: relative;
+  flex: 0 0 58px;
+  height: 46px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--bg);
+}
+
+.agent-attachment.failed {
+  border-color: var(--bad);
+}
+
+.agent-attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.72;
+}
+
+.agent-attachment span {
+  position: absolute;
+  inset: auto 0 0;
+  overflow: hidden;
+  padding: 1px 3px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.62);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-attachment button {
+  position: absolute;
+  inset: 1px 1px auto auto;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  line-height: 14px;
+}
+
+.agent-compose-error {
+  grid-column: 1 / -1;
+  color: var(--bad);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
 }
 
 .agent-compose textarea {

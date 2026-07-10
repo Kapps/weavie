@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -393,16 +394,23 @@ public sealed partial class HostCore {
 		// between two live ones. OrderByDescending is stable, so the always-loaded primary stays at the top.
 		var sessions = _sessions.Slots
 			.OrderByDescending(slot => slot.Loaded)
-			.Select(slot => new {
-				id = slot.Id,
-				label = slot.Label,
-				active = ReferenceEquals(_sessions.ActiveSlot, slot),
-				loaded = slot.Loaded,
-				primary = slot.IsPrimary,
-				providerId = slot.AgentProviderId,
-				status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
-				hue = SessionIdentity.Hue(slot.Label),
-				monogram = SessionIdentity.Monogram(slot.Label),
+			.Select(slot => {
+				var info = _agentProviders.FindInfo(slot.AgentProviderId);
+				bool structured = info?.Capabilities
+					.HasFlag(AgentProviderCapabilities.StructuredPane) == true;
+				return new {
+					id = slot.Id,
+					label = slot.Label,
+					active = ReferenceEquals(_sessions.ActiveSlot, slot),
+					loaded = slot.Loaded,
+					primary = slot.IsPrimary,
+					providerId = slot.AgentProviderId,
+					agentSurface = info is null ? "unavailable" : structured ? "structured" : "terminal",
+					agentInputProtocol = structured ? 2 : 0,
+					status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
+					hue = SessionIdentity.Hue(slot.Label),
+					monogram = SessionIdentity.Monogram(slot.Label),
+				};
 			});
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-list", sessions }));
 	}

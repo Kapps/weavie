@@ -29,6 +29,7 @@ const HIDDEN_WEBGL_DISPOSE_MS = 2000;
 // to the right PTY. Each loaded session keeps its pane mounted; only the active one shows (pure show/hide).
 export function TerminalView(props: {
   // The workspace session (rail id) and pane this xterm is bound to.
+  backendId: string;
   slot: string;
   pane: TermSession;
   // Whether this is the visible session for its pane. Drives WebGL mount/dispose — one GPU context per
@@ -179,7 +180,9 @@ export function TerminalView(props: {
     // Image paste (claude pane only): capture an image from the browser paste event → host scratch file → path
     // injected into claude. The shell has no use for it; a pasted path there would just try to run.
     const offImagePaste =
-      props.pane === "claude" ? attachImagePaste(container, props.slot) : (): void => {};
+      props.pane === "claude"
+        ? attachImagePaste(container, () => props.backendId, props.slot)
+        : (): void => {};
     const onContainerFocus = (): void => noteTerminalFocus(termKey);
     container.addEventListener("focusin", onContainerFocus);
 

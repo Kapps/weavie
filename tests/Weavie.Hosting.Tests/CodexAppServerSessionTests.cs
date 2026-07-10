@@ -77,6 +77,41 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ThreadResume_HydratesPersistedConversation() {
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_existing");
+		File.WriteAllText(Path.Combine(_dir, "resume-with-history"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Text == "old answer"));
+
+		Assert.Contains(messages, message => message.Type == "transcript-reset");
+		Assert.Contains(messages, message => message.Type == "user-message" && message.Text == "old prompt");
+		Assert.Contains(messages, message => message.ItemType == "agentMessage" && message.Text == "old answer");
+	}
+
+	[Fact]
+	public async Task ThreadResume_HydratesBeforeSubmittingInputQueuedDuringStartup() {
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_existing");
+		File.WriteAllText(Path.Combine(_dir, "resume-with-history"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+
+		session.Submit(Submission("queued prompt", []));
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Text == "queued prompt"));
+
+		int history = messages.FindIndex(message => message.Text == "old answer");
+		int queued = messages.FindIndex(message => message.Text == "queued prompt");
+		Assert.True(history >= 0 && queued > history);
+	}
+
+	[Fact]
 	public async Task ThreadId_PersistsOnlyAfterTurnStarts() {
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
@@ -88,7 +123,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 		Assert.False(threads.Resolve(_dir).Resume);
 
-		session.SubmitPrompt("hi");
+		session.Submit(Submission("hi", []));
 		await WaitForAsync(() => threads.Resolve(_dir).Resume);
 
 		Assert.Equal("thread_fake", threads.Resolve(_dir).ThreadId);
@@ -118,7 +153,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.Start();
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
-		session.SubmitPrompt("approval");
+		session.Submit(Submission("approval", []));
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
 
 		Assert.Contains(events.Values, value => value is AgentPermissionRequested);
@@ -161,12 +196,28 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.Start();
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
-		session.SubmitPrompt("unsupported");
+		session.Submit(Submission("unsupported", []));
 		await WaitForAsync(() => messages.Any(message => message.ItemType == "item/tool/call"));
 
 		var error = Assert.Single(messages, message => message.ItemType == "item/tool/call");
 		Assert.Equal("error", error.Type);
 		Assert.Contains("not supported", error.Text, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public async Task FailedTurn_SurfacesProviderError() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("out of tokens", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		var error = Assert.Single(messages, message => message.Type == "error");
+		Assert.Equal("Codex usage limit reached", error.Summary);
+		Assert.Equal("You have no weighted tokens left", error.Text);
+		Assert.Equal("failed", error.Status);
 	}
 
 	[Fact]
@@ -178,9 +229,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.Start();
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
-		session.AttachImage(Path.Combine(_dir, "paste-1.png"));
+		string imagePath = Path.Combine(_dir, "paste-1.png");
 		Assert.False(File.Exists(Path.Combine(_dir, "image-turn.json")));
-		session.SubmitPrompt("describe it");
+		session.Submit(Submission("describe it", [imagePath]));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "image-turn.json")));
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "image-turn.json")));
@@ -192,10 +243,19 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() =>
 			messages.Any(message => message.Type == "user-message" && message.Text == "describe it")
 			&& messages.Any(message => message.Type == "user-image" && message.Status == "submitted"));
-		Assert.Contains(messages, message => message.Type == "user-image" && message.Status == "attached");
 		Assert.Contains(messages, message => message.Type == "user-message" && message.Text == "describe it");
 		Assert.Contains(messages, message => message.Type == "user-image" && message.Status == "submitted");
 	}
+
+	private static AgentTurnSubmission Submission(string text, IReadOnlyList<string> imagePaths) => new() {
+		Id = Guid.NewGuid().ToString("n"),
+		Text = text,
+		Attachments = [.. imagePaths.Select((path, index) => new AgentInputAttachment {
+			Id = $"image-{index}",
+			Path = path,
+			Mime = "image/png",
+		})],
+	};
 
 	private CodexAppServerSession CreateSession(IAgentEventSink events, List<AgentPaneMessage> messages) {
 		InMemoryFileSystem fileSystem = new();

@@ -52,6 +52,7 @@ export { sessionsReceived };
 const normalizeProvider = (chip: SessionChip): SessionChip => ({
   ...chip,
   providerId: chip.providerId ?? "claude",
+  agentSurface: chip.agentSurface ?? (chip.providerId === "codex" ? "structured" : "terminal"),
 });
 
 // Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so

@@ -128,6 +128,8 @@ export interface EditorOptionsSpec {
   commentProse: CommentProseMode;
   // Not a Monaco option: toggles the Ctrl+N pane-switch hint badges (see App.tsx).
   paneShortcutHints: boolean;
+  // Not a Monaco option: starts playback when a video file opens in the media pane (see MediaPane.tsx).
+  videoAutoplay: boolean;
 }
 
 /**

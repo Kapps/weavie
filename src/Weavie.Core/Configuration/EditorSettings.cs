@@ -8,9 +8,9 @@ namespace Weavie.Core.Configuration;
 /// analogue of <see cref="FontSettings"/>. All are <see cref="ApplyMode.Live"/>: a change re-pushes the
 /// resolved options to the web, which applies them with <c>editor.updateOptions</c>.
 /// <para>
-/// <see cref="SuggestExpandDocs"/>, <see cref="CommentProse"/>, and <see cref="PaneShortcutHints"/> have no
-/// <c>updateOptions</c> field; the web maps them to small custom behaviors. Everything else is a straight
-/// passthrough.
+/// <see cref="SuggestExpandDocs"/>, <see cref="CommentProse"/>, <see cref="PaneShortcutHints"/>, and
+/// <see cref="VideoAutoplay"/> have no <c>updateOptions</c> field; the web maps them to small custom
+/// behaviors. Everything else is a straight passthrough.
 /// </para>
 /// </summary>
 public static class EditorSettings {
@@ -68,11 +68,15 @@ public static class EditorSettings {
 	/// <summary>Show the Ctrl+N pane-switch shortcut hint badges on the panes (custom behavior).</summary>
 	public const string PaneShortcutHints = "editor.paneShortcutHints";
 
+	/// <summary>Start playback when a video file opens in the media pane (custom behavior).</summary>
+	public const string VideoAutoplay = "editor.videoAutoplay";
+
 	/// <summary>Every editor-option key — the host subscribes to all of them to re-push on any change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [
 		InlayHints, Minimap, BracketPairColorization, SmoothScrolling, CursorSmoothCaretAnimation,
 		RenderWhitespace, ScrollBeyondLastLine, WordWrap, LineNumbers, CursorBlinking, RenderLineHighlight,
 		StickyScroll, FontLigatures, IndentGuides, HoverDelay, SuggestExpandDocs, CommentProse, PaneShortcutHints,
+		VideoAutoplay,
 	];
 
 	// Monaco's standard default; long enough to avoid flicker on a quick mouse pass. 0 (instant) is the floor.
@@ -160,6 +164,12 @@ public static class EditorSettings {
 			["pane shortcuts", "pane shortcut hints", "shortcut badges", "ctrl+n hints", "pane numbers",
 				"hide shortcut hints"],
 			true));
+
+		registry.Register(Toggle(VideoAutoplay,
+			"Start playback automatically when a video file opens in the media pane. On by default; "
+				+ "turn it off to open videos paused.",
+			["video autoplay", "autoplay video", "autoplay", "auto play videos", "play videos automatically"],
+			true));
 	}
 
 	/// <summary>
@@ -204,6 +214,7 @@ public static class EditorSettings {
 		writer.WriteBoolean("suggestExpandDocs", store.RequireBool(SuggestExpandDocs));
 		writer.WriteString("commentProse", store.RequireString(CommentProse));
 		writer.WriteBoolean("paneShortcutHints", store.RequireBool(PaneShortcutHints));
+		writer.WriteBoolean("videoAutoplay", store.RequireBool(VideoAutoplay));
 		writer.WriteEndObject();
 	}
 

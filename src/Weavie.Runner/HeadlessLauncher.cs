@@ -39,11 +39,11 @@ public sealed class HeadlessLauncher {
 
 		supervisor = new ProcessSupervisor(
 			name: "backend",
-			start: _ => {
+			start: launch => {
 				var process = Spawn(backend);
 				current = process;
-				// Capture this launch's process so a later restart's exit can't be misattributed.
-				process.Exited += (_, _) => supervisor.NotifyExited(SafeExitCode(process));
+				// Report through this launch's handle so a later restart's exit can't be misattributed.
+				process.Exited += (_, _) => launch.NotifyExited(SafeExitCode(process));
 				process.Start();
 				process.BeginOutputReadLine();
 				process.BeginErrorReadLine();

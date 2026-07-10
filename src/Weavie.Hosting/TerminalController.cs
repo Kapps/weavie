@@ -271,7 +271,7 @@ public sealed class TerminalController : IDisposable {
 	}
 
 	/// <summary>Spawns a fresh PTY child at the cached size; the supervisor calls this on first start and each restart.</summary>
-	private void StartTerminal(int attempt) {
+	private void StartTerminal(SupervisedLaunch launch) {
 		lock (_gate) {
 			_terminal?.Dispose();
 			_ptyLog?.Dispose();
@@ -286,19 +286,19 @@ public sealed class TerminalController : IDisposable {
 				: null;
 			var modes = new TerminalModeTracker();
 			_modes = modes;
-			var launch = _launcher.Resolve(logical);
+			var resolved = _launcher.Resolve(logical);
 
 			var terminal = _launcher.CreateTerminal();
 			// The tracker is captured per launch (not read from the field) so a late chunk from a dying child can
 			// never latch into the next launch's restore preamble.
 			terminal.Output += data => OnOutput(data, modes);
-			terminal.Exited += OnTerminalExited;
+			terminal.Exited += code => OnTerminalExited(code, launch);
 			terminal.Start(new TerminalStartInfo {
-				Command = launch.Command,
-				Arguments = launch.Arguments,
+				Command = resolved.Command,
+				Arguments = resolved.Arguments,
 				WorkingDirectory = workspace,
-				RemoveEnvironment = launch.RemoveEnvironment,
-				Environment = launch.Environment,
+				RemoveEnvironment = resolved.RemoveEnvironment,
+				Environment = resolved.Environment,
 				Columns = _columns,
 				Rows = _rows,
 			});
@@ -306,11 +306,11 @@ public sealed class TerminalController : IDisposable {
 			// Everything logged before now belongs to the previous process: mark the boundary so a replay
 			// renders it faded and this new process's output live below it.
 			_scrollback?.MarkBoundary();
-			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {attempt}): {launch.Command} {string.Join(' ', launch.Arguments)} in {workspace} ({_columns}x{_rows})");
+			Console.WriteLine($"[weavie] terminal[{_session}] started (attempt {launch.Attempt}): {resolved.Command} {string.Join(' ', resolved.Arguments)} in {workspace} ({_columns}x{_rows})");
 			Console.Out.Flush();
 		}
 
-		if (attempt > 0) {
+		if (launch.Attempt > 0) {
 			PostNotice($"\r\n[weavie] {_session} exited - restarting...\r\n");
 		}
 	}
@@ -425,7 +425,7 @@ public sealed class TerminalController : IDisposable {
 	/// Reports the PTY exit to the launch source before notifying the supervisor, preserving provider recovery
 	/// decisions before the next supervised start.
 	/// </summary>
-	private void OnTerminalExited(int code) {
+	private void OnTerminalExited(int code, SupervisedLaunch launch) {
 		try {
 			// A deliberate stop (Stop/Dispose/Restart) flips the supervisor out of Running before killing the
 			// child, so a non-Running state here means the exit was intentional — never a startup failure to heal.
@@ -435,7 +435,7 @@ public sealed class TerminalController : IDisposable {
 			});
 
 		} finally {
-			_supervisor.NotifyExited(code);
+			launch.NotifyExited(code);
 		}
 	}
 

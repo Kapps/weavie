@@ -381,6 +381,40 @@ test.describe("multi-file review walk", () => {
   });
 });
 
+// A contiguous multi-line change must read as ONE solid green block. Regression: the char-level highlight was
+// an inlineClassName, whose background stops at the font's text box — a light seam showed between every pair
+// of adjacent added lines. As a className overlay it fills each line's full height, so the seams vanish.
+test.describe("applied review — a multi-line change is one solid block", () => {
+  const BLOCK_EDIT =
+    "export function greet(name: string): string {\n" +
+    "  const prefix = `Hi`;\n" +
+    "  const suffix = `!!`;\n" +
+    "  return `${prefix} there, ${name}${suffix}`;\n" +
+    "}\n\n" +
+    'const message = greet("weavie");\n' +
+    "console.log(message);\n";
+  test.use({ fakeScript: { steps: [...appliedEdit("hello.ts", BLOCK_EDIT)] } });
+
+  test("the char-level highlight fills each line's full height (no seam between lines)", async ({
+    page,
+  }) => {
+    await openFile(page, "hello.ts");
+    await expect(page.locator(ADDED)).toHaveCount(3); // one hunk spanning three added lines
+    // Every char-level overlay must be exactly as tall as the whole-line wash (always full line height) —
+    // any shortfall is the seam. Measured against the wash, not parentElement, whose height depends on
+    // inline-layout quirks under the buggy rendering.
+    const heights = await page.evaluate(() => ({
+      line: (document.querySelector(".weavie-inline-added") as HTMLElement).getBoundingClientRect()
+        .height,
+      overlays: [...document.querySelectorAll(".weavie-inline-added-text")].map(
+        (el) => el.getBoundingClientRect().height,
+      ),
+    }));
+    expect(heights.overlays.length).toBeGreaterThan(0);
+    expect(heights.overlays).toEqual(heights.overlays.map(() => heights.line));
+  });
+});
+
 // A brand-new file (empty baseline → every line "added") renders calmly: a "New file" band + the single gutter
 // edge, NOT the per-line green wash a modified file gets. brand-new.ts is absent from the seed set, so its
 // baseline is empty; hello.ts is seeded, so it stays a normal modified diff.

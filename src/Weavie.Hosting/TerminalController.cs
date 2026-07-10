@@ -144,7 +144,7 @@ public sealed class TerminalController : IDisposable {
 		lock (_replayGate) {
 			byte[] scrollback = _scrollback?.BuildReplay() ?? [];
 			if (scrollback.Length > 0) {
-				_bridge.PostToWeb(TermOutputJson(scrollback));
+				_bridge.PostToWeb(TermOutputJson(scrollback, replay: true));
 			}
 
 			_resyncPending = false;
@@ -156,7 +156,7 @@ public sealed class TerminalController : IDisposable {
 		}
 
 		if (restore.Length > 0) {
-			_bridge.PostToWeb(TermOutputJson(restore));
+			_bridge.PostToWeb(TermOutputJson(restore, replay: true));
 		}
 
 		lock (_gate) {
@@ -412,14 +412,18 @@ public sealed class TerminalController : IDisposable {
 		lock (_replayGate) {
 			_scrollback?.Append(data);
 			if (!_resyncPending) {
-				_bridge.PostToWeb(TermOutputJson(data));
+				_bridge.PostToWeb(TermOutputJson(data, replay: false));
 			}
 		}
 	}
 
-	/// <summary>The <c>term-output</c> bridge message carrying <paramref name="data"/> base64-encoded for this pane.</summary>
-	private string TermOutputJson(ReadOnlySpan<byte> data) =>
-		$"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
+	/// <summary>
+	/// The <c>term-output</c> bridge message carrying <paramref name="data"/> base64-encoded for this pane.
+	/// <paramref name="replay"/> marks reattach-synthesized bytes (scrollback replay, mode restore): the page must
+	/// not let its xterm answer device queries inside them — the replies would reach the child as garbage input.
+	/// </summary>
+	private string TermOutputJson(ReadOnlySpan<byte> data, bool replay) =>
+		$"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",{(replay ? "\"replay\":true," : "")}\"dataB64\":\"{Convert.ToBase64String(data)}\"}}";
 
 	/// <summary>
 	/// Reports the PTY exit to the launch source before notifying the supervisor, preserving provider recovery
@@ -446,10 +450,8 @@ public sealed class TerminalController : IDisposable {
 		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
 	}
 
-	private void PostNotice(string text) {
-		string base64 = Convert.ToBase64String(Encoding.UTF8.GetBytes(text));
-		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-output\",\"session\":\"{_session}\",\"dataB64\":\"{base64}\"}}");
-	}
+	private void PostNotice(string text) =>
+		_bridge.PostToWeb(TermOutputJson(Encoding.UTF8.GetBytes(text), replay: false));
 
 	private static void LogSupervisor(SupervisorLogEntry entry) {
 		Console.WriteLine($"[weavie] supervisor[{entry.Name}] {entry.Level}: {entry.Message}");

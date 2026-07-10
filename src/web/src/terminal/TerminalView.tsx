@@ -257,7 +257,16 @@ export function TerminalView(props: {
       return true;
     });
 
-    term.onData(sendInput);
+    // While a replay-flagged chunk parses, xterm's onData carries its synthesized answers to device queries
+    // replayed from scrollback (ESC[6n etc.) — already answered in a previous life, so they must not reach the
+    // child as input, where they'd echo as garbage (^[[19;23R) at the prompt. Suppressed for exactly the parse
+    // window of each such chunk (write callbacks fire in order), then live queries get answered as normal.
+    let replaysParsing = 0;
+    term.onData((data) => {
+      if (replaysParsing === 0) {
+        sendInput(data);
+      }
+    });
 
     term.onResize(({ cols, rows }) => {
       postToHost({ type: "term-resize", slot: props.slot, session: props.pane, cols, rows });
@@ -304,7 +313,16 @@ export function TerminalView(props: {
       // The bridge channel is shared across panes AND sessions; ignore traffic not for this (slot, pane) pair.
       if (message.type === "term-output") {
         if (message.slot === props.slot && message.session === props.pane) {
-          term.write(base64ToBytes(message.dataB64));
+          if (message.replay === true) {
+            term.write(base64ToBytes(message.dataB64), () => {
+              replaysParsing--;
+            });
+            // After write returns: parse + callback are async, and a throwing write (buffer-discard
+            // watermark) must not strand the counter positive — that would mute the pane's input for good.
+            replaysParsing++;
+          } else {
+            term.write(base64ToBytes(message.dataB64));
+          }
         }
       } else if (message.type === "term-exit") {
         if (message.slot === props.slot && message.session === props.pane) {

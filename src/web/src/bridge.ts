@@ -366,7 +366,9 @@ export type HostBoundMessage =
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
-  | { type: "term-output"; slot: string; session: TermSession; dataB64: string }
+  // `replay: true` marks reattach-synthesized bytes (scrollback replay, mode restore): the pane must not let
+  // xterm's answers to device queries inside them (DSR/DA…) reach the child — they'd land as garbage input.
+  | { type: "term-output"; slot: string; session: TermSession; dataB64: string; replay?: boolean }
   | { type: "term-exit"; slot: string; session: TermSession; code: number }
   // Host asks this pane to reset + re-emit term-ready. The sole caller is a deliberate child relaunch (shell
   // setting changed), so `respawn` is true for a full reset. Session switches don't reset (pure show/hide).

@@ -41,6 +41,7 @@ public sealed class TerminalControllerReattachTests {
 		var outputs = h.Bridge.PostedOfType("term-output");
 		var posted = Assert.Single(outputs);
 		Assert.Equal(ClaudeStartupModes, DecodeData(posted));
+		Assert.True(posted.GetProperty("replay").GetBoolean()); // synthesized preamble, not fresh child output
 		Assert.Equal([(120, 39), (120, 40)], h.Launcher.LastTerminal!.Resizes);
 	}
 

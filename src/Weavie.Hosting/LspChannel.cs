@@ -59,10 +59,10 @@ internal sealed class LspChannel : IDisposable {
 		live?.Write(payload);
 	}
 
-	private void StartServer(int attempt) {
+	private void StartServer(SupervisedLaunch launch) {
 		var proc = _launcher.Start(_command, _workspaceRoot, _log);
 		proc.FrameReceived += OnFrame;
-		proc.Exited += _supervisor.NotifyExited;
+		proc.Exited += launch.NotifyExited;
 		lock (_gate) {
 			_live = proc;
 		}

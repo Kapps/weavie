@@ -28,15 +28,8 @@ internal sealed class UnavailableStructuredAgentSession : IStructuredAgentSessio
 		Emit();
 	}
 
-	public void SubmitPrompt(string prompt) => SubmitPrompt(prompt, new AgentTurnOptions(null, null, false));
-
-	public void SubmitPrompt(string prompt, AgentTurnOptions options) {
-		ArgumentNullException.ThrowIfNull(prompt);
-		Emit();
-	}
-
-	public void AttachImage(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
+	public void Submit(AgentTurnSubmission submission) {
+		ArgumentNullException.ThrowIfNull(submission);
 		Emit();
 	}
 

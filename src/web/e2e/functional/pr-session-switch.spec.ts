@@ -7,7 +7,9 @@ import { focusEditor, navChord, walkToChangedFile } from "../harness/navigator";
 test.use({ prScenario: true });
 
 const toolbar = ".weavie-inline-toolbar";
-const added = ".weavie-inline-added";
+// The navigator auto-opens feature.ts first — a NEW file, so its rendered diff is marked by the "New file" band
+// (not the per-line added wash); every present/absent check below keys on that band.
+const newFileBand = ".weavie-inline-newfile-tag";
 const chips = ".session-chip";
 
 async function openPr101(page: import("@playwright/test").Page): Promise<void> {
@@ -24,7 +26,7 @@ test("S1: navigator disappears on switch to non-PR session and returns on switch
   page,
 }) => {
   await openPr101(page);
-  await expect(page.locator(added).first()).toBeVisible();
+  await expect(page.locator(newFileBand).first()).toBeVisible();
 
   // The two chips: the PR session is the second (just-opened, active). The primary is the first.
   const primaryChip = page.locator(chips).first();
@@ -39,7 +41,7 @@ test("S1: navigator disappears on switch to non-PR session and returns on switch
   await prChip.click();
   // EXPECTED: the navigator/toolbar re-appears for the PR session.
   await expect(page.locator(toolbar)).toBeVisible({ timeout: 10_000 });
-  await expect(page.locator(added).first()).toBeVisible();
+  await expect(page.locator(newFileBand).first()).toBeVisible();
 });
 
 // SCENARIO 4: comment after switching away and back — must post against the correct PR and refresh the thread.
@@ -78,7 +80,7 @@ test("S3: a stale per-file diff cannot render onto a non-PR session after a quic
   page,
 }) => {
   await openPr101(page);
-  await expect(page.locator(added).first()).toBeVisible();
+  await expect(page.locator(newFileBand).first()).toBeVisible();
 
   // can reply. Stepping the file walk issues get-turn-diff for the neighbour.
   await focusEditor(page); // confirm the editor holds focus so the `!terminalFocused`-guarded chord lands
@@ -87,7 +89,7 @@ test("S3: a stale per-file diff cannot render onto a non-PR session after a quic
 
   // The non-PR session must show NO diff surface — no toolbar, no bright added band leaking over it.
   await expect(page.locator(toolbar)).toHaveCount(0, { timeout: 10_000 });
-  await expect(page.locator(added)).toHaveCount(0, { timeout: 10_000 });
+  await expect(page.locator(newFileBand)).toHaveCount(0, { timeout: 10_000 });
 
   // Anchor the "stale diff never lands" check on a real later event instead of a fixed delay: open a file on
   // the primary session and wait for its content to render. That round-trip is slower than the diff the
@@ -99,7 +101,7 @@ test("S3: a stale per-file diff cannot render onto a non-PR session after a quic
   await page.locator(".tb-omnibar-input").press("Enter");
   await expect(page.locator(".monaco-editor .view-lines")).toContainText("just plain text");
   await expect(page.locator(toolbar)).toHaveCount(0);
-  await expect(page.locator(added)).toHaveCount(0);
+  await expect(page.locator(newFileBand)).toHaveCount(0);
 });
 
 // SCENARIO 5: navigator "parked" over an unrelated file (none of the changed PR files in view), then switch.
@@ -108,7 +110,7 @@ test("S5: a parked navigator does not linger after switching to a non-PR session
   page,
 }) => {
   await openPr101(page);
-  await expect(page.locator(added).first()).toBeVisible();
+  await expect(page.locator(newFileBand).first()).toBeVisible();
 
   // Open an unrelated, unchanged file (notes.txt) so the navigator parks (no changed file in view) rather
   // than rendering a live diff. The toolbar stays (parked), but over an unchanged buffer.

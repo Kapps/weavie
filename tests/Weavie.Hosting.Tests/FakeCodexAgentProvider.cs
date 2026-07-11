@@ -21,11 +21,7 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 		public void Start() =>
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "codex", Status = "ready" });
 
-		public void SubmitPrompt(string prompt) => SubmitPrompt(prompt, new AgentTurnOptions(null, null, false));
-		public void SubmitPrompt(string prompt, AgentTurnOptions options) {
-		}
-
-		public void AttachImage(string path) {
+		public void Submit(AgentTurnSubmission submission) {
 		}
 
 		public void PrefillPrompt(string prompt) {

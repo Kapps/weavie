@@ -32,13 +32,14 @@ the desired end state. So:
 supplies two delegates, which keeps the supervisor agnostic to how a thing is spawned (a ConPTY terminal, a
 `System.Diagnostics.Process`, anything):
 
-- `start(int attempt)` — launch a fresh instance and wire its exit back through `NotifyExited`. The
-  `attempt` index (0 = first, ≥1 = restart) lets the caller announce a restart in the UI. An exception
-  thrown here is treated as a failed launch (a crash) and feeds the backoff/breaker.
+- `start(SupervisedLaunch launch)` — launch a fresh instance and wire its exit back through
+  `launch.NotifyExited`. `launch.Attempt` (0 = first, ≥1 = restart) lets the caller announce a restart in
+  the UI. An exception thrown here is treated as a failed launch (a crash) and feeds the backoff/breaker.
 - `stop()` — kill/dispose the current instance; must be a safe no-op when nothing runs.
 
-`NotifyExited(int exitCode)` is called from the child's exit callback (any thread). Exactly one exit is
-expected per launched instance; an exit arriving while not `Running` is ignored.
+`launch.NotifyExited(int exitCode)` is called from the child's exit callback (any thread). The handle ties
+the exit to the specific instance, so a stopped predecessor's late exit is ignored rather than misattributed
+to its replacement (which would restart a healthy child); an exit arriving while not `Running` is also ignored.
 
 ### Tunables (`SupervisionOptions`)
 

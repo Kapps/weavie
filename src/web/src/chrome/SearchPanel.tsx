@@ -87,12 +87,34 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
     });
   };
 
+  // Indices into matches() that are actually rendered (their file group is expanded). Keyboard nav moves
+  // over these, so the selection can never wander into a collapsed group and vanish off screen.
+  const visibleIndices = createMemo<number[]>(() => {
+    const hidden = collapsed();
+    const indices: number[] = [];
+    matches().forEach((match, i) => {
+      if (!hidden.has(match.path)) {
+        indices.push(i);
+      }
+    });
+    return indices;
+  });
+
   const move = (delta: number): void => {
-    const count = matches().length;
-    if (count === 0) {
+    const visible = visibleIndices();
+    if (visible.length === 0) {
       return;
     }
-    setSelected((i) => Math.min(Math.max(i + delta, 0), count - 1));
+    setSelected((current) => {
+      const pos = visible.indexOf(current);
+      if (pos !== -1) {
+        return visible[Math.min(Math.max(pos + delta, 0), visible.length - 1)] ?? current;
+      }
+      // The selected row was hidden by a collapse: land on the nearest visible row in the move's direction.
+      return delta > 0
+        ? (visible.find((i) => i > current) ?? visible[visible.length - 1] ?? current)
+        : (visible.findLast((i) => i < current) ?? visible[0] ?? current);
+    });
     scrollSelectedIntoView();
   };
 
@@ -105,7 +127,10 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
       move(-1);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      openMatch(matches()[selected()]);
+      // Only ever open the row the user can see; a selection hidden by a collapse must not open blind.
+      if (visibleIndices().includes(selected())) {
+        openMatch(matches()[selected()]);
+      }
     } else if (e.key === "Escape") {
       e.preventDefault();
       props.onClose();

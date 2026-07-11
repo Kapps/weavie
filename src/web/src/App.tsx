@@ -11,6 +11,7 @@ import {
   Suspense,
 } from "solid-js";
 import { AgentPane } from "./agent/AgentPane";
+import { AgentPaneAccumulator } from "./agent/AgentPaneAccumulator";
 import {
   type AgentPaneUpdate,
   activeBackendId,
@@ -19,6 +20,7 @@ import {
   backendName,
   connectedBackends,
   isBrowserHostedShell,
+  LOCAL_BACKEND_ID,
   onHostMessage,
   openTarget,
   postToBackend,
@@ -47,6 +49,7 @@ import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 // status survive HMR.
 import {
   demoteSession,
+  findSession,
   isPromoted,
   promoteSession,
   type RailSession,
@@ -65,8 +68,13 @@ import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
 import { keyHint } from "./commands/key-hint";
-import { installKeybindings } from "./commands/keybindings";
-import { dispatchCommand, registerCommand } from "./commands/registry";
+import { formatKey, installKeybindings } from "./commands/keybindings";
+import {
+  dispatchCommand,
+  getKeybindings,
+  onCommandsChanged,
+  registerCommand,
+} from "./commands/registry";
 import { CommandIds } from "./commands/types";
 import { ConfirmDialog } from "./editor/ConfirmDialog";
 import { EditorEmptyState } from "./editor/EditorEmptyState";
@@ -103,6 +111,8 @@ import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+// Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
+import "./notifications/attention";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -133,9 +143,6 @@ const MAC_TITLEBAR = SHELL?.titleBar === "mac";
 // Either title-bar mode renders the omnibar + view toggles, so the floating panel buttons aren't needed.
 const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
-// Modifier label for the pane-switch shortcut badge: the ⌃ glyph on macOS, "Ctrl+" elsewhere.
-const CTRL_LABEL = /Mac/i.test(navigator.userAgent) ? "⌃" : "Ctrl+";
-
 const AGENT_PANE_KIND = "terminal:claude";
 
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
@@ -158,6 +165,20 @@ export default function App(): JSX.Element {
   // stay stable in fullscreen.
   const paneNumbers = createMemo(() => paneOrder(layoutRoot()));
   const numberOf = (kind: string): number => paneNumbers().indexOf(kind) + 1;
+  // Pane-switch badges show the effective focusPaneByIndex binding for their index (user-overridable in
+  // keybindings.json), never a hardcoded key; empty when unbound. The version signal re-resolves them when
+  // the host re-pushes the catalog (a live keybindings.json edit).
+  const [keybindingsVersion, setKeybindingsVersion] = createSignal(0);
+  onCleanup(onCommandsChanged(() => setKeybindingsVersion((v) => v + 1)));
+  const paneShortcut = (index: number): string => {
+    keybindingsVersion();
+    const binding = getKeybindings().find(
+      (b) =>
+        b.command === CommandIds.focusPaneByIndex &&
+        (b.args as { index?: number } | undefined)?.index === index,
+    );
+    return binding === undefined ? "" : formatKey(binding.key);
+  };
   // What LayoutView renders: in fullscreen, just the active pane (filling the pane area); the others collapse
   // to display:none but stay mounted, preserving their terminal/editor state. Switching panes re-points this,
   // keeping each pane fullscreen. Off ⇒ the real layout, never mutated by fullscreen.
@@ -173,6 +194,9 @@ export default function App(): JSX.Element {
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
   const [agentPaneMessages, setAgentPaneMessages] = createSignal<Record<string, AgentPaneUpdate[]>>(
     {},
+  );
+  const agentPaneAccumulator = new AgentPaneAccumulator((callback) =>
+    requestAnimationFrame(callback),
   );
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
@@ -190,6 +214,15 @@ export default function App(): JSX.Element {
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
+  );
+  const activeAgentSurface = createMemo<"terminal" | "structured" | "unavailable" | null>(() => {
+    const session = sessions().find((s) => s.active);
+    return session === undefined
+      ? null
+      : (session.agentSurface ?? (session.providerId === "codex" ? "structured" : "terminal"));
+  });
+  const activeAgentInputProtocol = createMemo(
+    () => sessions().find((session) => session.active)?.agentInputProtocol ?? 1,
   );
 
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
@@ -216,7 +249,8 @@ export default function App(): JSX.Element {
   // The file currently shown in the editor, tracked so the browser can highlight + reveal it.
   const [currentFile, setCurrentFile] = createSignal<string | null>(null);
   // User-facing toasts (e.g. an autosave write that failed) — surfaced rather than silently dropped.
-  const { toasts, addToast, dismissToast, isLeaving, pauseToast, resumeToast } = createToasts();
+  const { toasts, addToast, dismissToast, dismissKeyed, isLeaving, pauseToast, resumeToast } =
+    createToasts();
   // Let subsystems without an App handle (e.g. the LSP client) raise toasts for failures the user must see.
   setNotifySink(addToast);
   // Now that toasts render, surface "updated to build N" if this page load followed an update reload.
@@ -318,7 +352,7 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
+    if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
       document.querySelector<HTMLTextAreaElement>(".agent-surface textarea")?.focus();
       return;
     }
@@ -541,6 +575,7 @@ export default function App(): JSX.Element {
           class="editor-surface"
           classList={{ active: focusedKind() === "editor" }}
           data-kind="editor"
+          data-surface="editor"
         >
           <TabStrip
             tabs={openTabs}
@@ -548,11 +583,8 @@ export default function App(): JSX.Element {
             actions={editor.tabs}
             trailing={
               // Pane-switch badge: its own cell at the right of the tab bar (no longer floating over the tabs).
-              <Show when={showPaneHints()}>
-                <span class="pane-shortcut">
-                  {CTRL_LABEL}
-                  {numberOf("editor")}
-                </span>
+              <Show when={showPaneHints() && paneShortcut(numberOf("editor")) !== ""}>
+                <span class="pane-shortcut">{paneShortcut(numberOf("editor"))}</span>
               </Show>
             }
           />
@@ -620,15 +652,17 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
+    if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
       const sid = activeTermSessionId();
       return (
         <AgentPane
+          backendId={activeBackendId()}
+          inputProtocol={activeAgentInputProtocol()}
           slot={sid}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
           messages={sid === null ? [] : (agentPaneMessages()[sid] ?? [])}
-          shortcut={`${CTRL_LABEL}${numberOf(kind)}`}
+          shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => focusPane(kind)}
         />
       );
@@ -651,7 +685,12 @@ export default function App(): JSX.Element {
             .map((s) => s.id)
         : termSessionIds();
     return (
-      <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
+      <div
+        class="terminal-surface"
+        classList={{ active: focusedKind() === kind }}
+        data-kind={kind}
+        data-surface="terminal"
+      >
         {/* The head holds no focusable element, so a bare click would blur to <body> and strand keystrokes;
             preventDefault stops that and focusPane lands focus on this pane's xterm. The body (xterm) self-focuses. */}
         <div
@@ -663,11 +702,8 @@ export default function App(): JSX.Element {
           }}
         >
           <span class="pane-label">{paneTitle()}</span>
-          <Show when={showPaneHints()}>
-            <span class="pane-shortcut">
-              {CTRL_LABEL}
-              {numberOf(kind)}
-            </span>
+          <Show when={showPaneHints() && paneShortcut(numberOf(kind)) !== ""}>
+            <span class="pane-shortcut">{paneShortcut(numberOf(kind))}</span>
           </Show>
         </div>
         <div class="pane-body">
@@ -680,6 +716,7 @@ export default function App(): JSX.Element {
               return (
                 <div class="term-host" classList={{ hidden: !isActive() }}>
                   <TerminalView
+                    backendId={activeBackendId()}
                     slot={sid}
                     pane={pane}
                     active={isActive()}
@@ -786,13 +823,16 @@ export default function App(): JSX.Element {
       }
       if (message.type === "notify") {
         addToast(message.level, message.message, message.key);
+      } else if (message.type === "notify-clear") {
+        dismissKeyed(message.key);
       } else if (message.type === "agent-pane") {
-        setAgentPaneMessages((prev) => ({
-          ...prev,
-          [message.slot]: [...(prev[message.slot] ?? []), message.message],
-        }));
+        agentPaneAccumulator.ingest(message.slot, message.message, (messages) =>
+          setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
+        );
       } else if (message.type === "agent-pane-reset") {
-        setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: [] }));
+        agentPaneAccumulator.reset(message.slot, (messages) =>
+          setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
+        );
       } else if (message.type === "focus-pane") {
         // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
         // xterms persist across switches, so focusing the slot is valid even mid-respawn. Never steal from
@@ -1070,6 +1110,26 @@ export default function App(): JSX.Element {
       // falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
+      // Focus Session (programmatic; the notification click-through): bring a session to the foreground by
+      // 'id' (+ optional 'backendId', defaulting to the page-serving backend). Declines an unknown session.
+      registerCommand(CommandIds.focusSession, (args) => {
+        const a = args as { id?: unknown; backendId?: unknown } | undefined;
+        if (typeof a?.id !== "string" || a.id.length === 0) {
+          return false;
+        }
+        const backendId =
+          typeof a.backendId === "string" && a.backendId.length > 0
+            ? a.backendId
+            : LOCAL_BACKEND_ID;
+        const target = findSession(backendId, a.id);
+        if (target === undefined) {
+          return false;
+        }
+        if (!target.active) {
+          switchToSession(target);
+        }
+        return true;
+      }),
       // Ctrl+Shift+1–9 → switch to the Nth rail session. Returns false when there's none at that number (the
       // chord falls through); consumes the key when one exists, even if already active (then a no-op).
       registerCommand(CommandIds.selectSessionByIndex, (args) => {
@@ -1281,6 +1341,9 @@ export default function App(): JSX.Element {
           onOpen={(target, location) => {
             setOpenPrOpen(false);
             setLastLocation(location);
+            // The host's fetch→checkout→seed chain renders nothing for seconds; show a spinner toast now (keyed by
+            // PR). The host clears it (notify-clear) when the diff lands, or replaces it with a keyed warn on failure.
+            addToast("busy", `Opening PR #${target.number}…`, `open-pr:${target.number}`);
             // Promote + bind the backend before opening, same order as New Session, so the worktree-checkout
             // reply wires the panes to it; the host resolves the PR's branch refs by number, then checks it out.
             promoteNextSessionOn(location);

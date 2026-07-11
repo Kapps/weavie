@@ -31,6 +31,9 @@ public static class SessionCommands {
 	/// <summary>Opens the omnibar to pick a session to switch to.</summary>
 	public const string SwitchSession = "weavie.session.switch";
 
+	/// <summary>Focuses a specific session by <c>id</c> (+ optional <c>backendId</c>); the notification click-through target. Web-handled.</summary>
+	public const string FocusSession = "weavie.session.focus";
+
 	/// <summary>Switches to the Nth session on the rail (1-based); bound to <c>ctrl+Shift+1..9</c>, dispatched with <c>{ "index": N }</c>.</summary>
 	public const string SelectSessionByIndex = "weavie.session.selectByIndex";
 
@@ -140,6 +143,22 @@ public static class SessionCommands {
 			Category = "Session",
 			Description = "Open the omnibar to pick a session to switch to.",
 			Aliases = ["switch session", "go to session", "change session", "pick session"],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = FocusSession,
+			Title = "Focus Session",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Bring a specific session to the foreground by 'id' (its rail slot id), optionally "
+				+ "naming the 'backendId' it lives on for a session on a connected remote backend. The "
+				+ "programmatic counterpart of Switch Session… — notification click-through uses it; humans "
+				+ "pick from the omnibar instead.",
+			Aliases = ["focus session", "bring session to front", "go to session by id"],
+			// Target-specific (which session) with no meaningful no-arg palette row; the human entry is the omnibar.
+			ShowInPalette = false,
+			ArgsSchemaJson = "{\"id\":{\"type\":\"string\",\"description\":\"Session id (rail slot id) to focus\"},"
+				+ "\"backendId\":{\"type\":\"string\",\"description\":\"Backend the session lives on; omit for the page-serving backend\"}}",
 		});
 
 		// ctrl+Shift+1..9 → switch to the Nth session. Literal ctrl (not $mod) to stay Ctrl on macOS, where

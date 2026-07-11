@@ -1,5 +1,6 @@
 using Weavie.Core.Agents;
 using Weavie.Core.Changes;
+using Weavie.Core.Corrections;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
 using Weavie.Core.Sessions;
@@ -15,7 +16,8 @@ public sealed class AgentEventRouterTests {
 		string root = Path.Combine(Path.GetTempPath(), "weavie-router-test");
 		fs.WriteAllText(Path.Combine(root, "app.cs"), "one\ntwo\n");
 		var changes = new SessionChangeTracker(fs, root, _ => true);
-		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine());
+		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine(),
+			new CorrectionRecorder(changes, new CorrectionCorpus(fs, Path.Combine(root, "corrections.jsonl"))));
 
 		router.Observe(new AgentToolStarting(new AgentMutation.File("app.cs", Cwd: null, ProvidesEditLocation: true)));
 		fs.WriteAllText(Path.Combine(root, "app.cs"), "one\nTWO\n");
@@ -31,7 +33,8 @@ public sealed class AgentEventRouterTests {
 		string file = Path.Combine(root, "app.cs");
 		fs.WriteAllText(file, "one\ntwo\n");
 		var changes = new SessionChangeTracker(fs, root, _ => true);
-		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine());
+		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine(),
+			new CorrectionRecorder(changes, new CorrectionCorpus(fs, Path.Combine(root, "corrections.jsonl"))));
 
 		router.Observe(new AgentToolStarting(new AgentMutation.Workspace("tool-1")));
 		fs.WriteAllText(file, "one\nTWO\n");
@@ -49,7 +52,8 @@ public sealed class AgentEventRouterTests {
 		fs.WriteAllText(Path.Combine(root, "a.cs"), "one\ntwo\n");
 		fs.WriteAllText(Path.Combine(root, "b.cs"), "red\nblue\n");
 		var changes = new SessionChangeTracker(fs, root, _ => true);
-		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine());
+		var router = new AgentEventRouter(changes, new ObservedPermissionMode(), new SessionStatusMachine(),
+			new CorrectionRecorder(changes, new CorrectionCorpus(fs, Path.Combine(root, "corrections.jsonl"))));
 		var mutation = new AgentMutation.Files([
 			new AgentMutation.File("a.cs", Cwd: null, ProvidesEditLocation: true),
 			new AgentMutation.File("b.cs", Cwd: null, ProvidesEditLocation: true),

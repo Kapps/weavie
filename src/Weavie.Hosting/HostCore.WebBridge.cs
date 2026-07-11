@@ -1,6 +1,5 @@
 using System.Text;
 using System.Text.Json;
-using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
@@ -76,6 +75,12 @@ public sealed partial class HostCore {
 			case "term-paste-image":
 				HandlePasteImage(root);
 				break;
+			case "agent-attachment-upload":
+				HandleAgentAttachmentUpload(root);
+				break;
+			case "agent-attachment-remove":
+				HandleAgentAttachmentRemove(root);
+				break;
 			case "term-resize": {
 					int cols = root.GetProperty("cols").GetInt32();
 					int rows = root.GetProperty("rows").GetInt32();
@@ -92,15 +97,15 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "agent-submit":
-				SessionForSlot(root)?.Agent.Structured?.SubmitPrompt(
-					root.GetStringOrEmpty("prompt"),
-					new AgentTurnOptions(
-						root.GetStringOrEmpty("model"),
-						root.GetStringOrEmpty("reasoningEffort"),
-						root.TryGetProperty("fastMode", out var fastMode) && fastMode.GetBoolean()));
+				HandleAgentSubmit(root);
 				break;
 			case "agent-interrupt":
 				SessionForSlot(root)?.Agent.Structured?.Interrupt();
+				break;
+			case "agent-set-control":
+				SessionForSlot(root)?.Agent.Controls?.SetControl(
+					root.GetStringOrEmpty("axis"),
+					root.GetStringOrEmpty("value"));
 				break;
 			case "agent-approval":
 				SessionForSlot(root)?.Agent.Structured?.ResolveApproval(
@@ -396,6 +401,7 @@ public sealed partial class HostCore {
 				foreach (var slot in _sessions?.Slots ?? []) {
 					slot.Session?.Claude?.ResyncPane();
 					slot.Session?.Agent.ReplayPane();
+					slot.Session?.Agent.ReplayControls();
 					slot.Session?.Shell.ResyncPane();
 				}
 
@@ -1157,6 +1163,10 @@ public sealed partial class HostCore {
 	/// </summary>
 	public void Notify(string level, string message, string key) =>
 		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message, key));
+
+	/// <summary>Dismisses the live toast carrying <paramref name="key"/> in the page (an in-flight spinner whose operation finished).</summary>
+	public void ClearNotify(string key) =>
+		_bridge.PostToWeb(ShellProtocol.BuildNotifyClear(key));
 
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the

@@ -61,6 +61,27 @@ public sealed class AgentSessionHostTests {
 		var message = Assert.Single(bridge.PostedOfType("agent-pane"));
 		Assert.Equal("slot-1", message.GetProperty("slot").GetString());
 		Assert.Equal("started", message.GetProperty("message").GetProperty("type").GetString());
+
+		session.Emit(new AgentPaneMessage {
+			Type = "agent-message-delta",
+			ProviderId = "codex",
+			TurnId = "turn-1",
+			ItemId = "item-1",
+			Text = "hello ",
+		});
+		session.Emit(new AgentPaneMessage {
+			Type = "agent-message-delta",
+			ProviderId = "codex",
+			TurnId = "turn-1",
+			ItemId = "item-1",
+			Text = "world",
+		});
+		bridge.Clear();
+		host.ReplayPane();
+
+		var replayed = Assert.Single(bridge.PostedOfType("agent-pane"), value =>
+			value.GetProperty("message").GetProperty("itemId").GetString() == "item-1");
+		Assert.Equal("hello world", replayed.GetProperty("message").GetProperty("text").GetString());
 	}
 
 	private sealed class FakeStructuredProvider(FakeStructuredSession session) : IAgentProvider {
@@ -84,10 +105,9 @@ public sealed class AgentSessionHostTests {
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
 		}
 
-		public void SubmitPrompt(string prompt) => throw new NotSupportedException();
-		public void SubmitPrompt(string prompt, AgentTurnOptions options) => throw new NotSupportedException();
+		public void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
 
-		public void AttachImage(string path) => throw new NotSupportedException();
+		public void Submit(AgentTurnSubmission submission) => throw new NotSupportedException();
 
 		public void PrefillPrompt(string prompt) => throw new NotSupportedException();
 

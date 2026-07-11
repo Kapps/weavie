@@ -46,7 +46,7 @@ public sealed class CorrectionCorpus {
 	/// <summary>Diagnostic log line — read/persist failures on the best-effort ring.</summary>
 	public event Action<string>? Log;
 
-	/// <summary>Raised after an <see cref="Append"/> or <see cref="Clear"/> changed the ring (fires outside the lock).</summary>
+	/// <summary>Raised after an <see cref="Append"/> or <see cref="Take"/> changed the ring (fires outside the lock).</summary>
 	public event Action? Changed;
 
 	/// <summary>How many corrections the ring currently holds.</summary>
@@ -95,28 +95,32 @@ public sealed class CorrectionCorpus {
 	}
 
 	/// <summary>
-	/// Removes the oldest <paramref name="count"/> corrections and persists — the /learn consume point. Taking
-	/// a count (what <see cref="ReadAll"/> returned) instead of clearing everything keeps a correction another
-	/// session appended mid-/learn from being silently dropped unread.
+	/// Atomically returns every recorded correction (oldest first) and empties the ring — the /learn consume
+	/// point. Read-and-clear under one lock so a correction another session appends mid-/learn is either
+	/// returned here (and analyzed) or lands afterward and stays in the ring; it can never be evicted between
+	/// a separate read and a positional clear. Returns empty (and raises nothing) when the ring is empty.
 	/// </summary>
-	/// <param name="count">How many oldest entries to remove; clamped to the ring's size.</param>
-	public void Clear(int count) {
-		ArgumentOutOfRangeException.ThrowIfNegative(count);
+	public IReadOnlyList<CorrectionRecord> Take() {
+		List<CorrectionRecord> records;
 		lock (_gate) {
-			int removed = Math.Min(count, _lines.Count);
-			if (removed == 0) {
-				return;
+			if (_lines.Count == 0) {
+				return [];
 			}
 
-			for (int i = 0; i < removed; i++) {
-				_bytes -= Encoding.UTF8.GetByteCount(_lines[0]) + 1;
-				_lines.RemoveAt(0);
+			records = new List<CorrectionRecord>(_lines.Count);
+			foreach (string line in _lines) {
+				if (TryParse(line) is { } record) {
+					records.Add(record);
+				}
 			}
 
+			_lines.Clear();
+			_bytes = 0;
 			PersistLocked();
 		}
 
 		Changed?.Invoke();
+		return records;
 	}
 
 	// Applies the per-entry ceilings: prompt and per-file delta byte caps, then whole-entry trimming that

@@ -66,18 +66,28 @@ public sealed class CorrectionCorpusTests {
 	}
 
 	[Fact]
-	public void Clear_Count_RemovesOnlyThatManyOldest() {
+	public void Take_ReturnsAllOldestFirst_AndEmptiesThePersistedRing() {
 		var fs = new InMemoryFileSystem();
 		var corpus = new CorrectionCorpus(fs, CorpusPath);
 		corpus.Append(Record("a", 10));
 		corpus.Append(Record("b", 10));
-		corpus.Append(Record("c", 10));
 
-		corpus.Clear(2);
+		var taken = corpus.Take();
 
-		Assert.Equal(1, corpus.Count);
-		Assert.Equal("c", Assert.Single(corpus.ReadAll()).Prompt);
-		Assert.Equal("c", Assert.Single(new CorrectionCorpus(fs, CorpusPath).ReadAll()).Prompt);
+		Assert.Equal(["a", "b"], taken.Select(r => r.Prompt));
+		Assert.Equal(0, corpus.Count);
+		Assert.Empty(corpus.ReadAll());
+		Assert.Empty(new CorrectionCorpus(fs, CorpusPath).ReadAll()); // persisted empty
+	}
+
+	[Fact]
+	public void Take_EmptyRing_ReturnsEmpty_WithoutChangedEvent() {
+		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
+		int changes = 0;
+		corpus.Changed += () => changes++;
+
+		Assert.Empty(corpus.Take());
+		Assert.Equal(0, changes);
 	}
 
 	[Fact]
@@ -125,14 +135,14 @@ public sealed class CorrectionCorpusTests {
 	}
 
 	[Fact]
-	public void AppendAndClear_RaiseChanged() {
+	public void AppendAndTake_RaiseChanged() {
 		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
 		int changes = 0;
 		corpus.Changed += () => changes++;
 
-		corpus.Append(Record("a", 10));
-		corpus.Clear(1);
-		corpus.Clear(5); // nothing left — no change, no event
+		corpus.Append(Record("a", 10)); // +1
+		corpus.Take(); // +1
+		corpus.Take(); // nothing left — no change, no event
 
 		Assert.Equal(2, changes);
 	}

@@ -1,4 +1,5 @@
 using System.Text;
+using Weavie.Core.Changes;
 
 namespace Weavie.Core.Corrections;
 
@@ -27,7 +28,7 @@ public static class CorrectionDiff {
 		ArgumentNullException.ThrowIfNull(before);
 		ArgumentNullException.ThrowIfNull(after);
 
-		var ops = Ops(SplitLines(before), SplitLines(after));
+		var ops = Ops(LineDiff.SplitLines(before), LineDiff.SplitLines(after));
 		if (ops.TrueForAll(op => op.Kind == Kind.Equal)) {
 			return string.Empty;
 		}
@@ -159,7 +160,4 @@ public static class CorrectionDiff {
 		reversed.Reverse();
 		ops.AddRange(reversed);
 	}
-
-	private static string[] SplitLines(string text) =>
-		text.Length == 0 ? [] : text.ReplaceLineEndings("\n").Split('\n');
 }

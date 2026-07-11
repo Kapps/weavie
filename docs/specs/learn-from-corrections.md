@@ -33,8 +33,8 @@ All in `Weavie.Core.Corrections` unless noted:
   one JSONL line.
 - **`CorrectionCorpus`** (per workspace) — a byte-capped ring over `IFileSystem` at
   `~/.weavie/workspaces/<id>/corrections.jsonl` (`WeaviePaths.WorkspaceCorrectionsFile`): `Append`,
-  `ReadAll`, `Clear(count)`, a locked `Count`, and a `Changed` event. Oldest-first; eviction drops whole
-  leading lines.
+  `ReadAll`, `Take` (atomic read+clear), a locked `Count`, and a `Changed` event. Oldest-first; eviction
+  drops whole leading lines.
 - **`CorrectionRecorder`** (per session) — the router's fourth consumer. Holds the pending prompt; at each
   turn boundary drains the tracker and appends any net delta to the shared corpus. `FlushPending()` runs
   the same drain on demand (/learn).
@@ -59,15 +59,24 @@ encouraged to fire several prompts and walk the review set later, so a revert ca
 the write. A per-turn snapshot drain would miss exactly those. Instead, at each boundary
 `DrainCorrections()`:
 
-1. diffs every snapshot against disk and reports the differing files (a correction reports **once**);
-2. advances each snapshot to the disk content;
-3. drops a snapshot only once its file has **no pending review changes left** (review baseline == current
-   — i.e. the user kept, reverted, or keep-all'ed it).
+1. picks each file's **final** — a fresh disk read while the file is still pending (so an ongoing hand-edit
+   is captured), or, once the file has settled, the content the user *settled on* (see below);
+2. diffs the snapshot against that final and reports the differing files (a correction reports **once**);
+3. advances each still-pending snapshot; drops a snapshot once its file has **no pending review changes
+   left** (review baseline == current — i.e. the user kept, reverted, or keep-all'ed it).
 
-So hand-edits over *still-unreviewed* agent output keep counting as corrections, while edits made after
-the user accepted the output are their own coding, not signal. One asymmetry is deliberate: a file the
-**agent itself** deletes (a Bash rm reconciled at PostToolUse) drops its snapshot — agent action, not a
-correction — while a **user revert** that deletes a created file keeps it, so the full-rejection records.
+**A settled file's final is the accepted content, not later disk.** Once the user accepts (Keep/Revert),
+edits they make afterward are their own coding, not a correction of the agent. Keep/Revert already leave
+`_current` equal to the on-disk accepted content (they read/write disk), so a settled file falls back to
+`_current` and a post-accept hand-edit — which never touches `_current` — is correctly ignored. Keep-all
+(`AcceptTurn`) is the exception: it advances the review baseline from `_current`, which never sees
+hand-edits, so it explicitly **freezes disk-at-accept** into a `_settledFinal` map that the drain uses as
+the final for those files (so a hand-edit made *before* keep-all still records, one made *after* does not).
+
+So hand-edits over *still-unreviewed* agent output keep counting as corrections, while edits after the user
+accepted the output do not. One asymmetry is deliberate: a file the **agent itself** deletes (a Bash rm
+reconciled at PostToolUse) drops its snapshot — agent action, not a correction — while a **user revert**
+that deletes a created file keeps it, so the full-rejection records.
 
 ```mermaid
 flowchart TD
@@ -105,21 +114,22 @@ fire `UserPromptSubmit`, `/learn` records no spurious correction of its own.
 Two loud edges, no silent paths:
 
 - An **empty ring fails the command** ("No corrections recorded yet…") — visible in the palette/toast, not
-  a quiet no-op.
-- The consume is **`Clear(count)`** over exactly the entries `ReadAll` returned, so a correction another
-  session appends mid-/learn survives unread rather than being clobbered by a clear-all.
+  a quiet no-op. The emptiness (and the missing-primary case) is checked via `Count` *before* consuming, so
+  a loud failure never drains the ring.
+- The consume is a single **atomic `Take`** (read+clear under one lock), so a correction another session
+  appends mid-/learn is either returned here (analyzed) or lands afterward and survives in the ring — it can
+  never be evicted in a window between a separate read and a positional clear.
 
 ```mermaid
 flowchart TD
   A[Card 'Yes' / palette / agent runCommand] --> B[weavie.learn.fromCorrections]
   B --> C[HostCore.RunLearn]
   C --> D[FlushPending on each loaded session's recorder]
-  D --> E[corpus.ReadAll]
-  E --> F{empty?}
-  F -- yes --> G[CommandResult.Failure 'No corrections recorded yet']
-  F -- no --> H[LearnPrompt.Compose]
-  H --> I[primary.PrefillAgentPrompt - bracketed paste, no Enter]
-  I --> J["corpus.Clear(read count) → Changed"]
+  D --> E{corpus.Count == 0 or no primary?}
+  E -- yes --> G[CommandResult.Failure - ring not drained]
+  E -- no --> H[records = corpus.Take - atomic read+clear → Changed]
+  H --> I[LearnPrompt.Compose]
+  I --> J[primary.PrefillAgentPrompt - bracketed paste, no Enter]
   J --> K[suggestions re-evaluate - card vanishes]
 ```
 

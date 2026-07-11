@@ -14,8 +14,8 @@ public sealed partial class HostCore {
 			session.Corrections.FlushPending();
 		}
 
-		var records = _corrections.ReadAll();
-		if (records.Count == 0) {
+		// Peek (Count) before consuming so an empty ring — or a missing primary — fails WITHOUT draining.
+		if (_corrections.Count == 0) {
 			return CommandResult.Failure(
 				"No corrections recorded yet — after you revert or hand-edit something the agent wrote, run this again.");
 		}
@@ -24,11 +24,17 @@ public sealed partial class HostCore {
 			return CommandResult.Failure("No primary session to prefill the analysis into.");
 		}
 
+		// Atomic read+clear: a correction another session appends after this stays in the ring; one appended
+		// before is returned here and analyzed — never silently evicted. Take fires Changed → the suggestion
+		// re-evaluates and the corrections.learn card vanishes.
+		var records = _corrections.Take();
+		if (records.Count == 0) {
+			return CommandResult.Failure(
+				"No corrections recorded yet — after you revert or hand-edit something the agent wrote, run this again.");
+		}
+
 		string prompt = LearnPrompt.Compose(records);
 		_ui.Post(() => primary.PrefillAgentPrompt(prompt));
-		// Consume exactly what was read: a correction another session appends mid-/learn stays in the ring.
-		// Clearing fires Changed → the suggestion re-evaluates and the corrections.learn card vanishes.
-		_corrections.Clear(records.Count);
 		return CommandResult.Success(
 			$"Prefilled an analysis of {records.Count} correction(s) into the primary session — review it and press Enter.");
 	}

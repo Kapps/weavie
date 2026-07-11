@@ -99,6 +99,21 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
+	public void KeepThenHandEdit_SameDrainWindow_IsNotACorrection() {
+		// The keep accepts the agent's output; a hand-edit made AFTER it (before any intervening boundary) is
+		// the user's own follow-up coding, not a correction of the agent — it must not record, even though the
+		// stale pre-keep agent snapshot still differs from the hand-edited disk.
+		Boundary("p1");
+		AgentEdit("app.cs", "agent line\n");
+		_tracker.KeepFile(Abs("app.cs"));
+		_fs.WriteAllText(Abs("app.cs"), "user rewrite\n");
+
+		Boundary("p2");
+
+		Assert.Equal(0, _corpus.Count);
+	}
+
+	[Fact]
 	public void HandEditBeforeKeepAll_IsStillRecorded() {
 		Boundary("p1");
 		AgentEdit("app.cs", "agent line\n");

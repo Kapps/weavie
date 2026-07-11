@@ -71,4 +71,17 @@ public sealed class CodexInstallResolverTests : IDisposable {
 		Assert.Contains("could not find", error.Message, StringComparison.Ordinal);
 		Assert.Contains("missing-codex", error.Message, StringComparison.Ordinal);
 	}
+
+	[Fact]
+	public void Resolve_BareCodex_AllowsLoginShellResolutionOnPosix() {
+		if (OperatingSystem.IsWindows()) {
+			return;
+		}
+
+		var launch = CodexInstallResolver.Resolve("weavie-codex-only-in-login-shell", _dir);
+
+		Assert.Equal("weavie-codex-only-in-login-shell", launch.Command);
+		Assert.Equal(_dir, launch.WorkingDirectory);
+		Assert.Empty(launch.PathEntries);
+	}
 }

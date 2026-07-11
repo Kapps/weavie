@@ -567,24 +567,26 @@
   position: relative;
   flex: 0 0 auto;
   display: flex;
-  align-items: stretch;
-  gap: 2px;
-  padding: 2px 8px 3px;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 8px 4px;
   background: var(--bar);
   font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
   font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  line-height: 1.4;
 }
 
 .agent-status-segment {
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
-  padding: 1px 6px;
+  padding: 0 6px;
   border: 0;
   border-radius: 3px;
   background: transparent;
   color: var(--dim);
   font: inherit;
+  line-height: inherit;
   cursor: pointer;
   white-space: nowrap;
 }

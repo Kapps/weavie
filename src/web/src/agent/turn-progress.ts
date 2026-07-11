@@ -16,10 +16,13 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
 
 export type PendingRequestKind = "approval" | "input";
 
+export interface PendingRequest {
+  kind: PendingRequestKind;
+  requestId: string;
+}
+
 /** The latest unresolved approval/input request — the turn is blocked on the user, not working. */
-export function pendingRequestKind(
-  messages: readonly AgentPaneUpdate[],
-): PendingRequestKind | null {
+export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
   const pending = new Map<string, PendingRequestKind>();
   for (const message of messages) {
     if (
@@ -39,11 +42,18 @@ export function pendingRequestKind(
       pending.delete(message.itemId);
     }
   }
-  let latest: PendingRequestKind | null = null;
-  for (const kind of pending.values()) {
-    latest = kind;
+  let latest: PendingRequest | null = null;
+  for (const [requestId, kind] of pending) {
+    latest = { kind, requestId };
   }
   return latest;
+}
+
+/** The latest unresolved request's kind alone (the working row's label needs no id). */
+export function pendingRequestKind(
+  messages: readonly AgentPaneUpdate[],
+): PendingRequestKind | null {
+  return pendingRequest(messages)?.kind ?? null;
 }
 
 /** Elapsed working time as a compact label: "8s", "1m 05s", "1h 02m". */

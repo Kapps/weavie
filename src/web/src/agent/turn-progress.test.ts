@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { formatElapsed, hasActiveTurn, pendingRequestKind } from "./turn-progress";
+import { formatElapsed, hasActiveTurn, pendingRequest, pendingRequestKind } from "./turn-progress";
 
 const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
@@ -58,6 +58,17 @@ describe("pendingRequestKind", () => {
     const stale = [message("turn-started"), message("approval-requested", "a1")];
     expect(pendingRequestKind([...stale, message("turn-completed")])).toBe(null);
     expect(pendingRequestKind([...stale, message("turn-started")])).toBe(null);
+  });
+
+  it("exposes the newest unresolved request id for keyboard decisions", () => {
+    expect(
+      pendingRequest([
+        message("turn-started"),
+        message("approval-requested", "a1"),
+        message("approval-requested", "a2"),
+        message("approval-resolved", "a2"),
+      ]),
+    ).toEqual({ kind: "approval", requestId: "a1" });
   });
 });
 

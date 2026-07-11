@@ -71,9 +71,26 @@ internal static class CodexPaneMessages {
 			Category = CodexApprovalResponses.CanResolve(request.Method) ? "permission" : "input",
 			Summary = SummarizeRequest(request.Method, parameters),
 			Status = "pending",
+			Text = RequestText(request.Method, parameters),
 			Questions = ReadQuestions(parameters),
 			PayloadJson = request.Message.GetRawText(),
 		};
+
+	/// <summary>The substance being approved — the user must see what they are consenting to, not just why.</summary>
+	private static string? RequestText(string method, JsonElement parameters) {
+		if (parameters.ValueKind != JsonValueKind.Object) {
+			return null;
+		}
+
+		return method switch {
+			"item/commandExecution/requestApproval" => NormalizeToNull(parameters.GetStringOrEmpty("command")),
+			"item/fileChange/requestApproval" when parameters.TryGetProperty("changes", out _) =>
+				NormalizeToNull(SummarizeChanges(parameters)),
+			_ => null,
+		};
+	}
+
+	private static string? NormalizeToNull(string value) => value.Length == 0 ? null : value;
 
 	private static IReadOnlyList<AgentInputQuestion>? ReadQuestions(JsonElement parameters) {
 		if (parameters.ValueKind != JsonValueKind.Object

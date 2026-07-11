@@ -73,25 +73,19 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
     }
     return new Promise((resolve, reject) => {
       let closed = false;
-      let taskkillCode: number | null = null;
+      let taskkillFinished = false;
       const finish = (): void => {
-        if (!closed || taskkillCode === null) {
-          return;
+        if (closed && taskkillFinished) {
+          resolve();
         }
-        // 128 means the root vanished after our live check; `close` still gates cleanup in that race.
-        if (taskkillCode !== 0 && taskkillCode !== 128) {
-          reject(new Error(`taskkill exited with ${taskkillCode}`));
-          return;
-        }
-        resolve();
       };
       proc.once("close", () => {
         closed = true;
         finish();
       });
       const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      taskkill.once("exit", (code) => {
-        taskkillCode = code ?? -1;
+      taskkill.once("exit", () => {
+        taskkillFinished = true;
         finish();
       });
       taskkill.once("error", reject);

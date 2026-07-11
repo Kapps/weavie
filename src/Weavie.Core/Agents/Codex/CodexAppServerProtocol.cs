@@ -19,6 +19,7 @@ public static class CodexAppServerProtocol {
 				},
 				capabilities = new {
 					experimentalApi = true,
+					mcpServerOpenaiFormElicitation = true,
 					optOutNotificationMethods = new[] {
 						"hook/started",
 						"hook/completed",

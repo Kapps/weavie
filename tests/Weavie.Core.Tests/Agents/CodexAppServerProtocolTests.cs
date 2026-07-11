@@ -18,6 +18,7 @@ public sealed class CodexAppServerProtocolTests {
 		var parameters = doc.RootElement.GetProperty("params");
 		Assert.Equal("weavie", parameters.GetProperty("clientInfo").GetProperty("name").GetString());
 		Assert.True(parameters.GetProperty("capabilities").GetProperty("experimentalApi").GetBoolean());
+		Assert.True(parameters.GetProperty("capabilities").GetProperty("mcpServerOpenaiFormElicitation").GetBoolean());
 		var optOut = parameters.GetProperty("capabilities").GetProperty("optOutNotificationMethods");
 		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "hook/started");
 		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");

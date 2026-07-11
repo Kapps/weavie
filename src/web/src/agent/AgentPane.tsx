@@ -33,7 +33,8 @@ export function AgentPane(props: {
     () => props.slot !== null && (draft().trim().length > 0 || pendingImages() > 0),
   );
   const transcript = createMemo(() => toAgentTranscript(props.messages));
-  const canInterrupt = createMemo(() => props.slot !== null && hasActiveTurn(props.messages));
+  const activeTurn = createMemo(() => hasActiveTurn(props.messages));
+  const canInterrupt = createMemo(() => props.slot !== null && activeTurn());
 
   const isNearBottom = (): boolean => {
     if (bodyRef === undefined) {
@@ -121,7 +122,7 @@ export function AgentPane(props: {
             {(entry, index) => (
               <TranscriptEntry
                 entry={entry}
-                result={isResultEntry(transcript(), index())}
+                sectionLabel={assistantSectionLabel(transcript(), index(), activeTurn())}
                 slot={props.slot}
               />
             )}
@@ -174,7 +175,7 @@ export function AgentPane(props: {
 
 function TranscriptEntry(props: {
   entry: AgentTranscriptEntry;
-  result: boolean;
+  sectionLabel: "Updates" | "Results" | null;
   slot: string | null;
 }): JSX.Element {
   return (
@@ -182,12 +183,12 @@ function TranscriptEntry(props: {
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
-        "agent-entry-result": props.result,
+        "agent-entry-result": props.sectionLabel !== null,
       }}
     >
-      <Show when={props.result || showEntryHeader(props.entry)}>
+      <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">{props.result ? "Result" : entryLabel(props.entry)}</span>
+          <span class="agent-entry-label">{props.sectionLabel ?? entryLabel(props.entry)}</span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
@@ -209,10 +210,14 @@ function TranscriptEntry(props: {
   );
 }
 
-function isResultEntry(entries: AgentTranscriptEntry[], index: number): boolean {
+export function assistantSectionLabel(
+  entries: AgentTranscriptEntry[],
+  index: number,
+  turnActive: boolean,
+): "Updates" | "Results" | null {
   const entry = entries[index];
   if (entry === undefined || entry.kind !== "message" || entry.tone !== "assistant") {
-    return false;
+    return null;
   }
 
   for (let i = index + 1; i < entries.length; i += 1) {
@@ -220,10 +225,13 @@ function isResultEntry(entries: AgentTranscriptEntry[], index: number): boolean 
     if (next?.kind !== "message") {
       continue;
     }
-    return next.tone === "user";
+    if (next.tone === "assistant") {
+      return null;
+    }
+    return "Results";
   }
 
-  return true;
+  return turnActive ? "Updates" : "Results";
 }
 
 function hasActiveTurn(messages: AgentPaneUpdate[]): boolean {

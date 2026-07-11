@@ -218,6 +218,7 @@ public static class CoreSettings {
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
 		NotificationSettings.Register(registry);
+		CorrectionsSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",

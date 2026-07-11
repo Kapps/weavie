@@ -2,6 +2,7 @@ import { createEffect, createMemo, createSignal, type JSX, Show } from "solid-js
 import type { AgentPaneUpdate } from "../bridge";
 import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
+import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentTranscript } from "./AgentTranscript";
 
 export function AgentPane(props: {
@@ -82,6 +83,7 @@ export function AgentPane(props: {
           }
         }}
       />
+      <AgentStatusLine backendId={props.backendId} slot={props.slot} />
     </div>
   );
 }

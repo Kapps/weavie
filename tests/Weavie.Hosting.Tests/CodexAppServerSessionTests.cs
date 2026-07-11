@@ -247,7 +247,91 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Contains(messages, message => message.Type == "user-image" && message.Status == "submitted");
 	}
 
-	private static AgentTurnSubmission Submission(string text, IReadOnlyList<string> imagePaths) => new() {
+	[Fact]
+	public async Task Controls_ExposeModelsAndSkills_AndApplyModelLiveOnNextTurn() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+		List<AgentControlState> states = [];
+		session.ControlStateChanged += state => states.Add(state);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		var control = session.ControlState;
+		var model = Assert.Single(control.Axes, axis => axis.Id == "model");
+		Assert.Equal("gpt-5.5", model.Value); // the catalog default, since codex.model is unset
+		Assert.Equal("GPT-5.5", model.ValueLabel);
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Options.Select(option => option.Id));
+		Assert.Contains(control.Axes, axis => axis.Id == "approvalPolicy");
+		Assert.Contains(control.Axes, axis => axis.Id == "sandbox");
+		Assert.Contains(control.Slash, entry => entry.Name == "model" && entry.CommandId == CoreCommands.SelectModel);
+		Assert.Contains(control.Slash, entry => entry.Name == "review-pr" && entry.SkillName == "review-pr");
+
+		session.SetControl("model", "gpt-5.4-mini");
+		Assert.Contains(states, state => state.Axes.Single(axis => axis.Id == "model").Value == "gpt-5.4-mini");
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("gpt-5.4-mini", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Slash.Any(entry => entry.SkillName == "review-pr"));
+
+		session.Submit(Submission("look at the PR", [], ["review-pr"]));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var input = doc.RootElement.GetProperty("params").GetProperty("input");
+		var skill = input.EnumerateArray().Single(item => item.GetProperty("type").GetString() == "skill");
+		Assert.Equal("review-pr", skill.GetProperty("name").GetString());
+		// The web submitted only the name; the path is resolved server-side from the known skill list.
+		Assert.False(string.IsNullOrEmpty(skill.GetProperty("path").GetString()));
+		Assert.Contains(messages, message => message.Type == "user-message" && message.Text!.Contains("review-pr", StringComparison.Ordinal));
+	}
+
+	[Fact]
+	public async Task Submit_SkillOnly_WhenSkillUnavailable_SurfacesErrorAndSendsNothing() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("", [], ["ghost-skill"]));
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "error" && message.Text!.Contains("no longer available", StringComparison.Ordinal));
+		Assert.False(File.Exists(Path.Combine(_dir, "turn-start.json")));
+	}
+
+	[Fact]
+	public async Task SetControl_RejectsUnknownValue_WithoutChangingState() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		session.SetControl("sandbox", "not-a-mode");
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message => message.Type == "error" && message.Text!.Contains("sandbox", StringComparison.Ordinal));
+		Assert.Equal("workspace-write", session.ControlState.Axes.Single(axis => axis.Id == "sandbox").Value);
+	}
+
+	private static AgentTurnSubmission Submission(string text, IReadOnlyList<string> imagePaths) =>
+		Submission(text, imagePaths, []);
+
+	private static AgentTurnSubmission Submission(string text, IReadOnlyList<string> imagePaths, IReadOnlyList<string> skills) => new() {
 		Id = Guid.NewGuid().ToString("n"),
 		Text = text,
 		Attachments = [.. imagePaths.Select((path, index) => new AgentInputAttachment {
@@ -255,6 +339,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Path = path,
 			Mime = "image/png",
 		})],
+		Skills = skills,
 	};
 
 	private CodexAppServerSession CreateSession(IAgentEventSink events, List<AgentPaneMessage> messages) {

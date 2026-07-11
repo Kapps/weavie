@@ -102,6 +102,11 @@ public sealed partial class HostCore {
 			case "agent-interrupt":
 				SessionForSlot(root)?.Agent.Structured?.Interrupt();
 				break;
+			case "agent-set-control":
+				SessionForSlot(root)?.Agent.Controls?.SetControl(
+					root.GetStringOrEmpty("axis"),
+					root.GetStringOrEmpty("value"));
+				break;
 			case "agent-approval":
 				SessionForSlot(root)?.Agent.Structured?.ResolveApproval(
 					root.GetStringOrEmpty("requestId"),
@@ -396,6 +401,7 @@ public sealed partial class HostCore {
 				foreach (var slot in _sessions?.Slots ?? []) {
 					slot.Session?.Claude?.ResyncPane();
 					slot.Session?.Agent.ReplayPane();
+					slot.Session?.Agent.ReplayControls();
 					slot.Session?.Shell.ResyncPane();
 				}
 

@@ -1,19 +1,34 @@
-import { createEffect, createMemo, For, type JSX, onCleanup, Show } from "solid-js";
-import { type AgentPaneUpdate, postToBackend } from "../bridge";
+import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { type AgentPaneUpdate, type AgentSlashEntry, postToBackend } from "../bridge";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { keyHint } from "../commands/key-hint";
 import { dispatchCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
+import { AgentSlashMenu } from "./AgentSlashMenu";
+import { agentControlState, openControlPicker, setAgentControl } from "./agent-controls-store";
 import {
   captureAgentImagePaste,
   composerState,
   removeComposerAttachment,
   setComposerDraft,
+  stageSkill,
   submitAgentTurn,
+  unstageSkill,
   uploadAgentImage,
 } from "./composer-store";
+import {
+  caretOnFirstLine,
+  caretOnLastLine,
+  type HistoryCursor,
+  type HistoryRecall,
+  IDLE_CURSOR,
+  recallNext,
+  recallPrevious,
+  submittedPrompts,
+} from "./prompt-history";
+import { filterSlash, slashQuery } from "./slash";
 
 export function AgentComposer(props: {
   active: boolean;
@@ -37,11 +52,94 @@ export function AgentComposer(props: {
       props.slot !== null &&
       state.submittingId === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
-      (state.draft.trim().length > 0 || state.attachments.length > 0)
+      (state.draft.trim().length > 0 || state.attachments.length > 0 || state.skills.length > 0)
     );
   });
 
   createEffect(() => applyPrefill(props, appliedDraftIndexes));
+
+  const history = createMemo(() => submittedPrompts(props.messages));
+  const [historyCursor, setHistoryCursor] = createSignal<HistoryCursor>(IDLE_CURSOR);
+  // Switching sessions abandons any in-progress history browse.
+  createEffect(() => {
+    props.slot;
+    setHistoryCursor(IDLE_CURSOR);
+  });
+
+  const [slashDismissed, setSlashDismissed] = createSignal(false);
+  const slashText = createMemo(() => slashQuery(composer().draft));
+  const slashEntries = createMemo(() => {
+    const query = slashText();
+    return query === null || slashDismissed()
+      ? []
+      : filterSlash(agentControlState(props.slot).slash, query);
+  });
+  // A draft that's no longer a slash command clears any prior dismissal, so the next "/" reopens the menu.
+  createEffect(() => {
+    if (slashText() === null) {
+      setSlashDismissed(false);
+    }
+  });
+
+  const acceptSlash = (entry: AgentSlashEntry): void => {
+    const slot = props.slot;
+    if (slot === null) {
+      return;
+    }
+    if (entry.commandId !== null) {
+      setComposerDraft(props.backendId, slot, "");
+      void dispatchCommand(entry.commandId);
+    } else if (entry.skillName !== null) {
+      // Stage the skill so it submits as a structured skill input; clear the "/query" it replaces.
+      stageSkill(props.backendId, slot, entry.skillName);
+      setComposerDraft(props.backendId, slot, "");
+    } else if (entry.insertText !== null) {
+      setComposerDraft(props.backendId, slot, entry.insertText);
+      const caret = entry.insertText.length;
+      requestAnimationFrame(() => textareaRef?.setSelectionRange(caret, caret));
+    }
+    setSlashDismissed(false);
+    textareaRef?.focus();
+  };
+
+  const applyRecall = (recall: HistoryRecall | null): boolean => {
+    const slot = props.slot;
+    if (recall === null || slot === null) {
+      return false;
+    }
+    setHistoryCursor(recall.next);
+    setComposerDraft(props.backendId, slot, recall.text);
+    const caret = recall.text.length;
+    requestAnimationFrame(() => textareaRef?.setSelectionRange(caret, caret));
+    return true;
+  };
+
+  // Shell-style history: Up recalls the previous prompt only with a collapsed caret on the first line, Down
+  // the next only on the last line — otherwise the arrow moves the caret within a multi-line draft as usual.
+  const onComposerKeyDown = (event: KeyboardEvent): void => {
+    const element = textareaRef;
+    if (
+      element === undefined ||
+      // While the slash menu is open its own handler owns Up/Down; don't also recall history.
+      slashEntries().length > 0 ||
+      event.shiftKey ||
+      event.altKey ||
+      event.ctrlKey ||
+      event.metaKey ||
+      element.selectionStart !== element.selectionEnd
+    ) {
+      return;
+    }
+    if (event.key === "ArrowUp" && caretOnFirstLine(element.value, element.selectionStart)) {
+      if (applyRecall(recallPrevious(history(), historyCursor(), element.value))) {
+        event.preventDefault();
+      }
+    } else if (event.key === "ArrowDown" && caretOnLastLine(element.value, element.selectionEnd)) {
+      if (applyRecall(recallNext(history(), historyCursor()))) {
+        event.preventDefault();
+      }
+    }
+  };
 
   const offNativePaste = registerCommand(CommandIds.agentPaste, async () => {
     const slot = props.slot;
@@ -104,6 +202,7 @@ export function AgentComposer(props: {
     } else if (!submitAgentTurn(props.backendId, slot)) {
       return false;
     }
+    setHistoryCursor(IDLE_CURSOR);
     props.onSubmitted();
     return true;
   };
@@ -117,11 +216,33 @@ export function AgentComposer(props: {
     return true;
   };
 
+  // A control command applies its `value` arg directly (palette / Claude), or opens the picker when bare.
+  const registerSelect = (commandId: string, axis: string): (() => void) =>
+    registerCommand(commandId, (args: unknown) => {
+      const slot = props.slot;
+      if (slot === null) {
+        return false;
+      }
+      const value = (args as { value?: unknown } | undefined)?.value;
+      if (typeof value === "string" && value.length > 0) {
+        setAgentControl(props.backendId, slot, axis, value);
+      } else {
+        openControlPicker(axis);
+      }
+      return true;
+    });
+
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
+  const offSelectModel = registerSelect(CommandIds.selectModel, "model");
+  const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
+  const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
   onCleanup(offNativePaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
+  onCleanup(offSelectModel);
+  onCleanup(offSelectApproval);
+  onCleanup(offSelectSandbox);
 
   return (
     <form
@@ -160,16 +281,49 @@ export function AgentComposer(props: {
           </For>
         </div>
       </Show>
+      <Show when={composer().skills.length > 0}>
+        <div class="agent-skills">
+          <For each={composer().skills}>
+            {(skill) => (
+              <span class="agent-skill-chip">
+                /{skill}
+                <button
+                  type="button"
+                  title="Remove skill"
+                  onClick={() => {
+                    const slot = props.slot;
+                    if (slot !== null) {
+                      unstageSkill(props.backendId, slot, skill);
+                    }
+                  }}
+                >
+                  ×
+                </button>
+              </span>
+            )}
+          </For>
+        </div>
+      </Show>
+      <AgentSlashMenu
+        entries={slashEntries()}
+        onAccept={acceptSlash}
+        onDismiss={() => setSlashDismissed(true)}
+      />
       <span class="agent-compose-prompt">prompt&gt;</span>
       <textarea
         ref={textareaRef}
         rows={1}
         value={composer().draft}
         placeholder="Write a prompt for Codex..."
+        onKeyDown={onComposerKeyDown}
         onInput={(event) => {
           const slot = props.slot;
           if (slot !== null) {
             setComposerDraft(props.backendId, slot, event.currentTarget.value);
+            // Editing starts a fresh draft, ending any history browse.
+            if (historyCursor().cursor !== null) {
+              setHistoryCursor(IDLE_CURSOR);
+            }
           }
         }}
         onPaste={(event) => {

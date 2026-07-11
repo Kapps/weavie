@@ -252,6 +252,7 @@ const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],
+  __WEAVIE_AGENT__: { defaultProvider: "claude" },
 };
 
 /** Injects the bootstrap globals right after <head> so they exist before the entry module runs. */

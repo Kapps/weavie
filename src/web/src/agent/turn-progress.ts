@@ -14,6 +14,22 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
   return active;
 }
 
+/**
+ * Wall-clock ms the running turn began (the arrival time stamped on its `turn-started`), or null when no
+ * turn is active. Derived from the message stream so it stays fixed across session switches and re-mounts.
+ */
+export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): number | null {
+  let startedAt: number | null = null;
+  for (const message of messages) {
+    if (message.type === "turn-started") {
+      startedAt = message.receivedAt ?? null;
+    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+      startedAt = null;
+    }
+  }
+  return startedAt;
+}
+
 export type PendingRequestKind = "approval" | "input";
 
 export interface PendingRequest {
@@ -49,11 +65,16 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
   return latest;
 }
 
-/** The latest unresolved request's kind alone (the working row's label needs no id). */
-export function pendingRequestKind(
-  messages: readonly AgentPaneUpdate[],
-): PendingRequestKind | null {
-  return pendingRequest(messages)?.kind ?? null;
+/**
+ * The one approval the keyboard decision commands answer: the newest pending request of an active
+ * turn, when it is an approval. The chips and the commands must derive this identically.
+ */
+export function pendingApproval(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
+  if (!hasActiveTurn(messages)) {
+    return null;
+  }
+  const request = pendingRequest(messages);
+  return request !== null && request.kind === "approval" ? request : null;
 }
 
 /** Elapsed working time as a compact label: "8s", "1m 05s", "1h 02m". */

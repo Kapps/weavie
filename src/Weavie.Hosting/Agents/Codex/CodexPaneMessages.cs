@@ -84,7 +84,8 @@ internal static class CodexPaneMessages {
 
 		return method switch {
 			"item/commandExecution/requestApproval" => NormalizeToNull(parameters.GetStringOrEmpty("command")),
-			"item/fileChange/requestApproval" when parameters.TryGetProperty("changes", out _) =>
+			"item/fileChange/requestApproval"
+				when parameters.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array =>
 				NormalizeToNull(SummarizeChanges(parameters)),
 			_ => null,
 		};
@@ -121,8 +122,15 @@ internal static class CodexPaneMessages {
 
 	private static string? SummarizeRequest(string method, JsonElement parameters) {
 		string reason = parameters.GetStringOrEmpty("reason");
-		if (reason.Length > 0 || !CodexInputResponses.CanResolve(method)) {
+		if (reason.Length > 0) {
 			return reason;
+		}
+		if (string.Equals(method, "mcpServer/elicitation/request", StringComparison.Ordinal)) {
+			string message = parameters.GetStringOrEmpty("message");
+			return message.Length == 0 ? null : message;
+		}
+		if (!CodexInputResponses.CanResolve(method)) {
+			return null;
 		}
 
 		if (parameters.ValueKind != JsonValueKind.Object

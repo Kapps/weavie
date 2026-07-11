@@ -92,6 +92,9 @@ export interface AgentPaneUpdate {
   status?: string | null;
   questions?: AgentInputQuestion[] | null;
   payload?: unknown;
+  // Wall-clock ms when the web received this update, stamped by the accumulator on arrival. Used to anchor
+  // the turn timer to the real turn start so it survives session switches (never sent by the host).
+  receivedAt?: number;
 }
 
 export interface AgentInputQuestion {
@@ -940,7 +943,10 @@ class WebSocketTransport implements BridgeTransport {
 
   constructor(
     private readonly backendId: string,
-    private readonly url: string,
+    // Re-resolved on every (re)connect, so a reconnect always targets the backend's CURRENT bridge URL. A
+    // restarted runner mints a fresh worker port+token (see remote-agents.ts), so a URL fixed at construction
+    // would be dead for good after the first restart. The local backend's resolver returns its static URL.
+    private readonly resolveUrl: () => Promise<string>,
     // Human label for connection toasts/banner ("the Weavie host" for local, the agent name for a remote).
     private readonly label: string,
     // Re-sent on every (re)connect, so a backend re-pushes its state after a dropped link. Remotes pass
@@ -976,9 +982,22 @@ class WebSocketTransport implements BridgeTransport {
     if (this.disposed) {
       return;
     }
+    // Resolve the current URL first — a remote agent re-runs its runner handshake here, so a reconnect
+    // follows the runner to its freshly-minted worker. A resolver failure (runner/control-plane unreachable)
+    // is a drop like any other: retry with backoff.
+    void this.resolveUrl().then(
+      (url) => this.openSocket(url),
+      () => this.onDrop(),
+    );
+  }
+
+  private openSocket(url: string): void {
+    if (this.disposed) {
+      return;
+    }
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.url);
+      socket = new WebSocket(url);
     } catch {
       this.onDrop();
       return;
@@ -1037,6 +1056,11 @@ class WebSocketTransport implements BridgeTransport {
   // A link that dropped (or never opened): raise exactly one toast on the online→retry transition (and one on
   // a first-connect failure), mark the backend reconnecting so the panes show it, and schedule a retry.
   private onDrop(): void {
+    // A resolver/socket failure can land after the backend was disposed (the remote was removed mid-handshake);
+    // re-arming a reconnect then would leak a zombie loop for a backend that's gone.
+    if (this.disposed) {
+      return;
+    }
     if (this.phase === "online") {
       notify("error", `Lost connection to ${this.label}. Reconnecting…`, this.connectionToastKey);
     } else if (this.phase === "connecting") {
@@ -1114,7 +1138,13 @@ export function isBrowserHostedShell(): boolean {
   } else {
     const wsUrl = resolveBridgeWsUrl();
     if (wsUrl !== null) {
-      transport = new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl, "the Weavie host");
+      // The local backend's URL is static (same-origin, token fixed for the page's life); the resolver just
+      // hands it back on each reconnect.
+      transport = new WebSocketTransport(
+        LOCAL_BACKEND_ID,
+        () => Promise.resolve(wsUrl),
+        "the Weavie host",
+      );
       browserHostedShell = true;
     }
   }
@@ -1128,13 +1158,14 @@ export function isBrowserHostedShell(): boolean {
 })();
 
 // Connect an additional (remote) backend so its sessions appear on the rail. Its page-painting traffic stays
-// suppressed until made active (see deliverFromHost). Idempotent per id.
-export function connectBackend(id: string, name: string, wsUrl: string): void {
+// suppressed until made active (see deliverFromHost). `resolveUrl` is re-run on every (re)connect so a reconnect
+// re-derives the runner's current worker (fresh port+token after a runner restart). Idempotent per id.
+export function connectBackend(id: string, name: string, resolveUrl: () => Promise<string>): void {
   if (backends.has(id)) {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, wsUrl, name, READY_HELLO);
+  const transport = new WebSocketTransport(id, resolveUrl, name, READY_HELLO);
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }

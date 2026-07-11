@@ -159,7 +159,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 				&& idElement.TryGetInt64(out long id)
 				&& _pending.TryRemove(id, out var pending)) {
 				if (root.TryGetProperty("error", out var error)) {
-					pending.TrySetException(new InvalidOperationException(error.ToString()));
+					pending.TrySetException(RequestFailure(error));
 				} else {
 					pending.TrySetResult(root.TryGetProperty("result", out var result) ? result.Clone() : root.Clone());
 				}
@@ -209,6 +209,16 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 		}
 	}
 
+	// Preserve the JSON-RPC code and raw envelope alongside the message — Weavie targets developers, so a failed
+	// request surfaces the full protocol detail, never a sanitized string.
+	private static CodexRequestException RequestFailure(JsonElement error) {
+		int code = error.TryGetProperty("code", out var codeElement) && codeElement.TryGetInt32(out int value) ? value : 0;
+		string message = error.TryGetProperty("message", out var messageElement) && messageElement.ValueKind == JsonValueKind.String
+			? messageElement.GetString() ?? error.GetRawText()
+			: error.GetRawText();
+		return new CodexRequestException(code, message, error.GetRawText());
+	}
+
 	private static string ReadRequestId(JsonElement id) =>
 		id.ValueKind == JsonValueKind.String
 			? id.GetString() ?? string.Empty
@@ -229,3 +239,21 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 
 /// <summary>A JSON-RPC request initiated by Codex app-server.</summary>
 public sealed record CodexServerRequest(string Id, object ResponseId, string Method, JsonElement Message);
+
+/// <summary>A JSON-RPC error response from Codex app-server, carrying the code and raw envelope for developers.</summary>
+public sealed class CodexRequestException : InvalidOperationException {
+	/// <summary>Creates a request error from the JSON-RPC <paramref name="code"/>, message, and raw <paramref name="payload"/>.</summary>
+	public CodexRequestException(int code, string message, string payload) : base(message) {
+		Code = code;
+		Payload = payload;
+	}
+
+	/// <summary>The JSON-RPC error code (0 when the response carried none).</summary>
+	public int Code { get; }
+
+	/// <summary>The raw JSON-RPC error envelope.</summary>
+	public string Payload { get; }
+
+	/// <summary>A developer-facing one-line description: the JSON-RPC code and message.</summary>
+	public string Detail => $"Codex error {Code}: {Message}";
+}

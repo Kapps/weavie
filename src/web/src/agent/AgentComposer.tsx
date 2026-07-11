@@ -31,7 +31,13 @@ import {
   submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
-import { formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
+import {
+  activeTurnStartedAt,
+  formatElapsed,
+  hasActiveTurn,
+  pendingApproval,
+  pendingRequest,
+} from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
@@ -54,15 +60,10 @@ export function AgentComposer(props: {
   createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
   onCleanup(() => setContext("agentApprovalPending", false));
 
-  // Elapsed working time, measured from when this view saw the turn begin and ticking once a second.
-  const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
-  const [now, setNow] = createSignal(0);
-  // Reads the session identity so a switch between two mid-turn sessions re-baselines the clock.
-  createEffect(() => {
-    props.backendId;
-    props.slot;
-    setTurnStartedAt(turnActive() ? Date.now() : null);
-  });
+  // Elapsed working time, anchored to when the running turn actually began (from the message stream) so it
+  // reflects real duration and never restarts when switching away and back to a session. Ticks once a second.
+  const turnStartedAt = createMemo(() => activeTurnStartedAt(props.messages));
+  const [now, setNow] = createSignal(Date.now());
   createEffect(() => {
     if (turnStartedAt() === null) {
       return;
@@ -266,12 +267,12 @@ export function AgentComposer(props: {
       return true;
     });
 
-  // A decision command answers the newest pending approval — the request the working row waits on.
+  // A decision command answers the same approval the card chips advertise (turn-progress.pendingApproval).
   const registerDecision = (commandId: string, decision: string): (() => void) =>
     registerCommand(commandId, () => {
       const slot = props.slot;
-      const request = pending();
-      if (slot === null || request === null || request.kind !== "approval") {
+      const request = pendingApproval(props.messages);
+      if (slot === null || request === null) {
         return false;
       }
       postToBackend(props.backendId, {
@@ -333,10 +334,12 @@ export function AgentComposer(props: {
               <div
                 class="agent-attachment"
                 classList={{ failed: attachment.status === "failed" }}
-                title={attachment.error ?? attachment.status}
+                title={attachment.error ?? attachmentLabel(attachment.status)}
               >
                 <img src={attachment.previewUrl} alt="Pasted attachment" />
-                <span>{attachment.status}</span>
+                <Show when={attachment.status !== "ready"}>
+                  <span>{attachmentLabel(attachment.status)}</span>
+                </Show>
                 <button
                   type="button"
                   title="Remove attachment"
@@ -387,7 +390,9 @@ export function AgentComposer(props: {
         ref={textareaRef}
         rows={1}
         value={composer().draft}
-        placeholder="Write a prompt for Codex..."
+        placeholder={
+          turnActive() ? "Steer the running turn…" : "Write a prompt — / for commands and skills"
+        }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {
           const slot = props.slot;
@@ -451,6 +456,19 @@ function applyPrefill(
       setComposerDraft(props.backendId, slot, message.text ?? "");
       return;
     }
+  }
+}
+
+function attachmentLabel(status: "reading" | "transferring" | "ready" | "failed"): string {
+  switch (status) {
+    case "reading":
+      return "reading…";
+    case "transferring":
+      return "uploading…";
+    case "failed":
+      return "failed";
+    default:
+      return "ready";
   }
 }
 

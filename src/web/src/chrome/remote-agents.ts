@@ -3,7 +3,6 @@ import {
   connectBackend,
   connectedBackends,
   disconnectBackend,
-  log,
   onSessionMessage,
   postToLocalHost,
 } from "../bridge";
@@ -38,11 +37,13 @@ export function agentHue(name: string): number {
 }
 
 /**
- * Connect + register a new agent. Validates by connecting first (throws on failure, so a bad agent is never
- * persisted), then asks the host to persist it; the host echoes the registry back. Replaces a same-named agent.
+ * Connect + register a new agent. Validates the handshake up front (throws on failure, so a bad agent is never
+ * persisted or connected), then wires the live connection and asks the host to persist it; the host echoes the
+ * registry back. Replaces a same-named agent.
  */
 export async function addAgent(agent: RemoteAgent): Promise<void> {
-  await connectAgent(agent);
+  await resolveWorkerBridge(agent);
+  connectAgent(agent);
   postToLocalHost({
     type: "add-remote-agent",
     name: agent.name,
@@ -69,17 +70,16 @@ onSessionMessage((message, backendId) => {
   }
 });
 
-// Bring live connections in line with the persisted registry: connect any agent not yet connected
-// (best-effort; a down runner just logs), and drop any remote backend whose agent is gone.
+// Bring live connections in line with the persisted registry: connect any agent not yet connected, and drop
+// any remote backend whose agent is gone. A down runner needs no special-casing — the transport keeps retrying
+// (with backoff) and connects when it comes up, so a not-yet-reachable agent self-heals without an app restart.
 function reconcile(list: RemoteAgent[]): void {
   setAgents(list);
   const connected = new Set(connectedBackends().map((b) => b.id));
   const wanted = new Set(list.map((a) => agentBackendId(a.name)));
   for (const agent of list) {
     if (!connected.has(agentBackendId(agent.name))) {
-      void connectAgent(agent).catch((err) => {
-        log("error", `remote agent ${agent.name}: ${String(err)}`);
-      });
+      connectAgent(agent);
     }
   }
   for (const backend of connectedBackends()) {
@@ -89,10 +89,17 @@ function reconcile(list: RemoteAgent[]): void {
   }
 }
 
-// Resolve the agent's worker bridge via the runner control plane (GET /backend ensures the worker is up and
-// returns its page URL + token), then wire it as a backend. Throws on any failure so callers can decide
-// whether to surface it (add) or swallow it (reconcile/reconnect).
-async function connectAgent(agent: RemoteAgent): Promise<void> {
+// Wire the agent as a backend with a resolver that (re-)runs the runner handshake on every connect attempt, so
+// it connects when the runner is up, retries (with backoff) when it isn't, and follows a restarted runner to its
+// fresh worker port+token rather than a URL cached once. Idempotent (connectBackend no-ops if already wired).
+function connectAgent(agent: RemoteAgent): void {
+  connectBackend(agentBackendId(agent.name), agent.name, () => resolveWorkerBridge(agent));
+}
+
+// Resolve the agent's CURRENT worker bridge URL via the runner control plane (GET /backend ensures the worker
+// is up and returns its page URL + token). Throws on any failure so the transport treats it as a drop and
+// retries with backoff, following the runner back up after a restart.
+async function resolveWorkerBridge(agent: RemoteAgent): Promise<string> {
   const base = agent.url.replace(/\/+$/, "");
   let res: Response;
   try {
@@ -109,8 +116,7 @@ async function connectAgent(agent: RemoteAgent): Promise<void> {
   if (typeof body.url !== "string") {
     throw new Error("runner /backend returned no worker url");
   }
-  connectBackend(agentBackendId(agent.name), agent.name, pageUrlToBridgeWs(body.url));
-  log("info", `remote agent ${agent.name}: connected`);
+  return pageUrlToBridgeWs(body.url);
 }
 
 // The runner returns the worker's page URL (http://host:port/?token=T); the bridge lives at /weavie-bridge on

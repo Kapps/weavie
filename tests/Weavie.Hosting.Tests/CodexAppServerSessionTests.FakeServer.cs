@@ -53,6 +53,13 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     } else if (message.params.input[0].text === "unsupported") {
       send({ id: "unsupported-1", method: "item/tool/call", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake" } });
     }
+  } else if (message.method === "turn/steer") {
+    fs.writeFileSync("turn-steer.json", JSON.stringify(message));
+    if (message.params.input[0].text === "stale steer") {
+      send({ id: message.id, error: { code: -32600, message: "expected active turn id `turn_new` but found `" + message.params.expectedTurnId + "`" } });
+    } else {
+      send({ id: message.id, result: {} });
+    }
   } else if (message.id === "approval-1") {
     fs.writeFileSync("approval-response.json", JSON.stringify(message));
   }

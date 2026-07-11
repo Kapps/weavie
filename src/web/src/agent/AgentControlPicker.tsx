@@ -82,6 +82,10 @@ export function AgentControlPicker(props: { backendId: string; slot: string | nu
     <Show when={axis()}>
       {(current) => (
         <div class="agent-control-picker" role="listbox" aria-label={current().label}>
+          {/* Redundant to the listbox aria-label; hidden so the listbox has only option children. */}
+          <div class="agent-control-picker-head" aria-hidden="true">
+            {current().label}
+          </div>
           <For each={current().options}>
             {(option, index) => (
               <div

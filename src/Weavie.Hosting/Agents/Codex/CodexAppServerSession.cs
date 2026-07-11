@@ -83,17 +83,19 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	public event Action<AgentPaneMessage>? PaneMessage;
 
 	private void HandleNotification(JsonElement root) {
-		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
-			EmitFeedback(_context.Events.Observe(agentEvent));
-		}
-
+		// Track the turn boundary before anything that can throw, so the active-turn id can never silently
+		// desync from Codex and leave a later steer targeting a turn the server has already moved past.
 		string method = root.GetStringOrEmpty("method");
 		if (method == "turn/started") {
 			RememberTurn(root);
 		} else if (method is "turn/completed" or "turn/interrupted") {
-			ForgetTurn();
+			ForgetTurn(root);
 		} else if (method == "skills/changed") {
 			Run(RefreshSkillsAndPublishAsync);
+		}
+
+		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
+			EmitFeedback(_context.Events.Observe(agentEvent));
 		}
 
 		var paneMessage = CodexPaneMessages.FromNotification(method, CurrentThreadId(), root);
@@ -130,7 +132,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	}
 
 	private void RememberTurn(JsonElement root) {
-		string turnId = root.GetProperty("params").GetProperty("turn").GetStringOrEmpty("id");
+		string turnId = ReadTurnId(root);
 		if (turnId.Length > 0) {
 			lock (_gate) {
 				_turnId = turnId;
@@ -138,6 +140,11 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			PersistThread();
 		}
 	}
+
+	private static string ReadTurnId(JsonElement root) =>
+		root.TryGetProperty("params", out var parameters) && parameters.TryGetProperty("turn", out var turn)
+			? turn.GetStringOrEmpty("id")
+			: string.Empty;
 
 	private void PersistThread() {
 		string? threadId;
@@ -153,9 +160,14 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		_threads.Adopt(_context.Workspace, threadId);
 	}
 
-	private void ForgetTurn() {
+	// Clear the active turn only when the completion is for the turn we track: a late completion of an older
+	// turn must not wipe a newer one Codex has already started.
+	private void ForgetTurn(JsonElement root) {
+		string turnId = ReadTurnId(root);
 		lock (_gate) {
-			_turnId = null;
+			if (turnId.Length == 0 || string.Equals(turnId, _turnId, StringComparison.Ordinal)) {
+				_turnId = null;
+			}
 		}
 	}
 
@@ -177,6 +189,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private (string? ThreadId, string? TurnId) CurrentTurn() {
 		lock (_gate) {
 			return (_threadId, _turnId);
+		}
+	}
+
+	private string? CurrentTurnId() {
+		lock (_gate) {
+			return _turnId;
 		}
 	}
 

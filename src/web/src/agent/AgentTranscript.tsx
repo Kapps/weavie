@@ -1,11 +1,19 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
+import type { AgentPaneUpdate } from "../bridge";
+import { liveKeyLabel } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { assistantSectionLabel } from "./AgentTranscriptLabels";
+import { hasActiveTurn } from "./turn-progress";
 
 export function AgentTranscript(props: {
   entries: AgentTranscriptEntry[];
+  keyboardApprovalId: string | null;
+  messages: AgentPaneUpdate[];
+  providerName: string;
   slot: string | null;
 }): JSX.Element {
   // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
@@ -15,15 +23,14 @@ export function AgentTranscript(props: {
   return (
     <Show
       when={props.entries.length > 0}
-      fallback={
-        <div class="agent-empty">Codex is idle. Write a prompt to plan, change, or review.</div>
-      }
+      fallback={<EmptyState providerName={props.providerName} />}
     >
       <For each={props.entries}>
         {(entry, index) => (
           <TranscriptEntry
             detailsExpanded={expandedDetails().has(detailsKey(props.slot, entry.id))}
             entry={entry}
+            keyboardApprovalId={props.keyboardApprovalId}
             onDetailsToggle={(open) => {
               const key = detailsKey(props.slot, entry.id);
               setExpandedDetails((current) => {
@@ -39,7 +46,11 @@ export function AgentTranscript(props: {
                 return next;
               });
             }}
-            result={isResultEntry(props.entries, index())}
+            sectionLabel={assistantSectionLabel(
+              props.entries,
+              index(),
+              hasActiveTurn(props.messages),
+            )}
             slot={props.slot}
           />
         )}
@@ -48,11 +59,51 @@ export function AgentTranscript(props: {
   );
 }
 
+// The idle welcome: names the agent and teaches the keyboard paths before the first prompt. Rebindable
+// actions read the catalog live; "/" and Up are intrinsic composer behaviors, so their glyphs are fixed.
+function EmptyState(props: { providerName: string }): JSX.Element {
+  const hints = (): { key: string; text: string }[] =>
+    [
+      {
+        key: liveKeyLabel(CommandIds.agentSubmit),
+        text: "run the prompt — or steer a running turn",
+      },
+      { key: "/", text: "commands and skills" },
+      { key: "↑", text: "prompt history" },
+      { key: liveKeyLabel(CommandIds.agentInterrupt), text: "interrupt the turn" },
+    ].filter((hint) => hint.key !== "");
+
+  return (
+    <div class="agent-empty">
+      <div class="agent-empty-title">{props.providerName}</div>
+      <p class="agent-empty-tagline">
+        Describe a change, ask a question, or hand over a task — it runs in this session's worktree.
+      </p>
+      <dl class="agent-empty-hints">
+        <For each={hints()}>
+          {(hint) => (
+            <>
+              <dt>
+                <kbd>{hint.key}</kbd>
+              </dt>
+              <dd>{hint.text}</dd>
+            </>
+          )}
+        </For>
+      </dl>
+      <p class="agent-empty-controls">
+        The strip below the prompt switches the model, approvals, and sandbox — changes apply live.
+      </p>
+    </div>
+  );
+}
+
 function TranscriptEntry(props: {
   detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
+  keyboardApprovalId: string | null;
   onDetailsToggle: (open: boolean) => void;
-  result: boolean;
+  sectionLabel: "Updates" | "Results" | null;
   slot: string | null;
 }): JSX.Element {
   return (
@@ -60,12 +111,12 @@ function TranscriptEntry(props: {
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
-        "agent-entry-result": props.result,
+        "agent-entry-result": props.sectionLabel !== null,
       }}
     >
-      <Show when={props.result || showEntryHeader(props.entry)}>
+      <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">{props.result ? "Result" : entryLabel(props.entry)}</span>
+          <span class="agent-entry-label">{props.sectionLabel ?? entryLabel(props.entry)}</span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
@@ -97,37 +148,39 @@ function TranscriptEntry(props: {
             steps={props.entry.details}
           />
         </Show>
-        <EntryActions entry={props.entry} slot={props.slot} />
+        <EntryActions
+          entry={props.entry}
+          keyboardApprovalId={props.keyboardApprovalId}
+          slot={props.slot}
+        />
       </div>
     </article>
   );
-}
-
-function isResultEntry(entries: AgentTranscriptEntry[], index: number): boolean {
-  const entry = entries[index];
-  if (entry === undefined || entry.kind !== "message" || entry.tone !== "assistant") {
-    return false;
-  }
-  for (let next = index + 1; next < entries.length; next += 1) {
-    const candidate = entries[next];
-    if (candidate?.kind === "message") {
-      return candidate.tone === "user";
-    }
-  }
-  return true;
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {
   return entry.kind !== "message" || entry.tone !== "assistant";
 }
 
-function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null }): JSX.Element {
+function EntryActions(props: {
+  entry: AgentTranscriptEntry;
+  keyboardApprovalId: string | null;
+  slot: string | null;
+}): JSX.Element {
   const message = props.entry.actionMessage;
   if (message === null) {
     return null;
   }
   if (message.type === "approval-requested" && props.entry.status === "pending") {
-    return <ApprovalActions slot={props.slot} requestId={message.itemId} />;
+    return (
+      <ApprovalActions
+        slot={props.slot}
+        requestId={message.itemId}
+        answersToKeys={
+          props.keyboardApprovalId !== null && message.itemId === props.keyboardApprovalId
+        }
+      />
+    );
   }
   if (message.type === "input-requested" && props.entry.status === "pending") {
     return <InputRequestActions slot={props.slot} message={message} />;

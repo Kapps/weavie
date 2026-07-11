@@ -49,6 +49,7 @@ export default defineConfig({
         "headless-host.spec.ts",
         "native-bridge.spec.ts",
         "codex-composer.spec.ts",
+        "process-tree.spec.ts",
       ],
       use: { ...devices["Desktop Chrome"] },
     },

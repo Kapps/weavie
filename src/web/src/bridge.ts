@@ -358,6 +358,7 @@ export type HostBoundMessage =
   // Session rail UI state (host-persisted in ~/.weavie/rail-state.json; both target the local backend).
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
+  | { type: "set-last-agent-provider"; providerId: "claude" | "codex" }
   | { type: "set-promoted"; promoted: string[] }
   // A keybinding/palette/menu invoked a Core command. A `token` requests a command-result reply
   // (request/response); without one the host runs it fire-and-forget.
@@ -617,7 +618,12 @@ export type WebBoundMessage =
   | { type: "remote-agents"; agents: { name: string; url: string; token: string }[] }
   // Host pushes the persisted session-rail UI state (on `ready` and on any change, from this or another
   // window). Honored only from the local backend. See rail-state.ts.
-  | { type: "rail-state"; lastLocation: string; promoted: string[] }
+  | {
+      type: "rail-state";
+      lastLocation: string;
+      lastAgentProvider: "claude" | "codex";
+      promoted: string[];
+    }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
   | { type: "run-command"; id: string; args?: unknown; token: string }
   // Reply to a tokened invoke-command: the command's outcome, routed back to the issuing client by `token`

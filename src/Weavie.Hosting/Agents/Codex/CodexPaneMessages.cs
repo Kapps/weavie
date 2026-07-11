@@ -32,9 +32,20 @@ internal static class CodexPaneMessages {
 			ItemId = request.Id,
 			ItemType = request.Method,
 			Summary = SummarizeRequest(request.Method, parameters),
+			Text = CommandForApproval(request.Method, parameters),
 			Status = "pending",
 			PayloadJson = request.Message.GetRawText(),
 		};
+
+	private static string? CommandForApproval(string method, JsonElement parameters) {
+		if (!string.Equals(method, "item/commandExecution/requestApproval", StringComparison.Ordinal)
+			|| parameters.ValueKind != JsonValueKind.Object) {
+			return null;
+		}
+
+		string command = parameters.GetStringOrEmpty("command").Trim();
+		return command.Length == 0 ? null : command;
+	}
 
 	private static string? SummarizeRequest(string method, JsonElement parameters) {
 		string reason = parameters.GetStringOrEmpty("reason");

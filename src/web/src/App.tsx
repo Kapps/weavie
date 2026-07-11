@@ -39,7 +39,13 @@ import { PaneFooter } from "./chrome/PaneFooter";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
-import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/rail-state";
+import {
+  lastAgentProvider,
+  lastLocation,
+  promoteNextSessionOn,
+  setLastAgentProvider,
+  setLastLocation,
+} from "./chrome/rail-state";
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionRail } from "./chrome/SessionRail";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
@@ -1232,9 +1238,11 @@ export default function App(): JSX.Element {
       <Show when={newSessionOpen()}>
         <NewSessionPrompt
           initialBackendId={defaultLocation()}
+          initialAgentProviderId={lastAgentProvider()}
           onCreate={(branch, base, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
+            setLastAgentProvider(agentProviderId);
             // A remote session lands nested under its agent; promote it onto the rail like a local one.
             promoteNextSessionOn(location);
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
@@ -1244,13 +1252,14 @@ export default function App(): JSX.Element {
                 type: "new-session",
                 branch,
                 base,
-                ...(agentProviderId === undefined ? {} : { agentProviderId }),
+                agentProviderId,
               }),
             );
           }}
           onCheckout={(branch, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
+            setLastAgentProvider(agentProviderId);
             promoteNextSessionOn(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
             bindBackend(location, () =>
@@ -1258,7 +1267,7 @@ export default function App(): JSX.Element {
                 type: "new-session",
                 branch,
                 existing: true,
-                ...(agentProviderId === undefined ? {} : { agentProviderId }),
+                agentProviderId,
               }),
             );
           }}

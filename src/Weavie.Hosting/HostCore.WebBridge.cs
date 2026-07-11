@@ -467,6 +467,9 @@ public sealed partial class HostCore {
 				// The page remembers where the last session was created (a backend id); persist it for next launch.
 				_railState.SetLastLocation(root.GetStringOrEmpty("location"));
 				break;
+			case "set-last-agent-provider":
+				_railState.SetLastAgentProvider(root.GetStringOrEmpty("providerId"));
+				break;
 			case "set-promoted":
 				// The page's promoted-remote-session set changed; persist the full set it sent.
 				_railState.SetPromoted(StringArray(root, "promoted"));
@@ -519,6 +522,7 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "rail-state",
 			lastLocation = _railState.LastLocation,
+			lastAgentProvider = _railState.LastAgentProvider,
 			promoted = _railState.Promoted,
 		}));
 

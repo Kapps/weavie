@@ -31,6 +31,19 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void FromRequest_CommandApproval_IncludesCommandText() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":4,"method":"item/commandExecution/requestApproval","params":{"command":"dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj --filter RailStateStoreTests","reason":"Allow the test runner to open its local IPC socket?"}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest(
+			"approval-4", "approval-4", "item/commandExecution/requestApproval", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("Allow the test runner to open its local IPC socket?", message.Summary);
+		Assert.Equal("dotnet test tests/Weavie.Core.Tests/Weavie.Core.Tests.csproj --filter RailStateStoreTests", message.Text);
+	}
+
+	[Fact]
 	public void InputResponse_BuildsAppServerAnswerShape() {
 		object response = CodexInputResponses.Build(new Dictionary<string, IReadOnlyList<string>> {
 			["mode"] = ["Safe"],

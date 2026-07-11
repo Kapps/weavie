@@ -12,11 +12,13 @@ namespace Weavie.Core.Sessions;
 /// </summary>
 public sealed class RailStateStore {
 	private const string DefaultLocation = "local";
+	private const string DefaultAgentProvider = "claude";
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
 	private string _lastLocation;
+	private string _lastAgentProvider;
 	private List<string> _promoted;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
@@ -27,6 +29,7 @@ public sealed class RailStateStore {
 		lock (_gate) {
 			var document = LoadLocked();
 			_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
+			_lastAgentProvider = NormalizeAgentProvider(document.LastAgentProvider);
 			_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
 		}
 	}
@@ -45,6 +48,11 @@ public sealed class RailStateStore {
 		get { lock (_gate) { return _lastLocation; } }
 	}
 
+	/// <summary>The agent provider used for the last newly-created session (<c>claude</c> by default).</summary>
+	public string LastAgentProvider {
+		get { lock (_gate) { return _lastAgentProvider; } }
+	}
+
 	/// <summary>The promoted remote-session keys (<c>"backendId id"</c>). Snapshot copy; safe to enumerate.</summary>
 	public IReadOnlyList<string> Promoted {
 		get { lock (_gate) { return [.. _promoted]; } }
@@ -59,6 +67,21 @@ public sealed class RailStateStore {
 			}
 
 			_lastLocation = next;
+			PersistLocked();
+		}
+
+		Changed?.Invoke();
+	}
+
+	/// <summary>Records the agent provider used for a newly-created session.</summary>
+	public void SetLastAgentProvider(string provider) {
+		string next = NormalizeAgentProvider(provider);
+		lock (_gate) {
+			if (string.Equals(_lastAgentProvider, next, StringComparison.Ordinal)) {
+				return;
+			}
+
+			_lastAgentProvider = next;
 			PersistLocked();
 		}
 
@@ -105,12 +128,15 @@ public sealed class RailStateStore {
 
 	private void PersistLocked() {
 		try {
-			var document = new Document { Version = 1, LastLocation = _lastLocation, Promoted = _promoted };
+			var document = new Document { Version = 1, LastLocation = _lastLocation, LastAgentProvider = _lastAgentProvider, Promoted = _promoted };
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Log?.Invoke($"[rail-state] could not persist: {ex.Message}");
 		}
 	}
+
+	private static string NormalizeAgentProvider(string? provider) =>
+		string.Equals(provider?.Trim(), "codex", StringComparison.Ordinal) ? "codex" : DefaultAgentProvider;
 
 	private sealed class Document {
 		[JsonPropertyName("version")]
@@ -118,6 +144,9 @@ public sealed class RailStateStore {
 
 		[JsonPropertyName("lastLocation")]
 		public string LastLocation { get; set; } = DefaultLocation;
+
+		[JsonPropertyName("lastAgentProvider")]
+		public string LastAgentProvider { get; set; } = DefaultAgentProvider;
 
 		[JsonPropertyName("promoted")]
 		public List<string> Promoted { get; set; } = [];

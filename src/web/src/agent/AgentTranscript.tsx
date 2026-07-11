@@ -3,6 +3,7 @@ import type { AgentPaneUpdate } from "../bridge";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { assistantSectionLabel } from "./AgentTranscriptLabels";
 import { hasActiveTurn } from "./turn-progress";
 
 export function AgentTranscript(props: {
@@ -101,24 +102,6 @@ function TranscriptEntry(props: {
       </div>
     </article>
   );
-}
-
-export function assistantSectionLabel(
-  entries: AgentTranscriptEntry[],
-  index: number,
-  turnActive: boolean,
-): "Updates" | "Results" | null {
-  const entry = entries[index];
-  if (entry === undefined || entry.kind !== "message" || entry.tone !== "assistant") {
-    return null;
-  }
-  for (let next = index + 1; next < entries.length; next += 1) {
-    const candidate = entries[next];
-    if (candidate?.kind === "message") {
-      return candidate.tone === "user" ? "Results" : null;
-    }
-  }
-  return turnActive ? "Updates" : "Results";
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {

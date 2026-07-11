@@ -31,7 +31,13 @@ import {
   submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
-import { formatElapsed, hasActiveTurn, pendingApproval, pendingRequest } from "./turn-progress";
+import {
+  activeTurnStartedAt,
+  formatElapsed,
+  hasActiveTurn,
+  pendingApproval,
+  pendingRequest,
+} from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
@@ -54,15 +60,10 @@ export function AgentComposer(props: {
   createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
   onCleanup(() => setContext("agentApprovalPending", false));
 
-  // Elapsed working time, measured from when this view saw the turn begin and ticking once a second.
-  const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
-  const [now, setNow] = createSignal(0);
-  // Reads the session identity so a switch between two mid-turn sessions re-baselines the clock.
-  createEffect(() => {
-    props.backendId;
-    props.slot;
-    setTurnStartedAt(turnActive() ? Date.now() : null);
-  });
+  // Elapsed working time, anchored to when the running turn actually began (from the message stream) so it
+  // reflects real duration and never restarts when switching away and back to a session. Ticks once a second.
+  const turnStartedAt = createMemo(() => activeTurnStartedAt(props.messages));
+  const [now, setNow] = createSignal(Date.now());
   createEffect(() => {
     if (turnStartedAt() === null) {
       return;

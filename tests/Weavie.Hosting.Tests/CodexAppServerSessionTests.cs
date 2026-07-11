@@ -130,6 +130,51 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Submit_MidTurn_SteersTheActiveTurn() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
+
+		session.Submit(Submission("keep going", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
+		await WaitForAsync(() => messages.Any(message => message.Type == "user-steer" && message.Text == "keep going"));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-steer.json")));
+		var parameters = doc.RootElement.GetProperty("params");
+		Assert.Equal("turn_fake", parameters.GetProperty("expectedTurnId").GetString());
+		Assert.Equal("keep going", parameters.GetProperty("input")[0].GetProperty("text").GetString());
+	}
+
+	[Fact]
+	public async Task Submit_WhenSteerRejected_SurfacesCodexCodeAndRecoversAsFreshTurn() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "turn-started"));
+
+		session.Submit(Submission("stale steer", []));
+		// The rejected steer is resent as a fresh turn/start carrying the same input, never dropped.
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
+		await WaitForAsync(() =>
+			File.ReadAllText(Path.Combine(_dir, "turn-start.json")).Contains("stale steer", StringComparison.Ordinal));
+		await WaitForAsync(() => messages.Any(message => message.Type == "user-message" && message.Text == "stale steer"));
+
+		// The rejection is surfaced with its JSON-RPC code and raw envelope, not hidden or shown as a raw blob.
+		var warning = Assert.Single(messages, message => message.Type == "warning");
+		Assert.Contains("-32600", warning.Text, StringComparison.Ordinal);
+		Assert.Contains("expected active turn", warning.PayloadJson ?? "", StringComparison.Ordinal);
+		Assert.DoesNotContain(messages, message => message.Type == "error");
+		Assert.DoesNotContain(messages, message => message.Type == "user-steer" && message.Text == "stale steer");
+	}
+
+	[Fact]
 	public async Task Start_WithUntrustedNonWeavieHook_SurfacesErrorAndDoesNotStartThread() {
 		File.WriteAllText(Path.Combine(_dir, "unsafe-hooks"), "1");
 		var events = new CapturingAgentEventSink();

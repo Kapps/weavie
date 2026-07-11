@@ -1,11 +1,17 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
+import { activeTurnStartedAt, formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
 
 const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
   providerId: "codex",
   itemId: itemId ?? null,
+});
+
+const started = (receivedAt: number): AgentPaneUpdate => ({
+  type: "turn-started",
+  providerId: "codex",
+  receivedAt,
 });
 
 describe("hasActiveTurn", () => {
@@ -71,6 +77,29 @@ describe("pendingRequest", () => {
         message("approval-resolved", "a2"),
       ]),
     ).toEqual({ kind: "approval", requestId: "a1" });
+  });
+});
+
+describe("activeTurnStartedAt", () => {
+  it("is null with no active turn", () => {
+    expect(activeTurnStartedAt([message("user-message")])).toBe(null);
+    expect(activeTurnStartedAt([started(1000), message("turn-completed")])).toBe(null);
+  });
+
+  it("returns the running turn's arrival time", () => {
+    expect(activeTurnStartedAt([started(1234)])).toBe(1234);
+  });
+
+  it("anchors to the latest turn, not an earlier finished one", () => {
+    expect(activeTurnStartedAt([started(1000), message("turn-completed"), started(5000)])).toBe(
+      5000,
+    );
+  });
+
+  it("is stable regardless of later activity within the turn", () => {
+    expect(
+      activeTurnStartedAt([started(2000), message("item-started"), message("item-completed")]),
+    ).toBe(2000);
   });
 });
 

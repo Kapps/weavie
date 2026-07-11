@@ -70,6 +70,8 @@ public sealed partial class CodexAppServerSession {
 				CancellationToken.None).ConfigureAwait(false);
 		} catch (InvalidOperationException ex) when (ex.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)) {
 			_threads.Clear(_context.Workspace);
+			// The saved thread is gone; drop its now-orphaned pane transcript before the fresh thread starts.
+			Emit(new AgentPaneMessage { Type = "thread-reset", ProviderId = "codex" });
 			Emit(new AgentPaneMessage {
 				Type = "warning",
 				ProviderId = "codex",

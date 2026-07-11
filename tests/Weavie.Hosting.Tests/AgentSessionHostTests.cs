@@ -52,7 +52,8 @@ public sealed class AgentSessionHostTests {
 			},
 			bridge,
 			settings,
-			new NoopPtyLauncher());
+			new NoopPtyLauncher(),
+			Path.Combine(dir, "agent-pane.json"));
 
 		Assert.False(session.Started);
 		slot = "slot-1";

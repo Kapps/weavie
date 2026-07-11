@@ -86,6 +86,9 @@ export interface AgentPaneUpdate {
   status?: string | null;
   questions?: AgentInputQuestion[] | null;
   payload?: unknown;
+  // Wall-clock ms when the web received this update, stamped by the accumulator on arrival. Used to anchor
+  // the turn timer to the real turn start so it survives session switches (never sent by the host).
+  receivedAt?: number;
 }
 
 export interface AgentInputQuestion {

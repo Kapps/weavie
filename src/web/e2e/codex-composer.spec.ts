@@ -263,6 +263,53 @@ test.describe("Codex composer", () => {
     await expect(interrupt).toHaveCount(0);
   });
 
+  // The regression this branch fixes: the elapsed clock is anchored to the turn's arrival (stamped in the
+  // message stream), not to when the composer mounted — so leaving a mid-turn session and coming back keeps
+  // it counting real wall-clock instead of restarting near zero.
+  test("the working timer keeps counting across a session switch — it never resets", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    const secondChip = { ...codexChip, id: "cx2", monogram: "D", primary: false };
+    const sessionList = (activeId: string) => ({
+      type: "session-list",
+      sessions: [
+        { ...codexChip, active: activeId === "cx" },
+        { ...secondChip, active: activeId === "cx2" },
+      ],
+    });
+    const working = page.locator(".agent-working");
+    const timeText = working.locator(".agent-working-time");
+    const readSeconds = async (): Promise<number> => {
+      const text = (await timeText.textContent()) ?? "";
+      const match = text.match(/(?:(\d+)m\s*)?(\d+)s/);
+      return match === null ? -1 : (match[1] ? Number(match[1]) * 60 : 0) + Number(match[2]);
+    };
+
+    // Start a turn on the Codex session; let its timer tick past a couple of seconds so a reset would be stark.
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    await expect(working).toBeVisible();
+    await expect.poll(readSeconds, { timeout: 8_000 }).toBeGreaterThanOrEqual(2);
+    const before = await readSeconds();
+
+    // Switch to a different session (no active turn) — the Codex working row leaves with it.
+    host.pushToWeb(sessionList("cx2"));
+    host.pushToWeb({ ...controls, slot: "cx2" });
+    await expect(working).toHaveCount(0);
+
+    // Sit on the other session for several wall-clock seconds, then return to the still-running Codex turn.
+    await page.waitForTimeout(4_000);
+    host.pushToWeb(sessionList("cx"));
+    await expect(working).toBeVisible();
+
+    // The clock reflects total time since the turn began: not less than before (never reset) and grown by
+    // roughly the seconds spent away.
+    const after = await readSeconds();
+    expect(after).toBeGreaterThanOrEqual(before);
+    expect(after).toBeGreaterThanOrEqual(before + 2);
+    await page.screenshot({ path: join(shotsDir, "11-timer-after-switch.png") });
+  });
+
   // Pins the idle welcome: provider name, catalog-driven key hints, and the teaching placeholder.
   test("the idle pane teaches the keyboard paths", async ({ page }) => {
     await mountCodex(page);

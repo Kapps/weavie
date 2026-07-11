@@ -14,6 +14,22 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
   return active;
 }
 
+/**
+ * Wall-clock ms the running turn began (the arrival time stamped on its `turn-started`), or null when no
+ * turn is active. Derived from the message stream so it stays fixed across session switches and re-mounts.
+ */
+export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): number | null {
+  let startedAt: number | null = null;
+  for (const message of messages) {
+    if (message.type === "turn-started") {
+      startedAt = message.receivedAt ?? null;
+    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+      startedAt = null;
+    }
+  }
+  return startedAt;
+}
+
 export type PendingRequestKind = "approval" | "input";
 
 export interface PendingRequest {

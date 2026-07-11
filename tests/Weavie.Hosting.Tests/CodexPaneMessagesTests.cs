@@ -82,6 +82,19 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void FromRequest_McpElicitation_SurfacesPromptMessage() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":"approval-4","method":"mcpServer/elicitation/request","params":{"serverName":"functions","threadId":"thread_1","turnId":"turn_1","mode":"openai/form","message":"Allow Git to update this worktree?","requestedSchema":{}}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest(
+			"approval-4", "approval-4", "mcpServer/elicitation/request", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("Allow Git to update this worktree?", message.Summary);
+		Assert.Equal("pending", message.Status);
+	}
+
+	[Fact]
 	public void InputResponse_BuildsAppServerAnswerShape() {
 		object response = CodexInputResponses.Build(new Dictionary<string, IReadOnlyList<string>> {
 			["mode"] = ["Safe"],

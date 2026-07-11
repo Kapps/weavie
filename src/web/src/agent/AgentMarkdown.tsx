@@ -1,8 +1,9 @@
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
-import { openTarget, postToHost } from "../bridge";
+import { postToHost } from "../bridge";
 import { findContentLinks, parseFileReference } from "../content-links";
 import { createMarkdownRenderer } from "../editor/preview/markdown-renderer";
 import { refLinkPrefix } from "../terminal/ref-link-store";
+import { openUrlExternal } from "../terminal/terminal-links";
 
 const renderMarkdown = createMarkdownRenderer({
   allowHtml: false,
@@ -40,17 +41,20 @@ function activate(anchor: HTMLAnchorElement): void {
   if (anchor.dataset.agentKind === "ref") {
     const prefix = refLinkPrefix();
     if (prefix !== null) {
-      openTarget(prefix + target.slice(1));
+      openUrlExternal(prefix + target.slice(1));
     }
     return;
   }
 
   if (/^https?:\/\//i.test(target)) {
-    openTarget(target);
+    openUrlExternal(target);
     return;
   }
 
-  if (target.length > 0 && !target.startsWith("#") && !hasScheme(target)) {
+  if (
+    target.startsWith("file:///") ||
+    (target.length > 0 && !target.startsWith("#") && !hasScheme(target))
+  ) {
     const { path, line } = parseFileReference(target);
     postToHost({ type: "reveal-file", path, line, preview: true });
   }

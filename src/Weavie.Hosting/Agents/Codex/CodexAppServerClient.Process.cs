@@ -72,7 +72,21 @@ public sealed partial class CodexAppServerClient {
 		ArgumentNullException.ThrowIfNull(configArguments);
 		ArgumentNullException.ThrowIfNull(appServerArguments);
 		ArgumentNullException.ThrowIfNull(environment);
-		ProcessStartInfo info = new(launch.Command) {
+		var arguments = new List<string>(globalArguments.Count + configArguments.Count + appServerArguments.Count + 2);
+		arguments.AddRange(globalArguments);
+		arguments.Add("app-server");
+		arguments.AddRange(configArguments);
+		arguments.AddRange(appServerArguments);
+		arguments.Add("--stdio");
+
+		string command = launch.Command;
+		IReadOnlyList<string> processArguments = arguments;
+		if (!OperatingSystem.IsWindows()) {
+			command = LoginShellEnvironment.LoginShell();
+			processArguments = ["-l", "-i", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
+		}
+
+		ProcessStartInfo info = new(command) {
 			WorkingDirectory = launch.WorkingDirectory,
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
@@ -84,20 +98,9 @@ public sealed partial class CodexAppServerClient {
 			CreateNoWindow = true,
 			WindowStyle = ProcessWindowStyle.Hidden,
 		};
-		foreach (string argument in globalArguments) {
+		foreach (string argument in processArguments) {
 			info.ArgumentList.Add(argument);
 		}
-
-		info.ArgumentList.Add("app-server");
-		foreach (string argument in configArguments) {
-			info.ArgumentList.Add(argument);
-		}
-
-		foreach (string argument in appServerArguments) {
-			info.ArgumentList.Add(argument);
-		}
-
-		info.ArgumentList.Add("--stdio");
 		foreach (var entry in environment) {
 			string name = entry.Key;
 			string value = entry.Value;
@@ -108,6 +111,8 @@ public sealed partial class CodexAppServerClient {
 
 		return info;
 	}
+
+	private static string ShellQuote(string value) => $"'{value.Replace("'", "'\\''", StringComparison.Ordinal)}'";
 
 	private static void PrependPath(ProcessStartInfo info, IReadOnlyList<string> entries) {
 		if (entries.Count == 0) {

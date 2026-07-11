@@ -390,12 +390,15 @@ function editStep(entry: AgentTranscriptEntry): AgentActivityStep {
 }
 
 function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[]): void {
+  output.push(...clusterActivity(collapseEarlierAssistant(group)));
+}
+
+function collapseEarlierAssistant(group: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
   const assistantIndexes = group.flatMap((entry, index) =>
     isAssistantMessage(entry) ? [index] : [],
   );
   if (assistantIndexes.length <= 1) {
-    output.push(...group);
-    return;
+    return group;
   }
 
   const lastAssistantIndex = assistantIndexes[assistantIndexes.length - 1];
@@ -404,6 +407,7 @@ function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[
     .map((index) => group[index])
     .filter((entry) => entry !== undefined);
   const collapsedIndexes = new Set(assistantIndexes.slice(0, -1));
+  const output: AgentTranscriptEntry[] = [];
   for (let i = 0; i < group.length; i += 1) {
     const entry = group[i];
     if (entry === undefined || collapsedIndexes.has(i)) {
@@ -416,6 +420,38 @@ function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[
 
     output.push(entry);
   }
+  return output;
+}
+
+// Keep a turn's activity hugging the bottom — just above the result, or the pending request while
+// blocked, or the segment end while streaming — so live work stays in view instead of scrolling away.
+function clusterActivity(group: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
+  const anchor = lastAnchorIndex(group);
+  const pivot = anchor < 0 ? group.length : anchor;
+  const head = group.slice(0, pivot);
+  return [
+    ...head.filter((entry) => !isActivityEntry(entry)),
+    ...head.filter((entry) => isActivityEntry(entry)),
+    ...group.slice(pivot),
+  ];
+}
+
+function lastAnchorIndex(entries: AgentTranscriptEntry[]): number {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i];
+    if (entry !== undefined && (isAssistantMessage(entry) || isPendingRequest(entry))) {
+      return i;
+    }
+  }
+  return -1;
+}
+
+function isActivityEntry(entry: AgentTranscriptEntry): boolean {
+  return entry.kind === "activity";
+}
+
+function isPendingRequest(entry: AgentTranscriptEntry): boolean {
+  return entry.kind === "request" && entry.status === "pending";
 }
 
 function earlierUpdatesEntry(entries: AgentTranscriptEntry[]): AgentTranscriptEntry {

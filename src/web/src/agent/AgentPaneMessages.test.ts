@@ -344,6 +344,93 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
   });
 
+  it("clusters the working block just above the result when work precedes later chatter", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        itemId: "approval-1",
+        summary: "Run tests?",
+        status: "pending",
+      },
+      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-1",
+        itemType: "agentMessage",
+        text: "Done.",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working", "Codex"]);
+  });
+
+  it("keeps the working block at the bottom while streaming after resolved chatter", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        itemId: "approval-1",
+        summary: "Run tests?",
+        status: "pending",
+      },
+      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      {
+        type: "item-started",
+        providerId: "codex",
+        itemId: "cmd-2",
+        itemType: "commandExecution",
+        summary: "pnpm test",
+        status: "inProgress",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working"]);
+  });
+
+  it("keeps a pending request below the working block so the ask stays at the bottom", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        itemId: "approval-1",
+        summary: "Run tests?",
+        status: "pending",
+      },
+    ]);
+
+    expect(transcript.map((entry) => [entry.label, entry.status])).toEqual([
+      ["Working", null],
+      ["Permission", "pending"],
+    ]);
+  });
+
   it("coalesces assistant deltas and replaces them with the completed item", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "codex", turnId: "turn-1", text: "hello" },

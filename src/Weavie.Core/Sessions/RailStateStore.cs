@@ -28,7 +28,7 @@ public sealed class RailStateStore {
 		lock (_gate) {
 			var document = LoadLocked();
 			_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
-			_lastAgentProvider = NormalizeAgentProvider(document.LastAgentProvider);
+			_lastAgentProvider = TrimToNull(document.LastAgentProvider);
 			_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
 		}
 	}
@@ -47,7 +47,8 @@ public sealed class RailStateStore {
 		get { lock (_gate) { return _lastLocation; } }
 	}
 
-	/// <summary>The agent provider used for the last newly-created session, or null before one is remembered.</summary>
+	/// <summary>The provider id remembered for the last newly-created session (as stored, unvalidated), or null.
+	/// The caller resolves it against the live provider registry — a stale id is theirs to drop.</summary>
 	public string? LastAgentProvider {
 		get { lock (_gate) { return _lastAgentProvider; } }
 	}
@@ -72,9 +73,9 @@ public sealed class RailStateStore {
 		Changed?.Invoke();
 	}
 
-	/// <summary>Records the agent provider used for a newly-created session.</summary>
+	/// <summary>Records the provider id used for a newly-created session (stored raw, blank-trimmed to null).</summary>
 	public void SetLastAgentProvider(string provider) {
-		string? next = NormalizeAgentProvider(provider);
+		string? next = TrimToNull(provider);
 		lock (_gate) {
 			if (string.Equals(_lastAgentProvider, next, StringComparison.Ordinal)) {
 				return;
@@ -134,11 +135,10 @@ public sealed class RailStateStore {
 		}
 	}
 
-	private static string? NormalizeAgentProvider(string? provider) => provider?.Trim() switch {
-		"claude" => "claude",
-		"codex" => "codex",
-		_ => null,
-	};
+	private static string? TrimToNull(string? value) {
+		string? trimmed = value?.Trim();
+		return string.IsNullOrEmpty(trimmed) ? null : trimmed;
+	}
 
 	private sealed class Document {
 		[JsonPropertyName("version")]

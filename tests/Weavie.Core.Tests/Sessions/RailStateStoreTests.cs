@@ -30,11 +30,20 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
-	public void SetLastAgentProvider_InvalidClearsRememberedProvider() {
+	public void SetLastAgentProvider_PersistsUnknownIdRaw_ForForwardCompatibility() {
+		var fs = new InMemoryFileSystem();
+		new RailStateStore(fs, StorePath).SetLastAgentProvider("rust");
+
+		// The store keeps any id verbatim; validating it against the live provider registry is the caller's job.
+		Assert.Equal("rust", new RailStateStore(fs, StorePath).LastAgentProvider);
+	}
+
+	[Fact]
+	public void SetLastAgentProvider_BlankClearsRememberedProvider() {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 		store.SetLastAgentProvider("codex");
 
-		store.SetLastAgentProvider("unknown");
+		store.SetLastAgentProvider("   ");
 
 		Assert.Null(store.LastAgentProvider);
 	}

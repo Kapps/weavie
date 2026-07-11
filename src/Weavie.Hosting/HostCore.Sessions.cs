@@ -387,6 +387,14 @@ public sealed partial class HostCore {
 		return _settings.RequireString("agent.defaultProvider");
 	}
 
+	/// <summary>The remembered new-session provider, dropping a stale/unregistered id back to the configured default.</summary>
+	private string RememberedNewSessionProvider() {
+		string? remembered = _railState.LastAgentProvider;
+		return remembered is not null && _agentProviders.FindInfo(remembered) is not null
+			? remembered
+			: ResolveNewSessionProvider(null);
+	}
+
 	/// <summary>Pushes the session list (id, label, active, loaded, status, identity) to the page's rail.</summary>
 	private void PushSessionList() {
 		if (_sessions is null) {

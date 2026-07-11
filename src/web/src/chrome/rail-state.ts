@@ -7,7 +7,6 @@ import { onSessionMessage, postToLocalHost } from "../bridge";
 // module load, before main.tsx sends `ready`.
 
 const [lastLocationSig, setLastLocationSig] = createSignal("local");
-const [lastAgentProviderSig, setLastAgentProviderSig] = createSignal<"claude" | "codex">("claude");
 const [promotedSig, setPromotedSig] = createSignal<Set<string>>(new Set());
 
 // The session ids last seen on each backend, so a one-shot auto-promote can pick out the GENUINELY new
@@ -22,7 +21,6 @@ const pendingPromote = new Map<string, Set<string>>();
 onSessionMessage((message, backendId) => {
   if (message.type === "rail-state" && backendId === "local") {
     setLastLocationSig(message.lastLocation);
-    setLastAgentProviderSig(message.lastAgentProvider);
     setPromotedSig(new Set(message.promoted));
   } else if (message.type === "session-list") {
     const snapshot = pendingPromote.get(backendId);
@@ -44,18 +42,11 @@ const promKey = (backendId: string, id: string): string => `${backendId} ${id}`;
 
 /** The backend id the last session was created on (defaults to "local"). The caller validates it still exists. */
 export const lastLocation = lastLocationSig;
-export const lastAgentProvider = lastAgentProviderSig;
 
 /** Remember the backend a session was just created on (or an agent just added), for the next prompt. */
 export function setLastLocation(backendId: string): void {
   setLastLocationSig(backendId);
   postToLocalHost({ type: "set-last-location", location: backendId });
-}
-
-/** Remember the provider used to create the last session, for the next prompt. */
-export function setLastAgentProvider(providerId: "claude" | "codex"): void {
-  setLastAgentProviderSig(providerId);
-  postToLocalHost({ type: "set-last-agent-provider", providerId });
 }
 
 /** The promoted-session keys (reactive), for the rail's working-set filter. */

@@ -73,6 +73,12 @@ export interface NotificationPrefs {
   gates: Record<AttentionKindName, boolean>;
 }
 
+// Resolved agent defaults (the agent.defaultProvider setting). Injected as window.__WEAVIE_AGENT__ before
+// navigation, re-pushed as { type: "agent-defaults" } on change. The New Session prompt preselects it.
+export interface AgentDefaults {
+  defaultProvider: "claude" | "codex";
+}
+
 export interface AgentPaneUpdate {
   type: string;
   providerId: "claude" | "codex";
@@ -435,7 +441,6 @@ export type HostBoundMessage =
   // Session rail UI state (host-persisted in ~/.weavie/rail-state.json; both target the local backend).
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
-  | { type: "set-last-agent-provider"; providerId: "claude" | "codex" }
   | { type: "set-promoted"; promoted: string[] }
   // A keybinding/palette/menu invoked a Core command. A `token` requests a command-result reply
   // (request/response); without one the host runs it fire-and-forget.
@@ -560,6 +565,9 @@ export type WebBoundMessage =
   // Host re-pushes the resolved notification prefs when a notifications.* setting changes (ApplyMode.Live).
   // A local-machine push: one prefs source (the page-serving backend) governs presentation.
   | ({ type: "notification-prefs" } & NotificationPrefs)
+  // Host re-pushes the agent default provider when agent.defaultProvider changes (e.g. creating a session
+  // with a different provider). A local-machine push: the New Session prompt's default tracks it.
+  | ({ type: "agent-defaults" } & AgentDefaults)
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
@@ -720,12 +728,7 @@ export type WebBoundMessage =
   | { type: "remote-agents"; agents: { name: string; url: string; token: string }[] }
   // Host pushes the persisted session-rail UI state (on `ready` and on any change, from this or another
   // window). Honored only from the local backend. See rail-state.ts.
-  | {
-      type: "rail-state";
-      lastLocation: string;
-      lastAgentProvider: "claude" | "codex";
-      promoted: string[];
-    }
+  | { type: "rail-state"; lastLocation: string; promoted: string[] }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
   | { type: "run-command"; id: string; args?: unknown; token: string }
   // Reply to a tokened invoke-command: the command's outcome, routed back to the issuing client by `token`
@@ -875,7 +878,8 @@ function deliverFromHost(raw: string, backendId: string): void {
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
     parsed.type === "window-state" ||
-    parsed.type === "notification-prefs";
+    parsed.type === "notification-prefs" ||
+    parsed.type === "agent-defaults";
   if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
     return;
   }

@@ -384,15 +384,16 @@ public sealed partial class HostCore {
 			return requestedProvider.Trim();
 		}
 
-		return _settings.RequireString("agent.defaultProvider");
+		return _settings.RequireString(AgentSettings.DefaultProvider);
 	}
 
-	/// <summary>The remembered new-session provider, dropping a stale/unregistered id back to the configured default.</summary>
-	private string RememberedNewSessionProvider() {
-		string? remembered = _railState.LastAgentProvider;
-		return remembered is not null && _agentProviders.FindInfo(remembered) is not null
-			? remembered
-			: ResolveNewSessionProvider(null);
+	/// <summary>Persists an explicitly-chosen provider as the standing default, so the next new session preselects it.
+	/// Only a registered provider is remembered; an unknown id falls through to the normal availability rejection.</summary>
+	private void RememberDefaultProvider(string? requestedProvider) {
+		string? provider = requestedProvider?.Trim();
+		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is not null) {
+			_settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
+		}
 	}
 
 	/// <summary>Pushes the session list (id, label, active, loaded, status, identity) to the page's rail.</summary>
@@ -583,11 +584,12 @@ public sealed partial class HostCore {
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
-		if (request.AttachExisting) {
-			return AttachExistingSessionAsync(request.Branch, request.Prompt, ResolveNewSessionProvider(request.AgentProviderId), ct);
-		}
-
-		return CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, ResolveNewSessionProvider(request.AgentProviderId), ct);
+		// Creating a session with a specific provider makes it the standing default for the next one.
+		RememberDefaultProvider(request.AgentProviderId);
+		string provider = ResolveNewSessionProvider(request.AgentProviderId);
+		return request.AttachExisting
+			? AttachExistingSessionAsync(request.Branch, request.Prompt, provider, ct)
+			: CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, provider, ct);
 	}
 
 	/// <inheritdoc/>

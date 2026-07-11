@@ -25,34 +25,19 @@ const chip = (id: string, active = false): Record<string, unknown> => ({ id, act
 beforeEach(() => {
   posted.length = 0;
   // A rail-state push from local resets the promoted set to a known-empty baseline.
-  deliver(
-    { type: "rail-state", lastLocation: "local", lastAgentProvider: "claude", promoted: [] },
-    "local",
-  );
+  deliver({ type: "rail-state", lastLocation: "local", promoted: [] }, "local");
   posted.length = 0;
 });
 
 describe("rail-state host sync", () => {
   it("adopts lastLocation + promoted from a local rail-state push", () => {
-    deliver(
-      {
-        type: "rail-state",
-        lastLocation: "remote:r",
-        lastAgentProvider: "codex",
-        promoted: ["remote:r s1"],
-      },
-      "local",
-    );
+    deliver({ type: "rail-state", lastLocation: "remote:r", promoted: ["remote:r s1"] }, "local");
     expect(rail.lastLocation()).toBe("remote:r");
-    expect(rail.lastAgentProvider()).toBe("codex");
     expect(rail.isPromoted("remote:r", "s1")).toBe(true);
   });
 
   it("ignores a rail-state push from a non-local backend", () => {
-    deliver(
-      { type: "rail-state", lastLocation: "evil", lastAgentProvider: "codex", promoted: ["x y"] },
-      "remote:r",
-    );
+    deliver({ type: "rail-state", lastLocation: "evil", promoted: ["x y"] }, "remote:r");
     expect(rail.lastLocation()).not.toBe("evil");
     expect(rail.isPromoted("x", "y")).toBe(false);
   });
@@ -91,14 +76,6 @@ describe("setLastLocation", () => {
     rail.setLastLocation("remote:z");
     expect(rail.lastLocation()).toBe("remote:z");
     expect(posted).toContainEqual({ type: "set-last-location", location: "remote:z" });
-  });
-});
-
-describe("setLastAgentProvider", () => {
-  it("updates the signal and tells the local backend", () => {
-    rail.setLastAgentProvider("codex");
-    expect(rail.lastAgentProvider()).toBe("codex");
-    expect(posted).toContainEqual({ type: "set-last-agent-provider", providerId: "codex" });
   });
 });
 

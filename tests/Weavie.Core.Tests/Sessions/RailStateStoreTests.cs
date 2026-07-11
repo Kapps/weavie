@@ -17,35 +17,7 @@ public sealed class RailStateStoreTests {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 
 		Assert.Equal("local", store.LastLocation);
-		Assert.Null(store.LastAgentProvider);
 		Assert.Empty(store.Promoted);
-	}
-
-	[Fact]
-	public void SetLastAgentProvider_PersistsAcrossReload() {
-		var fs = new InMemoryFileSystem();
-		new RailStateStore(fs, StorePath).SetLastAgentProvider("codex");
-
-		Assert.Equal("codex", new RailStateStore(fs, StorePath).LastAgentProvider);
-	}
-
-	[Fact]
-	public void SetLastAgentProvider_PersistsUnknownIdRaw_ForForwardCompatibility() {
-		var fs = new InMemoryFileSystem();
-		new RailStateStore(fs, StorePath).SetLastAgentProvider("rust");
-
-		// The store keeps any id verbatim; validating it against the live provider registry is the caller's job.
-		Assert.Equal("rust", new RailStateStore(fs, StorePath).LastAgentProvider);
-	}
-
-	[Fact]
-	public void SetLastAgentProvider_BlankClearsRememberedProvider() {
-		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
-		store.SetLastAgentProvider("codex");
-
-		store.SetLastAgentProvider("   ");
-
-		Assert.Null(store.LastAgentProvider);
 	}
 
 	[Fact]
@@ -142,7 +114,6 @@ public sealed class RailStateStoreTests {
 
 		Assert.True(fs.FileExists(StorePath + ".bad"));
 		Assert.Equal("local", store.LastLocation);
-		Assert.Null(store.LastAgentProvider);
 		Assert.Empty(store.Promoted);
 	}
 }

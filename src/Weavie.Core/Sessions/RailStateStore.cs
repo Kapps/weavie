@@ -17,7 +17,6 @@ public sealed class RailStateStore {
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
 	private string _lastLocation;
-	private string? _lastAgentProvider;
 	private List<string> _promoted;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
@@ -28,7 +27,6 @@ public sealed class RailStateStore {
 		lock (_gate) {
 			var document = LoadLocked();
 			_lastLocation = string.IsNullOrWhiteSpace(document.LastLocation) ? DefaultLocation : document.LastLocation;
-			_lastAgentProvider = TrimToNull(document.LastAgentProvider);
 			_promoted = [.. document.Promoted.Where(k => !string.IsNullOrWhiteSpace(k)).Distinct(StringComparer.Ordinal)];
 		}
 	}
@@ -47,12 +45,6 @@ public sealed class RailStateStore {
 		get { lock (_gate) { return _lastLocation; } }
 	}
 
-	/// <summary>The provider id remembered for the last newly-created session (as stored, unvalidated), or null.
-	/// The caller resolves it against the live provider registry — a stale id is theirs to drop.</summary>
-	public string? LastAgentProvider {
-		get { lock (_gate) { return _lastAgentProvider; } }
-	}
-
 	/// <summary>The promoted remote-session keys (<c>"backendId id"</c>). Snapshot copy; safe to enumerate.</summary>
 	public IReadOnlyList<string> Promoted {
 		get { lock (_gate) { return [.. _promoted]; } }
@@ -67,21 +59,6 @@ public sealed class RailStateStore {
 			}
 
 			_lastLocation = next;
-			PersistLocked();
-		}
-
-		Changed?.Invoke();
-	}
-
-	/// <summary>Records the provider id used for a newly-created session (stored raw, blank-trimmed to null).</summary>
-	public void SetLastAgentProvider(string provider) {
-		string? next = TrimToNull(provider);
-		lock (_gate) {
-			if (string.Equals(_lastAgentProvider, next, StringComparison.Ordinal)) {
-				return;
-			}
-
-			_lastAgentProvider = next;
 			PersistLocked();
 		}
 
@@ -128,16 +105,11 @@ public sealed class RailStateStore {
 
 	private void PersistLocked() {
 		try {
-			var document = new Document { Version = 1, LastLocation = _lastLocation, LastAgentProvider = _lastAgentProvider, Promoted = _promoted };
+			var document = new Document { Version = 1, LastLocation = _lastLocation, Promoted = _promoted };
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			Log?.Invoke($"[rail-state] could not persist: {ex.Message}");
 		}
-	}
-
-	private static string? TrimToNull(string? value) {
-		string? trimmed = value?.Trim();
-		return string.IsNullOrEmpty(trimmed) ? null : trimmed;
 	}
 
 	private sealed class Document {
@@ -146,9 +118,6 @@ public sealed class RailStateStore {
 
 		[JsonPropertyName("lastLocation")]
 		public string LastLocation { get; set; } = DefaultLocation;
-
-		[JsonPropertyName("lastAgentProvider")]
-		public string? LastAgentProvider { get; set; }
 
 		[JsonPropertyName("promoted")]
 		public List<string> Promoted { get; set; } = [];

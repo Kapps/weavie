@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assistantSectionLabel } from "./AgentPane";
+import { assistantSectionLabel } from "./AgentTranscript";
 import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 function message(id: string, tone: "assistant" | "user"): AgentTranscriptEntry {

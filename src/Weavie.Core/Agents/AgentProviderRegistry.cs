@@ -15,6 +15,12 @@ public sealed class AgentProviderRegistry {
 	/// <summary>The registered providers, in registration order.</summary>
 	public IReadOnlyList<IAgentProvider> Providers => [.. _providers.Values];
 
+	/// <summary>Returns metadata for a registered provider, or <c>null</c> for a stale persisted id.</summary>
+	public AgentProviderInfo? FindInfo(string id) {
+		ArgumentException.ThrowIfNullOrEmpty(id);
+		return _providers.TryGetValue(id, out var provider) ? provider.Info : null;
+	}
+
 	/// <summary>Returns the provider named by <paramref name="id"/>, or fails loudly when it is missing or unavailable.</summary>
 	public IAgentProvider RequireAvailable(string id) {
 		ArgumentException.ThrowIfNullOrEmpty(id);

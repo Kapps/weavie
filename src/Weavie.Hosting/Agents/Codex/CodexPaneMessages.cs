@@ -8,17 +8,54 @@ namespace Weavie.Hosting.Agents.Codex;
 internal static class CodexPaneMessages {
 	public static AgentPaneMessage? FromNotification(string method, string? _, JsonElement root) =>
 		method switch {
+			"error" => FromError(root),
 			"turn/started" => FromTurn("turn-started", root),
 			"turn/completed" => FromTurn("turn-completed", root),
 			"turn/interrupted" => FromTurn("turn-interrupted", root),
 			"item/started" => FromStartedItem(root),
 			"item/completed" => FromCompletedItem(root),
+			"item/agentMessage/delta" => FromDelta("agent-message-delta", "agentMessage", root),
+			"item/plan/delta" => FromDelta("plan-delta", "plan", root),
+			"item/commandExecution/outputDelta" => FromDelta("command-output-delta", "commandExecution", root),
 			"item/fileChange/patchUpdated" => FromPatch(root),
 			"turn/diff/updated" => FromDiff(root),
 			"serverRequest/resolved" => FromResolved(root),
 			"mcpServer/startupStatus/updated" => FromMcpStartupStatus(root),
 			_ => null,
 		};
+
+	public static IReadOnlyList<AgentPaneMessage> FromThreadSnapshot(JsonElement result) {
+		if (!result.TryGetProperty("thread", out var thread)
+			|| !thread.TryGetProperty("turns", out var turns)
+			|| turns.ValueKind != JsonValueKind.Array
+			|| turns.GetArrayLength() == 0) {
+			return [];
+		}
+
+		string threadId = thread.GetStringOrEmpty("id");
+		var messages = new List<AgentPaneMessage>();
+		foreach (var turn in turns.EnumerateArray()) {
+			string turnId = turn.GetStringOrEmpty("id");
+			var error = turn.TryGetProperty("error", out var turnError) ? turnError : default;
+			if (turn.TryGetProperty("items", out var items) && items.ValueKind == JsonValueKind.Array) {
+				foreach (var item in items.EnumerateArray()) {
+					messages.AddRange(FromHistoryItem(threadId, turnId, item));
+				}
+			}
+
+			string status = turn.GetStringOrEmpty("status");
+			messages.Add(new AgentPaneMessage {
+				Type = string.Equals(status, "inProgress", StringComparison.Ordinal) ? "turn-started" : "turn-completed",
+				ProviderId = "codex",
+				ThreadId = threadId,
+				TurnId = turnId,
+				Status = status,
+				Summary = error.ValueKind == JsonValueKind.Object ? ErrorSummary(error) : null,
+				Text = error.ValueKind == JsonValueKind.Object ? ErrorText(error) : null,
+			});
+		}
+		return messages;
+	}
 
 	public static AgentPaneMessage FromRequest(CodexServerRequest request) =>
 		FromRequest(request, request.Message.TryGetProperty("params", out var parameters) ? parameters : default);
@@ -31,10 +68,56 @@ internal static class CodexPaneMessages {
 			TurnId = parameters.GetStringOrEmpty("turnId"),
 			ItemId = request.Id,
 			ItemType = request.Method,
+			Category = CodexApprovalResponses.CanResolve(request.Method) ? "permission" : "input",
 			Summary = SummarizeRequest(request.Method, parameters),
 			Status = "pending",
+			Text = RequestText(request.Method, parameters),
+			Questions = ReadQuestions(parameters),
 			PayloadJson = request.Message.GetRawText(),
 		};
+
+	/// <summary>The substance being approved — the user must see what they are consenting to, not just why.</summary>
+	private static string? RequestText(string method, JsonElement parameters) {
+		if (parameters.ValueKind != JsonValueKind.Object) {
+			return null;
+		}
+
+		return method switch {
+			"item/commandExecution/requestApproval" => NormalizeToNull(parameters.GetStringOrEmpty("command")),
+			"item/fileChange/requestApproval" when parameters.TryGetProperty("changes", out _) =>
+				NormalizeToNull(SummarizeChanges(parameters)),
+			_ => null,
+		};
+	}
+
+	private static string? NormalizeToNull(string value) => value.Length == 0 ? null : value;
+
+	private static IReadOnlyList<AgentInputQuestion>? ReadQuestions(JsonElement parameters) {
+		if (parameters.ValueKind != JsonValueKind.Object
+			|| !parameters.TryGetProperty("questions", out var questions)
+			|| questions.ValueKind != JsonValueKind.Array) {
+			return null;
+		}
+
+		return questions.EnumerateArray().Select(question => new AgentInputQuestion {
+			Id = question.GetStringOrEmpty("id"),
+			Header = question.GetStringOrEmpty("header"),
+			Question = question.GetStringOrEmpty("question"),
+			IsSecret = question.TryGetProperty("isSecret", out var secret) && secret.ValueKind == JsonValueKind.True,
+			Options = ReadOptions(question),
+		}).Where(question => question.Id.Length > 0 && question.Question.Length > 0).ToArray();
+	}
+
+	private static IReadOnlyList<AgentInputOption> ReadOptions(JsonElement question) {
+		if (!question.TryGetProperty("options", out var options) || options.ValueKind != JsonValueKind.Array) {
+			return [];
+		}
+
+		return options.EnumerateArray().Select(option => new AgentInputOption {
+			Label = option.GetStringOrEmpty("label"),
+			Description = option.GetStringOrEmpty("description"),
+		}).Where(option => option.Label.Length > 0).ToArray();
+	}
 
 	private static string? SummarizeRequest(string method, JsonElement parameters) {
 		string reason = parameters.GetStringOrEmpty("reason");
@@ -70,6 +153,21 @@ internal static class CodexPaneMessages {
 		return IsVisibleCompletedItem(item.GetStringOrEmpty("type")) ? FromItem("item-completed", root) : null;
 	}
 
+	private static AgentPaneMessage FromDelta(string type, string itemType, JsonElement root) {
+		var parameters = root.GetProperty("params");
+		return new AgentPaneMessage {
+			Type = type,
+			ProviderId = "codex",
+			ThreadId = parameters.GetStringOrEmpty("threadId"),
+			TurnId = parameters.GetStringOrEmpty("turnId"),
+			ItemId = parameters.GetStringOrEmpty("itemId"),
+			ItemType = itemType,
+			Category = ItemCategory(itemType),
+			Text = parameters.GetStringOrEmpty("delta"),
+			Status = "inProgress",
+		};
+	}
+
 	private static AgentPaneMessage FromItem(string type, JsonElement root) {
 		var parameters = root.GetProperty("params");
 		var item = parameters.GetProperty("item");
@@ -81,6 +179,7 @@ internal static class CodexPaneMessages {
 			TurnId = parameters.GetStringOrEmpty("turnId"),
 			ItemId = item.GetStringOrEmpty("id"),
 			ItemType = itemType,
+			Category = ItemCategory(itemType),
 			Summary = SummarizeItem(itemType, item),
 			Status = item.GetStringOrEmpty("status"),
 			Text = ItemText(itemType, item),
@@ -95,6 +194,7 @@ internal static class CodexPaneMessages {
 			ProviderId = "codex",
 			ThreadId = parameters.GetStringOrEmpty("threadId"),
 			TurnId = parameters.GetStringOrEmpty("turnId"),
+			Category = "diff",
 			Text = parameters.GetStringOrEmpty("diff"),
 			PayloadJson = root.GetRawText(),
 		};
@@ -103,6 +203,9 @@ internal static class CodexPaneMessages {
 	private static AgentPaneMessage FromTurn(string type, JsonElement root) {
 		var parameters = root.GetProperty("params");
 		var turn = parameters.TryGetProperty("turn", out var value) ? value : default;
+		var error = turn.ValueKind == JsonValueKind.Object && turn.TryGetProperty("error", out var turnError)
+			? turnError
+			: default;
 		return new AgentPaneMessage {
 			Type = type,
 			ProviderId = "codex",
@@ -113,8 +216,48 @@ internal static class CodexPaneMessages {
 			Status = turn.ValueKind == JsonValueKind.Object
 				? turn.GetStringOrEmpty("status")
 				: parameters.GetStringOrEmpty("status"),
+			Summary = error.ValueKind == JsonValueKind.Object ? ErrorSummary(error) : null,
+			Text = error.ValueKind == JsonValueKind.Object ? ErrorText(error) : null,
 			PayloadJson = root.GetRawText(),
 		};
+	}
+
+	private static AgentPaneMessage FromError(JsonElement root) {
+		var parameters = root.GetProperty("params");
+		var error = parameters.TryGetProperty("error", out var value) ? value : default;
+		bool willRetry = parameters.GetBoolOrFalse("willRetry");
+		return new AgentPaneMessage {
+			Type = willRetry ? "warning" : "error",
+			ProviderId = "codex",
+			ThreadId = parameters.GetStringOrEmpty("threadId"),
+			TurnId = parameters.GetStringOrEmpty("turnId"),
+			Summary = ErrorSummary(error),
+			Text = ErrorText(error),
+			Status = willRetry ? "retrying" : "failed",
+			PayloadJson = root.GetRawText(),
+		};
+	}
+
+	private static string ErrorSummary(JsonElement error) {
+		string info = error.GetStringOrEmpty("codexErrorInfo");
+		return info switch {
+			"contextWindowExceeded" => "Conversation is too long",
+			"usageLimitExceeded" => "Codex usage limit reached",
+			"serverOverloaded" => "Codex is temporarily overloaded",
+			"unauthorized" => "Codex authentication failed",
+			_ => "Codex could not complete the turn",
+		};
+	}
+
+	private static string? ErrorText(JsonElement error) {
+		string message = error.GetStringOrEmpty("message");
+		string details = error.GetStringOrEmpty("additionalDetails");
+		if (message.Length == 0) {
+			return details.Length == 0 ? null : details;
+		}
+		return details.Length == 0 || string.Equals(message, details, StringComparison.Ordinal)
+			? message
+			: $"{message}\n{details}";
 	}
 
 	private static AgentPaneMessage FromPatch(JsonElement root) {
@@ -125,6 +268,7 @@ internal static class CodexPaneMessages {
 			ThreadId = parameters.GetStringOrEmpty("threadId"),
 			TurnId = parameters.GetStringOrEmpty("turnId"),
 			ItemId = parameters.GetStringOrEmpty("itemId"),
+			Category = "edit",
 			Summary = SummarizeChanges(parameters),
 			PayloadJson = root.GetRawText(),
 		};
@@ -185,6 +329,16 @@ internal static class CodexPaneMessages {
 			_ => itemType,
 		};
 
+	private static string ItemCategory(string itemType) => itemType switch {
+		"commandExecution" => "command",
+		"fileChange" => "edit",
+		"mcpToolCall" or "dynamicToolCall" => "tool",
+		"webSearch" => "search",
+		"agentMessage" => "message",
+		"plan" => "plan",
+		_ => "step",
+	};
+
 	private static string? ItemText(string itemType, JsonElement item) {
 		string text = itemType == "commandExecution"
 			? item.GetStringOrEmpty("aggregatedOutput")
@@ -196,7 +350,63 @@ internal static class CodexPaneMessages {
 		itemType is "commandExecution" or "fileChange" or "mcpToolCall" or "dynamicToolCall" or "webSearch";
 
 	private static bool IsVisibleCompletedItem(string itemType) =>
-		itemType == "agentMessage" || IsVisibleStartedItem(itemType);
+		itemType is "agentMessage" or "plan" || IsVisibleStartedItem(itemType);
+
+	private static IEnumerable<AgentPaneMessage> FromHistoryItem(string threadId, string turnId, JsonElement item) {
+		string itemType = item.GetStringOrEmpty("type");
+		string itemId = item.GetStringOrEmpty("id");
+		if (itemType == "userMessage") {
+			if (!item.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array) {
+				yield break;
+			}
+			string text = string.Join("\n", content.EnumerateArray()
+				.Where(value => value.GetStringOrEmpty("type") == "text")
+				.Select(value => value.GetStringOrEmpty("text"))
+				.Where(value => value.Length > 0));
+			if (text.Length > 0) {
+				yield return new AgentPaneMessage {
+					Type = "user-message",
+					ProviderId = "codex",
+					ThreadId = threadId,
+					TurnId = turnId,
+					ItemId = itemId,
+					Text = text,
+				};
+			}
+
+			int imageIndex = 0;
+			foreach (var image in content.EnumerateArray().Where(value =>
+				value.GetStringOrEmpty("type") is "image" or "localImage")) {
+				yield return new AgentPaneMessage {
+					Type = "user-image",
+					ProviderId = "codex",
+					ThreadId = threadId,
+					TurnId = turnId,
+					ItemId = $"{itemId}:image:{imageIndex++}",
+					Text = image.GetStringOrEmpty(image.GetStringOrEmpty("type") == "localImage" ? "path" : "url"),
+					Status = "submitted",
+				};
+			}
+			yield break;
+		}
+
+		if (!IsVisibleCompletedItem(itemType)) {
+			yield break;
+		}
+		yield return new AgentPaneMessage {
+			Type = "item-completed",
+			ProviderId = "codex",
+			ThreadId = threadId,
+			TurnId = turnId,
+			ItemId = itemId,
+			ItemType = itemType,
+			Category = ItemCategory(itemType),
+			Summary = SummarizeItem(itemType, item),
+			Status = item.GetStringOrEmpty("status") is { Length: > 0 } status ? status : "completed",
+			Text = ItemText(itemType, item),
+			PayloadJson = item.GetRawText(),
+		};
+	}
 
 	private static string SummarizeFileChange(JsonElement item) => SummarizeChanges(item);
 

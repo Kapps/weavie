@@ -88,19 +88,122 @@
   overflow-wrap: break-word;
 }
 
+.agent-markdown {
+  max-width: 100%;
+  color: var(--fg);
+  overflow-wrap: break-word;
+}
+
+.agent-markdown > :first-child {
+  margin-top: 0;
+}
+
+.agent-markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.agent-markdown p,
+.agent-markdown ul,
+.agent-markdown ol,
+.agent-markdown blockquote,
+.agent-markdown table,
+.agent-markdown pre {
+  margin: 0.55em 0;
+}
+
+.agent-markdown h1,
+.agent-markdown h2,
+.agent-markdown h3,
+.agent-markdown h4 {
+  margin: 0.9em 0 0.35em;
+  color: color-mix(in srgb, var(--fg) 94%, white);
+  font-size: 1em;
+  line-height: 1.2;
+}
+
+.agent-markdown h1,
+.agent-markdown h2 {
+  padding-bottom: 0.2em;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
+}
+
+.agent-markdown ul,
+.agent-markdown ol {
+  padding-left: 1.55em;
+}
+
+.agent-markdown li + li {
+  margin-top: 0.2em;
+}
+
+.agent-markdown blockquote {
+  padding-left: 0.75em;
+  border-left: 2px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  color: color-mix(in srgb, var(--fg) 70%, var(--dim));
+}
+
+.agent-markdown a {
+  color: color-mix(in srgb, var(--accent) 88%, white);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--accent) 45%, transparent);
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.agent-markdown code {
+  padding: 0.08em 0.28em;
+  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--bar) 75%, var(--bg));
+  font: inherit;
+}
+
+.agent-markdown pre {
+  max-width: 100%;
+  overflow: auto;
+  padding: 7px 8px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  border-left: 3px solid color-mix(in srgb, var(--accent) 52%, var(--border));
+  background: color-mix(in srgb, var(--bar) 62%, var(--bg));
+  white-space: pre;
+}
+
+.agent-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.agent-markdown table {
+  display: block;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+}
+
+.agent-markdown th,
+.agent-markdown td {
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  text-align: left;
+}
+
+.agent-markdown th {
+  background: color-mix(in srgb, var(--bar) 78%, var(--bg));
+  color: color-mix(in srgb, var(--fg) 88%, var(--dim));
+}
+
+.markdown-image-blocked {
+  color: var(--dim);
+  font-style: italic;
+}
+
 .agent-entry-message.agent-tone-user {
   margin-top: 9px;
   margin-bottom: 7px;
   padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent) 14%, transparent),
-      color-mix(in srgb, var(--bar) 72%, transparent) 52%,
-      transparent
-    ),
-    color-mix(in srgb, var(--bar) 46%, transparent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bar));
 }
 
 .agent-entry-message.agent-tone-user:first-child {
@@ -126,14 +229,7 @@
 .agent-entry-message.agent-tone-assistant.agent-entry-result {
   padding: 7px 9px 8px;
   border-left: 3px solid var(--accent);
-  background:
-    linear-gradient(
-      90deg,
-      color-mix(in srgb, var(--accent) 9%, transparent),
-      color-mix(in srgb, var(--bar) 44%, transparent) 56%,
-      transparent
-    ),
-    color-mix(in srgb, var(--bar) 30%, transparent);
+  background: color-mix(in srgb, var(--bar) 38%, var(--bg));
 }
 
 .agent-entry-result .agent-entry-head {
@@ -149,6 +245,10 @@
 }
 
 .agent-entry-message.agent-tone-assistant .agent-entry-text {
+  color: color-mix(in srgb, var(--fg) 91%, var(--dim));
+}
+
+.agent-entry-message.agent-tone-assistant .agent-markdown {
   color: color-mix(in srgb, var(--fg) 91%, var(--dim));
 }
 
@@ -318,10 +418,12 @@
 }
 
 .agent-compose {
+  position: relative;
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  /* Top-align so the "prompt>" label rides the textarea's first line and stays put as it grows. */
+  align-items: start;
   gap: 8px;
   min-height: 42px;
   padding: 5px 8px;
@@ -335,10 +437,164 @@
 }
 
 .agent-compose-prompt {
+  /* Matches the textarea's top padding so both first lines sit on the same baseline. */
+  padding-top: 3px;
   color: var(--accent);
   font-weight: 650;
   user-select: none;
   white-space: nowrap;
+}
+
+.agent-attachments {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 1px 0 3px;
+}
+
+.agent-attachment {
+  position: relative;
+  flex: 0 0 58px;
+  height: 46px;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: var(--bg);
+}
+
+.agent-attachment.failed {
+  border-color: var(--bad);
+}
+
+.agent-attachment img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0.72;
+}
+
+.agent-attachment span {
+  position: absolute;
+  inset: auto 0 0;
+  overflow: hidden;
+  padding: 1px 3px;
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 86%, transparent);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.62);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-attachment button {
+  position: absolute;
+  inset: 1px 1px auto auto;
+  width: 17px;
+  height: 17px;
+  padding: 0;
+  border: 1px solid var(--border);
+  color: var(--fg);
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+  line-height: 14px;
+}
+
+.agent-compose-error {
+  grid-column: 1 / -1;
+  color: var(--bad);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+}
+
+.agent-working {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 1px 0 2px;
+  color: var(--busy);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+}
+
+.agent-working-spinner {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border: 2px solid color-mix(in srgb, var(--busy) 28%, transparent);
+  border-top-color: var(--busy);
+  border-radius: 50%;
+  animation: weavie-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-working-spinner {
+    animation: none;
+  }
+}
+
+.agent-working-time {
+  color: color-mix(in srgb, var(--busy) 72%, var(--dim));
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-working-hint {
+  color: var(--dim);
+}
+
+.agent-working-hint::before {
+  content: "·";
+  margin-right: 7px;
+}
+
+/* Blocked on the user (pending approval/answer): amber, spinner slowed — alive but not running. */
+.agent-working.waiting {
+  color: var(--warn);
+}
+
+.agent-working.waiting .agent-working-spinner {
+  border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+  border-top-color: var(--warn);
+  animation-duration: 2.4s;
+}
+
+.agent-working.waiting .agent-working-time {
+  color: color-mix(in srgb, var(--warn) 72%, var(--dim));
+}
+
+.agent-skills {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  padding: 1px 0 3px;
+}
+
+.agent-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 3px 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bar));
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  white-space: nowrap;
+}
+
+.agent-skill-chip button {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--fg);
+  background: transparent;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-skill-chip button:hover {
+  background: color-mix(in srgb, var(--bad) 32%, transparent);
 }
 
 .agent-compose textarea {
@@ -401,4 +657,147 @@
 .agent-compose button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+.agent-key-chip {
+  margin-left: 7px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
+  border-radius: 3px;
+  color: var(--dim);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  font: inherit;
+  font-size: calc(var(--terminal-font-size, 16px) * 0.68);
+}
+
+.agent-status-line {
+  position: relative;
+  flex: 0 0 auto;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 3px 8px 4px;
+  background: var(--bar);
+  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  line-height: 1.4;
+}
+
+.agent-status-segment {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-status-segment:hover {
+  background: color-mix(in srgb, var(--accent) 12%, transparent);
+}
+
+.agent-status-key {
+  color: color-mix(in srgb, var(--dim) 82%, transparent);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.agent-status-value {
+  color: color-mix(in srgb, var(--fg) 72%, var(--dim));
+}
+
+.agent-control-picker {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 6px;
+  z-index: 20;
+  min-width: 220px;
+  max-width: min(420px, 80vw);
+  max-height: 40vh;
+  overflow-y: auto;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bar) 92%, var(--bg));
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.agent-control-option {
+  display: grid;
+  gap: 1px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.agent-control-option.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.agent-control-option[aria-selected="true"] .agent-control-option-label::after {
+  content: " ✓";
+  color: var(--accent);
+}
+
+.agent-control-option-label {
+  color: var(--fg);
+}
+
+.agent-control-option-desc {
+  color: var(--dim);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+}
+
+.agent-control-empty {
+  padding: 5px 7px;
+  color: var(--dim);
+}
+
+.agent-slash-menu {
+  position: absolute;
+  bottom: calc(100% + 2px);
+  left: 8px;
+  z-index: 20;
+  min-width: 260px;
+  max-width: min(460px, 82vw);
+  max-height: 44vh;
+  overflow-y: auto;
+  padding: 3px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bar) 92%, var(--bg));
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.agent-slash-option {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  align-items: baseline;
+  gap: 10px;
+  padding: 4px 7px;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.agent-slash-option.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
+}
+
+.agent-slash-name {
+  color: var(--accent);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.agent-slash-desc {
+  overflow: hidden;
+  color: var(--dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }

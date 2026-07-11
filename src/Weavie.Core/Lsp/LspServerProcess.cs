@@ -60,7 +60,12 @@ internal sealed class LspServerProcess : ILspServerProcess {
 				break; // server closed stdout
 			}
 
-			FrameReceived?.Invoke(body);
+			try {
+				FrameReceived?.Invoke(body);
+			} catch (Exception ex) {
+				// A subscriber fault must not kill the pump — that would silently freeze language features.
+				_log($"{_label} frame handler threw: {ex.Message}");
+			}
 		}
 	}
 

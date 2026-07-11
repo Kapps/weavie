@@ -30,9 +30,20 @@ internal static class AgentPaneProtocol {
 				turnId = message.TurnId,
 				itemId = message.ItemId,
 				itemType = message.ItemType,
+				category = message.Category,
 				summary = message.Summary,
 				text = message.Text,
 				status = message.Status,
+				questions = message.Questions?.Select(question => new {
+					id = question.Id,
+					header = question.Header,
+					question = question.Question,
+					isSecret = question.IsSecret,
+					options = question.Options.Select(option => new {
+						label = option.Label,
+						description = option.Description,
+					}),
+				}),
 				payload = ParsePayload(message.PayloadJson),
 			},
 		});

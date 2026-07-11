@@ -35,6 +35,7 @@ const DEFAULT_OPTIONS: EditorOptionsSpec = {
   suggestExpandDocs: true,
   commentProse: "documentation",
   paneShortcutHints: true,
+  videoAutoplay: true,
 };
 
 let current: EditorOptionsSpec = hostInjected(

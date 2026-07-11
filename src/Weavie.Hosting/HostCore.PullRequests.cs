@@ -78,9 +78,20 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// Keys the web's "Opening PR #N…" spinner toast; every exit below — an enumerated failure, an unexpected
+		// throw, or success (ArmPrReviewAsync clears it) — replaces or clears it, so the spinner never orphans.
+		string key = $"open-pr:{number}";
+		try {
+			await OpenPullRequestCoreAsync(number, owner, repoName, key).ConfigureAwait(false);
+		} catch (Exception ex) {
+			Notify("warn", $"Couldn't open PR #{number}: {ex.Message}", key);
+		}
+	}
+
+	private async Task OpenPullRequestCoreAsync(int number, string owner, string repoName, string key) {
 		var repo = await ResolveOriginRepoAsync(CancellationToken.None).ConfigureAwait(false);
 		if (repo is null) {
-			Notify("warn", "This workspace's 'origin' isn't a recognized GitHub repository.");
+			Notify("warn", "This workspace's 'origin' isn't a recognized GitHub repository.", key);
 			return;
 		}
 
@@ -88,7 +99,7 @@ public sealed partial class HostCore {
 		// wouldn't be fetchable here). A typed #N / a picked result sends no owner/repo and targets origin.
 		if (!string.IsNullOrEmpty(owner) && !string.IsNullOrEmpty(repoName)
 			&& !(owner.Equals(repo.Owner, StringComparison.OrdinalIgnoreCase) && repoName.Equals(repo.Name, StringComparison.OrdinalIgnoreCase))) {
-			Notify("warn", $"PR #{number} is in {owner}/{repoName}, not this workspace's repository ({repo.Owner}/{repo.Name}).");
+			Notify("warn", $"PR #{number} is in {owner}/{repoName}, not this workspace's repository ({repo.Owner}/{repo.Name}).", key);
 			return;
 		}
 
@@ -96,12 +107,12 @@ public sealed partial class HostCore {
 		try {
 			pr = await _pullRequests.GetAsync(repo, number, CancellationToken.None).ConfigureAwait(false);
 		} catch (Exception ex) when (ex is InvalidOperationException or HttpRequestException or TaskCanceledException) {
-			Notify("warn", $"Couldn't open PR #{number}: {ex.Message}");
+			Notify("warn", $"Couldn't open PR #{number}: {ex.Message}", key);
 			return;
 		}
 
 		if (pr is null || string.IsNullOrWhiteSpace(pr.HeadRef)) {
-			Notify("warn", $"PR #{number} wasn't found in {repo.Owner}/{repo.Name}.");
+			Notify("warn", $"PR #{number} wasn't found in {repo.Owner}/{repo.Name}.", key);
 			return;
 		}
 
@@ -110,7 +121,7 @@ public sealed partial class HostCore {
 		string title = pr.Title;
 		string url = pr.Url;
 		if (!GitService.IsValidBranchName(headRef)) {
-			Notify("warn", $"PR #{number} has an unexpected branch name ('{headRef}').");
+			Notify("warn", $"PR #{number} has an unexpected branch name ('{headRef}').", key);
 			return;
 		}
 
@@ -124,7 +135,7 @@ public sealed partial class HostCore {
 				await git.FetchAsync(WorkspaceRoot, "origin", $"{headRef}:{headRef}", CancellationToken.None).ConfigureAwait(false);
 			}
 		} catch (GitException ex) {
-			Notify("warn", $"Couldn't fetch PR #{number} ('{headRef}'): {ex.Message}");
+			Notify("warn", $"Couldn't fetch PR #{number} ('{headRef}'): {ex.Message}", key);
 			return;
 		}
 
@@ -136,11 +147,11 @@ public sealed partial class HostCore {
 			},
 			CancellationToken.None).ConfigureAwait(false);
 		if (!result.Ok) {
-			Notify("warn", result.Error ?? $"Couldn't open PR #{number}.");
+			Notify("warn", result.Error ?? $"Couldn't open PR #{number}.", key);
 			return;
 		}
 
-		await ArmPrReviewAsync(number, headRef, baseRef).ConfigureAwait(false);
+		await ArmPrReviewAsync(number, headRef, baseRef, key).ConfigureAwait(false);
 	}
 
 	/// <summary>
@@ -148,9 +159,10 @@ public sealed partial class HostCore {
 	/// and pushes the changed-file list so the diff navigator surfaces. A diff failure toasts and leaves the
 	/// session usable (the checkout still succeeded).
 	/// </summary>
-	private async Task ArmPrReviewAsync(int number, string headRef, string baseRef) {
+	private async Task ArmPrReviewAsync(int number, string headRef, string baseRef, string key) {
 		// The just-opened PR is the active session (attach switched to it).
 		if (_session is not { } session) {
+			ClearNotify(key);
 			return;
 		}
 
@@ -168,7 +180,7 @@ public sealed partial class HostCore {
 		}
 
 		if (mergeBase is null) {
-			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.");
+			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff against '{baseRef}'.", key);
 			return;
 		}
 
@@ -186,13 +198,15 @@ public sealed partial class HostCore {
 		try {
 			changes = await ComputeReviewChangesAsync(review).ConfigureAwait(false);
 		} catch (GitException ex) {
-			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}");
+			Notify("warn", $"Opened PR #{number}, but couldn't compute its diff: {ex.Message}", key);
 			return;
 		}
 
 		// Seed the change tracker so the PR reviews through the same accept/reject engine as a turn (opens + renders
 		// the first changed file; keep/revert + later Claude edits accumulate into the one set).
 		await SeedAndArmReviewAsync(review, session, changes).ConfigureAwait(false);
+		// The diff is now on screen — clear the "Opening PR…" spinner (the render itself is the success feedback).
+		ClearNotify(key);
 	}
 
 	/// <summary>Re-loads a PR's review comments into the review (best-effort; a forge error leaves the prior set).</summary>

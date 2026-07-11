@@ -1,6 +1,7 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
+import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 
 export function AgentTranscript(props: {
@@ -72,12 +73,18 @@ function TranscriptEntry(props: {
       </Show>
       <div class="agent-entry-main">
         <Show when={props.entry.summary !== null}>
-          <div class="agent-entry-summary">{props.entry.summary}</div>
+          <div class="agent-entry-summary">
+            <AgentLinkedText text={props.entry.summary ?? ""} />
+          </div>
         </Show>
         <Show when={props.entry.text !== null}>
           <Show
             when={props.entry.kind === "message" && props.entry.tone === "assistant"}
-            fallback={<pre class="agent-entry-text">{props.entry.text}</pre>}
+            fallback={
+              <pre class="agent-entry-text">
+                <AgentLinkedText text={props.entry.text ?? ""} />
+              </pre>
+            }
           >
             <AgentMarkdown content={props.entry.text ?? ""} />
           </Show>
@@ -159,7 +166,9 @@ function ActivityDetails(props: {
                 </span>
               </Show>
               <Show when={step.detailText !== null}>
-                <pre>{step.detailText}</pre>
+                <pre>
+                  <AgentLinkedText text={step.detailText ?? ""} />
+                </pre>
               </Show>
             </div>
           )}

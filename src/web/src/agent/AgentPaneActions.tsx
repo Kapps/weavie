@@ -1,5 +1,8 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import { type AgentInputQuestion, type AgentPaneUpdate, postToHost } from "../bridge";
+import { keyHint } from "../commands/key-hint";
+import { liveKeyLabel } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
 import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
@@ -14,20 +17,26 @@ export function ApprovalActions(props: {
     }
   };
 
+  // The mouse path teaches the keyboard path: each decision button wears its command's chord.
+  const decision = (label: string, value: string, commandId: string | null): JSX.Element => (
+    <button
+      type="button"
+      title={commandId === null ? label : `${label}${keyHint(commandId)}`}
+      onClick={() => approve(value)}
+    >
+      {label}
+      <Show when={commandId !== null && liveKeyLabel(commandId) !== ""}>
+        <kbd class="agent-key-chip">{liveKeyLabel(commandId ?? "")}</kbd>
+      </Show>
+    </button>
+  );
+
   return (
     <div class="agent-approval-actions">
-      <button type="button" title="Accept" onClick={() => approve("accept")}>
-        Accept
-      </button>
-      <button type="button" title="Accept for session" onClick={() => approve("acceptForSession")}>
-        Accept for session
-      </button>
-      <button type="button" title="Decline" onClick={() => approve("decline")}>
-        Decline
-      </button>
-      <button type="button" title="Cancel turn" onClick={() => approve("cancel")}>
-        Cancel turn
-      </button>
+      {decision("Accept", "accept", CommandIds.agentApprove)}
+      {decision("Accept for session", "acceptForSession", CommandIds.agentApproveForSession)}
+      {decision("Decline", "decline", CommandIds.agentDecline)}
+      {decision("Cancel turn", "cancel", null)}
     </div>
   );
 }
@@ -53,7 +62,13 @@ export function InputRequestActions(props: {
   };
 
   return (
-    <div class="agent-input-request">
+    <form
+      class="agent-input-request"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
       <For each={questions()}>
         {(question) => (
           <label class="agent-input-question">
@@ -85,11 +100,11 @@ export function InputRequestActions(props: {
         )}
       </For>
       <div class="agent-approval-actions">
-        <button type="button" title="Submit answers" onClick={submit}>
+        <button type="submit" title="Submit answers (Enter)">
           Submit answers
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 

@@ -1,8 +1,10 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { type AgentPaneUpdate, type AgentSlashEntry, postToBackend } from "../bridge";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
-import { keyHint, keyLabel } from "../commands/key-hint";
-import { dispatchCommand, onCommandsChanged, registerCommand } from "../commands/registry";
+import { setContext } from "../commands/context";
+import { keyHint } from "../commands/key-hint";
+import { liveKeyLabel } from "../commands/keys-live";
+import { dispatchCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
@@ -29,7 +31,7 @@ import {
   submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
-import { formatElapsed, hasActiveTurn, pendingRequestKind } from "./turn-progress";
+import { formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
@@ -44,8 +46,13 @@ export function AgentComposer(props: {
   const composer = createMemo(() => composerState(props.backendId, props.slot));
   const pendingLegacyImages = createMemo(() => countPendingLegacyImages(props.messages));
   const turnActive = createMemo(() => hasActiveTurn(props.messages));
-  const pendingKind = createMemo(() => (turnActive() ? pendingRequestKind(props.messages) : null));
+  const pending = createMemo(() => (turnActive() ? pendingRequest(props.messages) : null));
+  const pendingKind = createMemo(() => pending()?.kind ?? null);
   const canInterrupt = createMemo(() => props.slot !== null && turnActive());
+
+  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to moments a card is actually pending.
+  createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
+  onCleanup(() => setContext("agentApprovalPending", false));
 
   // Elapsed working time, measured from when this view saw the turn begin and ticking once a second.
   const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
@@ -69,13 +76,7 @@ export function AgentComposer(props: {
     return started === null ? "" : formatElapsed(now() - started);
   };
 
-  // The visible interrupt hint re-resolves when the user edits keybindings (same pattern as App's badges).
-  const [keysVersion, setKeysVersion] = createSignal(0);
-  onCleanup(onCommandsChanged(() => setKeysVersion((version) => version + 1)));
-  const interruptKey = (): string => {
-    keysVersion();
-    return keyLabel(CommandIds.agentInterrupt);
-  };
+  const interruptKey = (): string => liveKeyLabel(CommandIds.agentInterrupt);
   const canSubmit = createMemo(() => {
     const state = composer();
     if (props.inputProtocol < 2) {
@@ -265,17 +266,43 @@ export function AgentComposer(props: {
       return true;
     });
 
+  // A decision command answers the newest pending approval — the request the working row waits on.
+  const registerDecision = (commandId: string, decision: string): (() => void) =>
+    registerCommand(commandId, () => {
+      const slot = props.slot;
+      const request = pending();
+      if (slot === null || request === null || request.kind !== "approval") {
+        return false;
+      }
+      postToBackend(props.backendId, {
+        type: "agent-approval",
+        slot,
+        requestId: request.requestId,
+        decision,
+      });
+      return true;
+    });
+
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
   const offSelectModel = registerSelect(CommandIds.selectModel, "model");
   const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
+  const offApprove = registerDecision(CommandIds.agentApprove, "accept");
+  const offApproveForSession = registerDecision(
+    CommandIds.agentApproveForSession,
+    "acceptForSession",
+  );
+  const offDecline = registerDecision(CommandIds.agentDecline, "decline");
   onCleanup(offNativePaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
   onCleanup(offSelectModel);
   onCleanup(offSelectApproval);
   onCleanup(offSelectSandbox);
+  onCleanup(offApprove);
+  onCleanup(offApproveForSession);
+  onCleanup(offDecline);
 
   return (
     <form

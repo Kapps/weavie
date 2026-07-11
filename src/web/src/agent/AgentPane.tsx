@@ -20,12 +20,14 @@ export function AgentPane(props: {
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
 
-  const isNearBottom = (): boolean => {
+  const isAtBottom = (): boolean => {
     if (bodyRef === undefined) {
       return true;
     }
     const distance = bodyRef.scrollHeight - bodyRef.scrollTop - bodyRef.clientHeight;
-    return distance <= Math.max(160, bodyRef.clientHeight * 0.18);
+    // Allow only rounding noise. A generous "near bottom" threshold makes opening a disclosure or
+    // scrolling slightly upward opt back into auto-scroll, which yanks the content out from under the user.
+    return distance <= 4;
   };
 
   const scrollToBottom = (): void => {
@@ -68,7 +70,7 @@ export function AgentPane(props: {
           <span class="pane-shortcut">{props.shortcut}</span>
         </Show>
       </div>
-      <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isNearBottom())}>
+      <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
         <AgentTranscript entries={transcript()} slot={props.slot} />
       </div>
       <AgentComposer
@@ -78,7 +80,7 @@ export function AgentPane(props: {
         messages={props.messages}
         slot={props.slot}
         onSubmitted={() => {
-          if (isNearBottom()) {
+          if (isAtBottom()) {
             setStickToBottom(true);
           }
         }}

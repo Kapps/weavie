@@ -1,4 +1,4 @@
-import { For, type JSX, Show } from "solid-js";
+import { createSignal, For, type JSX, Show } from "solid-js";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
@@ -7,6 +7,10 @@ export function AgentTranscript(props: {
   entries: AgentTranscriptEntry[];
   slot: string | null;
 }): JSX.Element {
+  // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
+  // so replacing an entry does not close something the user is inspecting.
+  const [expandedDetails, setExpandedDetails] = createSignal<ReadonlySet<string>>(new Set());
+
   return (
     <Show
       when={props.entries.length > 0}
@@ -17,7 +21,23 @@ export function AgentTranscript(props: {
       <For each={props.entries}>
         {(entry, index) => (
           <TranscriptEntry
+            detailsExpanded={expandedDetails().has(detailsKey(props.slot, entry.id))}
             entry={entry}
+            onDetailsToggle={(open) => {
+              const key = detailsKey(props.slot, entry.id);
+              setExpandedDetails((current) => {
+                if (current.has(key) === open) {
+                  return current;
+                }
+                const next = new Set(current);
+                if (open) {
+                  next.add(key);
+                } else {
+                  next.delete(key);
+                }
+                return next;
+              });
+            }}
             result={isResultEntry(props.entries, index())}
             slot={props.slot}
           />
@@ -28,7 +48,9 @@ export function AgentTranscript(props: {
 }
 
 function TranscriptEntry(props: {
+  detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
+  onDetailsToggle: (open: boolean) => void;
   result: boolean;
   slot: string | null;
 }): JSX.Element {
@@ -61,7 +83,12 @@ function TranscriptEntry(props: {
           </Show>
         </Show>
         <Show when={props.entry.details.length > 0}>
-          <ActivityDetails entry={props.entry} steps={props.entry.details} />
+          <ActivityDetails
+            entry={props.entry}
+            expanded={props.detailsExpanded}
+            onToggle={props.onDetailsToggle}
+            steps={props.entry.details}
+          />
         </Show>
         <EntryActions entry={props.entry} slot={props.slot} />
       </div>
@@ -103,11 +130,23 @@ function EntryActions(props: { entry: AgentTranscriptEntry; slot: string | null 
 
 function ActivityDetails(props: {
   entry: AgentTranscriptEntry;
+  expanded: boolean;
+  onToggle: (open: boolean) => void;
   steps: AgentActivityStep[];
 }): JSX.Element {
   return (
-    <details class="agent-activity-details">
-      <summary>{activityDetailsSummary(props.entry, props.steps.length)}</summary>
+    <details class="agent-activity-details" open={props.expanded}>
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: summary is the native details control. */}
+      <summary
+        onClick={(event) => {
+          // Record intent synchronously. Native toggle events are queued and can otherwise arrive from a
+          // transcript node that a later update has already replaced, restoring stale closed state.
+          event.preventDefault();
+          props.onToggle(!props.expanded);
+        }}
+      >
+        {activityDetailsSummary(props.entry, props.steps.length)}
+      </summary>
       <div class="agent-activity-list">
         <For each={props.steps}>
           {(step) => (
@@ -128,6 +167,10 @@ function ActivityDetails(props: {
       </div>
     </details>
   );
+}
+
+function detailsKey(slot: string | null, entryId: string): string {
+  return `${slot ?? "detached"}:${entryId}`;
 }
 
 function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {

@@ -270,7 +270,9 @@ graph TB
    request's own host so it is reachable by the same path the client used.
 4. The web converts that page URL to a bridge URL (`pageUrlToBridgeWs`: `http→ws`, carry the token) and calls
    `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
-   backend: terminals, files, status — all the flows above — over that socket.
+   backend: terminals, files, status — all the flows above — over that socket. The transport re-runs this
+   `GET /backend` handshake on **every** reconnect, so when the runner is restarted — which mints a fresh
+   worker port+token — the socket follows it to the new worker instead of retrying the now-dead URL forever.
 
 Transport security: the runner terminates TLS in front of its loopback endpoints (`--tls tailscale` runs
 `tailscale serve` with the node's trusted cert; `--tls proxy` for a bring-your-own terminator), so the app

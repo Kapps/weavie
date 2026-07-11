@@ -5,6 +5,7 @@ using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Corrections;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
@@ -41,7 +42,8 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>
 	/// Builds and starts the session's backend rooted at <paramref name="workspaceRoot"/>: terminals (via
 	/// <paramref name="ptyLauncher"/>), the IDE-MCP + registry servers, and the LSP multiplexer.
-	/// <paramref name="id"/> is this session's identity within its workspace.
+	/// <paramref name="id"/> is this session's identity within its workspace;
+	/// <paramref name="corrections"/> is the workspace's shared correction ring this session records into.
 	/// </summary>
 	public HostSession(
 		IHostBridge bridge,
@@ -54,6 +56,7 @@ public sealed class HostSession : IAsyncDisposable {
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
 		ThemeOverridesStore themeOverrides,
+		CorrectionCorpus corrections,
 		IPtyLauncher ptyLauncher,
 		IAgentProvider agentProvider,
 		HostRuntimeInfo runtime) {
@@ -67,6 +70,7 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
 		ArgumentNullException.ThrowIfNull(themeOverrides);
+		ArgumentNullException.ThrowIfNull(corrections);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
 		ArgumentNullException.ThrowIfNull(agentProvider);
 		ArgumentNullException.ThrowIfNull(runtime);
@@ -119,7 +123,11 @@ public sealed class HostSession : IAsyncDisposable {
 		// Agent integration: start the provider-specific loopback server, render openDiff to Monaco, and expose
 		// the standard registry tools to the embedded model.
 		Status = new SessionStatusMachine();
-		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status);
+		// Records the user's out-of-band corrections (post-turn reverts/hand-edits over agent output) into the
+		// workspace's shared ring at each turn boundary. See docs/specs/learn-from-corrections.md.
+		Corrections = new CorrectionRecorder(Changes, corrections);
+		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status, Corrections);
+		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
 		bool exposeRegistryIdeTools = agentProvider.Info.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
 		var registry = new CapabilityRegistryHost(
@@ -244,6 +252,12 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
+
+	/// <summary>Records the user's post-turn corrections into the workspace's shared ring at each turn boundary.</summary>
+	public CorrectionRecorder Corrections { get; }
+
+	/// <summary>The event sink provider integrations feed — the router fanning to tracker/mode/status/corrections.</summary>
+	public IAgentEventSink Events { get; }
 
 	/// <summary>The agent's edit mode (default/acceptEdits/plan), observed off provider events; Weavie reflects it, never sets it.</summary>
 	public ObservedPermissionMode ObservedMode { get; }
@@ -422,6 +436,9 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+		// A correction to the final turn hasn't hit a boundary yet — record it before the session's state is gone
+		// ("revert everything, then delete the session" is the strongest rejection signal).
+		Corrections.FlushPending();
 		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a process
 		// still rooted there). Run it off the calling (often UI) thread so a slow-closing child can't freeze the app.
 		await Task.Run(() => {

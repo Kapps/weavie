@@ -138,6 +138,9 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			_createdSinceBaseline.Clear();
+			// Freeze each accepted file's on-disk content as its correction "final" before a later hand-edit can
+			// move it — keep-all's review baseline comes from _current, which never sees hand-edits.
+			FreezeSettledFinalForAccept();
 			// Keep-all is the commit point — accepted changes are locked in, so the undo history resets here.
 			_undoStack.Clear();
 			_redoStack.Clear();
@@ -199,6 +202,7 @@ public sealed partial class SessionChangeTracker {
 
 			_acceptedAnchor.TryAdd(path, string.Empty);
 			_current[path] = ReadOrEmpty(path);
+			SnapshotAgentOutput(path);
 		}
 
 		Changed?.Invoke();
@@ -255,6 +259,7 @@ public sealed partial class SessionChangeTracker {
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_fileSystem.FileExists(path)) {
 					Forget(path);
+					DropAgentOutput(path);
 					(removed ??= []).Add(path);
 				}
 			}

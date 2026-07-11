@@ -4,6 +4,7 @@ using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Corrections;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
@@ -56,6 +57,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// including a worker auto-update restart — comes back as the user left it. See HostCore.SessionState.cs.
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
+	private readonly CorrectionCorpus _corrections;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
 	// web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
@@ -130,6 +132,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_sessionStore.Log += Log;
 		_recentFiles = new RecentFilesStore(new LocalFileSystem(), WeaviePaths.WorkspaceRecentFilesFile(Id));
 		_recentFiles.Log += Log;
+		// One correction ring per workspace, shared by every session/worktree: rules about how the agent codes
+		// in this repo are repo-level. Its count gates the corrections.learn card, so changes re-evaluate.
+		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
+		_corrections.Log += Log;
+		_corrections.Changed += () => _suggestions?.Evaluate();
 	}
 
 	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a

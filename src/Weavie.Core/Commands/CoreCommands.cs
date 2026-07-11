@@ -230,6 +230,9 @@ public static class CoreCommands {
 	/// <summary>Has Claude inspect the repo and configure the workspace's knowledge-shaped settings (worktree setup command + test profile) on the user's confirmation; backs the workspace-setup suggestion. Palette-visible, no default keybinding.</summary>
 	public const string SetupWorkspace = "weavie.workspace.setup";
 
+	/// <summary>Prefill an analysis of the workspace's recorded corrections into the primary session's agent.</summary>
+	public const string LearnFromCorrections = "weavie.learn.fromCorrections";
+
 	/// <summary>Runs tests for a file via the workspace test profile (args <c>file</c>, optional <c>name</c> for a single test); writes the composed command into the shell pane. The one executor behind the lenses and MCP.</summary>
 	public const string RunTests = "weavie.tests.run";
 
@@ -1189,6 +1192,20 @@ public static class CoreCommands {
 			Category = "Workspace",
 			Description = "Have Claude inspect the repository and configure this workspace's settings — the command to ready a fresh checkout and how to run its tests — on your confirmation.",
 			Aliases = ["set up workspace", "configure workspace", "suggest setup command", "configure test runner", "how to run tests", "worktree setup command"],
+		});
+
+		// Infrequent, reachable from the palette + the corrections.learn card — no default keybinding (like
+		// SetupWorkspace). Prefills only; the user reviews the analysis prompt and presses Enter.
+		registry.Register(new CommandDefinition {
+			Id = LearnFromCorrections,
+			Title = "Learn From My Corrections",
+			RunsIn = CommandLocation.Core,
+			Category = "Workspace",
+			Description = "Have Claude mine the corrections you made to its output after its turns ended (reverted "
+				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the primary session for your "
+				+ "review, never auto-sent.",
+			Aliases = ["learn from corrections", "teach claude", "mine corrections", "claude.md rules from reverts",
+				"learn from my edits", "learn"],
 		});
 
 		// Connect a Notion account (Core-handled in HostCore.Sources.cs). One-time action — palette + Claude, no

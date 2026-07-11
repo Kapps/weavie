@@ -28,7 +28,18 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       { type: "agentMessage", id: "agent_old", text: "old answer" }
     ] }] : [];
     send({ id: message.id, result: { thread: { id: message.params.threadId, turns } } });
+  } else if (message.method === "model/list") {
+    send({ id: message.id, result: { data: [
+      { id: "gpt-5.5", model: "gpt-5.5", displayName: "GPT-5.5", description: "Frontier model.", hidden: false, isDefault: true },
+      { id: "gpt-5.4-mini", model: "gpt-5.4-mini", displayName: "GPT-5.4 mini", description: "Fast model.", hidden: false, isDefault: false }
+    ] } });
+  } else if (message.method === "skills/list") {
+    fs.writeFileSync("skills-list.json", JSON.stringify(message));
+    send({ id: message.id, result: { data: [{ cwd: process.cwd(), errors: [], skills: [
+      { name: "review-pr", description: "Review a PR.", enabled: true, path: process.cwd(), scope: "repo", interface: { shortDescription: "Review a pull request.", defaultPrompt: "Review the current PR." } }
+    ] }] } });
   } else if (message.method === "turn/start") {
+    fs.writeFileSync("turn-start.json", JSON.stringify(message));
     send({ id: message.id, result: { turn: { id: "turn_fake" } } });
     send({ method: "turn/started", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "running" } } });
     if (message.params.input.some(item => item.type === "localImage")) {

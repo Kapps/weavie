@@ -87,6 +87,37 @@ export interface AgentInputOption {
   description: string;
 }
 
+// The provider-neutral composer control surface (host-pushed as `agent-controls`, per slot). The web renders
+// axes/options and echoes back an axis `id` + option `id` via `agent-set-control`, never learning a provider
+// concept. A slash entry either dispatches `commandId` (a built-in action) or inserts `insertText` (a skill).
+export interface AgentControlOption {
+  id: string;
+  label: string;
+  description: string | null;
+}
+
+export interface AgentControlAxis {
+  id: string;
+  label: string;
+  value: string;
+  valueLabel: string;
+  options: AgentControlOption[];
+}
+
+export interface AgentSlashEntry {
+  id: string;
+  name: string;
+  description: string;
+  commandId: string | null;
+  insertText: string | null;
+  skillName: string | null;
+}
+
+export interface AgentControlState {
+  axes: AgentControlAxis[];
+  slash: AgentSlashEntry[];
+}
+
 // One button on a contextual-suggestion card. A `RunCommand` action dispatches `commandId` (advertising its
 // keybinding); `Snooze`/`DismissForever` send a dismiss-suggestion back to the host.
 export interface SuggestionAction {
@@ -179,8 +210,16 @@ export type HostBoundMessage =
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   | { type: "agent-attachment-upload"; slot: string; id: string; mime: string; dataB64: string }
   | { type: "agent-attachment-remove"; slot: string; id: string }
-  | { type: "agent-submit"; slot: string; id?: string; prompt: string; attachmentIds?: string[] }
+  | {
+      type: "agent-submit";
+      slot: string;
+      id?: string;
+      prompt: string;
+      attachmentIds?: string[];
+      skills?: string[];
+    }
   | { type: "agent-interrupt"; slot: string }
+  | { type: "agent-set-control"; slot: string; axis: string; value: string }
   | { type: "agent-approval"; slot: string; requestId: string; decision: string }
   | { type: "agent-input"; slot: string; requestId: string; answers: Record<string, string[]> }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
@@ -399,6 +438,7 @@ export type WebBoundMessage =
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   | { type: "agent-pane"; slot: string; workspace: string; message: AgentPaneUpdate }
   | { type: "agent-pane-reset"; slot: string; workspace: string }
+  | { type: "agent-controls"; slot: string; workspace: string; state: AgentControlState }
   | {
       type: "agent-attachment-state";
       slot: string;

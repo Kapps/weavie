@@ -388,6 +388,7 @@ public sealed class HostSession : IAsyncDisposable {
 			Id = Guid.NewGuid().ToString("n"),
 			Text = text,
 			Attachments = [],
+			Skills = [],
 		});
 	}
 

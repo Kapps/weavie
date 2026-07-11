@@ -15,11 +15,19 @@ export interface AgentComposerAttachment {
 export interface AgentComposerState {
   draft: string;
   attachments: AgentComposerAttachment[];
+  // Provider skill names staged from the slash menu; submitted as structured skill inputs and cleared on send.
+  skills: string[];
   submittingId: string | null;
   error: string | null;
 }
 
-const EMPTY: AgentComposerState = { draft: "", attachments: [], submittingId: null, error: null };
+const EMPTY: AgentComposerState = {
+  draft: "",
+  attachments: [],
+  skills: [],
+  submittingId: null,
+  error: null,
+};
 const [states, setStates] = createSignal<Record<string, AgentComposerState>>({});
 let sequence = 0;
 
@@ -63,12 +71,29 @@ export function removeComposerAttachment(backendId: string, slot: string, id: st
   }
 }
 
+/** Stages a provider skill (from the slash menu) for the next turn; ignores a duplicate. */
+export function stageSkill(backendId: string, slot: string, name: string): void {
+  update(backendId, slot, (state) =>
+    state.skills.includes(name)
+      ? state
+      : { ...state, skills: [...state.skills, name], error: null },
+  );
+}
+
+/** Removes a staged skill. */
+export function unstageSkill(backendId: string, slot: string, name: string): void {
+  update(backendId, slot, (state) => ({
+    ...state,
+    skills: state.skills.filter((skill) => skill !== name),
+  }));
+}
+
 export function submitAgentTurn(backendId: string, slot: string): boolean {
   const state = composerState(backendId, slot);
   if (
     state.submittingId !== null ||
     state.attachments.some((attachment) => attachment.status !== "ready") ||
-    (state.draft.trim().length === 0 && state.attachments.length === 0)
+    (state.draft.trim().length === 0 && state.attachments.length === 0 && state.skills.length === 0)
   ) {
     return false;
   }
@@ -81,6 +106,7 @@ export function submitAgentTurn(backendId: string, slot: string): boolean {
     id,
     prompt: state.draft.trim(),
     attachmentIds: state.attachments.map((attachment) => attachment.id),
+    skills: state.skills,
   });
   return true;
 }
@@ -190,6 +216,7 @@ onSessionMessage((message, backendId) => {
     attachments: current.attachments.filter(
       (attachment) => !message.attachmentIds.includes(attachment.id),
     ),
+    skills: [],
     submittingId: null,
     error: null,
   }));

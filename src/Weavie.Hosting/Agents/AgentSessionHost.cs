@@ -39,6 +39,11 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
 		}
+
+		if (Session is IStructuredAgentControls controls) {
+			Controls = controls;
+			controls.ControlStateChanged += PublishControlState;
+		}
 	}
 
 	/// <summary>The selected provider identity.</summary>
@@ -52,6 +57,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>The provider's structured runtime, when native-pane backed.</summary>
 	public IStructuredAgentSession? Structured { get; }
+
+	/// <summary>The provider's live model/approvals/sandbox controls, when it exposes them.</summary>
+	public IStructuredAgentControls? Controls { get; }
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
@@ -75,8 +83,18 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		}
 	}
 
+	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
+	public void ReplayControls() {
+		if (Controls is not null) {
+			PublishControlState(Controls.ControlState);
+		}
+	}
+
 	/// <summary>Disposes provider integration after the terminal has already stopped.</summary>
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
+
+	private void PublishControlState(AgentControlState state) =>
+		_bridge.PostToWeb(AgentControlsProtocol.Message(_context.CurrentSessionId(), _context.Workspace, state));
 
 	private void PublishPaneMessage(AgentPaneMessage message) {
 		if (message.Type == "transcript-reset") {

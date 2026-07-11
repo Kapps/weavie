@@ -369,10 +369,6 @@
 .remote-session:hover {
   opacity: 1;
 }
-.remote-session.in-rail {
-  outline: 2px solid var(--accent);
-  outline-offset: 1px;
-}
 .remote-session:focus-visible,
 .remote-agent-x:focus-visible,
 .remote-panel-add:focus-visible {

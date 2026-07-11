@@ -49,13 +49,6 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
   return latest;
 }
 
-/** The latest unresolved request's kind alone (the working row's label needs no id). */
-export function pendingRequestKind(
-  messages: readonly AgentPaneUpdate[],
-): PendingRequestKind | null {
-  return pendingRequest(messages)?.kind ?? null;
-}
-
 /** Elapsed working time as a compact label: "8s", "1m 05s", "1h 02m". */
 export function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

@@ -1,11 +1,15 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
+import type { AgentPaneUpdate } from "../bridge";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { assistantSectionLabel } from "./AgentTranscriptLabels";
+import { hasActiveTurn } from "./turn-progress";
 
 export function AgentTranscript(props: {
   entries: AgentTranscriptEntry[];
+  messages: AgentPaneUpdate[];
   slot: string | null;
 }): JSX.Element {
   // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
@@ -39,7 +43,11 @@ export function AgentTranscript(props: {
                 return next;
               });
             }}
-            result={isResultEntry(props.entries, index())}
+            sectionLabel={assistantSectionLabel(
+              props.entries,
+              index(),
+              hasActiveTurn(props.messages),
+            )}
             slot={props.slot}
           />
         )}
@@ -52,7 +60,7 @@ function TranscriptEntry(props: {
   detailsExpanded: boolean;
   entry: AgentTranscriptEntry;
   onDetailsToggle: (open: boolean) => void;
-  result: boolean;
+  sectionLabel: "Updates" | "Results" | null;
   slot: string | null;
 }): JSX.Element {
   return (
@@ -60,12 +68,12 @@ function TranscriptEntry(props: {
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
-        "agent-entry-result": props.result,
+        "agent-entry-result": props.sectionLabel !== null,
       }}
     >
-      <Show when={props.result || showEntryHeader(props.entry)}>
+      <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">{props.result ? "Result" : entryLabel(props.entry)}</span>
+          <span class="agent-entry-label">{props.sectionLabel ?? entryLabel(props.entry)}</span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
@@ -101,20 +109,6 @@ function TranscriptEntry(props: {
       </div>
     </article>
   );
-}
-
-function isResultEntry(entries: AgentTranscriptEntry[], index: number): boolean {
-  const entry = entries[index];
-  if (entry === undefined || entry.kind !== "message" || entry.tone !== "assistant") {
-    return false;
-  }
-  for (let next = index + 1; next < entries.length; next += 1) {
-    const candidate = entries[next];
-    if (candidate?.kind === "message") {
-      return candidate.tone === "user";
-    }
-  }
-  return true;
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {

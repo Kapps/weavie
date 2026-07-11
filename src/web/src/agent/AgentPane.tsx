@@ -88,7 +88,7 @@ export function AgentPane(props: {
         </Show>
       </div>
       <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
-        <AgentTranscript entries={transcript()} slot={props.slot} />
+        <AgentTranscript entries={transcript()} messages={props.messages} slot={props.slot} />
       </div>
       <AgentComposer
         active={props.active}

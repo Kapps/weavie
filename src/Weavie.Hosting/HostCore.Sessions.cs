@@ -98,6 +98,7 @@ public sealed partial class HostCore {
 				PushReviewHistoryToWeb();
 			}
 		});
+		WireAttention(session);
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
@@ -796,6 +797,10 @@ public sealed partial class HostCore {
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
+
+	/// <summary>The slot whose live backend is <paramref name="session"/>, or null (unloaded, or pre-rail during startup).</summary>
+	private SessionSlot? SlotFor(HostSession session) =>
+		_sessions?.Slots.FirstOrDefault(slot => ReferenceEquals(slot.Session, session));
 
 	/// <summary>
 	/// True when <paramref name="worktreePath"/> is still an inspectable git worktree (directory exists + carries

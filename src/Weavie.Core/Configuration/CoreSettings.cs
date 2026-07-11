@@ -217,6 +217,7 @@ public static class CoreSettings {
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
+		NotificationSettings.Register(registry);
 		CorrectionsSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {

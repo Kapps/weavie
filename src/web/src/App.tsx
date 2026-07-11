@@ -20,6 +20,7 @@ import {
   backendName,
   connectedBackends,
   isBrowserHostedShell,
+  LOCAL_BACKEND_ID,
   onHostMessage,
   openTarget,
   postToBackend,
@@ -48,6 +49,7 @@ import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 // status survive HMR.
 import {
   demoteSession,
+  findSession,
   isPromoted,
   promoteSession,
   type RailSession,
@@ -109,6 +111,8 @@ import { paneOrder } from "./layout/geometry";
 import { LayoutView } from "./layout/LayoutView";
 import { DEFAULT_LAYOUT_ROOT, layoutDocument, sendLayout } from "./layout/store";
 import type { LayoutNode } from "./layout/types";
+// Session-attention intake (sounds + OS notifications): module-load side effect, like the session store.
+import "./notifications/attention";
 import { setNotifySink } from "./notify/notify";
 import { Suggestions } from "./notify/Suggestions";
 import { createToasts, Toasts } from "./notify/Toasts";
@@ -1106,6 +1110,26 @@ export default function App(): JSX.Element {
       // falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
+      // Focus Session (programmatic; the notification click-through): bring a session to the foreground by
+      // 'id' (+ optional 'backendId', defaulting to the page-serving backend). Declines an unknown session.
+      registerCommand(CommandIds.focusSession, (args) => {
+        const a = args as { id?: unknown; backendId?: unknown } | undefined;
+        if (typeof a?.id !== "string" || a.id.length === 0) {
+          return false;
+        }
+        const backendId =
+          typeof a.backendId === "string" && a.backendId.length > 0
+            ? a.backendId
+            : LOCAL_BACKEND_ID;
+        const target = findSession(backendId, a.id);
+        if (target === undefined) {
+          return false;
+        }
+        if (!target.active) {
+          switchToSession(target);
+        }
+        return true;
+      }),
       // Ctrl+Shift+1–9 → switch to the Nth rail session. Returns false when there's none at that number (the
       // chord falls through); consumes the key when one exists, even if already active (then a no-op).
       registerCommand(CommandIds.selectSessionByIndex, (args) => {

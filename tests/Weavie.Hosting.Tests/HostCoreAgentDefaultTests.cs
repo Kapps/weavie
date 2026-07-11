@@ -1,20 +1,16 @@
-using Weavie.Core.Commands;
-using Weavie.Core.Sessions;
+using System.Text.Json;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
 /// <summary>
 /// The agent default provider (<c>agent.defaultProvider</c>) is the single source of truth for the New Session
-/// prompt's preselection: it's injected into the page at bootstrap, and creating a session with a different
-/// provider updates it and re-pushes the resolved value so the next prompt tracks it. Requires <c>git</c> on PATH.
+/// prompt's preselection: it's injected into the page at bootstrap, and a <c>set-agent-default</c> from the
+/// prompt updates it and re-pushes the resolved value so the next prompt tracks it. Requires <c>git</c> on PATH.
 /// </summary>
 [Collection(TestCollections.HostIntegration)]
 public sealed class HostCoreAgentDefaultTests {
-	private static Task<CommandResult> CreateWith(TestHost host, string branch, string provider) =>
-		host.Core.NewSessionAsync(
-			new NewSessionRequest { Branch = branch, Base = "main", AttachExisting = false, AgentProviderId = provider },
-			CancellationToken.None);
+	private static string Msg(object value) => JsonSerializer.Serialize(value);
 
 	[Fact]
 	public async Task Bootstrap_InjectsTheDefaultProvider() {
@@ -24,11 +20,11 @@ public sealed class HostCoreAgentDefaultTests {
 	}
 
 	[Fact]
-	public async Task CreatingSessionWithProvider_BecomesTheDefault_AndRepushes() {
+	public async Task SetAgentDefault_UpdatesAndRepushes() {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		await CreateWith(host, "feature/codex-default", "codex");
+		host.Send(Msg(new { type = "set-agent-default", providerId = "codex" }));
 
 		var push = host.Bridge.LastOfType("agent-defaults");
 		Assert.True(push.HasValue);
@@ -36,11 +32,21 @@ public sealed class HostCoreAgentDefaultTests {
 	}
 
 	[Fact]
-	public async Task CreatingSessionWithCurrentDefault_DoesNotRepush() {
+	public async Task SetAgentDefault_CurrentProvider_DoesNotRepush() {
 		await using var host = await TestHost.StartAsync(); // ships defaulting to claude
 		host.Bridge.Clear();
 
-		await CreateWith(host, "feature/keep-claude", "claude");
+		host.Send(Msg(new { type = "set-agent-default", providerId = "claude" }));
+
+		Assert.False(host.Bridge.LastOfType("agent-defaults").HasValue);
+	}
+
+	[Fact]
+	public async Task SetAgentDefault_UnknownProvider_IsIgnored() {
+		await using var host = await TestHost.StartAsync();
+		host.Bridge.Clear();
+
+		host.Send(Msg(new { type = "set-agent-default", providerId = "ghost" }));
 
 		Assert.False(host.Bridge.LastOfType("agent-defaults").HasValue);
 	}

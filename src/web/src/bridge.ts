@@ -445,6 +445,9 @@ export type HostBoundMessage =
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
+  // Remember the provider chosen in the New Session prompt as the default (agent.defaultProvider). Always the
+  // local host: the prompt's default is a local preference, independent of where the session is created.
+  | { type: "set-agent-default"; providerId: "claude" | "codex" }
   // A keybinding/palette/menu invoked a Core command. A `token` requests a command-result reply
   // (request/response); without one the host runs it fire-and-forget.
   | { type: "invoke-command"; id: string; args?: unknown; token?: string }

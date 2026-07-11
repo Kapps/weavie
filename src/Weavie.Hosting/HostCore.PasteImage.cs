@@ -118,12 +118,15 @@ public sealed partial class HostCore {
 			string[] attachmentIds = atomicSubmission
 				? [.. attachments.EnumerateArray().Select(value => value.GetString() ?? string.Empty)]
 				: [];
-			if (text.Trim().Length == 0 && attachmentIds.Length == 0) {
-				throw new InvalidOperationException("Write a prompt or attach an image before running Codex.");
+			string[] skills = root.TryGetProperty("skills", out var skillsElement) && skillsElement.ValueKind == JsonValueKind.Array
+				? [.. skillsElement.EnumerateArray().Select(value => value.GetString() ?? string.Empty).Where(name => name.Length > 0)]
+				: [];
+			if (text.Trim().Length == 0 && attachmentIds.Length == 0 && skills.Length == 0) {
+				throw new InvalidOperationException("Write a prompt, attach an image, or add a skill before running Codex.");
 			}
 
 			var resolved = session.AgentAttachments.Resolve(attachmentIds);
-			agent.Submit(new AgentTurnSubmission { Id = id, Text = text, Attachments = resolved });
+			agent.Submit(new AgentTurnSubmission { Id = id, Text = text, Attachments = resolved, Skills = skills });
 			if (id.Length > 0) {
 				session.AgentAttachments.CommitSubmission(id, attachmentIds);
 			}

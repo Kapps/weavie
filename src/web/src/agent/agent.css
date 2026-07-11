@@ -501,6 +501,44 @@
   font-size: calc(var(--terminal-font-size, 16px) * 0.78);
 }
 
+.agent-skills {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+  padding: 1px 0 3px;
+}
+
+.agent-skill-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 3px 1px 7px;
+  border: 1px solid color-mix(in srgb, var(--accent) 50%, var(--border));
+  border-radius: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 12%, var(--bar));
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  white-space: nowrap;
+}
+
+.agent-skill-chip button {
+  width: 15px;
+  height: 15px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--fg);
+  background: transparent;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.agent-skill-chip button:hover {
+  background: color-mix(in srgb, var(--bad) 32%, transparent);
+}
+
 .agent-compose textarea {
   min-height: 26px;
   max-height: 116px;

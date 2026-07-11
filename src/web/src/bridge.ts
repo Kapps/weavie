@@ -110,6 +110,7 @@ export interface AgentSlashEntry {
   description: string;
   commandId: string | null;
   insertText: string | null;
+  skillName: string | null;
 }
 
 export interface AgentControlState {
@@ -209,7 +210,14 @@ export type HostBoundMessage =
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
   | { type: "agent-attachment-upload"; slot: string; id: string; mime: string; dataB64: string }
   | { type: "agent-attachment-remove"; slot: string; id: string }
-  | { type: "agent-submit"; slot: string; id?: string; prompt: string; attachmentIds?: string[] }
+  | {
+      type: "agent-submit";
+      slot: string;
+      id?: string;
+      prompt: string;
+      attachmentIds?: string[];
+      skills?: string[];
+    }
   | { type: "agent-interrupt"; slot: string }
   | { type: "agent-set-control"; slot: string; axis: string; value: string }
   | { type: "agent-approval"; slot: string; requestId: string; decision: string }

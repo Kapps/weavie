@@ -30,7 +30,10 @@ public sealed record AgentControlAxis {
 	public required IReadOnlyList<AgentControlOption> Options { get; init; }
 }
 
-/// <summary>One slash-menu entry: a built-in action (<see cref="CommandId"/>) or an insertable prompt/skill (<see cref="InsertText"/>).</summary>
+/// <summary>
+/// One slash-menu entry. Exactly one action is set: <see cref="CommandId"/> dispatches a built-in command,
+/// <see cref="InsertText"/> inserts text, or <see cref="SkillName"/> stages a provider skill for the next turn.
+/// </summary>
 public sealed record AgentSlashEntry {
 	/// <summary>A stable id, unique within the menu.</summary>
 	public required string Id { get; init; }
@@ -41,11 +44,14 @@ public sealed record AgentSlashEntry {
 	/// <summary>A one-line description shown beside the name.</summary>
 	public required string Description { get; init; }
 
-	/// <summary>When set, selecting the entry dispatches this Weavie command; mutually exclusive with <see cref="InsertText"/>.</summary>
+	/// <summary>When set, selecting the entry dispatches this Weavie command.</summary>
 	public string? CommandId { get; init; }
 
-	/// <summary>When set, selecting the entry replaces the slash query with this text; mutually exclusive with <see cref="CommandId"/>.</summary>
+	/// <summary>When set, selecting the entry replaces the slash query with this text.</summary>
 	public string? InsertText { get; init; }
+
+	/// <summary>When set, selecting the entry stages this provider skill, submitted as a structured skill input.</summary>
+	public string? SkillName { get; init; }
 }
 
 /// <summary>The provider-neutral control + slash surface for one structured-agent session, pushed to the web.</summary>

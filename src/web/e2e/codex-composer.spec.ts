@@ -71,13 +71,15 @@ const controls = {
         description: "Switch the model for this session",
         commandId: "weavie.agent.selectModel",
         insertText: null,
+        skillName: null,
       },
       {
         id: "skill:review-pr",
         name: "review-pr",
         description: "Review a pull request.",
         commandId: null,
-        insertText: "Review the current PR.",
+        insertText: null,
+        skillName: "review-pr",
       },
     ],
   },
@@ -151,7 +153,7 @@ test.describe("Codex composer", () => {
     await expect(picker).toBeHidden();
   });
 
-  test("typing / opens the slash menu and a skill inserts its prompt", async ({ page }) => {
+  test("typing / opens the slash menu and a skill stages a chip", async ({ page }) => {
     await mountCodex(page);
 
     const textarea = page.locator("[data-agent-composer] textarea");
@@ -165,12 +167,19 @@ test.describe("Codex composer", () => {
     await expect(menu).toContainText("/review-pr");
     await page.screenshot({ path: join(shotsDir, "03-slash-menu.png") });
 
-    // Narrow to the skill and accept it; its insertText replaces the slash query in the draft.
+    // Narrow to the skill and accept it; it stages as a chip (structured skill input) and clears the query.
     await page.keyboard.type("rev");
     await expect(menu.locator(".agent-slash-option")).toHaveCount(1);
     await page.keyboard.press("Enter");
     await expect(menu).toBeHidden();
-    await expect(textarea).toHaveValue("Review the current PR.");
+    await expect(textarea).toHaveValue("");
+    const chip = page.locator(".agent-skill-chip", { hasText: "/review-pr" });
+    await expect(chip).toBeVisible();
+    await page.screenshot({ path: join(shotsDir, "05-skill-chip.png") });
+
+    // Removing the chip un-stages the skill.
+    await chip.locator("button").click();
+    await expect(page.locator(".agent-skill-chip")).toHaveCount(0);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

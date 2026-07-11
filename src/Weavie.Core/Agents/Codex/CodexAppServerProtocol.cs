@@ -3,6 +3,9 @@ using Weavie.Core.Json;
 
 namespace Weavie.Core.Agents.Codex;
 
+/// <summary>A discoverable Codex skill: the name and path a structured skill turn input needs, plus its description.</summary>
+public sealed record CodexSkill(string Name, string Path, string Description);
+
 /// <summary>Builds and interprets Codex app-server JSON-RPC messages over JSONL stdio.</summary>
 public static class CodexAppServerProtocol {
 	/// <summary>Builds the initial JSON-RPC initialize request.</summary>
@@ -108,12 +111,13 @@ public static class CodexAppServerProtocol {
 		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, [TextInput(prompt)]);
 	}
 
-	/// <summary>Builds a turn/start request with text plus attached local image input items.</summary>
-	public static string TurnStartWithImages(
+	/// <summary>Builds a turn/start request with text plus attached local images and staged skill input items.</summary>
+	public static string TurnStartWithInputs(
 		long id,
 		string threadId,
 		string prompt,
 		IReadOnlyList<string> imagePaths,
+		IReadOnlyList<CodexSkill> skills,
 		string cwd,
 		string sandbox,
 		string approvalPolicy,
@@ -121,11 +125,12 @@ public static class CodexAppServerProtocol {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
+		ArgumentNullException.ThrowIfNull(skills);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
 		ArgumentNullException.ThrowIfNull(model);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, InputItems(prompt, imagePaths));
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, InputItems(prompt, imagePaths, skills));
 	}
 
 	/// <summary>Builds a turn/steer request for an in-flight turn.</summary>
@@ -136,13 +141,20 @@ public static class CodexAppServerProtocol {
 		return TurnSteerWithInput(id, threadId, turnId, [TextInput(prompt)]);
 	}
 
-	/// <summary>Builds a turn/steer request with text plus attached local image input items.</summary>
-	public static string TurnSteerWithImages(long id, string threadId, string turnId, string prompt, IReadOnlyList<string> imagePaths) {
+	/// <summary>Builds a turn/steer request with text plus attached local images and staged skill input items.</summary>
+	public static string TurnSteerWithInputs(
+		long id,
+		string threadId,
+		string turnId,
+		string prompt,
+		IReadOnlyList<string> imagePaths,
+		IReadOnlyList<CodexSkill> skills) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentException.ThrowIfNullOrEmpty(turnId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
-		return TurnSteerWithInput(id, threadId, turnId, InputItems(prompt, imagePaths));
+		ArgumentNullException.ThrowIfNull(skills);
+		return TurnSteerWithInput(id, threadId, turnId, InputItems(prompt, imagePaths, skills));
 	}
 
 	private static string TurnStartWithInput(
@@ -176,7 +188,9 @@ public static class CodexAppServerProtocol {
 
 	private static object LocalImageInput(string path) => new { type = "localImage", path };
 
-	private static object[] InputItems(string prompt, IReadOnlyList<string> imagePaths) {
+	private static object SkillInput(CodexSkill skill) => new { type = "skill", name = skill.Name, path = skill.Path };
+
+	private static object[] InputItems(string prompt, IReadOnlyList<string> imagePaths, IReadOnlyList<CodexSkill> skills) {
 		List<object> input = [];
 		if (prompt.Length > 0) {
 			input.Add(TextInput(prompt));
@@ -187,8 +201,12 @@ public static class CodexAppServerProtocol {
 			input.Add(LocalImageInput(path));
 		}
 
+		foreach (var skill in skills) {
+			input.Add(SkillInput(skill));
+		}
+
 		if (input.Count == 0) {
-			throw new ArgumentException("Codex input must include text or at least one image.", nameof(imagePaths));
+			throw new ArgumentException("Codex input must include text, an image, or a skill.", nameof(prompt));
 		}
 
 		return [.. input];
@@ -248,34 +266,35 @@ public static class CodexAppServerProtocol {
 		return true;
 	}
 
-	/// <summary>Reads a skills/list result into insertable slash entries, skipping disabled skills.</summary>
-	public static bool TryReadSkills(JsonElement result, out IReadOnlyList<AgentSlashEntry> skills) {
+	/// <summary>Reads a skills/list result into the session's skills, skipping disabled ones.</summary>
+	public static bool TryReadSkills(JsonElement result, out IReadOnlyList<CodexSkill> skills) {
 		skills = [];
 		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
 			return false;
 		}
 
-		List<AgentSlashEntry> entries = [];
+		List<CodexSkill> parsed = [];
 		foreach (var group in data.EnumerateArray()) {
 			if (!group.TryGetProperty("skills", out var groupSkills) || groupSkills.ValueKind != JsonValueKind.Array) {
 				continue;
 			}
 
 			foreach (var skill in groupSkills.EnumerateArray()) {
-				var entry = ReadSkill(skill);
-				if (entry is not null) {
-					entries.Add(entry);
+				var value = ReadSkill(skill);
+				if (value is not null) {
+					parsed.Add(value);
 				}
 			}
 		}
 
-		skills = entries;
+		skills = parsed;
 		return true;
 	}
 
-	private static AgentSlashEntry? ReadSkill(JsonElement skill) {
+	private static CodexSkill? ReadSkill(JsonElement skill) {
 		string name = skill.GetStringOrEmpty("name");
-		if (name.Length == 0
+		string path = skill.GetStringOrEmpty("path");
+		if (name.Length == 0 || path.Length == 0
 			|| (skill.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)) {
 			return null;
 		}
@@ -283,13 +302,7 @@ public static class CodexAppServerProtocol {
 		skill.TryGetProperty("interface", out var face);
 		string shortDescription = face.ValueKind == JsonValueKind.Object ? face.GetStringOrEmpty("shortDescription") : string.Empty;
 		string description = shortDescription.Length > 0 ? shortDescription : skill.GetStringOrEmpty("description");
-		string defaultPrompt = face.ValueKind == JsonValueKind.Object ? face.GetStringOrEmpty("defaultPrompt") : string.Empty;
-		return new AgentSlashEntry {
-			Id = $"skill:{name}",
-			Name = name,
-			Description = description,
-			InsertText = defaultPrompt.Length > 0 ? defaultPrompt : name,
-		};
+		return new CodexSkill(name, path, description);
 	}
 
 	/// <summary>Maps documented app-server notifications into Weavie's normalized agent events.</summary>

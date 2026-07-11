@@ -31,6 +31,7 @@ internal static class AgentControlsProtocol {
 					description = entry.Description,
 					commandId = entry.CommandId,
 					insertText = entry.InsertText,
+					skillName = entry.SkillName,
 				}),
 			},
 		});

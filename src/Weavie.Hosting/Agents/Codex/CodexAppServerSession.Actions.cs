@@ -9,8 +9,8 @@ public sealed partial class CodexAppServerSession {
 	/// <inheritdoc/>
 	public void Submit(AgentTurnSubmission submission) {
 		ArgumentNullException.ThrowIfNull(submission);
-		var input = new CodexTurnInput(submission.Text, submission.Attachments);
-		if (input.Text.Length == 0 && input.Images.Count == 0) {
+		var input = new CodexTurnInput(submission.Text, submission.Attachments, submission.Skills);
+		if (input.Text.Length == 0 && input.Images.Count == 0 && input.SkillNames.Count == 0) {
 			return;
 		}
 
@@ -36,11 +36,12 @@ public sealed partial class CodexAppServerSession {
 	}
 
 	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input) {
-		if (input.Images.Count > 0) {
+		var skills = ResolveSkills(input.SkillNames);
+		if (input.Images.Count > 0 || skills.Count > 0) {
 			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, imagePaths, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel())
-				: CodexAppServerProtocol.TurnSteerWithImages(id, threadId, turnId, input.Text, imagePaths);
+				? CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel())
+				: CodexAppServerProtocol.TurnSteerWithInputs(id, threadId, turnId, input.Text, imagePaths, skills);
 		}
 
 		return string.IsNullOrEmpty(turnId)
@@ -49,13 +50,19 @@ public sealed partial class CodexAppServerSession {
 	}
 
 	private void EmitSubmittedInput(string threadId, string? turnId, bool starting, CodexTurnInput input) {
-		if (input.Text.Length > 0) {
+		string text = input.Text;
+		if (input.SkillNames.Count > 0) {
+			string invoked = "↪ skill: " + string.Join(", ", input.SkillNames);
+			text = text.Length > 0 ? $"{text}\n{invoked}" : invoked;
+		}
+
+		if (text.Length > 0) {
 			Emit(new AgentPaneMessage {
 				Type = starting ? "user-message" : "user-steer",
 				ProviderId = "codex",
 				ThreadId = threadId,
 				TurnId = turnId,
-				Text = input.Text,
+				Text = text,
 			});
 		}
 

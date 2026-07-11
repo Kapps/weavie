@@ -81,6 +81,33 @@ describe("agent composer attachments", () => {
     expect(store.composerState("remote-c", "slot-c").draft).toBe("");
     expect(store.composerState("remote-b", "slot-b").draft).toBe("keep me");
   });
+
+  it("submits staged skills as structured skill inputs and clears them once accepted", () => {
+    store.stageSkill("remote-s", "slot-s", "review-pr");
+    store.stageSkill("remote-s", "slot-s", "review-pr"); // duplicate ignored
+    expect(store.composerState("remote-s", "slot-s").skills).toEqual(["review-pr"]);
+
+    expect(store.submitAgentTurn("remote-s", "slot-s")).toBe(true);
+    const submission = bridge.posted.find(({ message }) => message.type === "agent-submit");
+    expect(submission?.message).toMatchObject({
+      slot: "slot-s",
+      prompt: "",
+      skills: ["review-pr"],
+    });
+
+    bridge.listener?.(
+      {
+        type: "agent-submission-state",
+        slot: "slot-s",
+        id: submission?.message.id,
+        attachmentIds: [],
+        status: "accepted",
+        error: "",
+      },
+      "remote-s",
+    );
+    expect(store.composerState("remote-s", "slot-s").skills).toEqual([]);
+  });
 });
 
 function pasteEvent(blob: Blob): ClipboardEvent {

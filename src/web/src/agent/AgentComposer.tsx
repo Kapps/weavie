@@ -13,7 +13,9 @@ import {
   composerState,
   removeComposerAttachment,
   setComposerDraft,
+  stageSkill,
   submitAgentTurn,
+  unstageSkill,
   uploadAgentImage,
 } from "./composer-store";
 import {
@@ -50,7 +52,7 @@ export function AgentComposer(props: {
       props.slot !== null &&
       state.submittingId === null &&
       state.attachments.every((attachment) => attachment.status === "ready") &&
-      (state.draft.trim().length > 0 || state.attachments.length > 0)
+      (state.draft.trim().length > 0 || state.attachments.length > 0 || state.skills.length > 0)
     );
   });
 
@@ -87,6 +89,10 @@ export function AgentComposer(props: {
     if (entry.commandId !== null) {
       setComposerDraft(props.backendId, slot, "");
       void dispatchCommand(entry.commandId);
+    } else if (entry.skillName !== null) {
+      // Stage the skill so it submits as a structured skill input; clear the "/query" it replaces.
+      stageSkill(props.backendId, slot, entry.skillName);
+      setComposerDraft(props.backendId, slot, "");
     } else if (entry.insertText !== null) {
       setComposerDraft(props.backendId, slot, entry.insertText);
       const caret = entry.insertText.length;
@@ -271,6 +277,29 @@ export function AgentComposer(props: {
                   ×
                 </button>
               </div>
+            )}
+          </For>
+        </div>
+      </Show>
+      <Show when={composer().skills.length > 0}>
+        <div class="agent-skills">
+          <For each={composer().skills}>
+            {(skill) => (
+              <span class="agent-skill-chip">
+                /{skill}
+                <button
+                  type="button"
+                  title="Remove skill"
+                  onClick={() => {
+                    const slot = props.slot;
+                    if (slot !== null) {
+                      unstageSkill(props.backendId, slot, skill);
+                    }
+                  }}
+                >
+                  ×
+                </button>
+              </span>
             )}
           </For>
         </div>

@@ -21,7 +21,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private IReadOnlyList<AgentControlOption> _modelOptions = [];
 	private string _catalogDefaultModel = string.Empty;
-	private IReadOnlyList<AgentSlashEntry> _skillEntries = [];
+	private IReadOnlyList<CodexSkill> _skills = [];
 	private string _modelOverride = string.Empty;
 	private string _sandboxOverride = string.Empty;
 	private string _approvalOverride = string.Empty;
@@ -97,9 +97,9 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 		long skillsRequest = NextRequest();
 		var skills = await _client.RequestAsync(skillsRequest, CodexAppServerProtocol.SkillsList(skillsRequest, _context.Workspace), CancellationToken.None)
 			.ConfigureAwait(false);
-		if (CodexAppServerProtocol.TryReadSkills(skills, out var entries)) {
+		if (CodexAppServerProtocol.TryReadSkills(skills, out var parsed)) {
 			lock (_gate) {
-				_skillEntries = entries;
+				_skills = parsed;
 			}
 		}
 	}
@@ -107,14 +107,14 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 	private AgentControlState BuildControlState() {
 		string model, sandbox, approval, catalogDefault;
 		IReadOnlyList<AgentControlOption> modelOptions;
-		IReadOnlyList<AgentSlashEntry> skills;
+		IReadOnlyList<CodexSkill> skills;
 		lock (_gate) {
 			model = _modelOverride.Length > 0 ? _modelOverride : Model();
 			sandbox = _sandboxOverride.Length > 0 ? _sandboxOverride : Sandbox();
 			approval = _approvalOverride.Length > 0 ? _approvalOverride : ApprovalPolicy();
 			modelOptions = _modelOptions;
 			catalogDefault = _catalogDefaultModel;
-			skills = _skillEntries;
+			skills = _skills;
 		}
 
 		List<AgentControlAxis> axes = [
@@ -127,10 +127,21 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 			Builtin("model", "Switch the model for this session", CoreCommands.SelectModel),
 			Builtin("approvals", "Change when Codex asks for approval", CoreCommands.SelectApprovalPolicy),
 			Builtin("sandbox", "Change what Codex is allowed to touch", CoreCommands.SelectSandbox),
-			.. skills,
+			.. skills.Select(SkillEntry),
 		];
 
 		return new AgentControlState { Axes = axes, Slash = slash };
+	}
+
+	/// <summary>Resolves staged skill names to the session's known skills, dropping any that are no longer available.</summary>
+	private IReadOnlyList<CodexSkill> ResolveSkills(IReadOnlyList<string> names) {
+		if (names.Count == 0) {
+			return [];
+		}
+
+		lock (_gate) {
+			return [.. names.Select(name => _skills.FirstOrDefault(skill => skill.Name == name)).OfType<CodexSkill>()];
+		}
 	}
 
 	private bool IsValidControl(string axis, string value) {
@@ -163,4 +174,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private static AgentSlashEntry Builtin(string name, string description, string commandId) =>
 		new() { Id = $"builtin:{name}", Name = name, Description = description, CommandId = commandId };
+
+	private static AgentSlashEntry SkillEntry(CodexSkill skill) =>
+		new() { Id = $"skill:{skill.Name}", Name = skill.Name, Description = skill.Description, SkillName = skill.Name };
 }

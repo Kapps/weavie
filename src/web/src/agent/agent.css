@@ -504,6 +504,61 @@
   font-size: calc(var(--terminal-font-size, 16px) * 0.78);
 }
 
+.agent-working {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 1px 0 2px;
+  color: var(--busy);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+}
+
+.agent-working-spinner {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  border: 2px solid color-mix(in srgb, var(--busy) 28%, transparent);
+  border-top-color: var(--busy);
+  border-radius: 50%;
+  animation: weavie-spin 0.9s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-working-spinner {
+    animation: none;
+  }
+}
+
+.agent-working-time {
+  color: color-mix(in srgb, var(--busy) 72%, var(--dim));
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-working-hint {
+  color: var(--dim);
+}
+
+.agent-working-hint::before {
+  content: "·";
+  margin-right: 7px;
+}
+
+/* Blocked on the user (pending approval/answer): amber, spinner slowed — alive but not running. */
+.agent-working.waiting {
+  color: var(--warn);
+}
+
+.agent-working.waiting .agent-working-spinner {
+  border-color: color-mix(in srgb, var(--warn) 28%, transparent);
+  border-top-color: var(--warn);
+  animation-duration: 2.4s;
+}
+
+.agent-working.waiting .agent-working-time {
+  color: color-mix(in srgb, var(--warn) 72%, var(--dim));
+}
+
 .agent-skills {
   grid-column: 1 / -1;
   display: flex;
@@ -602,6 +657,17 @@
 .agent-compose button:disabled {
   cursor: default;
   opacity: 0.5;
+}
+
+.agent-key-chip {
+  margin-left: 7px;
+  padding: 0 4px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
+  border-radius: 3px;
+  color: var(--dim);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  font: inherit;
+  font-size: calc(var(--terminal-font-size, 16px) * 0.68);
 }
 
 .agent-status-line {

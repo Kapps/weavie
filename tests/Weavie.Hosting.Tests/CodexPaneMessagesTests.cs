@@ -59,6 +59,29 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void FromRequest_CommandApproval_ShowsTheCommand() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":"approval-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_1","command":"dotnet test tests/Weavie.Hosting.Tests","cwd":"/repo","reason":"Verify the change."}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest("approval-1", "approval-1", "item/commandExecution/requestApproval", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("Verify the change.", message.Summary);
+		Assert.Equal("dotnet test tests/Weavie.Hosting.Tests", message.Text);
+	}
+
+	[Fact]
+	public void FromRequest_FileChangeApproval_ListsThePaths() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":"approval-2","method":"item/fileChange/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_2","changes":[{"path":"src/App.cs"},{"path":"src/Program.cs"}]}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest("approval-2", "approval-2", "item/fileChange/requestApproval", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("src/App.cs, src/Program.cs", message.Text);
+	}
+
+	[Fact]
 	public void InputResponse_BuildsAppServerAnswerShape() {
 		object response = CodexInputResponses.Build(new Dictionary<string, IReadOnlyList<string>> {
 			["mode"] = ["Safe"],

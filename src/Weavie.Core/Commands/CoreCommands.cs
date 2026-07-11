@@ -65,6 +65,15 @@ public static class CoreCommands {
 	/// <summary>Opens the agent composer's sandbox picker, or applies a <c>value</c> arg directly.</summary>
 	public const string SelectSandbox = "weavie.agent.selectSandbox";
 
+	/// <summary>Accepts the agent's newest pending approval request.</summary>
+	public const string AgentApprove = "weavie.agent.approve";
+
+	/// <summary>Accepts the agent's newest pending approval request for the rest of the session.</summary>
+	public const string AgentApproveForSession = "weavie.agent.approveForSession";
+
+	/// <summary>Declines the agent's newest pending approval request.</summary>
+	public const string AgentDecline = "weavie.agent.decline";
+
 	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
 	public const string TerminalClear = "weavie.terminal.clear";
 
@@ -578,6 +587,41 @@ public static class CoreCommands {
 			Aliases = ["select sandbox", "sandbox mode", "change sandbox", "agent permissions"],
 			When = "agentFocused",
 			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Sandbox mode to select; omit to open the picker\"}}",
+		});
+
+		// Approval decisions answer the newest pending request, so the keyboard path mirrors clicking the newest
+		// card's buttons. Alt-chords: the composer keeps plain typing (steering stays available mid-approval).
+		registry.Register(new CommandDefinition {
+			Id = AgentApprove,
+			Title = "Approve Agent Request",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Accept the agent's pending approval request.",
+			Aliases = ["approve", "accept request", "allow tool", "yes"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+y" }],
+			When = "agentFocused && agentApprovalPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentApproveForSession,
+			Title = "Approve Agent Request For Session",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Accept the agent's pending approval request for the rest of the session.",
+			Aliases = ["approve for session", "always allow", "accept for session"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+shift+y" }],
+			When = "agentFocused && agentApprovalPending",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentDecline,
+			Title = "Decline Agent Request",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Decline the agent's pending approval request.",
+			Aliases = ["decline", "deny request", "reject tool", "no"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+n" }],
+			When = "agentFocused && agentApprovalPending",
 		});
 
 		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);

@@ -185,7 +185,8 @@ function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): str
 
 function entryLabel(entry: AgentTranscriptEntry): string {
   if (entry.kind === "message" && entry.tone === "user") {
-    return "Prompt";
+    // A steer must say so — the user needs to see their message joined the running turn, not queued.
+    return entry.label === "Steer" ? "Steer" : "Prompt";
   }
   switch (entry.label) {
     case "Interrupted":

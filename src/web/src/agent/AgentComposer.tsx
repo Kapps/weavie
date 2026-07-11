@@ -1,7 +1,9 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import { type AgentPaneUpdate, type AgentSlashEntry, postToBackend } from "../bridge";
 import { readClipboardImage, readClipboardText } from "../clipboard-read";
+import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
+import { liveKeyLabel } from "../commands/keys-live";
 import { dispatchCommand, registerCommand } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
@@ -29,6 +31,7 @@ import {
   submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
+import { formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
@@ -42,7 +45,38 @@ export function AgentComposer(props: {
   const appliedDraftIndexes = new Map<string, number>();
   const composer = createMemo(() => composerState(props.backendId, props.slot));
   const pendingLegacyImages = createMemo(() => countPendingLegacyImages(props.messages));
-  const canInterrupt = createMemo(() => props.slot !== null && hasActiveTurn(props.messages));
+  const turnActive = createMemo(() => hasActiveTurn(props.messages));
+  const pending = createMemo(() => (turnActive() ? pendingRequest(props.messages) : null));
+  const pendingKind = createMemo(() => pending()?.kind ?? null);
+  const canInterrupt = createMemo(() => props.slot !== null && turnActive());
+
+  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to moments a card is actually pending.
+  createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
+  onCleanup(() => setContext("agentApprovalPending", false));
+
+  // Elapsed working time, measured from when this view saw the turn begin and ticking once a second.
+  const [turnStartedAt, setTurnStartedAt] = createSignal<number | null>(null);
+  const [now, setNow] = createSignal(0);
+  // Reads the session identity so a switch between two mid-turn sessions re-baselines the clock.
+  createEffect(() => {
+    props.backendId;
+    props.slot;
+    setTurnStartedAt(turnActive() ? Date.now() : null);
+  });
+  createEffect(() => {
+    if (turnStartedAt() === null) {
+      return;
+    }
+    setNow(Date.now());
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    onCleanup(() => clearInterval(timer));
+  });
+  const elapsed = (): string => {
+    const started = turnStartedAt();
+    return started === null ? "" : formatElapsed(now() - started);
+  };
+
+  const interruptKey = (): string => liveKeyLabel(CommandIds.agentInterrupt);
   const canSubmit = createMemo(() => {
     const state = composer();
     if (props.inputProtocol < 2) {
@@ -232,17 +266,43 @@ export function AgentComposer(props: {
       return true;
     });
 
+  // A decision command answers the newest pending approval — the request the working row waits on.
+  const registerDecision = (commandId: string, decision: string): (() => void) =>
+    registerCommand(commandId, () => {
+      const slot = props.slot;
+      const request = pending();
+      if (slot === null || request === null || request.kind !== "approval") {
+        return false;
+      }
+      postToBackend(props.backendId, {
+        type: "agent-approval",
+        slot,
+        requestId: request.requestId,
+        decision,
+      });
+      return true;
+    });
+
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
   const offSelectModel = registerSelect(CommandIds.selectModel, "model");
   const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
+  const offApprove = registerDecision(CommandIds.agentApprove, "accept");
+  const offApproveForSession = registerDecision(
+    CommandIds.agentApproveForSession,
+    "acceptForSession",
+  );
+  const offDecline = registerDecision(CommandIds.agentDecline, "decline");
   onCleanup(offNativePaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
   onCleanup(offSelectModel);
   onCleanup(offSelectApproval);
   onCleanup(offSelectSandbox);
+  onCleanup(offApprove);
+  onCleanup(offApproveForSession);
+  onCleanup(offDecline);
 
   return (
     <form
@@ -253,6 +313,19 @@ export function AgentComposer(props: {
         void dispatchCommand(CommandIds.agentSubmit);
       }}
     >
+      <Show when={turnActive()}>
+        <div class="agent-working" classList={{ waiting: pendingKind() !== null }}>
+          <span class="agent-working-spinner" aria-hidden="true" />
+          {/* Only the label is a live region — the ticking time would re-announce every second. */}
+          <span class="agent-working-label" role="status">
+            {workingLabel(pendingKind())}
+          </span>
+          <span class="agent-working-time">{elapsed()}</span>
+          <Show when={interruptKey() !== ""}>
+            <span class="agent-working-hint">{interruptKey()} to interrupt</span>
+          </Show>
+        </div>
+      </Show>
       <Show when={composer().attachments.length > 0}>
         <div class="agent-attachments">
           <For each={composer().attachments}>
@@ -338,20 +411,21 @@ export function AgentComposer(props: {
         }}
       />
       <div class="agent-compose-actions">
-        <button
-          type="button"
-          title={`Interrupt active Codex turn${keyHint(CommandIds.agentInterrupt)}`}
-          disabled={!canInterrupt()}
-          onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
-        >
-          Interrupt
-        </button>
+        <Show when={canInterrupt()}>
+          <button
+            type="button"
+            title={`Interrupt the running turn${keyHint(CommandIds.agentInterrupt)}`}
+            onClick={() => void dispatchCommand(CommandIds.agentInterrupt)}
+          >
+            Interrupt
+          </button>
+        </Show>
         <button
           type="submit"
-          title={`Run prompt${keyHint(CommandIds.agentSubmit)}`}
+          title={`${turnActive() ? "Steer the running turn" : "Run prompt"}${keyHint(CommandIds.agentSubmit)}`}
           disabled={!canSubmit()}
         >
-          {composer().submittingId === null ? "Run" : "Sending…"}
+          {composer().submittingId !== null ? "Sending…" : turnActive() ? "Steer" : "Run"}
         </button>
       </div>
       <Show when={composer().error !== null}>
@@ -380,6 +454,13 @@ function applyPrefill(
   }
 }
 
+function workingLabel(pending: "approval" | "input" | null): string {
+  if (pending === "approval") {
+    return "Waiting on your approval";
+  }
+  return pending === "input" ? "Waiting on your answer" : "Working";
+}
+
 function countPendingLegacyImages(messages: AgentPaneUpdate[]): number {
   return messages.reduce((count, message) => {
     if (message.type !== "user-image") {
@@ -390,16 +471,4 @@ function countPendingLegacyImages(messages: AgentPaneUpdate[]): number {
     }
     return message.status === "submitted" ? Math.max(0, count - 1) : count;
   }, 0);
-}
-
-function hasActiveTurn(messages: AgentPaneUpdate[]): boolean {
-  let active = false;
-  for (const message of messages) {
-    if (message.type === "turn-started") {
-      active = true;
-    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
-      active = false;
-    }
-  }
-  return active;
 }

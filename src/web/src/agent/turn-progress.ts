@@ -49,6 +49,18 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
   return latest;
 }
 
+/**
+ * The one approval the keyboard decision commands answer: the newest pending request of an active
+ * turn, when it is an approval. The chips and the commands must derive this identically.
+ */
+export function pendingApproval(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
+  if (!hasActiveTurn(messages)) {
+    return null;
+  }
+  const request = pendingRequest(messages);
+  return request !== null && request.kind === "approval" ? request : null;
+}
+
 /** Elapsed working time as a compact label: "8s", "1m 05s", "1h 02m". */
 export function formatElapsed(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000));

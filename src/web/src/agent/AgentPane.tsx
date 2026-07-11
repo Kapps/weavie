@@ -4,7 +4,7 @@ import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentTranscript } from "./AgentTranscript";
-import { hasActiveTurn, pendingRequest } from "./turn-progress";
+import { pendingApproval } from "./turn-progress";
 
 export function AgentPane(props: {
   backendId: string;
@@ -21,14 +21,8 @@ export function AgentPane(props: {
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
-  // The one approval the keyboard chords answer (the newest pending) — only that card wears the chips.
-  const keyboardApprovalId = createMemo(() => {
-    if (!hasActiveTurn(props.messages)) {
-      return null;
-    }
-    const request = pendingRequest(props.messages);
-    return request !== null && request.kind === "approval" ? request.requestId : null;
-  });
+  // Only the card the keyboard chords answer wears the chips.
+  const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
 
   const isAtBottom = (): boolean => {
     if (bodyRef === undefined) {

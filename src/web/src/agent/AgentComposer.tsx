@@ -31,7 +31,7 @@ import {
   submittedPrompts,
 } from "./prompt-history";
 import { filterSlash, slashQuery } from "./slash";
-import { formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
+import { formatElapsed, hasActiveTurn, pendingApproval, pendingRequest } from "./turn-progress";
 
 export function AgentComposer(props: {
   active: boolean;
@@ -266,12 +266,12 @@ export function AgentComposer(props: {
       return true;
     });
 
-  // A decision command answers the newest pending approval — the request the working row waits on.
+  // A decision command answers the same approval the card chips advertise (turn-progress.pendingApproval).
   const registerDecision = (commandId: string, decision: string): (() => void) =>
     registerCommand(commandId, () => {
       const slot = props.slot;
-      const request = pending();
-      if (slot === null || request === null || request.kind !== "approval") {
+      const request = pendingApproval(props.messages);
+      if (slot === null || request === null) {
         return false;
       }
       postToBackend(props.backendId, {

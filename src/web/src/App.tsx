@@ -20,6 +20,7 @@ import {
   backendName,
   connectedBackends,
   isBrowserHostedShell,
+  LOCAL_BACKEND_ID,
   onHostMessage,
   openTarget,
   postToBackend,
@@ -48,6 +49,7 @@ import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
 // status survive HMR.
 import {
   demoteSession,
+  findSession,
   isPromoted,
   promoteSession,
   type RailSession,
@@ -1116,8 +1118,10 @@ export default function App(): JSX.Element {
           return false;
         }
         const backendId =
-          typeof a.backendId === "string" && a.backendId.length > 0 ? a.backendId : "local";
-        const target = sessions().find((s) => s.backendId === backendId && s.id === a.id);
+          typeof a.backendId === "string" && a.backendId.length > 0
+            ? a.backendId
+            : LOCAL_BACKEND_ID;
+        const target = findSession(backendId, a.id);
         if (target === undefined) {
           return false;
         }

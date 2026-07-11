@@ -24,8 +24,7 @@ public sealed partial class HostCore {
 	private void PostSessionAttention(HostSession session, AttentionKind kind) {
 		// The rail identity (slot id + label) is what the web names and focuses; a session with no slot yet
 		// (mid-startup) has no chip to take the user to, and its boot transitions are non-events anyway.
-		var slot = _sessions?.Slots.FirstOrDefault(s => ReferenceEquals(s.Session, session));
-		if (slot is null) {
+		if (SlotFor(session) is not { } slot) {
 			return;
 		}
 
@@ -33,16 +32,7 @@ public sealed partial class HostCore {
 			type = "session-attention",
 			slot = slot.Id,
 			label = slot.Label,
-			kind = KindName(kind),
-			providerId = slot.AgentProviderId,
+			kind = AttentionRules.WireName(kind),
 		}));
 	}
-
-	// Exhaustive on purpose (like StatusName): a new kind must be wired here, not fall through silently.
-	private static string KindName(AttentionKind kind) => kind switch {
-		AttentionKind.TurnComplete => "turnComplete",
-		AttentionKind.NeedsInput => "needsInput",
-		AttentionKind.Failed => "failed",
-		_ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unhandled attention kind"),
-	};
 }

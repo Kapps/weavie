@@ -7,8 +7,8 @@ import { expect, test } from "../harness/fixtures";
 // Session attention (docs/specs/session-attention.md): a turn completing / a permission prompt pushes
 // session-attention through the full stack (fake claude → hooks → HostCore → WSS → web), and the web plays
 // a pack sound + raises a silent OS notification naming the session, whose click focuses that session.
-// The presentation sinks (Notification, HTMLMediaElement.play) are stubbed and recorded before boot — the
-// assertions are on the decisions, never on real audio or OS UI.
+// The presentation sinks (Notification, HTMLMediaElement.play) are stubbed and recorded before boot (the
+// preNavigate fixture option) — the assertions are on the decisions, never on real audio or OS UI.
 
 const SIGNAL = ".weavie-e2e-attention-signal";
 
@@ -20,49 +20,51 @@ interface RecorderWindow {
   __permissionRequests: number;
 }
 
-// Installs the recorders (a fake Notification class, a play() recorder, a pinned document.hasFocus) and
-// reloads so the app boots with them in place — addInitScript only applies to future navigations, and the
-// auto fixture has already navigated once.
-async function bootWithRecorders(
-  page: Page,
-  opts: { focused: boolean; permission?: "granted" | "default" | "denied" },
-): Promise<void> {
-  await page.addInitScript(
-    ({ focused, permission }) => {
-      const w = window as unknown as RecorderWindow & { Notification: unknown };
-      w.__notifications = [];
-      w.__notificationClicks = [];
-      w.__sounds = [];
-      w.__permissionRequests = 0;
-      class RecordedNotification {
-        static permission = permission;
-        static requestPermission(): Promise<string> {
-          w.__permissionRequests += 1;
-          return Promise.resolve("granted");
-        }
-        onclick: (() => void) | null = null;
-        constructor(title: string, options?: { body?: string; tag?: string; silent?: boolean }) {
-          w.__notifications.push({
-            title,
-            body: options?.body ?? "",
-            tag: options?.tag ?? "",
-            silent: options?.silent ?? false,
-          });
-          w.__notificationClicks.push(() => this.onclick?.());
-        }
-        close(): void {}
-      }
-      w.Notification = RecordedNotification;
-      document.hasFocus = () => focused;
-      HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
-        w.__sounds.push(this.src);
-        return Promise.resolve();
-      };
-    },
-    { focused: opts.focused, permission: opts.permission ?? "granted" },
-  );
-  await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("#splash")).toHaveCount(0, { timeout: 40_000 });
+// A preNavigate option installing the recorders (a fake Notification class, a play() recorder, a pinned
+// document.hasFocus) before the app boots.
+function recorders(opts: { focused: boolean; permission?: "granted" | "default" | "denied" }): {
+  run: (page: Page) => Promise<void>;
+} {
+  return {
+    run: (page) =>
+      page.addInitScript(
+        ({ focused, permission }) => {
+          const w = window as unknown as RecorderWindow & { Notification: unknown };
+          w.__notifications = [];
+          w.__notificationClicks = [];
+          w.__sounds = [];
+          w.__permissionRequests = 0;
+          class RecordedNotification {
+            static permission = permission;
+            static requestPermission(): Promise<string> {
+              w.__permissionRequests += 1;
+              return Promise.resolve("granted");
+            }
+            onclick: (() => void) | null = null;
+            constructor(
+              title: string,
+              options?: { body?: string; tag?: string; silent?: boolean },
+            ) {
+              w.__notifications.push({
+                title,
+                body: options?.body ?? "",
+                tag: options?.tag ?? "",
+                silent: options?.silent ?? false,
+              });
+              w.__notificationClicks.push(() => this.onclick?.());
+            }
+            close(): void {}
+          }
+          w.Notification = RecordedNotification;
+          document.hasFocus = () => focused;
+          HTMLMediaElement.prototype.play = function (this: HTMLMediaElement) {
+            w.__sounds.push(this.src);
+            return Promise.resolve();
+          };
+        },
+        { focused: opts.focused, permission: opts.permission ?? "granted" },
+      ),
+  };
 }
 
 const notifications = (page: Page): Promise<RecorderWindow["__notifications"]> =>
@@ -83,14 +85,15 @@ const turnScript = (closing: Record<string, unknown>) => ({
 });
 
 test.describe("turn complete, window unfocused", () => {
-  test.use({ fakeScript: turnScript({ hook_event_name: "Stop" }) });
+  test.use({
+    fakeScript: turnScript({ hook_event_name: "Stop" }),
+    preNavigate: recorders({ focused: false }),
+  });
 
   test("plays the pack sound + raises a silent notification naming the session + badges the title", async ({
     page,
     weavie,
   }) => {
-    await bootWithRecorders(page, { focused: false });
-
     writeFileSync(join(weavie.workspace, SIGNAL), "");
 
     await expect.poll(() => notifications(page)).toHaveLength(1);
@@ -112,11 +115,10 @@ test.describe("permission prompt, window unfocused", () => {
       hook_event_name: "Notification",
       message: "Claude needs your permission to use Bash",
     }),
+    preNavigate: recorders({ focused: false }),
   });
 
   test("raises a needs-input notification with its own sound", async ({ page, weavie }) => {
-    await bootWithRecorders(page, { focused: false });
-
     writeFileSync(join(weavie.workspace, SIGNAL), "");
 
     await expect.poll(() => notifications(page)).toHaveLength(1);
@@ -127,13 +129,15 @@ test.describe("permission prompt, window unfocused", () => {
 });
 
 test.describe("two sessions: the background session pings; clicking focuses it", () => {
-  test.use({ fakeScript: turnScript({ hook_event_name: "Stop" }) });
+  test.use({
+    fakeScript: turnScript({ hook_event_name: "Stop" }),
+    preNavigate: recorders({ focused: false }),
+  });
 
   test("notification names the background session and its click switches the rail to it", async ({
     page,
     weavie,
   }) => {
-    await bootWithRecorders(page, { focused: false });
     const chips = page.locator(".session-chip");
 
     // Fork a second session; the fork becomes the active chip, the primary works on in the background.
@@ -157,11 +161,12 @@ test.describe("two sessions: the background session pings; clicking focuses it",
 });
 
 test.describe("suppression: focused window, active session", () => {
-  test.use({ fakeScript: turnScript({ hook_event_name: "Stop" }) });
+  test.use({
+    fakeScript: turnScript({ hook_event_name: "Stop" }),
+    preNavigate: recorders({ focused: true }),
+  });
 
   test("the session you're watching never pings", async ({ page, weavie }) => {
-    await bootWithRecorders(page, { focused: true });
-
     writeFileSync(join(weavie.workspace, SIGNAL), "");
 
     // The turn observably settled (the shell footer's claude status), so a ping would have fired by now.
@@ -175,13 +180,15 @@ test.describe("suppression: focused window, active session", () => {
 });
 
 test.describe("browser permission is gesture-gated, never requested cold", () => {
-  test.use({ fakeScript: turnScript({ hook_event_name: "Stop" }) });
+  test.use({
+    fakeScript: turnScript({ hook_event_name: "Stop" }),
+    preNavigate: recorders({ focused: false, permission: "default" }),
+  });
 
   test("the first event raises an Enable toast whose click triggers the real prompt", async ({
     page,
     weavie,
   }) => {
-    await bootWithRecorders(page, { focused: false, permission: "default" });
     // Booting alone must not prompt.
     expect(
       await page.evaluate(() => (window as unknown as RecorderWindow).__permissionRequests),

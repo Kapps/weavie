@@ -23,8 +23,10 @@ export interface ToastAction {
 
 /** How long a non-error toast lingers before auto-dismissing. Errors are exempt — see addToast. */
 const AUTO_DISMISS_MS = 4000;
-// Timed toasts auto-dismiss and show the drain fill; errors and in-flight `busy` toasts persist until cleared.
-const isTimed = (level: Toast["level"]): boolean => level !== "error" && level !== "busy";
+// Timed toasts auto-dismiss and show the drain fill; errors, in-flight `busy`, and action-bearing toasts
+// persist (the button IS the point, and the user may be away when it fires).
+const isTimed = (level: Toast["level"], action?: ToastAction): boolean =>
+  level !== "error" && level !== "busy" && action === undefined;
 // How long the collapse-out animation runs before the toast is actually removed. Keep in sync with the
 // `.toast.leaving` transition in notify.css so the row is gone exactly when its animation finishes.
 const EXIT_MS = 200;
@@ -86,13 +88,12 @@ export function createToasts(): {
       expiresAt: Date.now() + ms,
     });
   };
-  // Re-arms (or clears) a toast's auto-dismiss: errors persist until dismissed; everything else clears itself.
-  // A keyed replacement while hovered stays paused (the pointer is still on it) with a fresh full duration.
-  // An action-bearing toast persists like an error — the button IS the point, and the user may be away when
-  // it fires (e.g. the notification-permission unlock raised while the window is unfocused).
+  // Re-arms (or clears) a toast's auto-dismiss: untimed toasts persist until dismissed; everything else
+  // clears itself. A keyed replacement while hovered stays paused (the pointer is still on it) with a
+  // fresh full duration.
   const armAutoDismiss = (id: number, level: Toast["level"], action?: ToastAction): void => {
     disarm(id);
-    if (!isTimed(level) || action !== undefined) {
+    if (!isTimed(level, action)) {
       return;
     }
     if (hovered.has(id)) {
@@ -134,30 +135,26 @@ export function createToasts(): {
     key?: string,
     action?: ToastAction,
   ): void => {
+    // Built (not spread from the old toast) so a keyed replacement without an action drops a stale button.
+    const build = (id: number): Toast => ({
+      id,
+      level,
+      message,
+      ...(key !== undefined && { key }),
+      ...(action !== undefined && { action }),
+    });
     // A keyed toast replaces the live one with the same key in place — e.g. the "Reconnected" info supersedes
     // the lingering "Lost connection" error, so a resolved condition never leaves a stale toast on screen.
     if (key !== undefined) {
       const current = toasts().find((t) => t.key === key && !leaving().has(t.id));
       if (current !== undefined) {
-        // Rebuilt rather than spread so a replacement without an action drops the stale button.
-        const replacement: Toast = { id: current.id, level, message, key };
-        if (action !== undefined) {
-          replacement.action = action;
-        }
-        setToasts((list) => list.map((t) => (t.id === current.id ? replacement : t)));
+        setToasts((list) => list.map((t) => (t.id === current.id ? build(current.id) : t)));
         armAutoDismiss(current.id, level, action);
         return;
       }
     }
     const id = ++nextId;
-    const toast: Toast = { id, level, message };
-    if (key !== undefined) {
-      toast.key = key;
-    }
-    if (action !== undefined) {
-      toast.action = action;
-    }
-    setToasts((list) => [...list, toast]);
+    setToasts((list) => [...list, build(id)]);
     armAutoDismiss(id, level, action);
   };
   return {
@@ -189,7 +186,7 @@ export function Toasts(props: {
             class={`toast toast-${toast.level}`}
             classList={{
               leaving: props.isLeaving(toast.id),
-              "toast-timed": isTimed(toast.level) && toast.action === undefined,
+              "toast-timed": isTimed(toast.level, toast.action),
             }}
             style={`--toast-duration:${AUTO_DISMISS_MS}ms`}
             role="alert"

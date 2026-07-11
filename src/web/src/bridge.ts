@@ -69,9 +69,8 @@ export interface NotificationPrefs {
   os: boolean;
   volume: number;
   soundPack: string;
-  onTurnComplete: boolean;
-  onNeedsInput: boolean;
-  onFailed: boolean;
+  /** Per-event gates keyed by the wire kind, so consumers index by an event's kind directly. */
+  gates: Record<AttentionKindName, boolean>;
 }
 
 export interface AgentPaneUpdate {
@@ -439,17 +438,9 @@ export type WebBoundMessage =
   | { type: "ref-link-base"; prefix: string | null }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
-  // A session wants attention (turn complete / needs input / crashed), carrying its rail identity. Pushed
-  // by every backend for every loaded session — never active-gated (routed cross-backend via
-  // isSessionMessage) — so a background or remote session's ping reaches the client. The web presents it
-  // as a sound + OS notification. See docs/specs/session-attention.md.
-  | {
-      type: "session-attention";
-      slot: string;
-      label: string;
-      kind: AttentionKindName;
-      providerId: string;
-    }
+  // A session wants attention (turn complete / needs input / crashed), with its rail identity. Pushed by
+  // every backend, never active-gated, so background/remote pings reach the client (session-attention.md).
+  | { type: "session-attention"; slot: string; label: string; kind: AttentionKindName }
   // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.
   | { type: "suggestions"; items: Suggestion[] }
   // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
@@ -526,7 +517,7 @@ export type WebBoundMessage =
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
   // Host re-pushes the resolved notification prefs when a notifications.* setting changes (ApplyMode.Live).
-  // Honored only from the page-serving (local) backend, so one prefs source governs presentation.
+  // A local-machine push: one prefs source (the page-serving backend) governs presentation.
   | ({ type: "notification-prefs" } & NotificationPrefs)
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
@@ -759,7 +750,6 @@ function isSessionMessage(type: string): boolean {
     type === "session-list" ||
     type === "session-status" ||
     type === "session-attention" ||
-    type === "notification-prefs" ||
     type === "agent-attachment-state" ||
     type === "agent-submission-state" ||
     type === "suggestions" ||
@@ -838,7 +828,8 @@ function deliverFromHost(raw: string, backendId: string): void {
   const localMachinePush =
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
-    parsed.type === "window-state";
+    parsed.type === "window-state" ||
+    parsed.type === "notification-prefs";
   if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
     return;
   }

@@ -24,4 +24,13 @@ public static class AttentionRules {
 		SessionStatus.Error => AttentionKind.Failed,
 		_ => null,
 	};
+
+	// Exhaustive on purpose (like StatusName): a new kind must be wired here, not fall through silently.
+	/// <summary>The wire name for <paramref name="kind"/>: the <c>session-attention</c> kind and the prefs gates key.</summary>
+	public static string WireName(AttentionKind kind) => kind switch {
+		AttentionKind.TurnComplete => "turnComplete",
+		AttentionKind.NeedsInput => "needsInput",
+		AttentionKind.Failed => "failed",
+		_ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unhandled attention kind"),
+	};
 }

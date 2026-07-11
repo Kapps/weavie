@@ -62,7 +62,7 @@ sequenceDiagram
 
     SM->>HC: Status.Changed (every loaded session)
     HC->>HC: AttentionRules.Classify(prev, next)
-    HC->>AT: push session-attention {slot, label, kind, providerId}
+    HC->>AT: push session-attention {slot, label, kind}
     AT->>AT: settings gate + focus suppression
     AT->>P: play(pack, kind); notify(title, tag) if window unfocused
     P-->>AT: notification click
@@ -74,7 +74,7 @@ sequenceDiagram
   (`src/Weavie.Hosting/HostCore.Sessions.cs:98`), which already observes `Status.Changed` for every
   loaded session, never active-gated. The previous status is a closure variable in the wiring; the
   machine's event signature doesn't change. On a hit, resolve the slot id and
-  `PostToWeb({type:"session-attention", slot, label, kind, providerId})`.
+  `PostToWeb({type:"session-attention", slot, label, kind})`.
 - **Cross-backend**: `session-attention` joins `isSessionMessage()` (`src/web/src/bridge.ts:686`), so
   the push arrives from *every* connected backend tagged with `backendId` — a remote worker's ping
   reaches the local client exactly like its rail chips do. This is what makes remote sounds local.
@@ -189,8 +189,10 @@ Claude gets it for free via `runCommand`). The web handler resolves the session 
 ## Settings
 
 All in `Configuration/NotificationSettings.cs` (mirrors `FontSettings`: `Keys`, `Register`,
-`BuildJson`; bootstrap via `__WEAVIE_NOTIFICATIONS__`, Live re-push on change as `notification-prefs`,
-honored only from the page-serving backend so one prefs source governs presentation).
+`BuildJson`; bootstrap via `__WEAVIE_NOTIFICATIONS__`, Live re-push on change as `notification-prefs` —
+a local-machine push, routed like clipboard/window-state, so the page-serving backend is the one prefs
+source). The per-event gates ride the JSON keyed by wire kind name, so the web indexes them by an
+event's kind directly.
 
 | Key | Type | Default |
 |---|---|---|

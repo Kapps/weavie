@@ -1,4 +1,5 @@
 using Weavie.Core.Json;
+using Weavie.Core.Sessions;
 
 namespace Weavie.Core.Configuration;
 
@@ -111,11 +112,22 @@ public static class NotificationSettings {
 			writer.WriteBoolean("os", store.GetBool(Os, true));
 			writer.WriteNumber("volume", store.GetInt(Volume, DefaultVolume));
 			writer.WriteString("soundPack", store.GetString(SoundPack) ?? Packs[0]);
-			writer.WriteBoolean("onTurnComplete", store.GetBool(OnTurnComplete, true));
-			writer.WriteBoolean("onNeedsInput", store.GetBool(OnNeedsInput, true));
-			writer.WriteBoolean("onFailed", store.GetBool(OnFailed, true));
+			// Gates keyed by wire kind name, so the web indexes by the event's kind with no per-kind mapping.
+			writer.WriteStartObject("gates");
+			foreach (var kind in Enum.GetValues<AttentionKind>()) {
+				writer.WriteBoolean(AttentionRules.WireName(kind), store.GetBool(GateKey(kind), true));
+			}
+
+			writer.WriteEndObject();
 		});
 	}
+
+	private static string GateKey(AttentionKind kind) => kind switch {
+		AttentionKind.TurnComplete => OnTurnComplete,
+		AttentionKind.NeedsInput => OnNeedsInput,
+		AttentionKind.Failed => OnFailed,
+		_ => throw new ArgumentOutOfRangeException(nameof(kind), kind, "unhandled attention kind"),
+	};
 
 	private static void RegisterEventGate(
 		SettingsRegistry registry, string key, string trigger, IReadOnlyList<string> aliases) {

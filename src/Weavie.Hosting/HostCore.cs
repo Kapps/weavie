@@ -242,9 +242,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public string BuildBootstrap() {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
 		return
-			$"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};"
-			+ $"window.__WEAVIE_NOTIFICATIONS__ = {NotificationSettings.BuildJson(_settings, messageType: null)};"
-			+ $"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};"
+			string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings, null)};"))
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
 			+ BuildTestProfileScript()
@@ -252,6 +250,16 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
+
+	// Live settings groups: each is injected pre-navigation as window.{Global} and re-pushed as its
+	// MessageType when any of its Keys changes. One row per group — the bootstrap and the change handler
+	// both iterate this table.
+	private static readonly (IReadOnlyList<string> Keys, string MessageType, string Global,
+		Func<SettingsStore, string?, string> Build)[] LiveSettingGroups = [
+		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
+		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
+		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
+	];
 
 	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
@@ -269,19 +277,13 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
 		_shellSettingSubscription = _settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
 
-		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them in
-		// place. PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
+		// Live settings groups + theme: re-push the resolved values so the web applies them in place.
+		// PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
-			if (FontSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
-			}
-
-			if (NotificationSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(NotificationSettings.BuildJson(_settings, "notification-prefs"));
-			}
-
-			if (EditorSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(EditorSettings.BuildJson(_settings, "editorOptions"));
+			foreach (var (keys, messageType, _, build) in LiveSettingGroups) {
+				if (keys.Contains(change.Key)) {
+					_bridge.PostToWeb(build(_settings, messageType));
+				}
 			}
 
 			if (ThemeSettings.Keys.Contains(change.Key)) {

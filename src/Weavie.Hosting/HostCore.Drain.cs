@@ -165,8 +165,7 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>The rail label for <paramref name="session"/> (what the user sees), falling back to its id.</summary>
-	private string SlotLabelFor(HostSession session) =>
-		_sessions?.Slots.FirstOrDefault(slot => ReferenceEquals(slot.Session, session))?.Label ?? session.Id;
+	private string SlotLabelFor(HostSession session) => SlotFor(session)?.Label ?? session.Id;
 
 	// Pushes the pending holds, deduped: status churn re-evaluates often and identical pushes are noise.
 	private void PushDrainPendingLocked(List<(string Session, string Reason)> holds) {

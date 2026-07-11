@@ -131,6 +131,11 @@ const merged = createMemo<RailSession[]>(() => {
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;
 
+/** The session with `id` on `backendId`, or undefined when no connected backend carries it. */
+export function findSession(backendId: string, id: string): RailSession | undefined {
+  return merged().find((s) => s.backendId === backendId && s.id === id);
+}
+
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {
   // Read promotedKeys() so the memo re-runs when the promoted set changes (isPromoted reads it internally).

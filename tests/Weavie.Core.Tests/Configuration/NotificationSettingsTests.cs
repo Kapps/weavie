@@ -49,9 +49,10 @@ public sealed class NotificationSettingsTests : IDisposable {
 		Assert.True(root.GetProperty("os").GetBoolean());
 		Assert.Equal(70, root.GetProperty("volume").GetInt64());
 		Assert.Equal(NotificationSettings.Packs[0], root.GetProperty("soundPack").GetString());
-		Assert.True(root.GetProperty("onTurnComplete").GetBoolean());
-		Assert.True(root.GetProperty("onNeedsInput").GetBoolean());
-		Assert.True(root.GetProperty("onFailed").GetBoolean());
+		var gates = root.GetProperty("gates");
+		Assert.True(gates.GetProperty("turnComplete").GetBoolean());
+		Assert.True(gates.GetProperty("needsInput").GetBoolean());
+		Assert.True(gates.GetProperty("failed").GetBoolean());
 	}
 
 	[Fact]
@@ -66,8 +67,8 @@ public sealed class NotificationSettingsTests : IDisposable {
 		Assert.Equal("notification-prefs", root.GetProperty("type").GetString());
 		Assert.False(root.GetProperty("sounds").GetBoolean());
 		Assert.Equal(25, root.GetProperty("volume").GetInt64());
-		Assert.False(root.GetProperty("onTurnComplete").GetBoolean());
-		Assert.True(root.GetProperty("onNeedsInput").GetBoolean());
+		Assert.False(root.GetProperty("gates").GetProperty("turnComplete").GetBoolean());
+		Assert.True(root.GetProperty("gates").GetProperty("needsInput").GetBoolean());
 	}
 
 	[Fact]

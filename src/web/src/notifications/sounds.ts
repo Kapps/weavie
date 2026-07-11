@@ -1,8 +1,6 @@
-// A minimal CESP (OpenPeon) player for attention sounds: resolve the event's category in the active pack's
-// openpeon.json, pick a random entry, and play it at the configured volume — always on the CLIENT, so a
-// remote session's ping is heard locally. Packs are served same-origin from /sounds/<pack>/. A pack that
-// fails to load, and a play the browser's autoplay policy blocks, each surface one keyed toast — a missing
-// sound is never swallowed silently. See docs/specs/session-attention.md.
+// A minimal CESP (OpenPeon) player: resolve the event's category in the active pack's openpeon.json, pick
+// a random entry, play it at the configured volume — on the CLIENT, so a remote session's ping is heard
+// locally. A failed pack load or a blocked play surfaces a keyed toast. See docs/specs/session-attention.md.
 
 import type { AttentionKindName } from "../bridge";
 import { notify } from "../notify/notify";
@@ -24,6 +22,19 @@ interface PackManifest {
 // retries (a transient fetch failure must not mute the rest of the session) and its keyed toast
 // re-raises until a load succeeds.
 const manifests = new Map<string, Promise<PackManifest | null>>();
+// Audio elements cached per URL and warmed when the manifest resolves, so a ping never waits on a
+// fetch + decode — the whole point is a timely sound.
+const audioCache = new Map<string, HTMLAudioElement>();
+
+function audioFor(url: string): HTMLAudioElement {
+  let audio = audioCache.get(url);
+  if (audio === undefined) {
+    audio = new Audio(url);
+    audio.preload = "auto";
+    audioCache.set(url, audio);
+  }
+  return audio;
+}
 
 function loadManifest(pack: string): Promise<PackManifest | null> {
   let pending = manifests.get(pack);
@@ -39,6 +50,12 @@ function loadManifest(pack: string): Promise<PackManifest | null> {
             `Sound pack '${pack}' couldn't be loaded — this attention sound was muted.`,
             "attention-sound-pack",
           );
+          return null;
+        }
+        for (const category of Object.values(manifest.categories)) {
+          for (const sound of category?.sounds ?? []) {
+            audioFor(`/sounds/${pack}/${sound.file}`);
+          }
         }
         return manifest;
       });
@@ -58,9 +75,10 @@ export async function playAttentionSound(kind: AttentionKindName): Promise<void>
   if (entry === undefined) {
     return;
   }
-  const audio = new Audio(`/sounds/${prefs.soundPack}/${entry.file}`);
-  audio.volume = Math.min(1, Math.max(0, prefs.volume / 100));
+  const audio = audioFor(`/sounds/${prefs.soundPack}/${entry.file}`);
   try {
+    audio.volume = prefs.volume / 100;
+    audio.currentTime = 0;
     await audio.play();
   } catch (error) {
     // Autoplay policy (NotAllowedError: the browser refuses audio until the user first interacts with

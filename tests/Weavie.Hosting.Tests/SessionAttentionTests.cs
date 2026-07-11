@@ -1,5 +1,6 @@
 using Weavie.Core.Hooks;
 using Xunit;
+using static Weavie.Hosting.Tests.TestHooks;
 
 namespace Weavie.Hosting.Tests;
 
@@ -22,7 +23,6 @@ public sealed class SessionAttentionTests {
 		var attention = Assert.Single(host.Bridge.PostedOfType("session-attention"));
 		Assert.Equal(host.PrimaryId, attention.GetProperty("slot").GetString());
 		Assert.Equal("turnComplete", attention.GetProperty("kind").GetString());
-		Assert.Equal("claude", attention.GetProperty("providerId").GetString());
 		Assert.False(string.IsNullOrEmpty(attention.GetProperty("label").GetString()));
 
 		// The trailing "waiting for your input" notice fires right after Stop; it must not double-ping.
@@ -53,18 +53,4 @@ public sealed class SessionAttentionTests {
 
 		Assert.Empty(host.Bridge.PostedOfType("session-attention"));
 	}
-
-	private static HookRequest Hook(HookEventKind kind, string? message = null) => new() {
-		Event = kind,
-		ToolName = "",
-		ToolInputJson = "{}",
-		Message = message,
-	};
-
-	private static HookRequest Stop(bool sessionWillResume) => new() {
-		Event = HookEventKind.Stop,
-		ToolName = "",
-		ToolInputJson = "{}",
-		SessionWillResume = sessionWillResume,
-	};
 }

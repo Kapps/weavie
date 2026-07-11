@@ -1,10 +1,6 @@
-// OS-facing presentation for session attention: the Web Notification API (browser-served — the only channel
-// that reaches the client's OS from a remote worker) and the tab-title badge. Notifications are raised
-// silent (the pack player owns all audio) and tagged per session so repeat pings coalesce; clicking one
-// focuses the window and dispatches weavie.session.focus. Permission is never requested cold: the first
-// enabled event raises a one-time action toast whose click (a user gesture) triggers the real browser
-// prompt. Native webview shells have no path yet (phase 2's host channel) and get one honest toast instead
-// of a silent drop. See docs/specs/session-attention.md.
+// OS-facing presentation for session attention: the Web Notification API (browser-served — the only
+// channel that reaches the client's OS from a remote worker) and the tab-title badge; native webview
+// shells get one honest toast until phase 2's host channel. See docs/specs/session-attention.md.
 
 import { type AttentionKindName, isBrowserHostedShell } from "../bridge";
 import { dispatchCommand } from "../commands/registry";

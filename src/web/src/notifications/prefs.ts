@@ -1,14 +1,8 @@
 // The notifications.* settings, host-owned: injected as window.__WEAVIE_NOTIFICATIONS__ before navigation
-// and re-pushed as { type: "notification-prefs" } on change. Honored only from the page-serving (local)
-// backend, so one prefs source governs presentation — binding a remote backend must not flip the client's
-// sound/notification behavior. See docs/specs/session-attention.md.
+// and re-pushed as { type: "notification-prefs" } on change — a local-machine push (like clipboard/
+// window-state), so the page-serving backend is the one prefs source. See docs/specs/session-attention.md.
 
-import {
-  hostInjected,
-  LOCAL_BACKEND_ID,
-  type NotificationPrefs,
-  onSessionMessage,
-} from "../bridge";
+import { hostInjected, type NotificationPrefs, onHostMessage } from "../bridge";
 
 export type { NotificationPrefs };
 
@@ -26,9 +20,7 @@ const DEFAULT_PREFS: NotificationPrefs = {
   os: true,
   volume: 70,
   soundPack: "weavie",
-  onTurnComplete: true,
-  onNeedsInput: true,
-  onFailed: true,
+  gates: { turnComplete: true, needsInput: true, failed: true },
 };
 
 let current: NotificationPrefs = hostInjected(
@@ -42,8 +34,8 @@ export function notificationPrefs(): NotificationPrefs {
   return current;
 }
 
-onSessionMessage((message, backendId) => {
-  if (message.type === "notification-prefs" && backendId === LOCAL_BACKEND_ID) {
+onHostMessage((message) => {
+  if (message.type === "notification-prefs") {
     const { type: _type, ...prefs } = message;
     current = prefs;
   }

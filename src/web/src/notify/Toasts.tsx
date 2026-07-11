@@ -10,6 +10,15 @@ export interface Toast {
   // Optional dedupe key: a new toast with the same key replaces the live one in place (e.g. a "Reconnected"
   // info replacing the lingering "Lost connection" error), instead of stacking a second row.
   key?: string;
+  // Optional action button; clicking runs it and dismisses the toast. The click is a user gesture, so the
+  // action may call gesture-gated browser APIs (e.g. Notification.requestPermission).
+  action?: ToastAction;
+}
+
+/** The action button on a toast (see {@link Toast.action}). */
+export interface ToastAction {
+  label: string;
+  run: () => void;
 }
 
 /** How long a non-error toast lingers before auto-dismissing. Errors are exempt — see addToast. */
@@ -28,7 +37,7 @@ const EXIT_MS = 200;
  */
 export function createToasts(): {
   toasts: () => Toast[];
-  addToast: (level: Toast["level"], message: string, key?: string) => void;
+  addToast: (level: Toast["level"], message: string, key?: string, action?: ToastAction) => void;
   dismissToast: (id: number) => void;
   dismissKeyed: (key: string) => void;
   isLeaving: (id: number) => boolean;
@@ -79,9 +88,11 @@ export function createToasts(): {
   };
   // Re-arms (or clears) a toast's auto-dismiss: errors persist until dismissed; everything else clears itself.
   // A keyed replacement while hovered stays paused (the pointer is still on it) with a fresh full duration.
-  const armAutoDismiss = (id: number, level: Toast["level"]): void => {
+  // An action-bearing toast persists like an error — the button IS the point, and the user may be away when
+  // it fires (e.g. the notification-permission unlock raised while the window is unfocused).
+  const armAutoDismiss = (id: number, level: Toast["level"], action?: ToastAction): void => {
     disarm(id);
-    if (!isTimed(level)) {
+    if (!isTimed(level) || action !== undefined) {
       return;
     }
     if (hovered.has(id)) {
@@ -117,21 +128,37 @@ export function createToasts(): {
       dismissToast(current.id);
     }
   };
-  const addToast = (level: Toast["level"], message: string, key?: string): void => {
+  const addToast = (
+    level: Toast["level"],
+    message: string,
+    key?: string,
+    action?: ToastAction,
+  ): void => {
     // A keyed toast replaces the live one with the same key in place — e.g. the "Reconnected" info supersedes
     // the lingering "Lost connection" error, so a resolved condition never leaves a stale toast on screen.
     if (key !== undefined) {
       const current = toasts().find((t) => t.key === key && !leaving().has(t.id));
       if (current !== undefined) {
-        setToasts((list) => list.map((t) => (t.id === current.id ? { ...t, level, message } : t)));
-        armAutoDismiss(current.id, level);
+        // Rebuilt rather than spread so a replacement without an action drops the stale button.
+        const replacement: Toast = { id: current.id, level, message, key };
+        if (action !== undefined) {
+          replacement.action = action;
+        }
+        setToasts((list) => list.map((t) => (t.id === current.id ? replacement : t)));
+        armAutoDismiss(current.id, level, action);
         return;
       }
     }
     const id = ++nextId;
-    const toast: Toast = key === undefined ? { id, level, message } : { id, level, message, key };
+    const toast: Toast = { id, level, message };
+    if (key !== undefined) {
+      toast.key = key;
+    }
+    if (action !== undefined) {
+      toast.action = action;
+    }
     setToasts((list) => [...list, toast]);
-    armAutoDismiss(id, level);
+    armAutoDismiss(id, level, action);
   };
   return {
     toasts,
@@ -160,7 +187,10 @@ export function Toasts(props: {
         {(toast) => (
           <div
             class={`toast toast-${toast.level}`}
-            classList={{ leaving: props.isLeaving(toast.id), "toast-timed": isTimed(toast.level) }}
+            classList={{
+              leaving: props.isLeaving(toast.id),
+              "toast-timed": isTimed(toast.level) && toast.action === undefined,
+            }}
             style={`--toast-duration:${AUTO_DISMISS_MS}ms`}
             role="alert"
             onMouseEnter={() => props.onPause(toast.id)}
@@ -168,6 +198,18 @@ export function Toasts(props: {
           >
             {toast.level === "busy" && <span class="toast-spinner" aria-hidden="true" />}
             <span class="toast-msg">{toast.message}</span>
+            {toast.action !== undefined && (
+              <button
+                type="button"
+                class="toast-action"
+                onClick={() => {
+                  toast.action?.run();
+                  props.onDismiss(toast.id);
+                }}
+              >
+                {toast.action.label}
+              </button>
+            )}
             <button
               type="button"
               class="toast-close"

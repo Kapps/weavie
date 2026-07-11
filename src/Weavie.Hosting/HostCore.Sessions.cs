@@ -95,6 +95,7 @@ public sealed partial class HostCore {
 				PushReviewHistoryToWeb();
 			}
 		});
+		WireAttention(session);
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);

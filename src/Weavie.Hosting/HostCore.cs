@@ -243,6 +243,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
 		return
 			$"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};"
+			+ $"window.__WEAVIE_NOTIFICATIONS__ = {NotificationSettings.BuildJson(_settings, messageType: null)};"
 			+ $"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};"
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
@@ -273,6 +274,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_onSettingChanged = change => {
 			if (FontSettings.Keys.Contains(change.Key)) {
 				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
+			}
+
+			if (NotificationSettings.Keys.Contains(change.Key)) {
+				_bridge.PostToWeb(NotificationSettings.BuildJson(_settings, "notification-prefs"));
 			}
 
 			if (EditorSettings.Keys.Contains(change.Key)) {

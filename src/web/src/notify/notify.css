@@ -131,6 +131,21 @@
   overflow-y: auto;
 }
 
+.toast-action {
+  flex: 0 0 auto;
+  background: none;
+  border: 1px solid var(--dim);
+  border-radius: 4px;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  padding: 1px 8px;
+}
+
+.toast-action:hover {
+  border-color: var(--fg);
+}
+
 .toast-close {
   flex: 0 0 auto;
   background: none;

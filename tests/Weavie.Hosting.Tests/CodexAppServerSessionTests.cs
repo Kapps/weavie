@@ -298,6 +298,22 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Submit_SkillOnly_WhenSkillUnavailable_SurfacesErrorAndSendsNothing() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("", [], ["ghost-skill"]));
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "error" && message.Text!.Contains("no longer available", StringComparison.Ordinal));
+		Assert.False(File.Exists(Path.Combine(_dir, "turn-start.json")));
+	}
+
+	[Fact]
 	public async Task SetControl_RejectsUnknownValue_WithoutChangingState() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);

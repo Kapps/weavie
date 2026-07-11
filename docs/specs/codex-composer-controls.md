@@ -19,8 +19,9 @@ web reaches only through provider-neutral bridge messages — a sibling to `IStr
    and **sandbox**. Each segment opens a picker; a change applies **live to the running session**.
 
 3. **Slash menu** — typing `/` opens an autocomplete of built-in actions (`/model`, `/approvals`,
-   `/sandbox` → the select commands) plus skills (from the provider), inserted or dispatched. Sourced through
-   the same capability interface, so its contents are provider-supplied, not hardcoded in the UI.
+   `/sandbox` → the select commands) plus the session's skills. Sourced through the same capability interface,
+   so its contents are provider-supplied, not hardcoded in the UI. A built-in dispatches its command; a skill
+   **stages** for structured invocation (below).
 
 ## The capability abstraction (Core, provider-neutral)
 
@@ -54,6 +55,15 @@ flowchart LR
   store --> seg
   ctl -.->|EffectiveModel/Sandbox/Approval| turn["next turn/start"]
 ```
+
+## Structured skill invocation
+
+Selecting a skill **stages** it (a chip in the composer), and on submit it rides the turn as Codex's structured
+`skill` input item (`{type:"skill", name, path}`) — so Codex loads the skill's `SKILL.md` instructions and runs
+it, rather than pasting text. `AgentSlashEntry.SkillName` marks a skill entry; the web stages skill *names* and
+submits them in `agent-submit`; the Codex session resolves each name to its `path` from its own `skills/list`
+cache (`ResolveSkills`) — a web-supplied path is never trusted, and an unknown name is dropped. A turn may be a
+skill alone. `AgentInputAttachment`-style staging keeps images and skills symmetric.
 
 ## Data flow
 

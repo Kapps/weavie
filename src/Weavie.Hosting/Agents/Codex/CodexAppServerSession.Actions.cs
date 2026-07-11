@@ -27,16 +27,24 @@ public sealed partial class CodexAppServerSession {
 				return;
 			}
 
+			// Resolve staged skills at send time (they load asynchronously and can change via skills/changed).
+			var skills = ResolveSkills(input.SkillNames);
+			if (input.Text.Length == 0 && input.Images.Count == 0 && skills.Count == 0) {
+				EmitError(input.SkillNames.Count > 0
+					? "That skill is no longer available; nothing was sent."
+					: "Write a prompt, attach an image, or add a skill before running Codex.");
+				return;
+			}
+
 			long id = NextRequest();
 			bool starting = string.IsNullOrEmpty(turnId);
-			string request = RequestFor(id, threadId, turnId, input);
+			string request = RequestFor(id, threadId, turnId, input, skills);
 			await _client.RequestAsync(id, request, CancellationToken.None).ConfigureAwait(false);
-			EmitSubmittedInput(threadId, turnId, starting, input);
+			EmitSubmittedInput(threadId, turnId, starting, input, skills);
 		});
 	}
 
-	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input) {
-		var skills = ResolveSkills(input.SkillNames);
+	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
 		if (input.Images.Count > 0 || skills.Count > 0) {
 			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
@@ -49,10 +57,10 @@ public sealed partial class CodexAppServerSession {
 			: CodexAppServerProtocol.TurnSteer(id, threadId, turnId, input.Text);
 	}
 
-	private void EmitSubmittedInput(string threadId, string? turnId, bool starting, CodexTurnInput input) {
+	private void EmitSubmittedInput(string threadId, string? turnId, bool starting, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
 		string text = input.Text;
-		if (input.SkillNames.Count > 0) {
-			string invoked = "↪ skill: " + string.Join(", ", input.SkillNames);
+		if (skills.Count > 0) {
+			string invoked = "↪ skill: " + string.Join(", ", skills.Select(skill => skill.Name));
 			text = text.Length > 0 ? $"{text}\n{invoked}" : invoked;
 		}
 

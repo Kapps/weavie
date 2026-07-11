@@ -17,7 +17,6 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
 	private readonly Queue<CodexTurnInput> _pendingInputs = new();
-	private readonly List<string> _pendingImages = [];
 	private long _nextId;
 	private string? _threadId;
 	private string? _turnId;
@@ -224,5 +223,5 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
 
-	private sealed record CodexTurnInput(string Text, IReadOnlyList<string> Images);
+	private sealed record CodexTurnInput(string Text, IReadOnlyList<AgentInputAttachment> Images);
 }

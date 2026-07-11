@@ -56,21 +56,43 @@ export interface LaunchOptions {
 // whole tree is actually gone — so the workspace/HOME can be removed without a live process racing the delete.
 // On Windows that race is the teardown killer: a surviving descendant whose cwd sits inside a worktree blocks
 // `rm`, and fs.rm's retry backoff compounds with the tree's directory depth into a 10-60s stall that outlasts the
-// test timeout (the "teardown hang" flake). Node's kill() reaches only the root there; `taskkill /T` is the only
-// thing that kills descendants — and AWAITING it, not the root's `exit` (which fires while taskkill is still
-// walking the tree), is what guarantees every child is down before we return. POSIX asks the root for a graceful
+// test timeout (the "teardown hang" flake). Node's kill() reaches only the root there; `taskkill /T` kills its
+// descendants, and the root's `close` event proves Windows has closed its process pipes before cleanup begins.
+// POSIX asks the root for a graceful
 // SIGINT (it forwards to its own children), escalating to SIGKILL if that stalls.
 export function killProcessTree(proc: ChildProcess): Promise<void> {
   const pid = proc.pid;
-  if (proc.exitCode !== null || proc.signalCode !== null || pid === undefined) {
+  if (pid === undefined) {
     return Promise.resolve();
   }
   if (process.platform === "win32") {
-    return new Promise((resolve) => {
+    if (proc.exitCode !== null || proc.signalCode !== null) {
+      return Promise.reject(
+        new Error(`process tree root ${pid} exited before Windows tree shutdown`),
+      );
+    }
+    return new Promise((resolve, reject) => {
+      let closed = false;
+      let taskkillFinished = false;
+      const finish = (): void => {
+        if (closed && taskkillFinished) {
+          resolve();
+        }
+      };
+      proc.once("close", () => {
+        closed = true;
+        finish();
+      });
       const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      taskkill.once("exit", () => resolve());
-      taskkill.once("error", () => resolve());
+      taskkill.once("exit", () => {
+        taskkillFinished = true;
+        finish();
+      });
+      taskkill.once("error", reject);
     });
+  }
+  if (proc.exitCode !== null || proc.signalCode !== null) {
+    return Promise.resolve();
   }
   return new Promise((resolve) => {
     let settled = false;

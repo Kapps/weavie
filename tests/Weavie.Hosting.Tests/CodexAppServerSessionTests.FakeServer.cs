@@ -23,12 +23,20 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     send({ id: message.id, result: { thread: { id: "thread_fake" } } });
   } else if (message.method === "thread/resume") {
     fs.writeFileSync("thread-resume.json", JSON.stringify(message));
-    send({ id: message.id, result: { thread: { id: message.params.threadId } } });
+    const turns = fs.existsSync("resume-with-history") ? [{ id: "turn_old", status: "completed", items: [
+      { type: "userMessage", id: "user_old", content: [{ type: "text", text: "old prompt", text_elements: [] }] },
+      { type: "agentMessage", id: "agent_old", text: "old answer" }
+    ] }] : [];
+    send({ id: message.id, result: { thread: { id: message.params.threadId, turns } } });
   } else if (message.method === "turn/start") {
     send({ id: message.id, result: { turn: { id: "turn_fake" } } });
     send({ method: "turn/started", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "running" } } });
     if (message.params.input.some(item => item.type === "localImage")) {
       fs.writeFileSync("image-turn.json", JSON.stringify(message));
+    } else if (message.params.input[0].text === "out of tokens") {
+      const error = { message: "You have no weighted tokens left", codexErrorInfo: "usageLimitExceeded", additionalDetails: null };
+      send({ method: "error", params: { threadId: "thread_fake", turnId: "turn_fake", willRetry: false, error } });
+      send({ method: "turn/completed", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "failed", error } } });
     } else if (message.params.input[0].text === "approval") {
       send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake", startedAtMs: 1, command: "dotnet test", cwd: process.cwd(), reason: "test" } });
     } else if (message.params.input[0].text === "unsupported") {

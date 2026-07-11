@@ -20,7 +20,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(parameters.GetProperty("capabilities").GetProperty("experimentalApi").GetBoolean());
 		var optOut = parameters.GetProperty("capabilities").GetProperty("optOutNotificationMethods");
 		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "hook/started");
-		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");
+		Assert.DoesNotContain(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");
 	}
 
 	[Fact]

@@ -7,38 +7,14 @@ namespace Weavie.Hosting.Agents.Codex;
 /// <summary>Handles user actions sent to a native Codex app-server session.</summary>
 public sealed partial class CodexAppServerSession {
 	/// <inheritdoc/>
-	public void SubmitPrompt(string prompt) {
-		ArgumentNullException.ThrowIfNull(prompt);
-		var input = TakeTurnInput(prompt);
+	public void Submit(AgentTurnSubmission submission) {
+		ArgumentNullException.ThrowIfNull(submission);
+		var input = new CodexTurnInput(submission.Text, submission.Attachments);
 		if (input.Text.Length == 0 && input.Images.Count == 0) {
 			return;
 		}
 
 		SubmitTurn(input);
-	}
-
-	/// <inheritdoc/>
-	public void AttachImage(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		lock (_gate) {
-			_pendingImages.Add(path);
-		}
-
-		Emit(new AgentPaneMessage {
-			Type = "user-image",
-			ProviderId = "codex",
-			ThreadId = CurrentThreadId(),
-			Text = path,
-			Status = "attached",
-		});
-	}
-
-	private CodexTurnInput TakeTurnInput(string prompt) {
-		lock (_gate) {
-			var input = new CodexTurnInput(prompt, [.. _pendingImages]);
-			_pendingImages.Clear();
-			return input;
-		}
 	}
 
 	private void SubmitTurn(CodexTurnInput input) {
@@ -61,9 +37,10 @@ public sealed partial class CodexAppServerSession {
 
 	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input) {
 		if (input.Images.Count > 0) {
+			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, input.Images, _context.Workspace, Sandbox(), ApprovalPolicy())
-				: CodexAppServerProtocol.TurnSteerWithImages(id, threadId, turnId, input.Text, input.Images);
+				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, imagePaths, _context.Workspace, Sandbox(), ApprovalPolicy())
+				: CodexAppServerProtocol.TurnSteerWithImages(id, threadId, turnId, input.Text, imagePaths);
 		}
 
 		return string.IsNullOrEmpty(turnId)
@@ -82,13 +59,14 @@ public sealed partial class CodexAppServerSession {
 			});
 		}
 
-		foreach (string path in input.Images) {
+		foreach (var image in input.Images) {
 			Emit(new AgentPaneMessage {
 				Type = "user-image",
 				ProviderId = "codex",
 				ThreadId = threadId,
 				TurnId = turnId,
-				Text = path,
+				ItemId = image.Id,
+				Text = image.Path,
 				Status = "submitted",
 			});
 		}

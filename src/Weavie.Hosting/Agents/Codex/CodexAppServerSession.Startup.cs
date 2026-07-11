@@ -59,6 +59,8 @@ public sealed partial class CodexAppServerSession {
 			? await ResumeThreadAsync(threadRequest, launch.ThreadId).ConfigureAwait(false)
 			: await StartThreadAsync(threadRequest).ConfigureAwait(false);
 		AdoptThread(CodexThreadResults.ReadThreadId(result));
+		HydrateTranscript(result);
+		FlushPendingInputs();
 	}
 
 	private async Task<JsonElement> ResumeThreadAsync(long requestId, string threadId) {
@@ -92,7 +94,17 @@ public sealed partial class CodexAppServerSession {
 		lock (_gate) {
 			_threadId = threadId;
 		}
+	}
 
-		FlushPendingInputs();
+	private void HydrateTranscript(JsonElement result) {
+		var messages = CodexPaneMessages.FromThreadSnapshot(result);
+		if (messages.Count == 0) {
+			return;
+		}
+
+		Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+		foreach (var message in messages) {
+			Emit(message);
+		}
 	}
 }

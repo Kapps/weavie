@@ -1,3 +1,4 @@
+using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 
@@ -8,6 +9,8 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	private readonly AgentSessionContext _context;
 	private readonly IHostBridge _bridge;
 	private readonly List<AgentPaneMessage> _paneMessages = [];
+	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
 	private readonly Lock _paneGate = new();
 
 	/// <summary>Creates the provider session and its pane runtime.</summary>
@@ -61,6 +64,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		List<AgentPaneMessage> snapshot;
 		lock (_paneGate) {
 			snapshot = [.. _paneMessages];
+			foreach (var buffer in _paneDeltaBuffers.Values) {
+				snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
+			}
 		}
 
 		_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
@@ -73,11 +79,74 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
 	private void PublishPaneMessage(AgentPaneMessage message) {
+		if (message.Type == "transcript-reset") {
+			lock (_paneGate) {
+				_paneMessages.Clear();
+				_paneItemIndexes.Clear();
+				_paneDeltaBuffers.Clear();
+			}
+			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
+			return;
+		}
 		lock (_paneGate) {
-			_paneMessages.Add(message);
+			StorePaneMessage(message);
 		}
 
 		_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
+	}
+
+	private void StorePaneMessage(AgentPaneMessage message) {
+		string? key = ItemKey(message);
+		if (key is null) {
+			_paneMessages.Add(message);
+			return;
+		}
+
+		if (message.Type == "item-started") {
+			_paneDeltaBuffers.Remove(key);
+			if (_paneItemIndexes.TryGetValue(key, out int startedIndex)) {
+				_paneMessages[startedIndex] = message;
+			} else {
+				_paneItemIndexes[key] = _paneMessages.Count;
+				_paneMessages.Add(message);
+			}
+			return;
+		}
+
+		if (IsDelta(message)) {
+			if (!_paneItemIndexes.TryGetValue(key, out int deltaIndex)) {
+				deltaIndex = _paneMessages.Count;
+				_paneItemIndexes[key] = deltaIndex;
+				_paneMessages.Add(message with { Text = null });
+			}
+			if (!_paneDeltaBuffers.TryGetValue(key, out var buffer)) {
+				buffer = new PaneDeltaBuffer(deltaIndex, message);
+				_paneDeltaBuffers.Add(key, buffer);
+			}
+			buffer.Latest = message;
+			buffer.Text.Append(message.Text);
+			return;
+		}
+
+		if (message.Type == "item-completed" && _paneItemIndexes.Remove(key, out int completedIndex)) {
+			_paneDeltaBuffers.Remove(key);
+			_paneMessages[completedIndex] = message;
+			return;
+		}
+
+		_paneMessages.Add(message);
+	}
+
+	private static string? ItemKey(AgentPaneMessage message) =>
+		string.IsNullOrEmpty(message.ItemId) ? null : $"{message.TurnId ?? "session"}:{message.ItemId}";
+
+	private static bool IsDelta(AgentPaneMessage message) =>
+		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";
+
+	private sealed class PaneDeltaBuffer(int index, AgentPaneMessage latest) {
+		public int Index { get; } = index;
+		public AgentPaneMessage Latest { get; set; } = latest;
+		public StringBuilder Text { get; } = new();
 	}
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {

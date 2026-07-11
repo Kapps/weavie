@@ -8,6 +8,7 @@ import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
 import type { WeavieLspConfig } from "./lsp/lsp-client";
 import { notify } from "./notify/notify";
+import { ReliableAgentFrames } from "./reliable-agent-frames";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
@@ -49,6 +50,10 @@ export interface SessionChip {
   loaded: boolean;
   primary: boolean;
   providerId: "claude" | "codex";
+  // Optional for compatibility with an older remote backend. New hosts derive this from provider capabilities.
+  agentSurface?: "terminal" | "structured" | "unavailable";
+  // Protocol 2 correlates attachment upload and atomic prompt submission. Missing means the legacy remote API.
+  agentInputProtocol?: number;
   status: SessionStatusName;
   hue: number;
   monogram: string;
@@ -76,10 +81,25 @@ export interface AgentPaneUpdate {
   turnId?: string | null;
   itemId?: string | null;
   itemType?: string | null;
+  category?: string | null;
   summary?: string | null;
   text?: string | null;
   status?: string | null;
+  questions?: AgentInputQuestion[] | null;
   payload?: unknown;
+}
+
+export interface AgentInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  isSecret: boolean;
+  options: AgentInputOption[];
+}
+
+export interface AgentInputOption {
+  label: string;
+  description: string;
 }
 
 // One button on a contextual-suggestion card. A `RunCommand` action dispatches `commandId` (advertising its
@@ -172,7 +192,9 @@ export type HostBoundMessage =
   // the provider's native image path. `session` is legacy and ignored for routing.
   | { type: "term-paste-image"; slot: string; session: TermSession; mime: string; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
-  | { type: "agent-submit"; slot: string; prompt: string }
+  | { type: "agent-attachment-upload"; slot: string; id: string; mime: string; dataB64: string }
+  | { type: "agent-attachment-remove"; slot: string; id: string }
+  | { type: "agent-submit"; slot: string; id?: string; prompt: string; attachmentIds?: string[] }
   | { type: "agent-interrupt"; slot: string }
   | { type: "agent-approval"; slot: string; requestId: string; decision: string }
   | { type: "agent-input"; slot: string; requestId: string; answers: Record<string, string[]> }
@@ -392,6 +414,21 @@ export type WebBoundMessage =
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   | { type: "agent-pane"; slot: string; workspace: string; message: AgentPaneUpdate }
   | { type: "agent-pane-reset"; slot: string; workspace: string }
+  | {
+      type: "agent-attachment-state";
+      slot: string;
+      id: string;
+      status: "ready" | "failed" | "removed";
+      error: string;
+    }
+  | {
+      type: "agent-submission-state";
+      slot: string;
+      id: string;
+      attachmentIds: string[];
+      status: "accepted" | "rejected";
+      error: string;
+    }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the active session's git branch + dirty flag for the terminal-column footer (active-backend
@@ -723,6 +760,8 @@ function isSessionMessage(type: string): boolean {
     type === "session-status" ||
     type === "session-attention" ||
     type === "notification-prefs" ||
+    type === "agent-attachment-state" ||
+    type === "agent-submission-state" ||
     type === "suggestions" ||
     type === "recent-files" ||
     type === "branches-result" ||
@@ -843,6 +882,7 @@ const READY_HELLO = JSON.stringify({ type: "ready" });
 class WebSocketTransport implements BridgeTransport {
   private socket: WebSocket | null = null;
   private readonly outbox: string[] = [];
+  private readonly reliableAgentFrames = new ReliableAgentFrames();
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
@@ -871,6 +911,7 @@ class WebSocketTransport implements BridgeTransport {
   }
 
   send(json: string): void {
+    this.reliableAgentFrames.track(json);
     if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(json);
       return;
@@ -921,9 +962,16 @@ class WebSocketTransport implements BridgeTransport {
       for (const message of pending) {
         socket.send(message);
       }
+      const pendingSet = new Set(pending);
+      for (const message of this.reliableAgentFrames.replay()) {
+        if (!pendingSet.has(message)) {
+          socket.send(message);
+        }
+      }
     };
     socket.onmessage = (event: MessageEvent): void => {
       if (typeof event.data === "string") {
+        this.reliableAgentFrames.acknowledge(event.data);
         deliverFromHost(event.data, this.backendId);
       }
     };

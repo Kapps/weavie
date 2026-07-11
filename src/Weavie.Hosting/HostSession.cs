@@ -88,6 +88,7 @@ public sealed class HostSession : IAsyncDisposable {
 		// Images pasted into the agent land here (a scratch dir outside the workspace) and their path is injected into
 		// the prompt; wiped on unload so they never linger or reach the tree/git.
 		PastedImages = new PastedImageStore(fileSystem, pastedImagesDir);
+		AgentAttachments = new AgentAttachmentStore(PastedImages);
 		FileProvider = new FileProviderService(fileSystem, workspaceRoot, scratchDir);
 		Browser = new WorkspaceBrowser(fileSystem, workspaceRoot);
 		FileIndex = new WorkspaceFileIndex(fileSystem, workspaceRoot);
@@ -197,6 +198,9 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <summary>Owns this session's pasted-image directory; an image pasted into the agent is written here and its path injected into the prompt.</summary>
 	public PastedImageStore PastedImages { get; }
+
+	/// <summary>Stages structured-agent attachments until an exact turn submission claims them.</summary>
+	internal AgentAttachmentStore AgentAttachments { get; }
 
 	/// <summary>Lists directories under the session root for the contextual file browser.</summary>
 	public WorkspaceBrowser Browser { get; }
@@ -366,7 +370,11 @@ public sealed class HostSession : IAsyncDisposable {
 			return;
 		}
 
-		Agent.Structured?.SubmitPrompt(text);
+		Agent.Structured?.Submit(new AgentTurnSubmission {
+			Id = Guid.NewGuid().ToString("n"),
+			Text = text,
+			Attachments = [],
+		});
 	}
 
 	/// <summary>Prefills a prompt in the active agent without submitting it, when the provider supports draft input.</summary>
@@ -388,7 +396,7 @@ public sealed class HostSession : IAsyncDisposable {
 			return;
 		}
 
-		Agent.Structured?.AttachImage(path);
+		throw new InvalidOperationException("Structured agent images must be submitted as explicit attachments.");
 	}
 
 	// Fan a debounced watcher batch to the editor's file:// provider (so VSCode reloads externally-edited models)

@@ -24,14 +24,20 @@ interface ActivityStepUpdate {
 }
 
 export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTranscriptEntry[] {
+  const updates = coalesceStreaming(messages);
   const resolved = collectResolved(messages);
+  const reportedTurnErrors = new Set(
+    messages.flatMap((message) =>
+      message.type === "error" && message.turnId != null ? [message.turnId] : [],
+    ),
+  );
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
   const activities = new Map<string, MutableActivity>();
   let activeTurn = "startup";
   let sequence = 0;
 
-  for (const message of messages) {
-    const durable = durableEntry(message, resolved, sequence);
+  for (const message of updates) {
+    const durable = durableEntry(message, resolved, reportedTurnErrors, sequence);
     if (durable !== null) {
       entries.push(durable);
       if (message.type === "user-message") {
@@ -56,6 +62,54 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
   );
 }
 
+function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdate[] {
+  const output: AgentPaneUpdate[] = [];
+  const indexes = new Map<string, number>();
+  for (const message of messages) {
+    const key = message.itemId == null ? null : `${message.turnId ?? "session"}:${message.itemId}`;
+    if (message.type === "item-started" && key !== null) {
+      indexes.set(key, output.length);
+      output.push(message);
+      continue;
+    }
+    if (isDelta(message) && key !== null) {
+      let index = indexes.get(key);
+      if (index === undefined) {
+        index = output.length;
+        indexes.set(key, index);
+        output.push({
+          ...message,
+          type: message.type === "agent-message-delta" ? "item-completed" : "item-started",
+          summary: message.itemType === "plan" ? "plan" : null,
+          text: "",
+        });
+      }
+      const current = output[index]!;
+      output[index] = {
+        ...current,
+        text: `${current.text ?? ""}${message.text ?? ""}`,
+        status: "inProgress",
+      };
+      continue;
+    }
+    if (message.type === "item-completed" && key !== null && indexes.has(key)) {
+      output[indexes.get(key)!] = message;
+      indexes.delete(key);
+      continue;
+    }
+    output.push(message);
+  }
+  return output;
+}
+
+function isDelta(message: AgentPaneUpdate): boolean {
+  return (
+    message.type === "agent-message-delta" ||
+    message.type === "plan-delta" ||
+    message.type === "command-output-delta"
+  );
+}
+
 function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<string, string> {
   const resolved = new Map<string, string>();
   for (const message of messages) {
@@ -75,6 +129,7 @@ function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<stri
 function durableEntry(
   message: AgentPaneUpdate,
   resolved: ReadonlyMap<string, string>,
+  reportedTurnErrors: ReadonlySet<string>,
   sequence: number,
 ): AgentTranscriptEntry | null {
   const status = displayStatus(message, resolved);
@@ -92,6 +147,12 @@ function durableEntry(
     case "item-completed":
       return message.itemType === "agentMessage"
         ? entry(message, sequence, "message", "assistant", "Codex", null)
+        : null;
+    case "turn-completed":
+      return normalizeStatus(message.status) === "failed" &&
+        (message.turnId == null || !reportedTurnErrors.has(message.turnId)) &&
+        (normalizeText(message.summary) !== null || normalizeText(message.text) !== null)
+        ? entry(message, sequence, "notice", "error", "Error", "failed")
         : null;
     case "user-image":
       return entry(message, sequence, "message", "user", "Image", status);
@@ -396,6 +457,10 @@ function isEditLocation(entry: AgentTranscriptEntry): boolean {
 }
 
 function activityPrefix(message: AgentPaneUpdate): string {
+  if (message.category !== null && message.category !== undefined) {
+    return message.category;
+  }
+
   switch (message.itemType) {
     case "commandExecution":
       return "command";

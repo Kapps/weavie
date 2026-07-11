@@ -11,6 +11,7 @@ import {
   Suspense,
 } from "solid-js";
 import { AgentPane } from "./agent/AgentPane";
+import { AgentPaneAccumulator } from "./agent/AgentPaneAccumulator";
 import {
   type AgentPaneUpdate,
   activeBackendId,
@@ -192,6 +193,9 @@ export default function App(): JSX.Element {
   const [agentPaneMessages, setAgentPaneMessages] = createSignal<Record<string, AgentPaneUpdate[]>>(
     {},
   );
+  const agentPaneAccumulator = new AgentPaneAccumulator((callback) =>
+    requestAnimationFrame(callback),
+  );
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
@@ -208,6 +212,15 @@ export default function App(): JSX.Element {
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
+  );
+  const activeAgentSurface = createMemo<"terminal" | "structured" | "unavailable" | null>(() => {
+    const session = sessions().find((s) => s.active);
+    return session === undefined
+      ? null
+      : (session.agentSurface ?? (session.providerId === "codex" ? "structured" : "terminal"));
+  });
+  const activeAgentInputProtocol = createMemo(
+    () => sessions().find((session) => session.active)?.agentInputProtocol ?? 1,
   );
 
   // Whether the "New session" prompt (branch name + base) is open; the rail's "+" opens it.
@@ -337,7 +350,7 @@ export default function App(): JSX.Element {
       editor.focusEditor();
       return;
     }
-    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
+    if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
       document.querySelector<HTMLTextAreaElement>(".agent-surface textarea")?.focus();
       return;
     }
@@ -560,6 +573,7 @@ export default function App(): JSX.Element {
           class="editor-surface"
           classList={{ active: focusedKind() === "editor" }}
           data-kind="editor"
+          data-surface="editor"
         >
           <TabStrip
             tabs={openTabs}
@@ -636,10 +650,12 @@ export default function App(): JSX.Element {
         </div>
       );
     }
-    if (kind === AGENT_PANE_KIND && activeProviderId() === "codex") {
+    if (kind === AGENT_PANE_KIND && activeAgentSurface() === "structured") {
       const sid = activeTermSessionId();
       return (
         <AgentPane
+          backendId={activeBackendId()}
+          inputProtocol={activeAgentInputProtocol()}
           slot={sid}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
@@ -667,7 +683,12 @@ export default function App(): JSX.Element {
             .map((s) => s.id)
         : termSessionIds();
     return (
-      <div class="terminal-surface" classList={{ active: focusedKind() === kind }} data-kind={kind}>
+      <div
+        class="terminal-surface"
+        classList={{ active: focusedKind() === kind }}
+        data-kind={kind}
+        data-surface="terminal"
+      >
         {/* The head holds no focusable element, so a bare click would blur to <body> and strand keystrokes;
             preventDefault stops that and focusPane lands focus on this pane's xterm. The body (xterm) self-focuses. */}
         <div
@@ -693,6 +714,7 @@ export default function App(): JSX.Element {
               return (
                 <div class="term-host" classList={{ hidden: !isActive() }}>
                   <TerminalView
+                    backendId={activeBackendId()}
                     slot={sid}
                     pane={pane}
                     active={isActive()}
@@ -802,12 +824,13 @@ export default function App(): JSX.Element {
       } else if (message.type === "notify-clear") {
         dismissKeyed(message.key);
       } else if (message.type === "agent-pane") {
-        setAgentPaneMessages((prev) => ({
-          ...prev,
-          [message.slot]: [...(prev[message.slot] ?? []), message.message],
-        }));
+        agentPaneAccumulator.ingest(message.slot, message.message, (messages) =>
+          setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
+        );
       } else if (message.type === "agent-pane-reset") {
-        setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: [] }));
+        agentPaneAccumulator.reset(message.slot, (messages) =>
+          setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
+        );
       } else if (message.type === "focus-pane") {
         // The host asks us to land focus in a pane (Claude by default, so a switch drops into the agent).
         // xterms persist across switches, so focusing the slot is valid even mid-respawn. Never steal from

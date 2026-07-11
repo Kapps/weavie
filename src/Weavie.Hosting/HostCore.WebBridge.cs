@@ -75,6 +75,12 @@ public sealed partial class HostCore {
 			case "term-paste-image":
 				HandlePasteImage(root);
 				break;
+			case "agent-attachment-upload":
+				HandleAgentAttachmentUpload(root);
+				break;
+			case "agent-attachment-remove":
+				HandleAgentAttachmentRemove(root);
+				break;
 			case "term-resize": {
 					int cols = root.GetProperty("cols").GetInt32();
 					int rows = root.GetProperty("rows").GetInt32();
@@ -91,7 +97,7 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "agent-submit":
-				SessionForSlot(root)?.Agent.Structured?.SubmitPrompt(root.GetStringOrEmpty("prompt"));
+				HandleAgentSubmit(root);
 				break;
 			case "agent-interrupt":
 				SessionForSlot(root)?.Agent.Structured?.Interrupt();

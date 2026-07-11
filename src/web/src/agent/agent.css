@@ -1,6 +1,36 @@
+.agent-body-wrap {
+  position: relative;
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+.agent-follow-pill {
+  position: absolute;
+  bottom: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 3px 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 55%, var(--border));
+  border-radius: 12px;
+  color: color-mix(in srgb, var(--fg) 88%, var(--accent));
+  background: color-mix(in srgb, var(--bar) 88%, var(--bg));
+  box-shadow: 0 3px 12px color-mix(in srgb, var(--bg) 65%, transparent);
+  font: inherit;
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-follow-pill:hover {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bar));
+}
+
 .agent-body {
   position: relative;
   flex: 1 1 auto;
+  min-width: 0;
   min-height: 0;
   overflow: auto;
   padding: 0;
@@ -19,10 +49,59 @@
 }
 
 .agent-empty {
-  width: 100%;
+  display: grid;
+  gap: 12px;
+  max-width: 620px;
   margin: 0;
-  padding: 8px 0;
+  padding: 14px 12px;
   color: var(--dim);
+}
+
+.agent-empty-title {
+  color: var(--accent);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.agent-empty-tagline {
+  margin: 0;
+  color: color-mix(in srgb, var(--fg) 78%, var(--dim));
+}
+
+.agent-empty-hints {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 6px 12px;
+  margin: 0;
+}
+
+.agent-empty-hints dt {
+  justify-self: end;
+}
+
+.agent-empty-hints dd {
+  margin: 0;
+}
+
+.agent-empty-hints kbd {
+  display: inline-block;
+  min-width: 1.4em;
+  padding: 0 5px;
+  border: 1px solid color-mix(in srgb, var(--border) 85%, var(--fg));
+  border-radius: 3px;
+  color: color-mix(in srgb, var(--fg) 80%, var(--dim));
+  background: color-mix(in srgb, var(--bar) 70%, transparent);
+  font: inherit;
+  font-size: calc(var(--terminal-font-size, 16px) * 0.78);
+  text-align: center;
+}
+
+.agent-empty-controls {
+  margin: 0;
+  color: color-mix(in srgb, var(--dim) 88%, transparent);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.85);
 }
 
 .agent-entry {
@@ -273,6 +352,14 @@
 .agent-entry-request {
   border-left-color: var(--warn);
   background: color-mix(in srgb, var(--warn) 12%, var(--bar));
+}
+
+/* The substance under review (command / paths) reads as code, set off from the reason line. */
+.agent-entry-request .agent-entry-text {
+  margin: 4px 0 2px;
+  padding: 4px 7px;
+  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
 .agent-entry-notice.agent-tone-system {
@@ -726,6 +813,17 @@
   border-radius: 4px;
   background: color-mix(in srgb, var(--bar) 92%, var(--bg));
   box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.agent-control-picker-head {
+  padding: 3px 7px 4px;
+  border-bottom: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  margin-bottom: 3px;
+  color: var(--dim);
+  font-size: calc(var(--terminal-font-size, 16px) * 0.72);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 .agent-control-option {

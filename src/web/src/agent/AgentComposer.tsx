@@ -333,10 +333,12 @@ export function AgentComposer(props: {
               <div
                 class="agent-attachment"
                 classList={{ failed: attachment.status === "failed" }}
-                title={attachment.error ?? attachment.status}
+                title={attachment.error ?? attachmentLabel(attachment.status)}
               >
                 <img src={attachment.previewUrl} alt="Pasted attachment" />
-                <span>{attachment.status}</span>
+                <Show when={attachment.status !== "ready"}>
+                  <span>{attachmentLabel(attachment.status)}</span>
+                </Show>
                 <button
                   type="button"
                   title="Remove attachment"
@@ -387,7 +389,9 @@ export function AgentComposer(props: {
         ref={textareaRef}
         rows={1}
         value={composer().draft}
-        placeholder="Write a prompt for Codex..."
+        placeholder={
+          turnActive() ? "Steer the running turn…" : "Write a prompt — / for commands and skills"
+        }
         onKeyDown={onComposerKeyDown}
         onInput={(event) => {
           const slot = props.slot;
@@ -451,6 +455,19 @@ function applyPrefill(
       setComposerDraft(props.backendId, slot, message.text ?? "");
       return;
     }
+  }
+}
+
+function attachmentLabel(status: "reading" | "transferring" | "ready" | "failed"): string {
+  switch (status) {
+    case "reading":
+      return "reading…";
+    case "transferring":
+      return "uploading…";
+    case "failed":
+      return "failed";
+    default:
+      return "ready";
   }
 }
 

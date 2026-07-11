@@ -4,6 +4,7 @@ import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentTranscript } from "./AgentTranscript";
+import { hasActiveTurn, pendingRequest } from "./turn-progress";
 
 export function AgentPane(props: {
   backendId: string;
@@ -19,6 +20,15 @@ export function AgentPane(props: {
   let scrollScheduled = false;
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
+  const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
+  // The one approval the keyboard chords answer (the newest pending) — only that card wears the chips.
+  const keyboardApprovalId = createMemo(() => {
+    if (!hasActiveTurn(props.messages)) {
+      return null;
+    }
+    const request = pendingRequest(props.messages);
+    return request !== null && request.kind === "approval" ? request.requestId : null;
+  });
 
   const isAtBottom = (): boolean => {
     if (bodyRef === undefined) {
@@ -65,13 +75,33 @@ export function AgentPane(props: {
           props.onFocus();
         }}
       >
-        <span class="pane-label">{props.providerId === "codex" ? "Codex" : "Agent"}</span>
+        <span class="pane-label">{providerName()}</span>
         <Show when={props.shortcut !== ""}>
           <span class="pane-shortcut">{props.shortcut}</span>
         </Show>
       </div>
-      <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
-        <AgentTranscript entries={transcript()} slot={props.slot} />
+      <div class="agent-body-wrap">
+        <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
+          <AgentTranscript
+            entries={transcript()}
+            keyboardApprovalId={keyboardApprovalId()}
+            providerName={providerName()}
+            slot={props.slot}
+          />
+        </div>
+        <Show when={!stickToBottom()}>
+          <button
+            type="button"
+            class="agent-follow-pill"
+            title="Scroll to the latest activity and follow it"
+            onClick={() => {
+              setStickToBottom(true);
+              scrollToBottom();
+            }}
+          >
+            ↓ Jump to latest
+          </button>
+        </Show>
       </div>
       <AgentComposer
         active={props.active}

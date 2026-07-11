@@ -45,3 +45,23 @@ its buttons were mouse-only, in a keyboard-first product.
   mouse path teaches the keyboard path.
 - **Input-request cards submit on Enter** (the questions now live in a form), matching every other
   text field in the app.
+
+## 3. First-contact discoverability
+
+The idle pane said one dim sentence and the composer placeholder taught nothing.
+
+- **Empty-state welcome** (`EmptyState` in `AgentTranscript`): the provider's name, what the pane is
+  for, and a hint table teaching the keyboard paths — submit/steer, `/` commands, `↑` history,
+  interrupt — plus a pointer at the control strip. Rebindable actions read the catalog live;
+  `/` and `↑` are intrinsic composer behaviors, so their glyphs are fixed.
+- **Placeholder teaches the slash menu** ("Write a prompt — / for commands and skills") and flips to
+  "Steer the running turn…" mid-turn, reinforcing that submitting steers.
+
+## 4. Transcript & control details
+
+- **Follow pill**: scrolling up pauses follow (existing behavior) but gave no way back short of
+  manually scrolling; a floating "↓ Jump to latest" pill now appears whenever follow is paused and
+  one click re-sticks.
+- **Control picker header** names the axis being picked (Model / Approvals / Sandbox).
+- **Attachment chips** say "reading… / uploading… / failed" instead of raw state names, and a ready
+  thumbnail carries no badge at all.

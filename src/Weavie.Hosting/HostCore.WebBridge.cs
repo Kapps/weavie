@@ -534,7 +534,7 @@ public sealed partial class HostCore {
 		_bridge.PostToWeb(JsonSerializer.Serialize(new {
 			type = "rail-state",
 			lastLocation = _railState.LastLocation,
-			lastAgentProvider = _railState.LastAgentProvider,
+			lastAgentProvider = _railState.LastAgentProvider ?? ResolveNewSessionProvider(null),
 			promoted = _railState.Promoted,
 		}));
 

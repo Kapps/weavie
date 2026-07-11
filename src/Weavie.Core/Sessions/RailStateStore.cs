@@ -12,13 +12,12 @@ namespace Weavie.Core.Sessions;
 /// </summary>
 public sealed class RailStateStore {
 	private const string DefaultLocation = "local";
-	private const string DefaultAgentProvider = "claude";
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
 
 	private readonly IFileSystem _fileSystem;
 	private readonly Lock _gate = new();
 	private string _lastLocation;
-	private string _lastAgentProvider;
+	private string? _lastAgentProvider;
 	private List<string> _promoted;
 
 	/// <summary>Creates the store over <paramref name="path"/> (default <c>~/.weavie/rail-state.json</c>), loading it now.</summary>
@@ -48,8 +47,8 @@ public sealed class RailStateStore {
 		get { lock (_gate) { return _lastLocation; } }
 	}
 
-	/// <summary>The agent provider used for the last newly-created session (<c>claude</c> by default).</summary>
-	public string LastAgentProvider {
+	/// <summary>The agent provider used for the last newly-created session, or null before one is remembered.</summary>
+	public string? LastAgentProvider {
 		get { lock (_gate) { return _lastAgentProvider; } }
 	}
 
@@ -75,7 +74,7 @@ public sealed class RailStateStore {
 
 	/// <summary>Records the agent provider used for a newly-created session.</summary>
 	public void SetLastAgentProvider(string provider) {
-		string next = NormalizeAgentProvider(provider);
+		string? next = NormalizeAgentProvider(provider);
 		lock (_gate) {
 			if (string.Equals(_lastAgentProvider, next, StringComparison.Ordinal)) {
 				return;
@@ -135,8 +134,11 @@ public sealed class RailStateStore {
 		}
 	}
 
-	private static string NormalizeAgentProvider(string? provider) =>
-		string.Equals(provider?.Trim(), "codex", StringComparison.Ordinal) ? "codex" : DefaultAgentProvider;
+	private static string? NormalizeAgentProvider(string? provider) => provider?.Trim() switch {
+		"claude" => "claude",
+		"codex" => "codex",
+		_ => null,
+	};
 
 	private sealed class Document {
 		[JsonPropertyName("version")]
@@ -146,7 +148,7 @@ public sealed class RailStateStore {
 		public string LastLocation { get; set; } = DefaultLocation;
 
 		[JsonPropertyName("lastAgentProvider")]
-		public string LastAgentProvider { get; set; } = DefaultAgentProvider;
+		public string? LastAgentProvider { get; set; }
 
 		[JsonPropertyName("promoted")]
 		public List<string> Promoted { get; set; } = [];

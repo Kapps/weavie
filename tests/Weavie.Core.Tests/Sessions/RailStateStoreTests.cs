@@ -17,7 +17,7 @@ public sealed class RailStateStoreTests {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 
 		Assert.Equal("local", store.LastLocation);
-		Assert.Equal("claude", store.LastAgentProvider);
+		Assert.Null(store.LastAgentProvider);
 		Assert.Empty(store.Promoted);
 	}
 
@@ -30,13 +30,13 @@ public sealed class RailStateStoreTests {
 	}
 
 	[Fact]
-	public void SetLastAgentProvider_InvalidFallsBackToClaude() {
+	public void SetLastAgentProvider_InvalidClearsRememberedProvider() {
 		var store = new RailStateStore(new InMemoryFileSystem(), StorePath);
 		store.SetLastAgentProvider("codex");
 
 		store.SetLastAgentProvider("unknown");
 
-		Assert.Equal("claude", store.LastAgentProvider);
+		Assert.Null(store.LastAgentProvider);
 	}
 
 	[Fact]
@@ -133,7 +133,7 @@ public sealed class RailStateStoreTests {
 
 		Assert.True(fs.FileExists(StorePath + ".bad"));
 		Assert.Equal("local", store.LastLocation);
-		Assert.Equal("claude", store.LastAgentProvider);
+		Assert.Null(store.LastAgentProvider);
 		Assert.Empty(store.Promoted);
 	}
 }

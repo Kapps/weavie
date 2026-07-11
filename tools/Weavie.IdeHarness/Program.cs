@@ -24,8 +24,9 @@ var flags = new HandshakeFlags();
 var presenter = FakeDiffPresenter.AlwaysKeep();
 var credential = AgentSessionCredential.Create();
 await using var server = new McpServer(
-	credential.Token, presenter, [workspace], "weavie", settings: null, registryMode: false, layout: null,
-	editor: null, commands: null, keybindings: null, themeOverrides: null, currentSessionId: null);
+	credential.Token, presenter, [workspace], "weavie", settings: null, registryMode: false,
+	exposeIdeTools: true, layout: null, editor: null, commands: null, keybindings: null,
+	themeOverrides: null, currentSessionId: null);
 int port = server.Start();
 IdeLockFile.Write(port, [workspace], "weavie", credential.Token);
 using var lockCleanup = new LockCleanup(port);

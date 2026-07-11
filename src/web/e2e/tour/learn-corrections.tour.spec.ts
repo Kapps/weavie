@@ -45,7 +45,10 @@ test.use({
       { op: "hook", request: { hook_event_name: "UserPromptSubmit", prompt: PROMPT_3 } },
       ...appliedEdit("README.md", README_AGENT),
       { op: "waitFile", path: `{{WORKSPACE}}/${SIG_3}` },
-      { op: "hook", request: { hook_event_name: "UserPromptSubmit", prompt: "Now add some tests" } },
+      {
+        op: "hook",
+        request: { hook_event_name: "UserPromptSubmit", prompt: "Now add some tests" },
+      },
       // Script ends here: fake-claude falls into its stdin-drain loop, so the bracketed paste is consumed
       // (and echoed by the PTY line discipline) rather than backing up the tty input buffer.
     ],

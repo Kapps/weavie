@@ -1,6 +1,7 @@
 using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
+using Weavie.Core.Sessions;
 
 namespace Weavie.Hosting.Agents;
 
@@ -13,18 +14,26 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
 	private readonly Lock _paneGate = new();
 
+	// Durable transcript for the structured pane (null for terminal-backed providers, which repaint themselves).
+	// Seeds the replay buffer SYNCHRONOUSLY at construction, so a reconnecting page's ReplayPane restores the pane
+	// immediately — before the async thread/resume that HydrateTranscript waits on, which the reconnect races and
+	// loses (leaving the pane blank). See docs/specs/agent-pane-persistence.md.
+	private readonly AgentPaneTranscriptStore? _transcript;
+
 	/// <summary>Creates the provider session and its pane runtime.</summary>
 	public AgentSessionHost(
 		IAgentProvider provider,
 		AgentSessionContext context,
 		IHostBridge bridge,
 		SettingsStore settings,
-		IPtyLauncher ptyLauncher) {
+		IPtyLauncher ptyLauncher,
+		string transcriptPath) {
 		ArgumentNullException.ThrowIfNull(provider);
 		ArgumentNullException.ThrowIfNull(context);
 		ArgumentNullException.ThrowIfNull(bridge);
 		ArgumentNullException.ThrowIfNull(settings);
 		ArgumentNullException.ThrowIfNull(ptyLauncher);
+		ArgumentException.ThrowIfNullOrEmpty(transcriptPath);
 		_context = context;
 		_bridge = bridge;
 		Provider = provider.Info;
@@ -35,6 +44,14 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 			};
 		} else if (Session is IStructuredAgentSession structuredSession) {
 			Structured = structuredSession;
+			_transcript = new AgentPaneTranscriptStore(context.FileSystem, transcriptPath);
+			_transcript.Log += Console.WriteLine;
+			// Seed the replay buffer from the persisted transcript BEFORE subscribing, so a reopened session
+			// restores its prior output immediately and live messages append after it.
+			foreach (var message in _transcript.Snapshot()) {
+				StorePaneMessage(message);
+			}
+
 			structuredSession.PaneMessage += PublishPaneMessage;
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
@@ -102,12 +119,14 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 				_paneMessages.Clear();
 				_paneItemIndexes.Clear();
 				_paneDeltaBuffers.Clear();
+				_transcript?.Clear();
 			}
 			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
 			return;
 		}
 		lock (_paneGate) {
 			StorePaneMessage(message);
+			_transcript?.Append(message);
 		}
 
 		_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));

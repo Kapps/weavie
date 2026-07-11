@@ -94,6 +94,39 @@ const paneMessage = (message: Record<string, unknown>) => ({
 
 const userMessage = (text: string) => paneMessage({ type: "user-message", text });
 
+// The agent slice of the command catalog, as the host pushes it — the UI reads all key labels from here.
+const agentCommand = (id: string, title: string, when: string, keys: string[]) => ({
+  id,
+  title,
+  runsIn: "web",
+  description: "",
+  aliases: [],
+  showInPalette: true,
+  when,
+  keys,
+});
+
+const approvalWhen = "agentFocused && agentApprovalPending";
+const catalog = {
+  type: "commands",
+  commands: [
+    agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
+    agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
+    agentCommand("weavie.agent.approve", "Approve Agent Request", approvalWhen, ["alt+y"]),
+    agentCommand("weavie.agent.approveForSession", "Approve For Session", approvalWhen, [
+      "alt+shift+y",
+    ]),
+    agentCommand("weavie.agent.decline", "Decline Agent Request", approvalWhen, ["alt+n"]),
+  ],
+  keybindings: [
+    { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
+    { key: "escape", command: "weavie.agent.interrupt", when: "agentFocused" },
+    { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
+    { key: "alt+shift+y", command: "weavie.agent.approveForSession", when: approvalWhen },
+    { key: "alt+n", command: "weavie.agent.decline", when: approvalWhen },
+  ],
+};
+
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(`built app not found at ${distDir}; run \`pnpm run build\` first`);
@@ -228,6 +261,73 @@ test.describe("Codex composer", () => {
     await expect(working).toHaveCount(0);
     await expect(submit).toHaveText("Run");
     await expect(interrupt).toHaveCount(0);
+  });
+
+  // Pins the idle welcome: provider name, catalog-driven key hints, and the teaching placeholder.
+  test("the idle pane teaches the keyboard paths", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+
+    const empty = page.locator(".agent-empty");
+    await expect(empty).toBeVisible();
+    await expect(empty.locator(".agent-empty-title")).toHaveText("Codex");
+    await expect(empty.locator("kbd")).toHaveText(["Enter", "/", "↑", "Escape"]);
+    await expect(page.locator("[data-agent-composer] textarea")).toHaveAttribute(
+      "placeholder",
+      "Write a prompt — / for commands and skills",
+    );
+    await page.screenshot({ path: join(shotsDir, "08-empty-state.png") });
+  });
+
+  // Pins the informed-approval flow: the card shows the command under review, the buttons wear their
+  // chords, and Alt+Y answers the pending request from the keyboard.
+  test("an approval card shows the command and answers to Alt+Y", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    host.pushToWeb(
+      paneMessage({
+        type: "approval-requested",
+        itemId: "a1",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        text: "dotnet test tests/Weavie.Hosting.Tests",
+      }),
+    );
+
+    const card = page.locator(".agent-entry-request");
+    await expect(card).toContainText("dotnet test tests/Weavie.Hosting.Tests");
+    const accept = card.locator("button", { hasText: "Accept" }).first();
+    await expect(accept.locator(".agent-key-chip")).toHaveText("Alt+Y");
+    await page.screenshot({ path: join(shotsDir, "09-approval-card.png") });
+
+    await page.locator("[data-agent-composer] textarea").click();
+    await page.keyboard.press("Alt+y");
+    const decision = await host.waitForMessage("agent-approval");
+    expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
+  });
+
+  // Pins the follow pill: scrolling up pauses follow and shows the pill; clicking it re-sticks.
+  test("scrolling up shows the jump-to-latest pill", async ({ page }) => {
+    await mountCodex(page);
+    for (let i = 0; i < 40; i += 1) {
+      host.pushToWeb(userMessage(`prompt ${i}\nwith\nseveral\nlines`));
+    }
+
+    const body = page.locator(".agent-body");
+    const pill = page.locator(".agent-follow-pill");
+    await expect(page.locator(".agent-entry").first()).toBeVisible();
+    await expect(pill).toHaveCount(0);
+
+    await body.evaluate((el) => el.scrollTo({ top: 0 }));
+    await expect(pill).toBeVisible();
+    await page.screenshot({ path: join(shotsDir, "10-follow-pill.png") });
+
+    await pill.click();
+    await expect(pill).toHaveCount(0);
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeLessThan(40);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

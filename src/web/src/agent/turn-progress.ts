@@ -49,11 +49,16 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
   return latest;
 }
 
-/** The latest unresolved request's kind alone (the working row's label needs no id). */
-export function pendingRequestKind(
-  messages: readonly AgentPaneUpdate[],
-): PendingRequestKind | null {
-  return pendingRequest(messages)?.kind ?? null;
+/**
+ * The one approval the keyboard decision commands answer: the newest pending request of an active
+ * turn, when it is an approval. The chips and the commands must derive this identically.
+ */
+export function pendingApproval(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
+  if (!hasActiveTurn(messages)) {
+    return null;
+  }
+  const request = pendingRequest(messages);
+  return request !== null && request.kind === "approval" ? request : null;
 }
 
 /** Elapsed working time as a compact label: "8s", "1m 05s", "1h 02m". */

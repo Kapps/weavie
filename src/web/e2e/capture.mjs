@@ -127,23 +127,27 @@ async function main() {
     // Chromium directly (WEAVIE_CHROMIUM) instead of downloading a matching build.
     const executablePath = process.env.WEAVIE_CHROMIUM || undefined;
     const browser = await chromium.launch({ executablePath });
-    const context = await browser.newContext({
-      viewport,
-      recordVideo: { dir: outDir, size: viewport },
-    });
-    const page = await context.newPage();
-    page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
-    page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
-    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
+    try {
+      const context = await browser.newContext({
+        viewport,
+        recordVideo: { dir: outDir, size: viewport },
+      });
+      const page = await context.newPage();
+      page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
+      page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
+      await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
 
-    const tour = await loadTour();
-    await tour(page);
+      const tour = await loadTour();
+      await tour(page);
 
-    const video = page.video();
-    await context.close(); // finalize the .webm
-    await browser.close();
-    const webm = video ? await video.path() : null;
-    console.log(`\n[capture] recording: ${webm ?? "(none)"}`);
+      const video = page.video();
+      await context.close(); // finalize the .webm
+      const webm = video ? await video.path() : null;
+      console.log(`\n[capture] recording: ${webm ?? "(none)"}`);
+    } finally {
+      // A failed tour must still tear the browser down, or the run hangs until something kills it.
+      await browser.close();
+    }
   } finally {
     host.kill("SIGINT");
   }

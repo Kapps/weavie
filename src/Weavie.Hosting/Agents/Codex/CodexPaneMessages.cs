@@ -84,7 +84,8 @@ internal static class CodexPaneMessages {
 
 		return method switch {
 			"item/commandExecution/requestApproval" => NormalizeToNull(parameters.GetStringOrEmpty("command")),
-			"item/fileChange/requestApproval" when parameters.TryGetProperty("changes", out _) =>
+			"item/fileChange/requestApproval"
+				when parameters.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array =>
 				NormalizeToNull(SummarizeChanges(parameters)),
 			_ => null,
 		};

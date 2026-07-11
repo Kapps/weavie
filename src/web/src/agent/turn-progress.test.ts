@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { formatElapsed, hasActiveTurn, pendingRequest, pendingRequestKind } from "./turn-progress";
+import { formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
 
 const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
@@ -29,14 +29,16 @@ describe("hasActiveTurn", () => {
   });
 });
 
-describe("pendingRequestKind", () => {
+const kindOf = (messages: AgentPaneUpdate[]) => pendingRequest(messages)?.kind ?? null;
+
+describe("pendingRequest", () => {
   it("is null with no unresolved requests", () => {
-    expect(pendingRequestKind([message("turn-started")])).toBe(null);
+    expect(kindOf([message("turn-started")])).toBe(null);
   });
 
   it("reports the latest unresolved request kind", () => {
     expect(
-      pendingRequestKind([
+      kindOf([
         message("turn-started"),
         message("approval-requested", "a1"),
         message("input-requested", "q1"),
@@ -46,7 +48,7 @@ describe("pendingRequestKind", () => {
 
   it("clears a request once resolved", () => {
     expect(
-      pendingRequestKind([
+      kindOf([
         message("turn-started"),
         message("approval-requested", "a1"),
         message("approval-resolved", "a1"),
@@ -56,8 +58,8 @@ describe("pendingRequestKind", () => {
 
   it("drops stale requests when the turn ends or a new one starts", () => {
     const stale = [message("turn-started"), message("approval-requested", "a1")];
-    expect(pendingRequestKind([...stale, message("turn-completed")])).toBe(null);
-    expect(pendingRequestKind([...stale, message("turn-started")])).toBe(null);
+    expect(kindOf([...stale, message("turn-completed")])).toBe(null);
+    expect(kindOf([...stale, message("turn-started")])).toBe(null);
   });
 
   it("exposes the newest unresolved request id for keyboard decisions", () => {

@@ -29,6 +29,7 @@ import {
   setActiveBackendId,
   type TermSession,
 } from "./bridge";
+import { defaultAgentProvider, setDefaultAgentProvider } from "./chrome/agent-default";
 import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chrome/ContextMenu";
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
@@ -1292,9 +1293,11 @@ export default function App(): JSX.Element {
       <Show when={newSessionOpen()}>
         <NewSessionPrompt
           initialBackendId={defaultLocation()}
+          initialAgentProviderId={defaultAgentProvider()}
           onCreate={(branch, base, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
+            setDefaultAgentProvider(agentProviderId);
             // A remote session lands nested under its agent; promote it onto the rail like a local one.
             promoteNextSessionOn(location);
             // Bind the page to the chosen backend first, so the worktree-creation reply (term-reset →
@@ -1304,13 +1307,14 @@ export default function App(): JSX.Element {
                 type: "new-session",
                 branch,
                 base,
-                ...(agentProviderId === undefined ? {} : { agentProviderId }),
+                agentProviderId,
               }),
             );
           }}
           onCheckout={(branch, location, agentProviderId) => {
             setNewSessionOpen(false);
             setLastLocation(location);
+            setDefaultAgentProvider(agentProviderId);
             promoteNextSessionOn(location);
             // Same backend-binding order as onCreate; `existing` checks out the branch instead of creating one.
             bindBackend(location, () =>
@@ -1318,7 +1322,7 @@ export default function App(): JSX.Element {
                 type: "new-session",
                 branch,
                 existing: true,
-                ...(agentProviderId === undefined ? {} : { agentProviderId }),
+                agentProviderId,
               }),
             );
           }}

@@ -479,6 +479,10 @@ public sealed partial class HostCore {
 				// The page remembers where the last session was created (a backend id); persist it for next launch.
 				_railState.SetLastLocation(root.GetStringOrEmpty("location"));
 				break;
+			case "set-agent-default":
+				// The New Session prompt remembers its provider choice as the default; always the local host.
+				RememberDefaultProvider(root.GetStringOrEmpty("providerId"));
+				break;
 			case "set-promoted":
 				// The page's promoted-remote-session set changed; persist the full set it sent.
 				_railState.SetPromoted(StringArray(root, "promoted"));

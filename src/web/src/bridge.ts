@@ -73,6 +73,12 @@ export interface NotificationPrefs {
   gates: Record<AttentionKindName, boolean>;
 }
 
+// Resolved agent defaults (the agent.defaultProvider setting). Injected as window.__WEAVIE_AGENT__ before
+// navigation, re-pushed as { type: "agent-defaults" } on change. The New Session prompt preselects it.
+export interface AgentDefaults {
+  defaultProvider: "claude" | "codex";
+}
+
 export interface AgentPaneUpdate {
   type: string;
   providerId: "claude" | "codex";
@@ -439,6 +445,9 @@ export type HostBoundMessage =
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
+  // Remember the provider chosen in the New Session prompt as the default (agent.defaultProvider). Always the
+  // local host: the prompt's default is a local preference, independent of where the session is created.
+  | { type: "set-agent-default"; providerId: "claude" | "codex" }
   // A keybinding/palette/menu invoked a Core command. A `token` requests a command-result reply
   // (request/response); without one the host runs it fire-and-forget.
   | { type: "invoke-command"; id: string; args?: unknown; token?: string }
@@ -562,6 +571,9 @@ export type WebBoundMessage =
   // Host re-pushes the resolved notification prefs when a notifications.* setting changes (ApplyMode.Live).
   // A local-machine push: one prefs source (the page-serving backend) governs presentation.
   | ({ type: "notification-prefs" } & NotificationPrefs)
+  // Host re-pushes the agent default provider when agent.defaultProvider changes (e.g. creating a session
+  // with a different provider). A local-machine push: the New Session prompt's default tracks it.
+  | ({ type: "agent-defaults" } & AgentDefaults)
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
@@ -872,7 +884,8 @@ function deliverFromHost(raw: string, backendId: string): void {
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
     parsed.type === "window-state" ||
-    parsed.type === "notification-prefs";
+    parsed.type === "notification-prefs" ||
+    parsed.type === "agent-defaults";
   if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
     return;
   }

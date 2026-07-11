@@ -66,7 +66,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "agent.defaultProvider",
+			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
 			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider. "
 				+ "Claude is the default; Codex is selectable only once its native parity gate is available.",

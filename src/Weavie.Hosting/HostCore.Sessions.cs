@@ -384,7 +384,16 @@ public sealed partial class HostCore {
 			return requestedProvider.Trim();
 		}
 
-		return _settings.RequireString("agent.defaultProvider");
+		return _settings.RequireString(AgentSettings.DefaultProvider);
+	}
+
+	/// <summary>Persists a chosen provider as the standing default, so the next new session preselects it. Only an
+	/// available provider sticks; an unknown or unavailable id is ignored rather than stranding the prompt on it.</summary>
+	private void RememberDefaultProvider(string? requestedProvider) {
+		string? provider = requestedProvider?.Trim();
+		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is { Available: true }) {
+			_settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
+		}
 	}
 
 	/// <summary>Pushes the session list (id, label, active, loaded, status, identity) to the page's rail.</summary>
@@ -575,11 +584,10 @@ public sealed partial class HostCore {
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(request);
-		if (request.AttachExisting) {
-			return AttachExistingSessionAsync(request.Branch, request.Prompt, ResolveNewSessionProvider(request.AgentProviderId), ct);
-		}
-
-		return CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, ResolveNewSessionProvider(request.AgentProviderId), ct);
+		string provider = ResolveNewSessionProvider(request.AgentProviderId);
+		return request.AttachExisting
+			? AttachExistingSessionAsync(request.Branch, request.Prompt, provider, ct)
+			: CreateWorktreeSessionAsync(request.Branch, request.Base, request.Prompt, provider, ct);
 	}
 
 	/// <inheritdoc/>

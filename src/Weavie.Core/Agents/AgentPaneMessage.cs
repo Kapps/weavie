@@ -20,6 +20,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The structured item kind, when any.</summary>
 	public string? ItemType { get; init; }
 
+	/// <summary>The provider-neutral presentation category for this update.</summary>
+	public string? Category { get; init; }
+
 	/// <summary>A concise user-facing summary for list/card rendering.</summary>
 	public string? Summary { get; init; }
 
@@ -28,6 +31,9 @@ public sealed record AgentPaneMessage {
 
 	/// <summary>A status value from the provider contract.</summary>
 	public string? Status { get; init; }
+
+	/// <summary>Normalized questions for an input request, when any.</summary>
+	public IReadOnlyList<AgentInputQuestion>? Questions { get; init; }
 
 	/// <summary>Raw provider payload for details panes and forward-compatible rendering.</summary>
 	public string? PayloadJson { get; init; }

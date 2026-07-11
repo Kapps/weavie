@@ -36,6 +36,12 @@ load it only when you need it.
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
+- **Learn from corrections** — Weavie uniquely sees the user's *net edit over the agent's output*
+  (reverts + hand-edits in turn-review, invisible to the model's transcript). It rings those per-workspace
+  and the palette command `Learn From My Corrections` (`weavie.learn.fromCorrections`) prefills the corpus
+  into the primary session's Claude to propose `AGENTS.md` rules — Weavie stores the signal, Claude does
+  the reasoning (no classifier in Core). A contextual-suggestion card nudges once enough accumulate. See
+  [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
 
 ## Keyboard-first navigation
 

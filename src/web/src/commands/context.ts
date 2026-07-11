@@ -17,11 +17,17 @@ export function setContext(key: string, value: ContextValue): void {
 /** The focus-derived `when` keys for a focused element — which pane (by `[data-kind]`) holds focus. Shared by
  * the live focusin tracker and the palette's prior-focus snapshot so both classify focus identically. */
 export function paneFocusContext(el: Element | null): ContextOverrides {
-  const kind = el?.closest("[data-kind]")?.getAttribute("data-kind") ?? null;
+  const pane = el?.closest("[data-kind]");
+  const kind = pane?.getAttribute("data-kind") ?? null;
+  const surface = pane?.getAttribute("data-surface") ?? null;
   return {
     focusedPane: kind,
-    editorFocused: kind === "editor",
-    terminalFocused: kind?.startsWith("terminal:") ?? false,
+    editorFocused: surface === "editor" || (surface === null && kind === "editor"),
+    terminalFocused:
+      surface === "terminal" || (surface === null && (kind?.startsWith("terminal:") ?? false)),
+    agentFocused: surface === "structured-agent",
+    agentComposerFocused:
+      surface === "structured-agent" && el?.closest("[data-agent-composer]") !== null,
   };
 }
 

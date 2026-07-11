@@ -31,6 +31,12 @@ public sealed record HookRequest {
 	/// </summary>
 	public string? Source { get; init; }
 
+	/// <summary>
+	/// For a <see cref="HookEventKind.UserPromptSubmit"/> event, the submitted prompt text — the attribution a
+	/// recorded correction carries into the /learn corpus. Absent on other events.
+	/// </summary>
+	public string? Prompt { get; init; }
+
 	/// <summary>The working directory the tool runs in, when present.</summary>
 	public string? Cwd { get; init; }
 
@@ -85,6 +91,7 @@ public sealed record HookRequest {
 				SessionId = GetString(root, "session_id"),
 				Message = GetString(root, "message"),
 				Source = GetString(root, "source"),
+				Prompt = evt == HookEventKind.UserPromptSubmit ? GetString(root, "prompt") : null,
 				Cwd = GetString(root, "cwd"),
 				PermissionMode = GetString(root, "permission_mode"),
 				SessionWillResume = evt == HookEventKind.Stop && StopHasPendingResumption(root),

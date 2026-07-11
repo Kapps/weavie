@@ -75,7 +75,11 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 					server.Disconnect(); // reuse the bound instance — never dispose mid-life (that unlinks the socket)
 				} catch (OperationCanceledException) {
 					break;
-				} catch (Exception ex) when (ex is IOException or ObjectDisposedException) {
+				} catch (Exception ex) {
+					// Never let one bad connection kill a listener slot for the app's lifetime — rebind and keep serving.
+					if (ex is not (IOException or ObjectDisposedException)) {
+						Log?.Invoke($"hook connection failed: {ex.Message}");
+					}
 					await server.DisposeAsync().ConfigureAwait(false);
 					server = null;
 				}
@@ -95,7 +99,7 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 			var request = HookRequest.Parse(Encoding.UTF8.GetString(requestBytes));
 			if (request is not null) {
 				RaiseObserved(request);
-				var decision = _decide(request);
+				var decision = Decide(request);
 				RaiseDecided(request, decision);
 				string? json = decision.ToHookOutputJson(request.Event);
 				if (json is not null) {
@@ -105,6 +109,15 @@ public sealed class HookBridgeServer : IAsyncDisposable {
 		}
 
 		await HookProtocol.WriteFramedAsync(server, response, ct).ConfigureAwait(false);
+	}
+
+	private HookDecision Decide(HookRequest request) {
+		try {
+			return _decide(request);
+		} catch (Exception ex) {
+			Log?.Invoke($"hook decide threw: {ex.Message}");
+			return HookDecision.PassThrough; // The documented contract: relays fail open, a hiccup never blocks Claude.
+		}
 	}
 
 	private void RaiseObserved(HookRequest request) {

@@ -1,0 +1,21 @@
+{
+  "cesp_version": "1.0",
+  "name": "weavie",
+  "display_name": "Weavie",
+  "version": "1.0.0",
+  "description": "Weavie's built-in attention tones: calm, short, original synthesized chimes.",
+  "license": "CC0-1.0",
+  "language": "en",
+  "author": { "name": "Weavie" },
+  "categories": {
+    "task.complete": {
+      "sounds": [{ "file": "sounds/turn-complete.wav", "label": "Turn complete" }]
+    },
+    "input.required": {
+      "sounds": [{ "file": "sounds/needs-input.wav", "label": "Needs input" }]
+    },
+    "task.error": {
+      "sounds": [{ "file": "sounds/failed.wav", "label": "Failed" }]
+    }
+  }
+}

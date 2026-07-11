@@ -1,5 +1,6 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
 using Weavie.Core.Editor;
@@ -50,6 +51,8 @@ public sealed partial class HostCore {
 			_ui.Post(SeedWorkspaceSetup);
 			return Task.FromResult(CommandResult.Success("Asked Claude to set up this workspace."));
 		});
+		// /learn: prefill the correction-corpus analysis into the primary session (see HostCore.Learn.cs).
+		session.Commands.RegisterHandler(CoreCommands.LearnFromCorrections, (_, _) => Task.FromResult(RunLearn()));
 		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
 		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
 		session.Commands.RegisterHandler(CoreCommands.ConnectNotion, (_, _) => {
@@ -95,6 +98,7 @@ public sealed partial class HostCore {
 				PushReviewHistoryToWeb();
 			}
 		});
+		WireAttention(session);
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
 				PostSessionStatus(status);
@@ -393,16 +397,23 @@ public sealed partial class HostCore {
 		// between two live ones. OrderByDescending is stable, so the always-loaded primary stays at the top.
 		var sessions = _sessions.Slots
 			.OrderByDescending(slot => slot.Loaded)
-			.Select(slot => new {
-				id = slot.Id,
-				label = slot.Label,
-				active = ReferenceEquals(_sessions.ActiveSlot, slot),
-				loaded = slot.Loaded,
-				primary = slot.IsPrimary,
-				providerId = slot.AgentProviderId,
-				status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
-				hue = SessionIdentity.Hue(slot.Label),
-				monogram = SessionIdentity.Monogram(slot.Label),
+			.Select(slot => {
+				var info = _agentProviders.FindInfo(slot.AgentProviderId);
+				bool structured = info?.Capabilities
+					.HasFlag(AgentProviderCapabilities.StructuredPane) == true;
+				return new {
+					id = slot.Id,
+					label = slot.Label,
+					active = ReferenceEquals(_sessions.ActiveSlot, slot),
+					loaded = slot.Loaded,
+					primary = slot.IsPrimary,
+					providerId = slot.AgentProviderId,
+					agentSurface = info is null ? "unavailable" : structured ? "structured" : "terminal",
+					agentInputProtocol = structured ? 2 : 0,
+					status = slot.Session is { } s ? StatusName(s.Status.Status) : "idle",
+					hue = SessionIdentity.Hue(slot.Label),
+					monogram = SessionIdentity.Monogram(slot.Label),
+				};
 			});
 		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "session-list", sessions }));
 	}
@@ -446,7 +457,7 @@ public sealed partial class HostCore {
 			// one session's images never touches another's.
 			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, provider, _runtime);
+			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =
@@ -786,6 +797,10 @@ public sealed partial class HostCore {
 	}
 
 	private SessionSlot? PrimarySlot() => _sessions?.Slots.FirstOrDefault(s => s.IsPrimary);
+
+	/// <summary>The slot whose live backend is <paramref name="session"/>, or null (unloaded, or pre-rail during startup).</summary>
+	private SessionSlot? SlotFor(HostSession session) =>
+		_sessions?.Slots.FirstOrDefault(slot => ReferenceEquals(slot.Session, session));
 
 	/// <summary>
 	/// True when <paramref name="worktreePath"/> is still an inspectable git worktree (directory exists + carries

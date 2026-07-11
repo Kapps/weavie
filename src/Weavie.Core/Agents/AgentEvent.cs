@@ -11,8 +11,8 @@ public sealed record AgentSessionStarted(string? Source) : AgentEvent;
 /// <summary>The provider's supervised runtime process changed state.</summary>
 public sealed record AgentProcessChanged(SupervisorStateChanged Change) : AgentEvent;
 
-/// <summary>A user prompt entered the agentic loop.</summary>
-public sealed record AgentPromptSubmitted(string? SessionId) : AgentEvent;
+/// <summary>A user prompt entered the agentic loop; <paramref name="Prompt"/> is its text when the provider reports one.</summary>
+public sealed record AgentPromptSubmitted(string? SessionId, string? Prompt) : AgentEvent;
 
 /// <summary>The agent turn stopped, optionally with a pending self-resumption.</summary>
 public sealed record AgentTurnStopped(bool WillResume) : AgentEvent;

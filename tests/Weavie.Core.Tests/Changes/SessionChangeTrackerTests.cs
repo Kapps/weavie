@@ -366,6 +366,39 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void RevertHunk_CrlfFile_KeepsCrlfEndings() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\r\nb\r\nc\r\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\r\nB\r\nc\r\n");
+		tracker.RecordChange("/w/a.txt");
+
+		// Guard text is LF-joined (the web's Monaco model), but the write must keep the file's CRLF endings.
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.Equal("a\r\nb\r\nc\r\n", fileSystem.ReadAllText("/w/a.txt"));
+		Assert.Empty(tracker.Changes()); // back at baseline — nothing left pending
+	}
+
+	[Fact]
+	public void KeepHunk_CrlfFile_KeepsCrlfBaseline() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\r\nb\r\nc\r\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\r\nB\r\nc\r\n");
+		tracker.RecordChange("/w/a.txt");
+
+		Assert.True(tracker.KeepHunk("/w/a.txt", new LineRange(2, 3), new LineRange(2, 3), "B"));
+
+		// The advanced baseline keeps CRLF, so a later whole-file revert writes CRLF back to disk.
+		Assert.Equal(RevertHunkOutcome.Reverted, tracker.RevertFile("/w/a.txt"));
+		Assert.Equal("a\r\nB\r\nc\r\n", fileSystem.ReadAllText("/w/a.txt"));
+	}
+
+	[Fact]
 	public void RevertHunk_GuardMismatch_WritesNothing() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a\nb\n");

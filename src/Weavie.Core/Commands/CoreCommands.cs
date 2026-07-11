@@ -47,6 +47,24 @@ public static class CoreCommands {
 	/// <summary>Pastes the OS clipboard into the focused terminal; bound to <c>Ctrl+V</c> / <c>⌘V</c>.</summary>
 	public const string TerminalPaste = "weavie.terminal.paste";
 
+	/// <summary>Pastes the local clipboard into the focused structured-agent composer.</summary>
+	public const string AgentPaste = "weavie.agent.paste";
+
+	/// <summary>Submits the focused structured-agent composer.</summary>
+	public const string AgentSubmit = "weavie.agent.submit";
+
+	/// <summary>Interrupts the active structured-agent turn.</summary>
+	public const string AgentInterrupt = "weavie.agent.interrupt";
+
+	/// <summary>Opens the agent composer's model picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectModel = "weavie.agent.selectModel";
+
+	/// <summary>Opens the agent composer's approval-policy picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectApprovalPolicy = "weavie.agent.selectApprovalPolicy";
+
+	/// <summary>Opens the agent composer's sandbox picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectSandbox = "weavie.agent.selectSandbox";
+
 	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
 	public const string TerminalClear = "weavie.terminal.clear";
 
@@ -220,6 +238,9 @@ public static class CoreCommands {
 
 	/// <summary>Has Claude inspect the repo and configure the workspace's knowledge-shaped settings (worktree setup command + test profile) on the user's confirmation; backs the workspace-setup suggestion. Palette-visible, no default keybinding.</summary>
 	public const string SetupWorkspace = "weavie.workspace.setup";
+
+	/// <summary>Prefill an analysis of the workspace's recorded corrections into the primary session's agent.</summary>
+	public const string LearnFromCorrections = "weavie.learn.fromCorrections";
 
 	/// <summary>Runs tests for a file via the workspace test profile (args <c>file</c>, optional <c>name</c> for a single test); writes the composed command into the shell pane. The one executor behind the lenses and MCP.</summary>
 	public const string RunTests = "weavie.tests.run";
@@ -486,6 +507,77 @@ public static class CoreCommands {
 			// Not on a browser shell: it can't read the clipboard programmatically, so this command (and its
 			// palette row) would be a dead end there — Ctrl+V falls through to xterm's native paste instead.
 			When = "terminalFocused && !browserShell",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentPaste,
+			Title = "Paste",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Paste the local clipboard into the focused agent composer, including images.",
+			Aliases = ["paste", "paste clipboard", "agent paste", "paste image"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+v" }],
+			When = "agentFocused && !browserShell",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentSubmit,
+			Title = "Submit Agent Prompt",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Submit the focused agent composer.",
+			Aliases = ["submit prompt", "run prompt", "send prompt", "agent submit"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "enter" }],
+			// While a composer overlay (slash menu or control picker) is open, Enter drives it, not submission.
+			When = "agentComposerFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = AgentInterrupt,
+			Title = "Interrupt Agent Turn",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Interrupt the active agent turn.",
+			Aliases = ["interrupt", "stop agent", "cancel turn"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "escape" }],
+			// While a composer overlay (slash menu or control picker) is open, Escape closes it, not the turn.
+			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectModel,
+			Title = "Select Agent Model",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose the model for the active agent session. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select model", "change model", "switch model", "codex model", "model"],
+			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Model id to select; omit to open the picker\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectApprovalPolicy,
+			Title = "Select Agent Approvals",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose when the active agent asks for approval. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select approvals", "approval policy", "change approvals", "permission mode"],
+			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Approval policy to select; omit to open the picker\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectSandbox,
+			Title = "Select Agent Sandbox",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose what the active agent is allowed to touch. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select sandbox", "sandbox mode", "change sandbox", "agent permissions"],
+			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Sandbox mode to select; omit to open the picker\"}}",
 		});
 
 		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);
@@ -1147,6 +1239,20 @@ public static class CoreCommands {
 			Category = "Workspace",
 			Description = "Have Claude inspect the repository and configure this workspace's settings — the command to ready a fresh checkout and how to run its tests — on your confirmation.",
 			Aliases = ["set up workspace", "configure workspace", "suggest setup command", "configure test runner", "how to run tests", "worktree setup command"],
+		});
+
+		// Infrequent, reachable from the palette + the corrections.learn card — no default keybinding (like
+		// SetupWorkspace). Prefills only; the user reviews the analysis prompt and presses Enter.
+		registry.Register(new CommandDefinition {
+			Id = LearnFromCorrections,
+			Title = "Learn From My Corrections",
+			RunsIn = CommandLocation.Core,
+			Category = "Workspace",
+			Description = "Have Claude mine the corrections you made to its output after its turns ended (reverted "
+				+ "hunks, hand-edits) and propose CLAUDE.md rules — prefilled into the primary session for your "
+				+ "review, never auto-sent.",
+			Aliases = ["learn from corrections", "teach claude", "mine corrections", "claude.md rules from reverts",
+				"learn from my edits", "learn"],
 		});
 
 		// Connect a Notion account (Core-handled in HostCore.Sources.cs). One-time action — palette + Claude, no

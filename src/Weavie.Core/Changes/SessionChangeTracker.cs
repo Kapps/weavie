@@ -199,6 +199,7 @@ public sealed partial class SessionChangeTracker {
 
 			_acceptedAnchor.TryAdd(path, string.Empty);
 			_current[path] = ReadOrEmpty(path);
+			SnapshotAgentOutput(path);
 		}
 
 		Changed?.Invoke();
@@ -255,6 +256,7 @@ public sealed partial class SessionChangeTracker {
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_fileSystem.FileExists(path)) {
 					Forget(path);
+					DropAgentOutput(path);
 					(removed ??= []).Add(path);
 				}
 			}

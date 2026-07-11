@@ -50,6 +50,8 @@ public sealed partial class HostCore {
 			_ui.Post(SeedWorkspaceSetup);
 			return Task.FromResult(CommandResult.Success("Asked Claude to set up this workspace."));
 		});
+		// /learn: prefill the correction-corpus analysis into the primary session (see HostCore.Learn.cs).
+		session.Commands.RegisterHandler(CoreCommands.LearnFromCorrections, (_, _) => Task.FromResult(RunLearn()));
 		// Connect Notion: open the token page in the browser and ask the page to show the token input (the user
 		// pastes it there; set-source-token validates + saves). Synchronous — the work happens on the page.
 		session.Commands.RegisterHandler(CoreCommands.ConnectNotion, (_, _) => {
@@ -446,7 +448,7 @@ public sealed partial class HostCore {
 			// one session's images never touches another's.
 			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
-			_commandRegistry, _keybindings, _themeOverrides, _platform.PtyLauncher, provider, _runtime);
+			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client
 		// replays a coherent screen. Shell only — claude resumes its own conversation.
 		session.Shell.ScrollbackLogPath =

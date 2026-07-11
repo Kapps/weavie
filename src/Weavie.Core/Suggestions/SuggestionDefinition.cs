@@ -52,6 +52,12 @@ public sealed record SuggestionContext {
 	/// <see cref="SuggestionService"/> (fail-open on timeout) so the predicate stays a cheap synchronous read.
 	/// </summary>
 	public required bool HasBuildManifest { get; init; }
+
+	/// <summary>
+	/// How many corrections the workspace's ring holds right now. Unlike the one-shot manifest probe this
+	/// changes over time, so <see cref="SuggestionService"/> reads it fresh from a supplier each evaluation.
+	/// </summary>
+	public required int PendingCorrectionCount { get; init; }
 }
 
 /// <summary>

@@ -222,7 +222,8 @@ public static class CodexAppServerProtocol {
 		string method = methodElement.GetString() ?? string.Empty;
 		value = method switch {
 			"thread/started" => new AgentSessionStarted("startup"),
-			"turn/started" => new AgentPromptSubmitted(null),
+			// Codex's turn-start carries no prompt text; a correction it drains records with a null prompt.
+			"turn/started" => new AgentPromptSubmitted(null, null),
 			"turn/completed" => new AgentTurnStopped(false),
 			"turn/interrupted" => new AgentTurnStopped(false),
 			"item/started" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolStarting(mutation),

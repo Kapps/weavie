@@ -133,6 +133,7 @@ test.describe("Codex composer", () => {
     await expect(segments.nth(1)).toContainText("On request");
     await expect(segments.nth(2)).toContainText("Workspace write");
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
+    await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
   });
 
   test("the model picker applies a live change back to the host", async ({ page }) => {

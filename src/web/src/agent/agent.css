@@ -422,7 +422,8 @@
   flex: 0 0 auto;
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
-  align-items: center;
+  /* Top-align so the "prompt>" label rides the textarea's first line and stays put as it grows. */
+  align-items: start;
   gap: 8px;
   min-height: 42px;
   padding: 5px 8px;
@@ -436,6 +437,8 @@
 }
 
 .agent-compose-prompt {
+  /* Matches the textarea's top padding so both first lines sit on the same baseline. */
+  padding-top: 3px;
   color: var(--accent);
   font-weight: 650;
   user-select: none;

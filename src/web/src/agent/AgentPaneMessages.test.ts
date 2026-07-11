@@ -133,6 +133,72 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]?.details[0]?.detailText).toBe("src/App.cs: trailing whitespace");
   });
 
+  it("shows a failed turn even when no separate error notification arrived", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "turn-completed",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex usage limit reached",
+        text: "You have no weighted tokens left",
+        status: "failed",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]).toMatchObject({
+      kind: "notice",
+      tone: "error",
+      summary: "Codex usage limit reached",
+      text: "You have no weighted tokens left",
+      status: "failed",
+    });
+  });
+
+  it("does not duplicate a failed turn that already emitted an error", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "error",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex usage limit reached",
+        text: "You have no weighted tokens left",
+        status: "failed",
+      },
+      {
+        type: "turn-completed",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex usage limit reached",
+        text: "You have no weighted tokens left",
+        status: "failed",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.tone).toBe("error");
+    expect(transcript[0]?.status).toBe("failed");
+  });
+
+  it("shows when a provider warning will retry", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "warning",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex is temporarily overloaded",
+        text: "Retrying the request",
+        status: "retrying",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]).toMatchObject({
+      tone: "warning",
+      status: "retrying",
+    });
+  });
+
   it("shows only the latest running step in the activity summary", () => {
     const transcript = toAgentTranscript([
       {
@@ -276,5 +342,38 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
+  });
+
+  it("coalesces assistant deltas and replaces them with the completed item", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", turnId: "turn-1", text: "hello" },
+      {
+        type: "agent-message-delta",
+        providerId: "codex",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Hel",
+      },
+      {
+        type: "agent-message-delta",
+        providerId: "codex",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "lo",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Hello!",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.text)).toEqual(["hello", "Hello!"]);
   });
 });

@@ -217,6 +217,8 @@ public static class CoreSettings {
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
+		NotificationSettings.Register(registry);
+		CorrectionsSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",
@@ -291,7 +293,9 @@ public static class CoreSettings {
 			return onPath;
 		}
 
-		return null;
+		// On POSIX, match Claude's fallback: the interactive login shell may add Codex through nvm/asdf/mise
+		// even when the environment Weavie inherited at startup cannot resolve it yet.
+		return OperatingSystem.IsWindows() ? null : "codex";
 	}
 
 	private static bool IsWindowsAppsAlias(string path) =>

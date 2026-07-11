@@ -3,7 +3,7 @@ using Weavie.Core.Agents;
 namespace Weavie.Hosting.Tests;
 
 internal sealed class FakeCodexAgentProvider : IAgentProvider {
-	/// <summary>A prompt that makes the fake abandon its thread (emit a <c>thread-reset</c>) instead of answering.</summary>
+	/// <summary>A prompt that makes the fake abandon its thread (emit a <c>transcript-reset</c>) instead of answering.</summary>
 	public const string ResetPrompt = "reset-thread";
 
 	public AgentProviderInfo Info { get; } = new() {
@@ -28,9 +28,10 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 		public void Start() =>
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "codex", Status = "ready" });
 
-		public void SubmitPrompt(string prompt) {
-			if (prompt == ResetPrompt) {
-				PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-reset", ProviderId = "codex" });
+		public void Submit(AgentTurnSubmission submission) {
+			ArgumentNullException.ThrowIfNull(submission);
+			if (submission.Text == ResetPrompt) {
+				PaneMessage?.Invoke(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
 				return;
 			}
 
@@ -41,7 +42,7 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 				ProviderId = "codex",
 				ThreadId = "thread-fake",
 				TurnId = $"turn-{_turns}",
-				Text = prompt,
+				Text = submission.Text,
 			});
 			PaneMessage?.Invoke(new AgentPaneMessage {
 				Type = "item-completed",
@@ -50,12 +51,9 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 				TurnId = $"turn-{_turns}",
 				ItemId = item,
 				ItemType = "agentMessage",
-				Text = $"echo: {prompt}",
+				Text = $"echo: {submission.Text}",
 				Status = "completed",
 			});
-		}
-
-		public void AttachImage(string path) {
 		}
 
 		public void PrefillPrompt(string prompt) {

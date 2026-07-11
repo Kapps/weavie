@@ -26,6 +26,9 @@ const RECOMPUTE_DEBOUNCE_MS = 120;
 // Show change-position dots only up to this many hunks; above it the numeric `change j/M` carries position.
 const MAX_CHANGE_DOTS = 7;
 
+// Height of the "New file" header band shown above a wholly-new file's first line.
+const NEW_FILE_BADGE_HEIGHT = 24;
+
 export type InlineDiffMode = "review" | "applied" | "view";
 
 // Which scope the applied-review toolbar's Keep / Revert buttons act on; sticky across files (reset only on a
@@ -286,6 +289,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
   // makes the review chords fall through to it — so Ctrl+Enter submits the comment instead of Keeping a hunk,
   // and Ctrl+Backspace deletes a word instead of Reverting one on disk.
   let focusedComposers = 0;
+  // Content observers for the sized zones (threads in zoneIds, plus the new-comment composer's own),
+  // disconnected when their zone is removed.
+  let zoneObservers: ResizeObserver[] = [];
+  let composerObserver: ResizeObserver | undefined;
 
   const clearRender = (): void => {
     decorations?.clear();
@@ -304,6 +311,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       // focus tally here. The new-comment composer (not in zoneIds) survives and stays gated by composerZoneId.
       focusedComposers = 0;
     }
+    for (const observer of zoneObservers) {
+      observer.disconnect();
+    }
+    zoneObservers = [];
     for (const widget of hunkWidgets) {
       editor.removeContentWidget(widget);
     }
@@ -344,6 +355,18 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       row.textContent = line.length === 0 ? " " : line;
       node.appendChild(row);
     }
+    return node;
+  };
+
+  // The "New file" header band: a sans-serif green pill above a wholly-new file's first line, so an all-added
+  // file is labelled once instead of washed green on every line.
+  const buildNewFileBadge = (): HTMLElement => {
+    const node = document.createElement("div");
+    node.className = "weavie-inline-newfile";
+    const tag = document.createElement("span");
+    tag.className = "weavie-inline-newfile-tag";
+    tag.textContent = "New file";
+    node.appendChild(tag);
     return node;
   };
 
@@ -390,6 +413,35 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     return wrap;
   };
 
+  // A view zone sized by its content. Monaco force-sets the zone node's own height, so `content` lives inside a
+  // bare wrapper and its measured height (margins included) drives heightInPx via layoutZone; the ResizeObserver
+  // keeps the zone in sync as comment bodies wrap on editor resize.
+  const addContentSizedZone = (
+    accessor: monaco.editor.IViewZoneChangeAccessor,
+    afterLineNumber: number,
+    content: HTMLElement,
+  ): { id: string; observer: ResizeObserver } => {
+    const domNode = document.createElement("div");
+    domNode.appendChild(content);
+    const zone: monaco.editor.IViewZone & { heightInPx: number } = {
+      afterLineNumber,
+      heightInPx: 0,
+      domNode,
+    };
+    const id = accessor.addZone(zone);
+    const observer = new ResizeObserver(() => {
+      const style = getComputedStyle(content);
+      const height =
+        content.offsetHeight + parseFloat(style.marginTop) + parseFloat(style.marginBottom);
+      if (height > 0 && Math.abs(height - zone.heightInPx) >= 1) {
+        zone.heightInPx = height;
+        editor.changeViewZones((a) => a.layoutZone(id));
+      }
+    });
+    observer.observe(content);
+    return { id, observer };
+  };
+
   // A comment thread for one line: its comments (root + replies, in order) and a reply composer. The reply posts
   // against the thread's root id (onReply); the host re-fetches and re-renders.
   const buildCommentThread = (
@@ -420,6 +472,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
   // Remove the transient new-comment composer zone, if one is open.
   const closeNewComposer = (): void => {
+    composerObserver?.disconnect();
+    composerObserver = undefined;
     if (composerZoneId !== undefined) {
       const id = composerZoneId;
       composerZoneId = undefined;
@@ -437,22 +491,23 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     closeNewComposer();
     const node = document.createElement("div");
     node.className = "weavie-pr-thread weavie-pr-thread-new";
-    node.appendChild(
-      // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
-      // keeps every review chord declining (composerFocused stays true).
-      buildComposer("Add a comment…", "Comment", (body) => {
-        onAddComment(line, body);
-        closeNewComposer();
-      }),
-    );
+    // Close on submit: since clearRender no longer drops the composer, the post itself must, else the open zone
+    // keeps every review chord declining (composerFocused stays true).
+    const composer = buildComposer("Add a comment…", "Comment", (body) => {
+      onAddComment(line, body);
+      closeNewComposer();
+    });
     const cancel = document.createElement("button");
     cancel.type = "button";
     cancel.className = "weavie-pr-composer-cancel";
     cancel.textContent = "Cancel";
     cancel.addEventListener("click", closeNewComposer);
-    node.appendChild(cancel);
+    composer.appendChild(cancel);
+    node.appendChild(composer);
     editor.changeViewZones((accessor) => {
-      composerZoneId = accessor.addZone({ afterLineNumber: line, heightInPx: 96, domNode: node });
+      const { id, observer } = addContentSizedZone(accessor, line, node);
+      composerZoneId = id;
+      composerObserver = observer;
     });
     queueMicrotask(() => node.querySelector("textarea")?.focus());
   };
@@ -475,14 +530,13 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
     editor.changeViewZones((accessor) => {
       for (const [line, comments] of byLine) {
         const clamped = Math.min(model.getLineCount(), Math.max(1, line));
-        const height = comments.length * 28 + (options.onReply !== undefined ? 84 : 12);
-        zoneIds.push(
-          accessor.addZone({
-            afterLineNumber: clamped,
-            heightInPx: height,
-            domNode: buildCommentThread(comments, options),
-          }),
+        const { id, observer } = addContentSizedZone(
+          accessor,
+          clamped,
+          buildCommentThread(comments, options),
         );
+        zoneIds.push(id);
+        zoneObservers.push(observer);
       }
     });
   };
@@ -1128,6 +1182,10 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       return; // no net change and nothing kept — nothing to render
     }
 
+    // A wholly-new file (empty baseline) has every line "added"; stacking the per-line wash + char overlay across
+    // all of them slabs the editor in green. Mark it with one continuous gutter edge + a "New file" header instead.
+    const isNewFile = options.original.length === 0;
+
     // Lines the user typed (diff the live model against `claudeVersion`) render fainter. Empty when
     // claudeVersion is omitted or the model still matches it.
     const userLines = new Set<number>();
@@ -1160,7 +1218,8 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
         currentEndExclusive: change.modified.endLineNumberExclusive,
       });
       if (!change.modified.isEmpty) {
-        // Per-line so a block mixing Claude's lines with the user's tweaks paints each in its own shade.
+        // Per-line so a block mixing Claude's lines with the user's tweaks paints each in its own shade. A new file
+        // skips the wash + char overlay (isNewFile) — only the continuous gutter edge marks it.
         for (
           let ln = change.modified.startLineNumber;
           ln < change.modified.endLineNumberExclusive;
@@ -1171,10 +1230,12 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             range: new monaco.Range(ln, 1, ln, 1),
             options: {
               isWholeLine: true,
-              className: fromUser ? "weavie-inline-user" : "weavie-inline-added",
-              linesDecorationsClassName: fromUser
-                ? "weavie-inline-user-gutter"
-                : "weavie-inline-added-gutter",
+              className: isNewFile ? null : fromUser ? "weavie-inline-user" : "weavie-inline-added",
+              linesDecorationsClassName: isNewFile
+                ? "weavie-inline-added-gutter"
+                : fromUser
+                  ? "weavie-inline-user-gutter"
+                  : "weavie-inline-added-gutter",
               overviewRuler: {
                 // Standard VS Code added-marker id so the ruler tracks the theme; the added/user shade
                 // distinction is carried by the in-editor line wash, not the ruler.
@@ -1184,19 +1245,27 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
             },
           });
         }
-        for (const inner of change.innerChanges ?? []) {
-          const r = inner.modifiedRange;
-          // Char-level emphasis is for Claude's edits; skip it on the user's own faint lines.
-          if (userLines.has(r.startLineNumber)) {
-            continue;
-          }
-          const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
-          if (!empty) {
-            deltas.push({ range: r, options: { inlineClassName: "weavie-inline-added-text" } });
+        if (!isNewFile) {
+          for (const inner of change.innerChanges ?? []) {
+            const r = inner.modifiedRange;
+            // Char-level emphasis is for Claude's edits; skip it on the user's own faint lines.
+            if (userLines.has(r.startLineNumber)) {
+              continue;
+            }
+            const empty = r.startLineNumber === r.endLineNumber && r.startColumn === r.endColumn;
+            if (!empty) {
+              // className (not inlineClassName): an overlay div spanning the full line height, like VS Code's
+              // char-insert — an inline span's background stops short of it, leaving a seam between lines.
+              deltas.push({
+                range: r,
+                options: { className: "weavie-inline-added-text", shouldFillLineOnLineBreak: true },
+              });
+            }
           }
         }
       }
-      if (!change.original.isEmpty) {
+      // A new file's "removed" side is only the empty baseline line — no ghost worth showing.
+      if (!isNewFile && !change.original.isEmpty) {
         ghosts.push({
           afterLineNumber: Math.max(0, change.modified.startLineNumber - 1),
           lines: original.slice(
@@ -1262,6 +1331,15 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
 
     decorations = editor.createDecorationsCollection(deltas);
     editor.changeViewZones((accessor) => {
+      if (isNewFile) {
+        zoneIds.push(
+          accessor.addZone({
+            afterLineNumber: 0,
+            heightInPx: NEW_FILE_BADGE_HEIGHT,
+            domNode: buildNewFileBadge(),
+          }),
+        );
+      }
       for (const ghost of ghosts) {
         zoneIds.push(
           accessor.addZone({
@@ -1547,6 +1625,7 @@ export function createInlineDiff(editor: monaco.editor.IStandaloneCodeEditor): I
       onModel.dispose();
       onContent.dispose();
       offFonts();
+      closeNewComposer();
       clearRender();
     },
   };

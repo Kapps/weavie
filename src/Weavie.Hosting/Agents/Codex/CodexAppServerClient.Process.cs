@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Processes;
 
 namespace Weavie.Hosting.Agents.Codex;
 
@@ -8,7 +9,7 @@ namespace Weavie.Hosting.Agents.Codex;
 public sealed partial class CodexAppServerClient {
 	private static readonly Encoding StdioEncoding = new UTF8Encoding(encoderShouldEmitUTF8Identifier: false);
 
-	private void StartProcess(int attempt) {
+	private void StartProcess(SupervisedLaunch launch) {
 		var process = new Process {
 			StartInfo = StartInfo(
 				_launch,
@@ -23,7 +24,7 @@ public sealed partial class CodexAppServerClient {
 			int exitCode = ReadExitCode(process);
 			_log($"[codex-app-server] exited {exitCode}");
 			FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
-			_supervisor.NotifyExited(exitCode);
+			launch.NotifyExited(exitCode);
 		};
 		if (!process.Start()) {
 			throw new InvalidOperationException("Codex app-server did not start.");
@@ -33,7 +34,7 @@ public sealed partial class CodexAppServerClient {
 			_process = process;
 		}
 
-		ProcessStarted?.Invoke(attempt);
+		ProcessStarted?.Invoke(launch.Attempt);
 		_ = ReadStdoutAsync(process);
 		_ = ReadStderrAsync(process);
 	}
@@ -71,7 +72,21 @@ public sealed partial class CodexAppServerClient {
 		ArgumentNullException.ThrowIfNull(configArguments);
 		ArgumentNullException.ThrowIfNull(appServerArguments);
 		ArgumentNullException.ThrowIfNull(environment);
-		ProcessStartInfo info = new(launch.Command) {
+		var arguments = new List<string>(globalArguments.Count + configArguments.Count + appServerArguments.Count + 2);
+		arguments.AddRange(globalArguments);
+		arguments.Add("app-server");
+		arguments.AddRange(configArguments);
+		arguments.AddRange(appServerArguments);
+		arguments.Add("--stdio");
+
+		string command = launch.Command;
+		IReadOnlyList<string> processArguments = arguments;
+		if (!OperatingSystem.IsWindows()) {
+			command = LoginShellEnvironment.LoginShell();
+			processArguments = ["-l", "-i", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
+		}
+
+		ProcessStartInfo info = new(command) {
 			WorkingDirectory = launch.WorkingDirectory,
 			RedirectStandardInput = true,
 			RedirectStandardOutput = true,
@@ -83,20 +98,9 @@ public sealed partial class CodexAppServerClient {
 			CreateNoWindow = true,
 			WindowStyle = ProcessWindowStyle.Hidden,
 		};
-		foreach (string argument in globalArguments) {
+		foreach (string argument in processArguments) {
 			info.ArgumentList.Add(argument);
 		}
-
-		info.ArgumentList.Add("app-server");
-		foreach (string argument in configArguments) {
-			info.ArgumentList.Add(argument);
-		}
-
-		foreach (string argument in appServerArguments) {
-			info.ArgumentList.Add(argument);
-		}
-
-		info.ArgumentList.Add("--stdio");
 		foreach (var entry in environment) {
 			string name = entry.Key;
 			string value = entry.Value;
@@ -107,6 +111,8 @@ public sealed partial class CodexAppServerClient {
 
 		return info;
 	}
+
+	private static string ShellQuote(string value) => $"'{value.Replace("'", "'\\''", StringComparison.Ordinal)}'";
 
 	private static void PrependPath(ProcessStartInfo info, IReadOnlyList<string> entries) {
 		if (entries.Count == 0) {
@@ -138,9 +144,15 @@ public sealed partial class CodexAppServerClient {
 	private async Task ReadStdoutAsync(Process process) {
 		try {
 			while (!process.HasExited && await process.StandardOutput.ReadLineAsync().ConfigureAwait(false) is { } line) {
-				HandleLine(line);
+				try {
+					HandleLine(line);
+				} catch (JsonException ex) {
+					// A stray non-JSON line (runtime warning, update banner) must not kill the pump — that would
+					// leave the live process's responses unread and hang every later request forever.
+					_log($"[codex-app-server] ignored non-JSON stdout line: {ex.Message}");
+				}
 			}
-		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException or JsonException) {
+		} catch (Exception ex) when (ex is IOException or ObjectDisposedException or InvalidOperationException) {
 			_log($"[codex-app-server] stdout closed: {ex.Message}");
 		}
 	}

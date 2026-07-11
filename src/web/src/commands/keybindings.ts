@@ -149,6 +149,9 @@ export function installKeybindings(): () => void {
   const offChanged = onCommandsChanged(rebuild);
 
   const onKeyDown = (event: KeyboardEvent): void => {
+    if (event.isComposing) {
+      return;
+    }
     // Last-match-first so a user binding wins over a default for the same key.
     for (let i = compiled.length - 1; i >= 0; i--) {
       const entry = compiled[i];

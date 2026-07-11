@@ -40,6 +40,23 @@ public sealed class PastedImageStore {
 		}
 	}
 
+	/// <summary>Deletes one image previously returned by <see cref="Write"/>. A missing file is a no-op.</summary>
+	public void Delete(string path) {
+		ArgumentException.ThrowIfNullOrEmpty(path);
+		lock (_gate) {
+			string fullPath = Path.GetFullPath(path);
+			string root = Path.GetFullPath(Directory).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+				+ Path.DirectorySeparatorChar;
+			if (!fullPath.StartsWith(root, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)) {
+				throw new InvalidOperationException("Pasted image path is outside its session directory.");
+			}
+
+			if (_fileSystem.FileExists(fullPath)) {
+				_fileSystem.DeleteFile(fullPath);
+			}
+		}
+	}
+
 	/// <summary>Deletes every pasted image in the directory (session unload). A missing directory is a no-op.</summary>
 	public void Clear() {
 		lock (_gate) {

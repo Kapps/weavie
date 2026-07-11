@@ -6,7 +6,9 @@ namespace Weavie.Core.Sessions;
 
 /// <summary>
 /// How the next <c>claude</c> launch in a working directory should be wired: its stable session id (never
-/// empty) and whether to <c>--resume</c> or create it fresh with <c>--session-id</c>.
+/// empty) and whether to <c>--resume</c> or create it fresh with <c>--session-id</c>. The resume flag is
+/// derived at launch from whether Claude has a transcript for the id on disk, not stored — see
+/// <see cref="ClaudeSessionStore"/>.
 /// </summary>
 /// <param name="SessionId">The UUID Weavie owns for this working directory's Claude conversation.</param>
 /// <param name="Resume">True to reattach (<c>--resume</c>); false to create it (<c>--session-id</c>).</param>
@@ -16,7 +18,11 @@ public readonly record struct ClaudeLaunch(string SessionId, bool Resume);
 /// Remembers the Claude Code session id Weavie assigned each working directory (keyed by launch directory),
 /// persisted atomically to <c>~/.weavie/claude-sessions.json</c>, so reopening resumes the previous
 /// conversation. Weavie assigns the id as <c>--session-id</c> rather than scraping Claude's storage, so
-/// resume is deterministic. A malformed file is backed up to <c>claude-sessions.json.bad</c> and reset.
+/// resume is deterministic. Whether a launch resumes or re-creates the id is not tracked here — it is decided
+/// from whether Claude's transcript for the id exists on disk (<see cref="IClaudeTranscripts"/>), the same
+/// thing <c>claude</c> itself checks, so the two can never drift apart (a stored "started" bit could, and a
+/// stale one made a relaunch re-create an id whose conversation still existed → "Session ID … is already in
+/// use"). A malformed file is backed up to <c>claude-sessions.json.bad</c> and reset.
 /// </summary>
 public sealed class ClaudeSessionStore {
 	private static readonly JsonSerializerOptions JsonOptions = new() { WriteIndented = true };
@@ -43,48 +49,29 @@ public sealed class ClaudeSessionStore {
 	public string FilePath { get; }
 
 	/// <summary>
-	/// Returns how to launch <c>claude</c> in <paramref name="workingDirectory"/>: mints + persists a stable
-	/// session id the first time (Resume false ⇒ <c>--session-id</c>), then reattaches only once the session is
-	/// <see cref="Adopt">adopted</see> (a real user message — when claude actually writes its transcript), else
-	/// re-creates under the same id. Output volume alone never marks a session resumable, so a launch that comes
-	/// up but is never messaged isn't mistaken for one with a transcript. Persists only when it mints.
+	/// Returns the stable Claude session id for <paramref name="workingDirectory"/>, minting and persisting one
+	/// on first use so it is known up front and resume is deterministic. Whether the next launch <c>--resume</c>s
+	/// or re-creates this id is decided at launch from the transcript on disk, not here.
 	/// </summary>
-	public ClaudeLaunch Resolve(string workingDirectory) {
+	public string Resolve(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		string key = Normalize(workingDirectory);
 		lock (_gate) {
 			var entry = Find(key);
 			if (entry is null) {
-				// Started stays false until a user message is adopted off the hook stream.
-				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString(), Started = false };
+				entry = new Entry { Key = key, Id = Guid.NewGuid().ToString() };
 				_items.Add(entry);
 				PersistLocked();
-				return new ClaudeLaunch(entry.Id, Resume: false);
 			}
 
-			return new ClaudeLaunch(entry.Id, entry.Started);
-		}
-	}
-
-	/// <summary>
-	/// Records that a <c>--resume</c> of <paramref name="workingDirectory"/> could not find the session, so the
-	/// next <see cref="Resolve"/> re-creates it fresh under the same id rather than crash-looping on a doomed resume.
-	/// </summary>
-	public void MarkResumeFailed(string workingDirectory) {
-		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
-		string key = Normalize(workingDirectory);
-		lock (_gate) {
-			if (Find(key) is { Started: true } entry) {
-				entry.Started = false;
-				PersistLocked();
-			}
+			return entry.Id;
 		}
 	}
 
 	/// <summary>
 	/// Abandons <paramref name="workingDirectory"/>'s assigned id entirely (next <see cref="Resolve"/>
-	/// cold-starts a new one). Used when even re-creating the id fails — it's poison (claude blocks reuse, yet
-	/// its conversation is gone) — so unlike <see cref="MarkResumeFailed"/> there's nothing to preserve.
+	/// cold-starts a new one). Used when a launch could not bring the id up at all — its transcript is pruned or
+	/// corrupt, or the id is otherwise poison — so there is nothing to preserve.
 	/// </summary>
 	public void Forget(string workingDirectory) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -113,9 +100,9 @@ public sealed class ClaudeSessionStore {
 
 	/// <summary>
 	/// Records the session id claude reports it's actually in for <paramref name="workingDirectory"/> (observed
-	/// off the hook stream on a real user message) and marks it started, realigning the store after claude
-	/// rotated its id out from under Weavie (chiefly a <c>/clear</c>). No-op when the id already matches and is
-	/// started, so the normal flow never thrashes the file.
+	/// off the hook stream on a real user message), realigning the store after claude rotated its id out from
+	/// under Weavie (chiefly a <c>/clear</c>). A no-op when the id already matches, so the normal flow never
+	/// thrashes the file.
 	/// </summary>
 	public void Adopt(string workingDirectory, string sessionId) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
@@ -124,14 +111,13 @@ public sealed class ClaudeSessionStore {
 		lock (_gate) {
 			var entry = Find(key);
 			if (entry is null) {
-				_items.Add(new Entry { Key = key, Id = sessionId, Started = true });
+				_items.Add(new Entry { Key = key, Id = sessionId });
 				PersistLocked();
 				return;
 			}
 
-			if (!string.Equals(entry.Id, sessionId, StringComparison.Ordinal) || !entry.Started) {
+			if (!string.Equals(entry.Id, sessionId, StringComparison.Ordinal)) {
 				entry.Id = sessionId;
-				entry.Started = true;
 				PersistLocked();
 			}
 		}
@@ -168,7 +154,7 @@ public sealed class ClaudeSessionStore {
 
 			return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Cwd) && !string.IsNullOrWhiteSpace(e.Id))
-				.Select(e => new Entry { Key = e.Cwd, Id = e.Id, Started = e.Started })];
+				.Select(e => new Entry { Key = e.Cwd, Id = e.Id })];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[claude-sessions] {FilePath} is malformed ({ex.Message}); backing up to claude-sessions.json.bad and resetting");
 			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "claude-sessions", Log);
@@ -180,7 +166,7 @@ public sealed class ClaudeSessionStore {
 		try {
 			var document = new Document {
 				Version = 1,
-				Sessions = [.. _items.Select(e => new SessionEntry { Cwd = e.Key, Id = e.Id, Started = e.Started })],
+				Sessions = [.. _items.Select(e => new SessionEntry { Cwd = e.Key, Id = e.Id })],
 			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -191,7 +177,6 @@ public sealed class ClaudeSessionStore {
 	private sealed class Entry {
 		public required string Key { get; init; }
 		public required string Id { get; set; }
-		public bool Started { get; set; }
 	}
 
 	private sealed class Document {
@@ -208,8 +193,5 @@ public sealed class ClaudeSessionStore {
 
 		[JsonPropertyName("id")]
 		public string Id { get; set; } = string.Empty;
-
-		[JsonPropertyName("started")]
-		public bool Started { get; set; }
 	}
 }

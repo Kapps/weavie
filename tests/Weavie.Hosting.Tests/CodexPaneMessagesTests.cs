@@ -1,10 +1,33 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
+using Weavie.Hosting.Agents;
 using Weavie.Hosting.Agents.Codex;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
 
 public sealed class CodexPaneMessagesTests {
+	[Fact]
+	public void AgentPaneProtocol_SerializesNormalizedQuestionsForTheWeb() {
+		string json = AgentPaneProtocol.Message("slot-1", "/repo", new AgentPaneMessage {
+			Type = "input-requested",
+			ProviderId = "codex",
+			Questions = [new AgentInputQuestion {
+				Id = "mode",
+				Header = "Mode",
+				Question = "Which mode?",
+				IsSecret = false,
+				Options = [new AgentInputOption { Label = "Safe", Description = "Use safe mode." }],
+			}],
+		});
+
+		using var doc = JsonDocument.Parse(json);
+		var question = doc.RootElement.GetProperty("message").GetProperty("questions")[0];
+		Assert.Equal("mode", question.GetProperty("id").GetString());
+		Assert.Equal("Safe", question.GetProperty("options")[0].GetProperty("label").GetString());
+		Assert.False(question.TryGetProperty("Id", out _));
+	}
+
 	[Fact]
 	public void FromRequest_WithoutParams_ProducesPendingInputMessage() {
 		using var doc = JsonDocument.Parse("""{"id":4,"method":"item/tool/requestUserInput"}""");
@@ -28,6 +51,47 @@ public sealed class CodexPaneMessagesTests {
 		Assert.Equal("thread_1", message.ThreadId);
 		Assert.Equal("turn_1", message.TurnId);
 		Assert.Equal("Which mode?", message.Summary);
+		var question = Assert.Single(message.Questions!);
+		Assert.Equal("mode", question.Id);
+		Assert.Equal("Mode", question.Header);
+		Assert.False(question.IsSecret);
+		Assert.Equal("Safe", Assert.Single(question.Options).Label);
+	}
+
+	[Fact]
+	public void FromRequest_CommandApproval_ShowsTheCommand() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":"approval-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_1","command":"dotnet test tests/Weavie.Hosting.Tests","cwd":"/repo","reason":"Verify the change."}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest("approval-1", "approval-1", "item/commandExecution/requestApproval", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("Verify the change.", message.Summary);
+		Assert.Equal("dotnet test tests/Weavie.Hosting.Tests", message.Text);
+	}
+
+	[Fact]
+	public void FromRequest_FileChangeApproval_ListsThePaths() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":"approval-2","method":"item/fileChange/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_2","changes":[{"path":"src/App.cs"},{"path":"src/Program.cs"}]}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest("approval-2", "approval-2", "item/fileChange/requestApproval", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("src/App.cs, src/Program.cs", message.Text);
+	}
+
+	[Fact]
+	public void FromRequest_McpElicitation_SurfacesPromptMessage() {
+		using var doc = JsonDocument.Parse(
+			"""{"id":"approval-4","method":"mcpServer/elicitation/request","params":{"serverName":"functions","threadId":"thread_1","turnId":"turn_1","mode":"openai/form","message":"Allow Git to update this worktree?","requestedSchema":{}}}""");
+
+		var message = CodexPaneMessages.FromRequest(new CodexServerRequest(
+			"approval-4", "approval-4", "mcpServer/elicitation/request", doc.RootElement.Clone()));
+
+		Assert.Equal("approval-requested", message.Type);
+		Assert.Equal("Allow Git to update this worktree?", message.Summary);
+		Assert.Equal("pending", message.Status);
 	}
 
 	[Fact]
@@ -60,13 +124,15 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
-	public void FromNotification_DropsPlanDelta() {
+	public void FromNotification_MapsPlanDelta() {
 		using var doc = JsonDocument.Parse(
 			"""{"method":"item/plan/delta","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_1","delta":"- inspect"}}""");
 
 		var message = CodexPaneMessages.FromNotification("item/plan/delta", "thread_1", doc.RootElement);
 
-		Assert.Null(message);
+		Assert.NotNull(message);
+		Assert.Equal("plan-delta", message.Type);
+		Assert.Equal("- inspect", message.Text);
 	}
 
 	[Fact]
@@ -90,6 +156,33 @@ public sealed class CodexPaneMessagesTests {
 		Assert.Equal("turn-completed", CodexPaneMessages.FromNotification("turn/completed", "thread_1", turn.RootElement)?.Type);
 		Assert.Equal("turn-interrupted", CodexPaneMessages.FromNotification("turn/interrupted", "thread_1", interrupted.RootElement)?.Type);
 		Assert.Null(CodexPaneMessages.FromNotification("thread/status/changed", "thread_1", status.RootElement));
+	}
+
+	[Fact]
+	public void FromNotification_MapsTerminalTurnErrorToVisiblePaneError() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"error","params":{"threadId":"thread_1","turnId":"turn_1","willRetry":false,"error":{"message":"You have no weighted tokens left","codexErrorInfo":"usageLimitExceeded","additionalDetails":null}}}""");
+
+		var message = CodexPaneMessages.FromNotification("error", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("error", message.Type);
+		Assert.Equal("Codex usage limit reached", message.Summary);
+		Assert.Equal("You have no weighted tokens left", message.Text);
+		Assert.Equal("failed", message.Status);
+	}
+
+	[Fact]
+	public void FromNotification_PreservesFailedTurnErrorAsFallback() {
+		using var doc = JsonDocument.Parse(
+			"""{"method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"failed","error":{"message":"The conversation exceeded the context window","codexErrorInfo":"contextWindowExceeded","additionalDetails":"Start a new task."}}}}""");
+
+		var message = CodexPaneMessages.FromNotification("turn/completed", "thread_1", doc.RootElement);
+
+		Assert.NotNull(message);
+		Assert.Equal("Conversation is too long", message.Summary);
+		Assert.Equal("The conversation exceeded the context window\nStart a new task.", message.Text);
+		Assert.Equal("failed", message.Status);
 	}
 
 	[Fact]
@@ -161,5 +254,47 @@ public sealed class CodexPaneMessagesTests {
 		Assert.Equal("warning", message.Type);
 		Assert.Equal("GitHub MCP is not authenticated", message.Summary);
 		Assert.Equal("Set CODEX_GITHUB_PERSONAL_ACCESS_TOKEN or disable the Codex github MCP server.", message.Text);
+	}
+
+	[Fact]
+	public void FromThreadSnapshot_MapsPersistedTurnsThroughThePaneContract() {
+		using var doc = JsonDocument.Parse(
+			"""{"thread":{"id":"thread_1","turns":[{"id":"turn_1","status":"completed","items":[{"type":"userMessage","id":"user_1","content":[{"type":"text","text":"Fix it","text_elements":[]},{"type":"localImage","path":"/tmp/paste.png"}]},{"type":"commandExecution","id":"command_1","command":"dotnet test","cwd":"/repo","status":"completed","commandActions":[],"aggregatedOutput":"Passed","exitCode":0},{"type":"agentMessage","id":"agent_1","text":"Done"}]}]}}""");
+
+		var messages = CodexPaneMessages.FromThreadSnapshot(doc.RootElement);
+
+		Assert.Collection(
+			messages,
+			message => {
+				Assert.Equal("user-message", message.Type);
+				Assert.Equal("Fix it", message.Text);
+			},
+			message => {
+				Assert.Equal("user-image", message.Type);
+				Assert.Equal("/tmp/paste.png", message.Text);
+			},
+			message => {
+				Assert.Equal("item-completed", message.Type);
+				Assert.Equal("commandExecution", message.ItemType);
+				Assert.Equal("Passed", message.Text);
+			},
+			message => {
+				Assert.Equal("item-completed", message.Type);
+				Assert.Equal("Done", message.Text);
+			},
+			message => Assert.Equal("turn-completed", message.Type));
+	}
+
+	[Fact]
+	public void FromThreadSnapshot_PreservesFailedTurnError() {
+		using var doc = JsonDocument.Parse(
+			"""{"thread":{"id":"thread_1","turns":[{"id":"turn_1","status":"failed","error":{"message":"You have no weighted tokens left","codexErrorInfo":"usageLimitExceeded","additionalDetails":null},"items":[]}]}}""");
+
+		var message = Assert.Single(CodexPaneMessages.FromThreadSnapshot(doc.RootElement));
+
+		Assert.Equal("turn-completed", message.Type);
+		Assert.Equal("failed", message.Status);
+		Assert.Equal("Codex usage limit reached", message.Summary);
+		Assert.Equal("You have no weighted tokens left", message.Text);
 	}
 }

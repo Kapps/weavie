@@ -18,9 +18,10 @@ public sealed class CodexAppServerProtocolTests {
 		var parameters = doc.RootElement.GetProperty("params");
 		Assert.Equal("weavie", parameters.GetProperty("clientInfo").GetProperty("name").GetString());
 		Assert.True(parameters.GetProperty("capabilities").GetProperty("experimentalApi").GetBoolean());
+		Assert.True(parameters.GetProperty("capabilities").GetProperty("mcpServerOpenaiFormElicitation").GetBoolean());
 		var optOut = parameters.GetProperty("capabilities").GetProperty("optOutNotificationMethods");
 		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "hook/started");
-		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");
+		Assert.DoesNotContain(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");
 	}
 
 	[Fact]
@@ -62,9 +63,9 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TurnStart_CarriesThreadWorkspacePolicyAndText() {
+	public void TurnStart_CarriesThreadWorkspacePolicyAndText_OmittingEmptyModel() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
-			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request"));
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", ""));
 		var parameters = doc.RootElement.GetProperty("params");
 
 		Assert.Equal("turn/start", doc.RootElement.GetProperty("method").GetString());
@@ -74,19 +75,74 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("workspaceWrite", parameters.GetProperty("sandboxPolicy").GetProperty("type").GetString());
 		Assert.Equal("/repo", parameters.GetProperty("sandboxPolicy").GetProperty("writableRoots")[0].GetString());
 		Assert.Equal("fix it", parameters.GetProperty("input")[0].GetProperty("text").GetString());
+		Assert.False(parameters.TryGetProperty("model", out _));
 	}
 
 	[Fact]
-	public void TurnStartWithImages_CarriesTextAndLocalImageInput() {
-		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithImages(
-			13, "thr_1", "describe it", ["/tmp/paste-1.png"], "/repo", "workspace-write", "on-request"));
-		var input = doc.RootElement.GetProperty("params").GetProperty("input");
+	public void TurnStart_CarriesModelOverride_ForLiveModelChange() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "gpt-5.5"));
+
+		Assert.Equal("gpt-5.5", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public void TurnStartWithInputs_CarriesTextImageAndSkillItems() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithInputs(
+			13, "thr_1", "describe it", ["/tmp/paste-1.png"], [new CodexSkill("review-pr", "/s/review-pr", "Review a PR.")],
+			"/repo", "workspace-write", "on-request", "gpt-5.5"));
+		var parameters = doc.RootElement.GetProperty("params");
+		var input = parameters.GetProperty("input");
 
 		Assert.Equal("turn/start", doc.RootElement.GetProperty("method").GetString());
+		Assert.Equal("gpt-5.5", parameters.GetProperty("model").GetString());
 		Assert.Equal("text", input[0].GetProperty("type").GetString());
 		Assert.Equal("describe it", input[0].GetProperty("text").GetString());
 		Assert.Equal("localImage", input[1].GetProperty("type").GetString());
 		Assert.Equal("/tmp/paste-1.png", input[1].GetProperty("path").GetString());
+		Assert.Equal("skill", input[2].GetProperty("type").GetString());
+		Assert.Equal("review-pr", input[2].GetProperty("name").GetString());
+		Assert.Equal("/s/review-pr", input[2].GetProperty("path").GetString());
+	}
+
+	[Fact]
+	public void ModelList_RequestsNonHiddenModels() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.ModelList(3, false));
+
+		Assert.Equal("model/list", doc.RootElement.GetProperty("method").GetString());
+		Assert.False(doc.RootElement.GetProperty("params").GetProperty("includeHidden").GetBoolean());
+	}
+
+	[Fact]
+	public void SkillsList_SendsSessionCwd() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.SkillsList(4, "/repo"));
+
+		Assert.Equal("skills/list", doc.RootElement.GetProperty("method").GetString());
+		Assert.Equal("/repo", doc.RootElement.GetProperty("params").GetProperty("cwds")[0].GetString());
+	}
+
+	[Fact]
+	public void TryReadModels_MapsOptionsAndCatalogDefault() {
+		using var doc = JsonDocument.Parse(
+			"""{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model.","hidden":false,"isDefault":true},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4 mini","description":"Fast model.","hidden":false,"isDefault":false}]}""");
+
+		Assert.True(CodexAppServerProtocol.TryReadModels(doc.RootElement, out var models, out string defaultModel));
+		Assert.Equal("gpt-5.5", defaultModel);
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], models.Select(model => model.Id));
+		Assert.Equal("GPT-5.5", models[0].Label);
+		Assert.Equal("Frontier model.", models[0].Description);
+	}
+
+	[Fact]
+	public void TryReadSkills_FlattensEnabledSkillsWithNameAndPath() {
+		using var doc = JsonDocument.Parse(
+			"""{"data":[{"cwd":"/repo","errors":[],"skills":[{"name":"review-pr","description":"Review a PR.","enabled":true,"path":"/s/review-pr","scope":"repo","interface":{"shortDescription":"Review a pull request."}},{"name":"disabled","description":"x","enabled":false,"path":"/d","scope":"user"}]}]}""");
+
+		Assert.True(CodexAppServerProtocol.TryReadSkills(doc.RootElement, out var skills));
+		var skill = Assert.Single(skills);
+		Assert.Equal("review-pr", skill.Name);
+		Assert.Equal("/s/review-pr", skill.Path);
+		Assert.Equal("Review a pull request.", skill.Description);
 	}
 
 	[Fact]
@@ -130,9 +186,9 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TurnSteerWithImages_CarriesTextAndLocalImageInput() {
-		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnSteerWithImages(
-			14, "thr_1", "turn_1", "describe it", ["/tmp/paste-1.png"]));
+	public void TurnSteerWithInputs_CarriesTextImageAndSkillInput() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnSteerWithInputs(
+			14, "thr_1", "turn_1", "describe it", ["/tmp/paste-1.png"], [new CodexSkill("review-pr", "/s/review-pr", "Review a PR.")]));
 		var parameters = doc.RootElement.GetProperty("params");
 		var input = parameters.GetProperty("input");
 
@@ -142,6 +198,8 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("describe it", input[0].GetProperty("text").GetString());
 		Assert.Equal("localImage", input[1].GetProperty("type").GetString());
 		Assert.Equal("/tmp/paste-1.png", input[1].GetProperty("path").GetString());
+		Assert.Equal("skill", input[2].GetProperty("type").GetString());
+		Assert.Equal("review-pr", input[2].GetProperty("name").GetString());
 	}
 
 	[Fact]

@@ -13,6 +13,7 @@ namespace Weavie.Core.Tests;
 /// </summary>
 public sealed class SuggestionServiceTests : IDisposable {
 	private const string SetupId = "workspace.setup";
+	private const string LearnId = "corrections.learn";
 	private static readonly Func<bool> ManifestPresent = () => true;
 	private static readonly Func<bool> NoManifest = () => false;
 
@@ -122,6 +123,34 @@ public sealed class SuggestionServiceTests : IDisposable {
 		gate.Set(); // release the blocked probe thread
 	}
 
+	[Fact]
+	public async Task CorrectionsBelowThreshold_LearnCardNotOffered() {
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 2);
+
+		Assert.DoesNotContain(LearnId, harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task CorrectionsAtThreshold_LearnCardOffered() {
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 3);
+
+		Assert.Contains(LearnId, harness.ActiveIds());
+	}
+
+	[Fact]
+	public async Task CorrectionCount_ReadFreshEachEvaluate() {
+		// Unlike the one-shot manifest probe, the ring's count changes over time — each Evaluate re-reads the
+		// supplier, so the card appears the moment an append crosses the (here raised) threshold.
+		int count = 4;
+		var harness = await StartAsync(SettingsWith("corrections.learnThreshold = 5"), NoManifest, () => count);
+		Assert.DoesNotContain(LearnId, harness.ActiveIds());
+
+		count = 5;
+		harness.Service.Evaluate();
+
+		Assert.Contains(LearnId, harness.ActiveIds());
+	}
+
 	private SettingsStore EmptySettings() =>
 		new(CoreSettings.CreateRegistry(), Path.Combine(_dir, Guid.NewGuid().ToString("N") + ".toml"), enableWatcher: false, _ => Path.Combine(_dir, "ws-settings.toml"));
 
@@ -139,10 +168,19 @@ public sealed class SuggestionServiceTests : IDisposable {
 		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"));
 
 	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals) =>
-		StartAsync(settings, probe, dismissals, FastProbe);
+		StartAsync(settings, probe, dismissals, FastProbe, static () => 0);
+
+	private static Task<Harness> StartAsync(
+		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout) =>
+		StartAsync(settings, probe, dismissals, probeTimeout, static () => 0);
+
+	private static Task<Harness> StartAsync(SettingsStore settings, Func<bool> probe, Func<int> pendingCorrections) =>
+		StartAsync(settings, probe, new SuggestionDismissals(new InMemoryFileSystem(), "/state/suggestions.json"),
+			FastProbe, pendingCorrections);
 
 	private static async Task<Harness> StartAsync(
-		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout) {
+		SettingsStore settings, Func<bool> probe, SuggestionDismissals dismissals, TimeSpan probeTimeout,
+		Func<int> pendingCorrections) {
 		var pushes = new List<IReadOnlyList<SuggestionDefinition>>();
 		var first = new TaskCompletionSource();
 		var gate = new Lock();
@@ -155,7 +193,8 @@ public sealed class SuggestionServiceTests : IDisposable {
 		}
 
 		var service = new SuggestionService(
-			CoreSuggestions.CreateRegistry(), settings, new InMemoryFileSystem(), "/repo", dismissals, probeTimeout, Push, probe);
+			CoreSuggestions.CreateRegistry(), settings, new InMemoryFileSystem(), "/repo", dismissals, probeTimeout,
+			Push, probe, pendingCorrections);
 		await first.Task.WaitAsync(TimeSpan.FromSeconds(5));
 		IReadOnlyList<string> ActiveIds() {
 			lock (gate) {

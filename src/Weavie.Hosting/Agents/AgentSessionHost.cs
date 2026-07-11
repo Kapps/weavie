@@ -1,3 +1,4 @@
+using System.Text;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
@@ -6,16 +7,17 @@ namespace Weavie.Hosting.Agents;
 
 /// <summary>Composes one provider session with Weavie's terminal or structured runtime host.</summary>
 public sealed class AgentSessionHost : IAsyncDisposable {
-	// Emitted by a structured provider when it abandons its thread (a fresh thread starts): drop the stale
-	// transcript rather than replay history that belongs to a thread the resumed session no longer knows.
-	private const string ThreadResetType = "thread-reset";
-
 	private readonly AgentSessionContext _context;
 	private readonly IHostBridge _bridge;
 	private readonly List<AgentPaneMessage> _paneMessages = [];
+	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
 	private readonly Lock _paneGate = new();
 
 	// Durable transcript for the structured pane (null for terminal-backed providers, which repaint themselves).
+	// Seeds the replay buffer SYNCHRONOUSLY at construction, so a reconnecting page's ReplayPane restores the pane
+	// immediately — before the async thread/resume that HydrateTranscript waits on, which the reconnect races and
+	// loses (leaving the pane blank). See docs/specs/agent-pane-persistence.md.
 	private readonly AgentPaneTranscriptStore? _transcript;
 
 	/// <summary>Creates the provider session and its pane runtime.</summary>
@@ -44,12 +46,20 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 			Structured = structuredSession;
 			_transcript = new AgentPaneTranscriptStore(context.FileSystem, transcriptPath);
 			_transcript.Log += Console.WriteLine;
-			// Seed the replay buffer with the persisted transcript BEFORE subscribing, so a reopened session
-			// restores its prior output and live messages append after it.
-			_paneMessages.AddRange(_transcript.Snapshot());
+			// Seed the replay buffer from the persisted transcript BEFORE subscribing, so a reopened session
+			// restores its prior output immediately and live messages append after it.
+			foreach (var message in _transcript.Snapshot()) {
+				StorePaneMessage(message);
+			}
+
 			structuredSession.PaneMessage += PublishPaneMessage;
 		} else {
 			throw new InvalidOperationException($"Provider '{Provider.Id}' returned an unsupported agent session.");
+		}
+
+		if (Session is IStructuredAgentControls controls) {
+			Controls = controls;
+			controls.ControlStateChanged += PublishControlState;
 		}
 	}
 
@@ -65,6 +75,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	/// <summary>The provider's structured runtime, when native-pane backed.</summary>
 	public IStructuredAgentSession? Structured { get; }
 
+	/// <summary>The provider's live model/approvals/sandbox controls, when it exposes them.</summary>
+	public IStructuredAgentControls? Controls { get; }
+
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		Terminal?.Dispose();
@@ -76,6 +89,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		List<AgentPaneMessage> snapshot;
 		lock (_paneGate) {
 			snapshot = [.. _paneMessages];
+			foreach (var buffer in _paneDeltaBuffers.Values) {
+				snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
+			}
 		}
 
 		_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
@@ -84,30 +100,90 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		}
 	}
 
+	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
+	public void ReplayControls() {
+		if (Controls is not null) {
+			PublishControlState(Controls.ControlState);
+		}
+	}
+
 	/// <summary>Disposes provider integration after the terminal has already stopped.</summary>
 	public ValueTask DisposeProviderAsync() => Session.DisposeAsync();
 
+	private void PublishControlState(AgentControlState state) =>
+		_bridge.PostToWeb(AgentControlsProtocol.Message(_context.CurrentSessionId(), _context.Workspace, state));
+
 	private void PublishPaneMessage(AgentPaneMessage message) {
-		if (message.Type == ThreadResetType) {
-			ResetTranscript();
+		if (message.Type == "transcript-reset") {
+			lock (_paneGate) {
+				_paneMessages.Clear();
+				_paneItemIndexes.Clear();
+				_paneDeltaBuffers.Clear();
+				_transcript?.Clear();
+			}
+			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
 			return;
 		}
-
 		lock (_paneGate) {
-			_paneMessages.Add(message);
+			StorePaneMessage(message);
 			_transcript?.Append(message);
 		}
 
 		_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
 	}
 
-	private void ResetTranscript() {
-		lock (_paneGate) {
-			_paneMessages.Clear();
-			_transcript?.Clear();
+	private void StorePaneMessage(AgentPaneMessage message) {
+		string? key = ItemKey(message);
+		if (key is null) {
+			_paneMessages.Add(message);
+			return;
 		}
 
-		_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
+		if (message.Type == "item-started") {
+			_paneDeltaBuffers.Remove(key);
+			if (_paneItemIndexes.TryGetValue(key, out int startedIndex)) {
+				_paneMessages[startedIndex] = message;
+			} else {
+				_paneItemIndexes[key] = _paneMessages.Count;
+				_paneMessages.Add(message);
+			}
+			return;
+		}
+
+		if (IsDelta(message)) {
+			if (!_paneItemIndexes.TryGetValue(key, out int deltaIndex)) {
+				deltaIndex = _paneMessages.Count;
+				_paneItemIndexes[key] = deltaIndex;
+				_paneMessages.Add(message with { Text = null });
+			}
+			if (!_paneDeltaBuffers.TryGetValue(key, out var buffer)) {
+				buffer = new PaneDeltaBuffer(deltaIndex, message);
+				_paneDeltaBuffers.Add(key, buffer);
+			}
+			buffer.Latest = message;
+			buffer.Text.Append(message.Text);
+			return;
+		}
+
+		if (message.Type == "item-completed" && _paneItemIndexes.Remove(key, out int completedIndex)) {
+			_paneDeltaBuffers.Remove(key);
+			_paneMessages[completedIndex] = message;
+			return;
+		}
+
+		_paneMessages.Add(message);
+	}
+
+	private static string? ItemKey(AgentPaneMessage message) =>
+		string.IsNullOrEmpty(message.ItemId) ? null : $"{message.TurnId ?? "session"}:{message.ItemId}";
+
+	private static bool IsDelta(AgentPaneMessage message) =>
+		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";
+
+	private sealed class PaneDeltaBuffer(int index, AgentPaneMessage latest) {
+		public int Index { get; } = index;
+		public AgentPaneMessage Latest { get; set; } = latest;
+		public StringBuilder Text { get; } = new();
 	}
 
 	private sealed class AgentTerminalProcess(ITerminalAgentSession session) : ITerminalProcess {

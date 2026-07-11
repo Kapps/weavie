@@ -9,8 +9,16 @@ internal static class CodexInstallResolver {
 	public static CodexAppServerLaunch Resolve(string command, string workspace) {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		ArgumentException.ThrowIfNullOrEmpty(workspace);
-		string executable = ExecutableFinder.FindOnPath(command)
-			?? throw new InvalidOperationException($"Weavie could not find the configured Codex binary: {command}");
+		string? executable = ExecutableFinder.FindOnPath(command);
+		if (executable is null) {
+			if (!OperatingSystem.IsWindows() && !Path.IsPathRooted(command) && !command.Contains(Path.DirectorySeparatorChar)) {
+				// Match Claude's POSIX behavior: a bare command may only exist after the user's interactive login
+				// shell initializes a version manager (nvm, asdf, mise, and similar). The app-server launcher resolves it.
+				return CodexAppServerLaunch.Raw(command, workspace);
+			}
+
+			throw new InvalidOperationException($"Weavie could not find the configured Codex binary: {command}");
+		}
 
 		string realExecutable = ResolveFinalTarget(executable);
 		if (TryPackageLaunch(realExecutable, out var launch)) {

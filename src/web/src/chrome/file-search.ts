@@ -57,6 +57,51 @@ export function splitPath(abs: string, root: string): FileRow {
 // match more files than anyone scrolls and that you narrow by typing more) fall back to the heuristic cut.
 const RESCORE_CAP = 2000;
 
+interface PreFiltered {
+  row: FileRow;
+  pre: number;
+  index: number;
+}
+
+function isWorse(a: PreFiltered, b: PreFiltered): boolean {
+  return a.pre > b.pre || (a.pre === b.pre && a.index > b.index);
+}
+
+function siftUp(heap: PreFiltered[], start: number): void {
+  let child = start;
+  while (child > 0) {
+    const parent = (child - 1) >> 1;
+    if (!isWorse(heap[child] as PreFiltered, heap[parent] as PreFiltered)) {
+      return;
+    }
+    [heap[parent], heap[child]] = [heap[child] as PreFiltered, heap[parent] as PreFiltered];
+    child = parent;
+  }
+}
+
+function siftDown(heap: PreFiltered[]): void {
+  let parent = 0;
+  while (true) {
+    const left = parent * 2 + 1;
+    if (left >= heap.length) {
+      return;
+    }
+    const right = left + 1;
+    const worseChild =
+      right < heap.length && isWorse(heap[right] as PreFiltered, heap[left] as PreFiltered)
+        ? right
+        : left;
+    if (!isWorse(heap[worseChild] as PreFiltered, heap[parent] as PreFiltered)) {
+      return;
+    }
+    [heap[parent], heap[worseChild]] = [
+      heap[worseChild] as PreFiltered,
+      heap[parent] as PreFiltered,
+    ];
+    parent = worseChild;
+  }
+}
+
 // Cheap subsequence pre-filter + ranking hint (lower is better), the inner loop of the per-keystroke scan. Runs
 // over every file, so it does no allocation: a two-pointer subsequence test, leaf first so it correlates with
 // fzf's basename preference (a file search means the filename), then the whole path. Returns -1 for no match.
@@ -125,20 +170,29 @@ export function rankFiles(
   recent: readonly string[],
 ): ScoredFile[] {
   const needle = query.toLowerCase();
-  const matched: { row: FileRow; pre: number }[] = [];
-  for (const entry of finder.entries) {
+  const matched: PreFiltered[] = [];
+  let matchCount = 0;
+  for (let index = 0; index < finder.entries.length; index++) {
+    const entry = finder.entries[index] as Entry;
     const pre = preFilter(entry.lower, needle, entry.row.leafStart);
     if (pre >= 0) {
-      matched.push({ row: entry.row, pre });
+      matchCount++;
+      const candidate = { row: entry.row, pre, index };
+      if (matched.length < RESCORE_CAP) {
+        matched.push(candidate);
+        siftUp(matched, matched.length - 1);
+      } else if (isWorse(matched[0] as PreFiltered, candidate)) {
+        matched[0] = candidate;
+        siftDown(matched);
+      }
     }
   }
-  const candidates =
-    matched.length > RESCORE_CAP
-      ? matched
-          .sort((a, b) => a.pre - b.pre)
-          .slice(0, RESCORE_CAP)
-          .map((m) => m.row)
-      : matched.map((m) => m.row);
+  if (matchCount > RESCORE_CAP) {
+    matched.sort((a, b) => a.pre - b.pre || a.index - b.index);
+  } else {
+    matched.sort((a, b) => a.index - b.index);
+  }
+  const candidates = matched.map((m) => m.row);
 
   const fzf = new Fzf(candidates, { selector: (r) => r.rel, casing: "case-insensitive" });
   const rank = new Map(recent.map((abs, i) => [canonicalFsPath(abs), i] as const));

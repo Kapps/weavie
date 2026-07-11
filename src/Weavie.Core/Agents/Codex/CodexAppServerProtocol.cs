@@ -3,6 +3,9 @@ using Weavie.Core.Json;
 
 namespace Weavie.Core.Agents.Codex;
 
+/// <summary>A discoverable Codex skill: the name and path a structured skill turn input needs, plus its description.</summary>
+public sealed record CodexSkill(string Name, string Path, string Description);
+
 /// <summary>Builds and interprets Codex app-server JSON-RPC messages over JSONL stdio.</summary>
 public static class CodexAppServerProtocol {
 	/// <summary>Builds the initial JSON-RPC initialize request.</summary>
@@ -19,12 +22,10 @@ public static class CodexAppServerProtocol {
 				},
 				capabilities = new {
 					experimentalApi = true,
+					mcpServerOpenaiFormElicitation = true,
 					optOutNotificationMethods = new[] {
 						"hook/started",
 						"hook/completed",
-						"item/agentMessage/delta",
-						"item/plan/delta",
-						"item/commandExecution/outputDelta",
 						"item/fileChange/outputDelta",
 						"remoteControl/status/changed",
 					},
@@ -41,6 +42,16 @@ public static class CodexAppServerProtocol {
 	public static string HooksList(long id, string cwd) {
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		return JsonSerializer.Serialize(new { method = "hooks/list", id, @params = new { cwds = new[] { cwd } } });
+	}
+
+	/// <summary>Builds a model/list request for the models offered to the user in the status line picker.</summary>
+	public static string ModelList(long id, bool includeHidden) =>
+		JsonSerializer.Serialize(new { method = "model/list", id, @params = new { includeHidden } });
+
+	/// <summary>Builds a skills/list request for the skills discoverable from the session working directory.</summary>
+	public static string SkillsList(long id, string cwd) {
+		ArgumentException.ThrowIfNullOrEmpty(cwd);
+		return JsonSerializer.Serialize(new { method = "skills/list", id, @params = new { cwds = new[] { cwd } } });
 	}
 
 	/// <summary>Builds a thread/start request, omitting an empty model so Codex uses its configured default.</summary>
@@ -90,31 +101,37 @@ public static class CodexAppServerProtocol {
 		string prompt,
 		string cwd,
 		string sandbox,
-		string approvalPolicy) {
+		string approvalPolicy,
+		string model) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentException.ThrowIfNullOrEmpty(prompt);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, [TextInput(prompt)]);
+		ArgumentNullException.ThrowIfNull(model);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, [TextInput(prompt)]);
 	}
 
-	/// <summary>Builds a turn/start request with text plus attached local image input items.</summary>
-	public static string TurnStartWithImages(
+	/// <summary>Builds a turn/start request with text plus attached local images and staged skill input items.</summary>
+	public static string TurnStartWithInputs(
 		long id,
 		string threadId,
 		string prompt,
 		IReadOnlyList<string> imagePaths,
+		IReadOnlyList<CodexSkill> skills,
 		string cwd,
 		string sandbox,
-		string approvalPolicy) {
+		string approvalPolicy,
+		string model) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
+		ArgumentNullException.ThrowIfNull(skills);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, InputItems(prompt, imagePaths));
+		ArgumentNullException.ThrowIfNull(model);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, InputItems(prompt, imagePaths, skills));
 	}
 
 	/// <summary>Builds a turn/steer request for an in-flight turn.</summary>
@@ -125,13 +142,20 @@ public static class CodexAppServerProtocol {
 		return TurnSteerWithInput(id, threadId, turnId, [TextInput(prompt)]);
 	}
 
-	/// <summary>Builds a turn/steer request with text plus attached local image input items.</summary>
-	public static string TurnSteerWithImages(long id, string threadId, string turnId, string prompt, IReadOnlyList<string> imagePaths) {
+	/// <summary>Builds a turn/steer request with text plus attached local images and staged skill input items.</summary>
+	public static string TurnSteerWithInputs(
+		long id,
+		string threadId,
+		string turnId,
+		string prompt,
+		IReadOnlyList<string> imagePaths,
+		IReadOnlyList<CodexSkill> skills) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentException.ThrowIfNullOrEmpty(turnId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
-		return TurnSteerWithInput(id, threadId, turnId, InputItems(prompt, imagePaths));
+		ArgumentNullException.ThrowIfNull(skills);
+		return TurnSteerWithInput(id, threadId, turnId, InputItems(prompt, imagePaths, skills));
 	}
 
 	private static string TurnStartWithInput(
@@ -140,18 +164,15 @@ public static class CodexAppServerProtocol {
 		string cwd,
 		string sandbox,
 		string approvalPolicy,
-		object[] input) =>
-		JsonSerializer.Serialize(new {
-			method = "turn/start",
-			id,
-			@params = new {
-				threadId,
-				cwd,
-				approvalPolicy,
-				sandboxPolicy = SandboxPolicy(sandbox, cwd),
-				input,
-			},
-		});
+		string model,
+		object[] input) {
+		// An empty model leaves the thread's current model untouched; a value overrides it for this and
+		// subsequent turns, which is how a live in-session model change takes effect without a restart.
+		object parameters = string.IsNullOrWhiteSpace(model)
+			? new { threadId, cwd, approvalPolicy, sandboxPolicy = SandboxPolicy(sandbox, cwd), input }
+			: new { threadId, cwd, approvalPolicy, sandboxPolicy = SandboxPolicy(sandbox, cwd), input, model };
+		return JsonSerializer.Serialize(new { method = "turn/start", id, @params = parameters });
+	}
 
 	private static string TurnSteerWithInput(long id, string threadId, string turnId, object[] input) =>
 		JsonSerializer.Serialize(new {
@@ -168,7 +189,9 @@ public static class CodexAppServerProtocol {
 
 	private static object LocalImageInput(string path) => new { type = "localImage", path };
 
-	private static object[] InputItems(string prompt, IReadOnlyList<string> imagePaths) {
+	private static object SkillInput(CodexSkill skill) => new { type = "skill", name = skill.Name, path = skill.Path };
+
+	private static object[] InputItems(string prompt, IReadOnlyList<string> imagePaths, IReadOnlyList<CodexSkill> skills) {
 		List<object> input = [];
 		if (prompt.Length > 0) {
 			input.Add(TextInput(prompt));
@@ -179,8 +202,12 @@ public static class CodexAppServerProtocol {
 			input.Add(LocalImageInput(path));
 		}
 
+		foreach (var skill in skills) {
+			input.Add(SkillInput(skill));
+		}
+
 		if (input.Count == 0) {
-			throw new ArgumentException("Codex input must include text or at least one image.", nameof(imagePaths));
+			throw new ArgumentException("Codex input must include text, an image, or a skill.", nameof(prompt));
 		}
 
 		return [.. input];
@@ -209,6 +236,76 @@ public static class CodexAppServerProtocol {
 		return threadId.Length > 0;
 	}
 
+	/// <summary>Reads a model/list result into selectable model options and the id of the catalog default.</summary>
+	public static bool TryReadModels(JsonElement result, out IReadOnlyList<AgentControlOption> models, out string defaultModel) {
+		models = [];
+		defaultModel = string.Empty;
+		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
+			return false;
+		}
+
+		List<AgentControlOption> options = [];
+		foreach (var item in data.EnumerateArray()) {
+			string modelId = item.GetStringOrEmpty("id");
+			if (modelId.Length == 0) {
+				continue;
+			}
+
+			string label = item.GetStringOrEmpty("displayName");
+			string description = item.GetStringOrEmpty("description");
+			options.Add(new AgentControlOption {
+				Id = modelId,
+				Label = label.Length > 0 ? label : modelId,
+				Description = description.Length > 0 ? description : null,
+			});
+			if (item.TryGetProperty("isDefault", out var isDefault) && isDefault.ValueKind == JsonValueKind.True) {
+				defaultModel = modelId;
+			}
+		}
+
+		models = options;
+		return true;
+	}
+
+	/// <summary>Reads a skills/list result into the session's skills, skipping disabled ones.</summary>
+	public static bool TryReadSkills(JsonElement result, out IReadOnlyList<CodexSkill> skills) {
+		skills = [];
+		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
+			return false;
+		}
+
+		List<CodexSkill> parsed = [];
+		foreach (var group in data.EnumerateArray()) {
+			if (!group.TryGetProperty("skills", out var groupSkills) || groupSkills.ValueKind != JsonValueKind.Array) {
+				continue;
+			}
+
+			foreach (var skill in groupSkills.EnumerateArray()) {
+				var value = ReadSkill(skill);
+				if (value is not null) {
+					parsed.Add(value);
+				}
+			}
+		}
+
+		skills = parsed;
+		return true;
+	}
+
+	private static CodexSkill? ReadSkill(JsonElement skill) {
+		string name = skill.GetStringOrEmpty("name");
+		string path = skill.GetStringOrEmpty("path");
+		if (name.Length == 0 || path.Length == 0
+			|| (skill.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)) {
+			return null;
+		}
+
+		skill.TryGetProperty("interface", out var face);
+		string shortDescription = face.ValueKind == JsonValueKind.Object ? face.GetStringOrEmpty("shortDescription") : string.Empty;
+		string description = shortDescription.Length > 0 ? shortDescription : skill.GetStringOrEmpty("description");
+		return new CodexSkill(name, path, description);
+	}
+
 	/// <summary>Maps documented app-server notifications into Weavie's normalized agent events.</summary>
 	public static bool TryAdaptNotification(string line, out AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(line);
@@ -222,7 +319,8 @@ public static class CodexAppServerProtocol {
 		string method = methodElement.GetString() ?? string.Empty;
 		value = method switch {
 			"thread/started" => new AgentSessionStarted("startup"),
-			"turn/started" => new AgentPromptSubmitted(null),
+			// Codex's turn-start carries no prompt text; a correction it drains records with a null prompt.
+			"turn/started" => new AgentPromptSubmitted(null, null),
 			"turn/completed" => new AgentTurnStopped(false),
 			"turn/interrupted" => new AgentTurnStopped(false),
 			"item/started" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolStarting(mutation),

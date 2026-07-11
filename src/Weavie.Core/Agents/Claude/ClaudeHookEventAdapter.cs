@@ -17,7 +17,7 @@ public static class ClaudeHookEventAdapter {
 
 	private static AgentEvent Primary(HookRequest request) => request.Event switch {
 		HookEventKind.SessionStart => new AgentSessionStarted(request.Source),
-		HookEventKind.UserPromptSubmit => new AgentPromptSubmitted(request.SessionId),
+		HookEventKind.UserPromptSubmit => new AgentPromptSubmitted(request.SessionId, request.Prompt),
 		HookEventKind.Stop => new AgentTurnStopped(request.SessionWillResume),
 		HookEventKind.Notification => new AgentNotification(request.Message),
 		HookEventKind.PermissionRequest => new AgentPermissionRequested(),

@@ -145,6 +145,12 @@ public static class WeaviePaths {
 	public static string WorkspaceSuggestionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "suggestions.json");
 
 	/// <summary>
+	/// A workspace's recorded post-turn corrections (JSONL ring, oldest first):
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/corrections.jsonl</c>. See <see cref="Corrections.CorrectionCorpus"/>.
+	/// </summary>
+	public static string WorkspaceCorrectionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "corrections.jsonl");
+
+	/// <summary>
 	/// A workspace's persisted session set (the sessions and which was active):
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>. Lets a workspace reopen with the same sessions
 	/// bound to the same worktrees. See <see cref="Sessions.SessionStore"/>.

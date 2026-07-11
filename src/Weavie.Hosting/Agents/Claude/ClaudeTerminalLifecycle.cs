@@ -45,7 +45,7 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 		AddFileArgument(args, "--append-system-prompt-file", _configuration.SystemPromptFilePath);
 		var managed = ResolveConversationLaunch();
 		lock (_gate) {
-			_startupWatcher = managed is { } launch ? new ClaudeStartupWatcher(launch.Resume) : null;
+			_startupWatcher = managed is not null ? new ClaudeStartupWatcher() : null;
 		}
 		if (managed is { } conversation) {
 			args.Add(conversation.Resume ? "--resume" : "--session-id");
@@ -105,18 +105,8 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 			watcher = _startupWatcher;
 			_startupWatcher = null;
 		}
-		if (!exit.Unexpected || watcher is null) {
-			return;
-		}
-		switch (watcher.OnExit(exit.ExitCode)) {
-			case ClaudeStartupRecovery.RecreateSameId:
-				_sessions.MarkResumeFailed(Workspace);
-				break;
-			case ClaudeStartupRecovery.ForgetId:
-				_sessions.Forget(Workspace);
-				break;
-			default:
-				break;
+		if (exit.Unexpected && watcher is not null && watcher.FailedToStart(exit.ExitCode)) {
+			_sessions.Forget(Workspace);
 		}
 	}
 
@@ -124,10 +114,9 @@ public sealed class ClaudeTerminalLifecycle : ITerminalProcess {
 		if (!_settings.GetBool("claude.resumeSession", fallback: true)) {
 			return null;
 		}
-		var launch = _sessions.Resolve(Workspace);
-		return launch.Resume && !_transcripts.Exists(Workspace, launch.SessionId)
-			? launch with { Resume = false }
-			: launch;
+		string sessionId = _sessions.Resolve(Workspace);
+		// Resume iff Claude already has a transcript for the id — the same check Claude enforces (see ClaudeSessionStore).
+		return new ClaudeLaunch(sessionId, _transcripts.Exists(Workspace, sessionId));
 	}
 
 	private static void AddFileArgument(List<string> args, string flag, string path) {

@@ -85,12 +85,14 @@ const controls = {
   },
 };
 
-const userMessage = (text: string) => ({
+const paneMessage = (message: Record<string, unknown>) => ({
   type: "agent-pane",
   slot: "cx",
   workspace: "/repo",
-  message: { type: "user-message", providerId: "codex", text },
+  message: { providerId: "codex", ...message },
 });
+
+const userMessage = (text: string) => paneMessage({ type: "user-message", text });
 
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
@@ -181,6 +183,51 @@ test.describe("Codex composer", () => {
     // Removing the chip un-stages the skill.
     await chip.locator("button").click();
     await expect(page.locator(".agent-skill-chip")).toHaveCount(0);
+  });
+
+  // Pins the composer's turn-progress wiring: the working row (with elapsed time), the Run→Steer submit
+  // relabel, the turn-only Interrupt button, and the amber waiting state while an approval is pending.
+  test("the working row tracks the turn: working, waiting, back to working, gone", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    const working = page.locator(".agent-working");
+    const submit = page.locator("[data-agent-composer] button[type=submit]");
+    const interrupt = page.locator("[data-agent-composer] button", { hasText: "Interrupt" });
+
+    // Idle: no row, no Interrupt button, submit reads Run.
+    await expect(working).toHaveCount(0);
+    await expect(interrupt).toHaveCount(0);
+    await expect(submit).toHaveText("Run");
+
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    await expect(working).toBeVisible();
+    await expect(working.locator(".agent-working-label")).toHaveText("Working");
+    await expect(working.locator(".agent-working-time")).toHaveText(/^\d+s$/);
+    await expect(submit).toHaveText("Steer");
+    await expect(interrupt).toBeVisible();
+    await page.screenshot({ path: join(shotsDir, "06-working-row.png") });
+
+    host.pushToWeb(
+      paneMessage({
+        type: "approval-requested",
+        itemId: "a1",
+        status: "pending",
+        summary: "Run: dotnet test",
+      }),
+    );
+    await expect(working).toHaveClass(/waiting/);
+    await expect(working.locator(".agent-working-label")).toHaveText("Waiting on your approval");
+    await page.screenshot({ path: join(shotsDir, "07-waiting-row.png") });
+
+    host.pushToWeb(paneMessage({ type: "approval-resolved", itemId: "a1", status: "accept" }));
+    await expect(working).not.toHaveClass(/waiting/);
+    await expect(working.locator(".agent-working-label")).toHaveText("Working");
+
+    host.pushToWeb(paneMessage({ type: "turn-interrupted", turnId: "t1", status: "interrupted" }));
+    await expect(working).toHaveCount(0);
+    await expect(submit).toHaveText("Run");
+    await expect(interrupt).toHaveCount(0);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

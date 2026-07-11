@@ -39,12 +39,12 @@ public sealed partial class CodexAppServerSession {
 		if (input.Images.Count > 0) {
 			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, imagePaths, _context.Workspace, Sandbox(), ApprovalPolicy())
+				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, imagePaths, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel())
 				: CodexAppServerProtocol.TurnSteerWithImages(id, threadId, turnId, input.Text, imagePaths);
 		}
 
 		return string.IsNullOrEmpty(turnId)
-			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, Sandbox(), ApprovalPolicy())
+			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel())
 			: CodexAppServerProtocol.TurnSteer(id, threadId, turnId, input.Text);
 	}
 

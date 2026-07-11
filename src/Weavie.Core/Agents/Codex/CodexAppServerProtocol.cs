@@ -40,6 +40,16 @@ public static class CodexAppServerProtocol {
 		return JsonSerializer.Serialize(new { method = "hooks/list", id, @params = new { cwds = new[] { cwd } } });
 	}
 
+	/// <summary>Builds a model/list request for the models offered to the user in the status line picker.</summary>
+	public static string ModelList(long id, bool includeHidden) =>
+		JsonSerializer.Serialize(new { method = "model/list", id, @params = new { includeHidden } });
+
+	/// <summary>Builds a skills/list request for the skills discoverable from the session working directory.</summary>
+	public static string SkillsList(long id, string cwd) {
+		ArgumentException.ThrowIfNullOrEmpty(cwd);
+		return JsonSerializer.Serialize(new { method = "skills/list", id, @params = new { cwds = new[] { cwd } } });
+	}
+
 	/// <summary>Builds a thread/start request, omitting an empty model so Codex uses its configured default.</summary>
 	public static string ThreadStart(
 		long id,
@@ -87,13 +97,15 @@ public static class CodexAppServerProtocol {
 		string prompt,
 		string cwd,
 		string sandbox,
-		string approvalPolicy) {
+		string approvalPolicy,
+		string model) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentException.ThrowIfNullOrEmpty(prompt);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, [TextInput(prompt)]);
+		ArgumentNullException.ThrowIfNull(model);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, [TextInput(prompt)]);
 	}
 
 	/// <summary>Builds a turn/start request with text plus attached local image input items.</summary>
@@ -104,14 +116,16 @@ public static class CodexAppServerProtocol {
 		IReadOnlyList<string> imagePaths,
 		string cwd,
 		string sandbox,
-		string approvalPolicy) {
+		string approvalPolicy,
+		string model) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, InputItems(prompt, imagePaths));
+		ArgumentNullException.ThrowIfNull(model);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, InputItems(prompt, imagePaths));
 	}
 
 	/// <summary>Builds a turn/steer request for an in-flight turn.</summary>
@@ -137,18 +151,15 @@ public static class CodexAppServerProtocol {
 		string cwd,
 		string sandbox,
 		string approvalPolicy,
-		object[] input) =>
-		JsonSerializer.Serialize(new {
-			method = "turn/start",
-			id,
-			@params = new {
-				threadId,
-				cwd,
-				approvalPolicy,
-				sandboxPolicy = SandboxPolicy(sandbox, cwd),
-				input,
-			},
-		});
+		string model,
+		object[] input) {
+		// An empty model leaves the thread's current model untouched; a value overrides it for this and
+		// subsequent turns, which is how a live in-session model change takes effect without a restart.
+		object parameters = string.IsNullOrWhiteSpace(model)
+			? new { threadId, cwd, approvalPolicy, sandboxPolicy = SandboxPolicy(sandbox, cwd), input }
+			: new { threadId, cwd, approvalPolicy, sandboxPolicy = SandboxPolicy(sandbox, cwd), input, model };
+		return JsonSerializer.Serialize(new { method = "turn/start", id, @params = parameters });
+	}
 
 	private static string TurnSteerWithInput(long id, string threadId, string turnId, object[] input) =>
 		JsonSerializer.Serialize(new {
@@ -204,6 +215,81 @@ public static class CodexAppServerProtocol {
 
 		threadId = id.GetString() ?? string.Empty;
 		return threadId.Length > 0;
+	}
+
+	/// <summary>Reads a model/list result into selectable model options and the id of the catalog default.</summary>
+	public static bool TryReadModels(JsonElement result, out IReadOnlyList<AgentControlOption> models, out string defaultModel) {
+		models = [];
+		defaultModel = string.Empty;
+		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
+			return false;
+		}
+
+		List<AgentControlOption> options = [];
+		foreach (var item in data.EnumerateArray()) {
+			string modelId = item.GetStringOrEmpty("id");
+			if (modelId.Length == 0) {
+				continue;
+			}
+
+			string label = item.GetStringOrEmpty("displayName");
+			string description = item.GetStringOrEmpty("description");
+			options.Add(new AgentControlOption {
+				Id = modelId,
+				Label = label.Length > 0 ? label : modelId,
+				Description = description.Length > 0 ? description : null,
+			});
+			if (item.TryGetProperty("isDefault", out var isDefault) && isDefault.ValueKind == JsonValueKind.True) {
+				defaultModel = modelId;
+			}
+		}
+
+		models = options;
+		return true;
+	}
+
+	/// <summary>Reads a skills/list result into insertable slash entries, skipping disabled skills.</summary>
+	public static bool TryReadSkills(JsonElement result, out IReadOnlyList<AgentSlashEntry> skills) {
+		skills = [];
+		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
+			return false;
+		}
+
+		List<AgentSlashEntry> entries = [];
+		foreach (var group in data.EnumerateArray()) {
+			if (!group.TryGetProperty("skills", out var groupSkills) || groupSkills.ValueKind != JsonValueKind.Array) {
+				continue;
+			}
+
+			foreach (var skill in groupSkills.EnumerateArray()) {
+				var entry = ReadSkill(skill);
+				if (entry is not null) {
+					entries.Add(entry);
+				}
+			}
+		}
+
+		skills = entries;
+		return true;
+	}
+
+	private static AgentSlashEntry? ReadSkill(JsonElement skill) {
+		string name = skill.GetStringOrEmpty("name");
+		if (name.Length == 0
+			|| (skill.TryGetProperty("enabled", out var enabled) && enabled.ValueKind == JsonValueKind.False)) {
+			return null;
+		}
+
+		skill.TryGetProperty("interface", out var face);
+		string shortDescription = face.ValueKind == JsonValueKind.Object ? face.GetStringOrEmpty("shortDescription") : string.Empty;
+		string description = shortDescription.Length > 0 ? shortDescription : skill.GetStringOrEmpty("description");
+		string defaultPrompt = face.ValueKind == JsonValueKind.Object ? face.GetStringOrEmpty("defaultPrompt") : string.Empty;
+		return new AgentSlashEntry {
+			Id = $"skill:{name}",
+			Name = name,
+			Description = description,
+			InsertText = defaultPrompt.Length > 0 ? defaultPrompt : name,
+		};
 	}
 
 	/// <summary>Maps documented app-server notifications into Weavie's normalized agent events.</summary>

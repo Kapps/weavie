@@ -92,6 +92,8 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			RememberTurn(root);
 		} else if (method is "turn/completed" or "turn/interrupted") {
 			ForgetTurn();
+		} else if (method == "skills/changed") {
+			Run(RefreshSkillsAndPublishAsync);
 		}
 
 		var paneMessage = CodexPaneMessages.FromNotification(method, CurrentThreadId(), root);

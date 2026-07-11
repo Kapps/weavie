@@ -247,6 +247,51 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Contains(messages, message => message.Type == "user-image" && message.Status == "submitted");
 	}
 
+	[Fact]
+	public async Task Controls_ExposeModelsAndSkills_AndApplyModelLiveOnNextTurn() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+		List<AgentControlState> states = [];
+		session.ControlStateChanged += state => states.Add(state);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		var control = session.ControlState;
+		var model = Assert.Single(control.Axes, axis => axis.Id == "model");
+		Assert.Equal("gpt-5.5", model.Value); // the catalog default, since codex.model is unset
+		Assert.Equal("GPT-5.5", model.ValueLabel);
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Options.Select(option => option.Id));
+		Assert.Contains(control.Axes, axis => axis.Id == "approvalPolicy");
+		Assert.Contains(control.Axes, axis => axis.Id == "sandbox");
+		Assert.Contains(control.Slash, entry => entry.Name == "model" && entry.CommandId == CoreCommands.SelectModel);
+		Assert.Contains(control.Slash, entry => entry.Name == "review-pr" && entry.InsertText == "Review the current PR.");
+
+		session.SetControl("model", "gpt-5.4-mini");
+		Assert.Contains(states, state => state.Axes.Single(axis => axis.Id == "model").Value == "gpt-5.4-mini");
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("gpt-5.4-mini", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public async Task SetControl_RejectsUnknownValue_WithoutChangingState() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		session.SetControl("sandbox", "not-a-mode");
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message => message.Type == "error" && message.Text!.Contains("sandbox", StringComparison.Ordinal));
+		Assert.Equal("workspace-write", session.ControlState.Axes.Single(axis => axis.Id == "sandbox").Value);
+	}
+
 	private static AgentTurnSubmission Submission(string text, IReadOnlyList<string> imagePaths) => new() {
 		Id = Guid.NewGuid().ToString("n"),
 		Text = text,

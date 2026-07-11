@@ -56,6 +56,15 @@ public static class CoreCommands {
 	/// <summary>Interrupts the active structured-agent turn.</summary>
 	public const string AgentInterrupt = "weavie.agent.interrupt";
 
+	/// <summary>Opens the agent composer's model picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectModel = "weavie.agent.selectModel";
+
+	/// <summary>Opens the agent composer's approval-policy picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectApprovalPolicy = "weavie.agent.selectApprovalPolicy";
+
+	/// <summary>Opens the agent composer's sandbox picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectSandbox = "weavie.agent.selectSandbox";
+
 	/// <summary>Clears the focused terminal's scrollback (the right-click "Clear" action).</summary>
 	public const string TerminalClear = "weavie.terminal.clear";
 
@@ -516,7 +525,8 @@ public static class CoreCommands {
 			Description = "Submit the focused agent composer.",
 			Aliases = ["submit prompt", "run prompt", "send prompt", "agent submit"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "enter" }],
-			When = "agentComposerFocused",
+			// While a composer overlay (slash menu or control picker) is open, Enter drives it, not submission.
+			When = "agentComposerFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
 		});
 
 		registry.Register(new CommandDefinition {
@@ -527,7 +537,44 @@ public static class CoreCommands {
 			Description = "Interrupt the active agent turn.",
 			Aliases = ["interrupt", "stop agent", "cancel turn"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "escape" }],
+			// While a composer overlay (slash menu or control picker) is open, Escape closes it, not the turn.
+			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectModel,
+			Title = "Select Agent Model",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose the model for the active agent session. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select model", "change model", "switch model", "codex model", "model"],
 			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Model id to select; omit to open the picker\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectApprovalPolicy,
+			Title = "Select Agent Approvals",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose when the active agent asks for approval. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select approvals", "approval policy", "change approvals", "permission mode"],
+			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Approval policy to select; omit to open the picker\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectSandbox,
+			Title = "Select Agent Sandbox",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose what the active agent is allowed to touch. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select sandbox", "sandbox mode", "change sandbox", "agent permissions"],
+			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Sandbox mode to select; omit to open the picker\"}}",
 		});
 
 		// Clear the focused terminal's scrollback. Right-click surface only (no chord — many shells own Ctrl+L);

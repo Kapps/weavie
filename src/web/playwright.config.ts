@@ -44,7 +44,12 @@ export default defineConfig({
   projects: [
     {
       name: "chromium",
-      testMatch: ["bridge.spec.ts", "headless-host.spec.ts", "native-bridge.spec.ts"],
+      testMatch: [
+        "bridge.spec.ts",
+        "headless-host.spec.ts",
+        "native-bridge.spec.ts",
+        "codex-composer.spec.ts",
+      ],
       use: { ...devices["Desktop Chrome"] },
     },
     // No device preset: its canonical userAgent says "Windows", which flips Monaco/vscode to backslash

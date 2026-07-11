@@ -61,6 +61,7 @@ public sealed partial class CodexAppServerSession {
 		AdoptThread(CodexThreadResults.ReadThreadId(result));
 		HydrateTranscript(result);
 		FlushPendingInputs();
+		await LoadControlsAsync().ConfigureAwait(false);
 	}
 
 	private async Task<JsonElement> ResumeThreadAsync(long requestId, string threadId) {
@@ -68,7 +69,7 @@ public sealed partial class CodexAppServerSession {
 			return await _client.RequestAsync(
 				requestId,
 				CodexAppServerProtocol.ThreadResume(
-					requestId, threadId, Model(), _context.Workspace, Sandbox(), ApprovalPolicy(), DeveloperInstructions()),
+					requestId, threadId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 				CancellationToken.None).ConfigureAwait(false);
 		} catch (InvalidOperationException ex) when (ex.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)) {
 			_threads.Clear(_context.Workspace);
@@ -87,7 +88,7 @@ public sealed partial class CodexAppServerSession {
 		_client.RequestAsync(
 			requestId,
 			CodexAppServerProtocol.ThreadStart(
-				requestId, Model(), _context.Workspace, Sandbox(), ApprovalPolicy(), DeveloperInstructions()),
+				requestId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 			CancellationToken.None);
 
 	private void AdoptThread(string threadId) {

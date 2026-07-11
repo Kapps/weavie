@@ -90,6 +90,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
 
 		public void SubmitPrompt(string prompt) => Prompts.Add(prompt);
+		public void SubmitPrompt(string prompt, AgentTurnOptions options) => Prompts.Add(prompt);
 
 		public void AttachImage(string path) => Images.Add(path);
 

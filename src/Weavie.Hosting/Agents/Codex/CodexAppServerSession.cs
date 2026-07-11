@@ -224,5 +224,5 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
 
-	private sealed record CodexTurnInput(string Text, IReadOnlyList<string> Images);
+	private sealed record CodexTurnInput(string Text, IReadOnlyList<string> Images, AgentTurnOptions Options);
 }

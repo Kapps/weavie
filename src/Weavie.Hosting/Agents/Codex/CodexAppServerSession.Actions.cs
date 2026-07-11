@@ -7,9 +7,13 @@ namespace Weavie.Hosting.Agents.Codex;
 /// <summary>Handles user actions sent to a native Codex app-server session.</summary>
 public sealed partial class CodexAppServerSession {
 	/// <inheritdoc/>
-	public void SubmitPrompt(string prompt) {
+	public void SubmitPrompt(string prompt) => SubmitPrompt(prompt, new AgentTurnOptions(null, null, false));
+
+	/// <inheritdoc/>
+	public void SubmitPrompt(string prompt, AgentTurnOptions options) {
 		ArgumentNullException.ThrowIfNull(prompt);
-		var input = TakeTurnInput(prompt);
+		ArgumentNullException.ThrowIfNull(options);
+		var input = TakeTurnInput(prompt, options);
 		if (input.Text.Length == 0 && input.Images.Count == 0) {
 			return;
 		}
@@ -33,9 +37,9 @@ public sealed partial class CodexAppServerSession {
 		});
 	}
 
-	private CodexTurnInput TakeTurnInput(string prompt) {
+	private CodexTurnInput TakeTurnInput(string prompt, AgentTurnOptions options) {
 		lock (_gate) {
-			var input = new CodexTurnInput(prompt, [.. _pendingImages]);
+			var input = new CodexTurnInput(prompt, [.. _pendingImages], options);
 			_pendingImages.Clear();
 			return input;
 		}
@@ -62,12 +66,12 @@ public sealed partial class CodexAppServerSession {
 	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input) {
 		if (input.Images.Count > 0) {
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, input.Images, _context.Workspace, Sandbox(), ApprovalPolicy())
+				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, input.Images, _context.Workspace, Sandbox(), ApprovalPolicy(), input.Options.Model, input.Options.ReasoningEffort, input.Options.FastMode)
 				: CodexAppServerProtocol.TurnSteerWithImages(id, threadId, turnId, input.Text, input.Images);
 		}
 
 		return string.IsNullOrEmpty(turnId)
-			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, Sandbox(), ApprovalPolicy())
+			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, Sandbox(), ApprovalPolicy(), input.Options.Model, input.Options.ReasoningEffort, input.Options.FastMode)
 			: CodexAppServerProtocol.TurnSteer(id, threadId, turnId, input.Text);
 	}
 

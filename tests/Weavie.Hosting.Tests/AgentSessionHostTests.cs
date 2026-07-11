@@ -85,6 +85,7 @@ public sealed class AgentSessionHostTests {
 		}
 
 		public void SubmitPrompt(string prompt) => throw new NotSupportedException();
+		public void SubmitPrompt(string prompt, AgentTurnOptions options) => throw new NotSupportedException();
 
 		public void AttachImage(string path) => throw new NotSupportedException();
 

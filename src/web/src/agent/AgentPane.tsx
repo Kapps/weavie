@@ -16,6 +16,9 @@ export function AgentPane(props: {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
   const [draft, setDraft] = createSignal("");
+  const [model, setModel] = createSignal("");
+  const [reasoningEffort, setReasoningEffort] = createSignal("");
+  const [fastMode, setFastMode] = createSignal(false);
   const [lastDraftIndex, setLastDraftIndex] = createSignal(-1);
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const pendingImages = createMemo(() =>
@@ -87,7 +90,14 @@ export function AgentPane(props: {
       setStickToBottom(true);
     }
     setDraft("");
-    postToHost({ type: "agent-submit", slot, prompt });
+    postToHost({
+      type: "agent-submit",
+      slot,
+      prompt,
+      model: model().trim(),
+      reasoningEffort: reasoningEffort(),
+      fastMode: fastMode(),
+    });
   };
 
   const interrupt = (): void => {
@@ -135,7 +145,39 @@ export function AgentPane(props: {
           submit();
         }}
       >
-        <span class="agent-compose-prompt">prompt&gt;</span>
+        <div class="agent-compose-fields">
+          <span class="agent-compose-prompt">prompt&gt;</span>
+          <label title="Model ID for this turn; blank uses the Codex default">
+            <span>Model</span>
+            <input
+              class="agent-compose-model"
+              value={model()}
+              placeholder="default"
+              onInput={(event) => setModel(event.currentTarget.value)}
+            />
+          </label>
+          <label title="Reasoning effort for this turn">
+            <span>Effort</span>
+            <select
+              value={reasoningEffort()}
+              onChange={(event) => setReasoningEffort(event.currentTarget.value)}
+            >
+              <option value="">default</option>
+              <option value="low">low</option>
+              <option value="medium">medium</option>
+              <option value="high">high</option>
+              <option value="xhigh">xhigh</option>
+            </select>
+          </label>
+          <label class="agent-compose-fast" title="Use Codex priority processing (increased usage)">
+            <input
+              type="checkbox"
+              checked={fastMode()}
+              onChange={(event) => setFastMode(event.currentTarget.checked)}
+            />
+            <span>Fast</span>
+          </label>
+        </div>
         <textarea
           rows={1}
           value={draft()}

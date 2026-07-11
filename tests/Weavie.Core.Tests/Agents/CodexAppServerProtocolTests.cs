@@ -77,6 +77,18 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
+	public void TurnStart_CarriesModelReasoningAndFastModeOverrides() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request",
+			"gpt-5.3-codex", "high", true));
+		var parameters = doc.RootElement.GetProperty("params");
+
+		Assert.Equal("gpt-5.3-codex", parameters.GetProperty("model").GetString());
+		Assert.Equal("high", parameters.GetProperty("effort").GetString());
+		Assert.Equal("priority", parameters.GetProperty("serviceTier").GetString());
+	}
+
+	[Fact]
 	public void TurnStartWithImages_CarriesTextAndLocalImageInput() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithImages(
 			13, "thr_1", "describe it", ["/tmp/paste-1.png"], "/repo", "workspace-write", "on-request"));

@@ -27,6 +27,9 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Submits a user prompt to the current provider thread.</summary>
 	void SubmitPrompt(string prompt);
 
+	/// <summary>Submits a user prompt with per-turn model overrides.</summary>
+	void SubmitPrompt(string prompt, AgentTurnOptions options);
+
 	/// <summary>Attaches a local image file to the next provider turn.</summary>
 	void AttachImage(string path);
 
@@ -48,3 +51,6 @@ public interface IStructuredAgentSession : IAgentSession {
 	/// <summary>Raised when the provider has a structured pane state update for the web UI.</summary>
 	event Action<AgentPaneMessage> PaneMessage;
 }
+
+/// <summary>Optional provider-neutral overrides for one structured-agent turn.</summary>
+public sealed record AgentTurnOptions(string? Model, string? ReasoningEffort, bool FastMode);

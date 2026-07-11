@@ -1,5 +1,6 @@
 using System.Text;
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.Commands;
 using Weavie.Core.Editor;
@@ -91,7 +92,12 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "agent-submit":
-				SessionForSlot(root)?.Agent.Structured?.SubmitPrompt(root.GetStringOrEmpty("prompt"));
+				SessionForSlot(root)?.Agent.Structured?.SubmitPrompt(
+					root.GetStringOrEmpty("prompt"),
+					new AgentTurnOptions(
+						root.GetStringOrEmpty("model"),
+						root.GetStringOrEmpty("reasoningEffort"),
+						root.TryGetProperty("fastMode", out var fastMode) && fastMode.GetBoolean()));
 				break;
 			case "agent-interrupt":
 				SessionForSlot(root)?.Agent.Structured?.Interrupt();

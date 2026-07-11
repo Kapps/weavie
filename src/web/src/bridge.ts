@@ -155,7 +155,14 @@ export type HostBoundMessage =
   // the provider's native image path. `session` is legacy and ignored for routing.
   | { type: "term-paste-image"; slot: string; session: TermSession; mime: string; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
-  | { type: "agent-submit"; slot: string; prompt: string }
+  | {
+      type: "agent-submit";
+      slot: string;
+      prompt: string;
+      model: string;
+      reasoningEffort: string;
+      fastMode: boolean;
+    }
   | { type: "agent-interrupt"; slot: string }
   | { type: "agent-approval"; slot: string; requestId: string; decision: string }
   | { type: "agent-input"; slot: string; requestId: string; answers: Record<string, string[]> }

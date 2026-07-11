@@ -84,22 +84,34 @@ public static class CodexAppServerProtocol {
 	}
 
 	/// <summary>Builds a turn/start request rooted in <paramref name="cwd"/> with one text input item.</summary>
+	public static string TurnStart(long id, string threadId, string prompt, string cwd, string sandbox, string approvalPolicy) =>
+		TurnStart(id, threadId, prompt, cwd, sandbox, approvalPolicy, null, null, false);
+
+	/// <summary>Builds a turn/start request with optional per-turn model overrides.</summary>
 	public static string TurnStart(
 		long id,
 		string threadId,
 		string prompt,
 		string cwd,
 		string sandbox,
-		string approvalPolicy) {
+		string approvalPolicy,
+		string? model,
+		string? reasoningEffort,
+		bool fastMode) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentException.ThrowIfNullOrEmpty(prompt);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, [TextInput(prompt)]);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, [TextInput(prompt)], model, reasoningEffort, fastMode);
 	}
 
 	/// <summary>Builds a turn/start request with text plus attached local image input items.</summary>
+	public static string TurnStartWithImages(long id, string threadId, string prompt, IReadOnlyList<string> imagePaths,
+		string cwd, string sandbox, string approvalPolicy) =>
+		TurnStartWithImages(id, threadId, prompt, imagePaths, cwd, sandbox, approvalPolicy, null, null, false);
+
+	/// <summary>Builds a turn/start request with images and optional per-turn model overrides.</summary>
 	public static string TurnStartWithImages(
 		long id,
 		string threadId,
@@ -107,14 +119,17 @@ public static class CodexAppServerProtocol {
 		IReadOnlyList<string> imagePaths,
 		string cwd,
 		string sandbox,
-		string approvalPolicy) {
+		string approvalPolicy,
+		string? model,
+		string? reasoningEffort,
+		bool fastMode) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, InputItems(prompt, imagePaths));
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, InputItems(prompt, imagePaths), model, reasoningEffort, fastMode);
 	}
 
 	/// <summary>Builds a turn/steer request for an in-flight turn.</summary>
@@ -140,18 +155,28 @@ public static class CodexAppServerProtocol {
 		string cwd,
 		string sandbox,
 		string approvalPolicy,
-		object[] input) =>
-		JsonSerializer.Serialize(new {
-			method = "turn/start",
-			id,
-			@params = new {
-				threadId,
-				cwd,
-				approvalPolicy,
-				sandboxPolicy = SandboxPolicy(sandbox, cwd),
-				input,
-			},
-		});
+		object[] input,
+		string? model,
+		string? reasoningEffort,
+		bool fastMode) {
+		Dictionary<string, object?> parameters = new() {
+			["threadId"] = threadId,
+			["cwd"] = cwd,
+			["approvalPolicy"] = approvalPolicy,
+			["sandboxPolicy"] = SandboxPolicy(sandbox, cwd),
+			["input"] = input,
+		};
+		if (!string.IsNullOrWhiteSpace(model)) {
+			parameters["model"] = model;
+		}
+		if (!string.IsNullOrWhiteSpace(reasoningEffort)) {
+			parameters["effort"] = reasoningEffort;
+		}
+		if (fastMode) {
+			parameters["serviceTier"] = "priority";
+		}
+		return JsonSerializer.Serialize(new { method = "turn/start", id, @params = parameters });
+	}
 
 	private static string TurnSteerWithInput(long id, string threadId, string turnId, object[] input) =>
 		JsonSerializer.Serialize(new {

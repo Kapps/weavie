@@ -9,7 +9,7 @@ transcript — so it is invisible to the model forever. That *net edit over agen
 Weavie has.
 
 This feature persists those corrections per-workspace and lets the user run **`/learn`** to have the
-primary session's Claude mine them for `CLAUDE.md` rules. The division of labor is firm: **Weavie stores
+primary session's Claude mine them for `AGENTS.md` rules. The division of labor is firm: **Weavie stores
 the signal; Claude does all the reasoning** — there is no classifier, scorer, or intent-detector in Core.
 The corpus holds raw deltas only.
 

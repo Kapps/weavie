@@ -19,11 +19,11 @@ public static class LearnPrompt {
 		1. Look for recurring patterns — style the user keeps rewriting, approaches they keep reverting,
 		   conventions your output keeps missing. A single one-off fix, an unrelated edit that merely touched
 		   the same file, or another agent's concurrent work is noise: ignore it.
-		2. Check CLAUDE.md (and any docs it links) first — don't propose a rule it already states; if a
+		2. Check AGENTS.md (and any docs it links) first — don't propose a rule it already states; if a
 		   correction shows an existing rule being violated anyway, consider whether sharpening it would help.
 		3. Propose at most a handful of rules, each 1–2 lines, general enough to prevent the next occurrence
 		   and specific enough to act on. Present them with the evidence (which corrections back each rule)
-		   and ask me to confirm before editing CLAUDE.md. If the corrections support no durable rule, say so
+		   and ask me to confirm before editing AGENTS.md. If the corrections support no durable rule, say so
 		   plainly instead of inventing one.
 		""";
 

@@ -47,7 +47,7 @@ public static class CoreSuggestions {
 		registry.Register(new SuggestionDefinition {
 			Id = "corrections.learn",
 			Title = "Teach Claude from your corrections?",
-			Body = "You've been correcting Claude's output — it can mine those reverts and edits for CLAUDE.md rules.",
+			Body = "You've been correcting Claude's output — it can mine those reverts and edits for AGENTS.md rules.",
 			IsRelevant = ctx => ctx.PendingCorrectionCount >= ctx.Settings.RequireInt(CorrectionsSettings.LearnThreshold),
 			Actions = [
 				new SuggestionAction {

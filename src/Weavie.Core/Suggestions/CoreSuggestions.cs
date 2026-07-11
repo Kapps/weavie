@@ -40,5 +40,24 @@ public static class CoreSuggestions {
 				new SuggestionAction { Label = "Don't ask again", Kind = SuggestionActionKind.DismissForever },
 			],
 		});
+
+		// Offer /learn once enough post-turn corrections (reverted hunks / hand-edits over agent output)
+		// accumulate in the workspace ring. Self-regulating: /learn clears the ring, so the card vanishes
+		// until corrections build up again. "Yes" only PREFILLS the analysis prompt — no tokens until Enter.
+		registry.Register(new SuggestionDefinition {
+			Id = "corrections.learn",
+			Title = "Teach Claude from your corrections?",
+			Body = "You've been correcting Claude's output — it can mine those reverts and edits for AGENTS.md rules.",
+			IsRelevant = ctx => ctx.PendingCorrectionCount >= ctx.Settings.RequireInt(CorrectionsSettings.LearnThreshold),
+			Actions = [
+				new SuggestionAction {
+					Label = "Yes",
+					Kind = SuggestionActionKind.RunCommand,
+					CommandId = CoreCommands.LearnFromCorrections,
+				},
+				new SuggestionAction { Label = "Not now", Kind = SuggestionActionKind.Snooze },
+				new SuggestionAction { Label = "Don't ask again", Kind = SuggestionActionKind.DismissForever },
+			],
+		});
 	}
 }

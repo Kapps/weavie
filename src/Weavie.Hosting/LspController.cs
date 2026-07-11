@@ -46,11 +46,12 @@ public sealed class LspController : IAsyncDisposable {
 
 	/// <summary>
 	/// Starts a server for <paramref name="server"/> bound to <paramref name="channel"/> (tagging its output with
-	/// <paramref name="slot"/>). An unknown recipe or a server not on <c>PATH</c> replies <c>lsp-exit</c> with the
-	/// reason instead of spawning; a duplicate channel is ignored.
+	/// <paramref name="slot"/>). An unknown recipe, a server not on <c>PATH</c>, or a channel id already bound to a
+	/// live server replies <c>lsp-exit</c> with the reason instead of spawning — a duplicate id silently accepted
+	/// would splice the new client onto the old server, whose second <c>initialize</c> faults.
 	/// </summary>
 	public void Start(string slot, string server, string channel) {
-		if (string.IsNullOrEmpty(channel) || _channels.ContainsKey(channel)) {
+		if (string.IsNullOrEmpty(channel)) {
 			return;
 		}
 
@@ -70,6 +71,7 @@ public sealed class LspController : IAsyncDisposable {
 		var ch = new LspChannel(_bridge, slot, channel, command, _workspaceRoot, _launcher, _log, c => _channels.TryRemove(c, out _));
 		if (!_channels.TryAdd(channel, ch)) {
 			ch.Dispose();
+			_bridge.PostToWeb(LspMessages.Exit(slot, channel, -1, $"channel '{channel}' is already bound to a live server"));
 			return;
 		}
 

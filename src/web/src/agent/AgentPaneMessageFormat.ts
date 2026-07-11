@@ -4,7 +4,7 @@ export function displayStatus(
   message: AgentPaneUpdate,
   resolved: ReadonlyMap<string, string>,
 ): string | null {
-  if (message.type === "edit-location" || message.type === "error" || message.type === "warning") {
+  if (message.type === "edit-location") {
     return null;
   }
 

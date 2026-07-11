@@ -37,11 +37,20 @@ export default defineConfig({
   use: {
     headless: true,
     trace: "retain-on-failure",
+    // Same override capture.mjs honors: run on a preinstalled Chromium (e.g. a sandbox's /opt/pw-browsers)
+    // instead of the version-pinned download. Unset in normal use.
+    launchOptions: { executablePath: process.env.WEAVIE_CHROMIUM || undefined },
   },
   projects: [
     {
       name: "chromium",
-      testMatch: ["bridge.spec.ts", "headless-host.spec.ts", "native-bridge.spec.ts"],
+      testMatch: [
+        "bridge.spec.ts",
+        "headless-host.spec.ts",
+        "native-bridge.spec.ts",
+        "codex-composer.spec.ts",
+        "process-tree.spec.ts",
+      ],
       use: { ...devices["Desktop Chrome"] },
     },
     // No device preset: its canonical userAgent says "Windows", which flips Monaco/vscode to backslash

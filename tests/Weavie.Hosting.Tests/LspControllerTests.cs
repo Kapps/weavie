@@ -60,6 +60,22 @@ public sealed class LspControllerTests {
 	}
 
 	[Fact]
+	public void Duplicate_channel_posts_lsp_exit_and_leaves_the_live_server_alone() {
+		var bridge = new FakeHostBridge();
+		var launcher = new FakeLauncher();
+		var controller = NewController(bridge, launcher);
+		controller.Start("s1", "fake", "ch1");
+
+		controller.Start("s1", "fake", "ch1");
+
+		Assert.Single(launcher.Servers);
+		Assert.False(launcher.Servers[0].Disposed);
+		var exit = bridge.LastOfType("lsp-exit");
+		Assert.True(exit.HasValue);
+		Assert.Contains("already bound", exit!.Value.GetProperty("reason").GetString());
+	}
+
+	[Fact]
 	public void Unknown_recipe_posts_lsp_exit_without_spawning() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();

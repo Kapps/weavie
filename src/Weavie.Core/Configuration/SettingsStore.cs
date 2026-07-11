@@ -710,8 +710,14 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	private void OnFileEvent(object sender, FileSystemEventArgs e) =>
-		_debounce?.Change(250, Timeout.Infinite);
+	// Under _gate: a watcher callback in flight during Dispose must not touch the disposed timer.
+	private void OnFileEvent(object sender, FileSystemEventArgs e) {
+		lock (_gate) {
+			if (!_disposed) {
+				_debounce?.Change(250, Timeout.Infinite);
+			}
+		}
+	}
 
 	private void OnDebounceElapsed(object? state) {
 		List<SettingChange> changes;

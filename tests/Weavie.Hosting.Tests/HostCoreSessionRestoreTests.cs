@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.FileSystem;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
+using Weavie.Core.Worktrees;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -81,6 +83,8 @@ public sealed class HostCoreSessionRestoreTests {
 
 		var session = SessionById(host.Bridge, "codex-branch");
 		Assert.Equal("codex", session.GetProperty("providerId").GetString());
+		Assert.Equal("structured", session.GetProperty("agentSurface").GetString());
+		Assert.Equal(2, session.GetProperty("agentInputProtocol").GetInt32());
 		Assert.True(session.GetProperty("loaded").GetBoolean());
 		Assert.True(session.GetProperty("active").GetBoolean());
 	}
@@ -102,6 +106,26 @@ public sealed class HostCoreSessionRestoreTests {
 		Assert.Equal("codex", session.GetProperty("providerId").GetString());
 		Assert.False(session.GetProperty("loaded").GetBoolean());
 		Assert.False(session.GetProperty("active").GetBoolean());
+	}
+
+	[Fact]
+	public async Task DormantUnknownProvider_DoesNotHidePrimaryClaudeSession() {
+		await using var host = await TestHost.StartAsync();
+		Assert.True((await host.CreateSessionAsync("branch-a")).Ok);
+		Assert.True((await host.Core.UnloadSessionAsync("branch-a", CancellationToken.None)).Ok);
+		var registry = new WorktreeRegistry(
+			new LocalFileSystem(),
+			WeaviePaths.WorkspaceWorktreesFile(WorkspaceId.ForPath(host.RepoRoot)));
+		var record = Assert.IsType<WorktreeRecord>(registry.FindByBranch("branch-a"));
+		registry.Add(record with { AgentProviderId = "removed-provider" });
+
+		await host.RestartAsync();
+
+		Assert.True(PrimaryIsActive(host.Bridge));
+		var stale = SessionById(host.Bridge, "branch-a");
+		Assert.Equal("removed-provider", stale.GetProperty("providerId").GetString());
+		Assert.Equal("unavailable", stale.GetProperty("agentSurface").GetString());
+		Assert.False(stale.GetProperty("loaded").GetBoolean());
 	}
 
 	[Fact]

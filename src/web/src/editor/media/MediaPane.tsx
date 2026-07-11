@@ -1,4 +1,5 @@
-import { createEffect, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
 import { basename } from "../fs-path";
 import { loadMedia, mediaDoc, releaseMedia } from "./media-store";
 import { mediaTypeOf } from "./media-types";
@@ -6,7 +7,8 @@ import { mediaTypeOf } from "./media-types";
 /**
  * The media-tab surface: the active image/video file rendered over the (kept-mounted) Monaco host, at the
  * same layer as the Preview/Web overlays. Bytes come from media-store as a Blob URL; a `<video>` gets native
- * controls, and the pane focuses itself on mount so the keyboard reaches them (space/arrows). Errors — a
+ * controls (autoplaying unless editor.videoAutoplay is off), and the pane focuses itself on mount so the
+ * keyboard reaches them (space/arrows). Errors — a
  * too-large file, a failed read, a deletion — render loudly in the pane where the user is looking.
  */
 export default function MediaPane(props: { path: () => string }): JSX.Element {
@@ -31,6 +33,10 @@ export default function MediaPane(props: { path: () => string }): JSX.Element {
   });
   onMount(() => host.focus());
 
+  // Live view of editor.videoAutoplay — toggling it updates the mounted element, so the next load honors it.
+  const [autoplay, setAutoplay] = createSignal(currentEditorOptions().videoAutoplay);
+  onCleanup(onEditorOptionsChanged((options) => setAutoplay(options.videoAutoplay)));
+
   const doc = (): ReturnType<typeof mediaDoc> => mediaDoc(props.path());
 
   return (
@@ -43,7 +49,7 @@ export default function MediaPane(props: { path: () => string }): JSX.Element {
           }
         >
           {/* biome-ignore lint/a11y/useMediaCaption: workspace video files carry no caption tracks. */}
-          <video class="editor-media-content" src={doc()?.url} controls />
+          <video class="editor-media-content" src={doc()?.url} controls autoplay={autoplay()} />
         </Show>
       </Show>
       <Show when={doc()?.status === "error"}>

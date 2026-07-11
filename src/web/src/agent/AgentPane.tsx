@@ -54,21 +54,38 @@ export function AgentPane(props: {
     }
   });
 
+  const focusPrompt = (event: MouseEvent): void => {
+    if (event.button !== 0) {
+      return;
+    }
+
+    const target = event.target;
+    if (
+      target instanceof Element &&
+      target.closest("button, textarea, input, select, a, [contenteditable='true'], [tabindex]") !==
+        null
+    ) {
+      return;
+    }
+
+    props.onFocus();
+    if (event.currentTarget instanceof HTMLElement) {
+      event.currentTarget
+        .querySelector<HTMLTextAreaElement>("[data-agent-composer] textarea")
+        ?.focus({ preventScroll: true });
+    }
+  };
+
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: Surface clicks are a pointer convenience; the textarea remains keyboard-focusable.
     <div
       class="agent-surface"
       classList={{ active: props.active }}
       data-kind="terminal:claude"
       data-surface="structured-agent"
+      onMouseDown={focusPrompt}
     >
-      <div
-        class="pane-head"
-        role="toolbar"
-        onMouseDown={(event) => {
-          event.preventDefault();
-          props.onFocus();
-        }}
-      >
+      <div class="pane-head" role="toolbar">
         <span class="pane-label">{providerName()}</span>
         <Show when={props.shortcut !== ""}>
           <span class="pane-shortcut">{props.shortcut}</span>
@@ -79,6 +96,7 @@ export function AgentPane(props: {
           <AgentTranscript
             entries={transcript()}
             keyboardApprovalId={keyboardApprovalId()}
+            messages={props.messages}
             providerName={providerName()}
             slot={props.slot}
           />

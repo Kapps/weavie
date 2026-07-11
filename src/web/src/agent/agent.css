@@ -154,6 +154,18 @@
   max-width: 100%;
 }
 
+.agent-entry-main a {
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+}
+
+.agent-entry-main a:hover {
+  color: color-mix(in srgb, var(--accent) 76%, white);
+}
+
 .agent-entry-summary {
   color: color-mix(in srgb, var(--fg) 76%, var(--dim));
   overflow-wrap: break-word;

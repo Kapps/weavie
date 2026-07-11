@@ -293,7 +293,9 @@ public static class CoreSettings {
 			return onPath;
 		}
 
-		return null;
+		// On POSIX, match Claude's fallback: the interactive login shell may add Codex through nvm/asdf/mise
+		// even when the environment Weavie inherited at startup cannot resolve it yet.
+		return OperatingSystem.IsWindows() ? null : "codex";
 	}
 
 	private static bool IsWindowsAppsAlias(string path) =>

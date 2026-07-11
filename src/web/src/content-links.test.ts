@@ -17,6 +17,12 @@ describe("findContentLinks", () => {
       { start: 12, end: 23, text: "src/main.ts", kind: "file" },
     ]);
   });
+
+  it("finds file URIs", () => {
+    expect(findContentLinks("Open file:///home/user/a%20b.ts#12.", false)).toEqual([
+      { start: 5, end: 34, text: "file:///home/user/a%20b.ts#12", kind: "file" },
+    ]);
+  });
 });
 
 describe("parseFileReference", () => {
@@ -29,5 +35,12 @@ describe("parseFileReference", () => {
 
   it("defaults a bare path to its first line", () => {
     expect(parseFileReference("src/main.ts")).toEqual({ path: "src/main.ts", line: 1 });
+  });
+
+  it("decodes file URIs and reads their line fragment", () => {
+    expect(parseFileReference("file:///home/user/a%20b.ts#12")).toEqual({
+      path: "/home/user/a b.ts",
+      line: 12,
+    });
   });
 });

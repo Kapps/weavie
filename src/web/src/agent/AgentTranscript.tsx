@@ -1,13 +1,18 @@
 import { createSignal, For, type JSX, Show } from "solid-js";
+import type { AgentPaneUpdate } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
 import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
+import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
+import { assistantSectionLabel } from "./AgentTranscriptLabels";
+import { hasActiveTurn } from "./turn-progress";
 
 export function AgentTranscript(props: {
   entries: AgentTranscriptEntry[];
   keyboardApprovalId: string | null;
+  messages: AgentPaneUpdate[];
   providerName: string;
   slot: string | null;
 }): JSX.Element {
@@ -41,7 +46,11 @@ export function AgentTranscript(props: {
                 return next;
               });
             }}
-            result={isResultEntry(props.entries, index())}
+            sectionLabel={assistantSectionLabel(
+              props.entries,
+              index(),
+              hasActiveTurn(props.messages),
+            )}
             slot={props.slot}
           />
         )}
@@ -94,7 +103,7 @@ function TranscriptEntry(props: {
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
   onDetailsToggle: (open: boolean) => void;
-  result: boolean;
+  sectionLabel: "Updates" | "Results" | null;
   slot: string | null;
 }): JSX.Element {
   return (
@@ -102,12 +111,12 @@ function TranscriptEntry(props: {
       class={`agent-entry agent-entry-${props.entry.kind} agent-tone-${props.entry.tone}`}
       classList={{
         "agent-entry-edit": props.entry.actionMessage?.type === "edit-location",
-        "agent-entry-result": props.result,
+        "agent-entry-result": props.sectionLabel !== null,
       }}
     >
-      <Show when={props.result || showEntryHeader(props.entry)}>
+      <Show when={props.sectionLabel !== null || showEntryHeader(props.entry)}>
         <div class="agent-entry-head" title={entryTitle(props.entry)}>
-          <span class="agent-entry-label">{props.result ? "Result" : entryLabel(props.entry)}</span>
+          <span class="agent-entry-label">{props.sectionLabel ?? entryLabel(props.entry)}</span>
           <Show when={props.entry.status !== null}>
             <small class="agent-entry-status">{props.entry.status}</small>
           </Show>
@@ -115,12 +124,18 @@ function TranscriptEntry(props: {
       </Show>
       <div class="agent-entry-main">
         <Show when={props.entry.summary !== null}>
-          <div class="agent-entry-summary">{props.entry.summary}</div>
+          <div class="agent-entry-summary">
+            <AgentLinkedText text={props.entry.summary ?? ""} />
+          </div>
         </Show>
         <Show when={props.entry.text !== null}>
           <Show
             when={props.entry.kind === "message" && props.entry.tone === "assistant"}
-            fallback={<pre class="agent-entry-text">{props.entry.text}</pre>}
+            fallback={
+              <pre class="agent-entry-text">
+                <AgentLinkedText text={props.entry.text ?? ""} />
+              </pre>
+            }
           >
             <AgentMarkdown content={props.entry.text ?? ""} />
           </Show>
@@ -141,20 +156,6 @@ function TranscriptEntry(props: {
       </div>
     </article>
   );
-}
-
-function isResultEntry(entries: AgentTranscriptEntry[], index: number): boolean {
-  const entry = entries[index];
-  if (entry === undefined || entry.kind !== "message" || entry.tone !== "assistant") {
-    return false;
-  }
-  for (let next = index + 1; next < entries.length; next += 1) {
-    const candidate = entries[next];
-    if (candidate?.kind === "message") {
-      return candidate.tone === "user";
-    }
-  }
-  return true;
 }
 
 function showEntryHeader(entry: AgentTranscriptEntry): boolean {
@@ -218,7 +219,9 @@ function ActivityDetails(props: {
                 </span>
               </Show>
               <Show when={step.detailText !== null}>
-                <pre>{step.detailText}</pre>
+                <pre>
+                  <AgentLinkedText text={step.detailText ?? ""} />
+                </pre>
               </Show>
             </div>
           )}

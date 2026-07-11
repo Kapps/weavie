@@ -287,6 +287,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 		session.Submit(Submission("look at the PR", [], ["review-pr"]));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+		await WaitForAsync(() => messages.Any(message =>
+			message.Type == "user-message"
+			&& message.Text!.Contains("review-pr", StringComparison.Ordinal)));
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
 		var input = doc.RootElement.GetProperty("params").GetProperty("input");

@@ -47,7 +47,7 @@ internal sealed class TailscaleServeFront : ITlsFront {
 	public string WorkerBindAddress => "127.0.0.1";
 
 	/// <inheritdoc/>
-	public string RegisterUrl => $"https://{TlsUrls.HostPort(_magicDns, _options.ControlHttpsPort)}";
+	public string RegisterUrl(int controlPort) => $"https://{TlsUrls.HostPort(_magicDns, _options.ControlHttpsPort)}";
 
 	/// <inheritdoc/>
 	public string WorkerPageUrl(string requestHost, WorkspaceBackend backend) {

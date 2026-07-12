@@ -235,9 +235,13 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 		return tier.Length > 0 ? tier : StandardTier.Id;
 	}
 
-	private string SandboxLocked() => _sandboxOverride.Length > 0 ? _sandboxOverride : Sandbox();
+	private string SandboxLocked() => BypassPermissions()
+		? "danger-full-access"
+		: _sandboxOverride.Length > 0 ? _sandboxOverride : Sandbox();
 
-	private string ApprovalPolicyLocked() => _approvalOverride.Length > 0 ? _approvalOverride : ApprovalPolicy();
+	private string ApprovalPolicyLocked() => BypassPermissions()
+		? "never"
+		: _approvalOverride.Length > 0 ? _approvalOverride : ApprovalPolicy();
 
 	// After a model change, replace any effort/tier override the new model doesn't support with an explicit value
 	// that clears the stale one on Codex's side: the effort resets to the new model's default, the tier to Standard

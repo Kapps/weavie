@@ -121,11 +121,9 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = "claude.allowAllTools",
 			Kind = SettingKind.Bool,
-			Description = "Auto-allow Claude's non-edit tool calls (Bash and other commands) without prompting. "
-				+ "This is Weavie's tool-permission axis, separate from how EDITS are handled — edits follow "
-				+ "Claude's own mode (cycled with Shift+Tab in the Claude pane), which Weavie observes but does not "
-				+ "set. 'Bypass everything' = Claude in acceptEdits + this on. Your own deny rules still win. Takes "
-				+ "effect on the next tool call.",
+			Description = "Bypass agent permission prompts. Claude's permission hooks are auto-accepted without "
+				+ "changing its edit mode. Codex runs with danger-full-access and never asks for approval. Takes effect "
+				+ "on the next tool call or Codex turn.",
 			Aliases = ["allow all tools", "auto allow tools", "auto approve tools", "stop asking", "yolo mode",
 				"bypass permissions", "skip permissions", "auto run commands", "allow all"],
 			Apply = ApplyMode.Live,

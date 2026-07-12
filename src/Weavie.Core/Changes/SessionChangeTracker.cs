@@ -82,13 +82,23 @@ public sealed partial class SessionChangeTracker {
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
 
-		if (value is AgentPromptSubmitted) {
+		if (value is AgentPromptSubmitted submitted) {
 			CommitAccepted();
+			if (submitted.ReconcileWorkspace) {
+				BeginWorkspaceTurn();
+			}
+			return;
+		}
+
+		if (value is AgentTurnStopped stopped) {
+			if (stopped.ReconcileWorkspace) {
+				EndWorkspaceTurn();
+			}
 			return;
 		}
 
 		// Reconcile deletions before recording this tool's edit, so a Bash rm/mv drops the vanished file first.
-		if (value is AgentToolCompleted) {
+		if (value is AgentToolCompleted && !WorkspaceTurnActive()) {
 			ReconcileDeletions();
 		}
 
@@ -98,6 +108,10 @@ public sealed partial class SessionChangeTracker {
 			_ => new AgentMutation.None(),
 		};
 		if (mutation is AgentMutation.Workspace workspace) {
+			if (WorkspaceTurnActive()) {
+				return;
+			}
+
 			if (value is AgentToolStarting) {
 				CaptureWorkspaceBaselines(workspace.InvocationId);
 			} else if (value is AgentToolCompleted) {

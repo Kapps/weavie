@@ -25,15 +25,6 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void HooksList_SendsSessionCwd() {
-		using var doc = JsonDocument.Parse(CodexAppServerProtocol.HooksList(7, "/repo"));
-		var parameters = doc.RootElement.GetProperty("params");
-
-		Assert.Equal("hooks/list", doc.RootElement.GetProperty("method").GetString());
-		Assert.Equal("/repo", parameters.GetProperty("cwds")[0].GetString());
-	}
-
-	[Fact]
 	public void ThreadStart_OmitsEmptyModel() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.ThreadStart(
 			8, "", "/repo", "workspace-write", "on-request", "use weavie tools"));
@@ -193,7 +184,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/started","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnStarted));
-		Assert.IsType<AgentPromptSubmitted>(turnStarted);
+		Assert.True(Assert.IsType<AgentPromptSubmitted>(turnStarted).ReconcileWorkspace);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
@@ -205,7 +196,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnCompleted));
-		Assert.IsType<AgentTurnStopped>(turnCompleted);
+		Assert.True(Assert.IsType<AgentTurnStopped>(turnCompleted).ReconcileWorkspace);
 	}
 
 	[Fact]
@@ -408,5 +399,37 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal(file, turn.Path);
 		Assert.Equal("gone\n", turn.BaselineText);
 		Assert.Equal(string.Empty, turn.CurrentText);
+	}
+
+	[Fact]
+	public void TurnLifecycle_CapturesMutationThatPrecedesItemStarted() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-real-order"));
+		string file = Path.Combine(workspace, "existing.txt");
+		string created = Path.Combine(workspace, "created.txt");
+		string deleted = Path.Combine(workspace, "deleted.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(file, "old\n");
+		fileSystem.WriteAllText(deleted, "gone\n");
+		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
+
+		changes.Observe(new AgentPromptSubmitted(null, null, ReconcileWorkspace: true));
+		fileSystem.WriteAllText(file, "new\n");
+		fileSystem.WriteAllText(created, "created\n");
+		fileSystem.DeleteFile(deleted);
+		changes.Observe(new AgentToolStarting(new AgentMutation.Workspace("late-item")));
+		changes.Observe(new AgentToolCompleted(new AgentMutation.Workspace("late-item")));
+		changes.Observe(new AgentTurnStopped(false, ReconcileWorkspace: true));
+
+		var turn = changes.TurnChanges().OrderBy(change => change.Path, StringComparer.Ordinal).ToList();
+		Assert.Equal(3, turn.Count);
+		Assert.Equal(created, turn[0].Path);
+		Assert.Equal(string.Empty, turn[0].BaselineText);
+		Assert.Equal("created\n", turn[0].CurrentText);
+		Assert.Equal(deleted, turn[1].Path);
+		Assert.Equal("gone\n", turn[1].BaselineText);
+		Assert.Equal(string.Empty, turn[1].CurrentText);
+		Assert.Equal(file, turn[2].Path);
+		Assert.Equal("old\n", turn[2].BaselineText);
+		Assert.Equal("new\n", turn[2].CurrentText);
 	}
 }

@@ -21,7 +21,6 @@ public sealed partial class CodexAppServerSession {
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		await _client.DisposeAsync().ConfigureAwait(false);
-		await _hooks.DisposeAsync().ConfigureAwait(false);
 		await _context.Registry.DisposeAsync().ConfigureAwait(false);
 	}
 
@@ -33,9 +32,6 @@ public sealed partial class CodexAppServerSession {
 		}
 		_pendingRequests.Clear();
 
-		foreach (var message in _hooks.StartupMessages) {
-			Emit(message);
-		}
 		Run(InitializeAsync);
 	}
 
@@ -47,12 +43,6 @@ public sealed partial class CodexAppServerSession {
 		await _client.RequestAsync(initialize, CodexAppServerProtocol.Initialize(initialize, "0.1.0"), CancellationToken.None)
 			.ConfigureAwait(false);
 		_client.Notify(CodexAppServerProtocol.Initialized());
-		long hooksList = NextRequest();
-		CodexHookTrustGate.ThrowIfUnsafe(await _client.RequestAsync(
-			hooksList,
-			CodexAppServerProtocol.HooksList(hooksList, _context.Workspace),
-			CancellationToken.None).ConfigureAwait(false));
-
 		var launch = _threads.Resolve(_context.Workspace);
 		long threadRequest = NextRequest();
 		var result = launch.Resume && !string.IsNullOrEmpty(launch.ThreadId)

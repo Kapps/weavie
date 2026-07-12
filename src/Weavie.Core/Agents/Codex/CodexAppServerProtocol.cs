@@ -38,12 +38,6 @@ public static class CodexAppServerProtocol {
 	public static string Initialized() =>
 		"{\"method\":\"initialized\",\"params\":{}}";
 
-	/// <summary>Builds a hooks/list request for the session working directory.</summary>
-	public static string HooksList(long id, string cwd) {
-		ArgumentException.ThrowIfNullOrEmpty(cwd);
-		return JsonSerializer.Serialize(new { method = "hooks/list", id, @params = new { cwds = new[] { cwd } } });
-	}
-
 	/// <summary>Builds a model/list request for the models offered to the user in the status line picker.</summary>
 	public static string ModelList(long id, bool includeHidden) =>
 		JsonSerializer.Serialize(new { method = "model/list", id, @params = new { includeHidden } });
@@ -322,9 +316,9 @@ public static class CodexAppServerProtocol {
 		value = method switch {
 			"thread/started" => new AgentSessionStarted("startup"),
 			// Codex's turn-start carries no prompt text; a correction it drains records with a null prompt.
-			"turn/started" => new AgentPromptSubmitted(null, null),
-			"turn/completed" => new AgentTurnStopped(false),
-			"turn/interrupted" => new AgentTurnStopped(false),
+			"turn/started" => new AgentPromptSubmitted(null, null, ReconcileWorkspace: true),
+			"turn/completed" => new AgentTurnStopped(false, ReconcileWorkspace: true),
+			"turn/interrupted" => new AgentTurnStopped(false, ReconcileWorkspace: true),
 			"item/started" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolStarting(mutation),
 			"item/completed" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolCompleted(mutation),
 			_ => new AgentOtherEvent(),

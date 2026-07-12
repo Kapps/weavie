@@ -32,20 +32,6 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Start_EmitsHookIntegrationStartupMessages() {
-		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
-		await using var session = CreateSessionWithHooks(events, messages, new StartupMessageCodexHookIntegration());
-
-		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "warning"));
-
-		var warning = Assert.Single(messages, message => message.Type == "warning");
-		Assert.Equal("codex", warning.ProviderId);
-		Assert.Equal("hook trust warning", warning.Text);
-	}
-
-	[Fact]
 	public async Task Start_DoesNotSurfaceInternalLifecycleCards() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
@@ -176,21 +162,6 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Start_WithUntrustedNonWeavieHook_SurfacesErrorAndDoesNotStartThread() {
-		File.WriteAllText(Path.Combine(_dir, "unsafe-hooks"), "1");
-		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
-		await using var session = CreateSession(events, messages);
-
-		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
-
-		var error = Assert.Single(messages, message => message.Type == "error");
-		Assert.Contains("hook-trust bypass", error.Text, StringComparison.Ordinal);
-		Assert.False(File.Exists(Path.Combine(_dir, "thread-start.json")));
-	}
-
-	[Fact]
 	public async Task ApprovalRequest_UpdatesSharedStatusEvents() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
@@ -216,6 +187,47 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.ResolveApproval("approval-1", "accept");
 
 		Assert.Equal(errorCount, messages.Count(message => message.Type == "error"));
+	}
+
+	[Fact]
+	public async Task BypassPermissions_UsesFullAccessAndNeverApproval() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")));
+		var parameters = doc.RootElement.GetProperty("params");
+		Assert.Equal("danger-full-access", parameters.GetProperty("sandbox").GetString());
+		Assert.Equal("never", parameters.GetProperty("approvalPolicy").GetString());
+
+		session.SetControl("sandbox", "read-only");
+		session.SetControl("approvalPolicy", "untrusted");
+		Assert.Equal("danger-full-access", session.ControlState.Axes.Single(axis => axis.Id == "sandbox").Value);
+		Assert.Equal("never", session.ControlState.Axes.Single(axis => axis.Id == "approvalPolicy").Value);
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+		using var turn = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParameters = turn.RootElement.GetProperty("params");
+		Assert.Equal("dangerFullAccess", turnParameters.GetProperty("sandboxPolicy").GetProperty("type").GetString());
+		Assert.Equal("never", turnParameters.GetProperty("approvalPolicy").GetString());
+	}
+
+	[Fact]
+	public async Task BypassPermissions_AutoAcceptsCodexApprovalWithoutPromptCard() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("approval", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "approval-response.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "approval-response.json")));
+		Assert.Equal("accept", doc.RootElement.GetProperty("result").GetProperty("decision").GetString());
+		Assert.DoesNotContain(messages, message => message.Type == "approval-requested");
 	}
 
 	[Fact]
@@ -544,35 +556,30 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Skills = skills,
 	};
 
-	private CodexAppServerSession CreateSession(IAgentEventSink events, List<AgentPaneMessage> messages) {
-		InMemoryFileSystem fileSystem = new();
-		return CreateSessionWithThreads(events, messages, new CodexThreadStore(fileSystem, "/codex-threads.json"), fileSystem);
-	}
-
-	private CodexAppServerSession CreateSessionWithHooks(
+	private CodexAppServerSession CreateSession(
 		IAgentEventSink events,
 		List<AgentPaneMessage> messages,
-		ICodexHookIntegration hooks) {
+		bool bypassPermissions = false) {
 		InMemoryFileSystem fileSystem = new();
-		return CreateSessionWithThreadsAndHooks(
-			events, messages, new CodexThreadStore(fileSystem, "/codex-threads.json"), fileSystem, hooks);
+		return CreateSessionWithThreads(
+			events,
+			messages,
+			new CodexThreadStore(fileSystem, "/codex-threads.json"),
+			fileSystem,
+			bypassPermissions);
 	}
 
 	private CodexAppServerSession CreateSessionWithThreads(
 		IAgentEventSink events,
 		List<AgentPaneMessage> messages,
 		CodexThreadStore threads,
-		InMemoryFileSystem fileSystem) =>
-		CreateSessionWithThreadsAndHooks(events, messages, threads, fileSystem, NoopCodexHookIntegration.Instance);
-
-	private CodexAppServerSession CreateSessionWithThreadsAndHooks(
-		IAgentEventSink events,
-		List<AgentPaneMessage> messages,
-		CodexThreadStore threads,
 		InMemoryFileSystem fileSystem,
-		ICodexHookIntegration hooks) {
+		bool bypassPermissions = false) {
 		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
 		_settings = settings;
+		if (bypassPermissions) {
+			settings.Set("claude.allowAllTools", JsonDocument.Parse("true").RootElement);
+		}
 		var commandRegistry = CoreCommands.CreateRegistry();
 		CapabilityRegistryHost registry = new(
 			AgentSessionCredential.Create(),
@@ -597,7 +604,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			Events = events,
 			CurrentSessionId = () => "slot-1",
-		}, threads, "node", hooks);
+		}, threads, "node");
 		session.PaneMessage += messages.Add;
 		return session;
 	}
@@ -625,39 +632,6 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Values.Add(value);
 			return AgentEventFeedback.None;
 		}
-	}
-
-	private sealed class NoopCodexHookIntegration : ICodexHookIntegration {
-		public static NoopCodexHookIntegration Instance { get; } = new();
-
-		public IReadOnlyList<string> GlobalArguments => [];
-
-		public IReadOnlyList<string> AppServerArguments => [];
-
-		public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
-
-		public IReadOnlyList<AgentPaneMessage> StartupMessages => [];
-
-		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-	}
-
-	private sealed class StartupMessageCodexHookIntegration : ICodexHookIntegration {
-		public IReadOnlyList<string> GlobalArguments => [];
-
-		public IReadOnlyList<string> AppServerArguments => [];
-
-		public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
-
-		public IReadOnlyList<AgentPaneMessage> StartupMessages => [
-			new AgentPaneMessage {
-				Type = "warning",
-				ProviderId = "codex",
-				Status = "warning",
-				Text = "hook trust warning",
-			},
-		];
-
-		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
 	}
 
 }

@@ -14,6 +14,10 @@ internal static partial class ConPtyNativeMethods {
 	// CreateProcess creation flags.
 	internal const uint EXTENDED_STARTUPINFO_PRESENT = 0x00080000;
 	internal const uint CREATE_UNICODE_ENVIRONMENT = 0x00000400;
+	internal const uint CREATE_SUSPENDED = 0x00000004;
+
+	internal const uint JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000;
+	internal const int JobObjectExtendedLimitInformationClass = 9;
 
 	// StartupInfo.dwFlags: honor the explicit (NULL) std handles so the child doesn't inherit the parent's
 	// redirected ones — see SpawnChild.
@@ -61,6 +65,39 @@ internal static partial class ConPtyNativeMethods {
 		public int dwThreadId;
 	}
 
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct JobObjectBasicLimitInformation {
+		public long PerProcessUserTimeLimit;
+		public long PerJobUserTimeLimit;
+		public uint LimitFlags;
+		public nuint MinimumWorkingSetSize;
+		public nuint MaximumWorkingSetSize;
+		public uint ActiveProcessLimit;
+		public nuint Affinity;
+		public uint PriorityClass;
+		public uint SchedulingClass;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct IoCounters {
+		public ulong ReadOperationCount;
+		public ulong WriteOperationCount;
+		public ulong OtherOperationCount;
+		public ulong ReadTransferCount;
+		public ulong WriteTransferCount;
+		public ulong OtherTransferCount;
+	}
+
+	[StructLayout(LayoutKind.Sequential)]
+	internal struct JobObjectExtendedLimitInformation {
+		public JobObjectBasicLimitInformation BasicLimitInformation;
+		public IoCounters IoInfo;
+		public nuint ProcessMemoryLimit;
+		public nuint JobMemoryLimit;
+		public nuint PeakProcessMemoryUsed;
+		public nuint PeakJobMemoryUsed;
+	}
+
 	[LibraryImport("kernel32.dll", SetLastError = true)]
 	[return: MarshalAs(UnmanagedType.Bool)]
 	internal static partial bool CreatePipe(out nint hReadPipe, out nint hWritePipe, nint lpPipeAttributes, uint nSize);
@@ -100,6 +137,24 @@ internal static partial class ConPtyNativeMethods {
 		string? lpCurrentDirectory,
 		ref StartupInfoEx lpStartupInfo,
 		out ProcessInformation lpProcessInformation);
+
+	[LibraryImport("kernel32.dll", EntryPoint = "CreateJobObjectW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
+	internal static partial nint CreateJobObject(nint lpJobAttributes, string? lpName);
+
+	[LibraryImport("kernel32.dll", SetLastError = true)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool SetInformationJobObject(
+		nint hJob,
+		int jobObjectInformationClass,
+		ref JobObjectExtendedLimitInformation lpJobObjectInformation,
+		uint cbJobObjectInformationLength);
+
+	[LibraryImport("kernel32.dll", SetLastError = true)]
+	[return: MarshalAs(UnmanagedType.Bool)]
+	internal static partial bool AssignProcessToJobObject(nint hJob, nint hProcess);
+
+	[LibraryImport("kernel32.dll", SetLastError = true)]
+	internal static partial uint ResumeThread(nint hThread);
 
 	[LibraryImport("kernel32.dll", SetLastError = true)]
 	[return: MarshalAs(UnmanagedType.Bool)]

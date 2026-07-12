@@ -1,5 +1,6 @@
 import type { AgentPaneUpdate } from "../bridge";
 import { summarizeActivity } from "./AgentPaneActivitySummary";
+import { paneActivityIdentity, paneItemIdentity, paneTurnIdentity } from "./AgentPaneIdentity";
 import {
   displayStatus,
   hasItemId,
@@ -27,9 +28,10 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
   const updates = coalesceStreaming(messages);
   const resolved = collectResolved(messages);
   const reportedTurnErrors = new Set(
-    messages.flatMap((message) =>
-      message.type === "error" && message.turnId != null ? [message.turnId] : [],
-    ),
+    messages.flatMap((message) => {
+      const key = paneTurnIdentity(message);
+      return message.type === "error" && key !== null ? [key] : [];
+    }),
   );
   const entries: (AgentTranscriptEntry | MutableActivity)[] = [];
   const activities = new Map<string, MutableActivity>();
@@ -52,7 +54,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
       continue;
     }
 
-    const turnKey = message.turnId ?? activeTurn;
+    const turnKey = paneActivityIdentity(message, activeTurn);
     const activity = activityFor(turnKey, entries, activities);
     upsertStep(activity, update);
   }
@@ -66,7 +68,7 @@ function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdat
   const output: AgentPaneUpdate[] = [];
   const indexes = new Map<string, number>();
   for (const message of messages) {
-    const key = message.itemId == null ? null : `${message.turnId ?? "session"}:${message.itemId}`;
+    const key = paneItemIdentity(message);
     if (message.type === "item-started" && key !== null) {
       indexes.set(key, output.length);
       output.push(message);
@@ -118,9 +120,13 @@ function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<stri
     }
 
     const status = normalizeStatus(message.status) ?? "resolved";
-    const current = resolved.get(message.itemId);
+    const key = paneItemIdentity(message);
+    if (key === null) {
+      continue;
+    }
+    const current = resolved.get(key);
     if (current === undefined || current === "resolved") {
-      resolved.set(message.itemId, status);
+      resolved.set(key, status);
     }
   }
   return resolved;
@@ -148,12 +154,14 @@ function durableEntry(
       return message.itemType === "agentMessage"
         ? entry(message, sequence, "message", "assistant", "Codex", null)
         : null;
-    case "turn-completed":
+    case "turn-completed": {
+      const turnKey = paneTurnIdentity(message);
       return normalizeStatus(message.status) === "failed" &&
-        (message.turnId == null || !reportedTurnErrors.has(message.turnId)) &&
+        (turnKey === null || !reportedTurnErrors.has(turnKey)) &&
         (normalizeText(message.summary) !== null || normalizeText(message.text) !== null)
         ? entry(message, sequence, "notice", "error", "Error", "failed")
         : null;
+    }
     case "user-image":
       return entry(message, sequence, "message", "user", "Image", status);
     case "user-message":

@@ -4,6 +4,11 @@ interface WeavieWebkitHandler {
   postMessage(body: string): void;
 }
 
+interface WeavieWebView2 {
+  addEventListener(type: "message", listener: (event: MessageEvent<unknown>) => void): void;
+  postMessage(body: string): void;
+}
+
 /** Host-injected shell config (window.__WEAVIE_SHELL__), set before navigation; absent in plain-browser dev. */
 interface WeavieShellConfig {
   /** Short platform id, e.g. "win" or "mac". */
@@ -25,6 +30,7 @@ interface WeavieWelcomeConfig {
 }
 
 interface Window {
+  chrome?: { webview?: WeavieWebView2 };
   webkit?: {
     messageHandlers?: {
       weavie?: WeavieWebkitHandler;

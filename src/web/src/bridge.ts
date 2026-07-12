@@ -83,6 +83,7 @@ export interface AgentPaneUpdate {
   type: string;
   providerId: "claude" | "codex";
   threadId?: string | null;
+  isPrimaryThread?: boolean | null;
   turnId?: string | null;
   itemId?: string | null;
   itemType?: string | null;
@@ -506,6 +507,13 @@ export type WebBoundMessage =
   // Host pushes the active session's git branch + dirty flag for the terminal-column footer (active-backend
   // gated like the page's other state). `branch` is null when the workspace isn't a git repo / HEAD is detached.
   | { type: "git-status"; branch: string | null; dirty: boolean }
+  | {
+      type: "pull-request-status";
+      slot: string;
+      branch: string | null;
+      pullRequest: { number: number; url: string } | null;
+      error: string | null;
+    }
   // Host pushes the forge URL prefix a terminal `#N` reference links to (e.g. `https://github.com/owner/repo/pull/`)
   // for the active session's origin; null when it isn't a forge repo (so `#N` stays plain text). See ref-link-store.
   | { type: "ref-link-base"; prefix: string | null }
@@ -825,6 +833,7 @@ function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
     type === "session-status" ||
+    type === "pull-request-status" ||
     type === "session-attention" ||
     type === "agent-attachment-state" ||
     type === "agent-submission-state" ||
@@ -1154,8 +1163,15 @@ export function isBrowserHostedShell(): boolean {
 // The default/local backend: a native shell's in-process channel wins, else the same-origin headless
 // WebSocket. With neither (plain browser on the dev server), there's no local backend and outbound is a no-op.
 (() => {
-  // Native delivers via window.__weavieReceive; tag it as the local backend.
+  // Native hosts use this callback or their platform message event; both belong to the local backend.
   window.__weavieReceive = (raw: string): void => deliverFromHost(raw, LOCAL_BACKEND_ID);
+  window.chrome?.webview?.addEventListener("message", (event) => {
+    if (typeof event.data === "string") {
+      deliverFromHost(event.data, LOCAL_BACKEND_ID);
+    } else {
+      log("error", "bridge: WebView2 delivered a non-string host message");
+    }
+  });
   let transport: BridgeTransport | null = null;
   if (window.webkit?.messageHandlers?.weavie !== undefined) {
     transport = nativeTransport;

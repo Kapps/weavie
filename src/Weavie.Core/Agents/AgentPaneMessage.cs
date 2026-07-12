@@ -11,6 +11,9 @@ public sealed record AgentPaneMessage {
 	/// <summary>The current provider thread id, when known.</summary>
 	public string? ThreadId { get; init; }
 
+	/// <summary>Whether this update belongs to the session's primary thread; unknown for legacy providers.</summary>
+	public bool? IsPrimaryThread { get; init; }
+
 	/// <summary>The current provider turn id, when known.</summary>
 	public string? TurnId { get; init; }
 

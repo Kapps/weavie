@@ -175,7 +175,11 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	}
 
 	private static string? ItemKey(AgentPaneMessage message) =>
-		string.IsNullOrEmpty(message.ItemId) ? null : $"{message.TurnId ?? "session"}:{message.ItemId}";
+		string.IsNullOrEmpty(message.ItemId)
+			? null
+			: $"{KeyPart(message.ThreadId)}{KeyPart(message.TurnId)}{KeyPart(message.ItemId)}";
+
+	private static string KeyPart(string? value) => value is null ? "-1:" : $"{value.Length}:{value}";
 
 	private static bool IsDelta(AgentPaneMessage message) =>
 		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";

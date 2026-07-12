@@ -1,4 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
+import { paneItemIdentity } from "./AgentPaneIdentity";
 
 interface ItemBuffer {
   index: number;
@@ -121,9 +122,7 @@ export class AgentPaneAccumulator {
 }
 
 function itemKey(message: AgentPaneUpdate): string | null {
-  return message.itemId == null || message.itemId.length === 0
-    ? null
-    : `${message.turnId ?? "session"}:${message.itemId}`;
+  return paneItemIdentity(message);
 }
 
 function isDelta(message: AgentPaneUpdate): boolean {

@@ -104,6 +104,9 @@ public sealed partial class HostCore {
 				PostSessionStatus(status);
 				// A turn settling may have changed files / the branch — refresh the footer's git status.
 				PushGitStatus();
+				if (status is SessionStatus.Idle or SessionStatus.Waiting) {
+					PushPullRequestStatus();
+				}
 			}
 
 			// A pending update drain re-checks its gate the moment any session settles (or starts working).
@@ -558,6 +561,7 @@ public sealed partial class HostCore {
 		PostSessionStatus(session.Status.Status);
 		// Push the incoming session's worktree branch to the footer (its worktree may be on a different branch).
 		PushGitStatus();
+		PushPullRequestStatus();
 		// Catch the page up on the incoming session's inline review: its muted-while-background diffs (and the
 		// ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
 		// session's walk would linger. This threads the incoming session's review label too (a PR/ref review's

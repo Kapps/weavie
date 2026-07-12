@@ -1,4 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
+import { paneItemIdentity } from "./AgentPaneIdentity";
 
 export function displayStatus(
   message: AgentPaneUpdate,
@@ -9,7 +10,8 @@ export function displayStatus(
   }
 
   if (hasItemId(message)) {
-    return resolved.get(message.itemId) ?? normalizeStatus(message.status);
+    const key = paneItemIdentity(message);
+    return (key === null ? undefined : resolved.get(key)) ?? normalizeStatus(message.status);
   }
 
   return normalizeStatus(message.status);

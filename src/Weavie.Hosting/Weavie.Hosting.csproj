@@ -16,10 +16,11 @@
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
   </ItemGroup>
 
-  <ItemGroup>
-    <!-- The integration test harness drives the real HostCore and reaches a couple of internal test seams
-         (e.g. the active session) to assert on host behavior the page can't trigger directly. -->
-    <InternalsVisibleTo Include="Weavie.Hosting.Tests" />
-  </ItemGroup>
+	<ItemGroup>
+		<!-- The integration test harness drives the real HostCore and reaches a couple of internal test seams
+		     (e.g. the active session) to assert on host behavior the page can't trigger directly. -->
+		<InternalsVisibleTo Include="Weavie.Hosting.Tests" />
+		<InternalsVisibleTo Include="Weavie.Win" />
+	</ItemGroup>
 
 </Project>

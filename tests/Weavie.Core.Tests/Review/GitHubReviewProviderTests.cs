@@ -1,3 +1,4 @@
+using System.Net;
 using Weavie.Core.Review;
 using Xunit;
 
@@ -5,6 +6,21 @@ namespace Weavie.Core.Tests;
 
 /// <summary>Tests for the pure bits of <see cref="GitHubReviewProvider"/> — the PR JSON parser and API-base resolution.</summary>
 public sealed class GitHubReviewProviderTests {
+	[Fact]
+	public async Task FindOpenForBranchAsync_QueriesTheExactHead() {
+		var handler = new RecordingHandler("""[{"number":123,"title":"Native PR","html_url":"https://github.com/Kapps/weavie/pull/123","head":{"ref":"feat/native-ui-pr"}}]""");
+		var provider = new GitHubReviewProvider(new HttpClient(handler), new StaticTokenSource());
+
+		var result = await provider.FindOpenForBranchAsync(
+			new RepoRef("github.com", "Kapps", "weavie"), "contributor", "feat/native-ui-pr");
+
+		Assert.Equal(123, result?.Number);
+		string url = Assert.Single(handler.Requests).RequestUri?.AbsoluteUri ?? string.Empty;
+		Assert.Contains("state=open", url, StringComparison.Ordinal);
+		Assert.Contains("head=contributor%3Afeat%2Fnative-ui-pr", url, StringComparison.Ordinal);
+		Assert.Contains("sort=updated&direction=desc&per_page=1", url, StringComparison.Ordinal);
+	}
+
 	[Fact]
 	public void ParsePullRequests_MapsFields() {
 		string json = """
@@ -85,5 +101,18 @@ public sealed class GitHubReviewProviderTests {
 		Assert.Equal(4, comments[1].Line);
 		Assert.Equal("left", comments[1].Side);
 		Assert.Equal(5, comments[1].InReplyTo);
+	}
+
+	private sealed class StaticTokenSource : IGitHubTokenSource {
+		public Task<string?> GetTokenAsync(CancellationToken ct = default) => Task.FromResult<string?>("token");
+	}
+
+	private sealed class RecordingHandler(string response) : HttpMessageHandler {
+		public List<HttpRequestMessage> Requests { get; } = [];
+
+		protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken) {
+			Requests.Add(request);
+			return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new StringContent(response) });
+		}
 	}
 }

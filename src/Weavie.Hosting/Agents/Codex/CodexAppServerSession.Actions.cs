@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Agents.Codex;
+using Weavie.Core.Json;
 
 namespace Weavie.Hosting.Agents.Codex;
 
@@ -192,14 +193,11 @@ public sealed partial class CodexAppServerSession {
 			return;
 		}
 
-		_pendingRequests.TryRemove(requestId, out _);
+		if (!_pendingRequests.TryRemove(requestId, out _)) {
+			return;
+		}
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
-		Emit(new AgentPaneMessage {
-			Type = "approval-resolved",
-			ProviderId = "codex",
-			Status = decision,
-			ItemId = requestId,
-		});
+		Emit(ResolvedRequest(request, "approval-resolved", decision));
 	}
 
 	/// <inheritdoc/>
@@ -222,14 +220,23 @@ public sealed partial class CodexAppServerSession {
 			return;
 		}
 
-		_pendingRequests.TryRemove(requestId, out _);
+		if (!_pendingRequests.TryRemove(requestId, out _)) {
+			return;
+		}
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
-		Emit(new AgentPaneMessage {
-			Type = "input-resolved",
+		Emit(ResolvedRequest(request, "input-resolved", "resolved"));
+	}
+
+	private static AgentPaneMessage ResolvedRequest(CodexServerRequest request, string type, string status) {
+		var parameters = request.Message.TryGetProperty("params", out var value) ? value : default;
+		return new AgentPaneMessage {
+			Type = type,
 			ProviderId = "codex",
-			Status = "resolved",
-			ItemId = requestId,
-		});
+			ThreadId = parameters.GetStringOrEmpty("threadId"),
+			TurnId = parameters.GetStringOrEmpty("turnId"),
+			ItemId = request.Id,
+			Status = status,
+		};
 	}
 
 	private void EmitError(string text) =>

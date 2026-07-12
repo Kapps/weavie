@@ -16,11 +16,13 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
 	private readonly Queue<CodexTurnInput> _pendingInputs = new();
+	private readonly HashSet<string> _pendingThreadStarts = new(StringComparer.Ordinal);
 	private long _nextId;
 	private string? _threadId;
 	private string? _turnId;
 	private bool _started;
 	private bool _threadPersisted;
+	private bool _awaitingThreadAdoption;
 
 	/// <summary>Creates a worktree-scoped Codex app-server session.</summary>
 	public CodexAppServerSession(AgentSessionContext context, CodexThreadStore threads, string command) {
@@ -67,15 +69,24 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		// Track the turn boundary before anything that can throw, so the active-turn id can never silently
 		// desync from Codex and leave a later steer targeting a turn the server has already moved past.
 		string method = root.GetStringOrEmpty("method");
-		if (method == "turn/started") {
+		if (method == "serverRequest/resolved") {
+			HandleServerRequestResolved(root);
+			return;
+		}
+
+		bool deferredThreadStart = method == "thread/started" && DeferThreadStart(root);
+		bool primary = !deferredThreadStart && IsPrimaryThread(root);
+		if (primary && method == "turn/started") {
 			RememberTurn(root);
-		} else if (method is "turn/completed" or "turn/interrupted") {
+		} else if (primary && method is "turn/completed" or "turn/interrupted") {
 			ForgetTurn(root);
 		} else if (method == "skills/changed") {
 			Run(RefreshSkillsAndPublishAsync);
 		}
 
-		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
+		bool lifecycle = method is "thread/started" or "turn/started" or "turn/completed" or "turn/interrupted";
+		if (!deferredThreadStart && (!lifecycle || primary)
+			&& CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
 			EmitFeedback(_context.Events.Observe(agentEvent));
 		}
 
@@ -190,6 +201,46 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		}
 	}
 
+	private bool IsPrimaryThread(JsonElement root) => IsPrimaryThread(ReadNotificationThreadId(root));
+
+	private bool DeferThreadStart(JsonElement root) {
+		string threadId = ReadNotificationThreadId(root);
+		lock (_gate) {
+			if (!_awaitingThreadAdoption || _threadId is not null || threadId.Length == 0) {
+				return false;
+			}
+
+			_pendingThreadStarts.Add(threadId);
+			return true;
+		}
+	}
+
+	private static string ReadNotificationThreadId(JsonElement root) {
+		if (!root.TryGetProperty("params", out var parameters)) {
+			return string.Empty;
+		}
+
+		return root.GetStringOrEmpty("method") == "thread/started"
+			&& parameters.TryGetProperty("thread", out var thread)
+			? thread.GetStringOrEmpty("id")
+			: parameters.GetStringOrEmpty("threadId");
+	}
+
+	private void HandleServerRequestResolved(JsonElement root) {
+		if (!root.TryGetProperty("params", out var parameters)
+			|| !parameters.TryGetProperty("requestId", out var id)
+			|| !_pendingRequests.TryRemove(CodexAppServerClient.ReadRequestId(id), out var request)) {
+			return;
+		}
+
+		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
+		string type = CodexInputResponses.CanResolve(request.Method) ? "input-resolved" : "approval-resolved";
+		Emit(ResolvedRequest(request, type, "resolved"));
+	}
+
+	private bool IsPrimaryThread(string? threadId) =>
+		string.IsNullOrEmpty(threadId) || string.Equals(threadId, CurrentThreadId(), StringComparison.Ordinal);
+
 	private long NextRequest() => Interlocked.Increment(ref _nextId);
 
 	private string Model() => _context.Settings.RequireString("codex.model");
@@ -233,7 +284,8 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		}
 	}
 
-	private void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
+	private void Emit(AgentPaneMessage message) =>
+		PaneMessage?.Invoke(message with { IsPrimaryThread = IsPrimaryThread(message.ThreadId) });
 
 	private sealed record CodexTurnInput(string Text, IReadOnlyList<AgentInputAttachment> Images, IReadOnlyList<string> SkillNames);
 }

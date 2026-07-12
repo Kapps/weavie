@@ -34,11 +34,13 @@ import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chr
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
+import { gitStatus } from "./chrome/git-status-store";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
+import { pullRequestStatus } from "./chrome/pull-request-store";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -213,6 +215,11 @@ export default function App(): JSX.Element {
   // The session whose panes are shown (null before the first rail push); flipping it switches which
   // session's terminals are visible.
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
+  const currentPullRequest = createMemo(() => {
+    const status = pullRequestStatus(activeBackendId(), activeTermSessionId());
+    return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
+  });
+  createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
   );
@@ -1087,6 +1094,13 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
+      registerCommand(CommandIds.openCurrentPr, () => {
+        const pullRequest = currentPullRequest();
+        if (pullRequest === null) {
+          return false;
+        }
+        openUrlExternal(pullRequest.url);
+      }),
       // Diff Against… (Ctrl+Shift+D / palette): review the working tree against a ref. A 'ref' arg (Claude /
       // a keybinding) skips the prompt; the helpers are the same flow with their ref fixed.
       registerCommand(CommandIds.diffAgainst, (args) => {

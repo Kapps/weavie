@@ -1,6 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentModelChoice } from "../bridge";
-import { setContext } from "../commands/context";
 import {
   agentControlState,
   closeControlPicker,
@@ -45,17 +44,18 @@ export function AgentModelPicker(props: { backendId: string; slot: string | null
     return model.fastTier === "" ? efforts : [...efforts, { kind: "fast", on: model.fastOn }];
   });
 
-  // Opening focuses the active model and starts in the models pane; closing clears the composer's Enter/Escape gate.
+  // Seed focus/pane only on the closed→open transition: a host re-push (e.g. the re-push a Fast toggle triggers)
+  // rebuilds models() with a fresh reference, which would otherwise re-run this and snap navigation back mid-use.
+  let wasOpen = false;
   createEffect(() => {
     const open = isOpen();
-    setContext("agentControlPickerOpen", open);
-    if (open) {
+    if (open && !wasOpen) {
       const index = models().findIndex((model) => model.current);
       setFocus(index >= 0 ? index : 0);
       setPane("models");
     }
+    wasOpen = open;
   });
-  onCleanup(() => setContext("agentControlPickerOpen", false));
 
   const chooseModel = (model: AgentModelChoice): void => {
     if (props.slot !== null) {

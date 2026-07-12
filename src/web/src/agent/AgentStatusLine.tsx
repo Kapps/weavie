@@ -1,10 +1,12 @@
-import { createEffect, For, type JSX, Show } from "solid-js";
+import { createEffect, For, type JSX, onCleanup, Show } from "solid-js";
+import { setContext } from "../commands/context";
 import { AgentControlPicker } from "./AgentControlPicker";
 import { AgentModelPicker } from "./AgentModelPicker";
 import {
   agentControlState,
   closeControlPicker,
   MODEL_AXIS,
+  openControlAxis,
   openControlPicker,
 } from "./agent-controls-store";
 
@@ -20,6 +22,9 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
     props.slot;
     closeControlPicker();
   });
+  // Single owner of the composer's Enter/Escape gate: true whenever any control picker (model or axis) is open.
+  createEffect(() => setContext("agentControlPickerOpen", openControlAxis() !== null));
+  onCleanup(() => setContext("agentControlPickerOpen", false));
 
   return (
     <Show when={hasModel() || state().axes.length > 0}>

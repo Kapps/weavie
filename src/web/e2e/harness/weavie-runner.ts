@@ -5,7 +5,6 @@ import { Agent } from "node:http";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
-  freePort,
   getOverAgent,
   headlessDll,
   killProcessTree,
@@ -13,6 +12,7 @@ import {
   prepareFake,
   type WeavieHost,
   waitForHttp,
+  waitForPortLine,
 } from "./weavie-host";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "..");
@@ -37,8 +37,8 @@ async function resolveWorkerUrl(
   control: string,
   token: string,
   getLog: () => string,
+  deadline: number,
 ): Promise<string> {
-  const deadline = Date.now() + 40_000;
   // One keep-alive socket for the whole poll (see getOverAgent): the control plane is already up, so each
   // 200ms probe would otherwise be a fresh TIME_WAIT connection.
   const agent = new Agent({ keepAlive: true, maxSockets: 1 });
@@ -71,9 +71,7 @@ async function resolveWorkerUrl(
 // on-disk assertions still see the same workspace dir.
 export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> {
   const fake = await prepareFake(options);
-  const runnerPort = await freePort();
   const runnerToken = randomBytes(16).toString("hex");
-  const control = `http://127.0.0.1:${runnerPort}`;
 
   let log = "";
   const proc: ChildProcess = spawn(
@@ -84,8 +82,10 @@ export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> 
       fake.workspace,
       "--headless",
       headlessDll,
+      // Port 0: the runner binds an OS-assigned port and prints it in its control-plane line only after
+      // the listener is up, so parallel workers can never race each other for a pre-picked port.
       "--port",
-      String(runnerPort),
+      "0",
       "--bind",
       "127.0.0.1",
       "--token",
@@ -99,9 +99,18 @@ export async function launchRemote(options: LaunchOptions): Promise<WeavieHost> 
   proc.stdout?.on("data", collect);
   proc.stderr?.on("data", collect);
 
-  await waitForHttp(`${control}/backend?token=${runnerToken}`, () => log, 40_000);
-  const url = await resolveWorkerUrl(control, runnerToken, () => log);
-  await waitForHttp(url, () => log, 30_000);
+  const runnerPort = await waitForPortLine(
+    proc,
+    () => log,
+    /control plane:\s+http:\/\/127\.0\.0\.1:(\d+)/,
+    12_000,
+  );
+  const control = `http://127.0.0.1:${runnerPort}`;
+  // One budget for the rest of the boot, sized to fit inside Playwright's 30s test timeout: a stalled
+  // worker must fail HERE, with the runner log in the error, not as an opaque fixture timeout without it.
+  const bootDeadline = Date.now() + 14_000;
+  const url = await resolveWorkerUrl(control, runnerToken, () => log, bootDeadline);
+  await waitForHttp(url, () => log, bootDeadline - Date.now());
 
   return {
     url,

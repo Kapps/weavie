@@ -122,6 +122,12 @@ public sealed record RunnerOptions {
 			return (null, "--tls proxy requires --public-host <host> (the hostname your TLS terminator serves) so /backend advertises the right wss:// URL.");
 		}
 
+		// The TLS fronts map public ports against the control port before Kestrel binds, so an OS-assigned
+		// port can't reach them.
+		if (port == 0 && tls != TlsMode.None) {
+			return (null, "--port 0 (OS-assigned) needs a TLS-less runner — the TLS fronts map a fixed control port.");
+		}
+
 		string? token = Arg(args, "--token") ?? Environment.GetEnvironmentVariable("WEAVIE_RUNNER_TOKEN");
 		string runnerToken = string.IsNullOrEmpty(token) ? NewToken() : token;
 

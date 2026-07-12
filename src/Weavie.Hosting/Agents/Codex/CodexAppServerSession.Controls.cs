@@ -6,9 +6,10 @@ namespace Weavie.Hosting.Agents.Codex;
 
 /// <summary>The session's live model / effort / speed / approvals / sandbox controls and slash surface, provider-neutral to the web.</summary>
 public sealed partial class CodexAppServerSession : IStructuredAgentControls {
+	// Mirrors codex's AskForApproval variants; an option codex rejects (like the retired on-failure) would fail
+	// every thread/start and thread/resume for the session.
 	private static readonly IReadOnlyList<AgentControlOption> ApprovalOptions = [
 		new() { Id = "untrusted", Label = "Untrusted", Description = "Ask before running any command." },
-		new() { Id = "on-failure", Label = "On failure", Description = "Ask only after a sandboxed command fails." },
 		new() { Id = "on-request", Label = "On request", Description = "Codex asks when it wants to escalate." },
 		new() { Id = "never", Label = "Never", Description = "Never ask; stay within the sandbox." },
 	];

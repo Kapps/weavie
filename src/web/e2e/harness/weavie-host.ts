@@ -53,42 +53,20 @@ export interface LaunchOptions {
 
 // Terminate the spawned host/runner AND every descendant (worker, claude, shell, LSP), resolving only once the
 // whole tree is actually gone — so the workspace/HOME can be removed without a live process racing the delete.
-// On Windows that race is the teardown killer: a surviving descendant whose cwd sits inside a worktree blocks
-// `rm`, and fs.rm's retry backoff compounds with the tree's directory depth into a 10-60s stall that outlasts the
-// test timeout (the "teardown hang" flake). Node's kill() reaches only the root there; `taskkill /T` kills its
-// descendants, and the root's `close` event proves Windows has closed its process pipes before cleanup begins.
-// POSIX asks the root for a graceful
-// SIGINT (it forwards to its own children), escalating to SIGKILL if that stalls.
+// On Windows that race is the teardown killer: a surviving descendant whose cwd sits inside the workspace or a
+// worktree blocks `rm` with EBUSY. A one-shot `taskkill /T` is not enough there: it walks a parent-pid snapshot,
+// so it misses children spawned mid-kill (a just-reopened session still bringing up its shell/claude) and any
+// child whose parent already exited. Instead, kill the descendant closure computed from the live process table —
+// Win32_Process keeps a dead parent's pid in ParentProcessId, so orphans stay reachable — re-enumerating until
+// the tree is empty, and fail LOUDLY with the survivors rather than letting a later rm hit EBUSY. POSIX asks the
+// root for a graceful SIGINT (it forwards to its own children), escalating to SIGKILL if that stalls.
 export function killProcessTree(proc: ChildProcess): Promise<void> {
   const pid = proc.pid;
   if (pid === undefined) {
     return Promise.resolve();
   }
   if (process.platform === "win32") {
-    if (proc.exitCode !== null || proc.signalCode !== null) {
-      return Promise.reject(
-        new Error(`process tree root ${pid} exited before Windows tree shutdown`),
-      );
-    }
-    return new Promise((resolve, reject) => {
-      let closed = false;
-      let taskkillFinished = false;
-      const finish = (): void => {
-        if (closed && taskkillFinished) {
-          resolve();
-        }
-      };
-      proc.once("close", () => {
-        closed = true;
-        finish();
-      });
-      const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      taskkill.once("exit", () => {
-        taskkillFinished = true;
-        finish();
-      });
-      taskkill.once("error", reject);
-    });
+    return killWindowsTree(proc, pid);
   }
   if (proc.exitCode !== null || proc.signalCode !== null) {
     return Promise.resolve();
@@ -117,6 +95,65 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
       }
     }, 3000).unref();
   });
+}
+
+// One PowerShell run owns the whole bounded kill loop: each pass recomputes the root's descendant closure from
+// a fresh Win32_Process table (accumulated across passes, so a link whose parent died between passes stays in
+// the set), force-kills every member still alive, and exits 0 only once a pass finds none. Exit 1 prints the
+// survivors as JSON.
+function windowsTreeKillScript(rootPid: number): string {
+  return `
+$ErrorActionPreference = 'SilentlyContinue'
+$known = [System.Collections.Generic.HashSet[int]]::new()
+[void]$known.Add(${rootPid})
+for ($attempt = 0; $attempt -lt 8; $attempt++) {
+  $table = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name
+  do {
+    $grew = $false
+    foreach ($row in $table) {
+      if ($known.Contains([int]$row.ParentProcessId) -and -not $known.Contains([int]$row.ProcessId)) {
+        [void]$known.Add([int]$row.ProcessId)
+        $grew = $true
+      }
+    }
+  } while ($grew)
+  $alive = @($table | Where-Object { $known.Contains([int]$_.ProcessId) })
+  if ($alive.Count -eq 0) { exit 0 }
+  foreach ($row in $alive) { Stop-Process -Force -Id ([int]$row.ProcessId) }
+  Start-Sleep -Milliseconds 150
+}
+$table = Get-CimInstance Win32_Process | Select-Object ProcessId, Name
+$alive = @($table | Where-Object { $known.Contains([int]$_.ProcessId) })
+if ($alive.Count -gt 0) { $alive | ConvertTo-Json -Compress; exit 1 }
+exit 0
+`;
+}
+
+async function killWindowsTree(proc: ChildProcess, pid: number): Promise<void> {
+  // Attach before any await: if the root is alive now, its `close` (pipes released) can't slip past us.
+  const rootClosed =
+    proc.exitCode === null && proc.signalCode === null
+      ? new Promise<void>((resolve) => proc.once("close", () => resolve()))
+      : null;
+  const survivors = await new Promise<string>((resolve, reject) => {
+    let out = "";
+    const shell = spawn(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-Command", windowsTreeKillScript(pid)],
+      { stdio: ["ignore", "pipe", "ignore"] },
+    );
+    shell.stdout.on("data", (chunk: Buffer) => {
+      out += chunk.toString("utf8");
+    });
+    shell.once("error", reject);
+    shell.once("exit", (code) => resolve(code === 0 ? "" : out.trim() || `exit ${code}`));
+  });
+  if (survivors) {
+    throw new Error(`Windows tree shutdown left processes alive: ${survivors}`);
+  }
+  if (rootClosed !== null) {
+    await rootClosed;
+  }
 }
 
 // Resolve with the port the host actually bound (it prints the matched line only once its listener is up),

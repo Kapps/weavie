@@ -19,6 +19,7 @@ export function AgentPane(props: {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
   let programmaticScroll = false;
+  let assignedTop = 0;
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
@@ -42,23 +43,27 @@ export function AgentPane(props: {
     scrollScheduled = true;
     requestAnimationFrame(() => {
       scrollScheduled = false;
-      if (bodyRef !== undefined) {
-        const previous = bodyRef.scrollTop;
-        bodyRef.scrollTop = bodyRef.scrollHeight;
-        programmaticScroll = bodyRef.scrollTop !== previous;
+      if (bodyRef === undefined || !stickToBottom()) {
+        return;
       }
+      const previous = bodyRef.scrollTop;
+      bodyRef.scrollTop = bodyRef.scrollHeight;
+      assignedTop = bodyRef.scrollTop;
+      programmaticScroll = assignedTop !== previous;
     });
   };
 
-  // The scroll event from our own scroll-to-bottom lands a frame after the assignment; content appended
-  // in between makes it measure as "not at bottom", so it must chase the new bottom rather than unstick.
+  // Our own scroll-to-bottom lands a frame after the assignment: chase content appended in between,
+  // but a user scroll coalesced into the same event (scrollTop moved off the assigned spot) wins.
   const onBodyScroll = (): void => {
     if (programmaticScroll) {
       programmaticScroll = false;
-      if (!isAtBottom()) {
-        scrollToBottom();
+      if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
+        if (!isAtBottom()) {
+          scrollToBottom();
+        }
+        return;
       }
-      return;
     }
     setStickToBottom(isAtBottom());
   };

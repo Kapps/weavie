@@ -142,7 +142,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "codex.model",
+			Key = CodexSettings.Model,
 			Kind = SettingKind.String,
 			Description = "Model passed to Codex app-server when starting a native Codex thread. Empty means Codex "
 				+ "uses its own configured default. Takes effect on the next Codex session.",
@@ -152,7 +152,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "codex.sandbox",
+			Key = CodexSettings.Sandbox,
 			Kind = SettingKind.String,
 			Description = "Sandbox mode passed to native Codex sessions: read-only, workspace-write, or "
 				+ "danger-full-access. Takes effect on the next Codex session.",
@@ -168,7 +168,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "codex.approvalPolicy",
+			Key = CodexSettings.ApprovalPolicy,
 			Kind = SettingKind.String,
 			Description = "Approval policy passed to native Codex sessions: untrusted, on-request, or never. "
 				+ "Takes effect on the next Codex session.",
@@ -188,7 +188,7 @@ public static class CoreSettings {
 		// No Validate: efforts/tiers are per-model and open-ended (xhigh/max/ultra today, more tomorrow), so a
 		// fixed enum would reject future-valid values. A bad value surfaces as a loud Codex error on the next turn.
 		registry.Register(new SettingDefinition {
-			Key = "codex.effort",
+			Key = CodexSettings.Effort,
 			Kind = SettingKind.String,
 			Description = "Reasoning effort passed to native Codex sessions (e.g. low, medium, high, xhigh). Empty "
 				+ "means Codex uses the model's default effort. Valid values depend on the model. Takes effect on "
@@ -199,7 +199,7 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "codex.serviceTier",
+			Key = CodexSettings.ServiceTier,
 			Kind = SettingKind.String,
 			Description = "Service tier passed to native Codex sessions. Empty (or 'standard') uses the standard "
 				+ "tier; 'priority' selects Fast Mode where the model supports it. Takes effect on the next Codex "

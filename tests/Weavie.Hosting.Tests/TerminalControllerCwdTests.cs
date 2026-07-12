@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Terminal;
@@ -63,6 +64,8 @@ public sealed class TerminalControllerCwdTests {
 		public Harness() {
 			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-tcwd-" + Guid.NewGuid().ToString("n") + ".toml");
 			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
+			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Workspace = Directory.CreateDirectory(
 				Path.Combine(Path.GetTempPath(), "weavie-tcwd-ws-" + Guid.NewGuid().ToString("n"))).FullName;
 			Launcher = new RecordingPtyLauncher();

@@ -83,7 +83,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		var starts = new List<int>();
 		var logs = new List<string>();
 		await using var client = new CodexAppServerClient(
-			"node",
+			TestNode.Command,
 			_dir,
 			["--no-warnings"],
 			["-c", "mcp_servers.weavie.enabled=true"],
@@ -265,7 +265,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 	}
 
 	private CodexAppServerClient EmptyClient(Action<string> log) =>
-		new("node", _dir, [], [], [], new Dictionary<string, string>(StringComparer.Ordinal), log);
+		new(TestNode.Command, _dir, [], [], [], new Dictionary<string, string>(StringComparer.Ordinal), log);
 
 	private static void AssertUtf8WithoutBom(Encoding? encoding) {
 		Assert.NotNull(encoding);

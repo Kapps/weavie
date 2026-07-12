@@ -1,3 +1,5 @@
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using Weavie.Core.Workspaces;
 
 namespace Weavie.Core.Changes;
@@ -5,21 +7,24 @@ namespace Weavie.Core.Changes;
 /// <summary>Workspace-wide change observation for tools whose touched files are unknown before execution.</summary>
 public sealed partial class SessionChangeTracker {
 	private readonly Dictionary<string, HashSet<string>> _workspaceMutationBaselines = new(StringComparer.Ordinal);
-	private HashSet<string>? _workspaceTurnBaseline;
+	private WorkspaceTurnSnapshot? _workspaceTurnBaseline;
+	private sealed record WorkspaceTurnSnapshot(Dictionary<string, byte[]> Files, Dictionary<string, string> Known);
 
 	private void BeginWorkspaceTurn() {
 		var files = WorkspaceFiles();
+		var contents = files.ToDictionary(path => path, ReadOrEmpty, StringComparer.Ordinal);
 		lock (_gate) {
-			_workspaceTurnBaseline = new HashSet<string>(files, StringComparer.Ordinal);
-		}
-
-		foreach (string path in files) {
-			CaptureBaseline(path);
+			_workspaceTurnBaseline = new WorkspaceTurnSnapshot(
+				contents.ToDictionary(pair => pair.Key, pair => Fingerprint(pair.Value), StringComparer.Ordinal),
+				new Dictionary<string, string>(_current, StringComparer.Ordinal));
+			foreach (var (path, content) in contents) {
+				CaptureBaselineLocked(path, content, existed: true);
+			}
 		}
 	}
 
 	private void EndWorkspaceTurn() {
-		HashSet<string>? baseline;
+		WorkspaceTurnSnapshot? baseline;
 		lock (_gate) {
 			baseline = _workspaceTurnBaseline;
 			_workspaceTurnBaseline = null;
@@ -29,12 +34,25 @@ public sealed partial class SessionChangeTracker {
 		}
 
 		var candidates = new HashSet<string>(WorkspaceFiles(), StringComparer.Ordinal);
-		candidates.UnionWith(baseline);
+		candidates.UnionWith(baseline.Files.Keys);
+		candidates.UnionWith(baseline.Known.Keys);
 		List<string>? deleted = null;
 		foreach (string path in candidates) {
-			if (WorkspaceFileChanged(path)) {
+			bool existed = baseline.Files.TryGetValue(path, out byte[]? before);
+			bool exists = _fileSystem.FileExists(path);
+			string current = exists ? ReadOrEmpty(path) : string.Empty;
+			bool diskChanged = existed != exists || (exists && !before.AsSpan().SequenceEqual(Fingerprint(current)));
+			bool knownBefore = baseline.Known.TryGetValue(path, out string? beforeKnown);
+			bool knownNow;
+			string? nowKnown;
+			lock (_gate) {
+				knownNow = _current.TryGetValue(path, out nowKnown);
+			}
+			bool trackerChanged = knownBefore != knownNow
+				|| (knownNow && !string.Equals(beforeKnown, nowKnown, StringComparison.Ordinal));
+			if (diskChanged || trackerChanged) {
 				RecordChange(path);
-				if (!_fileSystem.FileExists(path)) {
+				if (!exists) {
 					(deleted ??= []).Add(path);
 				}
 			}
@@ -46,6 +64,8 @@ public sealed partial class SessionChangeTracker {
 			}
 		}
 	}
+
+	private static byte[] Fingerprint(string content) => SHA256.HashData(MemoryMarshal.AsBytes(content.AsSpan()));
 
 	private bool WorkspaceTurnActive() {
 		lock (_gate) {

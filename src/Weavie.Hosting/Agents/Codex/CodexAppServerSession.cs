@@ -72,24 +72,24 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		string method = root.GetStringOrEmpty("method");
 		if (method == "turn/started") {
 			RememberTurn(root);
+		} else if (method == "turn/completed") {
+			ForgetTurn(root);
 		} else if (method == "skills/changed") {
 			Run(RefreshSkillsAndPublishAsync);
 		}
 
-		bool workspaceTurnCompleted = method == "turn/completed" && ForgetTurn(root);
-		bool adapted = CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent);
-		if (workspaceTurnCompleted || adapted) {
-			// Workspace reconciliation reads real files; one unreadable file (locked build artifact) must not
-			// eat the turn-boundary pane message below or vanish into a dev log — the user gets an error card.
+		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
 			try {
-				if (workspaceTurnCompleted) {
-					CompleteWorkspaceTurn();
-				}
-				if (adapted) {
-					EmitFeedback(_context.Events.Observe(agentEvent));
-				}
+				EmitFeedback(_context.Events.Observe(agentEvent));
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				EmitChangeTrackingError(ex);
+				Emit(new AgentPaneMessage {
+					Type = "error",
+					ProviderId = "codex",
+					ThreadId = CurrentThreadId(),
+					Summary = "Change tracking failed for this file",
+					Text = ex.Message,
+					Status = "error",
+				});
 			}
 		}
 

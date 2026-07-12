@@ -23,13 +23,11 @@ public sealed partial class CodexAppServerSession {
 		try {
 			await _client.DisposeAsync().ConfigureAwait(false);
 		} finally {
-			CompleteWorkspaceTurn();
 			await _context.Registry.DisposeAsync().ConfigureAwait(false);
 		}
 	}
 
 	private void OnClientStarted(int attempt) {
-		CompleteWorkspaceTurn();
 		lock (_gate) {
 			_threadId = null;
 			_turnId = null;
@@ -65,12 +63,8 @@ public sealed partial class CodexAppServerSession {
 		}
 	}
 
-	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) {
-		if (change.ExitCode is not null) {
-			CompleteWorkspaceTurn();
-		}
+	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) =>
 		_context.Events.Observe(new AgentProcessChanged(change));
-	}
 
 	private async Task InitializeAsync() {
 		long initialize = NextRequest();

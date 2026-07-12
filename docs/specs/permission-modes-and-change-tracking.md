@@ -84,19 +84,11 @@ Codex uses the same `claude.allowAllTools` compatibility setting as Weavie's sha
 This does not bypass Codex hook trust. Native Codex injects no Weavie lifecycle hooks and does not pass
 `--dangerously-bypass-hook-trust`.
 
-Codex app-server can emit `item/started` after a command has already begun mutating disk, so per-item events
-cannot provide a reliable baseline. `SessionChangeTracker` instead snapshots the in-scope workspace before
-sending `turn/start`, continues using native item notifications for immediate locations/status, and reconciles the
-workspace at `turn/completed` (an interrupted turn also ends with `turn/completed`, carrying
-`status: "interrupted"` — the protocol has no separate interruption notification). This covers shell, MCP,
-dynamic-tool, creation, and deletion paths without depending on incomplete `PreToolUse` interception.
-
-**Known blind spot.** The reconciling walk prunes `WorkspacePaths.IgnoredSegments` (`node_modules`, `.git`,
-`bin`, `obj`, `dist`, `.vs`, `.idea`, `out`, `target` — the hardcoded noise list the file index and LSP
-watcher share), so a shell/MCP mutation under any directory *named* one of those (`bin/rails`, a
-hand-authored `dist/`) never reaches turn review. Explicit-path edits (`fileChange` items) are tracked
-regardless. The walk also reads every in-scope file's content at `turn/started` and again at the end — a
-real cost on large worktrees. A `.gitignore`-aware walk would fix both and is the open follow-up.
+Codex change tracking consumes only structured `fileChange` notifications whose paths the provider reports.
+Command, MCP, and dynamic-tool items still drive activity/status, but their unenumerated filesystem side-effects
+do not enter turn review, matching Claude Bash. Change and correction capture must never discover mutations by
+walking or snapshotting the workspace: its work is bounded by provider-reported or already-tracked paths, never
+by the number of files in the workspace.
 
 ## Architecture / placement
 

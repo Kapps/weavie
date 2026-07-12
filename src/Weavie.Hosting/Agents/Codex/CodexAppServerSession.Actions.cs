@@ -70,9 +70,7 @@ public sealed partial class CodexAppServerSession {
 			}
 
 			try {
-				if (!await StartTurnAsync(threadId, input, skills).ConfigureAwait(false)) {
-					ReleaseTurnStart();
-				}
+				await StartTurnAsync(threadId, input, skills).ConfigureAwait(false);
 			} catch {
 				ReleaseTurnStart();
 				throw;
@@ -110,20 +108,10 @@ public sealed partial class CodexAppServerSession {
 		return true;
 	}
 
-	private async Task<bool> StartTurnAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+	private async Task StartTurnAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
 		long id = NextRequest();
-		CompleteWorkspaceTurn();
-		if (!BeginWorkspaceTurn()) {
-			return false;
-		}
-		try {
-			await _client.RequestAsync(id, RequestFor(id, threadId, null, input, skills), CancellationToken.None).ConfigureAwait(false);
-		} catch (CodexRequestException) {
-			CompleteWorkspaceTurn();
-			throw;
-		}
+		await _client.RequestAsync(id, RequestFor(id, threadId, null, input, skills), CancellationToken.None).ConfigureAwait(false);
 		EmitSubmittedInput(threadId, null, starting: true, input, skills);
-		return true;
 	}
 
 	// Forget the turn we just failed to steer, unless Codex has already started a newer one under us.

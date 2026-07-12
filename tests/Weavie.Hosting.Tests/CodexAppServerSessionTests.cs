@@ -166,37 +166,6 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Submit_CapturesWorkspaceBeforeSendingTurnStart() {
-		var events = new TurnStartOrderingEventSink(Path.Combine(_dir, "turn-start.json"));
-		List<AgentPaneMessage> messages = [];
-		await using var session = CreateSession(events, messages);
-
-		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
-		session.Submit(Submission("go", []));
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
-
-		Assert.True(events.SawWorkspaceStart);
-		Assert.False(events.RequestAlreadySent);
-	}
-
-	[Fact]
-	public async Task Submit_WhenWorkspaceSnapshotFails_DoesNotWedgeNextPrompt() {
-		var events = new TurnStartThrowingEventSink();
-		List<AgentPaneMessage> messages = [];
-		await using var session = CreateSession(events, messages);
-
-		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
-		session.Submit(Submission("blocked", []));
-		await WaitForAsync(() => messages.Any(message => message.Summary == "Change tracking failed for this turn"));
-		Assert.False(File.Exists(Path.Combine(_dir, "turn-start.json")));
-
-		session.Submit(Submission("go", []));
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
-	}
-
-	[Fact]
 	public async Task Submit_WhileFreshTurnStarts_QueuesThenSteers() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -261,21 +230,6 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task ChangeTrackingFault_SurfacesErrorCardAndKeepsTheTurnBoundary() {
-		List<AgentPaneMessage> messages = [];
-		await using var session = CreateSession(new TurnStopThrowingEventSink(), messages);
-
-		session.Start();
-		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
-
-		session.Submit(Submission("out of tokens", []));
-		await WaitForAsync(() => messages.Any(message => message.Type == "turn-completed"));
-
-		Assert.Contains(messages, message =>
-			message.Type == "error" && message.Summary == "Change tracking failed for this turn");
-	}
-
-	[Fact]
 	public async Task Restart_RetractsPendingApprovalCardsLoudly() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
@@ -324,6 +278,20 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Equal("item/fileChange/requestApproval", card.ItemType);
 		Assert.Equal("apply the patch", card.Summary);
 		Assert.Equal("src/App.cs, src/Program.cs", card.Text);
+	}
+
+	[Fact]
+	public async Task FileChangeTrackingFault_SurfacesErrorAndKeepsThePaneEvent() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new DirectChangeThrowingEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("file approval", []));
+		await WaitForAsync(() => messages.Any(message => message.Summary == "Change tracking failed for this file"));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+
+		Assert.Contains(messages, message => message.ItemId == "item_edit" && message.Category == "edit");
 	}
 
 	[Fact]
@@ -799,45 +767,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		}
 	}
 
-	private sealed class TurnStartOrderingEventSink(string requestPath) : IAgentEventSink {
-		public bool SawWorkspaceStart { get; private set; }
-
-		public bool RequestAlreadySent { get; private set; }
-
-		public AgentEventFeedback Observe(AgentEvent value) {
-			if (value is AgentWorkspaceTurnStarting) {
-				SawWorkspaceStart = true;
-				RequestAlreadySent = File.Exists(requestPath);
-			}
-			return AgentEventFeedback.None;
-		}
-	}
-
-	private sealed class TurnStartThrowingEventSink : IAgentEventSink {
-		private bool _failed;
-
-		public AgentEventFeedback Observe(AgentEvent value) {
-			if (value is AgentWorkspaceTurnStarting && !_failed) {
-				_failed = true;
-				throw new IOException("locked file");
-			}
-			return AgentEventFeedback.None;
-		}
-	}
-
-	// Models a change tracker hitting an unreadable workspace file at the end-of-turn reconcile.
-	private sealed class TurnStopThrowingEventSink : IAgentEventSink {
-		private bool _turnStarted;
-
-		public AgentEventFeedback Observe(AgentEvent value) {
-			if (value is AgentWorkspaceTurnStarting) {
-				_turnStarted = true;
-			} else if (value is AgentWorkspaceTurnCompleted && _turnStarted) {
-				_turnStarted = false;
-				throw new IOException("locked file");
-			}
-			return AgentEventFeedback.None;
-		}
+	private sealed class DirectChangeThrowingEventSink : IAgentEventSink {
+		public AgentEventFeedback Observe(AgentEvent value) =>
+			value is AgentToolStarting
+				? throw new IOException("locked file")
+				: AgentEventFeedback.None;
 	}
 
 }

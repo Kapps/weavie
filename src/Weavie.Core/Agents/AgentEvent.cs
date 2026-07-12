@@ -17,12 +17,6 @@ public sealed record AgentPromptSubmitted(string? SessionId, string? Prompt) : A
 /// <summary>The agent turn stopped, optionally with a pending self-resumption.</summary>
 public sealed record AgentTurnStopped(bool WillResume) : AgentEvent;
 
-/// <summary>Capture the workspace before a provider begins a turn that may mutate unknown paths.</summary>
-public sealed record AgentWorkspaceTurnStarting : AgentEvent;
-
-/// <summary>Reconcile the workspace after a provider finishes or abandons a workspace-wide turn.</summary>
-public sealed record AgentWorkspaceTurnCompleted : AgentEvent;
-
 /// <summary>The agent emitted a user-facing notification.</summary>
 public sealed record AgentNotification(string? Message) : AgentEvent;
 
@@ -39,11 +33,11 @@ public sealed record AgentEditDispositionObserved(string Disposition) : AgentEve
 public abstract record AgentMutation {
 	private AgentMutation() { }
 
-	/// <summary>The tool is not a recognized direct file mutation.</summary>
+	/// <summary>
+	/// The tool is not a recognized direct file mutation — including a shell command or tool call whose file
+	/// side-effects the provider doesn't enumerate (Weavie tracks structured edits, not scanned side-effects).
+	/// </summary>
 	public sealed record None : AgentMutation;
-
-	/// <summary>The tool may mutate files, but the provider did not give per-file paths before it runs.</summary>
-	public sealed record Workspace(string InvocationId) : AgentMutation;
 
 	/// <summary>The tool directly mutates <paramref name="Path"/>, resolved relative to <paramref name="Cwd"/>.</summary>
 	public sealed record File(string Path, string? Cwd, bool ProvidesEditLocation) : AgentMutation;

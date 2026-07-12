@@ -1,75 +1,34 @@
-using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 
 namespace Weavie.Core.Corrections;
 
-/// <summary>
-/// The per-session observer that turns tracker drains into corpus entries: at each turn boundary
-/// (<see cref="AgentPromptSubmitted"/>) it drains the tracker's correction snapshot and appends any net
-/// user edit over agent output to the shared per-workspace <see cref="CorrectionCorpus"/>, attributed to
-/// the prompt that produced the corrected output (the boundary carries the NEXT turn's prompt, which is
-/// held for the next drain). No reasoning happens here — raw deltas in, raw deltas stored.
-/// </summary>
+/// <summary>Appends action-time correction batches to a workspace's shared corpus.</summary>
 public sealed class CorrectionRecorder {
-	private readonly SessionChangeTracker _changes;
 	private readonly CorrectionCorpus _corpus;
-	private readonly Lock _gate = new();
-	private string? _pendingPrompt;
 
-	/// <summary>Creates a recorder draining <paramref name="changes"/> into <paramref name="corpus"/>.</summary>
-	/// <param name="changes">The session's change tracker, whose correction snapshot is drained at each boundary.</param>
+	/// <summary>Creates a recorder appending into <paramref name="corpus"/>.</summary>
 	/// <param name="corpus">The workspace's shared correction ring.</param>
-	public CorrectionRecorder(SessionChangeTracker changes, CorrectionCorpus corpus) {
-		ArgumentNullException.ThrowIfNull(changes);
+	public CorrectionRecorder(CorrectionCorpus corpus) {
 		ArgumentNullException.ThrowIfNull(corpus);
-		_changes = changes;
 		_corpus = corpus;
 	}
 
-	/// <summary>
-	/// Folds an agent event into the recorder: a turn boundary records the pending corrections against the
-	/// held prompt, then holds the boundary's own prompt for the next drain. All other events are ignored.
-	/// </summary>
-	/// <param name="value">The observed agent event.</param>
-	public void Observe(AgentEvent value) {
-		ArgumentNullException.ThrowIfNull(value);
-		if (value is not AgentPromptSubmitted submitted) {
-			return;
-		}
-
-		lock (_gate) {
-			FlushLocked();
-			_pendingPrompt = submitted.Prompt;
-		}
-	}
-
-	/// <summary>
-	/// Records any still-uncommitted correction now — /learn calls this on every loaded session before
-	/// reading the corpus, so a correction to the latest turn isn't stranded waiting for the next prompt.
-	/// </summary>
-	public void FlushPending() {
-		lock (_gate) {
-			FlushLocked();
-		}
-	}
-
-	private void FlushLocked() {
-		var edits = _changes.DrainCorrections();
-		if (edits.Count == 0) {
-			return;
-		}
-
-		var files = new List<CorrectionFile>(edits.Count);
-		foreach (var edit in edits) {
-			string delta = CorrectionDiff.Unified(edit.AgentText, edit.FinalText);
-			// An EOL-only difference diffs to nothing — not a correction.
-			if (delta.Length > 0) {
-				files.Add(new CorrectionFile { Path = edit.RelativePath, Delta = delta });
+	/// <summary>Stores one user's corrections as unified diffs grouped by their producing prompt.</summary>
+	/// <param name="edits">The corrections produced by one user action.</param>
+	public void Record(IReadOnlyList<CorrectionEdit> edits) {
+		ArgumentNullException.ThrowIfNull(edits);
+		foreach (var group in edits.GroupBy(edit => edit.Prompt)) {
+			var files = new List<CorrectionFile>();
+			foreach (var edit in group) {
+				string delta = CorrectionDiff.Unified(edit.Before, edit.After);
+				if (delta.Length > 0) {
+					files.Add(new CorrectionFile { Path = edit.RelativePath, Delta = delta });
+				}
 			}
-		}
 
-		if (files.Count > 0) {
-			_corpus.Append(new CorrectionRecord { Prompt = _pendingPrompt, Files = files });
+			if (files.Count > 0) {
+				_corpus.Append(new CorrectionRecord { Prompt = group.Key, Files = files });
+			}
 		}
 	}
 }

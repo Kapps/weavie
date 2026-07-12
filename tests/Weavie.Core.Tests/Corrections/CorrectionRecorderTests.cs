@@ -7,31 +7,30 @@ using Xunit;
 namespace Weavie.Core.Tests.Corrections;
 
 /// <summary>
-/// Exercises the capture path end to end in Core: agent edits recorded by <see cref="SessionChangeTracker"/>,
-/// out-of-band user corrections (hand-edits and tracker reverts) drained by <see cref="CorrectionRecorder"/>
-/// into a <see cref="CorrectionCorpus"/> at turn boundaries — including the accumulate-model cases (a revert
-/// several turns after the write) and the noise gates (kept files, agent-deleted files).
+/// Exercises the event-driven capture path in Core: agent edits recorded by <see cref="SessionChangeTracker"/>,
+/// then the user's corrections — an editor save over an agent hunk (<see cref="SessionChangeTracker.RecordHandEdit"/>)
+/// or a review-UI revert — raise <see cref="SessionChangeTracker.Corrected"/>, which the
+/// <see cref="CorrectionRecorder"/> appends to a <see cref="CorrectionCorpus"/> at the moment they act. The
+/// gate keeps the user's edits to agent-untouched regions (their own coding, which autosave fires on
+/// repeatedly) out of the corpus.
 /// </summary>
 public sealed class CorrectionRecorderTests {
 	private readonly InMemoryFileSystem _fs = new();
 	private readonly string _root = OperatingSystem.IsWindows() ? @"C:\repo" : "/repo";
 	private readonly SessionChangeTracker _tracker;
 	private readonly CorrectionCorpus _corpus;
-	private readonly CorrectionRecorder _recorder;
 
 	public CorrectionRecorderTests() {
 		_tracker = new SessionChangeTracker(_fs, _root, _ => true);
 		_corpus = new CorrectionCorpus(_fs, Path.Combine(_root, "..", "state", "corrections.jsonl"));
-		_recorder = new CorrectionRecorder(_tracker, _corpus);
+		_tracker.Corrected += new CorrectionRecorder(_corpus).Record;
 	}
 
 	[Fact]
-	public void HandEditAfterTurn_RecordsDelta_AttributedToProducingPrompt() {
+	public void HandEditOverAgentHunk_RecordsDelta_AttributedToProducingPrompt() {
 		Boundary("make it fast");
 		AgentEdit("app.cs", "agent line\n");
-		_fs.WriteAllText(Abs("app.cs"), "user line\n"); // hand-edit: never routed through the tracker
-
-		Boundary("next prompt");
+		HandEdit("app.cs", "user line\n");
 
 		var record = Assert.Single(_corpus.ReadAll());
 		Assert.Equal("make it fast", record.Prompt);
@@ -42,10 +41,9 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
-	public void KeepEverything_RecordsNothing() {
+	public void NoUserAction_RecordsNothing() {
 		Boundary("p1");
 		AgentEdit("app.cs", "agent line\n");
-
 		Boundary("p2");
 		Boundary("p3");
 
@@ -53,22 +51,201 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
-	public void RevertViaTracker_RecordsReversal() {
+	public void HandEditToAgentUntouchedRegion_IsNotACorrection() {
+		// The user editing a region the agent didn't write is their own coding, not a correction — and autosave
+		// fires on it repeatedly, so it must never register (the gate splices only agent-overlapping edits).
+		_fs.WriteAllText(Abs("app.cs"), "one\ntwo\nthree\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "ONE\ntwo\nthree\n"); // agent changed line 1 only
+		HandEdit("app.cs", "ONE\ntwo\nTHREE\n"); // user changed line 3 — the agent never touched it
+
+		Assert.Equal(0, _corpus.Count);
+	}
+
+	[Fact]
+	public void MixedAgentAndUserReplacement_RecordsOnlyTheAgentLine() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+
+		HandEdit("app.cs", "A2\nB-OWN\n");
+
+		var file = Assert.Single(Assert.Single(_corpus.ReadAll()).Files);
+		Assert.Contains("+A2", file.Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("B-OWN", file.Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void AdjacentOriginsChangedInOneSave_KeepTheirPrompts() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n");
+
+		HandEdit("app.cs", "A1\nB2\n");
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+A1", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+B2", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void IgnoredUserEdit_RemainsUnattributedAfterLaterAgentEdit() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\nc\n");
+		HandEdit("app.cs", "A\nb\nC\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\nC\n");
+		HandEdit("app.cs", "A\nB\nC2\n");
+
+		Assert.Equal(0, _corpus.Count);
+
+		HandEdit("app.cs", "A1\nB\nC2\n");
+		HandEdit("app.cs", "A1\nB2\nC2\n");
+
+		Assert.Equal(["p1", "p2"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
+	public void RevertAfterLaterAgentEdit_PreservesUnattributedUserText() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\nc\n");
+		HandEdit("app.cs", "A\nb\nC\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\nC\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		Assert.Equal("a\nb\nC\n", _fs.ReadAllText(Abs("app.cs")));
+	}
+
+	[Fact]
+	public void RevertAfterLaterAgentEdit_PreservesUnattributedInsertion() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\nc\n");
+		HandEdit("app.cs", "A\nb\nMINE\nc\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\nMINE\nc\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		Assert.Equal("a\nb\nMINE\nc\n", _fs.ReadAllText(Abs("app.cs")));
+	}
+
+	[Fact]
+	public void RestoringAgentDeletedLine_IsACorrection() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("remove b");
+		AgentEdit("app.cs", "a\nc\n");
+
+		HandEdit("app.cs", "a\nb\nc\n");
+
+		var record = Assert.Single(_corpus.ReadAll());
+		Assert.Equal("remove b", record.Prompt);
+		Assert.Contains("+b", Assert.Single(record.Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void HandEditToAgentHunk_ThenTypingOwnCode_RecordsOnlyTheAgentCorrection() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n"); // agent changed line 1
+		HandEdit("app.cs", "A2\nb\n"); // user corrects the agent's line 1 → recorded
+		HandEdit("app.cs", "A2\nb\nCCC\n"); // user adds their own line 3 …
+		HandEdit("app.cs", "A2\nb\nCCC2\n"); // … and keeps editing it (autosave)
+
+		Assert.Equal(1, _corpus.Count);
+	}
+
+	[Fact]
+	public void AppendingOwnLinesPastAgentContent_IsNotACorrection() {
+		// The agent's edit reaches end-of-file (a created file); the user then types their OWN lines at the end.
+		// That is new authoring adjacent to the agent's region, not a correction — and autosave fires on every
+		// keystroke-pause, so it must never accumulate (regression: the trailing-boundary overlap bug).
+		Boundary("p1");
+		AgentEdit("app.cs", "agent1\nagent2\n");
+		HandEdit("app.cs", "agent1\nagent2\nmine\n");
+		HandEdit("app.cs", "agent1\nagent2\nmine\nmine2\n"); // keeps typing (autosave)
+
+		Assert.Equal(0, _corpus.Count);
+	}
+
+	[Fact]
+	public void InsertingBetweenAgentLines_IsACorrection() {
+		Boundary("p1");
+		AgentEdit("app.cs", "first\nsecond\n");
+		HandEdit("app.cs", "first\nMIDDLE\nsecond\n"); // a line inserted between the agent's two lines
+
+		var file = Assert.Single(Assert.Single(_corpus.ReadAll()).Files);
+		Assert.Contains("+MIDDLE", file.Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RepeatedSaveOfSameContent_RecordsOnce() {
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		HandEdit("app.cs", "user\n");
+		HandEdit("app.cs", "user\n"); // a second autosave of the same content
+
+		Assert.Equal(1, _corpus.Count);
+	}
+
+	[Fact]
+	public void RevertFile_RecordsReversal() {
 		_fs.WriteAllText(Abs("app.cs"), "one\n");
 		Boundary("p1");
 		AgentEdit("app.cs", "one\ntwo\n");
 
 		_tracker.RevertFile(Abs("app.cs"));
-		Boundary("p2");
 
 		var file = Assert.Single(Assert.Single(_corpus.ReadAll()).Files);
 		Assert.Contains("-two", file.Delta, StringComparison.Ordinal);
 	}
 
 	[Fact]
-	public void LateRevert_SeveralTurnsAfterTheWrite_StillRecorded() {
-		// The review model accumulates: an unreviewed file's snapshot must survive boundaries so a revert made
-		// long after the write is still captured.
+	public void RevertHunk_RecordsRejectedLines() {
+		_fs.WriteAllText(Abs("app.cs"), "one\ntwo\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "one\nADDED\ntwo\n");
+
+		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(2, 2), new LineRange(2, 3), "ADDED");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		var file = Assert.Single(Assert.Single(_corpus.ReadAll()).Files);
+		Assert.Contains("-ADDED", file.Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RevertHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+
+		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.Equal("a\nMINE\nb\nc\nd\n", _fs.ReadAllText(Abs("app.cs")));
+	}
+
+	[Fact]
+	public void KeepHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+
+		Assert.True(_tracker.KeepHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D"));
+	}
+
+	[Fact]
+	public void RevertManyTurnsAfterWrite_StillRecorded() {
+		// The review model accumulates: a revert made long after the write still captures the reversal.
 		_fs.WriteAllText(Abs("app.cs"), "one\n");
 		Boundary("p1");
 		AgentEdit("app.cs", "one\ntwo\n");
@@ -77,50 +254,164 @@ public sealed class CorrectionRecorderTests {
 		Assert.Equal(0, _corpus.Count);
 
 		_tracker.RevertFile(Abs("app.cs"));
-		Boundary("p4");
 
 		var record = Assert.Single(_corpus.ReadAll());
+		Assert.Equal("p1", record.Prompt); // attributed to the turn that WROTE the line, not the latest boundary
 		Assert.Contains("-two", Assert.Single(record.Files).Delta, StringComparison.Ordinal);
 	}
 
 	[Fact]
+	public void RevertAll_GroupsFilesByProducingPrompt() {
+		Boundary("p1");
+		AgentEdit("one.cs", "one\n");
+		Boundary("p2");
+		AgentEdit("two.cs", "two\n");
+
+		_tracker.RevertAll();
+
+		Assert.Equal(["p1", "p2"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
+	public void RevertFile_SlicesAdjacentChangesByProducingPrompt() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("-A", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("-B", records[0].Files[0].Delta, StringComparison.Ordinal);
+		Assert.Contains("-B", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("-A", records[1].Files[0].Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RevertFile_SlicesSequentialDeletionsAtOneGapByProducingPrompt() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nc\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "a\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+b", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("+c", records[0].Files[0].Delta, StringComparison.Ordinal);
+		Assert.Contains("+c", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("+b", records[1].Files[0].Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RestoringAdjacentDeletedOrigins_KeepsTheirPrompts() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n");
+		HandEdit("app.cs", string.Empty);
+
+		HandEdit("app.cs", "A\nB\n");
+
+		Assert.Equal(["p1", "p2", "p1", "p2"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
+	public void PartialDeletionRestore_PreservesTheRemainingProvenance() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\n");
+
+		HandEdit("app.cs", "a\nb\n");
+		HandEdit("app.cs", "a\nb\nc\n");
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(2, records.Count);
+		Assert.Contains("+b", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+c", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void ReverseSequentialDeletionRestore_MatchesPromptsByDeletedText() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "a\n");
+
+		HandEdit("app.cs", "a\nb\nc\n");
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+c", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+b", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void UndoKeep_RestoresCorrectionProvenance() {
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		_tracker.KeepFile(Abs("app.cs"));
+		Assert.True(_tracker.UndoLastKeep().Acted);
+
+		HandEdit("app.cs", "user\n");
+
+		Assert.Equal("p1", Assert.Single(_corpus.ReadAll()).Prompt);
+	}
+
+	[Fact]
+	public void UndoRevert_RestoresCorrectionProvenance() {
+		_fs.WriteAllText(Abs("app.cs"), "base\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		_tracker.RevertFile(Abs("app.cs"));
+		Assert.True(_tracker.UndoLastRevert().Acted);
+
+		HandEdit("app.cs", "user\n");
+
+		Assert.Equal(2, _corpus.Count);
+		Assert.All(_corpus.ReadAll(), record => Assert.Equal("p1", record.Prompt));
+	}
+
+	[Fact]
+	public void RedoRevert_RemovesCorrectionProvenanceAgain() {
+		_fs.WriteAllText(Abs("app.cs"), "base\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		_tracker.RevertFile(Abs("app.cs"));
+		_tracker.UndoLastRevert();
+		Assert.True(_tracker.Redo().Acted);
+
+		HandEdit("app.cs", "user\n");
+
+		Assert.Equal(1, _corpus.Count);
+	}
+
+	[Fact]
 	public void KeptFile_LaterHandEdits_AreNotCorrections() {
-		// Keeping ends the correction window: once the user accepts the output, their later edits are just
-		// their own coding, not signal.
+		// Keeping accepts the output and closes the correction window: the user's later edits are their own coding.
 		Boundary("p1");
 		AgentEdit("app.cs", "agent line\n");
 		_tracker.KeepFile(Abs("app.cs"));
-		Boundary("p2");
 
-		_fs.WriteAllText(Abs("app.cs"), "user rewrite\n");
-		Boundary("p3");
+		HandEdit("app.cs", "user rewrite\n");
 
 		Assert.Equal(0, _corpus.Count);
 	}
 
 	[Fact]
-	public void KeepThenHandEdit_SameDrainWindow_IsNotACorrection() {
-		// The keep accepts the agent's output; a hand-edit made AFTER it (before any intervening boundary) is
-		// the user's own follow-up coding, not a correction of the agent — it must not record, even though the
-		// stale pre-keep agent snapshot still differs from the hand-edited disk.
+	public void HandEditBeforeKeepAll_IsRecordedAtTheSave() {
 		Boundary("p1");
 		AgentEdit("app.cs", "agent line\n");
-		_tracker.KeepFile(Abs("app.cs"));
-		_fs.WriteAllText(Abs("app.cs"), "user rewrite\n");
+		HandEdit("app.cs", "user line\n"); // recorded here, not deferred to a boundary
 
-		Boundary("p2");
-
-		Assert.Equal(0, _corpus.Count);
-	}
-
-	[Fact]
-	public void HandEditBeforeKeepAll_IsStillRecorded() {
-		Boundary("p1");
-		AgentEdit("app.cs", "agent line\n");
-		_fs.WriteAllText(Abs("app.cs"), "user line\n");
 		_tracker.AcceptTurn();
-
-		Boundary("p2");
 
 		Assert.Equal(1, _corpus.Count);
 	}
@@ -133,8 +424,6 @@ public sealed class CorrectionRecorderTests {
 		// The delete reconciles at the agent's next completed tool — agent action, not a user revert.
 		_tracker.Observe(new AgentToolCompleted(new AgentMutation.None()));
 
-		Boundary("p2");
-
 		Assert.Equal(0, _corpus.Count);
 	}
 
@@ -144,7 +433,6 @@ public sealed class CorrectionRecorderTests {
 		AgentEdit("new.cs", "created\n");
 
 		_tracker.RevertFile(Abs("new.cs")); // created-since-baseline → the revert deletes it
-		Boundary("p2");
 
 		var file = Assert.Single(Assert.Single(_corpus.ReadAll()).Files);
 		Assert.Equal("new.cs", file.Path);
@@ -152,40 +440,27 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
-	public void FlushPending_RecordsWithoutWaitingForNextPrompt() {
-		Boundary("p1");
-		AgentEdit("app.cs", "agent line\n");
-		_fs.WriteAllText(Abs("app.cs"), "user line\n");
-
-		_recorder.FlushPending();
-
-		Assert.Equal(1, _corpus.Count);
-		Boundary("p2"); // the flushed correction must not report twice at the real boundary
-		Assert.Equal(1, _corpus.Count);
-	}
-
-	[Fact]
-	public void NullPromptBoundary_RecordsWithNullPrompt() {
+	public void NullPromptTurn_RecordsWithNullPrompt() {
 		Boundary(null); // Codex's turn/started carries no prompt
 		AgentEdit("app.cs", "agent line\n");
-		_fs.WriteAllText(Abs("app.cs"), "user line\n");
-
-		Boundary(null);
+		HandEdit("app.cs", "user line\n");
 
 		Assert.Null(Assert.Single(_corpus.ReadAll()).Prompt);
 	}
 
-	private void Boundary(string? prompt) {
-		var boundary = new AgentPromptSubmitted("session", prompt);
-		_tracker.Observe(boundary);
-		_recorder.Observe(boundary);
-	}
+	private void Boundary(string? prompt) => _tracker.Observe(new AgentPromptSubmitted("session", prompt));
 
 	private void AgentEdit(string relativePath, string content) {
 		var mutation = new AgentMutation.File(relativePath, Cwd: null, ProvidesEditLocation: true);
 		_tracker.Observe(new AgentToolStarting(mutation));
 		_fs.WriteAllText(Abs(relativePath), content);
 		_tracker.Observe(new AgentToolCompleted(mutation));
+	}
+
+	// A user editor save: the disk write the file provider does, then the capture the fs-write handler triggers.
+	private void HandEdit(string relativePath, string content) {
+		_fs.WriteAllText(Abs(relativePath), content);
+		_tracker.RecordHandEdit(Abs(relativePath), content);
 	}
 
 	private string Abs(string relativePath) => Path.Combine(_root, relativePath);

@@ -9,11 +9,6 @@ namespace Weavie.Hosting;
 // See docs/specs/learn-from-corrections.md.
 public sealed partial class HostCore {
 	private CommandResult RunLearn() {
-		// A correction to the latest turn hasn't hit a boundary yet — pull it in before reading.
-		foreach (var session in LoadedSessions()) {
-			session.Corrections.FlushPending();
-		}
-
 		// Peek (Count) before consuming so an empty ring — or a missing primary — fails WITHOUT draining.
 		if (_corrections.Count == 0) {
 			return CommandResult.Failure(

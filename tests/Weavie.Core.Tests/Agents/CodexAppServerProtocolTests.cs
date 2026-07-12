@@ -184,7 +184,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/started","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnStarted));
-		Assert.True(Assert.IsType<AgentPromptSubmitted>(turnStarted).ReconcileWorkspace);
+		Assert.IsType<AgentPromptSubmitted>(turnStarted);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
@@ -196,7 +196,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnCompleted));
-		Assert.True(Assert.IsType<AgentTurnStopped>(turnCompleted).ReconcileWorkspace);
+		Assert.IsType<AgentTurnStopped>(turnCompleted);
 	}
 
 	[Fact]
@@ -412,13 +412,13 @@ public sealed class CodexAppServerProtocolTests {
 		fileSystem.WriteAllText(deleted, "gone\n");
 		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
 
-		changes.Observe(new AgentPromptSubmitted(null, null, ReconcileWorkspace: true));
+		changes.Observe(new AgentWorkspaceTurnStarting());
 		fileSystem.WriteAllText(file, "new\n");
 		fileSystem.WriteAllText(created, "created\n");
 		fileSystem.DeleteFile(deleted);
 		changes.Observe(new AgentToolStarting(new AgentMutation.Workspace("late-item")));
 		changes.Observe(new AgentToolCompleted(new AgentMutation.Workspace("late-item")));
-		changes.Observe(new AgentTurnStopped(false, ReconcileWorkspace: true));
+		changes.Observe(new AgentWorkspaceTurnCompleted());
 
 		var turn = changes.TurnChanges().OrderBy(change => change.Path, StringComparer.Ordinal).ToList();
 		Assert.Equal(3, turn.Count);
@@ -431,5 +431,45 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal(file, turn[2].Path);
 		Assert.Equal("old\n", turn[2].BaselineText);
 		Assert.Equal("new\n", turn[2].CurrentText);
+	}
+
+	[Fact]
+	public void TurnLifecycle_DoesNotAttributeBetweenTurnDeveloperEdit() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-between-turn"));
+		string file = Path.Combine(workspace, "file.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(file, "old\n");
+		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
+
+		changes.Observe(new AgentWorkspaceTurnStarting());
+		fileSystem.WriteAllText(file, "agent\n");
+		changes.Observe(new AgentWorkspaceTurnCompleted());
+		Assert.Equal("agent\n", Assert.Single(changes.TurnChanges()).CurrentText);
+
+		fileSystem.WriteAllText(file, "developer\n");
+		changes.Observe(new AgentWorkspaceTurnStarting());
+		changes.Observe(new AgentWorkspaceTurnCompleted());
+
+		Assert.Equal("agent\n", Assert.Single(changes.TurnChanges()).CurrentText);
+	}
+
+	[Fact]
+	public void TurnLifecycle_ClearsIntermediateEditRestoredBeforeCompletion() {
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-restored-turn"));
+		string file = Path.Combine(workspace, "file.txt");
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText(file, "old\n");
+		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
+
+		changes.Observe(new AgentWorkspaceTurnStarting());
+		changes.Observe(new AgentToolStarting(new AgentMutation.File(file, null, true)));
+		fileSystem.WriteAllText(file, "intermediate\n");
+		changes.Observe(new AgentToolCompleted(new AgentMutation.File(file, null, true)));
+		Assert.Single(changes.TurnChanges());
+
+		fileSystem.WriteAllText(file, "old\n");
+		changes.Observe(new AgentWorkspaceTurnCompleted());
+
+		Assert.Empty(changes.TurnChanges());
 	}
 }

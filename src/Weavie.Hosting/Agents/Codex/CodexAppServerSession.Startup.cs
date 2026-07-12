@@ -20,14 +20,20 @@ public sealed partial class CodexAppServerSession {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		await _client.DisposeAsync().ConfigureAwait(false);
-		await _context.Registry.DisposeAsync().ConfigureAwait(false);
+		try {
+			await _client.DisposeAsync().ConfigureAwait(false);
+		} finally {
+			CompleteWorkspaceTurn();
+			await _context.Registry.DisposeAsync().ConfigureAwait(false);
+		}
 	}
 
 	private void OnClientStarted(int attempt) {
+		CompleteWorkspaceTurn();
 		lock (_gate) {
 			_threadId = null;
 			_turnId = null;
+			_turnStarting = false;
 			_threadPersisted = false;
 			_fileChangeSummaries.Clear();
 		}
@@ -35,7 +41,6 @@ public sealed partial class CodexAppServerSession {
 		RetractPendingRequests();
 		Run(InitializeAsync);
 	}
-
 	// A restarted app-server no longer knows the requests the dead process asked, so leaving their cards
 	// pending would wedge the pane on an Accept that can never reach anything: resolve each card and say why.
 	private void RetractPendingRequests() {
@@ -60,8 +65,12 @@ public sealed partial class CodexAppServerSession {
 		}
 	}
 
-	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) =>
+	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) {
+		if (change.ExitCode is not null) {
+			CompleteWorkspaceTurn();
+		}
 		_context.Events.Observe(new AgentProcessChanged(change));
+	}
 
 	private async Task InitializeAsync() {
 		long initialize = NextRequest();

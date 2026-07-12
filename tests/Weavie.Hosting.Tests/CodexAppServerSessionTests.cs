@@ -166,6 +166,56 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Submit_CapturesWorkspaceBeforeSendingTurnStart() {
+		var events = new TurnStartOrderingEventSink(Path.Combine(_dir, "turn-start.json"));
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		Assert.True(events.SawWorkspaceStart);
+		Assert.False(events.RequestAlreadySent);
+	}
+
+	[Fact]
+	public async Task Submit_WhenWorkspaceSnapshotFails_DoesNotWedgeNextPrompt() {
+		var events = new TurnStartThrowingEventSink();
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("blocked", []));
+		await WaitForAsync(() => messages.Any(message => message.Summary == "Change tracking failed for this turn"));
+		Assert.False(File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+	}
+
+	[Fact]
+	public async Task Submit_WhileFreshTurnStarts_QueuesThenSteers() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("delay start", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start-pending.json")));
+		session.Submit(Submission("second", []));
+		File.WriteAllText(Path.Combine(_dir, "release-turn-start"), string.Empty);
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
+
+		using var started = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		using var steered = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-steer.json")));
+		Assert.Equal("delay start", started.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
+		Assert.Equal("second", steered.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
+	}
+
+	[Fact]
 	public async Task Submit_MidTurn_SteersTheActiveTurn() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -719,7 +769,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			Events = events,
 			CurrentSessionId = () => "slot-1",
-		}, threads, "node");
+		}, threads, TestNode.Command);
 		session.PaneMessage += messages.Add;
 		return session;
 	}
@@ -749,12 +799,45 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		}
 	}
 
+	private sealed class TurnStartOrderingEventSink(string requestPath) : IAgentEventSink {
+		public bool SawWorkspaceStart { get; private set; }
+
+		public bool RequestAlreadySent { get; private set; }
+
+		public AgentEventFeedback Observe(AgentEvent value) {
+			if (value is AgentWorkspaceTurnStarting) {
+				SawWorkspaceStart = true;
+				RequestAlreadySent = File.Exists(requestPath);
+			}
+			return AgentEventFeedback.None;
+		}
+	}
+
+	private sealed class TurnStartThrowingEventSink : IAgentEventSink {
+		private bool _failed;
+
+		public AgentEventFeedback Observe(AgentEvent value) {
+			if (value is AgentWorkspaceTurnStarting && !_failed) {
+				_failed = true;
+				throw new IOException("locked file");
+			}
+			return AgentEventFeedback.None;
+		}
+	}
+
 	// Models a change tracker hitting an unreadable workspace file at the end-of-turn reconcile.
 	private sealed class TurnStopThrowingEventSink : IAgentEventSink {
-		public AgentEventFeedback Observe(AgentEvent value) =>
-			value is AgentTurnStopped
-				? throw new IOException("locked file")
-				: AgentEventFeedback.None;
+		private bool _turnStarted;
+
+		public AgentEventFeedback Observe(AgentEvent value) {
+			if (value is AgentWorkspaceTurnStarting) {
+				_turnStarted = true;
+			} else if (value is AgentWorkspaceTurnCompleted && _turnStarted) {
+				_turnStarted = false;
+				throw new IOException("locked file");
+			}
+			return AgentEventFeedback.None;
+		}
 	}
 
 }

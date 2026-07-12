@@ -85,8 +85,8 @@ This does not bypass Codex hook trust. Native Codex injects no Weavie lifecycle 
 `--dangerously-bypass-hook-trust`.
 
 Codex app-server can emit `item/started` after a command has already begun mutating disk, so per-item events
-cannot provide a reliable baseline. `SessionChangeTracker` instead snapshots the in-scope workspace once at
-`turn/started`, continues using native item notifications for immediate locations/status, and reconciles the
+cannot provide a reliable baseline. `SessionChangeTracker` instead snapshots the in-scope workspace before
+sending `turn/start`, continues using native item notifications for immediate locations/status, and reconciles the
 workspace at `turn/completed` (an interrupted turn also ends with `turn/completed`, carrying
 `status: "interrupted"` — the protocol has no separate interruption notification). This covers shell, MCP,
 dynamic-tool, creation, and deletion paths without depending on incomplete `PreToolUse` interception.

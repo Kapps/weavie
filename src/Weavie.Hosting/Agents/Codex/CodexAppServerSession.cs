@@ -21,6 +21,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private long _nextId;
 	private string? _threadId;
 	private string? _turnId;
+	private bool _turnStarting;
 	private bool _started;
 	private bool _threadPersisted;
 
@@ -71,26 +72,24 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		string method = root.GetStringOrEmpty("method");
 		if (method == "turn/started") {
 			RememberTurn(root);
-		} else if (method == "turn/completed") {
-			ForgetTurn(root);
 		} else if (method == "skills/changed") {
 			Run(RefreshSkillsAndPublishAsync);
 		}
 
-		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
+		bool workspaceTurnCompleted = method == "turn/completed" && ForgetTurn(root);
+		bool adapted = CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent);
+		if (workspaceTurnCompleted || adapted) {
 			// Workspace reconciliation reads real files; one unreadable file (locked build artifact) must not
 			// eat the turn-boundary pane message below or vanish into a dev log — the user gets an error card.
 			try {
-				EmitFeedback(_context.Events.Observe(agentEvent));
+				if (workspaceTurnCompleted) {
+					CompleteWorkspaceTurn();
+				}
+				if (adapted) {
+					EmitFeedback(_context.Events.Observe(agentEvent));
+				}
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-				Emit(new AgentPaneMessage {
-					Type = "error",
-					ProviderId = "codex",
-					ThreadId = CurrentThreadId(),
-					Summary = "Change tracking failed for this turn",
-					Text = ex.Message,
-					Status = "error",
-				});
+				EmitChangeTrackingError(ex);
 			}
 		}
 
@@ -161,8 +160,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		if (turnId.Length > 0) {
 			lock (_gate) {
 				_turnId = turnId;
+				_turnStarting = false;
 			}
 			PersistThread();
+			FlushPendingInputs();
 		}
 	}
 
@@ -187,16 +188,19 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	// Clear the active turn only when the completion is for the turn we track: a late completion of an older
 	// turn must not wipe a newer one Codex has already started.
-	private void ForgetTurn(JsonElement root) {
+	private bool ForgetTurn(JsonElement root) {
 		string turnId = ReadTurnId(root);
 		lock (_gate) {
 			if (turnId.Length == 0 || string.Equals(turnId, _turnId, StringComparison.Ordinal)) {
 				_turnId = null;
+				_turnStarting = false;
 				// Approvals are turn-scoped; a late completion of an OLDER turn must not wipe the live
 				// turn's harvested edit summaries, so the clear shares the turn-id guard.
 				_fileChangeSummaries.Clear();
+				return true;
 			}
 		}
+		return false;
 	}
 
 	// Upstream fileChange approval params carry no changed paths (only threadId/turnId/itemId/reason/grantRoot);

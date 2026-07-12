@@ -51,6 +51,17 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     ] }] } });
   } else if (message.method === "turn/start") {
     record("turn-start.json", message);
+	if (message.params.input[0].text === "delay start") {
+	  record("turn-start-pending.json", message);
+	  const release = setInterval(() => {
+	    if (fs.existsSync("release-turn-start")) {
+	      clearInterval(release);
+	      send({ id: message.id, result: { turn: { id: "turn_fake" } } });
+	      send({ method: "turn/started", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "running" } } });
+	    }
+	  }, 5);
+	  return;
+	}
     send({ id: message.id, result: { turn: { id: "turn_fake" } } });
     send({ method: "turn/started", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "running" } } });
     if (message.params.input.some(item => item.type === "localImage")) {

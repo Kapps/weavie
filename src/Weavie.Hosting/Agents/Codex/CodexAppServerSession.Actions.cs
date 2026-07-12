@@ -48,15 +48,44 @@ public sealed partial class CodexAppServerSession {
 	// Deliver to Codex's current turn; a stale-turn rejection means our view lagged, so re-read and steer the
 	// turn it moved to. _turnId only ever advances or clears, so this converges on a live steer or a fresh start.
 	private async Task DeliverAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
-		while (CurrentTurnId() is { Length: > 0 } turnId) {
-			if (await TrySteerAsync(threadId, turnId, input, skills).ConfigureAwait(false)) {
-				return;
+		while (true) {
+			string? turnId;
+			lock (_gate) {
+				turnId = _turnId;
+				if (string.IsNullOrEmpty(turnId)) {
+					if (_turnStarting) {
+						_pendingInputs.Enqueue(input);
+						return;
+					}
+					_turnStarting = true;
+				}
 			}
 
-			DiscardStaleTurn(turnId);
-		}
+			if (!string.IsNullOrEmpty(turnId)) {
+				if (await TrySteerAsync(threadId, turnId, input, skills).ConfigureAwait(false)) {
+					return;
+				}
+				DiscardStaleTurn(turnId);
+				continue;
+			}
 
-		await StartTurnAsync(threadId, input, skills).ConfigureAwait(false);
+			try {
+				if (!await StartTurnAsync(threadId, input, skills).ConfigureAwait(false)) {
+					ReleaseTurnStart();
+				}
+			} catch {
+				ReleaseTurnStart();
+				throw;
+			}
+			return;
+		}
+	}
+
+	private void ReleaseTurnStart() {
+		lock (_gate) {
+			_turnStarting = false;
+		}
+		FlushPendingInputs();
 	}
 
 	private async Task<bool> TrySteerAsync(string threadId, string turnId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
@@ -81,10 +110,20 @@ public sealed partial class CodexAppServerSession {
 		return true;
 	}
 
-	private async Task StartTurnAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+	private async Task<bool> StartTurnAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
 		long id = NextRequest();
-		await _client.RequestAsync(id, RequestFor(id, threadId, null, input, skills), CancellationToken.None).ConfigureAwait(false);
+		CompleteWorkspaceTurn();
+		if (!BeginWorkspaceTurn()) {
+			return false;
+		}
+		try {
+			await _client.RequestAsync(id, RequestFor(id, threadId, null, input, skills), CancellationToken.None).ConfigureAwait(false);
+		} catch (CodexRequestException) {
+			CompleteWorkspaceTurn();
+			throw;
+		}
 		EmitSubmittedInput(threadId, null, starting: true, input, skills);
+		return true;
 	}
 
 	// Forget the turn we just failed to steer, unless Codex has already started a newer one under us.

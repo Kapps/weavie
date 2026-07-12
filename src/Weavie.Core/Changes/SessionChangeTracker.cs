@@ -4,9 +4,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Changes;
 
 /// <summary>
-/// Records every file changed during the session and the diff against each file's session baseline. Fed by the
-/// hook stream via <see cref="Observe"/>, which fires in every permission mode (the hook runs before the
-/// permission check). Read on the host UI thread but mutated from the hook accept loop — hence the lock.
+/// Records every file changed during the session and the diff against each file's session baseline. Provider
+/// events feed <see cref="Observe"/> from hook or native structured-agent streams; the lock protects their threads.
 /// <para>
 /// Scoped by <c>isInScope</c> to the session's worktree (+ scratch): an out-of-scope edit is dropped. The
 /// tracker's scope must match the editor's <c>file://</c> provider scope, else an open is pushed for a path
@@ -74,26 +73,28 @@ public sealed partial class SessionChangeTracker {
 	public event Action<IReadOnlyList<string>>? AcceptedCommitted;
 
 	/// <summary>
-	/// Folds a hook event into the change set: PreToolUse snapshots the baseline, PostToolUse records the new
-	/// content and reconciles disk deletions (<see cref="ReconcileDeletions"/>) so a mid-turn rm leaves the review
-	/// set. Out-of-scope edits are dropped. A new prompt (UserPromptSubmit) commits the faded accepted band —
-	/// kept hunks leave the diff view — but never resets the review baseline, so pending changes accumulate.
+	/// Folds provider events into the change set. Direct mutations capture and record their paths; workspace-wide
+	/// turns snapshot before dispatch and reconcile at completion. Prompt boundaries commit accepted hunks.
 	/// </summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
 
-		if (value is AgentPromptSubmitted submitted) {
+		if (value is AgentPromptSubmitted) {
 			CommitAccepted();
-			if (submitted.ReconcileWorkspace) {
-				BeginWorkspaceTurn();
-			}
 			return;
 		}
 
-		if (value is AgentTurnStopped stopped) {
-			if (stopped.ReconcileWorkspace) {
-				EndWorkspaceTurn();
-			}
+		if (value is AgentWorkspaceTurnStarting) {
+			BeginWorkspaceTurn();
+			return;
+		}
+
+		if (value is AgentWorkspaceTurnCompleted) {
+			EndWorkspaceTurn();
+			return;
+		}
+
+		if (value is AgentTurnStopped) {
 			return;
 		}
 
@@ -193,14 +194,18 @@ public sealed partial class SessionChangeTracker {
 			// deletes rather than truncates a file that didn't yet exist.
 			bool existed = _fileSystem.FileExists(path);
 			string content = ReadOrEmpty(path);
-			_baseline.TryAdd(path, content);
-			if (_reviewBaseline.TryAdd(path, content) && !existed) {
-				_createdSinceBaseline.Add(path);
-			}
-
-			_acceptedAnchor.TryAdd(path, content); // seeded == reviewBaseline; diverges only as hunks are kept
-			_preEdit[path] = content;
+			CaptureBaselineLocked(path, content, existed);
 		}
+	}
+
+	private void CaptureBaselineLocked(string path, string content, bool existed) {
+		_baseline.TryAdd(path, content);
+		if (_reviewBaseline.TryAdd(path, content) && !existed) {
+			_createdSinceBaseline.Add(path);
+		}
+
+		_acceptedAnchor.TryAdd(path, content); // seeded == reviewBaseline; diverges only as hunks are kept
+		_preEdit[path] = content;
 	}
 
 	/// <summary>Records <paramref name="path"/>'s latest content (baselining to empty if it appeared this session).</summary>

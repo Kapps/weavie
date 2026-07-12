@@ -16,6 +16,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed partial class CodexAppServerSessionTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-codex-session-tests", Guid.NewGuid().ToString("N"));
+	private SettingsStore? _settings;
 
 	public CodexAppServerSessionTests() {
 		Directory.CreateDirectory(_dir);
@@ -300,20 +301,21 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.ControlStateChanged += state => states.Add(state);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		var control = session.ControlState;
-		var model = Assert.Single(control.Axes, axis => axis.Id == "model");
+		var model = control.ModelControl;
 		Assert.Equal("gpt-5.5", model.Value); // the catalog default, since codex.model is unset
-		Assert.Equal("GPT-5.5", model.ValueLabel);
-		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Options.Select(option => option.Id));
+		Assert.Equal("GPT-5.5 (Medium)", model.ValueLabel); // model + default effort, no Fast
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Models.Select(choice => choice.Id));
+		Assert.True(model.Models.Single(choice => choice.Id == "gpt-5.5").Current);
 		Assert.Contains(control.Axes, axis => axis.Id == "approvalPolicy");
 		Assert.Contains(control.Axes, axis => axis.Id == "sandbox");
 		Assert.Contains(control.Slash, entry => entry.Name == "model" && entry.CommandId == CoreCommands.SelectModel);
 		Assert.Contains(control.Slash, entry => entry.Name == "review-pr" && entry.SkillName == "review-pr");
 
 		session.SetControl("model", "gpt-5.4-mini");
-		Assert.Contains(states, state => state.Axes.Single(axis => axis.Id == "model").Value == "gpt-5.4-mini");
+		Assert.Contains(states, state => state.ModelControl.Value == "gpt-5.4-mini");
 
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
@@ -321,6 +323,158 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
 		Assert.Equal("gpt-5.4-mini", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
 	}
+
+	[Fact]
+	public async Task Controls_ExposeEffortAndFast_DerivedFromCurrentModel() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		var control = session.ControlState;
+		var current = CurrentModel(control);
+		Assert.Equal("medium", current.Effort); // gpt-5.5 default reasoning effort
+		Assert.Equal(["low", "medium", "high"], current.Efforts.Select(option => option.Id));
+		Assert.Equal("priority", current.FastTier);
+		Assert.False(current.FastOn); // off by default
+
+		// The non-current model carries its own efforts and no Fast tier.
+		var miniChoice = control.ModelControl.Models.Single(choice => choice.Id == "gpt-5.4-mini");
+		Assert.False(miniChoice.Current);
+		Assert.Equal("", miniChoice.FastTier);
+		Assert.Equal("low", miniChoice.Effort); // mini's default
+
+		Assert.Contains(control.Slash, entry => entry.Name == "effort" && entry.CommandId == CoreCommands.SelectEffort);
+		Assert.Contains(control.Slash, entry => entry.Name == "fast" && entry.CommandId == CoreCommands.ToggleFastMode);
+	}
+
+	[Fact]
+	public async Task Controls_ModelSwitchToUnsupported_ResetsEffort_AndHidesFast() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		var before = CurrentModel(session.ControlState);
+		Assert.Equal("high", before.Effort);
+		Assert.True(before.FastOn);
+
+		// gpt-5.4-mini supports neither "high" nor any service tier: the stale effort resets to the mini default and
+		// the Fast option disappears entirely.
+		session.SetControl("model", "gpt-5.4-mini");
+		var control = session.ControlState;
+		var after = CurrentModel(control);
+		Assert.Equal("gpt-5.4-mini", after.Id);
+		Assert.Equal("low", after.Effort);
+		Assert.Equal("", after.FastTier);
+		Assert.False(after.FastOn);
+		Assert.DoesNotContain(control.Slash, entry => entry.Name == "fast");
+	}
+
+	[Fact]
+	public async Task Submit_SendsEffortAndServiceTier_OnTurnStart_ButNotThreadStart() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		// thread/start carries no effort/serviceTier (the schema forbids effort there); they ride turn/start only.
+		using (var threadDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
+			var threadParams = threadDoc.RootElement.GetProperty("params");
+			Assert.False(threadParams.TryGetProperty("effort", out _));
+			Assert.False(threadParams.TryGetProperty("serviceTier", out _));
+		}
+
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParams = doc.RootElement.GetProperty("params");
+		Assert.Equal("high", turnParams.GetProperty("effort").GetString());
+		Assert.Equal("priority", turnParams.GetProperty("serviceTier").GetString());
+	}
+
+	[Fact]
+	public async Task Submit_WithFastOff_SendsNullServiceTierToClearIt() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		session.SetControl("serviceTier", "standard"); // Fast off explicitly
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("params").GetProperty("serviceTier").ValueKind);
+	}
+
+	[Fact]
+	public async Task GlobalEffortAndTierSettings_AreScopedToModelsThatSupportThem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		// Global defaults that gpt-5.4-mini supports neither: it has no service tier and no "high" effort.
+		_settings!.Set("codex.serviceTier", JsonDocument.Parse("\"priority\"").RootElement);
+		_settings!.Set("codex.effort", JsonDocument.Parse("\"high\"").RootElement);
+		session.SetControl("model", "gpt-5.4-mini");
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParams = doc.RootElement.GetProperty("params");
+		// Neither the unsupported tier nor the unsupported effort reaches Codex; the model uses its own defaults.
+		Assert.False(turnParams.TryGetProperty("serviceTier", out _));
+		Assert.False(turnParams.TryGetProperty("effort", out _));
+	}
+
+	[Fact]
+	public async Task GlobalEffortSetting_ValidOnNoModel_PassesThroughToSurfaceLoudly() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		// A value no model in the catalog offers is a typo, not a per-model gap: send it so Codex rejects it loudly
+		// instead of silently swallowing the misconfiguration.
+		_settings!.Set("codex.effort", JsonDocument.Parse("\"bogus\"").RootElement);
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("bogus", doc.RootElement.GetProperty("params").GetProperty("effort").GetString());
+	}
+
+	[Fact]
+	public async Task SetControl_RejectsEffortUnsupportedByModel() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		session.SetControl("effort", "ultra"); // gpt-5.5 does not offer ultra
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message => message.Type == "error" && message.Text!.Contains("effort", StringComparison.Ordinal));
+		Assert.Equal("medium", CurrentModel(session.ControlState).Effort);
+	}
+
+	private static AgentModelChoice CurrentModel(AgentControlState state) =>
+		state.ModelControl.Models.Single(model => model.Current);
 
 	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {
@@ -367,7 +521,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("sandbox", "not-a-mode");
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
@@ -418,6 +572,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		InMemoryFileSystem fileSystem,
 		ICodexHookIntegration hooks) {
 		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		_settings = settings;
 		var commandRegistry = CoreCommands.CreateRegistry();
 		CapabilityRegistryHost registry = new(
 			AgentSessionCredential.Create(),

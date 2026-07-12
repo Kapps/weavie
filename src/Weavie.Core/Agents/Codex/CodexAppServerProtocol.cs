@@ -102,14 +102,18 @@ public static class CodexAppServerProtocol {
 		string cwd,
 		string sandbox,
 		string approvalPolicy,
-		string model) {
+		string model,
+		string effort,
+		string serviceTier) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentException.ThrowIfNullOrEmpty(prompt);
 		ArgumentException.ThrowIfNullOrEmpty(cwd);
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
 		ArgumentNullException.ThrowIfNull(model);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, [TextInput(prompt)]);
+		ArgumentNullException.ThrowIfNull(effort);
+		ArgumentNullException.ThrowIfNull(serviceTier);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, [TextInput(prompt)]);
 	}
 
 	/// <summary>Builds a turn/start request with text plus attached local images and staged skill input items.</summary>
@@ -122,7 +126,9 @@ public static class CodexAppServerProtocol {
 		string cwd,
 		string sandbox,
 		string approvalPolicy,
-		string model) {
+		string model,
+		string effort,
+		string serviceTier) {
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
 		ArgumentNullException.ThrowIfNull(prompt);
 		ArgumentNullException.ThrowIfNull(imagePaths);
@@ -131,7 +137,9 @@ public static class CodexAppServerProtocol {
 		ArgumentException.ThrowIfNullOrEmpty(sandbox);
 		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
 		ArgumentNullException.ThrowIfNull(model);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, InputItems(prompt, imagePaths, skills));
+		ArgumentNullException.ThrowIfNull(effort);
+		ArgumentNullException.ThrowIfNull(serviceTier);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, InputItems(prompt, imagePaths, skills));
 	}
 
 	/// <summary>Builds a turn/steer request for an in-flight turn.</summary>
@@ -165,13 +173,38 @@ public static class CodexAppServerProtocol {
 		string sandbox,
 		string approvalPolicy,
 		string model,
+		string effort,
+		string serviceTier,
 		object[] input) {
-		// An empty model leaves the thread's current model untouched; a value overrides it for this and
-		// subsequent turns, which is how a live in-session model change takes effect without a restart.
-		object parameters = string.IsNullOrWhiteSpace(model)
-			? new { threadId, cwd, approvalPolicy, sandboxPolicy = SandboxPolicy(sandbox, cwd), input }
-			: new { threadId, cwd, approvalPolicy, sandboxPolicy = SandboxPolicy(sandbox, cwd), input, model };
+		// model/effort override the thread for this and subsequent turns, which is how a live in-session change
+		// takes effect without a restart. An empty model/effort leaves the thread's current value untouched.
+		Dictionary<string, object?> parameters = new(StringComparer.Ordinal) {
+			["threadId"] = threadId,
+			["cwd"] = cwd,
+			["approvalPolicy"] = approvalPolicy,
+			["sandboxPolicy"] = SandboxPolicy(sandbox, cwd),
+			["input"] = input,
+		};
+		PutIfSet(parameters, "model", model);
+		PutIfSet(parameters, "effort", effort);
+		PutServiceTier(parameters, serviceTier);
 		return JsonSerializer.Serialize(new { method = "turn/start", id, @params = parameters });
+	}
+
+	private static void PutIfSet(IDictionary<string, object?> parameters, string key, string value) {
+		if (!string.IsNullOrWhiteSpace(value)) {
+			parameters[key] = value;
+		}
+	}
+
+	// serviceTier is three-way: "" leaves the thread's tier untouched, "standard" clears it to the standard tier
+	// (a JSON null Codex reads as "no tier"), and any other id selects that tier.
+	private static void PutServiceTier(IDictionary<string, object?> parameters, string serviceTier) {
+		if (serviceTier.Length == 0) {
+			return;
+		}
+
+		parameters["serviceTier"] = serviceTier == "standard" ? null : serviceTier;
 	}
 
 	private static string TurnSteerWithInput(long id, string threadId, string turnId, object[] input) =>
@@ -234,37 +267,6 @@ public static class CodexAppServerProtocol {
 
 		threadId = id.GetString() ?? string.Empty;
 		return threadId.Length > 0;
-	}
-
-	/// <summary>Reads a model/list result into selectable model options and the id of the catalog default.</summary>
-	public static bool TryReadModels(JsonElement result, out IReadOnlyList<AgentControlOption> models, out string defaultModel) {
-		models = [];
-		defaultModel = string.Empty;
-		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
-			return false;
-		}
-
-		List<AgentControlOption> options = [];
-		foreach (var item in data.EnumerateArray()) {
-			string modelId = item.GetStringOrEmpty("id");
-			if (modelId.Length == 0) {
-				continue;
-			}
-
-			string label = item.GetStringOrEmpty("displayName");
-			string description = item.GetStringOrEmpty("description");
-			options.Add(new AgentControlOption {
-				Id = modelId,
-				Label = label.Length > 0 ? label : modelId,
-				Description = description.Length > 0 ? description : null,
-			});
-			if (item.TryGetProperty("isDefault", out var isDefault) && isDefault.ValueKind == JsonValueKind.True) {
-				defaultModel = modelId;
-			}
-		}
-
-		models = options;
-		return true;
 	}
 
 	/// <summary>Reads a skills/list result into the session's skills, skipping disabled ones.</summary>

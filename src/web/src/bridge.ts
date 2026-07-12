@@ -127,6 +127,26 @@ export interface AgentControlAxis {
   options: AgentControlOption[];
 }
 
+/** One model in the merged model control, with the efforts and Fast state its submenu offers. */
+export interface AgentModelChoice {
+  id: string;
+  label: string;
+  current: boolean;
+  /** The effort id selected for this model (effective effort when current, else the model default). */
+  effort: string;
+  efforts: AgentControlOption[];
+  /** The service-tier id that turns Fast on for this model, or "" when it has no Fast tier. */
+  fastTier: string;
+  fastOn: boolean;
+}
+
+/** The merged model → effort / Fast control: one status-line item whose picker opens a per-model submenu. */
+export interface AgentModelControl {
+  value: string;
+  valueLabel: string;
+  models: AgentModelChoice[];
+}
+
 export interface AgentSlashEntry {
   id: string;
   name: string;
@@ -137,6 +157,7 @@ export interface AgentSlashEntry {
 }
 
 export interface AgentControlState {
+  modelControl: AgentModelControl;
   axes: AgentControlAxis[];
   slash: AgentSlashEntry[];
 }

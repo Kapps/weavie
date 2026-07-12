@@ -186,6 +186,30 @@ public static class CoreSettings {
 				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-failure, on-request, or never."),
 		});
 
+		// No Validate: efforts/tiers are per-model and open-ended (xhigh/max/ultra today, more tomorrow), so a
+		// fixed enum would reject future-valid values. A bad value surfaces as a loud Codex error on the next turn.
+		registry.Register(new SettingDefinition {
+			Key = "codex.effort",
+			Kind = SettingKind.String,
+			Description = "Reasoning effort passed to native Codex sessions (e.g. low, medium, high, xhigh). Empty "
+				+ "means Codex uses the model's default effort. Valid values depend on the model. Takes effect on "
+				+ "the next Codex session.",
+			Aliases = ["codex effort", "codex reasoning effort", "reasoning effort"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.serviceTier",
+			Kind = SettingKind.String,
+			Description = "Service tier passed to native Codex sessions. Empty (or 'standard') uses the standard "
+				+ "tier; 'priority' selects Fast Mode where the model supports it. Takes effect on the next Codex "
+				+ "session.",
+			Aliases = ["codex service tier", "codex fast mode", "fast mode"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
 		registry.Register(new SettingDefinition {
 			Key = "pr.autoReviewPrompt",
 			Kind = SettingKind.Bool,

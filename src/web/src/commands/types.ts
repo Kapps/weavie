@@ -64,6 +64,8 @@ export const CommandIds = {
   selectModel: "weavie.agent.selectModel",
   selectApprovalPolicy: "weavie.agent.selectApprovalPolicy",
   selectSandbox: "weavie.agent.selectSandbox",
+  selectEffort: "weavie.agent.selectEffort",
+  toggleFastMode: "weavie.agent.toggleFastMode",
   agentApprove: "weavie.agent.approve",
   agentApproveForSession: "weavie.agent.approveForSession",
   agentDecline: "weavie.agent.decline",

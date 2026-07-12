@@ -179,10 +179,14 @@
   overflow-wrap: break-word;
 }
 
+/* Assistant prose reads in the UI face at a bounded measure; code drops back to the terminal font. */
 .agent-markdown {
-  max-width: 100%;
+  max-width: 80ch;
   color: var(--fg);
   overflow-wrap: break-word;
+  font-family: var(--ui-font, system-ui, sans-serif);
+  font-weight: 400;
+  line-height: 1.5;
 }
 
 .agent-markdown > :first-child {
@@ -199,17 +203,30 @@
 .agent-markdown blockquote,
 .agent-markdown table,
 .agent-markdown pre {
-  margin: 0.55em 0;
+  margin: 0.8em 0;
 }
 
 .agent-markdown h1,
 .agent-markdown h2,
 .agent-markdown h3,
 .agent-markdown h4 {
-  margin: 0.9em 0 0.35em;
-  color: color-mix(in srgb, var(--fg) 94%, white);
-  font-size: 1em;
-  line-height: 1.2;
+  margin: 1.1em 0 0.4em;
+  color: var(--fg);
+  font-weight: 650;
+  line-height: 1.25;
+}
+
+.agent-markdown h1 {
+  font-size: 1.25em;
+}
+
+.agent-markdown h2 {
+  font-size: 1.15em;
+}
+
+.agent-markdown h3,
+.agent-markdown h4 {
+  font-size: 1.05em;
 }
 
 .agent-markdown h1,
@@ -241,21 +258,23 @@
   cursor: pointer;
 }
 
+/* Code surfaces mix from --fg, not --bar, so they hold contrast on light and dark themes alike. */
 .agent-markdown code {
-  padding: 0.08em 0.28em;
-  border: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+  padding: 0.08em 0.3em;
+  border: 1px solid color-mix(in srgb, var(--fg) 16%, transparent);
   border-radius: 2px;
-  background: color-mix(in srgb, var(--bar) 75%, var(--bg));
-  font: inherit;
+  background: color-mix(in srgb, var(--fg) 8%, var(--bg));
+  font-family: var(--terminal-font-family, ui-monospace, "Cascadia Code", Consolas, monospace);
+  font-size: 0.92em;
 }
 
 .agent-markdown pre {
   max-width: 100%;
   overflow: auto;
-  padding: 7px 8px;
-  border: 1px solid color-mix(in srgb, var(--border) 78%, transparent);
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--fg) 14%, transparent);
   border-left: 3px solid color-mix(in srgb, var(--accent) 52%, var(--border));
-  background: color-mix(in srgb, var(--bar) 62%, var(--bg));
+  background: color-mix(in srgb, var(--fg) 5%, var(--bg));
   white-space: pre;
 }
 
@@ -280,8 +299,8 @@
 }
 
 .agent-markdown th {
-  background: color-mix(in srgb, var(--bar) 78%, var(--bg));
-  color: color-mix(in srgb, var(--fg) 88%, var(--dim));
+  background: color-mix(in srgb, var(--fg) 6%, var(--bg));
+  color: var(--fg);
 }
 
 .markdown-image-blocked {
@@ -333,14 +352,6 @@
 
 .agent-entry-message.agent-tone-assistant + .agent-entry-message.agent-tone-assistant {
   margin-top: 10px;
-}
-
-.agent-entry-message.agent-tone-assistant .agent-entry-text {
-  color: color-mix(in srgb, var(--fg) 91%, var(--dim));
-}
-
-.agent-entry-message.agent-tone-assistant .agent-markdown {
-  color: color-mix(in srgb, var(--fg) 91%, var(--dim));
 }
 
 .agent-entry-activity,

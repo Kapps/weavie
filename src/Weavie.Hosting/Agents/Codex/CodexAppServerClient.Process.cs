@@ -81,9 +81,12 @@ public sealed partial class CodexAppServerClient {
 
 		string command = launch.Command;
 		IReadOnlyList<string> processArguments = arguments;
-		if (!OperatingSystem.IsWindows()) {
+		if (!OperatingSystem.IsWindows() && !Path.IsPathRooted(launch.Command)) {
+			// A rooted command spawns directly, keeping the imported PATH intact (Debian's /etc/profile resets it);
+			// only a bare one resolves through the login shell. Never -i on pipes: interactive job control grabs
+			// the host's controlling terminal and SIGTTIN-stops the runner's whole process group.
 			command = LoginShellEnvironment.LoginShell();
-			processArguments = ["-l", "-i", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
+			processArguments = ["-l", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
 		}
 
 		ProcessStartInfo info = new(command) {

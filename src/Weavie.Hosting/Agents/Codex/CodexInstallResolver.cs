@@ -12,8 +12,8 @@ internal static class CodexInstallResolver {
 		string? executable = ExecutableFinder.FindOnPath(command);
 		if (executable is null) {
 			if (!OperatingSystem.IsWindows() && !Path.IsPathRooted(command) && !command.Contains(Path.DirectorySeparatorChar)) {
-				// Match Claude's POSIX behavior: a bare command may only exist after the user's interactive login
-				// shell initializes a version manager (nvm, asdf, mise, and similar). The app-server launcher resolves it.
+				// Match Claude's POSIX behavior: a bare command may only exist on the login shell's PATH (version
+				// managers like nvm/asdf/mise); the app-server launcher's login-shell wrapper resolves it.
 				return CodexAppServerLaunch.Raw(command, workspace);
 			}
 

@@ -48,10 +48,11 @@ public sealed class CodexAppServerClientTests : IDisposable {
 			Assert.Equal("--stdio", info.ArgumentList[^1]);
 		} else {
 			Assert.Equal(LoginShellEnvironment.LoginShell(), info.FileName);
-			Assert.Equal(["-l", "-i", "-c"], info.ArgumentList.Take(3));
-			Assert.Contains("exec 'codex'", info.ArgumentList[3], StringComparison.Ordinal);
-			Assert.Contains("'app-server'", info.ArgumentList[3], StringComparison.Ordinal);
-			Assert.EndsWith("'--stdio'", info.ArgumentList[3], StringComparison.Ordinal);
+			// Never -i: see the SIGTTIN note in CodexAppServerClient.StartInfo.
+			Assert.Equal(["-l", "-c"], info.ArgumentList.Take(2));
+			Assert.Contains("exec 'codex'", info.ArgumentList[2], StringComparison.Ordinal);
+			Assert.Contains("'app-server'", info.ArgumentList[2], StringComparison.Ordinal);
+			Assert.EndsWith("'--stdio'", info.ArgumentList[2], StringComparison.Ordinal);
 		}
 		Assert.Equal("value", info.Environment["WEAVIE_TEST"]);
 		string pathKey = Assert.Single(info.Environment.Keys, key => string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase));
@@ -59,6 +60,21 @@ public sealed class CodexAppServerClientTests : IDisposable {
 			resources + Path.PathSeparator + pathDir + Path.PathSeparator,
 			info.Environment[pathKey],
 			StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void StartInfo_SpawnsResolvedPathDirectly() {
+		string resolved = Path.Combine(_dir, "codex-bin");
+		var info = CodexAppServerClient.StartInfo(
+			new CodexAppServerLaunch(resolved, _dir, []),
+			[],
+			[],
+			[],
+			new Dictionary<string, string>(StringComparer.Ordinal));
+
+		// A rooted command never goes through the login shell: the wrapper exists only to resolve bare names.
+		Assert.Equal(resolved, info.FileName);
+		Assert.Equal(["app-server", "--stdio"], info.ArgumentList);
 	}
 
 	[Fact]
@@ -266,6 +282,11 @@ fs.writeFileSync("env.txt", process.env.WEAVIE_TEST || "");
 function send(value) {
   process.stdout.write(JSON.stringify(value) + "\n");
 }
+// Write-then-rename so tests polling File.Exists never read a half-written file.
+function record(name, value) {
+  fs.writeFileSync(name + ".tmp", JSON.stringify(value));
+  fs.renameSync(name + ".tmp", name);
+}
 readline.createInterface({ input: process.stdin }).on("line", line => {
   const message = JSON.parse(line);
   if (message.method === "initialize") {
@@ -284,12 +305,12 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     send({ id: message.id, result: { ok: true } });
     send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake", startedAtMs: 1 } });
   } else if (message.id === "approval-1") {
-    fs.writeFileSync("string-response.json", JSON.stringify(message));
+    record("string-response.json", message);
   } else if (message.method === "test/error-request") {
     send({ id: message.id, result: { ok: true } });
     send({ id: "unsupported-1", method: "item/tool/call", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake" } });
   } else if (message.id === "unsupported-1") {
-    fs.writeFileSync("error-response.json", JSON.stringify(message));
+    record("error-response.json", message);
   } else if (message.method === "test/exit") {
     process.exit(7);
   }

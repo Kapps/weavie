@@ -98,7 +98,9 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		if (paneMessage is not null) {
 			// The fileChange approval request carries only the item id — the changed paths live on the item
 			// events, so remember each edit item's summary to give a later approval card its substance.
-			if (paneMessage is { Category: "edit", ItemId.Length: > 0, Summary.Length: > 0 }) {
+			// "fileChange" is the mapper's no-changes placeholder, not substance.
+			if (paneMessage is { Category: "edit", ItemId.Length: > 0, Summary.Length: > 0 }
+				&& paneMessage.Summary != "fileChange") {
 				lock (_gate) {
 					_fileChangeSummaries[paneMessage.ItemId] = paneMessage.Summary;
 				}
@@ -190,10 +192,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		lock (_gate) {
 			if (turnId.Length == 0 || string.Equals(turnId, _turnId, StringComparison.Ordinal)) {
 				_turnId = null;
+				// Approvals are turn-scoped; a late completion of an OLDER turn must not wipe the live
+				// turn's harvested edit summaries, so the clear shares the turn-id guard.
+				_fileChangeSummaries.Clear();
 			}
-
-			// Approvals are turn-scoped, so the harvested edit summaries are stale once any turn ends.
-			_fileChangeSummaries.Clear();
 		}
 	}
 

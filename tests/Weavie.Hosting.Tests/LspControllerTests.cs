@@ -91,10 +91,14 @@ public sealed class LspControllerTests {
 		Assert.Empty(launcher.Servers[0].WrittenTexts());
 		Assert.Equal("""{"jsonrpc":"2.0","id":9,"method":"x"}""", launcher.Servers[1].LastWrittenText());
 
-		for (int i = 0; i < 200 && !launcher.Servers[0].Disposed; i++) {
+		// The reap posts lsp-exit (after disposing) so a still-live sibling page's client learns and reconnects.
+		for (int i = 0; i < 200 && !bridge.LastOfType("lsp-exit").HasValue; i++) {
 			await Task.Delay(10);
 		}
 
+		var exit = bridge.LastOfType("lsp-exit");
+		Assert.True(exit.HasValue);
+		Assert.Equal("lsp1-oldpage", exit!.Value.GetProperty("channel").GetString());
 		Assert.True(launcher.Servers[0].Disposed);
 		Assert.False(launcher.Servers[1].Disposed);
 	}

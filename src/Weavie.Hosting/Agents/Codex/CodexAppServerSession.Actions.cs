@@ -269,13 +269,18 @@ public sealed partial class CodexAppServerSession {
 
 	// A decision can race a restart that voided the request: unwedge the card and say why — never eat the click.
 	private void EmitStaleRequest(string requestId, string resolutionType, string kind) {
+		EmitCancelledResolution(requestId, resolutionType);
+		EmitError($"Codex is no longer waiting on this {kind} (usually because the app-server restarted); nothing was sent.");
+	}
+
+	// Resolves a card whose server-side request no longer exists (restart retraction or a stale decision).
+	private void EmitCancelledResolution(string requestId, string resolutionType) {
+		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 		Emit(new AgentPaneMessage {
 			Type = resolutionType,
 			ProviderId = "codex",
 			Status = "cancel",
 			ItemId = requestId,
 		});
-		EmitError($"Codex is no longer waiting on this {kind} (usually because the app-server restarted); nothing was sent.");
-		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 	}
 }

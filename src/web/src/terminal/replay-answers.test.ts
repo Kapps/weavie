@@ -13,6 +13,7 @@ describe("isReplayedQueryAnswer", () => {
     expect(isReplayedQueryAnswer(`${ESC}[?2026;1$y`)).toBe(true); // DECRPM
     expect(isReplayedQueryAnswer(`${ESC}]10;rgb:ff/ff/ff${BEL}`)).toBe(true); // OSC color reply
     expect(isReplayedQueryAnswer(`${ESC}P1$r0m${ESC}\\`)).toBe(true); // DCS reply
+    expect(isReplayedQueryAnswer(`${ESC}[?1u`)).toBe(true); // kitty-keyboard flags reply
   });
 
   it("passes real user input through, including escape-prefixed keys", () => {
@@ -23,6 +24,7 @@ describe("isReplayedQueryAnswer", () => {
     expect(isReplayedQueryAnswer(`${ESC}OR`)).toBe(false); // F3
     expect(isReplayedQueryAnswer(`${ESC}[15~`)).toBe(false); // F5
     expect(isReplayedQueryAnswer(`${ESC}r`)).toBe(false); // alt+r
+    expect(isReplayedQueryAnswer(`${ESC}[13;2u`)).toBe(false); // kitty-encoded Shift+Enter (no '?' prefix)
     expect(isReplayedQueryAnswer(ESC)).toBe(false); // bare escape key
   });
 });

@@ -15,7 +15,11 @@ export function isReplayedQueryAnswer(data: string): boolean {
   const kind = data[1];
   const last = data[data.length - 1];
   if (kind === "[") {
-    return last === "R" || last === "c" || last === "n" || last === "y";
+    if (last === "R" || last === "c" || last === "n" || last === "y") {
+      return true;
+    }
+    // The kitty-keyboard flags reply (CSI ? flags u); real kitty key events never carry the '?' prefix.
+    return last === "u" && data[2] === "?";
   }
   if (kind === "]") {
     return data.endsWith(BEL) || data.endsWith(`${ESC}\\`);

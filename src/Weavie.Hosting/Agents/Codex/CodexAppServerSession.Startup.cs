@@ -44,13 +44,11 @@ public sealed partial class CodexAppServerSession {
 				continue;
 			}
 
-			_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
-			Emit(new AgentPaneMessage {
-				Type = CodexApprovalResponses.CanResolve(request.Method) ? "approval-resolved" : "input-resolved",
-				ProviderId = "codex",
-				Status = "cancel",
-				ItemId = request.Id,
-			});
+			// Recorded as resolved so a decision click racing this retraction stays a silent no-op.
+			_resolvedRequests[request.Id] = 0;
+			EmitCancelledResolution(
+				request.Id,
+				CodexApprovalResponses.CanResolve(request.Method) ? "approval-resolved" : "input-resolved");
 			Emit(new AgentPaneMessage {
 				Type = "warning",
 				ProviderId = "codex",

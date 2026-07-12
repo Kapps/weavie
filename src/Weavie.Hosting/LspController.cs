@@ -101,9 +101,13 @@ public sealed class LspController : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(epoch);
 		string suffix = "-" + epoch;
 		foreach (string channel in _channels.Keys) {
-			if (!channel.EndsWith(suffix, StringComparison.Ordinal)) {
-				Stop(channel);
+			if (channel.EndsWith(suffix, StringComparison.Ordinal) || !_channels.TryRemove(channel, out var ch)) {
+				continue;
 			}
+
+			// The reaped channel's owner did not ask for this: post the exit (unlike a page-initiated Stop) so a
+			// still-live sibling page's client tears down and reconnects instead of waiting on a dead channel.
+			_ = Task.Run(() => ch.DisposeWithExit("superseded by a newer page instance"));
 		}
 	}
 

@@ -54,6 +54,11 @@ public sealed partial class CodexAppServerClient {
 			return;
 		}
 
+		// Everything pending here targets the instance being stopped, and its Exited handler will skip
+		// FailPending once the launch is superseded — fail them now or a request that slipped in after the
+		// caller's own FailPending would hang forever.
+		FailPending(new IOException("Codex app-server stopped."));
+
 		try {
 			if (!process.HasExited) {
 				process.Kill(entireProcessTree: true);

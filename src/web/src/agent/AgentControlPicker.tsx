@@ -30,6 +30,8 @@ export function AgentControlPicker(props: { backendId: string; slot: string | nu
       return;
     }
     if (current.id === seededAxis) {
+      // A re-push can shrink the options while open; keep the highlight in range without re-seeding it.
+      setHighlight((index) => Math.min(index, Math.max(0, current.options.length - 1)));
       return;
     }
     seededAxis = current.id;

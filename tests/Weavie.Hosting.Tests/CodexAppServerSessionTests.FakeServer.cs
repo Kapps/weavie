@@ -18,9 +18,17 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     send({ id: message.id, result: { userAgent: "fake-codex" } });
   } else if (message.method === "thread/start") {
     record("thread-start.json", message);
-    send({ id: message.id, result: { thread: { id: "thread_fake" } } });
+    if (fs.existsSync("start-fails")) {
+      send({ id: message.id, error: { code: -32600, message: "Invalid request: unknown variant `on-failure`" } });
+    } else {
+      send({ id: message.id, result: { thread: { id: "thread_fake" } } });
+    }
   } else if (message.method === "thread/resume") {
     record("thread-resume.json", message);
+    if (fs.existsSync("resume-fails")) {
+      send({ id: message.id, error: { code: -32603, message: "failed to read thread: thread-store internal error: rollout is empty" } });
+      return;
+    }
     const turns = fs.existsSync("resume-with-history") ? [{ id: "turn_old", status: "completed", items: [
       { type: "userMessage", id: "user_old", content: [{ type: "text", text: "old prompt", text_elements: [] }] },
       { type: "agentMessage", id: "agent_old", text: "old answer" }

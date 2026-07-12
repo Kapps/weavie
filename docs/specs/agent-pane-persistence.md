@@ -83,5 +83,7 @@ deliberately **uncapped** — capping would silently drop history.
 ## Reset
 
 `transcript-reset` (emitted by `CodexAppServerSession` when it hydrates a resumed thread, and when it
-abandons a saved thread on "no rollout found") clears the in-memory buffer and deletes the disk file, so
-the persisted transcript never diverges from the live thread.
+abandons a saved thread codex refused to resume — rollout missing, corrupt, or otherwise rejected) clears
+the in-memory buffer and deletes the disk file, so the persisted transcript never diverges from the live
+thread. The abandon path only fires once a replacement thread has started: a rejection that also breaks
+`thread/start` (a bad session config) surfaces as an error and leaves the mapping and transcript intact.

@@ -18,6 +18,7 @@ export function AgentPane(props: {
 }): JSX.Element {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
+  let lastScrollTop = 0;
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
@@ -45,6 +46,23 @@ export function AgentPane(props: {
         bodyRef.scrollTop = bodyRef.scrollHeight;
       }
     });
+  };
+
+  // Un-stick only when the user actually scrolls upward. A bursty message stream fires scroll events from our own
+  // scroll-to-bottom (and content growing under it) that momentarily read "not at bottom"; treating those as a
+  // manual scroll-up would latch follow off mid-burst and strand the jump-to-latest pill.
+  const onBodyScroll = (): void => {
+    if (bodyRef === undefined) {
+      return;
+    }
+    const top = bodyRef.scrollTop;
+    const scrolledUp = top < lastScrollTop - 1;
+    lastScrollTop = top;
+    if (isAtBottom()) {
+      setStickToBottom(true);
+    } else if (scrolledUp) {
+      setStickToBottom(false);
+    }
   };
 
   createEffect(() => {
@@ -92,7 +110,7 @@ export function AgentPane(props: {
         </Show>
       </div>
       <div class="agent-body-wrap">
-        <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
+        <div class="agent-body" ref={bodyRef} onScroll={onBodyScroll}>
           <AgentTranscript
             entries={transcript()}
             keyboardApprovalId={keyboardApprovalId()}

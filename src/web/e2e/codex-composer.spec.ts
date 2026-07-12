@@ -265,6 +265,22 @@ test.describe("Codex composer", () => {
     await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
   });
 
+  test("keyboard focus in the submenu survives a host re-push", async ({ page }) => {
+    await mountCodex(page);
+
+    await page.locator(".agent-status-model").click();
+    // Into GPT-5.5's submenu, then down to the Fast row (efforts low/medium/high + Fast).
+    await page.keyboard.press("ArrowRight");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    const fastItem = page.locator(".agent-model-fast-item");
+    await expect(fastItem).toHaveClass(/active/);
+
+    // A control re-push (which every SetControl triggers) must not snap focus back out of the submenu.
+    host.pushToWeb(controls);
+    await expect(fastItem).toHaveClass(/active/);
+  });
+
   test("typing / opens the slash menu and a skill stages a chip", async ({ page }) => {
     await mountCodex(page);
 

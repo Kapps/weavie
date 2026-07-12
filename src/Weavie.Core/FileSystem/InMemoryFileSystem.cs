@@ -93,6 +93,16 @@ public sealed class InMemoryFileSystem : IFileSystem {
 	}
 
 	/// <inheritdoc/>
+	public bool TryReadAllText(string path, out string contents) {
+		if (_files.TryGetValue(Normalize(path), out byte[]? bytes)) {
+			using var stream = new MemoryStream(bytes, writable: false);
+			return TextFileReader.TryRead(stream, out contents);
+		}
+
+		throw new FileNotFoundException($"No in-memory file at '{path}'.", path);
+	}
+
+	/// <inheritdoc/>
 	public byte[] ReadAllBytes(string path) {
 		if (_files.TryGetValue(Normalize(path), out byte[]? contents)) {
 			return (byte[])contents.Clone();

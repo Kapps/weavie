@@ -179,6 +179,107 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void Observe_WorkspaceMutation_DoesNotTrackBinaryFile() {
+		var fileSystem = new InMemoryFileSystem();
+		var tracker = Tracker(fileSystem);
+		int changed = 0;
+		int fileChanged = 0;
+		tracker.Changed += () => changed++;
+		tracker.FileChanged += _ => fileChanged++;
+
+		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("download")));
+		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("download")));
+
+		Assert.Empty(tracker.Changes());
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(0, changed);
+		Assert.Equal(1, fileChanged);
+	}
+
+	[Fact]
+	public void Observe_UnchangedBinaryFile_DoesNotRaiseChangeEvents() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
+		var tracker = Tracker(fileSystem);
+		int changed = 0;
+		int fileChanged = 0;
+		tracker.Changed += () => changed++;
+		tracker.FileChanged += _ => fileChanged++;
+
+		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("noop")));
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("noop")));
+
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(0, changed);
+		Assert.Equal(0, fileChanged);
+	}
+
+	[Fact]
+	public void Observe_ChangedBinaryFile_RaisesRefreshOnly() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0x01]);
+		var tracker = Tracker(fileSystem);
+		int changed = 0;
+		int fileChanged = 0;
+		tracker.Changed += () => changed++;
+		tracker.FileChanged += _ => fileChanged++;
+
+		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("download")));
+		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0x02]);
+		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("download")));
+
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(0, changed);
+		Assert.Equal(1, fileChanged);
+	}
+
+	[Fact]
+	public void RecordChange_TextBecomingBinary_RemovesReviewWithoutReportingDeletion() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/archive.bin", "text\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/archive.bin");
+		fileSystem.WriteAllText("/w/archive.bin", "changed\n");
+		tracker.RecordChange("/w/archive.bin");
+		Assert.Single(tracker.TurnChanges());
+
+		int changed = 0;
+		int fileChanged = 0;
+		int deleted = 0;
+		tracker.Changed += () => changed++;
+		tracker.FileChanged += _ => fileChanged++;
+		tracker.FileDeleted += _ => deleted++;
+		tracker.CaptureBaseline("/w/archive.bin");
+		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
+		tracker.RecordChange("/w/archive.bin");
+
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(1, changed);
+		Assert.Equal(1, fileChanged);
+		Assert.Equal(0, deleted);
+	}
+
+	[Fact]
+	public void RecordChange_BinaryBecomingText_IsRefreshOnlyAndCannotBeRejected() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
+		var tracker = Tracker(fileSystem);
+		int fileChanged = 0;
+		tracker.FileChanged += _ => fileChanged++;
+
+		tracker.CaptureBaseline("/w/archive.bin");
+		fileSystem.WriteAllText("/w/archive.bin", "now text\n");
+		tracker.RecordChange("/w/archive.bin");
+
+		Assert.Empty(tracker.TurnChanges());
+		Assert.Equal(1, fileChanged);
+		Assert.Equal(RevertHunkOutcome.GuardMismatch, tracker.RevertFile("/w/archive.bin"));
+		Assert.True(fileSystem.FileExists("/w/archive.bin"));
+		Assert.Equal("now text\n", fileSystem.ReadAllText("/w/archive.bin"));
+	}
+
+	[Fact]
 	public void GetTurn_UntouchedThisTurn_ReturnsNull() {
 		var tracker = Tracker(new InMemoryFileSystem());
 		Assert.Null(tracker.GetTurn("/w/never.txt"));

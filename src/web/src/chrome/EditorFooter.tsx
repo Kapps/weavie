@@ -1,4 +1,6 @@
+import { TriangleAlert } from "lucide-solid";
 import { type JSX, Show } from "solid-js";
+import { activeBackendPhase } from "../bridge";
 import { isDirtyPath } from "../editor/dirty-store";
 import { editorStatus } from "../editor/editor-status-store";
 import { activePath } from "../editor/session-store";
@@ -28,6 +30,16 @@ export function EditorFooter(props: {
         )}
       </Show>
       <span class="footer-spacer" />
+      <Show when={activeBackendPhase() === "reconnecting"}>
+        <span
+          class="footer-seg footer-network-problem"
+          role="status"
+          title="The connection to this workspace was interrupted. Weavie is retrying."
+        >
+          <TriangleAlert size={13} aria-hidden="true" />
+          Network Problems
+        </span>
+      </Show>
       <Show when={isDirty()}>
         <span class="footer-seg footer-accent">Unsaved</span>
       </Show>

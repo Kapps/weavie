@@ -32,7 +32,24 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private bool WorkspaceFileChanged(string path) {
-		string current = ReadOrEmpty(path);
+		if (!_fileSystem.FileExists(path)) {
+			lock (_gate) {
+				return _reviewBaseline.ContainsKey(path); // a tracked text deletion reviews against empty content
+			}
+		}
+
+		if (!TryReadOrEmpty(path, out string current)) {
+			if (!_fileSystem.TryGetStat(path, out var stat)) {
+				return false;
+			}
+
+			lock (_gate) {
+				return !_nonText.TryGetValue(path, out var known)
+					|| stat.MtimeMs != known.MtimeMs
+					|| stat.Size != known.Size;
+			}
+		}
+
 		lock (_gate) {
 			if (!_reviewBaseline.TryGetValue(path, out string? baseline)) {
 				return true;

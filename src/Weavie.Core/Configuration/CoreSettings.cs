@@ -66,6 +66,22 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = "terminal.outputCoalesceMs",
+			Kind = SettingKind.Int,
+			Description = "How long (milliseconds) to batch a terminal pane's live output into one update before "
+				+ "sending it to the page. Batching keeps a burst of output (a build, a big file, `seq`) from "
+				+ "flooding the bridge and freezing the UI. 16 by default — one frame at 60fps, imperceptible; "
+				+ "0 sends every chunk immediately (no batching). Takes effect on the next session.",
+			Aliases = ["terminal batching", "coalesce terminal output", "terminal output batching",
+				"output flush interval"],
+			Apply = ApplyMode.NextSession,
+			Default = 16L,
+			Validate = static value => value is long ms && ms >= 0
+				? ValidationResult.Success
+				: ValidationResult.Failure("terminal.outputCoalesceMs must be 0 (off) or a positive number of milliseconds."),
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
 			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider. "

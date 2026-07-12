@@ -465,6 +465,9 @@ public sealed partial class HostCore {
 			// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
 			// one session's images never touches another's.
 			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
+			// The structured agent pane's durable transcript (keyed by worktree, like the shell scrollback log)
+			// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
+			WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client

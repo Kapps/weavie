@@ -52,7 +52,8 @@ public sealed class AgentSessionHostTests {
 			},
 			bridge,
 			settings,
-			new NoopPtyLauncher());
+			new NoopPtyLauncher(),
+			Path.Combine(dir, "agent-pane.json"));
 
 		Assert.False(session.Started);
 		slot = "slot-1";
@@ -82,6 +83,67 @@ public sealed class AgentSessionHostTests {
 		var replayed = Assert.Single(bridge.PostedOfType("agent-pane"), value =>
 			value.GetProperty("message").GetProperty("itemId").GetString() == "item-1");
 		Assert.Equal("hello world", replayed.GetProperty("message").GetProperty("text").GetString());
+	}
+
+	[Fact]
+	public async Task StructuredProvider_SeedsPersistedTranscript_BeforeStart() {
+		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
+		Directory.CreateDirectory(dir);
+		var fileSystem = new InMemoryFileSystem();
+		string transcriptPath = Path.Combine(dir, "agent-pane.json");
+		// A prior session's persisted result — the durable transcript on disk before this session is built.
+		new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(new AgentPaneMessage {
+			Type = "item-completed",
+			ProviderId = "codex",
+			TurnId = "turn-1",
+			ItemId = "item-1",
+			Text = "prior result",
+			Status = "completed",
+		});
+
+		using var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
+		var commandRegistry = CoreCommands.CreateRegistry();
+		var bridge = new FakeHostBridge();
+		await using var registry = new CapabilityRegistryHost(
+			AgentSessionCredential.Create(),
+			FakeDiffPresenter.AlwaysKeep(),
+			[dir],
+			"weavie",
+			settings,
+			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
+			new EditorStore(),
+			exposeIdeTools: true,
+			new CommandDispatcher(commandRegistry),
+			new KeybindingStore(commandRegistry, Path.Combine(dir, "keybindings.json"), enableWatcher: false),
+			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
+			() => "slot-1");
+		var session = new FakeStructuredSession();
+		await using var host = new AgentSessionHost(
+			new FakeStructuredProvider(session),
+			new AgentSessionContext {
+				Settings = settings,
+				Workspace = dir,
+				FileSystem = fileSystem,
+				Registry = registry,
+				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),
+				Editor = new EditorStore(),
+				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
+				Events = new NullAgentEventSink(),
+				CurrentSessionId = () => "slot-1",
+			},
+			bridge,
+			settings,
+			new NoopPtyLauncher(),
+			transcriptPath);
+
+		// The provider hasn't started (no thread/resume, no hydration): a reconnecting page's ReplayPane still
+		// restores the prior result — from the synchronous disk seed. This is the reopen-reconnect fix.
+		Assert.False(session.Started);
+		host.ReplayPane();
+
+		var replayed = Assert.Single(bridge.PostedOfType("agent-pane"));
+		Assert.Equal("item-completed", replayed.GetProperty("message").GetProperty("type").GetString());
+		Assert.Equal("prior result", replayed.GetProperty("message").GetProperty("text").GetString());
 	}
 
 	private sealed class FakeStructuredProvider(FakeStructuredSession session) : IAgentProvider {

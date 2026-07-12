@@ -18,7 +18,7 @@ reviews this.
 
 ## Scope
 
-- Review the **commit range you are given** (e.g. `behavior-audit/last..origin/main`). Run
+- Review the **commit range you are given** (e.g. `<base>^..origin/main`). Run
   `git log --oneline <range>` and `git diff <range>` to see it. If handed a single SHA, review that
   commit.
 - Judge the **net present state** — a pathology introduced and reverted within the range is not a

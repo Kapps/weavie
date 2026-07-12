@@ -82,6 +82,10 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
 - **Never accept a flaky test and hide it — that's a silent fallback.** A skip, a quarantine, a
   retry loop, a loosened assertion, or "re-ran it and it passed" all bury the defect. When you find
   a flake, root-cause it and fix it.
+- **Never install a fake or stub binary into a shared PATH directory** (e.g. a stub `codex` beside
+  node in nvm's bin) — it hijacks the real binary for every other session and the user's live app,
+  long after your task ends. Keep fakes under `temp/` and wire them in via settings (`codex.path`,
+  `TerminalController.ResolveClaudeLaunch`), scoped to your test.
 
 ## Custom agents
 

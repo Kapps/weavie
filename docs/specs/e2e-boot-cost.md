@@ -92,7 +92,7 @@ Steps:
    `WEAVIE_SERVE_PORT` accordingly instead of `0`. A bind failure must stay a loud failure — the host
    exits and `waitForListening` already rejects with its log; no retry/fallback (repo rule). Notes:
    a LISTEN socket does not enter TIME_WAIT, so rebinding the same port right after
-   `killProcessTree` is fine on Linux/macOS and on Windows (taskkill closes the listener); verify
+   `killProcessTree` is fine on Linux/macOS and on Windows (the tree kill closes the listener); verify
    this holds by running one worker's specs serially in a loop locally.
 2. **Persistent context per worker.** In `src/web/e2e/harness/fixtures.ts`, add a worker-scoped
    fixture that calls `chromium.launchPersistentContext(userDataDir, ...)` with a per-worker

@@ -28,10 +28,10 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		string pathDir = Path.Combine(_dir, "codex-path");
 		var info = CodexAppServerClient.StartInfo(
 			new CodexAppServerLaunch("codex", _dir, [resources, pathDir]),
-			["--dangerously-bypass-hook-trust"],
+			["--no-color"],
 			["-c", "mcp_servers.weavie.enabled=true"],
-			["-c", "hooks.PreToolUse=[]"],
-			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_HOOK_PIPE"] = "pipe" });
+			["--strict-config"],
+			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_TEST"] = "value" });
 
 		Assert.Equal(_dir, info.WorkingDirectory);
 		Assert.False(info.UseShellExecute);
@@ -53,7 +53,7 @@ public sealed class CodexAppServerClientTests : IDisposable {
 			Assert.Contains("'app-server'", info.ArgumentList[3], StringComparison.Ordinal);
 			Assert.EndsWith("'--stdio'", info.ArgumentList[3], StringComparison.Ordinal);
 		}
-		Assert.Equal("pipe", info.Environment["WEAVIE_HOOK_PIPE"]);
+		Assert.Equal("value", info.Environment["WEAVIE_TEST"]);
 		string pathKey = Assert.Single(info.Environment.Keys, key => string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase));
 		Assert.StartsWith(
 			resources + Path.PathSeparator + pathDir + Path.PathSeparator,
@@ -71,8 +71,8 @@ public sealed class CodexAppServerClientTests : IDisposable {
 			_dir,
 			["--no-warnings"],
 			["-c", "mcp_servers.weavie.enabled=true"],
-			["-c", "hooks.PreToolUse=[]"],
-			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_HOOK_PIPE"] = "weavie-hook-test" },
+			["--strict-config"],
+			new Dictionary<string, string>(StringComparer.Ordinal) { ["WEAVIE_TEST"] = "weavie-test" },
 			logs.Add);
 		client.ProcessStarted += starts.Add;
 		client.NotificationReceived += root => {
@@ -119,9 +119,9 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		using var execArgsDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "exec-args.json")));
 		Assert.Equal("--no-warnings", execArgsDoc.RootElement[0].GetString());
 		Assert.Equal("-c", argsDoc.RootElement[0].GetString());
-		Assert.Contains(argsDoc.RootElement.EnumerateArray(), value => value.GetString() == "hooks.PreToolUse=[]");
+		Assert.Contains(argsDoc.RootElement.EnumerateArray(), value => value.GetString() == "--strict-config");
 		Assert.Contains(argsDoc.RootElement.EnumerateArray(), value => value.GetString() == "--stdio");
-		Assert.Equal("weavie-hook-test", File.ReadAllText(Path.Combine(_dir, "env.txt")));
+		Assert.Equal("weavie-test", File.ReadAllText(Path.Combine(_dir, "env.txt")));
 	}
 
 	[Fact]
@@ -262,7 +262,7 @@ const fs = require("fs");
 const readline = require("readline");
 fs.writeFileSync("args.json", JSON.stringify(process.argv.slice(2)));
 fs.writeFileSync("exec-args.json", JSON.stringify(process.execArgv));
-fs.writeFileSync("env.txt", process.env.WEAVIE_HOOK_PIPE || "");
+fs.writeFileSync("env.txt", process.env.WEAVIE_TEST || "");
 function send(value) {
   process.stdout.write(JSON.stringify(value) + "\n");
 }

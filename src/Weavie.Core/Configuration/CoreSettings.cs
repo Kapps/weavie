@@ -121,11 +121,9 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = "claude.allowAllTools",
 			Kind = SettingKind.Bool,
-			Description = "Auto-allow Claude's non-edit tool calls (Bash and other commands) without prompting. "
-				+ "This is Weavie's tool-permission axis, separate from how EDITS are handled — edits follow "
-				+ "Claude's own mode (cycled with Shift+Tab in the Claude pane), which Weavie observes but does not "
-				+ "set. 'Bypass everything' = Claude in acceptEdits + this on. Your own deny rules still win. Takes "
-				+ "effect on the next tool call.",
+			Description = "Bypass agent permission prompts. Claude's permission hooks are auto-accepted without "
+				+ "changing its edit mode. Codex runs with danger-full-access and never asks for approval. Takes effect "
+				+ "on the next tool call or Codex turn.",
 			Aliases = ["allow all tools", "auto allow tools", "auto approve tools", "stop asking", "yolo mode",
 				"bypass permissions", "skip permissions", "auto run commands", "allow all"],
 			Apply = ApplyMode.Live,
@@ -183,6 +181,30 @@ public static class CoreSettings {
 					|| string.Equals(policy, "never", StringComparison.Ordinal))
 				? ValidationResult.Success
 				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-request, or never."),
+		});
+
+		// No Validate: efforts/tiers are per-model and open-ended (xhigh/max/ultra today, more tomorrow), so a
+		// fixed enum would reject future-valid values. A bad value surfaces as a loud Codex error on the next turn.
+		registry.Register(new SettingDefinition {
+			Key = "codex.effort",
+			Kind = SettingKind.String,
+			Description = "Reasoning effort passed to native Codex sessions (e.g. low, medium, high, xhigh). Empty "
+				+ "means Codex uses the model's default effort. Valid values depend on the model. Takes effect on "
+				+ "the next Codex session.",
+			Aliases = ["codex effort", "codex reasoning effort", "reasoning effort"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.serviceTier",
+			Kind = SettingKind.String,
+			Description = "Service tier passed to native Codex sessions. Empty (or 'standard') uses the standard "
+				+ "tier; 'priority' selects Fast Mode where the model supports it. Takes effect on the next Codex "
+				+ "session.",
+			Aliases = ["codex service tier", "codex fast mode", "fast mode"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
 		});
 
 		registry.Register(new SettingDefinition {

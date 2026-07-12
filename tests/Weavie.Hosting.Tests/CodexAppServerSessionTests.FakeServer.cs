@@ -11,13 +11,6 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
   const message = JSON.parse(line);
   if (message.method === "initialize") {
     send({ id: message.id, result: { userAgent: "fake-codex" } });
-  } else if (message.method === "hooks/list") {
-    const unsafe = fs.existsSync("unsafe-hooks");
-    send({ id: message.id, result: { data: [{ cwd: process.cwd(), errors: [], warnings: [], hooks: unsafe ? [
-      { enabled: true, isManaged: false, source: "user", trustStatus: "untrusted", command: "evil", eventName: "preToolUse", handlerType: "command", key: "user:1", sourcePath: process.cwd(), currentHash: "h", displayOrder: 1, timeoutSec: 30 }
-    ] : [
-      { enabled: true, isManaged: false, source: "sessionFlags", trustStatus: "untrusted", command: "weavie", eventName: "preToolUse", handlerType: "command", key: "session:1", sourcePath: process.cwd(), currentHash: "h", displayOrder: 1, timeoutSec: 30 }
-    ] }] } });
   } else if (message.method === "thread/start") {
     fs.writeFileSync("thread-start.json", JSON.stringify(message));
     if (fs.existsSync("start-fails")) {
@@ -37,9 +30,14 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     ] }] : [];
     send({ id: message.id, result: { thread: { id: message.params.threadId, turns } } });
   } else if (message.method === "model/list") {
+    const efforts = levels => levels.map(effort => ({ reasoningEffort: effort, description: effort + " effort" }));
     send({ id: message.id, result: { data: [
-      { id: "gpt-5.5", model: "gpt-5.5", displayName: "GPT-5.5", description: "Frontier model.", hidden: false, isDefault: true },
-      { id: "gpt-5.4-mini", model: "gpt-5.4-mini", displayName: "GPT-5.4 mini", description: "Fast model.", hidden: false, isDefault: false }
+      { id: "gpt-5.5", model: "gpt-5.5", displayName: "GPT-5.5", description: "Frontier model.", hidden: false, isDefault: true,
+        defaultReasoningEffort: "medium", supportedReasoningEfforts: efforts(["low", "medium", "high"]),
+        defaultServiceTier: "", serviceTiers: [{ id: "priority", name: "Fast", description: "1.5x speed, increased usage" }] },
+      { id: "gpt-5.4-mini", model: "gpt-5.4-mini", displayName: "GPT-5.4 mini", description: "Fast model.", hidden: false, isDefault: false,
+        defaultReasoningEffort: "low", supportedReasoningEfforts: efforts(["low", "medium"]),
+        defaultServiceTier: "", serviceTiers: [] }
     ] } });
   } else if (message.method === "skills/list") {
     fs.writeFileSync("skills-list.json", JSON.stringify(message));

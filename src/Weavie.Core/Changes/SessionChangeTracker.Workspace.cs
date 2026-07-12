@@ -5,6 +5,53 @@ namespace Weavie.Core.Changes;
 /// <summary>Workspace-wide change observation for tools whose touched files are unknown before execution.</summary>
 public sealed partial class SessionChangeTracker {
 	private readonly Dictionary<string, HashSet<string>> _workspaceMutationBaselines = new(StringComparer.Ordinal);
+	private HashSet<string>? _workspaceTurnBaseline;
+
+	private void BeginWorkspaceTurn() {
+		var files = WorkspaceFiles();
+		lock (_gate) {
+			_workspaceTurnBaseline = new HashSet<string>(files, StringComparer.Ordinal);
+		}
+
+		foreach (string path in files) {
+			CaptureBaseline(path);
+		}
+	}
+
+	private void EndWorkspaceTurn() {
+		HashSet<string>? baseline;
+		lock (_gate) {
+			baseline = _workspaceTurnBaseline;
+			_workspaceTurnBaseline = null;
+		}
+		if (baseline is null) {
+			return;
+		}
+
+		var candidates = new HashSet<string>(WorkspaceFiles(), StringComparer.Ordinal);
+		candidates.UnionWith(baseline);
+		List<string>? deleted = null;
+		foreach (string path in candidates) {
+			if (WorkspaceFileChanged(path)) {
+				RecordChange(path);
+				if (!_fileSystem.FileExists(path)) {
+					(deleted ??= []).Add(path);
+				}
+			}
+		}
+
+		if (deleted is not null) {
+			foreach (string path in deleted) {
+				FileDeleted?.Invoke(path);
+			}
+		}
+	}
+
+	private bool WorkspaceTurnActive() {
+		lock (_gate) {
+			return _workspaceTurnBaseline is not null;
+		}
+	}
 
 	private void CaptureWorkspaceBaselines(string invocationId) {
 		ArgumentException.ThrowIfNullOrEmpty(invocationId);

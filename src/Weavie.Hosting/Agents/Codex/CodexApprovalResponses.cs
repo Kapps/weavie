@@ -17,10 +17,13 @@ internal static class CodexApprovalResponses {
 	}
 
 	public static bool CanResolve(string method) =>
+		IsPermissionApproval(method)
+			|| method is "mcpServer/elicitation/request";
+
+	public static bool IsPermissionApproval(string method) =>
 		method is "item/commandExecution/requestApproval"
 			or "item/fileChange/requestApproval"
-			or "item/permissions/requestApproval"
-			or "mcpServer/elicitation/request";
+			or "item/permissions/requestApproval";
 
 	private static object PermissionResponse(JsonElement message, string decision) {
 		string scope = string.Equals(decision, "acceptForSession", StringComparison.Ordinal) ? "session" : "turn";

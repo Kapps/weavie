@@ -12,7 +12,6 @@ namespace Weavie.Hosting.Agents.Codex;
 public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly AgentSessionContext _context;
 	private readonly CodexAppServerClient _client;
-	private readonly ICodexHookIntegration _hooks;
 	private readonly CodexThreadStore _threads;
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
@@ -30,8 +29,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		_context = context;
 		_threads = threads;
-		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
-		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace), _hooks);
+		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace));
 		WireClient();
 	}
 
@@ -42,34 +40,17 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		ArgumentNullException.ThrowIfNull(launch);
 		_context = context;
 		_threads = threads;
-		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
-		_client = Client(launch, _hooks);
+		_client = Client(launch);
 		WireClient();
 	}
 
-	internal CodexAppServerSession(
-		AgentSessionContext context,
-		CodexThreadStore threads,
-		string command,
-		ICodexHookIntegration hooks) {
-		ArgumentNullException.ThrowIfNull(context);
-		ArgumentNullException.ThrowIfNull(threads);
-		ArgumentException.ThrowIfNullOrEmpty(command);
-		ArgumentNullException.ThrowIfNull(hooks);
-		_context = context;
-		_threads = threads;
-		_hooks = hooks;
-		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace), hooks);
-		WireClient();
-	}
-
-	private CodexAppServerClient Client(CodexAppServerLaunch launch, ICodexHookIntegration hooks) =>
+	private CodexAppServerClient Client(CodexAppServerLaunch launch) =>
 		new(
 			launch,
-			hooks.GlobalArguments,
+			[],
 			CodexAppServerConfig.Arguments(_context),
-			hooks.AppServerArguments,
-			hooks.Environment,
+			[],
+			new Dictionary<string, string>(StringComparer.Ordinal),
 			LogClient);
 
 	private void WireClient() {
@@ -105,6 +86,11 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	}
 
 	private void HandleRequest(CodexServerRequest request) {
+		if (CodexApprovalResponses.IsPermissionApproval(request.Method) && BypassPermissions()) {
+			_client.Respond(request.ResponseId, CodexApprovalResponses.Build(request, "accept"));
+			return;
+		}
+
 		if (CodexApprovalResponses.CanResolve(request.Method) || CodexInputResponses.CanResolve(request.Method)) {
 			_pendingRequests[request.Id] = request;
 			_context.Events.Observe(new AgentPermissionRequested());
@@ -207,6 +193,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private long NextRequest() => Interlocked.Increment(ref _nextId);
 
 	private string Model() => _context.Settings.RequireString("codex.model");
+
+	private string Effort() => _context.Settings.RequireString("codex.effort");
+
+	private string ServiceTier() => _context.Settings.RequireString("codex.serviceTier");
+
+	private bool BypassPermissions() => _context.Settings.GetBool("claude.allowAllTools", fallback: false);
 
 	private string Sandbox() => _context.Settings.RequireString("codex.sandbox");
 

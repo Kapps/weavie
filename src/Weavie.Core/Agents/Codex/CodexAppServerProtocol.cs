@@ -37,12 +37,6 @@ public static class CodexAppServerProtocol {
 	public static string Initialized() =>
 		"{\"method\":\"initialized\",\"params\":{}}";
 
-	/// <summary>Builds a hooks/list request for the session working directory.</summary>
-	public static string HooksList(long id, string cwd) {
-		ArgumentException.ThrowIfNullOrEmpty(cwd);
-		return JsonSerializer.Serialize(new { method = "hooks/list", id, @params = new { cwds = new[] { cwd } } });
-	}
-
 	/// <summary>Builds a thread/start request, omitting an empty model so Codex uses its configured default.</summary>
 	public static string ThreadStart(
 		long id,

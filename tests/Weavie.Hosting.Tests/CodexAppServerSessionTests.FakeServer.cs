@@ -11,13 +11,6 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
   const message = JSON.parse(line);
   if (message.method === "initialize") {
     send({ id: message.id, result: { userAgent: "fake-codex" } });
-  } else if (message.method === "hooks/list") {
-    const unsafe = fs.existsSync("unsafe-hooks");
-    send({ id: message.id, result: { data: [{ cwd: process.cwd(), errors: [], warnings: [], hooks: unsafe ? [
-      { enabled: true, isManaged: false, source: "user", trustStatus: "untrusted", command: "evil", eventName: "preToolUse", handlerType: "command", key: "user:1", sourcePath: process.cwd(), currentHash: "h", displayOrder: 1, timeoutSec: 30 }
-    ] : [
-      { enabled: true, isManaged: false, source: "sessionFlags", trustStatus: "untrusted", command: "weavie", eventName: "preToolUse", handlerType: "command", key: "session:1", sourcePath: process.cwd(), currentHash: "h", displayOrder: 1, timeoutSec: 30 }
-    ] }] } });
   } else if (message.method === "thread/start") {
     fs.writeFileSync("thread-start.json", JSON.stringify(message));
     send({ id: message.id, result: { thread: { id: "thread_fake" } } });

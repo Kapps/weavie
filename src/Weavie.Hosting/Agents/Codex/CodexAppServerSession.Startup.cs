@@ -49,6 +49,9 @@ public sealed partial class CodexAppServerSession {
 			? await ResumeThreadAsync(threadRequest, launch.ThreadId).ConfigureAwait(false)
 			: await StartThreadAsync(threadRequest).ConfigureAwait(false);
 		AdoptThread(CodexThreadResults.ReadThreadId(result));
+		HydrateTranscript(result);
+		FlushPendingInputs();
+		await LoadControlsAsync().ConfigureAwait(false);
 	}
 
 	private async Task<JsonElement> ResumeThreadAsync(long requestId, string threadId) {
@@ -56,10 +59,13 @@ public sealed partial class CodexAppServerSession {
 			return await _client.RequestAsync(
 				requestId,
 				CodexAppServerProtocol.ThreadResume(
-					requestId, threadId, Model(), _context.Workspace, Sandbox(), ApprovalPolicy(), DeveloperInstructions()),
+					requestId, threadId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 				CancellationToken.None).ConfigureAwait(false);
 		} catch (InvalidOperationException ex) when (ex.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)) {
 			_threads.Clear(_context.Workspace);
+			// The saved thread is gone; drop its now-orphaned pane transcript (in-memory seed + persisted) before
+			// the fresh thread starts.
+			Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
 			Emit(new AgentPaneMessage {
 				Type = "warning",
 				ProviderId = "codex",
@@ -75,14 +81,24 @@ public sealed partial class CodexAppServerSession {
 		_client.RequestAsync(
 			requestId,
 			CodexAppServerProtocol.ThreadStart(
-				requestId, Model(), _context.Workspace, Sandbox(), ApprovalPolicy(), DeveloperInstructions()),
+				requestId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 			CancellationToken.None);
 
 	private void AdoptThread(string threadId) {
 		lock (_gate) {
 			_threadId = threadId;
 		}
+	}
 
-		FlushPendingInputs();
+	private void HydrateTranscript(JsonElement result) {
+		var messages = CodexPaneMessages.FromThreadSnapshot(result);
+		if (messages.Count == 0) {
+			return;
+		}
+
+		Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+		foreach (var message in messages) {
+			Emit(message);
+		}
 	}
 }

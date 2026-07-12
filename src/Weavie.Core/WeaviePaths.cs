@@ -145,6 +145,12 @@ public static class WeaviePaths {
 	public static string WorkspaceSuggestionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "suggestions.json");
 
 	/// <summary>
+	/// A workspace's recorded post-turn corrections (JSONL ring, oldest first):
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/corrections.jsonl</c>. See <see cref="Corrections.CorrectionCorpus"/>.
+	/// </summary>
+	public static string WorkspaceCorrectionsFile(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "corrections.jsonl");
+
+	/// <summary>
 	/// A workspace's persisted session set (the sessions and which was active):
 	/// <c>~/.weavie/workspaces/&lt;id&gt;/sessions.json</c>. Lets a workspace reopen with the same sessions
 	/// bound to the same worktrees. See <see cref="Sessions.SessionStore"/>.
@@ -175,4 +181,21 @@ public static class WeaviePaths {
 	/// <param name="pane">The terminal session tag (e.g. <c>shell</c>).</param>
 	public static string WorkspaceTerminalLogFile(WorkspaceId id, string worktreeDigest, string pane) =>
 		Path.Combine(WorkspaceTerminalLogsDir(id), $"{worktreeDigest}-{pane}.log");
+
+	/// <summary>
+	/// A workspace's per-session native agent pane transcripts:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/agent-panes</c>. The structured (non-terminal) agent's analogue to the
+	/// shell scrollback log — its rendered output persists here so the pane restores across reload/restart.
+	/// </summary>
+	public static string WorkspaceAgentPanesDir(WorkspaceId id) => Path.Combine(WorkspaceDir(id), "agent-panes");
+
+	/// <summary>
+	/// The transcript for one session's native agent pane:
+	/// <c>~/.weavie/workspaces/&lt;id&gt;/agent-panes/&lt;worktreeDigest&gt;.json</c>. Keyed by the stable
+	/// worktree-path digest (not the session's ephemeral id) so a worktree resumes the same transcript.
+	/// </summary>
+	/// <param name="id">The workspace whose agent-panes directory holds the file.</param>
+	/// <param name="worktreeDigest">A stable digest of the session's worktree path (e.g. <see cref="WorkspaceId.ForPath"/>).</param>
+	public static string WorkspaceAgentPaneFile(WorkspaceId id, string worktreeDigest) =>
+		Path.Combine(WorkspaceAgentPanesDir(id), $"{worktreeDigest}.json");
 }

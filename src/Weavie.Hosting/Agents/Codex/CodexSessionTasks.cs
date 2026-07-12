@@ -14,6 +14,14 @@ internal static class CodexSessionTasks {
 	private static async Task RunAsync(Func<Task> action, Action<AgentPaneMessage> emit) {
 		try {
 			await action().ConfigureAwait(false);
+		} catch (CodexRequestException ex) {
+			emit(new AgentPaneMessage {
+				Type = "error",
+				ProviderId = "codex",
+				Text = ex.Detail,
+				Status = "error",
+				PayloadJson = ex.Payload,
+			});
 		} catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException) {
 			emit(new AgentPaneMessage {
 				Type = "error",

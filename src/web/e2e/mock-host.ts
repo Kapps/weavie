@@ -241,10 +241,18 @@ export class MockHost {
 const FONT_SPEC = { family: "monospace", size: 13, weight: "normal" };
 const BOOTSTRAP_GLOBALS: Record<string, unknown> = {
   __WEAVIE_FONTS__: { editor: FONT_SPEC, terminal: FONT_SPEC },
+  __WEAVIE_NOTIFICATIONS__: {
+    sounds: true,
+    os: true,
+    volume: 70,
+    soundPack: "weavie",
+    gates: { turnComplete: true, needsInput: true, failed: true },
+  },
   __WEAVIE_EDITOR_OPTIONS__: {},
   __WEAVIE_THEME__: { mode: "system", light: { id: "weavie-light" }, dark: { id: "weavie-dark" } },
   __WEAVIE_COMMANDS__: [],
   __WEAVIE_KEYBINDINGS__: [],
+  __WEAVIE_AGENT__: { defaultProvider: "claude" },
 };
 
 /** Injects the bootstrap globals right after <head> so they exist before the entry module runs. */

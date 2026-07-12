@@ -98,7 +98,12 @@ public sealed class WorkspaceWatcher : IDisposable {
 
 		// Last-write-wins per path within a batch; coarse last-wins is fine for didChangeWatchedFiles.
 		_pending[fullPath] = kind;
-		_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
+		lock (_flushLock) {
+			// A watcher callback in flight during Dispose must not touch the disposed timer.
+			if (!_disposed) {
+				_debounceTimer?.Change(_debounce, Timeout.InfiniteTimeSpan);
+			}
+		}
 	}
 
 	private bool IsRelevant(string fullPath) {
@@ -140,16 +145,18 @@ public sealed class WorkspaceWatcher : IDisposable {
 
 	/// <inheritdoc/>
 	public void Dispose() {
-		if (_disposed) {
-			return;
+		lock (_flushLock) {
+			if (_disposed) {
+				return;
+			}
+
+			_disposed = true;
+			_debounceTimer?.Dispose();
 		}
 
-		_disposed = true;
 		if (_watcher is not null) {
 			_watcher.EnableRaisingEvents = false;
 			_watcher.Dispose();
 		}
-
-		_debounceTimer?.Dispose();
 	}
 }

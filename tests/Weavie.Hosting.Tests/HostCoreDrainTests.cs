@@ -1,5 +1,6 @@
 using Weavie.Core.Hooks;
 using Xunit;
+using static Weavie.Hosting.Tests.TestHooks;
 
 namespace Weavie.Hosting.Tests;
 
@@ -167,17 +168,4 @@ public sealed class HostCoreDrainTests {
 		Assert.Equal(1, exits);
 	}
 
-	private static HookRequest Hook(HookEventKind kind, string? message = null) => new() {
-		Event = kind,
-		ToolName = "",
-		ToolInputJson = "{}",
-		Message = message,
-	};
-
-	private static HookRequest Stop(bool sessionWillResume) => new() {
-		Event = HookEventKind.Stop,
-		ToolName = "",
-		ToolInputJson = "{}",
-		SessionWillResume = sessionWillResume,
-	};
 }

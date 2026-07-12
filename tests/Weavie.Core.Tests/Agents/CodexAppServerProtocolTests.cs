@@ -18,9 +18,10 @@ public sealed class CodexAppServerProtocolTests {
 		var parameters = doc.RootElement.GetProperty("params");
 		Assert.Equal("weavie", parameters.GetProperty("clientInfo").GetProperty("name").GetString());
 		Assert.True(parameters.GetProperty("capabilities").GetProperty("experimentalApi").GetBoolean());
+		Assert.True(parameters.GetProperty("capabilities").GetProperty("mcpServerOpenaiFormElicitation").GetBoolean());
 		var optOut = parameters.GetProperty("capabilities").GetProperty("optOutNotificationMethods");
 		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "hook/started");
-		Assert.Contains(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");
+		Assert.DoesNotContain(optOut.EnumerateArray(), value => value.GetString() == "item/agentMessage/delta");
 	}
 
 	[Fact]
@@ -53,9 +54,9 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TurnStart_CarriesThreadWorkspacePolicyAndText() {
+	public void TurnStart_CarriesThreadWorkspacePolicyAndText_OmittingEmptyModelEffortAndTier() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
-			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request"));
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "", ""));
 		var parameters = doc.RootElement.GetProperty("params");
 
 		Assert.Equal("turn/start", doc.RootElement.GetProperty("method").GetString());
@@ -65,19 +66,107 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("workspaceWrite", parameters.GetProperty("sandboxPolicy").GetProperty("type").GetString());
 		Assert.Equal("/repo", parameters.GetProperty("sandboxPolicy").GetProperty("writableRoots")[0].GetString());
 		Assert.Equal("fix it", parameters.GetProperty("input")[0].GetProperty("text").GetString());
+		Assert.False(parameters.TryGetProperty("model", out _));
+		Assert.False(parameters.TryGetProperty("effort", out _));
+		Assert.False(parameters.TryGetProperty("serviceTier", out _));
 	}
 
 	[Fact]
-	public void TurnStartWithImages_CarriesTextAndLocalImageInput() {
-		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithImages(
-			13, "thr_1", "describe it", ["/tmp/paste-1.png"], "/repo", "workspace-write", "on-request"));
-		var input = doc.RootElement.GetProperty("params").GetProperty("input");
+	public void TurnStart_CarriesModelOverride_ForLiveModelChange() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "gpt-5.5", "", ""));
+
+		Assert.Equal("gpt-5.5", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public void TurnStart_CarriesEffort_AndClearsServiceTierToNull() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "high", "standard"));
+		var parameters = doc.RootElement.GetProperty("params");
+
+		Assert.Equal("high", parameters.GetProperty("effort").GetString());
+		// "standard" clears any tier: it serializes as an explicit JSON null, not the string "standard".
+		Assert.Equal(JsonValueKind.Null, parameters.GetProperty("serviceTier").ValueKind);
+	}
+
+	[Fact]
+	public void TurnStart_CarriesServiceTier_WhenSet() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "", "priority"));
+
+		Assert.Equal("priority", doc.RootElement.GetProperty("params").GetProperty("serviceTier").GetString());
+	}
+
+	[Fact]
+	public void TurnStartWithInputs_CarriesTextImageAndSkillItems() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithInputs(
+			13, "thr_1", "describe it", ["/tmp/paste-1.png"], [new CodexSkill("review-pr", "/s/review-pr", "Review a PR.")],
+			"/repo", "workspace-write", "on-request", "gpt-5.5", "", ""));
+		var parameters = doc.RootElement.GetProperty("params");
+		var input = parameters.GetProperty("input");
 
 		Assert.Equal("turn/start", doc.RootElement.GetProperty("method").GetString());
+		Assert.Equal("gpt-5.5", parameters.GetProperty("model").GetString());
 		Assert.Equal("text", input[0].GetProperty("type").GetString());
 		Assert.Equal("describe it", input[0].GetProperty("text").GetString());
 		Assert.Equal("localImage", input[1].GetProperty("type").GetString());
 		Assert.Equal("/tmp/paste-1.png", input[1].GetProperty("path").GetString());
+		Assert.Equal("skill", input[2].GetProperty("type").GetString());
+		Assert.Equal("review-pr", input[2].GetProperty("name").GetString());
+		Assert.Equal("/s/review-pr", input[2].GetProperty("path").GetString());
+	}
+
+	[Fact]
+	public void ModelList_RequestsNonHiddenModels() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.ModelList(3, false));
+
+		Assert.Equal("model/list", doc.RootElement.GetProperty("method").GetString());
+		Assert.False(doc.RootElement.GetProperty("params").GetProperty("includeHidden").GetBoolean());
+	}
+
+	[Fact]
+	public void SkillsList_SendsSessionCwd() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.SkillsList(4, "/repo"));
+
+		Assert.Equal("skills/list", doc.RootElement.GetProperty("method").GetString());
+		Assert.Equal("/repo", doc.RootElement.GetProperty("params").GetProperty("cwds")[0].GetString());
+	}
+
+	[Fact]
+	public void TryReadModelCatalog_MapsModelsEffortsAndServiceTiers() {
+		using var doc = JsonDocument.Parse(
+			"""{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model.","hidden":false,"isDefault":true,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast."},{"reasoningEffort":"medium","description":"Balanced."},{"reasoningEffort":"xhigh","description":"Extra."}],"defaultServiceTier":"","serviceTiers":[{"id":"priority","name":"Fast","description":"1.5x speed."}]},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4 mini","description":"Fast model.","hidden":false,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast."}],"serviceTiers":[]}]}""");
+
+		Assert.True(CodexModelCatalog.TryReadModelCatalog(doc.RootElement, out var models));
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], models.Select(model => model.Model.Id));
+
+		var frontier = models[0];
+		Assert.True(frontier.IsDefault);
+		Assert.Equal("GPT-5.5", frontier.Model.Label);
+		Assert.Equal("medium", frontier.DefaultEffort);
+		Assert.Equal(["low", "medium", "xhigh"], frontier.Efforts.Select(effort => effort.Id));
+		Assert.Equal("X-High", frontier.Efforts[2].Label); // xhigh prettified
+		var tier = Assert.Single(frontier.ServiceTiers);
+		Assert.Equal("priority", tier.Id);
+		Assert.Equal("Fast", tier.Label);
+
+		var mini = models[1];
+		Assert.False(mini.IsDefault);
+		Assert.Empty(mini.ServiceTiers);
+		Assert.Equal(["low"], mini.Efforts.Select(effort => effort.Id));
+	}
+
+	[Fact]
+	public void TryReadSkills_FlattensEnabledSkillsWithNameAndPath() {
+		using var doc = JsonDocument.Parse(
+			"""{"data":[{"cwd":"/repo","errors":[],"skills":[{"name":"review-pr","description":"Review a PR.","enabled":true,"path":"/s/review-pr","scope":"repo","interface":{"shortDescription":"Review a pull request."}},{"name":"disabled","description":"x","enabled":false,"path":"/d","scope":"user"}]}]}""");
+
+		Assert.True(CodexAppServerProtocol.TryReadSkills(doc.RootElement, out var skills));
+		var skill = Assert.Single(skills);
+		Assert.Equal("review-pr", skill.Name);
+		Assert.Equal("/s/review-pr", skill.Path);
+		Assert.Equal("Review a pull request.", skill.Description);
 	}
 
 	[Fact]
@@ -121,9 +210,9 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TurnSteerWithImages_CarriesTextAndLocalImageInput() {
-		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnSteerWithImages(
-			14, "thr_1", "turn_1", "describe it", ["/tmp/paste-1.png"]));
+	public void TurnSteerWithInputs_CarriesTextImageAndSkillInput() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnSteerWithInputs(
+			14, "thr_1", "turn_1", "describe it", ["/tmp/paste-1.png"], [new CodexSkill("review-pr", "/s/review-pr", "Review a PR.")]));
 		var parameters = doc.RootElement.GetProperty("params");
 		var input = parameters.GetProperty("input");
 
@@ -133,6 +222,8 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("describe it", input[0].GetProperty("text").GetString());
 		Assert.Equal("localImage", input[1].GetProperty("type").GetString());
 		Assert.Equal("/tmp/paste-1.png", input[1].GetProperty("path").GetString());
+		Assert.Equal("skill", input[2].GetProperty("type").GetString());
+		Assert.Equal("review-pr", input[2].GetProperty("name").GetString());
 	}
 
 	[Fact]
@@ -321,7 +412,7 @@ public sealed class CodexAppServerProtocolTests {
 		fileSystem.WriteAllText(deleted, "gone\n");
 		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
 
-		changes.Observe(new AgentPromptSubmitted(null, ReconcileWorkspace: true));
+		changes.Observe(new AgentPromptSubmitted(null, null, ReconcileWorkspace: true));
 		fileSystem.WriteAllText(file, "new\n");
 		fileSystem.WriteAllText(created, "created\n");
 		fileSystem.DeleteFile(deleted);

@@ -91,7 +91,7 @@ public sealed class WebDevServer : IDisposable {
 
 	/// <summary>Spawns a fresh Vite on this instance's port and wires its exit back to the supervisor. The
 	/// supervisor's <c>start</c> delegate; an exception here is treated by the supervisor as a failed launch.</summary>
-	private void StartProcess(int attempt) {
+	private void StartProcess(SupervisedLaunch launch) {
 		var process = new Process {
 			StartInfo = new ProcessStartInfo {
 				// Spawn Vite directly, not via a pnpm/npm shim: the shim exits once Vite is up, severing the
@@ -117,8 +117,8 @@ public sealed class WebDevServer : IDisposable {
 				Emit(e.Data);
 			}
 		};
-		// Capture *this* launch so a later restart's exit can't be misattributed (mirrors HeadlessLauncher).
-		process.Exited += (_, _) => _supervisor.NotifyExited(SafeExitCode(process));
+		// Report through this launch's handle so a later restart's exit can't be misattributed (mirrors HeadlessLauncher).
+		process.Exited += (_, _) => launch.NotifyExited(SafeExitCode(process));
 		process.Start();
 		process.BeginOutputReadLine();
 		process.BeginErrorReadLine();

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { evaluateWhen, setContext } from "./context";
+import { evaluateWhen, paneFocusContext, setContext } from "./context";
 
 // The context is module-global; each test sets the keys it needs. Keys default to undefined (falsey).
 describe("evaluateWhen", () => {
@@ -67,3 +67,45 @@ describe("evaluateWhen", () => {
     expect(evaluateWhen("a && mode == 'edit'")).toBe(false);
   });
 });
+
+describe("paneFocusContext", () => {
+  it("keeps the legacy agent pane kind while classifying a structured surface", () => {
+    const input = elementInPane("terminal:claude", "structured-agent", false);
+
+    expect(paneFocusContext(input)).toEqual({
+      focusedPane: "terminal:claude",
+      editorFocused: false,
+      terminalFocused: false,
+      agentFocused: true,
+      agentComposerFocused: false,
+    });
+  });
+
+  it("only enables composer commands from inside the structured composer", () => {
+    const input = elementInPane("terminal:claude", "structured-agent", true);
+
+    expect(paneFocusContext(input).agentComposerFocused).toBe(true);
+  });
+
+  it("classifies Claude in the same persisted pane as a terminal surface", () => {
+    const pane = elementInPane("terminal:claude", "terminal", false);
+
+    expect(paneFocusContext(pane)).toEqual({
+      focusedPane: "terminal:claude",
+      editorFocused: false,
+      terminalFocused: true,
+      agentFocused: false,
+      agentComposerFocused: false,
+    });
+  });
+});
+
+function elementInPane(kind: string, surface: string, inComposer: boolean): Element {
+  const pane = {
+    getAttribute: (name: string) => (name === "data-kind" ? kind : surface),
+  } as Element;
+  return {
+    closest: (selector: string) =>
+      selector === "[data-agent-composer]" ? (inComposer ? pane : null) : pane,
+  } as unknown as Element;
+}

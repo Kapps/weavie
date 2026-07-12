@@ -25,15 +25,17 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task SendAgentImagePath_SubmitsPathToStructuredProvider() {
+	public async Task SendAgentPrompt_SubmitsAtomicInputToStructuredProvider() {
 		var structured = new RecordingStructuredSession();
 		var commandRegistry = CoreCommands.CreateRegistry();
 		using var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
 		await using var session = CreateSession(structured, settings, commandRegistry);
 
-		session.SendAgentImagePath(Path.Combine(_dir, "pasted", "paste-1.png"));
+		session.SendAgentPrompt("hello");
 
-		Assert.Equal([Path.Combine(_dir, "pasted", "paste-1.png")], structured.Images);
+		var submission = Assert.Single(structured.Submissions);
+		Assert.Equal("hello", submission.Text);
+		Assert.Empty(submission.Attachments);
 	}
 
 	[Fact]
@@ -57,10 +59,12 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 			_dir,
 			Path.Combine(_dir, "scratch"),
 			Path.Combine(_dir, "pasted"),
+			Path.Combine(_dir, "agent-pane.json"),
 			"slot-1",
 			commandRegistry,
 			new KeybindingStore(commandRegistry, Path.Combine(_dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "theme-overrides.json")),
+			new Weavie.Core.Corrections.CorrectionCorpus(new Weavie.Core.FileSystem.LocalFileSystem(), Path.Combine(_dir, "corrections.jsonl")),
 			new NoopPtyLauncher(),
 			new FakeStructuredProvider(structured),
 			new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"));
@@ -79,9 +83,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 	private sealed class RecordingStructuredSession : IStructuredAgentSession {
 		public event Action<AgentPaneMessage>? PaneMessage;
 
-		public List<string> Prompts { get; } = [];
-
-		public List<string> Images { get; } = [];
+		public List<AgentTurnSubmission> Submissions { get; } = [];
 
 		public int Interruptions { get; private set; }
 
@@ -89,9 +91,7 @@ public sealed class HostSessionAgentImageTests : IDisposable {
 
 		public void Start() => PaneMessage?.Invoke(new AgentPaneMessage { Type = "started", ProviderId = "codex" });
 
-		public void SubmitPrompt(string prompt) => Prompts.Add(prompt);
-
-		public void AttachImage(string path) => Images.Add(path);
+		public void Submit(AgentTurnSubmission submission) => Submissions.Add(submission);
 
 		public void PrefillPrompt(string prompt) { }
 

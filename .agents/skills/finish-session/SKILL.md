@@ -20,10 +20,18 @@ confirmed merged** — never before, and never with unshipped work.
 - `gh pr view --json url,state` — reuse the branch's existing open PR if there is one.
 - Otherwise `gh pr create` against `main` with a body summarizing the change set.
 
-## 3. Watch CI until it concludes
+## 3. Watch CI until it concludes — check every 2 minutes, per check
 
-- `gh pr checks --watch` — the ci matrix builds Linux/macOS/Windows and runs the web e2e on each,
-  so expect several minutes. If the call times out, run it again; never assume a result.
+- Poll `gh pr checks --json name,bucket` **every 2 minutes** and act on each check the moment its
+  bucket leaves `pending` — never wait for the whole matrix before looking. The matrix builds
+  Linux/macOS/Windows and runs the web e2e on each, so the slowest job takes 10+ minutes; an
+  early red (e.g. a Linux formatting failure) is actionable immediately, and waiting for the rest
+  wastes the whole window. A Monitor loop that diffs concluded checks per poll fits this exactly.
+- On the same cadence, check mergeability: `gh pr view --json mergeable,mergeStateStatus`. If
+  `mergeable` is `CONFLICTING` (or `mergeStateStatus` is `DIRTY`), main has moved under the PR —
+  merge `origin/main` into the branch, resolve the conflicts, push, and keep watching. Catching
+  this mid-run beats discovering it at merge time.
+- If a poll fails (network, rate limit), poll again; never assume a result.
 
 ## 4. Red? Fix it — always
 

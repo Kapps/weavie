@@ -1,9 +1,14 @@
 import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
-import { type AgentPaneUpdate, postToHost } from "../bridge";
+import { type AgentInputQuestion, type AgentPaneUpdate, postToHost } from "../bridge";
+import { liveKeyLabel } from "../commands/keys-live";
+import { CommandIds } from "../commands/types";
+import { inputQuestions } from "./input-questions";
 
 export function ApprovalActions(props: {
   slot: string | null;
   requestId: string | null | undefined;
+  // The chords answer only the newest pending approval; older cards must not advertise them.
+  answersToKeys: boolean;
 }): JSX.Element {
   const approve = (decision: string): void => {
     const slot = props.slot;
@@ -13,20 +18,30 @@ export function ApprovalActions(props: {
     }
   };
 
+  // The mouse path teaches the keyboard path: each decision button wears its command's chord.
+  const decision = (label: string, value: string, commandId: string | null): JSX.Element => {
+    const key = (): string =>
+      props.answersToKeys && commandId !== null ? liveKeyLabel(commandId) : "";
+    return (
+      <button
+        type="button"
+        title={key() === "" ? label : `${label} (${key()})`}
+        onClick={() => approve(value)}
+      >
+        {label}
+        <Show when={key() !== ""}>
+          <kbd class="agent-key-chip">{key()}</kbd>
+        </Show>
+      </button>
+    );
+  };
+
   return (
     <div class="agent-approval-actions">
-      <button type="button" title="Accept" onClick={() => approve("accept")}>
-        Accept
-      </button>
-      <button type="button" title="Accept for session" onClick={() => approve("acceptForSession")}>
-        Accept for session
-      </button>
-      <button type="button" title="Decline" onClick={() => approve("decline")}>
-        Decline
-      </button>
-      <button type="button" title="Cancel turn" onClick={() => approve("cancel")}>
-        Cancel turn
-      </button>
+      {decision("Accept", "accept", CommandIds.agentApprove)}
+      {decision("Accept for session", "acceptForSession", CommandIds.agentApproveForSession)}
+      {decision("Decline", "decline", CommandIds.agentDecline)}
+      {decision("Cancel turn", "cancel", null)}
     </div>
   );
 }
@@ -35,7 +50,7 @@ export function InputRequestActions(props: {
   slot: string | null;
   message: AgentPaneUpdate;
 }): JSX.Element {
-  const questions = createMemo(() => readQuestions(props.message.payload));
+  const questions = createMemo(() => inputQuestions(props.message));
   const [answers, setAnswers] = createSignal(defaultAnswers(questions()));
 
   const submit = (): void => {
@@ -52,7 +67,13 @@ export function InputRequestActions(props: {
   };
 
   return (
-    <div class="agent-input-request">
+    <form
+      class="agent-input-request"
+      onSubmit={(event) => {
+        event.preventDefault();
+        submit();
+      }}
+    >
       <For each={questions()}>
         {(question) => (
           <label class="agent-input-question">
@@ -84,11 +105,11 @@ export function InputRequestActions(props: {
         )}
       </For>
       <div class="agent-approval-actions">
-        <button type="button" title="Submit answers" onClick={submit}>
+        <button type="submit" title="Submit answers (Enter)">
           Submit answers
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -109,62 +130,13 @@ export function EditLocationActions(props: { target: string | null | undefined }
   );
 }
 
-interface InputQuestion {
-  id: string;
-  header: string;
-  question: string;
-  isSecret: boolean;
-  options: InputOption[];
-}
-
-interface InputOption {
-  label: string;
-  description: string;
-}
-
-function defaultAnswers(questions: InputQuestion[]): Record<string, string[]> {
+function defaultAnswers(questions: AgentInputQuestion[]): Record<string, string[]> {
   const answers: Record<string, string[]> = {};
   for (const question of questions) {
     const first = question.options[0]?.label ?? "";
     answers[question.id] = first.length > 0 ? [first] : [];
   }
   return answers;
-}
-
-function readQuestions(payload: unknown): InputQuestion[] {
-  if (!isRecord(payload) || !isRecord(payload.params) || !Array.isArray(payload.params.questions)) {
-    return [];
-  }
-  return payload.params.questions.flatMap((value): InputQuestion[] => {
-    if (!isRecord(value) || typeof value.id !== "string" || typeof value.question !== "string") {
-      return [];
-    }
-    return [
-      {
-        id: value.id,
-        header: typeof value.header === "string" ? value.header : "",
-        question: value.question,
-        isSecret: value.isSecret === true,
-        options: Array.isArray(value.options) ? value.options.flatMap(readOption) : [],
-      },
-    ];
-  });
-}
-
-function readOption(value: unknown): InputOption[] {
-  if (!isRecord(value) || typeof value.label !== "string") {
-    return [];
-  }
-  return [
-    {
-      label: value.label,
-      description: typeof value.description === "string" ? value.description : "",
-    },
-  ];
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }
 
 function parseLocation(value: string | null | undefined): { path: string; line: number } | null {

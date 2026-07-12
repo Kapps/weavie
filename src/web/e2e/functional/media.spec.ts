@@ -45,14 +45,37 @@ test("image renders in the media pane and survives reload", async ({ page, weavi
 });
 
 // The video path shares the image byte pipeline; assert the pane mounts a <video controls> with a Blob URL
-// (the seed isn't a decodable video — decode is the browser's job, not the pipeline under test).
-test("video file opens as a <video controls> in the media pane", async ({ page }) => {
+// (the seed isn't a decodable video — decode is the browser's job, not the pipeline under test). Autoplay
+// defaults on (editor.videoAutoplay), asserted via the attribute for the same reason.
+test("video file opens as an autoplaying <video controls> in the media pane", async ({ page }) => {
   await openFile(page, "clip.webm");
 
   const video = page.locator(".editor-media video");
   await expect(video).toBeAttached();
   await expect(video).toHaveAttribute("controls", "");
+  await expect(video).toHaveAttribute("autoplay", "");
   expect(await video.getAttribute("src")).toMatch(/^blob:/);
+});
+
+// Turning editor.videoAutoplay off (here via the settings MCP round-trip) drops the autoplay attribute from
+// the mounted element — live, so the assertion converges whether the setting lands before or after the mount.
+test.describe(() => {
+  test.use({
+    fakeScript: {
+      steps: [
+        { op: "mcp", tool: "setSetting", args: { key: "editor.videoAutoplay", value: false } },
+      ],
+    },
+  });
+
+  test("disabling editor.videoAutoplay opens videos paused", async ({ page }) => {
+    await openFile(page, "clip.webm");
+
+    const video = page.locator(".editor-media video");
+    await expect(video).toBeAttached();
+    await expect(video).not.toHaveAttribute("autoplay", "");
+    await expect(video).toHaveAttribute("controls", "");
+  });
 });
 
 // A text file and a media file coexist: switching between them swaps the overlay in and out without

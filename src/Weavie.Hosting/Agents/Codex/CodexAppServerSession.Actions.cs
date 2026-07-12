@@ -7,43 +7,19 @@ namespace Weavie.Hosting.Agents.Codex;
 /// <summary>Handles user actions sent to a native Codex app-server session.</summary>
 public sealed partial class CodexAppServerSession {
 	/// <inheritdoc/>
-	public void SubmitPrompt(string prompt) {
-		ArgumentNullException.ThrowIfNull(prompt);
-		var input = TakeTurnInput(prompt);
-		if (input.Text.Length == 0 && input.Images.Count == 0) {
+	public void Submit(AgentTurnSubmission submission) {
+		ArgumentNullException.ThrowIfNull(submission);
+		var input = new CodexTurnInput(submission.Text, submission.Attachments, submission.Skills);
+		if (input.Text.Length == 0 && input.Images.Count == 0 && input.SkillNames.Count == 0) {
 			return;
 		}
 
 		SubmitTurn(input);
 	}
 
-	/// <inheritdoc/>
-	public void AttachImage(string path) {
-		ArgumentException.ThrowIfNullOrEmpty(path);
-		lock (_gate) {
-			_pendingImages.Add(path);
-		}
-
-		Emit(new AgentPaneMessage {
-			Type = "user-image",
-			ProviderId = "codex",
-			ThreadId = CurrentThreadId(),
-			Text = path,
-			Status = "attached",
-		});
-	}
-
-	private CodexTurnInput TakeTurnInput(string prompt) {
-		lock (_gate) {
-			var input = new CodexTurnInput(prompt, [.. _pendingImages]);
-			_pendingImages.Clear();
-			return input;
-		}
-	}
-
 	private void SubmitTurn(CodexTurnInput input) {
 		Run(async () => {
-			(string? threadId, string? turnId) = CurrentTurn();
+			string? threadId = CurrentThreadId();
 			if (string.IsNullOrEmpty(threadId)) {
 				lock (_gate) {
 					_pendingInputs.Enqueue(input);
@@ -51,44 +27,111 @@ public sealed partial class CodexAppServerSession {
 				return;
 			}
 
-			long id = NextRequest();
-			bool starting = string.IsNullOrEmpty(turnId);
-			string request = RequestFor(id, threadId, turnId, input);
-			await _client.RequestAsync(id, request, CancellationToken.None).ConfigureAwait(false);
-			EmitSubmittedInput(threadId, turnId, starting, input);
+			// Resolve staged skills at send time (they load asynchronously and can change via skills/changed).
+			var skills = ResolveSkills(input.SkillNames);
+			if (input.Text.Length == 0 && input.Images.Count == 0 && skills.Count == 0) {
+				EmitError(input.SkillNames.Count > 0
+					? "That skill is no longer available; nothing was sent."
+					: "Write a prompt, attach an image, or add a skill before running Codex.");
+				return;
+			}
+
+			await DeliverAsync(threadId, input, skills).ConfigureAwait(false);
 		});
 	}
 
-	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input) {
-		if (input.Images.Count > 0) {
+	// Deliver to Codex's current turn; a stale-turn rejection means our view lagged, so re-read and steer the
+	// turn it moved to. _turnId only ever advances or clears, so this converges on a live steer or a fresh start.
+	private async Task DeliverAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+		while (CurrentTurnId() is { Length: > 0 } turnId) {
+			if (await TrySteerAsync(threadId, turnId, input, skills).ConfigureAwait(false)) {
+				return;
+			}
+
+			DiscardStaleTurn(turnId);
+		}
+
+		await StartTurnAsync(threadId, input, skills).ConfigureAwait(false);
+	}
+
+	private async Task<bool> TrySteerAsync(string threadId, string turnId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+		long id = NextRequest();
+		try {
+			await _client.RequestAsync(id, RequestFor(id, threadId, turnId, input, skills), CancellationToken.None).ConfigureAwait(false);
+		} catch (CodexRequestException ex) when (IsStaleTurnRejection(ex)) {
+			// The turn ended under us. Keep the protocol detail (code + raw envelope) visible, then recover.
+			Emit(new AgentPaneMessage {
+				Type = "warning",
+				ProviderId = "codex",
+				ThreadId = threadId,
+				Summary = "Steer rejected; resent as a new turn",
+				Text = ex.Detail,
+				Status = "warning",
+				PayloadJson = ex.Payload,
+			});
+			return false;
+		}
+
+		EmitSubmittedInput(threadId, turnId, starting: false, input, skills);
+		return true;
+	}
+
+	private async Task StartTurnAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+		long id = NextRequest();
+		await _client.RequestAsync(id, RequestFor(id, threadId, null, input, skills), CancellationToken.None).ConfigureAwait(false);
+		EmitSubmittedInput(threadId, null, starting: true, input, skills);
+	}
+
+	// Forget the turn we just failed to steer, unless Codex has already started a newer one under us.
+	private void DiscardStaleTurn(string turnId) {
+		lock (_gate) {
+			if (string.Equals(_turnId, turnId, StringComparison.Ordinal)) {
+				_turnId = null;
+			}
+		}
+	}
+
+	private static bool IsStaleTurnRejection(CodexRequestException ex) =>
+		ex.Code == -32600 && ex.Message.Contains("active turn", StringComparison.OrdinalIgnoreCase);
+
+	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+		if (input.Images.Count > 0 || skills.Count > 0) {
+			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithImages(id, threadId, input.Text, input.Images, _context.Workspace, Sandbox(), ApprovalPolicy())
-				: CodexAppServerProtocol.TurnSteerWithImages(id, threadId, turnId, input.Text, input.Images);
+				? CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
+				: CodexAppServerProtocol.TurnSteerWithInputs(id, threadId, turnId, input.Text, imagePaths, skills);
 		}
 
 		return string.IsNullOrEmpty(turnId)
-			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, Sandbox(), ApprovalPolicy())
+			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
 			: CodexAppServerProtocol.TurnSteer(id, threadId, turnId, input.Text);
 	}
 
-	private void EmitSubmittedInput(string threadId, string? turnId, bool starting, CodexTurnInput input) {
-		if (input.Text.Length > 0) {
+	private void EmitSubmittedInput(string threadId, string? turnId, bool starting, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+		string text = input.Text;
+		if (skills.Count > 0) {
+			string invoked = "↪ skill: " + string.Join(", ", skills.Select(skill => skill.Name));
+			text = text.Length > 0 ? $"{text}\n{invoked}" : invoked;
+		}
+
+		if (text.Length > 0) {
 			Emit(new AgentPaneMessage {
 				Type = starting ? "user-message" : "user-steer",
 				ProviderId = "codex",
 				ThreadId = threadId,
 				TurnId = turnId,
-				Text = input.Text,
+				Text = text,
 			});
 		}
 
-		foreach (string path in input.Images) {
+		foreach (var image in input.Images) {
 			Emit(new AgentPaneMessage {
 				Type = "user-image",
 				ProviderId = "codex",
 				ThreadId = threadId,
 				TurnId = turnId,
-				Text = path,
+				ItemId = image.Id,
+				Text = image.Path,
 				Status = "submitted",
 			});
 		}

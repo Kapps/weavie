@@ -4,6 +4,7 @@ using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
+using Weavie.Core.Corrections;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.Editor;
 using Weavie.Core.FileSystem;
@@ -56,6 +57,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// including a worker auto-update restart — comes back as the user left it. See HostCore.SessionState.cs.
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
+	private readonly CorrectionCorpus _corrections;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
 	// web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
@@ -87,6 +89,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private Action<string>? _onThemeOverridesChanged;
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
+	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
 	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved window
@@ -129,6 +132,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_sessionStore.Log += Log;
 		_recentFiles = new RecentFilesStore(new LocalFileSystem(), WeaviePaths.WorkspaceRecentFilesFile(Id));
 		_recentFiles.Log += Log;
+		// One correction ring per workspace, shared by every session/worktree: rules about how the agent codes
+		// in this repo are repo-level. Its count gates the corrections.learn card, so changes re-evaluate.
+		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
+		_corrections.Log += Log;
+		_corrections.Changed += () => _suggestions?.Evaluate();
 	}
 
 	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
@@ -241,8 +249,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public string BuildBootstrap() {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
 		return
-			$"window.__WEAVIE_FONTS__ = {FontSettings.BuildJson(_settings, messageType: null)};"
-			+ $"window.__WEAVIE_EDITOR_OPTIONS__ = {EditorSettings.BuildJson(_settings, messageType: null)};"
+			string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings, null)};"))
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
 			+ BuildTestProfileScript()
@@ -250,6 +257,17 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			+ $"window.__WEAVIE_KEYBINDINGS__ = {_keybindings.BuildKeybindingsJson()};"
 			+ ShellProtocol.BuildConfigScript(_platform.ChromePlatform, _platform.TitleBar, WorkspaceLabel, _platform.Recents, BuildNumber);
 	}
+
+	// Live settings groups: each is injected pre-navigation as window.{Global} and re-pushed as its
+	// MessageType when any of its Keys changes. One row per group — the bootstrap and the change handler
+	// both iterate this table.
+	private static readonly (IReadOnlyList<string> Keys, string MessageType, string Global,
+		Func<SettingsStore, string?, string> Build)[] LiveSettingGroups = [
+		(FontSettings.Keys, "fonts", "__WEAVIE_FONTS__", FontSettings.BuildJson),
+		(NotificationSettings.Keys, "notification-prefs", "__WEAVIE_NOTIFICATIONS__", NotificationSettings.BuildJson),
+		(EditorSettings.Keys, "editorOptions", "__WEAVIE_EDITOR_OPTIONS__", EditorSettings.BuildJson),
+		(AgentSettings.Keys, "agent-defaults", "__WEAVIE_AGENT__", AgentSettings.BuildJson),
+	];
 
 	/// <summary>The app's build identity (SemVer with the build number as patch, e.g. <c>0.1.247</c>), stamped at build time.</summary>
 	public static string BuildNumber =>
@@ -265,17 +283,15 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// </summary>
 	private void WireReactions() {
 		// A changed shell (ApplyMode.ReopensTerminal) reopens the active session's shell pane live.
-		_settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
+		_shellSettingSubscription = _settings.Subscribe("terminal.shell", _ => _ui.Post(() => _session?.Shell.Restart()));
 
-		// Fonts / editor options / theme (ApplyMode.Live): re-push the resolved values so the web applies them in
-		// place. PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
+		// Live settings groups + theme: re-push the resolved values so the web applies them in place.
+		// PostToWeb marshals to the UI thread and the stores are thread-safe, so call it directly.
 		_onSettingChanged = change => {
-			if (FontSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(FontSettings.BuildJson(_settings, "fonts"));
-			}
-
-			if (EditorSettings.Keys.Contains(change.Key)) {
-				_bridge.PostToWeb(EditorSettings.BuildJson(_settings, "editorOptions"));
+			foreach (var (keys, messageType, _, build) in LiveSettingGroups) {
+				if (keys.Contains(change.Key)) {
+					_bridge.PostToWeb(build(_settings, messageType));
+				}
 			}
 
 			if (ThemeSettings.Keys.Contains(change.Key)) {
@@ -401,6 +417,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 			_onKeybindingsMalformedChanged = null;
 		}
 
+		_shellSettingSubscription?.Dispose();
+		_shellSettingSubscription = null;
 		if (_onSettingChanged is not null) {
 			_settings.SettingChanged -= _onSettingChanged;
 			_onSettingChanged = null;

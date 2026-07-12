@@ -41,6 +41,7 @@ public sealed class TerminalControllerReattachTests {
 		var outputs = h.Bridge.PostedOfType("term-output");
 		var posted = Assert.Single(outputs);
 		Assert.Equal(ClaudeStartupModes, DecodeData(posted));
+		Assert.True(posted.GetProperty("replay").GetBoolean()); // synthesized preamble, not fresh child output
 		Assert.Equal([(120, 39), (120, 40)], h.Launcher.LastTerminal!.Resizes);
 	}
 
@@ -97,6 +98,8 @@ public sealed class TerminalControllerReattachTests {
 		public Harness(string session) {
 			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-reattach-" + Guid.NewGuid().ToString("n") + ".toml");
 			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
+			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Bridge = new FakeHostBridge();
 			Launcher = new ScriptablePtyLauncher();
 			Controller = new TerminalController(

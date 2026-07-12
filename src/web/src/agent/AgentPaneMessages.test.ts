@@ -133,6 +133,72 @@ describe("toAgentTranscript", () => {
     expect(transcript[0]?.details[0]?.detailText).toBe("src/App.cs: trailing whitespace");
   });
 
+  it("shows a failed turn even when no separate error notification arrived", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "turn-completed",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex usage limit reached",
+        text: "You have no weighted tokens left",
+        status: "failed",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]).toMatchObject({
+      kind: "notice",
+      tone: "error",
+      summary: "Codex usage limit reached",
+      text: "You have no weighted tokens left",
+      status: "failed",
+    });
+  });
+
+  it("does not duplicate a failed turn that already emitted an error", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "error",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex usage limit reached",
+        text: "You have no weighted tokens left",
+        status: "failed",
+      },
+      {
+        type: "turn-completed",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex usage limit reached",
+        text: "You have no weighted tokens left",
+        status: "failed",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]?.tone).toBe("error");
+    expect(transcript[0]?.status).toBe("failed");
+  });
+
+  it("shows when a provider warning will retry", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "warning",
+        providerId: "codex",
+        turnId: "turn-1",
+        summary: "Codex is temporarily overloaded",
+        text: "Retrying the request",
+        status: "retrying",
+      },
+    ]);
+
+    expect(transcript).toHaveLength(1);
+    expect(transcript[0]).toMatchObject({
+      tone: "warning",
+      status: "retrying",
+    });
+  });
+
   it("shows only the latest running step in the activity summary", () => {
     const transcript = toAgentTranscript([
       {
@@ -276,5 +342,125 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
+  });
+
+  it("clusters the working block just above the result when work precedes later chatter", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        itemId: "approval-1",
+        summary: "Run tests?",
+        status: "pending",
+      },
+      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "msg-1",
+        itemType: "agentMessage",
+        text: "Done.",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working", "Codex"]);
+  });
+
+  it("keeps the working block at the bottom while streaming after resolved chatter", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        itemId: "approval-1",
+        summary: "Run tests?",
+        status: "pending",
+      },
+      { type: "approval-resolved", providerId: "codex", itemId: "approval-1", status: "accept" },
+      {
+        type: "item-started",
+        providerId: "codex",
+        itemId: "cmd-2",
+        itemType: "commandExecution",
+        summary: "pnpm test",
+        status: "inProgress",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.label)).toEqual(["Permission", "Working"]);
+  });
+
+  it("keeps a pending request below the working block so the ask stays at the bottom", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "cmd-1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        itemId: "approval-1",
+        summary: "Run tests?",
+        status: "pending",
+      },
+    ]);
+
+    expect(transcript.map((entry) => [entry.label, entry.status])).toEqual([
+      ["Working", null],
+      ["Permission", "pending"],
+    ]);
+  });
+
+  it("coalesces assistant deltas and replaces them with the completed item", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", turnId: "turn-1", text: "hello" },
+      {
+        type: "agent-message-delta",
+        providerId: "codex",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Hel",
+      },
+      {
+        type: "agent-message-delta",
+        providerId: "codex",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "lo",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Hello!",
+        status: "completed",
+      },
+    ]);
+
+    expect(transcript.map((entry) => entry.text)).toEqual(["hello", "Hello!"]);
   });
 });

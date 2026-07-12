@@ -8,6 +8,7 @@ import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
 import type { WeavieLspConfig } from "./lsp/lsp-client";
 import { notify } from "./notify/notify";
+import { ReliableAgentFrames } from "./reliable-agent-frames";
 import type { OverrideOp } from "./theme/overrides";
 import type { VsCodeColorTheme } from "./theme/vscode-theme";
 
@@ -49,9 +50,33 @@ export interface SessionChip {
   loaded: boolean;
   primary: boolean;
   providerId: "claude" | "codex";
+  // Optional for compatibility with an older remote backend. New hosts derive this from provider capabilities.
+  agentSurface?: "terminal" | "structured" | "unavailable";
+  // Protocol 2 correlates attachment upload and atomic prompt submission. Missing means the legacy remote API.
+  agentInputProtocol?: number;
   status: SessionStatusName;
   hue: number;
   monogram: string;
+}
+
+// An attention-worthy session event (docs/specs/session-attention.md), mirrored from Core's AttentionKind.
+export type AttentionKindName = "turnComplete" | "needsInput" | "failed";
+
+// Resolved notification prefs (the notifications.* settings). Injected as window.__WEAVIE_NOTIFICATIONS__
+// before navigation, re-pushed as { type: "notification-prefs" } on change.
+export interface NotificationPrefs {
+  sounds: boolean;
+  os: boolean;
+  volume: number;
+  soundPack: string;
+  /** Per-event gates keyed by the wire kind, so consumers index by an event's kind directly. */
+  gates: Record<AttentionKindName, boolean>;
+}
+
+// Resolved agent defaults (the agent.defaultProvider setting). Injected as window.__WEAVIE_AGENT__ before
+// navigation, re-pushed as { type: "agent-defaults" } on change. The New Session prompt preselects it.
+export interface AgentDefaults {
+  defaultProvider: "claude" | "codex";
 }
 
 export interface AgentPaneUpdate {
@@ -61,10 +86,80 @@ export interface AgentPaneUpdate {
   turnId?: string | null;
   itemId?: string | null;
   itemType?: string | null;
+  category?: string | null;
   summary?: string | null;
   text?: string | null;
   status?: string | null;
+  questions?: AgentInputQuestion[] | null;
   payload?: unknown;
+  // Wall-clock ms when the web received this update, stamped by the accumulator on arrival. Used to anchor
+  // the turn timer to the real turn start so it survives session switches (never sent by the host).
+  receivedAt?: number;
+}
+
+export interface AgentInputQuestion {
+  id: string;
+  header: string;
+  question: string;
+  isSecret: boolean;
+  options: AgentInputOption[];
+}
+
+export interface AgentInputOption {
+  label: string;
+  description: string;
+}
+
+// The provider-neutral composer control surface (host-pushed as `agent-controls`, per slot). The web renders
+// axes/options and echoes back an axis `id` + option `id` via `agent-set-control`, never learning a provider
+// concept. A slash entry either dispatches `commandId` (a built-in action) or inserts `insertText` (a skill).
+export interface AgentControlOption {
+  id: string;
+  label: string;
+  description: string | null;
+}
+
+export interface AgentControlAxis {
+  id: string;
+  label: string;
+  value: string;
+  valueLabel: string;
+  options: AgentControlOption[];
+}
+
+/** One model in the merged model control, with the efforts and Fast state its submenu offers. */
+export interface AgentModelChoice {
+  id: string;
+  label: string;
+  current: boolean;
+  /** The effort id selected for this model (effective effort when current, else the model default). */
+  effort: string;
+  efforts: AgentControlOption[];
+  /** The service-tier id that turns Fast on for this model, or "" when it has no Fast tier. */
+  fastTier: string;
+  fastOn: boolean;
+}
+
+/** The merged model → effort / Fast control: one status-line item whose picker opens a per-model submenu. */
+export interface AgentModelControl {
+  value: string;
+  valueLabel: string;
+  models: AgentModelChoice[];
+}
+
+export interface AgentSlashEntry {
+  id: string;
+  name: string;
+  description: string;
+  commandId: string | null;
+  insertText: string | null;
+  skillName: string | null;
+}
+
+export interface AgentControlState {
+  modelControl: AgentModelControl;
+  axes: AgentControlAxis[];
+  slash: AgentSlashEntry[];
 }
 
 // One button on a contextual-suggestion card. A `RunCommand` action dispatches `commandId` (advertising its
@@ -128,6 +223,8 @@ export interface EditorOptionsSpec {
   commentProse: CommentProseMode;
   // Not a Monaco option: toggles the Ctrl+N pane-switch hint badges (see App.tsx).
   paneShortcutHints: boolean;
+  // Not a Monaco option: starts playback when a video file opens in the media pane (see MediaPane.tsx).
+  videoAutoplay: boolean;
 }
 
 /**
@@ -155,8 +252,18 @@ export type HostBoundMessage =
   // the provider's native image path. `session` is legacy and ignored for routing.
   | { type: "term-paste-image"; slot: string; session: TermSession; mime: string; dataB64: string }
   | { type: "term-resize"; slot: string; session: TermSession; cols: number; rows: number }
-  | { type: "agent-submit"; slot: string; prompt: string }
+  | { type: "agent-attachment-upload"; slot: string; id: string; mime: string; dataB64: string }
+  | { type: "agent-attachment-remove"; slot: string; id: string }
+  | {
+      type: "agent-submit";
+      slot: string;
+      id?: string;
+      prompt: string;
+      attachmentIds?: string[];
+      skills?: string[];
+    }
   | { type: "agent-interrupt"; slot: string }
+  | { type: "agent-set-control"; slot: string; axis: string; value: string }
   | { type: "agent-approval"; slot: string; requestId: string; decision: string }
   | { type: "agent-input"; slot: string; requestId: string; answers: Record<string, string[]> }
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
@@ -359,6 +466,9 @@ export type HostBoundMessage =
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
+  // Remember the provider chosen in the New Session prompt as the default (agent.defaultProvider). Always the
+  // local host: the prompt's default is a local preference, independent of where the session is created.
+  | { type: "set-agent-default"; providerId: "claude" | "codex" }
   // A keybinding/palette/menu invoked a Core command. A `token` requests a command-result reply
   // (request/response); without one the host runs it fire-and-forget.
   | { type: "invoke-command"; id: string; args?: unknown; token?: string }
@@ -366,13 +476,31 @@ export type HostBoundMessage =
   | { type: "command-ack"; token: string; ok: boolean; error?: string };
 
 export type WebBoundMessage =
-  | { type: "term-output"; slot: string; session: TermSession; dataB64: string }
+  // `replay: true` marks reattach-synthesized bytes (scrollback replay, mode restore): the pane must not let
+  // xterm's answers to device queries inside them (DSR/DA…) reach the child — they'd land as garbage input.
+  | { type: "term-output"; slot: string; session: TermSession; dataB64: string; replay?: boolean }
   | { type: "term-exit"; slot: string; session: TermSession; code: number }
   // Host asks this pane to reset + re-emit term-ready. The sole caller is a deliberate child relaunch (shell
   // setting changed), so `respawn` is true for a full reset. Session switches don't reset (pure show/hide).
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   | { type: "agent-pane"; slot: string; workspace: string; message: AgentPaneUpdate }
   | { type: "agent-pane-reset"; slot: string; workspace: string }
+  | { type: "agent-controls"; slot: string; workspace: string; state: AgentControlState }
+  | {
+      type: "agent-attachment-state";
+      slot: string;
+      id: string;
+      status: "ready" | "failed" | "removed";
+      error: string;
+    }
+  | {
+      type: "agent-submission-state";
+      slot: string;
+      id: string;
+      attachmentIds: string[];
+      status: "accepted" | "rejected";
+      error: string;
+    }
   // Host pushes a session's Claude status (derived from its hook stream + process supervisor).
   | { type: "session-status"; session: TermSession; status: SessionStatusName }
   // Host pushes the active session's git branch + dirty flag for the terminal-column footer (active-backend
@@ -383,6 +511,9 @@ export type WebBoundMessage =
   | { type: "ref-link-base"; prefix: string | null }
   // Host pushes the full session list for the rail (id, label, active, status, deterministic identity).
   | { type: "session-list"; sessions: SessionChip[] }
+  // A session wants attention (turn complete / needs input / crashed), with its rail identity. Pushed by
+  // every backend, never active-gated, so background/remote pings reach the client (session-attention.md).
+  | { type: "session-attention"; slot: string; label: string; kind: AttentionKindName }
   // Host pushes the active contextual suggestions (dismissible nudge cards). Ambient — fanned out per backend.
   | { type: "suggestions"; items: Suggestion[] }
   // Host asks the web to move keyboard focus into a pane (kind, e.g. "terminal:claude") — pushed after a
@@ -458,6 +589,12 @@ export type WebBoundMessage =
   | { type: "set-editor-session"; sessionId: string | null; session: EditorSession }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
+  // Host re-pushes the resolved notification prefs when a notifications.* setting changes (ApplyMode.Live).
+  // A local-machine push: one prefs source (the page-serving backend) governs presentation.
+  | ({ type: "notification-prefs" } & NotificationPrefs)
+  // Host re-pushes the agent default provider when agent.defaultProvider changes (e.g. creating a session
+  // with a different provider). A local-machine push: the New Session prompt's default tracks it.
+  | ({ type: "agent-defaults" } & AgentDefaults)
   // Host pushes resolved editor options when an editor.* setting changes (ApplyMode.Live); applied via
   // editor.updateOptions (plus the suggest-docs custom behavior).
   | { type: "editorOptions"; options: EditorOptionsSpec }
@@ -555,6 +692,7 @@ export type WebBoundMessage =
   // `key` (optional) dedupes: a later toast with the same key replaces the live one (e.g. a "settings reloaded"
   // info clearing the lingering "settings malformed" error).
   | { type: "notify"; level: "error" | "warn" | "info"; message: string; key?: string }
+  | { type: "notify-clear"; key: string }
   // Update drain state (docs/specs/runner-auto-update.md): what's holding a pending update restart
   // (re-pushed on every change, and on `ready` for a tab that connected mid-drain)…
   | {
@@ -687,6 +825,9 @@ function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
     type === "session-status" ||
+    type === "session-attention" ||
+    type === "agent-attachment-state" ||
+    type === "agent-submission-state" ||
     type === "suggestions" ||
     type === "recent-files" ||
     type === "branches-result" ||
@@ -763,7 +904,9 @@ function deliverFromHost(raw: string, backendId: string): void {
   const localMachinePush =
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
-    parsed.type === "window-state";
+    parsed.type === "window-state" ||
+    parsed.type === "notification-prefs" ||
+    parsed.type === "agent-defaults";
   if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
     return;
   }
@@ -807,6 +950,7 @@ const READY_HELLO = JSON.stringify({ type: "ready" });
 class WebSocketTransport implements BridgeTransport {
   private socket: WebSocket | null = null;
   private readonly outbox: string[] = [];
+  private readonly reliableAgentFrames = new ReliableAgentFrames();
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
@@ -823,7 +967,10 @@ class WebSocketTransport implements BridgeTransport {
 
   constructor(
     private readonly backendId: string,
-    private readonly url: string,
+    // Re-resolved on every (re)connect, so a reconnect always targets the backend's CURRENT bridge URL. A
+    // restarted runner mints a fresh worker port+token (see remote-agents.ts), so a URL fixed at construction
+    // would be dead for good after the first restart. The local backend's resolver returns its static URL.
+    private readonly resolveUrl: () => Promise<string>,
     // Human label for connection toasts/banner ("the Weavie host" for local, the agent name for a remote).
     private readonly label: string,
     // Re-sent on every (re)connect, so a backend re-pushes its state after a dropped link. Remotes pass
@@ -835,6 +982,7 @@ class WebSocketTransport implements BridgeTransport {
   }
 
   send(json: string): void {
+    this.reliableAgentFrames.track(json);
     if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
       this.socket.send(json);
       return;
@@ -858,9 +1006,22 @@ class WebSocketTransport implements BridgeTransport {
     if (this.disposed) {
       return;
     }
+    // Resolve the current URL first — a remote agent re-runs its runner handshake here, so a reconnect
+    // follows the runner to its freshly-minted worker. A resolver failure (runner/control-plane unreachable)
+    // is a drop like any other: retry with backoff.
+    void this.resolveUrl().then(
+      (url) => this.openSocket(url),
+      () => this.onDrop(),
+    );
+  }
+
+  private openSocket(url: string): void {
+    if (this.disposed) {
+      return;
+    }
     let socket: WebSocket;
     try {
-      socket = new WebSocket(this.url);
+      socket = new WebSocket(url);
     } catch {
       this.onDrop();
       return;
@@ -885,9 +1046,16 @@ class WebSocketTransport implements BridgeTransport {
       for (const message of pending) {
         socket.send(message);
       }
+      const pendingSet = new Set(pending);
+      for (const message of this.reliableAgentFrames.replay()) {
+        if (!pendingSet.has(message)) {
+          socket.send(message);
+        }
+      }
     };
     socket.onmessage = (event: MessageEvent): void => {
       if (typeof event.data === "string") {
+        this.reliableAgentFrames.acknowledge(event.data);
         deliverFromHost(event.data, this.backendId);
       }
     };
@@ -912,6 +1080,11 @@ class WebSocketTransport implements BridgeTransport {
   // A link that dropped (or never opened): raise exactly one toast on the online→retry transition (and one on
   // a first-connect failure), mark the backend reconnecting so the panes show it, and schedule a retry.
   private onDrop(): void {
+    // A resolver/socket failure can land after the backend was disposed (the remote was removed mid-handshake);
+    // re-arming a reconnect then would leak a zombie loop for a backend that's gone.
+    if (this.disposed) {
+      return;
+    }
     if (this.phase === "online") {
       notify("error", `Lost connection to ${this.label}. Reconnecting…`, this.connectionToastKey);
     } else if (this.phase === "connecting") {
@@ -989,7 +1162,13 @@ export function isBrowserHostedShell(): boolean {
   } else {
     const wsUrl = resolveBridgeWsUrl();
     if (wsUrl !== null) {
-      transport = new WebSocketTransport(LOCAL_BACKEND_ID, wsUrl, "the Weavie host");
+      // The local backend's URL is static (same-origin, token fixed for the page's life); the resolver just
+      // hands it back on each reconnect.
+      transport = new WebSocketTransport(
+        LOCAL_BACKEND_ID,
+        () => Promise.resolve(wsUrl),
+        "the Weavie host",
+      );
       browserHostedShell = true;
     }
   }
@@ -1003,13 +1182,14 @@ export function isBrowserHostedShell(): boolean {
 })();
 
 // Connect an additional (remote) backend so its sessions appear on the rail. Its page-painting traffic stays
-// suppressed until made active (see deliverFromHost). Idempotent per id.
-export function connectBackend(id: string, name: string, wsUrl: string): void {
+// suppressed until made active (see deliverFromHost). `resolveUrl` is re-run on every (re)connect so a reconnect
+// re-derives the runner's current worker (fresh port+token after a runner restart). Idempotent per id.
+export function connectBackend(id: string, name: string, resolveUrl: () => Promise<string>): void {
   if (backends.has(id)) {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, wsUrl, name, READY_HELLO);
+  const transport = new WebSocketTransport(id, resolveUrl, name, READY_HELLO);
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }
@@ -1049,13 +1229,24 @@ export function backendName(id: string): string {
   return backends.get(id)?.info.name ?? id;
 }
 
+// Terminal keystrokes are live input, not queueable work: while a backend's link is down they are dropped
+// (the offline overlay is the user-facing signal), never buffered — replaying stale keystrokes (with their
+// Enters) into the PTY on reconnect would execute commands nobody is watching. Mirrors the LSP writer's
+// reject-while-offline.
+function dropWhileOffline(backendId: string, message: HostBoundMessage): boolean {
+  return message.type === "term-input" && (phases().get(backendId) ?? "online") !== "online";
+}
+
 /** Send to the active backend (the page's current backend). */
 export function postToHost(message: HostBoundMessage): void {
-  backends.get(activeBackend())?.transport.send(JSON.stringify(message));
+  postToBackend(activeBackend(), message);
 }
 
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */
 export function postToBackend(backendId: string, message: HostBoundMessage): void {
+  if (dropWhileOffline(backendId, message)) {
+    return;
+  }
   backends.get(backendId)?.transport.send(JSON.stringify(message));
 }
 

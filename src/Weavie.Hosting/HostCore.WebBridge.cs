@@ -75,6 +75,12 @@ public sealed partial class HostCore {
 			case "term-paste-image":
 				HandlePasteImage(root);
 				break;
+			case "agent-attachment-upload":
+				HandleAgentAttachmentUpload(root);
+				break;
+			case "agent-attachment-remove":
+				HandleAgentAttachmentRemove(root);
+				break;
 			case "term-resize": {
 					int cols = root.GetProperty("cols").GetInt32();
 					int rows = root.GetProperty("rows").GetInt32();
@@ -91,10 +97,15 @@ public sealed partial class HostCore {
 				TerminalFor(root)?.OnReady(root.GetProperty("cols").GetInt32(), root.GetProperty("rows").GetInt32());
 				break;
 			case "agent-submit":
-				SessionForSlot(root)?.Agent.Structured?.SubmitPrompt(root.GetStringOrEmpty("prompt"));
+				HandleAgentSubmit(root);
 				break;
 			case "agent-interrupt":
 				SessionForSlot(root)?.Agent.Structured?.Interrupt();
+				break;
+			case "agent-set-control":
+				SessionForSlot(root)?.Agent.Controls?.SetControl(
+					root.GetStringOrEmpty("axis"),
+					root.GetStringOrEmpty("value"));
 				break;
 			case "agent-approval":
 				SessionForSlot(root)?.Agent.Structured?.ResolveApproval(
@@ -390,6 +401,7 @@ public sealed partial class HostCore {
 				foreach (var slot in _sessions?.Slots ?? []) {
 					slot.Session?.Claude?.ResyncPane();
 					slot.Session?.Agent.ReplayPane();
+					slot.Session?.Agent.ReplayControls();
 					slot.Session?.Shell.ResyncPane();
 				}
 
@@ -466,6 +478,10 @@ public sealed partial class HostCore {
 			case "set-last-location":
 				// The page remembers where the last session was created (a backend id); persist it for next launch.
 				_railState.SetLastLocation(root.GetStringOrEmpty("location"));
+				break;
+			case "set-agent-default":
+				// The New Session prompt remembers its provider choice as the default; always the local host.
+				RememberDefaultProvider(root.GetStringOrEmpty("providerId"));
 				break;
 			case "set-promoted":
 				// The page's promoted-remote-session set changed; persist the full set it sent.
@@ -1151,6 +1167,10 @@ public sealed partial class HostCore {
 	/// </summary>
 	public void Notify(string level, string message, string key) =>
 		_bridge.PostToWeb(ShellProtocol.BuildNotify(level, message, key));
+
+	/// <summary>Dismisses the live toast carrying <paramref name="key"/> in the page (an in-flight spinner whose operation finished).</summary>
+	public void ClearNotify(string key) =>
+		_bridge.PostToWeb(ShellProtocol.BuildNotifyClear(key));
 
 	/// <summary>
 	/// Creates a session from the page's <c>new-session</c> request and surfaces any failure as a toast (the

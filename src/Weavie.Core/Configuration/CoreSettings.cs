@@ -66,7 +66,23 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
-			Key = "agent.defaultProvider",
+			Key = "terminal.outputCoalesceMs",
+			Kind = SettingKind.Int,
+			Description = "How long (milliseconds) to batch a terminal pane's live output into one update before "
+				+ "sending it to the page. Batching keeps a burst of output (a build, a big file, `seq`) from "
+				+ "flooding the bridge and freezing the UI. 16 by default — one frame at 60fps, imperceptible; "
+				+ "0 sends every chunk immediately (no batching). Takes effect on the next session.",
+			Aliases = ["terminal batching", "coalesce terminal output", "terminal output batching",
+				"output flush interval"],
+			Apply = ApplyMode.NextSession,
+			Default = 16L,
+			Validate = static value => value is long ms && ms >= 0
+				? ValidationResult.Success
+				: ValidationResult.Failure("terminal.outputCoalesceMs must be 0 (off) or a positive number of milliseconds."),
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
 			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider. "
 				+ "Claude is the default; Codex is selectable only once its native parity gate is available.",
@@ -168,6 +184,30 @@ public static class CoreSettings {
 				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-failure, on-request, or never."),
 		});
 
+		// No Validate: efforts/tiers are per-model and open-ended (xhigh/max/ultra today, more tomorrow), so a
+		// fixed enum would reject future-valid values. A bad value surfaces as a loud Codex error on the next turn.
+		registry.Register(new SettingDefinition {
+			Key = "codex.effort",
+			Kind = SettingKind.String,
+			Description = "Reasoning effort passed to native Codex sessions (e.g. low, medium, high, xhigh). Empty "
+				+ "means Codex uses the model's default effort. Valid values depend on the model. Takes effect on "
+				+ "the next Codex session.",
+			Aliases = ["codex effort", "codex reasoning effort", "reasoning effort"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
+		registry.Register(new SettingDefinition {
+			Key = "codex.serviceTier",
+			Kind = SettingKind.String,
+			Description = "Service tier passed to native Codex sessions. Empty (or 'standard') uses the standard "
+				+ "tier; 'priority' selects Fast Mode where the model supports it. Takes effect on the next Codex "
+				+ "session.",
+			Aliases = ["codex service tier", "codex fast mode", "fast mode"],
+			Apply = ApplyMode.NextSession,
+			Default = "",
+		});
+
 		registry.Register(new SettingDefinition {
 			Key = "pr.autoReviewPrompt",
 			Kind = SettingKind.Bool,
@@ -215,6 +255,8 @@ public static class CoreSettings {
 		EditorSettings.Register(registry);
 		ThemeSettings.Register(registry);
 		TestSettings.Register(registry);
+		NotificationSettings.Register(registry);
+		CorrectionsSettings.Register(registry);
 
 		registry.Register(new SettingDefinition {
 			Key = "diagnostics.startupTiming",
@@ -289,7 +331,9 @@ public static class CoreSettings {
 			return onPath;
 		}
 
-		return null;
+		// On POSIX, match Claude's fallback: the interactive login shell may add Codex through nvm/asdf/mise
+		// even when the environment Weavie inherited at startup cannot resolve it yet.
+		return OperatingSystem.IsWindows() ? null : "codex";
 	}
 
 	private static bool IsWindowsAppsAlias(string path) =>

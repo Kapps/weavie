@@ -30,6 +30,9 @@ interface PooledClient {
 // backend id, session slot, or server id, so the composite key never collides.
 const pool = new Map<string, PooledClient>();
 let channelSeq = 0;
+// Per-page-instance nonce in channel ids: the host's channel map outlives this page (reload, second tab), and a
+// bare counter would re-mint an id still bound to a live server — splicing two clients onto one server.
+const pageEpoch = Math.random().toString(36).slice(2, 10);
 
 function keyFor(backendId: string, slot: string, serverId: string): string {
   return `${backendId}\n${slot}\n${serverId}`;
@@ -87,7 +90,7 @@ function worktreePattern(workspace: string): string {
 
 function connect(key: string, params: EnsureClientParams, attempt: number): void {
   const { config, server, backendId, onStarted, hasOpenDoc } = params;
-  const channelId = `lsp${++channelSeq}`;
+  const channelId = `lsp${++channelSeq}-${pageEpoch}`;
   let openedAt = 0;
   // Set on intentional teardown (switch/prune): the supervised reconnect stands down and a late exit is ignored.
   let torn = false;

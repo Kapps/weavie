@@ -55,7 +55,9 @@ public static class LineDiff {
 		return Math.Clamp(shared + 1, 1, Math.Max(b.Length, 1));
 	}
 
-	private static string[] SplitLines(string text) =>
+	/// <summary>Splits <paramref name="text"/> into lines, normalizing every EOL style to <c>\n</c> first (empty text → no lines).</summary>
+	/// <param name="text">The text to split.</param>
+	internal static string[] SplitLines(string text) =>
 		text.Length == 0 ? [] : text.ReplaceLineEndings("\n").Split('\n');
 
 	private static int LcsLength(string[] a, string[] b) {

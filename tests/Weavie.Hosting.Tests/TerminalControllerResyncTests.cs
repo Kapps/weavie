@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Terminal;
@@ -53,6 +54,24 @@ public sealed class TerminalControllerResyncTests {
 	}
 
 	[Fact]
+	public void ReplayedScrollback_IsFlaggedReplay_LiveOutputIsNot() {
+		using var h = new Harness("shell", withScrollback: true);
+		h.Controller.OnReady(80, 24);
+		// A device query the child once sent (answered by the then-live client) lands in the scrollback log.
+		h.Launcher.Terminal!.EmitOutput("\x1b[6n"u8.ToArray());
+
+		h.Controller.OnReady(80, 24); // reattach: the log replays the query bytes
+
+		var outputs = h.Bridge.PostedOfType("term-output");
+		Assert.Equal(2, outputs.Count);
+		// Live output carries no flag; the replayed chunk is flagged so the page suppresses xterm's re-answer
+		// (which would otherwise hit the child as input).
+		Assert.False(outputs[0].TryGetProperty("replay", out _));
+		Assert.True(outputs[1].GetProperty("replay").GetBoolean());
+		Assert.Contains("\x1b[6n", DecodeData(outputs[1]));
+	}
+
+	[Fact]
 	public void PaneWithScrollback_ResetsThePaneWithoutRespawn() {
 		using var h = new Harness("shell", withScrollback: true);
 		h.Controller.OnReady(80, 24);
@@ -77,6 +96,8 @@ public sealed class TerminalControllerResyncTests {
 			_root = Directory.CreateDirectory(
 				Path.Combine(Path.GetTempPath(), "weavie-resync-" + Guid.NewGuid().ToString("n"))).FullName;
 			_settings = CoreSettings.CreateStore(Path.Combine(_root, "settings.toml"), enableWatcher: false);
+			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
+			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Launcher = new RecordingPtyLauncher();
 			Controller = new TerminalController(
 				Bridge,

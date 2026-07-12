@@ -152,6 +152,9 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			_createdSinceBaseline.Clear();
+			// Freeze each accepted file's on-disk content as its correction "final" before a later hand-edit can
+			// move it — keep-all's review baseline comes from _current, which never sees hand-edits.
+			FreezeSettledFinalForAccept();
 			// Keep-all is the commit point — accepted changes are locked in, so the undo history resets here.
 			_undoStack.Clear();
 			_redoStack.Clear();
@@ -213,6 +216,7 @@ public sealed partial class SessionChangeTracker {
 
 			_acceptedAnchor.TryAdd(path, string.Empty);
 			_current[path] = ReadOrEmpty(path);
+			SnapshotAgentOutput(path);
 		}
 
 		Changed?.Invoke();
@@ -269,6 +273,7 @@ public sealed partial class SessionChangeTracker {
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_fileSystem.FileExists(path)) {
 					Forget(path);
+					DropAgentOutput(path);
 					(removed ??= []).Add(path);
 				}
 			}
@@ -299,7 +304,8 @@ public sealed partial class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
-			var currentLines = SplitLines(ReadOrEmpty(path));
+			string currentRaw = ReadOrEmpty(path);
+			var currentLines = SplitLines(currentRaw);
 			if (!TryGetSlice(currentLines, currentRange, out var currentSlice)
 				|| !string.Equals(string.Join("\n", currentSlice), guardText, StringComparison.Ordinal)) {
 				return RevertHunkOutcome.GuardMismatch;
@@ -313,7 +319,7 @@ public sealed partial class SessionChangeTracker {
 			var newLines = new List<string>(currentLines);
 			newLines.RemoveRange(currentRange.Start - 1, currentRange.EndExclusive - currentRange.Start);
 			newLines.InsertRange(currentRange.Start - 1, replacement);
-			string newContent = string.Join("\n", newLines);
+			string newContent = JoinLines(newLines, currentRaw);
 
 			var before = Capture(path, withDisk: true);
 			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
@@ -400,13 +406,15 @@ public sealed partial class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
-			var currentLines = SplitLines(ReadOrEmpty(path));
+			string currentRaw = ReadOrEmpty(path);
+			var currentLines = SplitLines(currentRaw);
 			if (!TryGetSlice(currentLines, currentRange, out var currentSlice)
 			|| !string.Equals(string.Join("\n", currentSlice), guardText, StringComparison.Ordinal)) {
 				return false;
 			}
 
-			var baselineLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
+			string baselineRaw = _reviewBaseline.GetValueOrDefault(path, string.Empty);
+			var baselineLines = SplitLines(baselineRaw);
 			if (!TryGetSlice(baselineLines, baselineRange, out _)) {
 				return false;
 			}
@@ -414,8 +422,8 @@ public sealed partial class SessionChangeTracker {
 			var before = Capture(path, withDisk: false);
 			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
-			_reviewBaseline[path] = string.Join("\n", baselineLines);
-			_current[path] = string.Join("\n", currentLines);
+			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : currentRaw);
+			_current[path] = currentRaw;
 			Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
 			return true;
 		}
@@ -464,7 +472,8 @@ public sealed partial class SessionChangeTracker {
 		ArgumentNullException.ThrowIfNull(acceptedGuardText);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
-			var reviewLines = SplitLines(_reviewBaseline.GetValueOrDefault(path, string.Empty));
+			string reviewRaw = _reviewBaseline.GetValueOrDefault(path, string.Empty);
+			var reviewLines = SplitLines(reviewRaw);
 			if (!TryGetSlice(reviewLines, reviewRange, out var reviewSlice)
 				|| !string.Equals(string.Join("\n", reviewSlice), guardText, StringComparison.Ordinal)) {
 				return false;
@@ -478,7 +487,7 @@ public sealed partial class SessionChangeTracker {
 
 			reviewLines.RemoveRange(reviewRange.Start - 1, reviewRange.EndExclusive - reviewRange.Start);
 			reviewLines.InsertRange(reviewRange.Start - 1, replacement);
-			_reviewBaseline[path] = string.Join("\n", reviewLines); // disk + _current untouched — the hunk just goes bright again
+			_reviewBaseline[path] = JoinLines(reviewLines, reviewRaw); // disk + _current untouched — the hunk just goes bright again
 			return true;
 		}
 	}
@@ -614,6 +623,11 @@ public sealed partial class SessionChangeTracker {
 	// Split text the way a Monaco model does (CRLF/CR normalized to LF), so the web's line ranges line up with Core's slices.
 	private static List<string> SplitLines(string text) =>
 		[.. text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace("\r", "\n", StringComparison.Ordinal).Split('\n')];
+
+	// Rejoin split lines with the EOL convention of the text they came from, so a single-hunk operation on a
+	// CRLF file never rewrites the whole file (or its stored baseline) with LF endings.
+	private static string JoinLines(IReadOnlyList<string> lines, string eolSource) =>
+		string.Join(eolSource.Contains("\r\n", StringComparison.Ordinal) ? "\r\n" : "\n", lines);
 
 	// Slices a 1-based, end-exclusive range out of `lines`; false (empty slice) when out of bounds, which the
 	// caller treats as a guard failure so an inconsistent request never writes.

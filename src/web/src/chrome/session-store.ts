@@ -52,6 +52,7 @@ export { sessionsReceived };
 const normalizeProvider = (chip: SessionChip): SessionChip => ({
   ...chip,
   providerId: chip.providerId ?? "claude",
+  agentSurface: chip.agentSurface ?? (chip.providerId === "codex" ? "structured" : "terminal"),
 });
 
 // Sessions with a host op (delete / load / unload) in flight, refcounted by `${backendId}:${id}` so
@@ -129,6 +130,11 @@ const merged = createMemo<RailSession[]>(() => {
 
 /** The merged sessions across all connected backends (local + remotes). Drives terminals + the cloud panel. */
 export const sessions = merged;
+
+/** The session with `id` on `backendId`, or undefined when no connected backend carries it. */
+export function findSession(backendId: string, id: string): RailSession | undefined {
+  return merged().find((s) => s.backendId === backendId && s.id === id);
+}
 
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {

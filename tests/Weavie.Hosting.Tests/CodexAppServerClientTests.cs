@@ -43,8 +43,16 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		AssertUtf8WithoutBom(info.StandardInputEncoding);
 		AssertUtf8WithoutBom(info.StandardOutputEncoding);
 		AssertUtf8WithoutBom(info.StandardErrorEncoding);
-		Assert.Equal("app-server", info.ArgumentList[1]);
-		Assert.Equal("--stdio", info.ArgumentList[^1]);
+		if (OperatingSystem.IsWindows()) {
+			Assert.Equal("app-server", info.ArgumentList[1]);
+			Assert.Equal("--stdio", info.ArgumentList[^1]);
+		} else {
+			Assert.Equal(LoginShellEnvironment.LoginShell(), info.FileName);
+			Assert.Equal(["-l", "-i", "-c"], info.ArgumentList.Take(3));
+			Assert.Contains("exec 'codex'", info.ArgumentList[3], StringComparison.Ordinal);
+			Assert.Contains("'app-server'", info.ArgumentList[3], StringComparison.Ordinal);
+			Assert.EndsWith("'--stdio'", info.ArgumentList[3], StringComparison.Ordinal);
+		}
 		Assert.Equal("value", info.Environment["WEAVIE_TEST"]);
 		string pathKey = Assert.Single(info.Environment.Keys, key => string.Equals(key, "PATH", StringComparison.OrdinalIgnoreCase));
 		Assert.StartsWith(

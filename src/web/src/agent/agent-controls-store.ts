@@ -3,7 +3,12 @@
 // the active backend's slots arrive, and the host re-pushes on reconnect/switch, so the status line self-heals.
 
 import { createSignal } from "solid-js";
-import { type AgentControlState, onHostMessage, postToBackend } from "../bridge";
+import {
+  type AgentControlAxis,
+  type AgentControlState,
+  onHostMessage,
+  postToBackend,
+} from "../bridge";
 
 const EMPTY: AgentControlState = { axes: [], slash: [] };
 const [states, setStates] = createSignal<Record<string, AgentControlState>>({});
@@ -23,6 +28,21 @@ export function setAgentControl(
   value: string,
 ): void {
   postToBackend(backendId, { type: "agent-set-control", slot, axis, value });
+}
+
+/** Flips a two-option toggle axis (e.g. Fast Mode) between its off (options[0]) and on (options[1]) value. */
+export function toggleAgentControl(backendId: string, slot: string, axis: AgentControlAxis): void {
+  const off = axis.options[0]?.id;
+  const on = axis.options[1]?.id;
+  if (off === undefined || on === undefined) {
+    return;
+  }
+  setAgentControl(backendId, slot, axis.id, axis.value === on ? off : on);
+}
+
+/** Whether a toggle axis is currently in its on (options[1]) state. */
+export function isToggleOn(axis: AgentControlAxis): boolean {
+  return axis.value === axis.options[1]?.id;
 }
 
 /** The axis whose picker is currently open, or null. */

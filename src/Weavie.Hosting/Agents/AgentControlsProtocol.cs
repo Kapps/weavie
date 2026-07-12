@@ -19,6 +19,7 @@ internal static class AgentControlsProtocol {
 					label = axis.Label,
 					value = axis.Value,
 					valueLabel = axis.ValueLabel,
+					toggle = axis.Toggle,
 					options = axis.Options.Select(option => new {
 						id = option.Id,
 						label = option.Label,

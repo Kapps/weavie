@@ -38,9 +38,33 @@ const controls = {
         label: "Model",
         value: "gpt-5.5",
         valueLabel: "GPT-5.5",
+        toggle: false,
         options: [
           { id: "gpt-5.5", label: "GPT-5.5", description: "Frontier model." },
           { id: "gpt-5.4-mini", label: "GPT-5.4 mini", description: "Fast model." },
+        ],
+      },
+      {
+        id: "effort",
+        label: "Effort",
+        value: "medium",
+        valueLabel: "Medium",
+        toggle: false,
+        options: [
+          { id: "low", label: "Low", description: "Fast responses." },
+          { id: "medium", label: "Medium", description: "Balanced." },
+          { id: "high", label: "High", description: "Deeper reasoning." },
+        ],
+      },
+      {
+        id: "serviceTier",
+        label: "Speed",
+        value: "standard",
+        valueLabel: "Standard",
+        toggle: true,
+        options: [
+          { id: "standard", label: "Standard", description: "Normal speed and usage." },
+          { id: "priority", label: "Fast", description: "1.5x speed, increased usage" },
         ],
       },
       {
@@ -158,17 +182,50 @@ test.describe("Codex composer", () => {
     }).toPass({ timeout: 20_000 });
   }
 
-  test("status line shows the model, approvals, and sandbox", async ({ page }) => {
+  test("status line shows model, effort, Fast toggle, approvals, and sandbox", async ({ page }) => {
     await mountCodex(page);
 
+    // The Fast toggle renders as its own chip, so the picker segments are model, effort, approvals, sandbox.
     const segments = page.locator(".agent-status-segment");
-    await expect(segments).toHaveCount(3);
+    await expect(segments).toHaveCount(4);
     await expect(segments.nth(0)).toContainText("Model");
     await expect(segments.nth(0)).toContainText("GPT-5.5");
-    await expect(segments.nth(1)).toContainText("On request");
-    await expect(segments.nth(2)).toContainText("Workspace write");
+    await expect(segments.nth(1)).toContainText("Effort");
+    await expect(segments.nth(1)).toContainText("Medium");
+    await expect(segments.nth(2)).toContainText("On request");
+    await expect(segments.nth(3)).toContainText("Workspace write");
+
+    const fast = page.locator(".agent-status-toggle");
+    await expect(fast).toHaveText("Fast");
+    await expect(fast).not.toHaveClass(/on/); // off by default
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
+  });
+
+  test("the Fast toggle switches the service tier live and highlights when on", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+
+    const fast = page.locator(".agent-status-toggle");
+    await expect(fast).not.toHaveClass(/on/);
+    await fast.click();
+
+    const set = await host.waitForMessage("agent-set-control");
+    expect(set).toMatchObject({ slot: "cx", axis: "serviceTier", value: "priority" });
+
+    // The host echoes the new state back; the chip then reads as on.
+    host.pushToWeb({
+      ...controls,
+      state: {
+        ...controls.state,
+        axes: controls.state.axes.map((axis) =>
+          axis.id === "serviceTier" ? { ...axis, value: "priority", valueLabel: "Fast" } : axis,
+        ),
+      },
+    });
+    await expect(fast).toHaveClass(/on/);
+    await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
   });
 
   test("the model picker applies a live change back to the host", async ({ page }) => {
@@ -186,6 +243,23 @@ test.describe("Codex composer", () => {
 
     const set = await host.waitForMessage("agent-set-control");
     expect(set).toMatchObject({ slot: "cx", axis: "model", value: "gpt-5.4-mini" });
+    await expect(picker).toBeHidden();
+  });
+
+  test("the effort picker applies a live change back to the host", async ({ page }) => {
+    await mountCodex(page);
+
+    await page.locator(".agent-status-segment", { hasText: "Effort" }).click();
+    const picker = page.locator(".agent-control-picker");
+    await expect(picker).toBeVisible();
+    await expect(picker.locator(".agent-control-option")).toHaveCount(3);
+
+    // Current value (medium) is highlighted; Down moves to high, Enter applies it.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+
+    const set = await host.waitForMessage("agent-set-control");
+    expect(set).toMatchObject({ slot: "cx", axis: "effort", value: "high" });
     await expect(picker).toBeHidden();
   });
 

@@ -9,7 +9,12 @@ import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
 import { AgentSlashMenu } from "./AgentSlashMenu";
-import { agentControlState, openControlPicker, setAgentControl } from "./agent-controls-store";
+import {
+  agentControlState,
+  openControlPicker,
+  setAgentControl,
+  toggleAgentControl,
+} from "./agent-controls-store";
 import {
   captureAgentImagePaste,
   composerState,
@@ -289,6 +294,20 @@ export function AgentComposer(props: {
   const offSelectModel = registerSelect(CommandIds.selectModel, "model");
   const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
+  const offSelectEffort = registerSelect(CommandIds.selectEffort, "effort");
+  // Fast Mode is a one-click toggle, not a picker: flip the serviceTier axis between its off and on option.
+  const offToggleFast = registerCommand(CommandIds.toggleFastMode, () => {
+    const slot = props.slot;
+    if (slot === null) {
+      return false;
+    }
+    const axis = agentControlState(slot).axes.find((candidate) => candidate.id === "serviceTier");
+    if (axis === undefined) {
+      return false;
+    }
+    toggleAgentControl(props.backendId, slot, axis);
+    return true;
+  });
   const offApprove = registerDecision(CommandIds.agentApprove, "accept");
   const offApproveForSession = registerDecision(
     CommandIds.agentApproveForSession,
@@ -301,6 +320,8 @@ export function AgentComposer(props: {
   onCleanup(offSelectModel);
   onCleanup(offSelectApproval);
   onCleanup(offSelectSandbox);
+  onCleanup(offSelectEffort);
+  onCleanup(offToggleFast);
   onCleanup(offApprove);
   onCleanup(offApproveForSession);
   onCleanup(offDecline);

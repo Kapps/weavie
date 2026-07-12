@@ -124,6 +124,8 @@ export interface AgentControlAxis {
   label: string;
   value: string;
   valueLabel: string;
+  /** When true, render as a one-click on/off chip (options[0] off, options[1] on) rather than a picker. */
+  toggle: boolean;
   options: AgentControlOption[];
 }
 

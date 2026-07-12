@@ -25,10 +25,23 @@ const state: AgentControlState = {
       label: "Model",
       value: "gpt-5.5",
       valueLabel: "GPT-5.5",
+      toggle: false,
       options: [{ id: "gpt-5.5", label: "GPT-5.5", description: null }],
     },
   ],
   slash: [],
+};
+
+const fastAxis = {
+  id: "serviceTier",
+  label: "Speed",
+  value: "standard",
+  valueLabel: "Standard",
+  toggle: true,
+  options: [
+    { id: "standard", label: "Standard", description: null },
+    { id: "priority", label: "Fast", description: null },
+  ],
 };
 
 describe("agent controls store", () => {
@@ -55,6 +68,16 @@ describe("agent controls store", () => {
         },
       },
     ]);
+  });
+
+  it("toggles a two-option axis between its off and on value", () => {
+    bridge.posted.length = 0;
+    store.toggleAgentControl("remote-a", "slot-a", fastAxis); // off -> on
+    store.toggleAgentControl("remote-a", "slot-a", { ...fastAxis, value: "priority" }); // on -> off
+
+    expect(bridge.posted.map((entry) => entry.message.value)).toEqual(["priority", "standard"]);
+    expect(store.isToggleOn(fastAxis)).toBe(false);
+    expect(store.isToggleOn({ ...fastAxis, value: "priority" })).toBe(true);
   });
 
   it("tracks which axis picker is open", () => {

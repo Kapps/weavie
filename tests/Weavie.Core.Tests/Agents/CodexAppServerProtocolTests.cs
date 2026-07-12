@@ -63,9 +63,9 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TurnStart_CarriesThreadWorkspacePolicyAndText_OmittingEmptyModel() {
+	public void TurnStart_CarriesThreadWorkspacePolicyAndText_OmittingEmptyModelEffortAndTier() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
-			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", ""));
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "", ""));
 		var parameters = doc.RootElement.GetProperty("params");
 
 		Assert.Equal("turn/start", doc.RootElement.GetProperty("method").GetString());
@@ -76,21 +76,42 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("/repo", parameters.GetProperty("sandboxPolicy").GetProperty("writableRoots")[0].GetString());
 		Assert.Equal("fix it", parameters.GetProperty("input")[0].GetProperty("text").GetString());
 		Assert.False(parameters.TryGetProperty("model", out _));
+		Assert.False(parameters.TryGetProperty("effort", out _));
+		Assert.False(parameters.TryGetProperty("serviceTier", out _));
 	}
 
 	[Fact]
 	public void TurnStart_CarriesModelOverride_ForLiveModelChange() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
-			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "gpt-5.5"));
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "gpt-5.5", "", ""));
 
 		Assert.Equal("gpt-5.5", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public void TurnStart_CarriesEffort_AndClearsServiceTierToNull() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "high", "standard"));
+		var parameters = doc.RootElement.GetProperty("params");
+
+		Assert.Equal("high", parameters.GetProperty("effort").GetString());
+		// "standard" clears any tier: it serializes as an explicit JSON null, not the string "standard".
+		Assert.Equal(JsonValueKind.Null, parameters.GetProperty("serviceTier").ValueKind);
+	}
+
+	[Fact]
+	public void TurnStart_CarriesServiceTier_WhenSet() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "", "priority"));
+
+		Assert.Equal("priority", doc.RootElement.GetProperty("params").GetProperty("serviceTier").GetString());
 	}
 
 	[Fact]
 	public void TurnStartWithInputs_CarriesTextImageAndSkillItems() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithInputs(
 			13, "thr_1", "describe it", ["/tmp/paste-1.png"], [new CodexSkill("review-pr", "/s/review-pr", "Review a PR.")],
-			"/repo", "workspace-write", "on-request", "gpt-5.5"));
+			"/repo", "workspace-write", "on-request", "gpt-5.5", "", ""));
 		var parameters = doc.RootElement.GetProperty("params");
 		var input = parameters.GetProperty("input");
 
@@ -122,15 +143,27 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TryReadModels_MapsOptionsAndCatalogDefault() {
+	public void TryReadModelCatalog_MapsModelsEffortsAndServiceTiers() {
 		using var doc = JsonDocument.Parse(
-			"""{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model.","hidden":false,"isDefault":true},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4 mini","description":"Fast model.","hidden":false,"isDefault":false}]}""");
+			"""{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model.","hidden":false,"isDefault":true,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast."},{"reasoningEffort":"medium","description":"Balanced."},{"reasoningEffort":"xhigh","description":"Extra."}],"defaultServiceTier":"","serviceTiers":[{"id":"priority","name":"Fast","description":"1.5x speed."}]},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4 mini","description":"Fast model.","hidden":false,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast."}],"serviceTiers":[]}]}""");
 
-		Assert.True(CodexAppServerProtocol.TryReadModels(doc.RootElement, out var models, out string defaultModel));
-		Assert.Equal("gpt-5.5", defaultModel);
-		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], models.Select(model => model.Id));
-		Assert.Equal("GPT-5.5", models[0].Label);
-		Assert.Equal("Frontier model.", models[0].Description);
+		Assert.True(CodexModelCatalog.TryReadModelCatalog(doc.RootElement, out var models));
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], models.Select(model => model.Model.Id));
+
+		var frontier = models[0];
+		Assert.True(frontier.IsDefault);
+		Assert.Equal("GPT-5.5", frontier.Model.Label);
+		Assert.Equal("medium", frontier.DefaultEffort);
+		Assert.Equal(["low", "medium", "xhigh"], frontier.Efforts.Select(effort => effort.Id));
+		Assert.Equal("Extra high", frontier.Efforts[2].Label); // xhigh prettified
+		var tier = Assert.Single(frontier.ServiceTiers);
+		Assert.Equal("priority", tier.Id);
+		Assert.Equal("Fast", tier.Label);
+
+		var mini = models[1];
+		Assert.False(mini.IsDefault);
+		Assert.Empty(mini.ServiceTiers);
+		Assert.Equal(["low"], mini.Efforts.Select(effort => effort.Id));
 	}
 
 	[Fact]

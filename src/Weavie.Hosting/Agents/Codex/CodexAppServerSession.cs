@@ -208,6 +208,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private string Model() => _context.Settings.RequireString("codex.model");
 
+	private string Effort() => _context.Settings.RequireString("codex.effort");
+
+	private string ServiceTier() => _context.Settings.RequireString("codex.serviceTier");
+
 	private string Sandbox() => _context.Settings.RequireString("codex.sandbox");
 
 	private string ApprovalPolicy() => _context.Settings.RequireString("codex.approvalPolicy");

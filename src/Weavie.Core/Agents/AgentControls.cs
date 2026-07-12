@@ -28,6 +28,9 @@ public sealed record AgentControlAxis {
 
 	/// <summary>The choices offered when the axis is opened.</summary>
 	public required IReadOnlyList<AgentControlOption> Options { get; init; }
+
+	/// <summary>Renders as a one-click on/off chip (first option off, second on) instead of a picker.</summary>
+	public bool Toggle { get; init; }
 }
 
 /// <summary>

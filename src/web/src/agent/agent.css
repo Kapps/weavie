@@ -811,6 +811,40 @@
   color: color-mix(in srgb, var(--fg) 72%, var(--dim));
 }
 
+.agent-status-toggle {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--dim) 40%, transparent);
+  border-radius: 3px;
+  background: transparent;
+  color: var(--dim);
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.agent-status-toggle::before {
+  content: "⚡";
+  opacity: 0.55;
+}
+
+.agent-status-toggle:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+}
+
+.agent-status-toggle.on {
+  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  color: color-mix(in srgb, var(--fg) 88%, var(--accent));
+}
+
+.agent-status-toggle.on::before {
+  opacity: 1;
+}
+
 .agent-control-picker {
   position: absolute;
   bottom: calc(100% + 3px);

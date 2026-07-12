@@ -16,6 +16,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed partial class CodexAppServerSessionTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-codex-session-tests", Guid.NewGuid().ToString("N"));
+	private SettingsStore? _settings;
 
 	public CodexAppServerSessionTests() {
 		Directory.CreateDirectory(_dir);
@@ -323,6 +324,150 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Controls_ExposeEffortAndFast_DerivedFromCurrentModel() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		var control = session.ControlState;
+		var effort = Assert.Single(control.Axes, axis => axis.Id == "effort");
+		Assert.Equal("medium", effort.Value); // gpt-5.5 default reasoning effort
+		Assert.Equal(["low", "medium", "high"], effort.Options.Select(option => option.Id));
+		Assert.False(effort.Toggle);
+
+		var fast = Assert.Single(control.Axes, axis => axis.Id == "serviceTier");
+		Assert.True(fast.Toggle);
+		Assert.Equal("standard", fast.Value); // off by default
+		Assert.Equal(["standard", "priority"], fast.Options.Select(option => option.Id));
+		Assert.Equal("Fast", fast.Options[1].Label);
+
+		Assert.Contains(control.Slash, entry => entry.Name == "effort" && entry.CommandId == CoreCommands.SelectEffort);
+		Assert.Contains(control.Slash, entry => entry.Name == "fast" && entry.CommandId == CoreCommands.ToggleFastMode);
+	}
+
+	[Fact]
+	public async Task Controls_ModelSwitchToUnsupported_ResetsEffort_AndHidesFast() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		Assert.Equal("high", session.ControlState.Axes.Single(axis => axis.Id == "effort").Value);
+		Assert.Equal("priority", session.ControlState.Axes.Single(axis => axis.Id == "serviceTier").Value);
+
+		// gpt-5.4-mini supports neither "high" nor any service tier: the stale effort resets to the mini default and
+		// the Fast toggle disappears entirely.
+		session.SetControl("model", "gpt-5.4-mini");
+		var control = session.ControlState;
+		Assert.Equal("low", control.Axes.Single(axis => axis.Id == "effort").Value);
+		Assert.DoesNotContain(control.Axes, axis => axis.Id == "serviceTier");
+		Assert.DoesNotContain(control.Slash, entry => entry.Name == "fast");
+	}
+
+	[Fact]
+	public async Task Submit_SendsEffortAndServiceTier_OnTurnStart_ButNotThreadStart() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		// thread/start carries no effort/serviceTier (the schema forbids effort there); they ride turn/start only.
+		using (var threadDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
+			var threadParams = threadDoc.RootElement.GetProperty("params");
+			Assert.False(threadParams.TryGetProperty("effort", out _));
+			Assert.False(threadParams.TryGetProperty("serviceTier", out _));
+		}
+
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParams = doc.RootElement.GetProperty("params");
+		Assert.Equal("high", turnParams.GetProperty("effort").GetString());
+		Assert.Equal("priority", turnParams.GetProperty("serviceTier").GetString());
+	}
+
+	[Fact]
+	public async Task Submit_WithFastOff_SendsNullServiceTierToClearIt() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		session.SetControl("serviceTier", "standard"); // Fast off explicitly
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("params").GetProperty("serviceTier").ValueKind);
+	}
+
+	[Fact]
+	public async Task GlobalEffortAndTierSettings_AreScopedToModelsThatSupportThem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		// Global defaults that gpt-5.4-mini supports neither: it has no service tier and no "high" effort.
+		_settings!.Set("codex.serviceTier", JsonDocument.Parse("\"priority\"").RootElement);
+		_settings!.Set("codex.effort", JsonDocument.Parse("\"high\"").RootElement);
+		session.SetControl("model", "gpt-5.4-mini");
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParams = doc.RootElement.GetProperty("params");
+		// Neither the unsupported tier nor the unsupported effort reaches Codex; the model uses its own defaults.
+		Assert.False(turnParams.TryGetProperty("serviceTier", out _));
+		Assert.False(turnParams.TryGetProperty("effort", out _));
+	}
+
+	[Fact]
+	public async Task GlobalEffortSetting_ValidOnNoModel_PassesThroughToSurfaceLoudly() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		// A value no model in the catalog offers is a typo, not a per-model gap: send it so Codex rejects it loudly
+		// instead of silently swallowing the misconfiguration.
+		_settings!.Set("codex.effort", JsonDocument.Parse("\"bogus\"").RootElement);
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("bogus", doc.RootElement.GetProperty("params").GetProperty("effort").GetString());
+	}
+
+	[Fact]
+	public async Task SetControl_RejectsEffortUnsupportedByModel() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+
+		session.SetControl("effort", "ultra"); // gpt-5.5 does not offer ultra
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message => message.Type == "error" && message.Text!.Contains("effort", StringComparison.Ordinal));
+		Assert.Equal("medium", session.ControlState.Axes.Single(axis => axis.Id == "effort").Value);
+	}
+
+	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -418,6 +563,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		InMemoryFileSystem fileSystem,
 		ICodexHookIntegration hooks) {
 		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		_settings = settings;
 		var commandRegistry = CoreCommands.CreateRegistry();
 		CapabilityRegistryHost registry = new(
 			AgentSessionCredential.Create(),

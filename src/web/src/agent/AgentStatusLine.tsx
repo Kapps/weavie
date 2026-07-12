@@ -1,66 +1,53 @@
 import { createEffect, For, type JSX, Show } from "solid-js";
-import type { AgentControlAxis } from "../bridge";
 import { AgentControlPicker } from "./AgentControlPicker";
+import { AgentModelPicker } from "./AgentModelPicker";
 import {
   agentControlState,
   closeControlPicker,
-  isToggleOn,
+  MODEL_AXIS,
   openControlPicker,
-  toggleAgentControl,
 } from "./agent-controls-store";
 
-// The dim strip under the composer showing the session's model / effort / speed / approvals / sandbox. A picker
-// axis opens its listbox; a toggle axis is a one-click on/off chip (e.g. Fast Mode). The values are provider-neutral
-// — the web never learns they came from Codex. Generic over axes, so a provider reporting different controls renders
-// without a code change here.
+// The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
+// cascading per-model submenu); the rest are the approvals / sandbox axes. Values are provider-neutral — the web
+// never learns they came from Codex.
 export function AgentStatusLine(props: { backendId: string; slot: string | null }): JSX.Element {
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.slot);
+  const modelLabel = (): string => state().modelControl.valueLabel;
+  const hasModel = (): boolean => state().modelControl.models.length > 0;
   // Switching sessions abandons an open picker so it can't apply to the wrong session.
   createEffect(() => {
     props.slot;
     closeControlPicker();
   });
 
-  // The chip shows the on-option's name (the mode name, e.g. "Fast") and highlights while active.
-  const toggleLabel = (axis: AgentControlAxis): string => axis.options[1]?.label ?? axis.label;
-  const onToggle = (axis: AgentControlAxis): void => {
-    if (props.slot !== null) {
-      toggleAgentControl(props.backendId, props.slot, axis);
-    }
-  };
-
   return (
-    <Show when={state().axes.length > 0}>
+    <Show when={hasModel() || state().axes.length > 0}>
       <div class="agent-status-line">
+        <Show when={hasModel()}>
+          <button
+            type="button"
+            class="agent-status-segment agent-status-model"
+            title={`Model — ${modelLabel()} — click to change model, effort, or Fast Mode`}
+            onClick={() => openControlPicker(MODEL_AXIS)}
+          >
+            <span class="agent-status-value">{modelLabel()}</span>
+          </button>
+        </Show>
         <For each={state().axes}>
           {(axis) => (
-            <Show
-              when={axis.toggle}
-              fallback={
-                <button
-                  type="button"
-                  class="agent-status-segment"
-                  title={`${axis.label}: ${axis.valueLabel} — click to change`}
-                  onClick={() => openControlPicker(axis.id)}
-                >
-                  <span class="agent-status-key">{axis.label}</span>
-                  <span class="agent-status-value">{axis.valueLabel}</span>
-                </button>
-              }
+            <button
+              type="button"
+              class="agent-status-segment"
+              title={`${axis.label}: ${axis.valueLabel} — click to change`}
+              onClick={() => openControlPicker(axis.id)}
             >
-              <button
-                type="button"
-                class="agent-status-toggle"
-                classList={{ on: isToggleOn(axis) }}
-                aria-pressed={isToggleOn(axis)}
-                title={`${axis.label}: ${axis.valueLabel} — click to toggle`}
-                onClick={() => onToggle(axis)}
-              >
-                {toggleLabel(axis)}
-              </button>
-            </Show>
+              <span class="agent-status-key">{axis.label}</span>
+              <span class="agent-status-value">{axis.valueLabel}</span>
+            </button>
           )}
         </For>
+        <AgentModelPicker backendId={props.backendId} slot={props.slot} />
         <AgentControlPicker backendId={props.backendId} slot={props.slot} />
       </div>
     </Show>

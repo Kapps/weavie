@@ -32,41 +32,35 @@ const controls = {
   slot: "cx",
   workspace: "/repo",
   state: {
+    modelControl: {
+      value: "gpt-5.5",
+      valueLabel: "GPT-5.5 (Medium)",
+      models: [
+        {
+          id: "gpt-5.5",
+          label: "GPT-5.5",
+          current: true,
+          effort: "medium",
+          efforts: [
+            { id: "low", label: "Low", description: "Fast responses." },
+            { id: "medium", label: "Medium", description: "Balanced." },
+            { id: "high", label: "High", description: "Deeper reasoning." },
+          ],
+          fastTier: "priority",
+          fastOn: false,
+        },
+        {
+          id: "gpt-5.4-mini",
+          label: "GPT-5.4 mini",
+          current: false,
+          effort: "low",
+          efforts: [{ id: "low", label: "Low", description: "Fast responses." }],
+          fastTier: "",
+          fastOn: false,
+        },
+      ],
+    },
     axes: [
-      {
-        id: "model",
-        label: "Model",
-        value: "gpt-5.5",
-        valueLabel: "GPT-5.5",
-        toggle: false,
-        options: [
-          { id: "gpt-5.5", label: "GPT-5.5", description: "Frontier model." },
-          { id: "gpt-5.4-mini", label: "GPT-5.4 mini", description: "Fast model." },
-        ],
-      },
-      {
-        id: "effort",
-        label: "Effort",
-        value: "medium",
-        valueLabel: "Medium",
-        toggle: false,
-        options: [
-          { id: "low", label: "Low", description: "Fast responses." },
-          { id: "medium", label: "Medium", description: "Balanced." },
-          { id: "high", label: "High", description: "Deeper reasoning." },
-        ],
-      },
-      {
-        id: "serviceTier",
-        label: "Speed",
-        value: "standard",
-        valueLabel: "Standard",
-        toggle: true,
-        options: [
-          { id: "standard", label: "Standard", description: "Normal speed and usage." },
-          { id: "priority", label: "Fast", description: "1.5x speed, increased usage" },
-        ],
-      },
       {
         id: "approvalPolicy",
         label: "Approvals",
@@ -92,7 +86,7 @@ const controls = {
       {
         id: "builtin:model",
         name: "model",
-        description: "Switch the model for this session",
+        description: "Switch the model, effort, or Fast Mode",
         commandId: "weavie.agent.selectModel",
         insertText: null,
         skillName: null,
@@ -106,6 +100,21 @@ const controls = {
         skillName: "review-pr",
       },
     ],
+  },
+};
+
+// The controls with the active model's Fast Mode on, as the host echoes it back after a toggle.
+const fastOnControls = {
+  ...controls,
+  state: {
+    ...controls.state,
+    modelControl: {
+      ...controls.state.modelControl,
+      valueLabel: "GPT-5.5 (Medium) ⚡",
+      models: controls.state.modelControl.models.map((model) =>
+        model.current ? { ...model, fastOn: true } : model,
+      ),
+    },
   },
 };
 
@@ -182,62 +191,32 @@ test.describe("Codex composer", () => {
     }).toPass({ timeout: 20_000 });
   }
 
-  test("status line shows model, effort, Fast toggle, approvals, and sandbox", async ({ page }) => {
+  test("status line shows the merged model control, approvals, and sandbox", async ({ page }) => {
     await mountCodex(page);
 
-    // The Fast toggle renders as its own chip, so the picker segments are model, effort, approvals, sandbox.
+    // Model / effort / Fast collapse into one segment; approvals and sandbox stay as their own segments.
     const segments = page.locator(".agent-status-segment");
-    await expect(segments).toHaveCount(4);
-    await expect(segments.nth(0)).toContainText("Model");
-    await expect(segments.nth(0)).toContainText("GPT-5.5");
-    await expect(segments.nth(1)).toContainText("Effort");
-    await expect(segments.nth(1)).toContainText("Medium");
-    await expect(segments.nth(2)).toContainText("On request");
-    await expect(segments.nth(3)).toContainText("Workspace write");
-
-    const fast = page.locator(".agent-status-toggle");
-    await expect(fast).toHaveText("Fast");
-    await expect(fast).not.toHaveClass(/on/); // off by default
+    await expect(segments).toHaveCount(3);
+    await expect(page.locator(".agent-status-model")).toContainText("GPT-5.5 (Medium)");
+    await expect(page.locator(".agent-status-toggle")).toHaveCount(0);
+    await expect(segments.nth(1)).toContainText("On request");
+    await expect(segments.nth(2)).toContainText("Workspace write");
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
   });
 
-  test("the Fast toggle switches the service tier live and highlights when on", async ({
-    page,
-  }) => {
+  test("the model picker switches model via the models column", async ({ page }) => {
     await mountCodex(page);
 
-    const fast = page.locator(".agent-status-toggle");
-    await expect(fast).not.toHaveClass(/on/);
-    await fast.click();
-
-    const set = await host.waitForMessage("agent-set-control");
-    expect(set).toMatchObject({ slot: "cx", axis: "serviceTier", value: "priority" });
-
-    // The host echoes the new state back; the chip then reads as on.
-    host.pushToWeb({
-      ...controls,
-      state: {
-        ...controls.state,
-        axes: controls.state.axes.map((axis) =>
-          axis.id === "serviceTier" ? { ...axis, value: "priority", valueLabel: "Fast" } : axis,
-        ),
-      },
-    });
-    await expect(fast).toHaveClass(/on/);
-    await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
-  });
-
-  test("the model picker applies a live change back to the host", async ({ page }) => {
-    await mountCodex(page);
-
-    await page.locator(".agent-status-segment", { hasText: "Model" }).click();
-    const picker = page.locator(".agent-control-picker");
+    await page.locator(".agent-status-model").click();
+    const picker = page.locator(".agent-model-picker");
     await expect(picker).toBeVisible();
-    await expect(picker.locator(".agent-control-option")).toHaveCount(2);
+    await expect(picker.locator(".agent-model-row")).toHaveCount(2);
+    // The focused model's submenu shows on the right: GPT-5.5's three efforts plus Fast.
+    await expect(picker.locator(".agent-model-picker-sub .agent-model-sub-item")).toHaveCount(4);
     await page.screenshot({ path: join(shotsDir, "02-model-picker.png") });
 
-    // Current value (gpt-5.5) is highlighted; Down moves to gpt-5.4-mini, Enter applies it.
+    // Current model (gpt-5.5) is focused; Down moves to gpt-5.4-mini, Enter selects it.
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
 
@@ -246,21 +225,44 @@ test.describe("Codex composer", () => {
     await expect(picker).toBeHidden();
   });
 
-  test("the effort picker applies a live change back to the host", async ({ page }) => {
+  test("picking an effort in the model submenu applies it to the current model", async ({
+    page,
+  }) => {
     await mountCodex(page);
 
-    await page.locator(".agent-status-segment", { hasText: "Effort" }).click();
-    const picker = page.locator(".agent-control-picker");
-    await expect(picker).toBeVisible();
-    await expect(picker.locator(".agent-control-option")).toHaveCount(3);
+    await page.locator(".agent-status-model").click();
+    // ArrowRight enters the current model's submenu, focused on its current effort (medium).
+    await page.keyboard.press("ArrowRight");
+    const sub = page.locator(".agent-model-picker-sub .agent-model-sub-item");
+    await expect(sub).toHaveCount(4); // low / medium / high + Fast
+    await page.screenshot({ path: join(shotsDir, "02b-effort-submenu.png") });
 
-    // Current value (medium) is highlighted; Down moves to high, Enter applies it.
+    // Down moves medium → high, Enter applies it. gpt-5.5 is current, so only the effort is sent.
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
 
     const set = await host.waitForMessage("agent-set-control");
     expect(set).toMatchObject({ slot: "cx", axis: "effort", value: "high" });
-    await expect(picker).toBeHidden();
+    await expect(page.locator(".agent-model-picker")).toBeHidden();
+  });
+
+  test("toggling Fast in the submenu switches the tier and shows the bolt", async ({ page }) => {
+    await mountCodex(page);
+
+    await page.locator(".agent-status-model").click();
+    const fastItem = page.locator(".agent-model-fast-item");
+    await expect(fastItem).toBeVisible();
+    await expect(fastItem).not.toHaveClass(/on/);
+    await fastItem.click();
+
+    const set = await host.waitForMessage("agent-set-control");
+    expect(set).toMatchObject({ slot: "cx", axis: "serviceTier", value: "priority" });
+
+    // The host echoes Fast on; the submenu item reads on and the status-line label gains the bolt.
+    host.pushToWeb(fastOnControls);
+    await expect(fastItem).toHaveClass(/on/);
+    await expect(page.locator(".agent-status-model")).toContainText("⚡");
+    await page.screenshot({ path: join(shotsDir, "12-fast-on.png") });
   });
 
   test("typing / opens the slash menu and a skill stages a chip", async ({ page }) => {

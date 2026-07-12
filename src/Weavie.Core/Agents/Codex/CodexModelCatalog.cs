@@ -110,7 +110,7 @@ public static class CodexModelCatalog {
 	// Unknown efforts still render (capitalized), so a new Codex effort is never dropped for want of a label.
 	private static string EffortLabel(string effort) =>
 		effort switch {
-			"xhigh" => "Extra high",
+			"xhigh" => "X-High",
 			_ => char.ToUpperInvariant(effort[0]) + effort[1..],
 		};
 }

@@ -4,13 +4,20 @@
 
 import { createSignal } from "solid-js";
 import {
-  type AgentControlAxis,
   type AgentControlState,
+  type AgentModelChoice,
   onHostMessage,
   postToBackend,
 } from "../bridge";
 
-const EMPTY: AgentControlState = { axes: [], slash: [] };
+/** The reserved axis id for the merged model → effort / Fast control's cascading picker. */
+export const MODEL_AXIS = "model";
+
+const EMPTY: AgentControlState = {
+  modelControl: { value: "", valueLabel: "", models: [] },
+  axes: [],
+  slash: [],
+};
 const [states, setStates] = createSignal<Record<string, AgentControlState>>({});
 // Which axis id's picker is open (null = none); the composer owns the one active picker at a time.
 const [openAxis, setOpenAxis] = createSignal<string | null>(null);
@@ -20,7 +27,12 @@ export function agentControlState(slot: string | null): AgentControlState {
   return slot === null ? EMPTY : (states()[slot] ?? EMPTY);
 }
 
-/** Sends a live control change (model / approvals / sandbox) for a session to its host. */
+/** The active model in a slot's control state, or undefined before the catalog loads. */
+export function currentModel(slot: string | null): AgentModelChoice | undefined {
+  return agentControlState(slot).modelControl.models.find((model) => model.current);
+}
+
+/** Sends a live control change (model / effort / serviceTier / approvals / sandbox) for a session to its host. */
 export function setAgentControl(
   backendId: string,
   slot: string,
@@ -30,19 +42,33 @@ export function setAgentControl(
   postToBackend(backendId, { type: "agent-set-control", slot, axis, value });
 }
 
-/** Flips a two-option toggle axis (e.g. Fast Mode) between its off (options[0]) and on (options[1]) value. */
-export function toggleAgentControl(backendId: string, slot: string, axis: AgentControlAxis): void {
-  const off = axis.options[0]?.id;
-  const on = axis.options[1]?.id;
-  if (off === undefined || on === undefined) {
-    return;
-  }
-  setAgentControl(backendId, slot, axis.id, axis.value === on ? off : on);
+/** Switches to a model (its default effort applies on the host). */
+export function selectModel(backendId: string, slot: string, model: AgentModelChoice): void {
+  setAgentControl(backendId, slot, "model", model.id);
 }
 
-/** Whether a toggle axis is currently in its on (options[1]) state. */
-export function isToggleOn(axis: AgentControlAxis): boolean {
-  return axis.value === axis.options[1]?.id;
+/** Selects a specific effort under a model, switching to that model first when it isn't current. */
+export function selectModelEffort(
+  backendId: string,
+  slot: string,
+  model: AgentModelChoice,
+  effortId: string,
+): void {
+  if (!model.current) {
+    setAgentControl(backendId, slot, "model", model.id);
+  }
+  setAgentControl(backendId, slot, "effort", effortId);
+}
+
+/** Toggles Fast Mode for a model, switching to that model first when it isn't current. */
+export function toggleModelFast(backendId: string, slot: string, model: AgentModelChoice): void {
+  if (model.fastTier === "") {
+    return;
+  }
+  if (!model.current) {
+    setAgentControl(backendId, slot, "model", model.id);
+  }
+  setAgentControl(backendId, slot, "serviceTier", model.fastOn ? "standard" : model.fastTier);
 }
 
 /** The axis whose picker is currently open, or null. */

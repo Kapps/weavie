@@ -155,7 +155,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("GPT-5.5", frontier.Model.Label);
 		Assert.Equal("medium", frontier.DefaultEffort);
 		Assert.Equal(["low", "medium", "xhigh"], frontier.Efforts.Select(effort => effort.Id));
-		Assert.Equal("Extra high", frontier.Efforts[2].Label); // xhigh prettified
+		Assert.Equal("X-High", frontier.Efforts[2].Label); // xhigh prettified
 		var tier = Assert.Single(frontier.ServiceTiers);
 		Assert.Equal("priority", tier.Id);
 		Assert.Equal("Fast", tier.Label);

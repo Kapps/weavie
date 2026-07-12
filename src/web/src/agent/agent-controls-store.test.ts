@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { AgentControlState } from "../bridge";
+import type { AgentControlState, AgentModelChoice } from "../bridge";
 
 const bridge = vi.hoisted(() => ({
   listener: undefined as ((message: Record<string, unknown>) => void) | undefined,
@@ -18,30 +18,32 @@ vi.mock("../bridge", () => ({
 
 const store = await import("./agent-controls-store");
 
-const state: AgentControlState = {
-  axes: [
-    {
-      id: "model",
-      label: "Model",
-      value: "gpt-5.5",
-      valueLabel: "GPT-5.5",
-      toggle: false,
-      options: [{ id: "gpt-5.5", label: "GPT-5.5", description: null }],
-    },
+const gpt55: AgentModelChoice = {
+  id: "gpt-5.5",
+  label: "GPT-5.5",
+  current: true,
+  effort: "medium",
+  efforts: [
+    { id: "low", label: "Low", description: null },
+    { id: "medium", label: "Medium", description: null },
   ],
-  slash: [],
+  fastTier: "priority",
+  fastOn: false,
+};
+const mini: AgentModelChoice = {
+  id: "gpt-5.4-mini",
+  label: "GPT-5.4 mini",
+  current: false,
+  effort: "low",
+  efforts: [{ id: "low", label: "Low", description: null }],
+  fastTier: "",
+  fastOn: false,
 };
 
-const fastAxis = {
-  id: "serviceTier",
-  label: "Speed",
-  value: "standard",
-  valueLabel: "Standard",
-  toggle: true,
-  options: [
-    { id: "standard", label: "Standard", description: null },
-    { id: "priority", label: "Fast", description: null },
-  ],
+const state: AgentControlState = {
+  modelControl: { value: "gpt-5.5", valueLabel: "GPT-5.5 (Medium)", models: [gpt55, mini] },
+  axes: [],
+  slash: [],
 };
 
 describe("agent controls store", () => {
@@ -49,8 +51,9 @@ describe("agent controls store", () => {
     bridge.listener?.({ type: "agent-controls", slot: "slot-a", workspace: "/w", state });
 
     expect(store.agentControlState("slot-a")).toEqual(state);
-    expect(store.agentControlState("slot-b").axes).toEqual([]);
-    expect(store.agentControlState(null).axes).toEqual([]);
+    expect(store.agentControlState("slot-b").modelControl.models).toEqual([]);
+    expect(store.currentModel("slot-a")?.id).toBe("gpt-5.5");
+    expect(store.currentModel("slot-b")).toBeUndefined();
   });
 
   it("posts a live control change to the session's backend", () => {
@@ -70,14 +73,37 @@ describe("agent controls store", () => {
     ]);
   });
 
-  it("toggles a two-option axis between its off and on value", () => {
+  it("selecting an effort under a non-current model switches model first, then sets effort", () => {
     bridge.posted.length = 0;
-    store.toggleAgentControl("remote-a", "slot-a", fastAxis); // off -> on
-    store.toggleAgentControl("remote-a", "slot-a", { ...fastAxis, value: "priority" }); // on -> off
+    store.selectModelEffort("remote-a", "slot-a", mini, "low");
+
+    expect(bridge.posted.map((entry) => [entry.message.axis, entry.message.value])).toEqual([
+      ["model", "gpt-5.4-mini"],
+      ["effort", "low"],
+    ]);
+  });
+
+  it("selecting an effort under the current model sets only the effort", () => {
+    bridge.posted.length = 0;
+    store.selectModelEffort("remote-a", "slot-a", gpt55, "low");
+
+    expect(bridge.posted.map((entry) => [entry.message.axis, entry.message.value])).toEqual([
+      ["effort", "low"],
+    ]);
+  });
+
+  it("toggling Fast sends the model's fast tier when off and standard when on", () => {
+    bridge.posted.length = 0;
+    store.toggleModelFast("remote-a", "slot-a", gpt55); // off -> priority
+    store.toggleModelFast("remote-a", "slot-a", { ...gpt55, fastOn: true }); // on -> standard
 
     expect(bridge.posted.map((entry) => entry.message.value)).toEqual(["priority", "standard"]);
-    expect(store.isToggleOn(fastAxis)).toBe(false);
-    expect(store.isToggleOn({ ...fastAxis, value: "priority" })).toBe(true);
+  });
+
+  it("toggling Fast on a model without a fast tier does nothing", () => {
+    bridge.posted.length = 0;
+    store.toggleModelFast("remote-a", "slot-a", mini);
+    expect(bridge.posted).toEqual([]);
   });
 
   it("tracks which axis picker is open", () => {

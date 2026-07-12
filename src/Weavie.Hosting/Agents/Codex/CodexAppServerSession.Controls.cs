@@ -133,34 +133,30 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private AgentControlState BuildControlState() {
 		lock (_gate) {
-			string modelValue = CurrentModelIdLocked();
 			var entry = CurrentModelEntryLocked();
-			IReadOnlyList<AgentControlOption> modelOptions = [.. _catalog.Select(model => model.Model)];
-			var tierOptions = ServiceTierOptions(entry);
+			string effortId = EffortDisplay(entry);
+			bool fastOn = entry.ServiceTiers.Count > 0 && ServiceTierDisplay(entry) != StandardTier.Id;
+			string modelValue = CurrentModelIdLocked();
+
+			var modelControl = new AgentModelControl {
+				Value = modelValue,
+				ValueLabel = ComposeModelLabel(entry, modelValue, effortId, fastOn),
+				Models = [.. _catalog.Select(model => ModelChoice(model, modelValue, effortId, fastOn))],
+			};
 
 			List<AgentControlAxis> axes = [
-				Axis("model", "Model", modelValue, modelOptions),
+				Axis("approvalPolicy", "Approvals", ApprovalPolicyLocked(), ApprovalOptions),
+				Axis("sandbox", "Sandbox", SandboxLocked(), SandboxOptions),
 			];
-			// Effort and Speed are per-model: shown only when the current model actually offers a choice there.
-			if (entry.Efforts.Count > 1) {
-				axes.Add(Axis("effort", "Effort", EffortDisplay(entry), entry.Efforts));
-			}
-
-			if (tierOptions.Count > 1) {
-				axes.Add(Axis("serviceTier", "Speed", ServiceTierDisplay(entry), tierOptions) with { Toggle = tierOptions.Count == 2 });
-			}
-
-			axes.Add(Axis("approvalPolicy", "Approvals", ApprovalPolicyLocked(), ApprovalOptions));
-			axes.Add(Axis("sandbox", "Sandbox", SandboxLocked(), SandboxOptions));
 
 			List<AgentSlashEntry> slash = [
-				Builtin("model", "Switch the model for this session", CoreCommands.SelectModel),
+				Builtin("model", "Switch the model, effort, or Fast Mode", CoreCommands.SelectModel),
 			];
 			if (entry.Efforts.Count > 1) {
 				slash.Add(Builtin("effort", "Change how hard Codex reasons", CoreCommands.SelectEffort));
 			}
 
-			if (tierOptions.Count > 1) {
+			if (entry.ServiceTiers.Count > 0) {
 				slash.Add(Builtin("fast", "Toggle Fast Mode (faster responses)", CoreCommands.ToggleFastMode));
 			}
 
@@ -170,8 +166,31 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 				.. _skills.Select(SkillEntry),
 			]);
 
-			return new AgentControlState { Axes = axes, Slash = slash };
+			return new AgentControlState { ModelControl = modelControl, Axes = axes, Slash = slash };
 		}
+	}
+
+	// One model in the merged control: current effort is the effective one for the active model, else that model's
+	// default; Fast reads on only for the active model when its effective service tier is non-standard.
+	private static AgentModelChoice ModelChoice(CodexModelEntry model, string currentModelId, string currentEffortId, bool currentFastOn) {
+		bool current = model.Model.Id == currentModelId;
+		return new AgentModelChoice {
+			Id = model.Model.Id,
+			Label = model.Model.Label,
+			Current = current,
+			Effort = current ? currentEffortId : model.DefaultEffort,
+			Efforts = model.Efforts,
+			FastTier = model.ServiceTiers.FirstOrDefault()?.Id ?? string.Empty,
+			FastOn = current && currentFastOn,
+		};
+	}
+
+	// "GPT-5.5 (X-High) ⚡" — model, current effort in parens, a lightning bolt when Fast is on.
+	private static string ComposeModelLabel(CodexModelEntry entry, string modelValue, string effortId, bool fastOn) {
+		string modelLabel = entry.Model.Label.Length > 0 ? entry.Model.Label : (modelValue.Length > 0 ? modelValue : "default");
+		string effortLabel = entry.Efforts.FirstOrDefault(option => option.Id == effortId)?.Label ?? effortId;
+		string label = effortLabel.Length > 0 ? $"{modelLabel} ({effortLabel})" : modelLabel;
+		return fastOn ? label + " ⚡" : label;
 	}
 
 	// The service-tier axis offers Standard plus whatever non-standard tiers the model exposes.

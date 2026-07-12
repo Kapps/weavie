@@ -301,20 +301,21 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.ControlStateChanged += state => states.Add(state);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		var control = session.ControlState;
-		var model = Assert.Single(control.Axes, axis => axis.Id == "model");
+		var model = control.ModelControl;
 		Assert.Equal("gpt-5.5", model.Value); // the catalog default, since codex.model is unset
-		Assert.Equal("GPT-5.5", model.ValueLabel);
-		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Options.Select(option => option.Id));
+		Assert.Equal("GPT-5.5 (Medium)", model.ValueLabel); // model + default effort, no Fast
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Models.Select(choice => choice.Id));
+		Assert.True(model.Models.Single(choice => choice.Id == "gpt-5.5").Current);
 		Assert.Contains(control.Axes, axis => axis.Id == "approvalPolicy");
 		Assert.Contains(control.Axes, axis => axis.Id == "sandbox");
 		Assert.Contains(control.Slash, entry => entry.Name == "model" && entry.CommandId == CoreCommands.SelectModel);
 		Assert.Contains(control.Slash, entry => entry.Name == "review-pr" && entry.SkillName == "review-pr");
 
 		session.SetControl("model", "gpt-5.4-mini");
-		Assert.Contains(states, state => state.Axes.Single(axis => axis.Id == "model").Value == "gpt-5.4-mini");
+		Assert.Contains(states, state => state.ModelControl.Value == "gpt-5.4-mini");
 
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
@@ -329,19 +330,20 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		var control = session.ControlState;
-		var effort = Assert.Single(control.Axes, axis => axis.Id == "effort");
-		Assert.Equal("medium", effort.Value); // gpt-5.5 default reasoning effort
-		Assert.Equal(["low", "medium", "high"], effort.Options.Select(option => option.Id));
-		Assert.False(effort.Toggle);
+		var current = CurrentModel(control);
+		Assert.Equal("medium", current.Effort); // gpt-5.5 default reasoning effort
+		Assert.Equal(["low", "medium", "high"], current.Efforts.Select(option => option.Id));
+		Assert.Equal("priority", current.FastTier);
+		Assert.False(current.FastOn); // off by default
 
-		var fast = Assert.Single(control.Axes, axis => axis.Id == "serviceTier");
-		Assert.True(fast.Toggle);
-		Assert.Equal("standard", fast.Value); // off by default
-		Assert.Equal(["standard", "priority"], fast.Options.Select(option => option.Id));
-		Assert.Equal("Fast", fast.Options[1].Label);
+		// The non-current model carries its own efforts and no Fast tier.
+		var miniChoice = control.ModelControl.Models.Single(choice => choice.Id == "gpt-5.4-mini");
+		Assert.False(miniChoice.Current);
+		Assert.Equal("", miniChoice.FastTier);
+		Assert.Equal("low", miniChoice.Effort); // mini's default
 
 		Assert.Contains(control.Slash, entry => entry.Name == "effort" && entry.CommandId == CoreCommands.SelectEffort);
 		Assert.Contains(control.Slash, entry => entry.Name == "fast" && entry.CommandId == CoreCommands.ToggleFastMode);
@@ -353,19 +355,23 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("effort", "high");
 		session.SetControl("serviceTier", "priority");
-		Assert.Equal("high", session.ControlState.Axes.Single(axis => axis.Id == "effort").Value);
-		Assert.Equal("priority", session.ControlState.Axes.Single(axis => axis.Id == "serviceTier").Value);
+		var before = CurrentModel(session.ControlState);
+		Assert.Equal("high", before.Effort);
+		Assert.True(before.FastOn);
 
 		// gpt-5.4-mini supports neither "high" nor any service tier: the stale effort resets to the mini default and
-		// the Fast toggle disappears entirely.
+		// the Fast option disappears entirely.
 		session.SetControl("model", "gpt-5.4-mini");
 		var control = session.ControlState;
-		Assert.Equal("low", control.Axes.Single(axis => axis.Id == "effort").Value);
-		Assert.DoesNotContain(control.Axes, axis => axis.Id == "serviceTier");
+		var after = CurrentModel(control);
+		Assert.Equal("gpt-5.4-mini", after.Id);
+		Assert.Equal("low", after.Effort);
+		Assert.Equal("", after.FastTier);
+		Assert.False(after.FastOn);
 		Assert.DoesNotContain(control.Slash, entry => entry.Name == "fast");
 	}
 
@@ -375,7 +381,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		// thread/start carries no effort/serviceTier (the schema forbids effort there); they ride turn/start only.
 		using (var threadDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
@@ -401,7 +407,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("serviceTier", "standard"); // Fast off explicitly
 		session.Submit(Submission("go", []));
@@ -417,7 +423,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		// Global defaults that gpt-5.4-mini supports neither: it has no service tier and no "high" effort.
 		_settings!.Set("codex.serviceTier", JsonDocument.Parse("\"priority\"").RootElement);
@@ -440,7 +446,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		// A value no model in the catalog offers is a typo, not a per-model gap: send it so Codex rejects it loudly
 		// instead of silently swallowing the misconfiguration.
@@ -458,14 +464,17 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("effort", "ultra"); // gpt-5.5 does not offer ultra
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
 
 		Assert.Contains(messages, message => message.Type == "error" && message.Text!.Contains("effort", StringComparison.Ordinal));
-		Assert.Equal("medium", session.ControlState.Axes.Single(axis => axis.Id == "effort").Value);
+		Assert.Equal("medium", CurrentModel(session.ControlState).Effort);
 	}
+
+	private static AgentModelChoice CurrentModel(AgentControlState state) =>
+		state.ModelControl.Models.Single(model => model.Current);
 
 	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {
@@ -512,7 +521,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("sandbox", "not-a-mode");
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));

@@ -11,9 +11,11 @@ import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/past
 import { AgentSlashMenu } from "./AgentSlashMenu";
 import {
   agentControlState,
+  currentModel,
+  MODEL_AXIS,
   openControlPicker,
   setAgentControl,
-  toggleAgentControl,
+  toggleModelFast,
 } from "./agent-controls-store";
 import {
   captureAgentImagePaste,
@@ -289,23 +291,40 @@ export function AgentComposer(props: {
       return true;
     });
 
+  // Applies a `value` arg to an axis directly (palette / Claude), or opens the merged model picker when bare.
+  const registerModelSelect = (commandId: string, axis: string): (() => void) =>
+    registerCommand(commandId, (args: unknown) => {
+      const slot = props.slot;
+      if (slot === null) {
+        return false;
+      }
+      const value = (args as { value?: unknown } | undefined)?.value;
+      if (typeof value === "string" && value.length > 0) {
+        setAgentControl(props.backendId, slot, axis, value);
+      } else {
+        openControlPicker(MODEL_AXIS);
+      }
+      return true;
+    });
+
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
-  const offSelectModel = registerSelect(CommandIds.selectModel, "model");
+  // Model and Effort both live in the one cascading picker; a bare command opens it, a value arg sets that axis.
+  const offSelectModel = registerModelSelect(CommandIds.selectModel, "model");
+  const offSelectEffort = registerModelSelect(CommandIds.selectEffort, "effort");
   const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
-  const offSelectEffort = registerSelect(CommandIds.selectEffort, "effort");
-  // Fast Mode is a one-click toggle, not a picker: flip the serviceTier axis between its off and on option.
+  // Fast Mode toggles the active model's service tier (no picker).
   const offToggleFast = registerCommand(CommandIds.toggleFastMode, () => {
     const slot = props.slot;
     if (slot === null) {
       return false;
     }
-    const axis = agentControlState(slot).axes.find((candidate) => candidate.id === "serviceTier");
-    if (axis === undefined) {
+    const model = currentModel(slot);
+    if (model === undefined || model.fastTier === "") {
       return false;
     }
-    toggleAgentControl(props.backendId, slot, axis);
+    toggleModelFast(props.backendId, slot, model);
     return true;
   });
   const offApprove = registerDecision(CommandIds.agentApprove, "accept");

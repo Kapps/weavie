@@ -811,37 +811,88 @@
   color: color-mix(in srgb, var(--fg) 72%, var(--dim));
 }
 
-.agent-status-toggle {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 4px;
-  padding: 0 7px;
-  border: 1px solid color-mix(in srgb, var(--dim) 40%, transparent);
+.agent-status-model .agent-status-value {
+  color: color-mix(in srgb, var(--fg) 88%, var(--dim));
+  font-weight: 600;
+}
+
+.agent-model-picker {
+  position: absolute;
+  bottom: calc(100% + 3px);
+  left: 6px;
+  z-index: 20;
+  display: flex;
+  max-height: 44vh;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--border));
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--bar) 92%, var(--bg));
+  box-shadow: 0 6px 20px color-mix(in srgb, var(--bg) 70%, transparent);
+}
+
+.agent-model-picker-models {
+  min-width: 150px;
+  padding: 3px;
+  overflow-y: auto;
+  border-right: 1px solid color-mix(in srgb, var(--border) 70%, transparent);
+}
+
+.agent-model-picker-sub {
+  min-width: 140px;
+  padding: 3px;
+  overflow-y: auto;
+}
+
+.agent-model-row,
+.agent-model-sub-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 7px;
   border-radius: 3px;
-  background: transparent;
-  color: var(--dim);
-  font: inherit;
-  line-height: inherit;
+  color: var(--fg);
   cursor: pointer;
   white-space: nowrap;
 }
 
-.agent-status-toggle::before {
-  content: "⚡";
-  opacity: 0.55;
+.agent-model-row.active,
+.agent-model-sub-item.active {
+  background: color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
-.agent-status-toggle:hover {
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
+.agent-model-name {
+  flex: 1;
 }
 
-.agent-status-toggle.on {
-  border-color: color-mix(in srgb, var(--accent) 70%, transparent);
-  background: color-mix(in srgb, var(--accent) 18%, transparent);
+.agent-model-row.current .agent-model-name {
+  font-weight: 600;
+}
+
+.agent-model-caret {
+  margin-left: auto;
+  color: var(--dim);
+}
+
+.agent-model-check {
+  width: 1em;
+  color: var(--accent);
+}
+
+.agent-model-fast-item {
+  margin-top: 2px;
+  padding-top: 5px;
+  border-top: 1px solid color-mix(in srgb, var(--border) 60%, transparent);
+}
+
+.agent-model-fast-item .agent-model-check {
+  opacity: 0.4;
+}
+
+.agent-model-fast-item.on {
   color: color-mix(in srgb, var(--fg) 88%, var(--accent));
 }
 
-.agent-status-toggle.on::before {
+.agent-model-fast-item.on .agent-model-check {
   opacity: 1;
 }
 

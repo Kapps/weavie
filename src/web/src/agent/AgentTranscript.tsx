@@ -1,4 +1,4 @@
-import { createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
 import type { AgentPaneUpdate } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
@@ -6,7 +6,7 @@ import { AgentMarkdown } from "./AgentMarkdown";
 import { ApprovalActions, EditLocationActions, InputRequestActions } from "./AgentPaneActions";
 import { AgentLinkedText } from "./AgentPaneLinks";
 import type { AgentActivityStep, AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
-import { assistantSectionLabel } from "./AgentTranscriptLabels";
+import { computeSectionLabels } from "./AgentTranscriptLabels";
 import { hasActiveTurn } from "./turn-progress";
 
 export function AgentTranscript(props: {
@@ -19,6 +19,12 @@ export function AgentTranscript(props: {
   // Entries are rebuilt as updates arrive. Keep disclosure state outside the native <details> node
   // so replacing an entry does not close something the user is inspecting.
   const [expandedDetails, setExpandedDetails] = createSignal<ReadonlySet<string>>(new Set());
+  // Compute the turn's active state ONCE per render, not once per entry: hasActiveTurn scans every message,
+  // so calling it inside the <For> below made section labelling O(entries × messages).
+  const turnActive = createMemo(() => hasActiveTurn(props.messages));
+  // All section labels in one O(entries) pass, keyed by entry id. Reads only kind/tone/id (never text), so a
+  // streaming text delta never re-runs it; a turn ending updates a Map value, never an entry's identity.
+  const sectionLabels = createMemo(() => computeSectionLabels(props.entries, turnActive()));
 
   return (
     <Show
@@ -26,7 +32,7 @@ export function AgentTranscript(props: {
       fallback={<EmptyState providerName={props.providerName} />}
     >
       <For each={props.entries}>
-        {(entry, index) => (
+        {(entry) => (
           <TranscriptEntry
             detailsExpanded={expandedDetails().has(detailsKey(props.slot, entry.id))}
             entry={entry}
@@ -46,11 +52,7 @@ export function AgentTranscript(props: {
                 return next;
               });
             }}
-            sectionLabel={assistantSectionLabel(
-              props.entries,
-              index(),
-              hasActiveTurn(props.messages),
-            )}
+            sectionLabel={sectionLabels().get(entry.id) ?? null}
             slot={props.slot}
           />
         )}

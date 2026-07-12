@@ -1,7 +1,9 @@
-import { createEffect, createMemo, createSignal, type JSX, Show } from "solid-js";
+import { createEffect, createMemo, createSignal, type JSX, on, Show } from "solid-js";
+import { createStore, reconcile } from "solid-js/store";
 import type { AgentPaneUpdate } from "../bridge";
 import { AgentComposer } from "./AgentComposer";
 import { toAgentTranscript } from "./AgentPaneMessages";
+import type { AgentTranscriptEntry } from "./AgentPaneTranscriptTypes";
 import { AgentStatusLine } from "./AgentStatusLine";
 import { AgentTranscript } from "./AgentTranscript";
 import { pendingApproval } from "./turn-progress";
@@ -19,7 +21,11 @@ export function AgentPane(props: {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
   const [stickToBottom, setStickToBottom] = createSignal(true);
-  const transcript = createMemo(() => toAgentTranscript(props.messages));
+  // Feed <For> a keyed store: reconcile preserves each unchanged entry's proxy identity, so the row is reused and
+  // AgentMarkdown re-parses only the entry whose text actually changed — heavy work stays O(changed), not
+  // O(entries). toAgentTranscript itself is one light O(messages) scan per flush (batched in AgentPaneAccumulator).
+  const [entries, setEntries] = createStore<AgentTranscriptEntry[]>([]);
+  createEffect(() => setEntries(reconcile(toAgentTranscript(props.messages), { key: "id" })));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
   // Only the card the keyboard chords answer wears the chips.
   const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
@@ -47,12 +53,19 @@ export function AgentPane(props: {
     });
   };
 
-  createEffect(() => {
-    transcript();
-    if (stickToBottom()) {
-      scrollToBottom();
-    }
-  });
+  // Follow content growth: props.messages changes once per publish (including text deltas), so this tracks the
+  // transcript without depending on the reconciled store (which mutates in place). Isolated via `on` so a
+  // stickToBottom flip doesn't re-scroll — that path scrolls explicitly (the follow pill / onScroll handler).
+  createEffect(
+    on(
+      () => props.messages,
+      () => {
+        if (stickToBottom()) {
+          scrollToBottom();
+        }
+      },
+    ),
+  );
 
   const focusPrompt = (event: MouseEvent): void => {
     if (event.button !== 0) {
@@ -94,7 +107,7 @@ export function AgentPane(props: {
       <div class="agent-body-wrap">
         <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
           <AgentTranscript
-            entries={transcript()}
+            entries={entries}
             keyboardApprovalId={keyboardApprovalId()}
             messages={props.messages}
             providerName={providerName()}

@@ -95,7 +95,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/started","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnStarted));
-		Assert.IsType<AgentPromptSubmitted>(turnStarted);
+		Assert.True(Assert.IsType<AgentPromptSubmitted>(turnStarted).ReconcileWorkspace);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
@@ -107,7 +107,7 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnCompleted));
-		Assert.IsType<AgentTurnStopped>(turnCompleted);
+		Assert.True(Assert.IsType<AgentTurnStopped>(turnCompleted).ReconcileWorkspace);
 	}
 
 	[Fact]
@@ -321,13 +321,13 @@ public sealed class CodexAppServerProtocolTests {
 		fileSystem.WriteAllText(deleted, "gone\n");
 		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
 
-		changes.Observe(new AgentPromptSubmitted(null));
+		changes.Observe(new AgentPromptSubmitted(null, ReconcileWorkspace: true));
 		fileSystem.WriteAllText(file, "new\n");
 		fileSystem.WriteAllText(created, "created\n");
 		fileSystem.DeleteFile(deleted);
 		changes.Observe(new AgentToolStarting(new AgentMutation.Workspace("late-item")));
 		changes.Observe(new AgentToolCompleted(new AgentMutation.Workspace("late-item")));
-		changes.Observe(new AgentTurnStopped(false));
+		changes.Observe(new AgentTurnStopped(false, ReconcileWorkspace: true));
 
 		var turn = changes.TurnChanges().OrderBy(change => change.Path, StringComparer.Ordinal).ToList();
 		Assert.Equal(3, turn.Count);

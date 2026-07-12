@@ -82,14 +82,18 @@ public sealed partial class SessionChangeTracker {
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
 
-		if (value is AgentPromptSubmitted) {
+		if (value is AgentPromptSubmitted submitted) {
 			CommitAccepted();
-			BeginWorkspaceTurn();
+			if (submitted.ReconcileWorkspace) {
+				BeginWorkspaceTurn();
+			}
 			return;
 		}
 
-		if (value is AgentTurnStopped) {
-			EndWorkspaceTurn();
+		if (value is AgentTurnStopped stopped) {
+			if (stopped.ReconcileWorkspace) {
+				EndWorkspaceTurn();
+			}
 			return;
 		}
 

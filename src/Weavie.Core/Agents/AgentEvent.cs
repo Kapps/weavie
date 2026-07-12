@@ -12,10 +12,16 @@ public sealed record AgentSessionStarted(string? Source) : AgentEvent;
 public sealed record AgentProcessChanged(SupervisorStateChanged Change) : AgentEvent;
 
 /// <summary>A user prompt entered the agentic loop.</summary>
-public sealed record AgentPromptSubmitted(string? SessionId) : AgentEvent;
+public sealed record AgentPromptSubmitted(string? SessionId, bool ReconcileWorkspace) : AgentEvent {
+	/// <summary>Creates a prompt boundary without provider-wide workspace reconciliation.</summary>
+	public AgentPromptSubmitted(string? sessionId) : this(sessionId, false) { }
+}
 
 /// <summary>The agent turn stopped, optionally with a pending self-resumption.</summary>
-public sealed record AgentTurnStopped(bool WillResume) : AgentEvent;
+public sealed record AgentTurnStopped(bool WillResume, bool ReconcileWorkspace) : AgentEvent {
+	/// <summary>Creates a stop boundary without provider-wide workspace reconciliation.</summary>
+	public AgentTurnStopped(bool willResume) : this(willResume, false) { }
+}
 
 /// <summary>The agent emitted a user-facing notification.</summary>
 public sealed record AgentNotification(string? Message) : AgentEvent;

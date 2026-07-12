@@ -216,9 +216,9 @@ public static class CodexAppServerProtocol {
 		string method = methodElement.GetString() ?? string.Empty;
 		value = method switch {
 			"thread/started" => new AgentSessionStarted("startup"),
-			"turn/started" => new AgentPromptSubmitted(null),
-			"turn/completed" => new AgentTurnStopped(false),
-			"turn/interrupted" => new AgentTurnStopped(false),
+			"turn/started" => new AgentPromptSubmitted(null, ReconcileWorkspace: true),
+			"turn/completed" => new AgentTurnStopped(false, ReconcileWorkspace: true),
+			"turn/interrupted" => new AgentTurnStopped(false, ReconcileWorkspace: true),
 			"item/started" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolStarting(mutation),
 			"item/completed" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolCompleted(mutation),
 			_ => new AgentOtherEvent(),

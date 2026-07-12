@@ -228,7 +228,8 @@ test.describe("Codex composer", () => {
 
     const link = page.locator(".agent-status-pr");
     await expect(link).toHaveText("#123");
-    await expect(link).toHaveAttribute("title", /Ctrl\+Shift\+G/);
+    const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
+    await expect(link).toHaveAttribute("title", new RegExp(`${modifier}\\+Shift\\+G`));
     const popupPromise = page.waitForEvent("popup");
     await link.click();
     await expect(await popupPromise).toHaveURL(url);

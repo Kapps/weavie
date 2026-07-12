@@ -317,8 +317,8 @@ public static class CodexAppServerProtocol {
 			"thread/started" => new AgentSessionStarted("startup"),
 			// Codex's turn-start carries no prompt text; a correction it drains records with a null prompt.
 			"turn/started" => new AgentPromptSubmitted(null, null, ReconcileWorkspace: true),
+			// An interrupted turn also ends with turn/completed (status "interrupted"); there is no separate event.
 			"turn/completed" => new AgentTurnStopped(false, ReconcileWorkspace: true),
-			"turn/interrupted" => new AgentTurnStopped(false, ReconcileWorkspace: true),
 			"item/started" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolStarting(mutation),
 			"item/completed" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolCompleted(mutation),
 			_ => new AgentOtherEvent(),

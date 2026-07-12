@@ -175,6 +175,8 @@ public static class CoreSettings {
 			Aliases = ["codex approvals", "codex approval policy", "codex ask approval"],
 			Apply = ApplyMode.NextSession,
 			Default = "on-request",
+			// "on-failure" was removed in Codex 0.143 (the app-server API rejects it); a stale persisted value
+			// resolves to the default, matching upstream's own on-failure → on-request config migration.
 			Validate = static value => value is string policy
 				&& (string.Equals(policy, "untrusted", StringComparison.Ordinal)
 					|| string.Equals(policy, "on-request", StringComparison.Ordinal)

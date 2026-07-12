@@ -11,7 +11,6 @@ internal static class CodexPaneMessages {
 			"error" => FromError(root),
 			"turn/started" => FromTurn("turn-started", root),
 			"turn/completed" => FromTurn("turn-completed", root),
-			"turn/interrupted" => FromTurn("turn-interrupted", root),
 			"item/started" => FromStartedItem(root),
 			"item/completed" => FromCompletedItem(root),
 			"item/agentMessage/delta" => FromDelta("agent-message-delta", "agentMessage", root),
@@ -82,11 +81,10 @@ internal static class CodexPaneMessages {
 			return null;
 		}
 
+		// fileChange approvals carry no substance in params (only item ids); the session joins the paths
+		// from the item's own notifications before emitting the card.
 		return method switch {
 			"item/commandExecution/requestApproval" => NormalizeToNull(parameters.GetStringOrEmpty("command")),
-			"item/fileChange/requestApproval"
-				when parameters.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array =>
-				NormalizeToNull(SummarizeChanges(parameters)),
 			_ => null,
 		};
 	}

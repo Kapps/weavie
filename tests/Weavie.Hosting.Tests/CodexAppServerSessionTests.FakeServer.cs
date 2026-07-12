@@ -61,6 +61,12 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
       send({ method: "turn/completed", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "failed", error } } });
     } else if (message.params.input[0].text === "approval") {
       send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake", startedAtMs: 1, command: "dotnet test", cwd: process.cwd(), reason: "test" } });
+    } else if (message.params.input[0].text === "file approval") {
+      send({ method: "item/started", params: { threadId: "thread_fake", turnId: "turn_fake", item: { type: "fileChange", id: "item_edit", status: "inProgress", changes: [{ path: "src/App.cs", kind: "update" }, { path: "src/Program.cs", kind: "update" }] } } });
+      send({ id: "approval-2", method: "item/fileChange/requestApproval", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_edit", startedAtMs: 1, reason: "apply the patch" } });
+    } else if (message.params.input[0].text === "approval then crash") {
+      send({ id: "approval-3", method: "item/commandExecution/requestApproval", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_crash", startedAtMs: 1, command: "dotnet test", cwd: process.cwd(), reason: "test" } });
+      setTimeout(() => process.exit(7), 100);
     } else if (message.params.input[0].text === "unsupported") {
       send({ id: "unsupported-1", method: "item/tool/call", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake" } });
     }

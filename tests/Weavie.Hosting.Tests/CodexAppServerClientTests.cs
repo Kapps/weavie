@@ -127,8 +127,8 @@ public sealed class CodexAppServerClientTests : IDisposable {
 		Assert.Equal("thread_fake", thread.GetProperty("thread").GetProperty("id").GetString());
 		Assert.Contains("turn/started", notifications);
 		Assert.Contains("item/agentMessage/delta", notifications);
-		Assert.Contains("turn/completed", notifications);
-		Assert.Contains("turn/interrupted", notifications);
+		// One from the turn finishing, one from the interrupt — Codex reports interruption as turn/completed too.
+		Assert.Equal(2, notifications.Count(method => method == "turn/completed"));
 		Assert.Contains(logs, line => line.Contains("exited 7", StringComparison.Ordinal));
 		Assert.Contains(logs, line => line.Contains("notification handler failed: boom", StringComparison.Ordinal));
 		using var argsDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "args.json")));
@@ -300,7 +300,7 @@ readline.createInterface({ input: process.stdin }).on("line", line => {
     send({ method: "turn/completed", params: { threadId: "thread_fake", turn: { id: "turn_fake", status: "completed" } } });
   } else if (message.method === "turn/interrupt") {
     send({ id: message.id, result: { turn: { id: message.params.turnId, status: "interrupted" } } });
-    send({ method: "turn/interrupted", params: { threadId: "thread_fake", turn: { id: message.params.turnId, status: "interrupted" } } });
+    send({ method: "turn/completed", params: { threadId: "thread_fake", turn: { id: message.params.turnId, status: "interrupted" } } });
   } else if (message.method === "test/string-request") {
     send({ id: message.id, result: { ok: true } });
     send({ id: "approval-1", method: "item/commandExecution/requestApproval", params: { threadId: "thread_fake", turnId: "turn_fake", itemId: "item_fake", startedAtMs: 1 } });

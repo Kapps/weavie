@@ -112,6 +112,55 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ThreadResume_Rejected_StartsFreshThreadAndClearsSavedMapping() {
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_broken");
+		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Type == "warning"));
+
+		// The stale transcript is dropped and the failure is surfaced with its protocol detail, not hidden.
+		Assert.Contains(messages, message => message.Type == "transcript-reset");
+		var warning = Assert.Single(messages, message => message.Type == "warning");
+		Assert.Contains("started a new one", warning.Summary, StringComparison.Ordinal);
+		Assert.Contains("-32603", warning.Text, StringComparison.Ordinal);
+		Assert.Contains("failed to read thread", warning.PayloadJson ?? "", StringComparison.Ordinal);
+		Assert.DoesNotContain(messages, message => message.Type == "error");
+
+		// The dead mapping is gone, and the fresh thread is live: a prompt starts a turn and re-persists.
+		Assert.False(threads.Resolve(_dir).Resume);
+		session.Submit(Submission("hi", []));
+		await WaitForAsync(() => threads.Resolve(_dir).Resume);
+		Assert.Equal("thread_fake", threads.Resolve(_dir).ThreadId);
+	}
+
+	[Fact]
+	public async Task ThreadResume_Rejected_WhenFreshStartAlsoFails_SurfacesStartErrorAndKeepsMapping() {
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_broken");
+		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
+		File.WriteAllText(Path.Combine(_dir, "start-fails"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		// The session can't start at all, not just resume: surface the start failure, keep the mapping and
+		// the pane transcript so a fixed config resumes the same conversation.
+		var error = Assert.Single(messages, message => message.Type == "error");
+		Assert.Contains("unknown variant", error.Text, StringComparison.Ordinal);
+		Assert.DoesNotContain(messages, message => message.Type == "transcript-reset");
+		Assert.True(threads.Resolve(_dir).Resume);
+		Assert.Equal("thread_broken", threads.Resolve(_dir).ThreadId);
+	}
+
+	[Fact]
 	public async Task ThreadId_PersistsOnlyAfterTurnStarts() {
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");

@@ -71,20 +71,27 @@ public sealed partial class CodexAppServerSession {
 				CodexAppServerProtocol.ThreadResume(
 					requestId, threadId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 				CancellationToken.None).ConfigureAwait(false);
-		} catch (InvalidOperationException ex) when (ex.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)) {
-			_threads.Clear(_context.Workspace);
-			// The saved thread is gone; drop its now-orphaned pane transcript (in-memory seed + persisted) before
-			// the fresh thread starts.
-			Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
-			Emit(new AgentPaneMessage {
-				Type = "warning",
-				ProviderId = "codex",
-				Text = "Codex could not resume the saved empty thread, so Weavie started a new thread.",
-				Status = "warning",
-			});
-			long startRequest = NextRequest();
-			return await StartThreadAsync(startRequest).ConfigureAwait(false);
+		} catch (CodexRequestException ex) {
+			return await StartFreshAfterFailedResumeAsync(ex).ConfigureAwait(false);
 		}
+	}
+
+	// Codex rejected the saved thread (rollout missing, corrupt, format drift): start fresh, and only then
+	// drop the stale mapping and transcript — a start failure propagates with both intact.
+	private async Task<JsonElement> StartFreshAfterFailedResumeAsync(CodexRequestException resumeFailure) {
+		long startRequest = NextRequest();
+		var result = await StartThreadAsync(startRequest).ConfigureAwait(false);
+		_threads.Clear(_context.Workspace);
+		Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+		Emit(new AgentPaneMessage {
+			Type = "warning",
+			ProviderId = "codex",
+			Summary = "Codex could not resume the saved thread, so Weavie started a new one.",
+			Text = resumeFailure.Detail,
+			Status = "warning",
+			PayloadJson = resumeFailure.Payload,
+		});
+		return result;
 	}
 
 	private Task<JsonElement> StartThreadAsync(long requestId) =>

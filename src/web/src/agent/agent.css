@@ -181,7 +181,7 @@
 
 /* Assistant prose reads in the UI face at a bounded measure; code drops back to the terminal font. */
 .agent-markdown {
-  max-width: 80ch;
+  max-width: 96ch;
   color: var(--fg);
   overflow-wrap: break-word;
   font-family: var(--ui-font, system-ui, sans-serif);

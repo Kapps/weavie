@@ -36,11 +36,13 @@ load it only when you need it.
   `worktree.setupCommand` + `test.profile` itself — deterministic, zero tokens, instant. The Claude
   setup flow is demoted to the override / unsupported-language fallback. Supersedes the "no bundled
   presets" stance. See [docs/concepts/workspace-autoconfig.md](docs/concepts/workspace-autoconfig.md).
-- **Learn from corrections** — Weavie uniquely sees the user's *net edit over the agent's output*
-  (reverts + hand-edits in turn-review, invisible to the model's transcript). It rings those per-workspace
-  and the palette command `Learn From My Corrections` (`weavie.learn.fromCorrections`) prefills the corpus
-  into the primary session's Claude to propose `AGENTS.md` rules — Weavie stores the signal, Claude does
-  the reasoning (no classifier in Core). A contextual-suggestion card nudges once enough accumulate. See
+- **Learn from corrections** — Weavie uniquely sees the user's *edit over the agent's output*, invisible to
+  the model's transcript. Each correction is captured as a discrete event **at the moment the user acts** —
+  an editor save that lands over an agent hunk, or a review-UI revert — gated to the lines the agent wrote
+  (never by scanning the tree). It rings those per-workspace and the palette command `Learn From My
+  Corrections` (`weavie.learn.fromCorrections`) prefills the corpus into the primary session's Claude to
+  propose `AGENTS.md` rules — Weavie stores the signal, Claude does the reasoning (no classifier in Core). A
+  contextual-suggestion card nudges once enough accumulate. See
   [docs/specs/learn-from-corrections.md](docs/specs/learn-from-corrections.md).
 
 ## Keyboard-first navigation
@@ -119,6 +121,11 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   you can.
 - **No duplication.** Repeated logic is a defect, not a shortcut — the first time you'd copy
   something, extract the shared part to one place (a helper, a base, a single source of truth).
+- **Query the authoritative source; never hardcode a copy of it.** When git, the OS, or a config
+  already answers a question — which paths are ignored, what's tracked, where a tool lives — ask it,
+  don't restate it in a hand-maintained list that silently drifts (a hardcoded ignored-directory list
+  beside a real `.gitignore` is a duplication bug, not a shortcut). Encoding genuinely-new knowledge no
+  source holds (e.g. the language→setup catalog) is the exception, not license to reinvent one.
 - **No fallbacks.** Never paper over a hang or failure with a safety-net timeout, a cap, or a default
   that hides it. Don't add one unless explicitly asked — the absence of a fallback is the default.
   When a bound is genuinely required, fail loudly *at the surface that meets the user*: a console log

@@ -305,8 +305,13 @@ public sealed partial class HostCore {
 				// Data safety on a switch: the web flushes the outgoing session's working copies as fs-writes during
 				// rebind, which can land after _session flipped — routing by path saves them on the owning session.
 				if (ResolveFsSession(FsPath(root)) is { } writeSession) {
-					_bridge.PostToWeb(writeSession.FileProvider.Write(
-						FsId(root), FsPath(root), root.GetStringOrEmpty("content")));
+					string writeContent = root.GetStringOrEmpty("content");
+					string writeReply = writeSession.FileProvider.Write(FsId(root), FsPath(root), writeContent);
+					_bridge.PostToWeb(writeReply);
+					// A save that reached disk over an agent hunk is a correction — captured here, at the save.
+					if (WroteOk(writeReply)) {
+						writeSession.Changes.RecordHandEdit(FsPath(root), writeContent);
+					}
 				} else {
 					_bridge.PostToWeb(FileProviderProtocol.WriteError(FsId(root), "Path is outside every session worktree."));
 				}
@@ -1413,6 +1418,13 @@ public sealed partial class HostCore {
 	/// <summary>The native <c>path</c> of an fs-stat/read/write request.</summary>
 	private static string FsPath(JsonElement root) =>
 		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
+
+	// Whether a FileProvider.Write reply reports the save reached disk, so a correction is only recorded for a
+	// write that actually landed (never for one rejected outside the worktree or failed by IO).
+	private static bool WroteOk(string writeReply) {
+		using var doc = JsonDocument.Parse(writeReply);
+		return doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
+	}
 
 	/// <summary>
 	/// Routes a terminal message to the controller for its <c>slot</c> (the session it names) and <c>session</c>

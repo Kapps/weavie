@@ -343,19 +343,11 @@ public static class CodexAppServerProtocol {
 			return true;
 		}
 
-		if (string.Equals(type, "commandExecution", StringComparison.Ordinal)
+		// A shell command / MCP / dynamic tool call may touch files, but — like Claude's Bash — Weavie doesn't
+		// scan the tree to find which; it still counts as agent activity (a tool event), just with no tracked mutation.
+		return string.Equals(type, "commandExecution", StringComparison.Ordinal)
 			|| string.Equals(type, "mcpToolCall", StringComparison.Ordinal)
-			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal)) {
-			string itemId = item.GetStringOrEmpty("id");
-			if (itemId.Length == 0) {
-				return false;
-			}
-
-			mutation = new AgentMutation.Workspace(itemId);
-			return true;
-		}
-
-		return false;
+			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal);
 	}
 
 	private static AgentMutation ReadFileChangeMutation(JsonElement item) {

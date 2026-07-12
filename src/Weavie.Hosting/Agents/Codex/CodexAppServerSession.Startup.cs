@@ -29,10 +29,37 @@ public sealed partial class CodexAppServerSession {
 			_threadId = null;
 			_turnId = null;
 			_threadPersisted = false;
+			_fileChangeSummaries.Clear();
 		}
-		_pendingRequests.Clear();
 
+		RetractPendingRequests();
 		Run(InitializeAsync);
+	}
+
+	// A restarted app-server no longer knows the requests the dead process asked, so leaving their cards
+	// pending would wedge the pane on an Accept that can never reach anything: resolve each card and say why.
+	private void RetractPendingRequests() {
+		foreach (string requestId in _pendingRequests.Keys) {
+			if (!_pendingRequests.TryRemove(requestId, out var request)) {
+				continue;
+			}
+
+			_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
+			Emit(new AgentPaneMessage {
+				Type = CodexApprovalResponses.CanResolve(request.Method) ? "approval-resolved" : "input-resolved",
+				ProviderId = "codex",
+				Status = "cancel",
+				ItemId = request.Id,
+			});
+			Emit(new AgentPaneMessage {
+				Type = "warning",
+				ProviderId = "codex",
+				ItemId = request.Id,
+				ItemType = request.Method,
+				Summary = "Codex restarted; this pending request was discarded",
+				Status = "warning",
+			});
+		}
 	}
 
 	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) =>

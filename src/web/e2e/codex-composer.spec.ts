@@ -349,7 +349,7 @@ test.describe("Codex composer", () => {
     await expect(working).not.toHaveClass(/waiting/);
     await expect(working.locator(".agent-working-label")).toHaveText("Working");
 
-    host.pushToWeb(paneMessage({ type: "turn-interrupted", turnId: "t1", status: "interrupted" }));
+    host.pushToWeb(paneMessage({ type: "turn-completed", turnId: "t1", status: "interrupted" }));
     await expect(working).toHaveCount(0);
     await expect(submit).toHaveText("Run");
     await expect(interrupt).toHaveCount(0);

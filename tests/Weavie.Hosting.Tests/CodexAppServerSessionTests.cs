@@ -162,6 +162,72 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ChangeTrackingFault_SurfacesErrorCardAndKeepsTheTurnBoundary() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new TurnStopThrowingEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("out of tokens", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "turn-completed"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "error" && message.Summary == "Change tracking failed for this turn");
+	}
+
+	[Fact]
+	public async Task Restart_RetractsPendingApprovalCardsLoudly() {
+		var events = new CapturingAgentEventSink();
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("approval then crash", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-resolved" && message.ItemId == "approval-3"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "approval-resolved" && message.ItemId == "approval-3" && message.Status == "cancel");
+		Assert.Contains(messages, message => message.Type == "warning" && message.ItemId == "approval-3");
+		Assert.Contains(events.Values, value => value is AgentPermissionResolved);
+	}
+
+	[Fact]
+	public async Task ResolveApproval_UnknownRequest_UnwedgesTheCardAndExplains() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.ResolveApproval("approval-ghost", "accept");
+
+		Assert.Contains(messages, message =>
+			message.Type == "approval-resolved" && message.ItemId == "approval-ghost" && message.Status == "cancel");
+		Assert.Contains(messages, message => message.Type == "error");
+	}
+
+	[Fact]
+	public async Task FileChangeApproval_CardCarriesTheChangedPathsFromTheItem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("file approval", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+
+		var card = messages.Single(message => message.Type == "approval-requested");
+		Assert.Equal("item/fileChange/requestApproval", card.ItemType);
+		Assert.Equal("apply the patch", card.Summary);
+		Assert.Equal("src/App.cs, src/Program.cs", card.Text);
+	}
+
+	[Fact]
 	public async Task ApprovalRequest_UpdatesSharedStatusEvents() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
@@ -610,7 +676,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 80; i++) {
+		for (int i = 0; i < 200; i++) {
 			if (done()) {
 				return;
 			}
@@ -632,6 +698,14 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Values.Add(value);
 			return AgentEventFeedback.None;
 		}
+	}
+
+	// Models a change tracker hitting an unreadable workspace file at the end-of-turn reconcile.
+	private sealed class TurnStopThrowingEventSink : IAgentEventSink {
+		public AgentEventFeedback Observe(AgentEvent value) =>
+			value is AgentTurnStopped
+				? throw new IOException("locked file")
+				: AgentEventFeedback.None;
 	}
 
 }

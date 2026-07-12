@@ -23,7 +23,11 @@ public sealed partial class CodexAppServerClient {
 		process.Exited += (_, _) => {
 			int exitCode = ReadExitCode(process);
 			_log($"[codex-app-server] exited {exitCode}");
-			FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
+			// A superseded launch's late exit must not fail the replacement's in-flight requests.
+			if (launch.IsCurrent) {
+				FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
+			}
+
 			launch.NotifyExited(exitCode);
 		};
 		if (!process.Start()) {
@@ -177,8 +181,12 @@ public sealed partial class CodexAppServerClient {
 			throw new InvalidOperationException("Codex app-server is not running.");
 		}
 
-		process.StandardInput.WriteLine(line);
-		process.StandardInput.Flush();
+		// StreamWriter is not thread-safe, and writers land here from the task queue, the web dispatch
+		// thread, and the read pump (bypass auto-responses); interleaving would corrupt the JSONL stream.
+		lock (_writeGate) {
+			process.StandardInput.WriteLine(line);
+			process.StandardInput.Flush();
+		}
 	}
 
 	private static int ReadExitCode(Process process) {

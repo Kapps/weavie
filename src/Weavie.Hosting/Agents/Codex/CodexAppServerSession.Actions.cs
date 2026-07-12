@@ -19,11 +19,16 @@ public sealed partial class CodexAppServerSession {
 
 	private void SubmitTurn(CodexTurnInput input) {
 		Run(async () => {
-			string? threadId = CurrentThreadId();
-			if (string.IsNullOrEmpty(threadId)) {
-				lock (_gate) {
+			// Check-and-enqueue under one lock hold: AdoptThread + FlushPendingInputs take the same gate, so an
+			// input can no longer slip between a null thread-id read and the enqueue and strand in the queue.
+			string? threadId;
+			lock (_gate) {
+				threadId = _threadId;
+				if (string.IsNullOrEmpty(threadId)) {
 					_pendingInputs.Enqueue(input);
 				}
+			}
+			if (string.IsNullOrEmpty(threadId)) {
 				return;
 			}
 
@@ -177,6 +182,12 @@ public sealed partial class CodexAppServerSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(decision);
 		if (!_pendingRequests.TryGetValue(requestId, out var request)) {
+			// Re-answering an already-answered card is a benign double-click; an id we never knew (or that a
+			// restart voided) must unwedge the card and explain itself.
+			if (!_resolvedRequests.ContainsKey(requestId)) {
+				EmitStaleRequest(requestId, "approval-resolved", "approval");
+			}
+
 			return;
 		}
 
@@ -193,6 +204,7 @@ public sealed partial class CodexAppServerSession {
 		}
 
 		_pendingRequests.TryRemove(requestId, out _);
+		_resolvedRequests[requestId] = 0;
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 		Emit(new AgentPaneMessage {
 			Type = "approval-resolved",
@@ -207,6 +219,10 @@ public sealed partial class CodexAppServerSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentNullException.ThrowIfNull(answers);
 		if (!_pendingRequests.TryGetValue(requestId, out var request)) {
+			if (!_resolvedRequests.ContainsKey(requestId)) {
+				EmitStaleRequest(requestId, "input-resolved", "answer");
+			}
+
 			return;
 		}
 
@@ -223,6 +239,7 @@ public sealed partial class CodexAppServerSession {
 		}
 
 		_pendingRequests.TryRemove(requestId, out _);
+		_resolvedRequests[requestId] = 0;
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 		Emit(new AgentPaneMessage {
 			Type = "input-resolved",
@@ -248,5 +265,17 @@ public sealed partial class CodexAppServerSession {
 		}
 
 		return false;
+	}
+
+	// A decision can race a restart that voided the request: unwedge the card and say why — never eat the click.
+	private void EmitStaleRequest(string requestId, string resolutionType, string kind) {
+		Emit(new AgentPaneMessage {
+			Type = resolutionType,
+			ProviderId = "codex",
+			Status = "cancel",
+			ItemId = requestId,
+		});
+		EmitError($"Codex is no longer waiting on this {kind} (usually because the app-server restarted); nothing was sent.");
+		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 	}
 }

@@ -93,6 +93,21 @@ public sealed class LspController : IAsyncDisposable {
 	}
 
 	/// <summary>
+	/// Disposes every channel minted by a different page instance (channel ids end in <c>-{epoch}</c>). A fresh
+	/// page owns no channels and sends no <c>lsp-stop</c> for a predecessor's, so a reload would otherwise leak
+	/// one live server per language until the session unloads.
+	/// </summary>
+	public void DropOtherEpochs(string epoch) {
+		ArgumentException.ThrowIfNullOrEmpty(epoch);
+		string suffix = "-" + epoch;
+		foreach (string channel in _channels.Keys) {
+			if (!channel.EndsWith(suffix, StringComparison.Ordinal)) {
+				Stop(channel);
+			}
+		}
+	}
+
+	/// <summary>
 	/// Fans a debounced watcher batch to every live server as one <c>workspace/didChangeWatchedFiles</c>, so their
 	/// diagnostics/types don't go stale after Claude edits on disk.
 	/// </summary>

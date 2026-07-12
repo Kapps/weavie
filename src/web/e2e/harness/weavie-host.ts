@@ -83,8 +83,17 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
         finish();
       });
       const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      taskkill.once("exit", () => {
+      taskkill.once("exit", (code) => {
         taskkillFinished = true;
+        // Any exit code is fine once the root actually dies (`close` gates cleanup), and 128 means the root
+        // vanished on its own before taskkill found it. But any other failed kill with the root still alive
+        // means `close` never comes — reject loudly instead of hanging the teardown.
+        if (code !== 0 && code !== 128 && proc.exitCode === null && proc.signalCode === null) {
+          reject(
+            new Error(`taskkill exited with ${code ?? -1} while process ${pid} is still alive`),
+          );
+          return;
+        }
         finish();
       });
       taskkill.once("error", reject);

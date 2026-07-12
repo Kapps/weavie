@@ -170,18 +170,19 @@ public static class CoreSettings {
 		registry.Register(new SettingDefinition {
 			Key = "codex.approvalPolicy",
 			Kind = SettingKind.String,
-			Description = "Approval policy passed to native Codex sessions: untrusted, on-failure, on-request, or never. "
+			Description = "Approval policy passed to native Codex sessions: untrusted, on-request, or never. "
 				+ "Takes effect on the next Codex session.",
 			Aliases = ["codex approvals", "codex approval policy", "codex ask approval"],
 			Apply = ApplyMode.NextSession,
 			Default = "on-request",
+			// "on-failure" was removed in Codex 0.143 (the app-server API rejects it); a stale persisted value
+			// resolves to the default, matching upstream's own on-failure → on-request config migration.
 			Validate = static value => value is string policy
 				&& (string.Equals(policy, "untrusted", StringComparison.Ordinal)
 					|| string.Equals(policy, "on-request", StringComparison.Ordinal)
-					|| string.Equals(policy, "on-failure", StringComparison.Ordinal)
 					|| string.Equals(policy, "never", StringComparison.Ordinal))
 				? ValidationResult.Success
-				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-failure, on-request, or never."),
+				: ValidationResult.Failure("codex.approvalPolicy must be untrusted, on-request, or never."),
 		});
 
 		// No Validate: efforts/tiers are per-model and open-ended (xhigh/max/ultra today, more tomorrow), so a

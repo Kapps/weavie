@@ -87,8 +87,16 @@ This does not bypass Codex hook trust. Native Codex injects no Weavie lifecycle 
 Codex app-server can emit `item/started` after a command has already begun mutating disk, so per-item events
 cannot provide a reliable baseline. `SessionChangeTracker` instead snapshots the in-scope workspace once at
 `turn/started`, continues using native item notifications for immediate locations/status, and reconciles the
-workspace at `turn/completed` or `turn/interrupted`. This covers shell, MCP, dynamic-tool, creation, and
-deletion paths without depending on incomplete `PreToolUse` interception.
+workspace at `turn/completed` (an interrupted turn also ends with `turn/completed`, carrying
+`status: "interrupted"` — the protocol has no separate interruption notification). This covers shell, MCP,
+dynamic-tool, creation, and deletion paths without depending on incomplete `PreToolUse` interception.
+
+**Known blind spot.** The reconciling walk prunes `WorkspacePaths.IgnoredSegments` (`node_modules`, `.git`,
+`bin`, `obj`, `dist`, `.vs`, `.idea`, `out`, `target` — the hardcoded noise list the file index and LSP
+watcher share), so a shell/MCP mutation under any directory *named* one of those (`bin/rails`, a
+hand-authored `dist/`) never reaches turn review. Explicit-path edits (`fileChange` items) are tracked
+regardless. The walk also reads every in-scope file's content at `turn/started` and again at the end — a
+real cost on large worktrees. A `.gitignore`-aware walk would fix both and is the open follow-up.
 
 ## Architecture / placement
 

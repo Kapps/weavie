@@ -10,6 +10,7 @@ import { currentXtermTheme, onXtermThemeChanged } from "../theme";
 import { base64ToBytes, bytesToBase64 } from "./base64";
 import { attachOsc52, noteTerminalFocus, registerTerminal } from "./host-clipboard";
 import { attachImagePaste } from "./paste-image";
+import { isReplayedQueryAnswer } from "./replay-answers";
 import { wireTerminalLinks } from "./terminal-links";
 
 // Windows file URIs (OSC 7) surface as "/C:/..." — strip the leading slash so it's a real path.
@@ -264,9 +265,10 @@ export function TerminalView(props: {
     // replayed from scrollback (ESC[6n etc.) — already answered in a previous life, so they must not reach the
     // child as input, where they'd echo as garbage (^[[19;23R) at the prompt. Suppressed for exactly the parse
     // window of each such chunk (write callbacks fire in order), then live queries get answered as normal.
+    // Only the answer shapes are dropped: real keystrokes typed during the window still reach the child.
     let replaysParsing = 0;
     term.onData((data) => {
-      if (replaysParsing === 0) {
+      if (replaysParsing === 0 || !isReplayedQueryAnswer(data)) {
         sendInput(data);
       }
     });

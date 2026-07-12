@@ -16,6 +16,7 @@ namespace Weavie.Hosting.Tests;
 
 public sealed partial class CodexAppServerSessionTests : IDisposable {
 	private readonly string _dir = Path.Combine(Path.GetTempPath(), "weavie-codex-session-tests", Guid.NewGuid().ToString("N"));
+	private SettingsStore? _settings;
 
 	public CodexAppServerSessionTests() {
 		Directory.CreateDirectory(_dir);
@@ -28,20 +29,6 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		} catch (IOException) {
 		} catch (UnauthorizedAccessException) {
 		}
-	}
-
-	[Fact]
-	public async Task Start_EmitsHookIntegrationStartupMessages() {
-		var events = new CapturingAgentEventSink();
-		List<AgentPaneMessage> messages = [];
-		await using var session = CreateSessionWithHooks(events, messages, new StartupMessageCodexHookIntegration());
-
-		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "warning"));
-
-		var warning = Assert.Single(messages, message => message.Type == "warning");
-		Assert.Equal("codex", warning.ProviderId);
-		Assert.Equal("hook trust warning", warning.Text);
 	}
 
 	[Fact]
@@ -112,6 +99,55 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task ThreadResume_Rejected_StartsFreshThreadAndClearsSavedMapping() {
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_broken");
+		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Type == "warning"));
+
+		// The stale transcript is dropped and the failure is surfaced with its protocol detail, not hidden.
+		Assert.Contains(messages, message => message.Type == "transcript-reset");
+		var warning = Assert.Single(messages, message => message.Type == "warning");
+		Assert.Contains("started a new one", warning.Summary, StringComparison.Ordinal);
+		Assert.Contains("-32603", warning.Text, StringComparison.Ordinal);
+		Assert.Contains("failed to read thread", warning.PayloadJson ?? "", StringComparison.Ordinal);
+		Assert.DoesNotContain(messages, message => message.Type == "error");
+
+		// The dead mapping is gone, and the fresh thread is live: a prompt starts a turn and re-persists.
+		Assert.False(threads.Resolve(_dir).Resume);
+		session.Submit(Submission("hi", []));
+		await WaitForAsync(() => threads.Resolve(_dir).Resume);
+		Assert.Equal("thread_fake", threads.Resolve(_dir).ThreadId);
+	}
+
+	[Fact]
+	public async Task ThreadResume_Rejected_WhenFreshStartAlsoFails_SurfacesStartErrorAndKeepsMapping() {
+		var fileSystem = new InMemoryFileSystem();
+		var threads = new CodexThreadStore(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_broken");
+		File.WriteAllText(Path.Combine(_dir, "resume-fails"), string.Empty);
+		File.WriteAllText(Path.Combine(_dir, "start-fails"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(new NullAgentEventSink(), messages, threads, fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		// The session can't start at all, not just resume: surface the start failure, keep the mapping and
+		// the pane transcript so a fixed config resumes the same conversation.
+		var error = Assert.Single(messages, message => message.Type == "error");
+		Assert.Contains("unknown variant", error.Text, StringComparison.Ordinal);
+		Assert.DoesNotContain(messages, message => message.Type == "transcript-reset");
+		Assert.True(threads.Resolve(_dir).Resume);
+		Assert.Equal("thread_broken", threads.Resolve(_dir).ThreadId);
+	}
+
+	[Fact]
 	public async Task ThreadId_PersistsOnlyAfterTurnStarts() {
 		InMemoryFileSystem fileSystem = new();
 		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
@@ -127,6 +163,25 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => threads.Resolve(_dir).Resume);
 
 		Assert.Equal("thread_fake", threads.Resolve(_dir).ThreadId);
+	}
+
+	[Fact]
+	public async Task Submit_WhileFreshTurnStarts_QueuesThenSteers() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("delay start", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start-pending.json")));
+		session.Submit(Submission("second", []));
+		File.WriteAllText(Path.Combine(_dir, "release-turn-start"), string.Empty);
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
+
+		using var started = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		using var steered = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-steer.json")));
+		Assert.Equal("delay start", started.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
+		Assert.Equal("second", steered.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
 	}
 
 	[Fact]
@@ -175,18 +230,68 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
-	public async Task Start_WithUntrustedNonWeavieHook_SurfacesErrorAndDoesNotStartThread() {
-		File.WriteAllText(Path.Combine(_dir, "unsafe-hooks"), "1");
+	public async Task Restart_RetractsPendingApprovalCardsLoudly() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(events, messages);
 
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
 
-		var error = Assert.Single(messages, message => message.Type == "error");
-		Assert.Contains("hook-trust bypass", error.Text, StringComparison.Ordinal);
-		Assert.False(File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("approval then crash", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-resolved" && message.ItemId == "approval-3"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "approval-resolved" && message.ItemId == "approval-3" && message.Status == "cancel");
+		Assert.Contains(messages, message => message.Type == "warning" && message.ItemId == "approval-3");
+		Assert.Contains(events.Values, value => value is AgentPermissionResolved);
+	}
+
+	[Fact]
+	public async Task ResolveApproval_UnknownRequest_UnwedgesTheCardAndExplains() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.ResolveApproval("approval-ghost", "accept");
+
+		Assert.Contains(messages, message =>
+			message.Type == "approval-resolved" && message.ItemId == "approval-ghost" && message.Status == "cancel");
+		Assert.Contains(messages, message => message.Type == "error");
+	}
+
+	[Fact]
+	public async Task FileChangeApproval_CardCarriesTheChangedPathsFromTheItem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("file approval", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+
+		var card = messages.Single(message => message.Type == "approval-requested");
+		Assert.Equal("item/fileChange/requestApproval", card.ItemType);
+		Assert.Equal("apply the patch", card.Summary);
+		Assert.Equal("src/App.cs, src/Program.cs", card.Text);
+	}
+
+	[Fact]
+	public async Task FileChangeTrackingFault_SurfacesErrorAndKeepsThePaneEvent() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new DirectChangeThrowingEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("file approval", []));
+		await WaitForAsync(() => messages.Any(message => message.Summary == "Change tracking failed for this file"));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+
+		Assert.Contains(messages, message => message.ItemId == "item_edit" && message.Category == "edit");
 	}
 
 	[Fact]
@@ -215,6 +320,47 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.ResolveApproval("approval-1", "accept");
 
 		Assert.Equal(errorCount, messages.Count(message => message.Type == "error"));
+	}
+
+	[Fact]
+	public async Task BypassPermissions_UsesFullAccessAndNeverApproval() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")));
+		var parameters = doc.RootElement.GetProperty("params");
+		Assert.Equal("danger-full-access", parameters.GetProperty("sandbox").GetString());
+		Assert.Equal("never", parameters.GetProperty("approvalPolicy").GetString());
+
+		session.SetControl("sandbox", "read-only");
+		session.SetControl("approvalPolicy", "untrusted");
+		Assert.Equal("danger-full-access", session.ControlState.Axes.Single(axis => axis.Id == "sandbox").Value);
+		Assert.Equal("never", session.ControlState.Axes.Single(axis => axis.Id == "approvalPolicy").Value);
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+		using var turn = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParameters = turn.RootElement.GetProperty("params");
+		Assert.Equal("dangerFullAccess", turnParameters.GetProperty("sandboxPolicy").GetProperty("type").GetString());
+		Assert.Equal("never", turnParameters.GetProperty("approvalPolicy").GetString());
+	}
+
+	[Fact]
+	public async Task BypassPermissions_AutoAcceptsCodexApprovalWithoutPromptCard() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages, bypassPermissions: true);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("approval", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "approval-response.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "approval-response.json")));
+		Assert.Equal("accept", doc.RootElement.GetProperty("result").GetProperty("decision").GetString());
+		Assert.DoesNotContain(messages, message => message.Type == "approval-requested");
 	}
 
 	[Fact]
@@ -300,20 +446,21 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		session.ControlStateChanged += state => states.Add(state);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		var control = session.ControlState;
-		var model = Assert.Single(control.Axes, axis => axis.Id == "model");
+		var model = control.ModelControl;
 		Assert.Equal("gpt-5.5", model.Value); // the catalog default, since codex.model is unset
-		Assert.Equal("GPT-5.5", model.ValueLabel);
-		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Options.Select(option => option.Id));
+		Assert.Equal("GPT-5.5 (Medium)", model.ValueLabel); // model + default effort, no Fast
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], model.Models.Select(choice => choice.Id));
+		Assert.True(model.Models.Single(choice => choice.Id == "gpt-5.5").Current);
 		Assert.Contains(control.Axes, axis => axis.Id == "approvalPolicy");
 		Assert.Contains(control.Axes, axis => axis.Id == "sandbox");
 		Assert.Contains(control.Slash, entry => entry.Name == "model" && entry.CommandId == CoreCommands.SelectModel);
 		Assert.Contains(control.Slash, entry => entry.Name == "review-pr" && entry.SkillName == "review-pr");
 
 		session.SetControl("model", "gpt-5.4-mini");
-		Assert.Contains(states, state => state.Axes.Single(axis => axis.Id == "model").Value == "gpt-5.4-mini");
+		Assert.Contains(states, state => state.ModelControl.Value == "gpt-5.4-mini");
 
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
@@ -321,6 +468,158 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
 		Assert.Equal("gpt-5.4-mini", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
 	}
+
+	[Fact]
+	public async Task Controls_ExposeEffortAndFast_DerivedFromCurrentModel() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		var control = session.ControlState;
+		var current = CurrentModel(control);
+		Assert.Equal("medium", current.Effort); // gpt-5.5 default reasoning effort
+		Assert.Equal(["low", "medium", "high"], current.Efforts.Select(option => option.Id));
+		Assert.Equal("priority", current.FastTier);
+		Assert.False(current.FastOn); // off by default
+
+		// The non-current model carries its own efforts and no Fast tier.
+		var miniChoice = control.ModelControl.Models.Single(choice => choice.Id == "gpt-5.4-mini");
+		Assert.False(miniChoice.Current);
+		Assert.Equal("", miniChoice.FastTier);
+		Assert.Equal("low", miniChoice.Effort); // mini's default
+
+		Assert.Contains(control.Slash, entry => entry.Name == "effort" && entry.CommandId == CoreCommands.SelectEffort);
+		Assert.Contains(control.Slash, entry => entry.Name == "fast" && entry.CommandId == CoreCommands.ToggleFastMode);
+	}
+
+	[Fact]
+	public async Task Controls_ModelSwitchToUnsupported_ResetsEffort_AndHidesFast() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		var before = CurrentModel(session.ControlState);
+		Assert.Equal("high", before.Effort);
+		Assert.True(before.FastOn);
+
+		// gpt-5.4-mini supports neither "high" nor any service tier: the stale effort resets to the mini default and
+		// the Fast option disappears entirely.
+		session.SetControl("model", "gpt-5.4-mini");
+		var control = session.ControlState;
+		var after = CurrentModel(control);
+		Assert.Equal("gpt-5.4-mini", after.Id);
+		Assert.Equal("low", after.Effort);
+		Assert.Equal("", after.FastTier);
+		Assert.False(after.FastOn);
+		Assert.DoesNotContain(control.Slash, entry => entry.Name == "fast");
+	}
+
+	[Fact]
+	public async Task Submit_SendsEffortAndServiceTier_OnTurnStart_ButNotThreadStart() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		// thread/start carries no effort/serviceTier (the schema forbids effort there); they ride turn/start only.
+		using (var threadDoc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
+			var threadParams = threadDoc.RootElement.GetProperty("params");
+			Assert.False(threadParams.TryGetProperty("effort", out _));
+			Assert.False(threadParams.TryGetProperty("serviceTier", out _));
+		}
+
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParams = doc.RootElement.GetProperty("params");
+		Assert.Equal("high", turnParams.GetProperty("effort").GetString());
+		Assert.Equal("priority", turnParams.GetProperty("serviceTier").GetString());
+	}
+
+	[Fact]
+	public async Task Submit_WithFastOff_SendsNullServiceTierToClearIt() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		session.SetControl("serviceTier", "standard"); // Fast off explicitly
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal(JsonValueKind.Null, doc.RootElement.GetProperty("params").GetProperty("serviceTier").ValueKind);
+	}
+
+	[Fact]
+	public async Task GlobalEffortAndTierSettings_AreScopedToModelsThatSupportThem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		// Global defaults that gpt-5.4-mini supports neither: it has no service tier and no "high" effort.
+		_settings!.Set("codex.serviceTier", JsonDocument.Parse("\"priority\"").RootElement);
+		_settings!.Set("codex.effort", JsonDocument.Parse("\"high\"").RootElement);
+		session.SetControl("model", "gpt-5.4-mini");
+
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParams = doc.RootElement.GetProperty("params");
+		// Neither the unsupported tier nor the unsupported effort reaches Codex; the model uses its own defaults.
+		Assert.False(turnParams.TryGetProperty("serviceTier", out _));
+		Assert.False(turnParams.TryGetProperty("effort", out _));
+	}
+
+	[Fact]
+	public async Task GlobalEffortSetting_ValidOnNoModel_PassesThroughToSurfaceLoudly() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		// A value no model in the catalog offers is a typo, not a per-model gap: send it so Codex rejects it loudly
+		// instead of silently swallowing the misconfiguration.
+		_settings!.Set("codex.effort", JsonDocument.Parse("\"bogus\"").RootElement);
+		session.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		Assert.Equal("bogus", doc.RootElement.GetProperty("params").GetProperty("effort").GetString());
+	}
+
+	[Fact]
+	public async Task SetControl_RejectsEffortUnsupportedByModel() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		session.SetControl("effort", "ultra"); // gpt-5.5 does not offer ultra
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message => message.Type == "error" && message.Text!.Contains("effort", StringComparison.Ordinal));
+		Assert.Equal("medium", CurrentModel(session.ControlState).Effort);
+	}
+
+	private static AgentModelChoice CurrentModel(AgentControlState state) =>
+		state.ModelControl.Models.Single(model => model.Current);
 
 	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {
@@ -367,7 +666,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
 
 		session.Start();
-		await WaitForAsync(() => session.ControlState.Axes.Any(axis => axis.Id == "model" && axis.Options.Count > 0));
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("sandbox", "not-a-mode");
 		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
@@ -390,34 +689,30 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Skills = skills,
 	};
 
-	private CodexAppServerSession CreateSession(IAgentEventSink events, List<AgentPaneMessage> messages) {
-		InMemoryFileSystem fileSystem = new();
-		return CreateSessionWithThreads(events, messages, new CodexThreadStore(fileSystem, "/codex-threads.json"), fileSystem);
-	}
-
-	private CodexAppServerSession CreateSessionWithHooks(
+	private CodexAppServerSession CreateSession(
 		IAgentEventSink events,
 		List<AgentPaneMessage> messages,
-		ICodexHookIntegration hooks) {
+		bool bypassPermissions = false) {
 		InMemoryFileSystem fileSystem = new();
-		return CreateSessionWithThreadsAndHooks(
-			events, messages, new CodexThreadStore(fileSystem, "/codex-threads.json"), fileSystem, hooks);
+		return CreateSessionWithThreads(
+			events,
+			messages,
+			new CodexThreadStore(fileSystem, "/codex-threads.json"),
+			fileSystem,
+			bypassPermissions);
 	}
 
 	private CodexAppServerSession CreateSessionWithThreads(
 		IAgentEventSink events,
 		List<AgentPaneMessage> messages,
 		CodexThreadStore threads,
-		InMemoryFileSystem fileSystem) =>
-		CreateSessionWithThreadsAndHooks(events, messages, threads, fileSystem, NoopCodexHookIntegration.Instance);
-
-	private CodexAppServerSession CreateSessionWithThreadsAndHooks(
-		IAgentEventSink events,
-		List<AgentPaneMessage> messages,
-		CodexThreadStore threads,
 		InMemoryFileSystem fileSystem,
-		ICodexHookIntegration hooks) {
+		bool bypassPermissions = false) {
 		var settings = CoreSettings.CreateStore(Path.Combine(_dir, "settings.toml"), enableWatcher: false);
+		_settings = settings;
+		if (bypassPermissions) {
+			settings.Set("claude.allowAllTools", JsonDocument.Parse("true").RootElement);
+		}
 		var commandRegistry = CoreCommands.CreateRegistry();
 		CapabilityRegistryHost registry = new(
 			AgentSessionCredential.Create(),
@@ -442,13 +737,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			Events = events,
 			CurrentSessionId = () => "slot-1",
-		}, threads, "node", hooks);
+		}, threads, TestNode.Command);
 		session.PaneMessage += messages.Add;
 		return session;
 	}
 
 	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 80; i++) {
+		for (int i = 0; i < 200; i++) {
 			if (done()) {
 				return;
 			}
@@ -472,37 +767,11 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		}
 	}
 
-	private sealed class NoopCodexHookIntegration : ICodexHookIntegration {
-		public static NoopCodexHookIntegration Instance { get; } = new();
-
-		public IReadOnlyList<string> GlobalArguments => [];
-
-		public IReadOnlyList<string> AppServerArguments => [];
-
-		public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
-
-		public IReadOnlyList<AgentPaneMessage> StartupMessages => [];
-
-		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
-	}
-
-	private sealed class StartupMessageCodexHookIntegration : ICodexHookIntegration {
-		public IReadOnlyList<string> GlobalArguments => [];
-
-		public IReadOnlyList<string> AppServerArguments => [];
-
-		public IReadOnlyDictionary<string, string> Environment { get; } = new Dictionary<string, string>(StringComparer.Ordinal);
-
-		public IReadOnlyList<AgentPaneMessage> StartupMessages => [
-			new AgentPaneMessage {
-				Type = "warning",
-				ProviderId = "codex",
-				Status = "warning",
-				Text = "hook trust warning",
-			},
-		];
-
-		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+	private sealed class DirectChangeThrowingEventSink : IAgentEventSink {
+		public AgentEventFeedback Observe(AgentEvent value) =>
+			value is AgentToolStarting
+				? throw new IOException("locked file")
+				: AgentEventFeedback.None;
 	}
 
 }

@@ -52,6 +52,7 @@ public sealed class HostSession : IAsyncDisposable {
 		string workspaceRoot,
 		string scratchDir,
 		string pastedImagesDir,
+		string agentPaneTranscriptPath,
 		string id,
 		CommandRegistry commandRegistry,
 		KeybindingStore keybindings,
@@ -66,6 +67,7 @@ public sealed class HostSession : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentException.ThrowIfNullOrEmpty(scratchDir);
 		ArgumentException.ThrowIfNullOrEmpty(pastedImagesDir);
+		ArgumentException.ThrowIfNullOrEmpty(agentPaneTranscriptPath);
 		ArgumentException.ThrowIfNullOrEmpty(id);
 		ArgumentNullException.ThrowIfNull(commandRegistry);
 		ArgumentNullException.ThrowIfNull(keybindings);
@@ -123,10 +125,12 @@ public sealed class HostSession : IAsyncDisposable {
 		// Agent integration: start the provider-specific loopback server, render openDiff to Monaco, and expose
 		// the standard registry tools to the embedded model.
 		Status = new SessionStatusMachine();
-		// Records the user's out-of-band corrections (post-turn reverts/hand-edits over agent output) into the
-		// workspace's shared ring at each turn boundary. See docs/specs/learn-from-corrections.md.
-		Corrections = new CorrectionRecorder(Changes, corrections);
-		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status, Corrections);
+		// Appends the user's corrections (editor saves over an agent hunk, and review-UI reverts) into the
+		// workspace's shared ring, one entry per action — captured at the moment they act, not at a boundary.
+		// See docs/specs/learn-from-corrections.md.
+		Corrections = new CorrectionRecorder(corrections);
+		Changes.Corrected += Corrections.Record;
+		var eventRouter = new AgentEventRouter(Changes, ObservedMode, Status);
 		Events = eventRouter;
 		var agentDiffPresenter = new PermissionModeDiffPresenter(DiffPresenter, ObservedMode);
 		bool exposeRegistryIdeTools = agentProvider.Info.Capabilities.HasFlag(AgentProviderCapabilities.StructuredPane);
@@ -159,7 +163,8 @@ public sealed class HostSession : IAsyncDisposable {
 			},
 			bridge,
 			settings,
-			ptyLauncher);
+			ptyLauncher,
+			agentPaneTranscriptPath);
 		Claude = Agent.Terminal;
 		// When the agent flips into an auto-apply mode (e.g. Shift+Tab to acceptEdits, clearing a pending openDiff in
 		// the TUI), tear down any stale blocking openDiff — left alone it strands its review model over the editor
@@ -253,10 +258,10 @@ public sealed class HostSession : IAsyncDisposable {
 	/// <summary>Records every file changed this session (diff vs. each file's session baseline).</summary>
 	public SessionChangeTracker Changes { get; }
 
-	/// <summary>Records the user's post-turn corrections into the workspace's shared ring at each turn boundary.</summary>
+	/// <summary>Appends the user's corrections (editor saves over an agent hunk, and reverts) into the workspace's shared ring.</summary>
 	public CorrectionRecorder Corrections { get; }
 
-	/// <summary>The event sink provider integrations feed — the router fanning to tracker/mode/status/corrections.</summary>
+	/// <summary>The event sink provider integrations feed — the router fanning to tracker/mode/status.</summary>
 	public IAgentEventSink Events { get; }
 
 	/// <summary>The agent's edit mode (default/acceptEdits/plan), observed off provider events; Weavie reflects it, never sets it.</summary>
@@ -437,9 +442,6 @@ public sealed class HostSession : IAsyncDisposable {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		// A correction to the final turn hasn't hit a boundary yet — record it before the session's state is gone
-		// ("revert everything, then delete the session" is the strongest rejection signal).
-		Corrections.FlushPending();
 		// Terminal disposal blocks until the PTY children exit (so a following worktree delete can't race a process
 		// still rooted there). Run it off the calling (often UI) thread so a slow-closing child can't freeze the app.
 		await Task.Run(() => {

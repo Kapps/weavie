@@ -19,8 +19,8 @@ internal static class ClaudeAgentTestExtensions {
 		}
 	}
 
-	// Routes a hook through the session's production event fan-out (tracker + correction recorder + mode +
-	// status), exactly as ClaudeAgentSession.ObserveHook does when the relay pipe delivers it.
+	// Routes a hook through the session's production event fan-out (tracker + mode + status), exactly as
+	// ClaudeAgentSession.ObserveHook does when the relay pipe delivers it.
 	public static void ObserveHook(this HostSession session, HookRequest request) {
 		foreach (var value in ClaudeHookEventAdapter.Adapt(request)) {
 			session.Events.Observe(value);

@@ -65,6 +65,12 @@ public static class CoreCommands {
 	/// <summary>Opens the agent composer's sandbox picker, or applies a <c>value</c> arg directly.</summary>
 	public const string SelectSandbox = "weavie.agent.selectSandbox";
 
+	/// <summary>Opens the agent composer's reasoning-effort picker, or applies a <c>value</c> arg directly.</summary>
+	public const string SelectEffort = "weavie.agent.selectEffort";
+
+	/// <summary>Toggles the active agent's Fast Mode (service tier) on or off.</summary>
+	public const string ToggleFastMode = "weavie.agent.toggleFastMode";
+
 	/// <summary>Accepts the agent's newest pending approval request.</summary>
 	public const string AgentApprove = "weavie.agent.approve";
 
@@ -587,6 +593,29 @@ public static class CoreCommands {
 			Aliases = ["select sandbox", "sandbox mode", "change sandbox", "agent permissions"],
 			When = "agentFocused",
 			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Sandbox mode to select; omit to open the picker\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SelectEffort,
+			Title = "Select Agent Effort",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Choose how hard the active agent reasons. Opens a picker, or pass 'value' to set it "
+				+ "directly; the change applies live from the next turn.",
+			Aliases = ["select effort", "reasoning effort", "change effort", "codex effort", "effort"],
+			When = "agentFocused",
+			ArgsSchemaJson = "{\"value\":{\"type\":\"string\",\"description\":\"Effort id to select; omit to open the picker\"}}",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = ToggleFastMode,
+			Title = "Toggle Agent Fast Mode",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Turn Fast Mode on or off for the active agent session, where the model supports it; the "
+				+ "change applies live from the next turn.",
+			Aliases = ["toggle fast mode", "fast mode", "codex fast", "priority tier", "fast"],
+			When = "agentFocused",
 		});
 
 		// Approval decisions answer the newest pending request, so the keyboard path mirrors clicking the newest

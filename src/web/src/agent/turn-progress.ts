@@ -1,13 +1,16 @@
 import type { AgentPaneUpdate } from "../bridge";
 import { hasItemId } from "./AgentPaneMessageFormat";
 
-/** Whether the pane's latest turn is still running (started with no completion/interruption yet). */
+/**
+ * Whether the pane's latest turn is still running (started with no completion yet). An interrupted turn
+ * also ends with `turn-completed` — Codex reports it as status "interrupted", never as a separate type.
+ */
 export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
   let active = false;
   for (const message of messages) {
     if (message.type === "turn-started") {
       active = true;
-    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+    } else if (message.type === "turn-completed") {
       active = false;
     }
   }
@@ -23,7 +26,7 @@ export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): numbe
   for (const message of messages) {
     if (message.type === "turn-started") {
       startedAt = message.receivedAt ?? null;
-    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+    } else if (message.type === "turn-completed") {
       startedAt = null;
     }
   }
@@ -41,11 +44,7 @@ export interface PendingRequest {
 export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
   const pending = new Map<string, PendingRequestKind>();
   for (const message of messages) {
-    if (
-      message.type === "turn-started" ||
-      message.type === "turn-completed" ||
-      message.type === "turn-interrupted"
-    ) {
+    if (message.type === "turn-started" || message.type === "turn-completed") {
       pending.clear();
     } else if (message.type === "approval-requested" && hasItemId(message)) {
       pending.set(message.itemId, "approval");

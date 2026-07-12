@@ -1,10 +1,11 @@
 # Permission model & change tracking
 
 Status: implemented
-Last updated: 2026-06-19
+Last updated: 2026-07-12
 
-How Weavie governs what the embedded `claude` may do, and how it records what Claude changed — in a way
-that keeps working no matter how much Claude is or isn't asking. This supersedes the earlier
+How Weavie governs what embedded agents may do, and how it records their changes in a way that keeps
+working no matter how much they are or aren't asking. Claude and Codex use different provider mechanisms.
+This supersedes the earlier
 single-`claude.permissionMode`-setting design (kept in git history): permission is now split into two
 orthogonal axes, only one of which Weavie owns.
 
@@ -71,6 +72,23 @@ check. Edits are recorded whether they were reviewed (default), auto-applied (ac
 - **openDiff** stays wired as an optional blocking per-edit review *if* Claude ever calls it.
   `PermissionModeDiffPresenter` auto-keeps it when the observed mode auto-applies edits (so it never blocks
   redundantly under acceptEdits). `AutoAppliesEdits` now drives only that openDiff auto-keep, not the navigator.
+
+### Native Codex
+
+Codex uses the same `claude.allowAllTools` compatibility setting as Weavie's shared bypass toggle:
+
+- off: `codex.sandbox` and `codex.approvalPolicy` are passed through;
+- on: every Codex turn uses `danger-full-access` plus `never`, and any permission request still emitted by
+  app-server is accepted immediately without rendering an approval card.
+
+This does not bypass Codex hook trust. Native Codex injects no Weavie lifecycle hooks and does not pass
+`--dangerously-bypass-hook-trust`.
+
+Codex change tracking consumes only structured `fileChange` notifications whose paths the provider reports.
+Command, MCP, and dynamic-tool items still drive activity/status, but their unenumerated filesystem side-effects
+do not enter turn review, matching Claude Bash. Change and correction capture must never discover mutations by
+walking or snapshotting the workspace: its work is bounded by provider-reported or already-tracked paths, never
+by the number of files in the workspace.
 
 ## Architecture / placement
 

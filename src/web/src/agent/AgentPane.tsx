@@ -20,6 +20,8 @@ export function AgentPane(props: {
 }): JSX.Element {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
+  let programmaticScroll = false;
+  let assignedTop = 0;
   const [stickToBottom, setStickToBottom] = createSignal(true);
   // Feed <For> a keyed store: reconcile preserves each unchanged entry's proxy identity, so the row is reused and
   // AgentMarkdown re-parses only the entry whose text actually changed — heavy work stays O(changed), not
@@ -47,15 +49,34 @@ export function AgentPane(props: {
     scrollScheduled = true;
     requestAnimationFrame(() => {
       scrollScheduled = false;
-      if (bodyRef !== undefined) {
-        bodyRef.scrollTop = bodyRef.scrollHeight;
+      if (bodyRef === undefined || !stickToBottom()) {
+        return;
       }
+      const previous = bodyRef.scrollTop;
+      bodyRef.scrollTop = bodyRef.scrollHeight;
+      assignedTop = bodyRef.scrollTop;
+      programmaticScroll = assignedTop !== previous;
     });
+  };
+
+  // Our own scroll-to-bottom lands a frame after the assignment: chase content appended in between,
+  // but a user scroll coalesced into the same event (scrollTop moved off the assigned spot) wins.
+  const onBodyScroll = (): void => {
+    if (programmaticScroll) {
+      programmaticScroll = false;
+      if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
+        if (!isAtBottom()) {
+          scrollToBottom();
+        }
+        return;
+      }
+    }
+    setStickToBottom(isAtBottom());
   };
 
   // Follow content growth: props.messages changes once per publish (including text deltas), so this tracks the
   // transcript without depending on the reconciled store (which mutates in place). Isolated via `on` so a
-  // stickToBottom flip doesn't re-scroll — that path scrolls explicitly (the follow pill / onScroll handler).
+  // stickToBottom flip doesn't re-scroll — that path scrolls explicitly (the follow pill / onBodyScroll handler).
   createEffect(
     on(
       () => props.messages,
@@ -105,7 +126,7 @@ export function AgentPane(props: {
         </Show>
       </div>
       <div class="agent-body-wrap">
-        <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
+        <div class="agent-body" ref={bodyRef} onScroll={onBodyScroll}>
           <AgentTranscript
             entries={entries}
             keyboardApprovalId={keyboardApprovalId()}

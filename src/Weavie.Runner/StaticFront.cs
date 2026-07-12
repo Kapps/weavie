@@ -24,9 +24,9 @@ internal sealed class StaticFront : ITlsFront {
 	public string WorkerBindAddress => Secure ? "127.0.0.1" : _options.WorkerBind;
 
 	/// <inheritdoc/>
-	public string RegisterUrl => Secure
+	public string RegisterUrl(int controlPort) => Secure
 		? $"https://{TlsUrls.HostPort(_options.PublicHost!, _options.ControlHttpsPort)}"
-		: $"http://{_options.Bind}:{_options.Port}";
+		: $"http://{_options.Bind}:{controlPort}";
 
 	/// <inheritdoc/>
 	public string WorkerPageUrl(string requestHost, WorkspaceBackend backend) {

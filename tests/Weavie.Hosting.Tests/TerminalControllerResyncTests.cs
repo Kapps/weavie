@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.Terminal;
@@ -95,6 +96,8 @@ public sealed class TerminalControllerResyncTests {
 			_root = Directory.CreateDirectory(
 				Path.Combine(Path.GetTempPath(), "weavie-resync-" + Guid.NewGuid().ToString("n"))).FullName;
 			_settings = CoreSettings.CreateStore(Path.Combine(_root, "settings.toml"), enableWatcher: false);
+			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
+			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Launcher = new RecordingPtyLauncher();
 			Controller = new TerminalController(
 				Bridge,

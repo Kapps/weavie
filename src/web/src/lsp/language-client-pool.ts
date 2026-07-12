@@ -7,7 +7,7 @@
 import * as monaco from "monaco-editor";
 import { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction } from "vscode-languageclient";
-import { log } from "../bridge";
+import { log, postToBackend } from "../bridge";
 import { worktreeMatchBase } from "../editor/fs-path";
 import { notify } from "../notify/notify";
 import { openLspChannel } from "./lsp-bridge-transport";
@@ -32,7 +32,11 @@ const pool = new Map<string, PooledClient>();
 let channelSeq = 0;
 // Per-page-instance nonce in channel ids: the host's channel map outlives this page (reload, second tab), and a
 // bare counter would re-mint an id still bound to a live server — splicing two clients onto one server.
-const pageEpoch = Math.random().toString(36).slice(2, 10);
+// Padded to a fixed 8 chars: toString(36) can come up short, and an empty epoch would no-op the reset.
+const pageEpoch = Math.random().toString(36).slice(2, 10).padEnd(8, "0");
+// Backends told (once per page instance, before their first lsp-start) to drop channels from earlier epochs —
+// a fresh page owns none, so without the reset every reload leaks one live server per language.
+const epochReset = new Set<string>();
 
 function keyFor(backendId: string, slot: string, serverId: string): string {
   return `${backendId}\n${slot}\n${serverId}`;
@@ -90,6 +94,11 @@ function worktreePattern(workspace: string): string {
 
 function connect(key: string, params: EnsureClientParams, attempt: number): void {
   const { config, server, backendId, onStarted, hasOpenDoc } = params;
+  if (!epochReset.has(backendId)) {
+    epochReset.add(backendId);
+    // Addressed to the backend the guard tracks — postToHost's "active backend" can differ mid-switch.
+    postToBackend(backendId, { type: "lsp-reset", epoch: pageEpoch });
+  }
   const channelId = `lsp${++channelSeq}-${pageEpoch}`;
   let openedAt = 0;
   // Set on intentional teardown (switch/prune): the supervised reconnect stands down and a late exit is ignored.

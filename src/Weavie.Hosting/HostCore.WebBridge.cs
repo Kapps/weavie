@@ -260,6 +260,11 @@ public sealed partial class HostCore {
 				// The page tore a language client down (document closed / session switch) → kill its server.
 				SessionForSlot(root)?.Lsp.Stop(root.GetStringOrEmpty("channel"));
 				break;
+			case "lsp-reset":
+				// A fresh page owns no channels, so servers still bound to an earlier page instance's epoch
+				// (reload, another tab) are unreachable forever — drop them instead of leaking one per language.
+				DropLspChannelsFromOtherPages(root.GetStringOrEmpty("epoch"));
+				break;
 			case "list-dir":
 				_session?.ListDirectory(root.GetStringOrEmpty("path"));
 				break;
@@ -1454,6 +1459,17 @@ public sealed partial class HostCore {
 		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
 		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
 		return session ?? _session;
+	}
+
+	private void DropLspChannelsFromOtherPages(string epoch) {
+		if (epoch.Length == 0) {
+			return;
+		}
+
+		_session?.Lsp.DropOtherEpochs(epoch);
+		foreach (var slot in _sessions?.Slots ?? []) {
+			slot.Session?.Lsp.DropOtherEpochs(epoch);
+		}
 	}
 
 	/// <summary>The embedded JSON-RPC <c>payload</c> of an <c>lsp-data</c> message as UTF-8 bytes (empty when absent).</summary>

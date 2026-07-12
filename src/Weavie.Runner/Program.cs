@@ -81,12 +81,17 @@ if (updater is { } activePoller) {
 	Log("[update] auto-update off — pass --auto-update to enable");
 }
 
+// Bind before printing the ready lines so the control-plane URL carries the port actually bound
+// (--port 0 asks the OS for one at bind, so parallel runners can never race each other for it).
+await app.StartAsync().ConfigureAwait(false);
+int controlPort = new Uri(app.Urls.First()).Port;
+
 Console.WriteLine($"[weavie-runner] worker headless: {options.HeadlessPath} (port {backend.Port})");
-Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl}");
+Console.WriteLine($"[weavie-runner] control plane: {front.RegisterUrl(controlPort)}");
 Console.WriteLine($"[weavie-runner] runner token: {options.RunnerToken}");
 Console.Out.Flush();
 
-await app.RunAsync().ConfigureAwait(false);
+await app.WaitForShutdownAsync().ConfigureAwait(false);
 return 0;
 
 static void Log(string line) {

@@ -33,4 +33,14 @@ public sealed class LineHunkerTests {
 	[Fact]
 	public void FarApartChanges_ProduceTwoHunks() =>
 		Assert.Equal(2, LineHunker.Hunks(["a", "b", "c", "d", "e"], ["A", "b", "c", "d", "E"]).Count);
+
+	[Fact]
+	public void FarApartChanges_AboveFormerCellCap_RemainSeparate() {
+		string[] before = [.. Enumerable.Range(0, 1_100).Select(i => $"line {i}")];
+		string[] after = (string[])before.Clone();
+		after[0] = "FIRST";
+		after[^1] = "LAST";
+
+		Assert.Equal(2, LineHunker.Hunks(before, after).Count);
+	}
 }

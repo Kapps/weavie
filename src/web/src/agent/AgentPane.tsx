@@ -18,6 +18,8 @@ export function AgentPane(props: {
 }): JSX.Element {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
+  let programmaticScroll = false;
+  let assignedTop = 0;
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
@@ -41,10 +43,29 @@ export function AgentPane(props: {
     scrollScheduled = true;
     requestAnimationFrame(() => {
       scrollScheduled = false;
-      if (bodyRef !== undefined) {
-        bodyRef.scrollTop = bodyRef.scrollHeight;
+      if (bodyRef === undefined || !stickToBottom()) {
+        return;
       }
+      const previous = bodyRef.scrollTop;
+      bodyRef.scrollTop = bodyRef.scrollHeight;
+      assignedTop = bodyRef.scrollTop;
+      programmaticScroll = assignedTop !== previous;
     });
+  };
+
+  // Our own scroll-to-bottom lands a frame after the assignment: chase content appended in between,
+  // but a user scroll coalesced into the same event (scrollTop moved off the assigned spot) wins.
+  const onBodyScroll = (): void => {
+    if (programmaticScroll) {
+      programmaticScroll = false;
+      if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
+        if (!isAtBottom()) {
+          scrollToBottom();
+        }
+        return;
+      }
+    }
+    setStickToBottom(isAtBottom());
   };
 
   createEffect(() => {
@@ -92,7 +113,7 @@ export function AgentPane(props: {
         </Show>
       </div>
       <div class="agent-body-wrap">
-        <div class="agent-body" ref={bodyRef} onScroll={() => setStickToBottom(isAtBottom())}>
+        <div class="agent-body" ref={bodyRef} onScroll={onBodyScroll}>
           <AgentTranscript
             entries={transcript()}
             keyboardApprovalId={keyboardApprovalId()}

@@ -23,7 +23,11 @@ public sealed partial class CodexAppServerClient {
 		process.Exited += (_, _) => {
 			int exitCode = ReadExitCode(process);
 			_log($"[codex-app-server] exited {exitCode}");
-			FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
+			// A superseded launch's late exit must not fail the replacement's in-flight requests.
+			if (launch.IsCurrent) {
+				FailPending(new IOException($"Codex app-server exited with code {exitCode}."));
+			}
+
 			launch.NotifyExited(exitCode);
 		};
 		if (!process.Start()) {
@@ -49,6 +53,11 @@ public sealed partial class CodexAppServerClient {
 		if (process is null) {
 			return;
 		}
+
+		// Everything pending here targets the instance being stopped, and its Exited handler will skip
+		// FailPending once the launch is superseded — fail them now or a request that slipped in after the
+		// caller's own FailPending would hang forever.
+		FailPending(new IOException("Codex app-server stopped."));
 
 		try {
 			if (!process.HasExited) {
@@ -81,9 +90,12 @@ public sealed partial class CodexAppServerClient {
 
 		string command = launch.Command;
 		IReadOnlyList<string> processArguments = arguments;
-		if (!OperatingSystem.IsWindows()) {
+		if (!OperatingSystem.IsWindows() && !Path.IsPathRooted(launch.Command)) {
+			// A rooted command spawns directly, keeping the imported PATH intact (Debian's /etc/profile resets it);
+			// only a bare one resolves through the login shell. Never -i on pipes: interactive job control grabs
+			// the host's controlling terminal and SIGTTIN-stops the runner's whole process group.
 			command = LoginShellEnvironment.LoginShell();
-			processArguments = ["-l", "-i", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
+			processArguments = ["-l", "-c", $"exec {ShellQuote(launch.Command)} {string.Join(' ', arguments.Select(ShellQuote))}"];
 		}
 
 		ProcessStartInfo info = new(command) {
@@ -177,8 +189,12 @@ public sealed partial class CodexAppServerClient {
 			throw new InvalidOperationException("Codex app-server is not running.");
 		}
 
-		process.StandardInput.WriteLine(line);
-		process.StandardInput.Flush();
+		// StreamWriter is not thread-safe, and writers land here from the task queue, the web dispatch
+		// thread, and the read pump (bypass auto-responses); interleaving would corrupt the JSONL stream.
+		lock (_writeGate) {
+			process.StandardInput.WriteLine(line);
+			process.StandardInput.Flush();
+		}
 	}
 
 	private static int ReadExitCode(Process process) {

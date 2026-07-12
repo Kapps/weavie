@@ -123,6 +123,7 @@ public sealed partial class SessionChangeTracker {
 			_reviewBaseline.GetValueOrDefault(path, string.Empty),
 			_acceptedAnchor.GetValueOrDefault(path, string.Empty),
 			_preEdit.GetValueOrDefault(path, string.Empty),
+			CloneProvenance(path),
 			_createdSinceBaseline.Contains(path),
 			onDisk,
 			onDisk ? _fileSystem.ReadAllText(path) : string.Empty);
@@ -137,6 +138,7 @@ public sealed partial class SessionChangeTracker {
 			_reviewBaseline[state.Path] = state.ReviewBaseline;
 			_acceptedAnchor[state.Path] = state.AcceptedAnchor;
 			_preEdit[state.Path] = state.PreEdit;
+			RestoreProvenance(state.Path, state.Provenance);
 			if (state.Created) {
 				_createdSinceBaseline.Add(state.Path);
 			} else {
@@ -164,7 +166,8 @@ public sealed partial class SessionChangeTracker {
 		foreach (var state in states) {
 			if (state.Tracked) {
 				if (!string.Equals(_current.GetValueOrDefault(state.Path, string.Empty), state.Current, StringComparison.Ordinal)
-					|| !string.Equals(_reviewBaseline.GetValueOrDefault(state.Path, string.Empty), state.ReviewBaseline, StringComparison.Ordinal)) {
+					|| !string.Equals(_reviewBaseline.GetValueOrDefault(state.Path, string.Empty), state.ReviewBaseline, StringComparison.Ordinal)
+					|| !ProvenanceEquals(CloneProvenance(state.Path), state.Provenance)) {
 					return false;
 				}
 			} else if (_current.ContainsKey(state.Path)) {
@@ -208,6 +211,7 @@ public sealed partial class SessionChangeTracker {
 		string ReviewBaseline,
 		string AcceptedAnchor,
 		string PreEdit,
+		ProvenanceFile? Provenance,
 		bool Created,
 		bool OnDisk,
 		string Disk);

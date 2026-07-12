@@ -23,9 +23,8 @@ describe("hasActiveTurn", () => {
     expect(hasActiveTurn([message("turn-started")])).toBe(true);
   });
 
-  it("is false again after the turn completes or is interrupted", () => {
+  it("is false again after the turn completes (interruption also arrives as turn-completed)", () => {
     expect(hasActiveTurn([message("turn-started"), message("turn-completed")])).toBe(false);
-    expect(hasActiveTurn([message("turn-started"), message("turn-interrupted")])).toBe(false);
   });
 
   it("tracks the latest turn across several", () => {

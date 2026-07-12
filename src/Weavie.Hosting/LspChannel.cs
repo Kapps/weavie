@@ -100,4 +100,13 @@ internal sealed class LspChannel : IDisposable {
 
 	/// <inheritdoc/>
 	public void Dispose() => _supervisor.Dispose();
+
+	/// <summary>
+	/// Kills the server AND posts <c>lsp-exit</c> — for a teardown the owning page did NOT initiate (a newer
+	/// page instance reaped this channel), so a still-live sibling client learns instead of waiting silently.
+	/// </summary>
+	public void DisposeWithExit(string reason) {
+		Dispose();
+		_bridge.PostToWeb(LspMessages.Exit(_slot, _channel, -1, reason));
+	}
 }

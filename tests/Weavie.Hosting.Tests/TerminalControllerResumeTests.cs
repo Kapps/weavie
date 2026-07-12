@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Configuration;
 using Weavie.Core.FileSystem;
@@ -120,6 +121,8 @@ public sealed class TerminalControllerResumeTests {
 		public Harness() {
 			_settingsPath = Path.Combine(Path.GetTempPath(), "weavie-tc-" + Guid.NewGuid().ToString("n") + ".toml");
 			_settings = CoreSettings.CreateStore(_settingsPath, enableWatcher: false);
+			// Post output inline (no batching) so each emitted chunk is its own frame for these synchronous assertions.
+			_settings.Set("terminal.outputCoalesceMs", JsonSerializer.SerializeToElement(0L));
 			Bridge = new FakeHostBridge();
 			Store = new ClaudeSessionStore(new InMemoryFileSystem(), "/weavie-tc/claude-sessions.json");
 			_transcripts = new ClaudeTranscripts(_fs, "/claude/projects");

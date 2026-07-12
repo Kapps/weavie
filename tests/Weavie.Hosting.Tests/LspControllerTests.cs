@@ -76,6 +76,34 @@ public sealed class LspControllerTests {
 	}
 
 	[Fact]
+	public async Task DropOtherEpochs_reaps_only_channels_from_other_page_instances() {
+		var bridge = new FakeHostBridge();
+		var launcher = new FakeLauncher();
+		var controller = NewController(bridge, launcher);
+		controller.Start("s1", "fake", "lsp1-oldpage");
+		controller.Start("s1", "fake", "lsp2-newpage");
+
+		controller.DropOtherEpochs("newpage");
+
+		// The reaped channel routes nothing; the current page's channel still round-trips.
+		controller.Data("lsp1-oldpage", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9,"method":"x"}"""));
+		controller.Data("lsp2-newpage", Encoding.UTF8.GetBytes("""{"jsonrpc":"2.0","id":9,"method":"x"}"""));
+		Assert.Empty(launcher.Servers[0].WrittenTexts());
+		Assert.Equal("""{"jsonrpc":"2.0","id":9,"method":"x"}""", launcher.Servers[1].LastWrittenText());
+
+		// The reap posts lsp-exit (after disposing) so a still-live sibling page's client learns and reconnects.
+		for (int i = 0; i < 200 && !bridge.LastOfType("lsp-exit").HasValue; i++) {
+			await Task.Delay(10);
+		}
+
+		var exit = bridge.LastOfType("lsp-exit");
+		Assert.True(exit.HasValue);
+		Assert.Equal("lsp1-oldpage", exit!.Value.GetProperty("channel").GetString());
+		Assert.True(launcher.Servers[0].Disposed);
+		Assert.False(launcher.Servers[1].Disposed);
+	}
+
+	[Fact]
 	public void Unknown_recipe_posts_lsp_exit_without_spawning() {
 		var bridge = new FakeHostBridge();
 		var launcher = new FakeLauncher();
@@ -161,6 +189,8 @@ public sealed class LspControllerTests {
 		public void Write(ReadOnlyMemory<byte> payload) => _written.Add(payload.ToArray());
 
 		public string LastWrittenText() => Encoding.UTF8.GetString(_written[^1]);
+
+		public IReadOnlyList<string> WrittenTexts() => _written.Select(Encoding.UTF8.GetString).ToArray();
 
 		public void RaiseFrame(byte[] frame) => FrameReceived?.Invoke(frame);
 

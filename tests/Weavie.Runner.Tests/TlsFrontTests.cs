@@ -44,7 +44,7 @@ public sealed class TlsFrontTests {
 
 		Assert.Contains(cli.Calls, c => c.SequenceEqual(["serve", "--bg", "--https=443", "http://127.0.0.1:8800"]));
 		Assert.Contains(cli.Calls, c => c.SequenceEqual(["serve", "--bg", "--https=8443", "http://127.0.0.1:8701"]));
-		Assert.Equal("https://box.tnet.ts.net", front.RegisterUrl); // 443 omitted
+		Assert.Equal("https://box.tnet.ts.net", front.RegisterUrl(8800)); // 443 omitted
 		Assert.Equal("https://box.tnet.ts.net:8443/?token=tok", front.WorkerPageUrl("ignored", Backend(1, "tok")));
 	}
 

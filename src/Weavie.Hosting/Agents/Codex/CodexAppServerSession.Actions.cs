@@ -19,11 +19,16 @@ public sealed partial class CodexAppServerSession {
 
 	private void SubmitTurn(CodexTurnInput input) {
 		Run(async () => {
-			string? threadId = CurrentThreadId();
-			if (string.IsNullOrEmpty(threadId)) {
-				lock (_gate) {
+			// Check-and-enqueue under one lock hold: AdoptThread + FlushPendingInputs take the same gate, so an
+			// input can no longer slip between a null thread-id read and the enqueue and strand in the queue.
+			string? threadId;
+			lock (_gate) {
+				threadId = _threadId;
+				if (string.IsNullOrEmpty(threadId)) {
 					_pendingInputs.Enqueue(input);
 				}
+			}
+			if (string.IsNullOrEmpty(threadId)) {
 				return;
 			}
 
@@ -43,15 +48,42 @@ public sealed partial class CodexAppServerSession {
 	// Deliver to Codex's current turn; a stale-turn rejection means our view lagged, so re-read and steer the
 	// turn it moved to. _turnId only ever advances or clears, so this converges on a live steer or a fresh start.
 	private async Task DeliverAsync(string threadId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
-		while (CurrentTurnId() is { Length: > 0 } turnId) {
-			if (await TrySteerAsync(threadId, turnId, input, skills).ConfigureAwait(false)) {
-				return;
+		while (true) {
+			string? turnId;
+			lock (_gate) {
+				turnId = _turnId;
+				if (string.IsNullOrEmpty(turnId)) {
+					if (_turnStarting) {
+						_pendingInputs.Enqueue(input);
+						return;
+					}
+					_turnStarting = true;
+				}
 			}
 
-			DiscardStaleTurn(turnId);
-		}
+			if (!string.IsNullOrEmpty(turnId)) {
+				if (await TrySteerAsync(threadId, turnId, input, skills).ConfigureAwait(false)) {
+					return;
+				}
+				DiscardStaleTurn(turnId);
+				continue;
+			}
 
-		await StartTurnAsync(threadId, input, skills).ConfigureAwait(false);
+			try {
+				await StartTurnAsync(threadId, input, skills).ConfigureAwait(false);
+			} catch {
+				ReleaseTurnStart();
+				throw;
+			}
+			return;
+		}
+	}
+
+	private void ReleaseTurnStart() {
+		lock (_gate) {
+			_turnStarting = false;
+		}
+		FlushPendingInputs();
 	}
 
 	private async Task<bool> TrySteerAsync(string threadId, string turnId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
@@ -98,12 +130,12 @@ public sealed partial class CodexAppServerSession {
 		if (input.Images.Count > 0 || skills.Count > 0) {
 			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel())
+				? CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
 				: CodexAppServerProtocol.TurnSteerWithInputs(id, threadId, turnId, input.Text, imagePaths, skills);
 		}
 
 		return string.IsNullOrEmpty(turnId)
-			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel())
+			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
 			: CodexAppServerProtocol.TurnSteer(id, threadId, turnId, input.Text);
 	}
 
@@ -177,6 +209,12 @@ public sealed partial class CodexAppServerSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentException.ThrowIfNullOrEmpty(decision);
 		if (!_pendingRequests.TryGetValue(requestId, out var request)) {
+			// Re-answering an already-answered card is a benign double-click; an id we never knew (or that a
+			// restart voided) must unwedge the card and explain itself.
+			if (!_resolvedRequests.ContainsKey(requestId)) {
+				EmitStaleRequest(requestId, "approval-resolved", "approval");
+			}
+
 			return;
 		}
 
@@ -193,6 +231,7 @@ public sealed partial class CodexAppServerSession {
 		}
 
 		_pendingRequests.TryRemove(requestId, out _);
+		_resolvedRequests[requestId] = 0;
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 		Emit(new AgentPaneMessage {
 			Type = "approval-resolved",
@@ -207,6 +246,10 @@ public sealed partial class CodexAppServerSession {
 		ArgumentException.ThrowIfNullOrEmpty(requestId);
 		ArgumentNullException.ThrowIfNull(answers);
 		if (!_pendingRequests.TryGetValue(requestId, out var request)) {
+			if (!_resolvedRequests.ContainsKey(requestId)) {
+				EmitStaleRequest(requestId, "input-resolved", "answer");
+			}
+
 			return;
 		}
 
@@ -223,6 +266,7 @@ public sealed partial class CodexAppServerSession {
 		}
 
 		_pendingRequests.TryRemove(requestId, out _);
+		_resolvedRequests[requestId] = 0;
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 		Emit(new AgentPaneMessage {
 			Type = "input-resolved",
@@ -248,5 +292,22 @@ public sealed partial class CodexAppServerSession {
 		}
 
 		return false;
+	}
+
+	// A decision can race a restart that voided the request: unwedge the card and say why — never eat the click.
+	private void EmitStaleRequest(string requestId, string resolutionType, string kind) {
+		EmitCancelledResolution(requestId, resolutionType);
+		EmitError($"Codex is no longer waiting on this {kind} (usually because the app-server restarted); nothing was sent.");
+	}
+
+	// Resolves a card whose server-side request no longer exists (restart retraction or a stale decision).
+	private void EmitCancelledResolution(string requestId, string resolutionType) {
+		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
+		Emit(new AgentPaneMessage {
+			Type = resolutionType,
+			ProviderId = "codex",
+			Status = "cancel",
+			ItemId = requestId,
+		});
 	}
 }

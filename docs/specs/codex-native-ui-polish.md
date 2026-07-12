@@ -15,8 +15,9 @@ The pane gave no lifecycle feedback while a turn ran: no working indicator, no e
 - **Working row** (`.agent-working`, top of the composer): spinner + "Working" + elapsed time
   ticking per second + "<Key> to interrupt" hint. State derives entirely from the pane's message
   stream (`turn-progress.ts`: `hasActiveTurn`), so it replays correctly on reconnect; the clock
-  baselines when this view sees the turn begin (the protocol carries no turn timestamp) and
-  re-baselines on session switch.
+  baselines on the arrival time stamped on `turn-started` and re-baselines on session switch. (The
+  protocol does carry `turn.startedAt`; baselining on it instead would keep the clock honest across
+  a reconnect that lands mid-turn — a known follow-up, not yet done.)
 - **Blocked-on-you state**: while the newest approval/input request is unresolved
   (`pendingRequestKind`), the row turns amber and reads "Waiting on your approval" / "Waiting on
   your answer" — a running spinner would misreport who is being waited on.
@@ -31,10 +32,10 @@ The pane gave no lifecycle feedback while a turn ran: no working indicator, no e
 An approval card showed only the provider's *reason* (often empty) — the user consented blind — and
 its buttons were mouse-only, in a keyboard-first product.
 
-- **What you're approving**: `CodexPaneMessages.FromRequest` now maps the request's substance into
-  `Text` — the exact command for `item/commandExecution/requestApproval`, the changed paths for
-  `item/fileChange/requestApproval` — rendered in the card's monospace block. The reason stays the
-  summary line.
+- **What you're approving**: the card's `Text` carries the substance, rendered in a monospace
+  block — the exact command straight off `item/commandExecution/requestApproval` params; for
+  `item/fileChange/requestApproval` the request carries only item ids, so the session joins the
+  changed paths from the fileChange item's own notifications. The reason stays the summary line.
 - **Keyboard decisions are commands** (`weavie.agent.approve` / `approveForSession` / `decline`,
   default `Alt+Y` / `Alt+Shift+Y` / `Alt+N`), gated `agentFocused && agentApprovalPending` so the
   chords exist only while a card is pending. They answer the **newest** unresolved approval — the

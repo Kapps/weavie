@@ -43,12 +43,12 @@ All in `Weavie.Core.Corrections` unless noted:
   drops whole leading lines.
 - **`CorrectionRecorder`** (per session) — a plain subscriber to the tracker's `Corrected` event. Its
   `Record(edits)` diffs each edit's `before → after` (`CorrectionDiff`), drops EOL-only deltas, and appends
-  one `CorrectionRecord` (prompt = first edit's) to the shared corpus.
+  one `CorrectionRecord` per producing prompt to the shared corpus.
 - **`SessionChangeTracker.Corrected`** (`SessionChangeTracker.Corrections.cs`) — the event, raising
   `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from `RecordHandEdit` and the reverts.
 - **`LineHunker`** (`Weavie.Core.Changes`) — the LCS line alignment: `Hunks(before, after)` returns each
-  changed region's range on both sides, and `Overlaps` tests two ranges. Backs both the hand-edit gate and
-  `CorrectionDiff` (one alignment, no duplicated diff engine).
+  changed region's range on both sides. Its exact linear-memory alignment backs both provenance tracking and
+  `CorrectionDiff` (one alignment, no coarse large-file fallback).
 
 The corpus is **per-workspace** (rules about "how the agent codes in this repo" are repo-level, pooled
 across every session/worktree), which is why it is a standalone store owned by `HostCore` and **not** part
@@ -60,17 +60,15 @@ A correction is emitted at the two moments the user acts on the agent's output; 
 `Corrected` and the recorder appends. Nothing is reconstructed later, and nothing scans the tree.
 
 **Editor save — `RecordHandEdit(path, content)`** (called from the `fs-write` bridge handler on every
-editor save that reaches disk). The tracker holds the agent's output for the file in `_current` and its
-review baseline in `_reviewBaseline`:
+editor save that reaches disk). Each tracked file has a full-text provenance mirror whose live lines and
+deletion gaps carry their producing prompt and pending/kept state:
 
-1. the **agent region** is `LineHunker.Hunks(reviewBaseline, current)` — the lines the agent changed. No
-   agent region (an untouched or fully-kept file) → nothing records;
-2. the save is spliced into `_current` **only where it overlaps an agent region** (`SpliceAgentEdits`),
-   producing the corrected content. The user's edits to agent-*untouched* regions — their own ongoing
-   coding, which autosave fires on repeatedly — are left out, so they never record and never pollute a
-   later gate;
-3. if the splice changed anything, `Corrected` fires with `before = _current`, `after = corrected`, and
-   `_current` advances to the corrected content (so a re-save of the same content records nothing).
+1. agent completion aligns the pre-tool file with the provider-reported file and labels only changed lines
+   or deletion gaps; unchanged origins survive, including origins from earlier turns;
+2. every editor save advances the full mirror, but only a change wholly over one pending origin records.
+   An insertion records at an attributed deletion gap or strictly between lines from the same origin;
+3. unrelated user/external edits remain unlabelled, so a later agent edit cannot absorb them into agent
+   ownership. The review-only `_current` projection applies only attributed agent/correction changes.
 
 **Review-UI revert.** `RevertHunk` records the rejected hunk (`before` = the agent's lines, `after` = the
 baseline lines spliced back); `RevertFile`/`RevertAll` record the whole file (`before` = `_current`,
@@ -82,15 +80,13 @@ in vim, by a formatter run over the agent's Bash/exec, or by a parallel agent ne
 `fs-write` or a revert, so it is never a correction. This is what kills the false-positive classes the old
 tree-diff approach suffered — it is a deliberate narrowing, not a gap.
 
-**Prompt attribution.** `_producingPrompt[path]` is stamped with the in-flight turn's prompt (set at each
-`UserPromptSubmit`) whenever the agent edits the file, so a correction attributes to the turn that *wrote*
-the corrected output — even one made many turns later. Codex's `turn/started` carries no prompt, so a Codex
-correction records `{prompt: null, deltas}` — acceptable, since the delta is the signal.
+**Prompt attribution.** Each attributed line/gap stores the in-flight turn's prompt, so different hunks in
+one file retain different producing turns. Codex reports no prompt, so its origins carry null.
 
 ```mermaid
 flowchart TD
-  A[Agent edits file - PostToolUse] --> B["RecordChange: _current := disk; _producingPrompt[path] := turn prompt"]
-  S[User saves in editor - fs-write] --> C["RecordHandEdit: splice save over the agent region"]
+  A[Agent edits file - PostToolUse] --> B["RecordChange: label only reported changed lines / gaps"]
+  S[User saves in editor - fs-write] --> C["RecordHandEdit: advance mirror; emit only attributed edits"]
   V[User reverts a hunk / file] --> W[RevertHunk / RevertFile / RevertAll]
   C --> E{"changed an agent region?"}
   W --> E
@@ -235,8 +231,8 @@ full-stack test drives the real capture seam (the `fs-write` handler) rather tha
 
 1. `CorrectionRecord`, `CorrectionCorpus`, `LineHunker`, `CorrectionDiff` — pure Core, unit-tested over `InMemoryFileSystem`.
 2. Prompt plumbing — `HookRequest.Prompt`, `AgentPromptSubmitted(SessionId, Prompt)`, adapter, Codex protocol.
-3. Tracker `Corrected` event + `RecordHandEdit` (agent-region splice) + revert capture + `_producingPrompt`
-   attribution (`SessionChangeTracker.Corrections.cs`).
+3. Tracker `Corrected` event + action-time provenance mirror + revert capture
+   (`SessionChangeTracker.Corrections.cs`).
 4. `CorrectionRecorder` subscriber + `Changes.Corrected` wiring in `HostSession` + the `fs-write` capture
    point (`HostCore.WebBridge.cs`) + capture tests.
 5. `CorrectionsSettings`, `SuggestionContext.PendingCorrectionCount`, the service supplier, the

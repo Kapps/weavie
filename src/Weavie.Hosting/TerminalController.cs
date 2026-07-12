@@ -46,6 +46,9 @@ public sealed class TerminalController : IDisposable {
 	// logged before the replay snapshot, live otherwise. Separate from _gate so keystrokes never wait on it.
 	private readonly Lock _replayGate = new();
 	private bool _resyncPending;
+	// Batches live PTY output into fewer, larger term-output frames so a burst can't flood the bridge's bounded
+	// outbox and freeze the page. Scrollback is logged unbatched; only the live post is deferred.
+	private readonly TerminalOutputCoalescer _coalescer;
 
 	/// <summary>
 	/// Creates a controller that streams PTY output to (and input from) <paramref name="bridge"/>, resolving its
@@ -68,6 +71,9 @@ public sealed class TerminalController : IDisposable {
 		_settings = settings;
 		_launcher = launcher;
 		_process = process;
+		_coalescer = new TerminalOutputCoalescer(
+			bytes => _bridge.PostToWeb(TermOutputJson(bytes, replay: false)),
+			settings.RequireInt("terminal.outputCoalesceMs"));
 		Workspace = settings.GetString("workspace")
 			?? Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
 		_supervisor = new ProcessSupervisor(
@@ -142,6 +148,15 @@ public sealed class TerminalController : IDisposable {
 		// Under _replayGate with the pending-resync clear: output logged before this snapshot arrives via the
 		// replay, output logged after posts live below it — once each, in order (see OnOutput).
 		lock (_replayGate) {
+			// A scrollback pane's buffered live bytes are already in the log the replay below rebuilds, so drop
+			// them to avoid double-painting; a pane without a log has no replay, so flush them ahead of the
+			// mode-restore preamble instead.
+			if (_scrollback is null) {
+				_coalescer.Flush();
+			} else {
+				_coalescer.Discard();
+			}
+
 			byte[] scrollback = _scrollback?.BuildReplay() ?? [];
 			if (scrollback.Length > 0) {
 				_bridge.PostToWeb(TermOutputJson(scrollback, replay: true));
@@ -192,6 +207,8 @@ public sealed class TerminalController : IDisposable {
 			}
 
 			_resyncPending = true;
+			// Buffered live bytes are in the log the coming replay rebuilds; drop them so they don't paint twice.
+			_coalescer.Discard();
 		}
 
 		PostTermReset(respawn: false);
@@ -412,7 +429,7 @@ public sealed class TerminalController : IDisposable {
 		lock (_replayGate) {
 			_scrollback?.Append(data);
 			if (!_resyncPending) {
-				_bridge.PostToWeb(TermOutputJson(data, replay: false));
+				_coalescer.Add(data);
 			}
 		}
 	}
@@ -450,11 +467,14 @@ public sealed class TerminalController : IDisposable {
 		// Posts to this session's own (slot-tagged) pane; the page drops it if its backend isn't active.
 		Console.WriteLine($"[weavie] terminal[{_session}] child exited: {code}");
 		Console.Out.Flush();
+		_coalescer.Flush(); // the child's final output must reach the page before the exit marker
 		_bridge.PostToWeb($"{{\"slot\":\"{_slotEncoded}\",\"type\":\"term-exit\",\"session\":\"{_session}\",\"code\":{code}}}");
 	}
 
-	private void PostNotice(string text) =>
+	private void PostNotice(string text) {
+		_coalescer.Flush(); // a notice (e.g. "restarting…") follows prior output, so drain it first
 		_bridge.PostToWeb(TermOutputJson(Encoding.UTF8.GetBytes(text), replay: false));
+	}
 
 	private static void LogSupervisor(SupervisorLogEntry entry) {
 		Console.WriteLine($"[weavie] supervisor[{entry.Name}] {entry.Level}: {entry.Message}");
@@ -464,6 +484,7 @@ public sealed class TerminalController : IDisposable {
 	/// <summary>Tears down the supervised PTY child process and closes the optional PTY debug log + scrollback log.</summary>
 	public void Dispose() {
 		_supervisor.Dispose();
+		_coalescer.Dispose();
 		lock (_gate) {
 			_ptyLog?.Dispose();
 			_ptyLog = null;

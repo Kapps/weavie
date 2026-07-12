@@ -84,6 +84,10 @@ mid-task, and a build or test can fail on code you didn't touch (another agent's
 - **Never accept a flaky test and hide it — that's a silent fallback.** A skip, a quarantine, a
   retry loop, a loosened assertion, or "re-ran it and it passed" all bury the defect. When you find
   a flake, root-cause it and fix it.
+- **Never install a fake or stub binary into a shared PATH directory** (e.g. a stub `codex` beside
+  node in nvm's bin) — it hijacks the real binary for every other session and the user's live app,
+  long after your task ends. Keep fakes under `temp/` and wire them in via settings (`codex.path`,
+  `TerminalController.ResolveClaudeLaunch`), scoped to your test.
 
 ## Custom agents
 
@@ -126,6 +130,8 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   don't restate it in a hand-maintained list that silently drifts (a hardcoded ignored-directory list
   beside a real `.gitignore` is a duplication bug, not a shortcut). Encoding genuinely-new knowledge no
   source holds (e.g. the language→setup catalog) is the exception, not license to reinvent one.
+- **Change capture never walks the workspace.** Correction and agent-change tracking must be driven by
+  provider-reported or already-tracked paths; never read, snapshot, or enumerate every workspace file.
 - **No fallbacks.** Never paper over a hang or failure with a safety-net timeout, a cap, or a default
   that hides it. Don't add one unless explicitly asked — the absence of a fallback is the default.
   When a bound is genuinely required, fail loudly *at the surface that meets the user*: a console log

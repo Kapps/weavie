@@ -63,6 +63,94 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
+	public void MixedAgentAndUserReplacement_RecordsOnlyTheAgentLine() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+
+		HandEdit("app.cs", "A2\nB-OWN\n");
+
+		var file = Assert.Single(Assert.Single(_corpus.ReadAll()).Files);
+		Assert.Contains("+A2", file.Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("B-OWN", file.Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void AdjacentOriginsChangedInOneSave_KeepTheirPrompts() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n");
+
+		HandEdit("app.cs", "A1\nB2\n");
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+A1", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+B2", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void IgnoredUserEdit_RemainsUnattributedAfterLaterAgentEdit() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\nc\n");
+		HandEdit("app.cs", "A\nb\nC\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\nC\n");
+		HandEdit("app.cs", "A\nB\nC2\n");
+
+		Assert.Equal(0, _corpus.Count);
+
+		HandEdit("app.cs", "A1\nB\nC2\n");
+		HandEdit("app.cs", "A1\nB2\nC2\n");
+
+		Assert.Equal(["p1", "p2"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
+	public void RevertAfterLaterAgentEdit_PreservesUnattributedUserText() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\nc\n");
+		HandEdit("app.cs", "A\nb\nC\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\nC\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		Assert.Equal("a\nb\nC\n", _fs.ReadAllText(Abs("app.cs")));
+	}
+
+	[Fact]
+	public void RevertAfterLaterAgentEdit_PreservesUnattributedInsertion() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\nc\n");
+		HandEdit("app.cs", "A\nb\nMINE\nc\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\nMINE\nc\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		Assert.Equal("a\nb\nMINE\nc\n", _fs.ReadAllText(Abs("app.cs")));
+	}
+
+	[Fact]
+	public void RestoringAgentDeletedLine_IsACorrection() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("remove b");
+		AgentEdit("app.cs", "a\nc\n");
+
+		HandEdit("app.cs", "a\nb\nc\n");
+
+		var record = Assert.Single(_corpus.ReadAll());
+		Assert.Equal("remove b", record.Prompt);
+		Assert.Contains("+b", Assert.Single(record.Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void HandEditToAgentHunk_ThenTypingOwnCode_RecordsOnlyTheAgentCorrection() {
 		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
 		Boundary("p1");
@@ -133,6 +221,29 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
+	public void RevertHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+
+		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.Equal("a\nMINE\nb\nc\nd\n", _fs.ReadAllText(Abs("app.cs")));
+	}
+
+	[Fact]
+	public void KeepHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+
+		Assert.True(_tracker.KeepHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D"));
+	}
+
+	[Fact]
 	public void RevertManyTurnsAfterWrite_StillRecorded() {
 		// The review model accumulates: a revert made long after the write still captures the reversal.
 		_fs.WriteAllText(Abs("app.cs"), "one\n");
@@ -147,6 +258,139 @@ public sealed class CorrectionRecorderTests {
 		var record = Assert.Single(_corpus.ReadAll());
 		Assert.Equal("p1", record.Prompt); // attributed to the turn that WROTE the line, not the latest boundary
 		Assert.Contains("-two", Assert.Single(record.Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RevertAll_GroupsFilesByProducingPrompt() {
+		Boundary("p1");
+		AgentEdit("one.cs", "one\n");
+		Boundary("p2");
+		AgentEdit("two.cs", "two\n");
+
+		_tracker.RevertAll();
+
+		Assert.Equal(["p1", "p2"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
+	public void RevertFile_SlicesAdjacentChangesByProducingPrompt() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("-A", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("-B", records[0].Files[0].Delta, StringComparison.Ordinal);
+		Assert.Contains("-B", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("-A", records[1].Files[0].Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RevertFile_SlicesSequentialDeletionsAtOneGapByProducingPrompt() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nc\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "a\n");
+
+		_tracker.RevertFile(Abs("app.cs"));
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+b", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("+c", records[0].Files[0].Delta, StringComparison.Ordinal);
+		Assert.Contains("+c", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("+b", records[1].Files[0].Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RestoringAdjacentDeletedOrigins_KeepsTheirPrompts() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n");
+		HandEdit("app.cs", string.Empty);
+
+		HandEdit("app.cs", "A\nB\n");
+
+		Assert.Equal(["p1", "p2", "p1", "p2"], _corpus.ReadAll().Select(record => record.Prompt));
+	}
+
+	[Fact]
+	public void PartialDeletionRestore_PreservesTheRemainingProvenance() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\n");
+
+		HandEdit("app.cs", "a\nb\n");
+		HandEdit("app.cs", "a\nb\nc\n");
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(2, records.Count);
+		Assert.Contains("+b", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+c", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void ReverseSequentialDeletionRestore_MatchesPromptsByDeletedText() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "a\nb\n");
+		Boundary("p2");
+		AgentEdit("app.cs", "a\n");
+
+		HandEdit("app.cs", "a\nb\nc\n");
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+c", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+b", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void UndoKeep_RestoresCorrectionProvenance() {
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		_tracker.KeepFile(Abs("app.cs"));
+		Assert.True(_tracker.UndoLastKeep().Acted);
+
+		HandEdit("app.cs", "user\n");
+
+		Assert.Equal("p1", Assert.Single(_corpus.ReadAll()).Prompt);
+	}
+
+	[Fact]
+	public void UndoRevert_RestoresCorrectionProvenance() {
+		_fs.WriteAllText(Abs("app.cs"), "base\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		_tracker.RevertFile(Abs("app.cs"));
+		Assert.True(_tracker.UndoLastRevert().Acted);
+
+		HandEdit("app.cs", "user\n");
+
+		Assert.Equal(2, _corpus.Count);
+		Assert.All(_corpus.ReadAll(), record => Assert.Equal("p1", record.Prompt));
+	}
+
+	[Fact]
+	public void RedoRevert_RemovesCorrectionProvenanceAgain() {
+		_fs.WriteAllText(Abs("app.cs"), "base\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		_tracker.RevertFile(Abs("app.cs"));
+		_tracker.UndoLastRevert();
+		Assert.True(_tracker.Redo().Acted);
+
+		HandEdit("app.cs", "user\n");
+
+		Assert.Equal(1, _corpus.Count);
 	}
 
 	[Fact]

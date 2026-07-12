@@ -20,23 +20,47 @@ public sealed partial class CodexAppServerSession {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		await _client.DisposeAsync().ConfigureAwait(false);
-		await _hooks.DisposeAsync().ConfigureAwait(false);
-		await _context.Registry.DisposeAsync().ConfigureAwait(false);
+		try {
+			await _client.DisposeAsync().ConfigureAwait(false);
+		} finally {
+			await _context.Registry.DisposeAsync().ConfigureAwait(false);
+		}
 	}
 
 	private void OnClientStarted(int attempt) {
 		lock (_gate) {
 			_threadId = null;
 			_turnId = null;
+			_turnStarting = false;
 			_threadPersisted = false;
+			_fileChangeSummaries.Clear();
 		}
-		_pendingRequests.Clear();
 
-		foreach (var message in _hooks.StartupMessages) {
-			Emit(message);
-		}
+		RetractPendingRequests();
 		Run(InitializeAsync);
+	}
+	// A restarted app-server no longer knows the requests the dead process asked, so leaving their cards
+	// pending would wedge the pane on an Accept that can never reach anything: resolve each card and say why.
+	private void RetractPendingRequests() {
+		foreach (string requestId in _pendingRequests.Keys) {
+			if (!_pendingRequests.TryRemove(requestId, out var request)) {
+				continue;
+			}
+
+			// Recorded as resolved so a decision click racing this retraction stays a silent no-op.
+			_resolvedRequests[request.Id] = 0;
+			EmitCancelledResolution(
+				request.Id,
+				CodexApprovalResponses.CanResolve(request.Method) ? "approval-resolved" : "input-resolved");
+			Emit(new AgentPaneMessage {
+				Type = "warning",
+				ProviderId = "codex",
+				ItemId = request.Id,
+				ItemType = request.Method,
+				Summary = "Codex restarted; this pending request was discarded",
+				Status = "warning",
+			});
+		}
 	}
 
 	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) =>
@@ -47,12 +71,6 @@ public sealed partial class CodexAppServerSession {
 		await _client.RequestAsync(initialize, CodexAppServerProtocol.Initialize(initialize, "0.1.0"), CancellationToken.None)
 			.ConfigureAwait(false);
 		_client.Notify(CodexAppServerProtocol.Initialized());
-		long hooksList = NextRequest();
-		CodexHookTrustGate.ThrowIfUnsafe(await _client.RequestAsync(
-			hooksList,
-			CodexAppServerProtocol.HooksList(hooksList, _context.Workspace),
-			CancellationToken.None).ConfigureAwait(false));
-
 		var launch = _threads.Resolve(_context.Workspace);
 		long threadRequest = NextRequest();
 		var result = launch.Resume && !string.IsNullOrEmpty(launch.ThreadId)
@@ -71,17 +89,27 @@ public sealed partial class CodexAppServerSession {
 				CodexAppServerProtocol.ThreadResume(
 					requestId, threadId, EffectiveModel(), _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), DeveloperInstructions()),
 				CancellationToken.None).ConfigureAwait(false);
-		} catch (InvalidOperationException ex) when (ex.Message.Contains("no rollout found", StringComparison.OrdinalIgnoreCase)) {
-			_threads.Clear(_context.Workspace);
-			Emit(new AgentPaneMessage {
-				Type = "warning",
-				ProviderId = "codex",
-				Text = "Codex could not resume the saved empty thread, so Weavie started a new thread.",
-				Status = "warning",
-			});
-			long startRequest = NextRequest();
-			return await StartThreadAsync(startRequest).ConfigureAwait(false);
+		} catch (CodexRequestException ex) {
+			return await StartFreshAfterFailedResumeAsync(ex).ConfigureAwait(false);
 		}
+	}
+
+	// Codex rejected the saved thread (rollout missing, corrupt, format drift): start fresh, and only then
+	// drop the stale mapping and transcript — a start failure propagates with both intact.
+	private async Task<JsonElement> StartFreshAfterFailedResumeAsync(CodexRequestException resumeFailure) {
+		long startRequest = NextRequest();
+		var result = await StartThreadAsync(startRequest).ConfigureAwait(false);
+		_threads.Clear(_context.Workspace);
+		Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+		Emit(new AgentPaneMessage {
+			Type = "warning",
+			ProviderId = "codex",
+			Summary = "Codex could not resume the saved thread, so Weavie started a new one.",
+			Text = resumeFailure.Detail,
+			Status = "warning",
+			PayloadJson = resumeFailure.Payload,
+		});
+		return result;
 	}
 
 	private Task<JsonElement> StartThreadAsync(long requestId) =>

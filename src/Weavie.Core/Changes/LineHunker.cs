@@ -15,10 +15,6 @@ public static class LineHunker {
 
 	internal readonly record struct LineOp(LineOpKind Kind, string Text);
 
-	// Past this (rows × cols, after common prefix/suffix trimming) the O(n·m) LCS table gets too expensive; fall
-	// back to one coarse delete-all/insert-all block, matching CorrectionDiff (which builds on the same Align).
-	private const long LcsCellCap = 1_000_000;
-
 	/// <summary>
 	/// The hunks turning <paramref name="before"/> into <paramref name="after"/>, in order; empty when they are
 	/// line-for-line identical. Each hunk's <see cref="LineHunk.BeforeRange"/>/<see cref="LineHunk.AfterRange"/>
@@ -86,19 +82,7 @@ public static class LineHunker {
 			ops.Add(new LineOp(LineOpKind.Equal, a[i]));
 		}
 
-		int midA = a.Count - prefix - suffix;
-		int midB = b.Count - prefix - suffix;
-		if ((long)midA * midB > LcsCellCap) {
-			for (int i = 0; i < midA; i++) {
-				ops.Add(new LineOp(LineOpKind.Delete, a[prefix + i]));
-			}
-
-			for (int j = 0; j < midB; j++) {
-				ops.Add(new LineOp(LineOpKind.Insert, b[prefix + j]));
-			}
-		} else {
-			AppendLcs(ops, a, b, prefix, midA, midB);
-		}
+		AppendLcs(ops, a, b, prefix, a.Count - prefix - suffix, prefix, b.Count - prefix - suffix);
 
 		for (int i = 0; i < suffix; i++) {
 			ops.Add(new LineOp(LineOpKind.Equal, a[a.Count - suffix + i]));
@@ -107,34 +91,94 @@ public static class LineHunker {
 		return ops;
 	}
 
-	private static void AppendLcs(List<LineOp> ops, IReadOnlyList<string> a, IReadOnlyList<string> b, int offset, int n, int m) {
-		int[,] table = new int[n + 1, m + 1];
-		for (int i = 1; i <= n; i++) {
-			for (int j = 1; j <= m; j++) {
-				table[i, j] = string.Equals(a[offset + i - 1], b[offset + j - 1], StringComparison.Ordinal)
-					? table[i - 1, j - 1] + 1
-					: Math.Max(table[i - 1, j], table[i, j - 1]);
+	private static void AppendLcs(
+		List<LineOp> ops,
+		IReadOnlyList<string> a,
+		IReadOnlyList<string> b,
+		int aStart,
+		int aCount,
+		int bStart,
+		int bCount) {
+		var matches = new List<(int A, int B)>();
+		FindMatches(matches, a, b, aStart, aCount, bStart, bCount);
+		int ai = aStart;
+		int bi = bStart;
+		foreach (var (matchA, matchB) in matches) {
+			while (ai < matchA) {
+				ops.Add(new LineOp(LineOpKind.Delete, a[ai++]));
+			}
+			while (bi < matchB) {
+				ops.Add(new LineOp(LineOpKind.Insert, b[bi++]));
+			}
+			ops.Add(new LineOp(LineOpKind.Equal, a[ai]));
+			ai++;
+			bi++;
+		}
+		while (ai < aStart + aCount) {
+			ops.Add(new LineOp(LineOpKind.Delete, a[ai++]));
+		}
+		while (bi < bStart + bCount) {
+			ops.Add(new LineOp(LineOpKind.Insert, b[bi++]));
+		}
+	}
+
+	// Hirschberg's exact LCS uses linear memory, so large files never broaden provenance through a coarse fallback.
+	private static void FindMatches(
+		List<(int A, int B)> matches,
+		IReadOnlyList<string> a,
+		IReadOnlyList<string> b,
+		int aStart,
+		int aCount,
+		int bStart,
+		int bCount) {
+		if (aCount == 0 || bCount == 0) {
+			return;
+		}
+		if (aCount == 1) {
+			for (int j = 0; j < bCount; j++) {
+				if (string.Equals(a[aStart], b[bStart + j], StringComparison.Ordinal)) {
+					matches.Add((aStart, bStart + j));
+					return;
+				}
+			}
+			return;
+		}
+
+		int leftCount = aCount / 2;
+		int[] left = LcsLengths(a, b, aStart, leftCount, bStart, bCount, reverse: false);
+		int[] right = LcsLengths(a, b, aStart + leftCount, aCount - leftCount, bStart, bCount, reverse: true);
+		int split = 0;
+		for (int j = 1; j <= bCount; j++) {
+			if (left[j] + right[bCount - j] > left[split] + right[bCount - split]) {
+				split = j;
 			}
 		}
 
-		var reversed = new List<LineOp>(n + m);
-		int x = n;
-		int y = m;
-		while (x > 0 || y > 0) {
-			if (x > 0 && y > 0 && string.Equals(a[offset + x - 1], b[offset + y - 1], StringComparison.Ordinal)) {
-				reversed.Add(new LineOp(LineOpKind.Equal, a[offset + x - 1]));
-				x--;
-				y--;
-			} else if (y > 0 && (x == 0 || table[x, y - 1] >= table[x - 1, y])) {
-				reversed.Add(new LineOp(LineOpKind.Insert, b[offset + y - 1]));
-				y--;
-			} else {
-				reversed.Add(new LineOp(LineOpKind.Delete, a[offset + x - 1]));
-				x--;
-			}
-		}
+		FindMatches(matches, a, b, aStart, leftCount, bStart, split);
+		FindMatches(matches, a, b, aStart + leftCount, aCount - leftCount, bStart + split, bCount - split);
+	}
 
-		reversed.Reverse();
-		ops.AddRange(reversed);
+	private static int[] LcsLengths(
+		IReadOnlyList<string> a,
+		IReadOnlyList<string> b,
+		int aStart,
+		int aCount,
+		int bStart,
+		int bCount,
+		bool reverse) {
+		int[] previous = new int[bCount + 1];
+		int[] current = new int[bCount + 1];
+		for (int i = 0; i < aCount; i++) {
+			string aLine = a[reverse ? aStart + aCount - 1 - i : aStart + i];
+			for (int j = 0; j < bCount; j++) {
+				string bLine = b[reverse ? bStart + bCount - 1 - j : bStart + j];
+				current[j + 1] = string.Equals(aLine, bLine, StringComparison.Ordinal)
+					? previous[j] + 1
+					: Math.Max(previous[j + 1], current[j]);
+			}
+			(previous, current) = (current, previous);
+			Array.Clear(current);
+		}
+		return previous;
 	}
 }

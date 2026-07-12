@@ -18,7 +18,8 @@ export function AgentPane(props: {
 }): JSX.Element {
   let bodyRef: HTMLDivElement | undefined;
   let scrollScheduled = false;
-  let lastScrollTop = 0;
+  let programmaticScroll = false;
+  let assignedTop = 0;
   const [stickToBottom, setStickToBottom] = createSignal(true);
   const transcript = createMemo(() => toAgentTranscript(props.messages));
   const providerName = (): string => (props.providerId === "codex" ? "Codex" : "Agent");
@@ -42,27 +43,29 @@ export function AgentPane(props: {
     scrollScheduled = true;
     requestAnimationFrame(() => {
       scrollScheduled = false;
-      if (bodyRef !== undefined) {
-        bodyRef.scrollTop = bodyRef.scrollHeight;
+      if (bodyRef === undefined || !stickToBottom()) {
+        return;
       }
+      const previous = bodyRef.scrollTop;
+      bodyRef.scrollTop = bodyRef.scrollHeight;
+      assignedTop = bodyRef.scrollTop;
+      programmaticScroll = assignedTop !== previous;
     });
   };
 
-  // Un-stick only when the user actually scrolls upward. A bursty message stream fires scroll events from our own
-  // scroll-to-bottom (and content growing under it) that momentarily read "not at bottom"; treating those as a
-  // manual scroll-up would latch follow off mid-burst and strand the jump-to-latest pill.
+  // Our own scroll-to-bottom lands a frame after the assignment: chase content appended in between,
+  // but a user scroll coalesced into the same event (scrollTop moved off the assigned spot) wins.
   const onBodyScroll = (): void => {
-    if (bodyRef === undefined) {
-      return;
+    if (programmaticScroll) {
+      programmaticScroll = false;
+      if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
+        if (!isAtBottom()) {
+          scrollToBottom();
+        }
+        return;
+      }
     }
-    const top = bodyRef.scrollTop;
-    const scrolledUp = top < lastScrollTop - 1;
-    lastScrollTop = top;
-    if (isAtBottom()) {
-      setStickToBottom(true);
-    } else if (scrolledUp) {
-      setStickToBottom(false);
-    }
+    setStickToBottom(isAtBottom());
   };
 
   createEffect(() => {

@@ -98,77 +98,55 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
 }
 
 // One PowerShell run owns the whole bounded kill loop: each pass recomputes the root's descendant closure from
-// a fresh Win32_Process table, force-kills every member still alive, and exits 0 only once a pass finds none.
-// Membership is pid + CreationDate, locked when a pid first joins — Windows recycles freed pids immediately, so
-// a bare-pid set held across passes could kill an unrelated process (a sibling worker's host) or report a false
-// survivor. Recorded pids stay walkable as parent LINKS after death (Win32_Process keeps a dead parent's pid),
-// which is how orphans are reached; a dead root joins as link-only so a recycled root pid is never killed.
-// A failed/empty enumeration exits 2 (Win32_Process always lists System) — never "tree is empty". Exit 1
-// prints the survivors as JSON.
-function windowsTreeKillScript(rootPid: number, rootKillable: boolean): string {
+// a fresh Win32_Process table (accumulated across passes, so a link whose parent died between passes stays in
+// the set), force-kills every member still alive, and exits 0 only once a pass finds none. Exit 1 prints the
+// survivors as JSON.
+function windowsTreeKillScript(rootPid: number): string {
   return `
-$rootPid = ${rootPid}
-$rootKillable = $${rootKillable}
-$identity = @{}
+$ErrorActionPreference = 'SilentlyContinue'
+$known = [System.Collections.Generic.HashSet[int]]::new()
+[void]$known.Add(${rootPid})
 for ($attempt = 0; $attempt -lt 8; $attempt++) {
-  $table = @(Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, CreationDate)
-  if ($table.Count -eq 0) { 'Win32_Process enumeration failed'; exit 2 }
-  $rowByPid = @{}
-  foreach ($row in $table) { $rowByPid[[int]$row.ProcessId] = "$($row.CreationDate)" }
+  $table = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name
   do {
     $grew = $false
     foreach ($row in $table) {
-      $rowPid = [int]$row.ProcessId
-      if ($identity.ContainsKey($rowPid)) { continue }
-      $parentPid = [int]$row.ParentProcessId
-      if ($rowPid -eq $rootPid) {
-        $join = $rootKillable
-      } elseif ($identity.ContainsKey($parentPid)) {
-        $join = -not $rowByPid.ContainsKey($parentPid) -or $rowByPid[$parentPid] -eq $identity[$parentPid]
-      } elseif ($parentPid -eq $rootPid) {
-        $join = -not $rowByPid.ContainsKey($rootPid)
-      } else {
-        $join = $false
-      }
-      if ($join) {
-        $identity[$rowPid] = "$($row.CreationDate)"
+      if ($known.Contains([int]$row.ParentProcessId) -and -not $known.Contains([int]$row.ProcessId)) {
+        [void]$known.Add([int]$row.ProcessId)
         $grew = $true
       }
     }
   } while ($grew)
-  $alive = @($table | Where-Object { $identity.ContainsKey([int]$_.ProcessId) -and $identity[[int]$_.ProcessId] -eq "$($_.CreationDate)" })
+  $alive = @($table | Where-Object { $known.Contains([int]$_.ProcessId) })
   if ($alive.Count -eq 0) { exit 0 }
-  foreach ($row in $alive) { Stop-Process -Force -Id ([int]$row.ProcessId) -ErrorAction SilentlyContinue }
+  foreach ($row in $alive) { Stop-Process -Force -Id ([int]$row.ProcessId) }
   Start-Sleep -Milliseconds 150
 }
-$table = @(Get-CimInstance Win32_Process | Select-Object ProcessId, Name, CreationDate)
-$alive = @($table | Where-Object { $identity.ContainsKey([int]$_.ProcessId) -and $identity[[int]$_.ProcessId] -eq "$($_.CreationDate)" })
-if ($alive.Count -gt 0) { $alive | Select-Object ProcessId, Name | ConvertTo-Json -Compress; exit 1 }
+$table = Get-CimInstance Win32_Process | Select-Object ProcessId, Name
+$alive = @($table | Where-Object { $known.Contains([int]$_.ProcessId) })
+if ($alive.Count -gt 0) { $alive | ConvertTo-Json -Compress; exit 1 }
 exit 0
 `;
 }
 
 async function killWindowsTree(proc: ChildProcess, pid: number): Promise<void> {
-  const rootAlive = proc.exitCode === null && proc.signalCode === null;
   // Attach before any await: if the root is alive now, its `close` (pipes released) can't slip past us.
-  const rootClosed = rootAlive
-    ? new Promise<void>((resolve) => proc.once("close", () => resolve()))
-    : null;
+  const rootClosed =
+    proc.exitCode === null && proc.signalCode === null
+      ? new Promise<void>((resolve) => proc.once("close", () => resolve()))
+      : null;
   const survivors = await new Promise<string>((resolve, reject) => {
     let out = "";
     const shell = spawn(
       "powershell.exe",
-      ["-NoProfile", "-NonInteractive", "-Command", windowsTreeKillScript(pid, rootAlive)],
-      { stdio: ["ignore", "pipe", "pipe"] },
+      ["-NoProfile", "-NonInteractive", "-Command", windowsTreeKillScript(pid)],
+      { stdio: ["ignore", "pipe", "ignore"] },
     );
-    const collect = (chunk: Buffer) => {
+    shell.stdout.on("data", (chunk: Buffer) => {
       out += chunk.toString("utf8");
-    };
-    shell.stdout.on("data", collect);
-    shell.stderr.on("data", collect);
+    });
     shell.once("error", reject);
-    // `close`, not `exit`: at exit the survivors JSON may still be undelivered on the pipes.
-    shell.once("close", (code) => resolve(code === 0 ? "" : out.trim() || `exit ${code}`));
+    shell.once("exit", (code) => resolve(code === 0 ? "" : out.trim() || `exit ${code}`));
   });
   if (survivors) {
     throw new Error(`Windows tree shutdown left processes alive: ${survivors}`);

@@ -147,6 +147,8 @@ const MAC_TITLEBAR = SHELL?.titleBar === "mac";
 const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
 const AGENT_PANE_KIND = "terminal:claude";
+// A shared empty message list so an absent focused slot yields a stable reference (see focusedAgentMessages).
+const NO_AGENT_MESSAGES: AgentPaneUpdate[] = [];
 
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
@@ -220,6 +222,14 @@ export default function App(): JSX.Element {
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
   });
   createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
+  // A stable reference to the FOCUSED session's pane messages. `agentPaneMessages` is a whole-record signal that
+  // re-fires on *any* slot's ingest, so reading it directly would recompute the focused Codex transcript whenever
+  // a background session streams. This memo's default (===) equality gates that: it re-runs on every record
+  // change but returns the same array until the focused slot's own array changes.
+  const focusedAgentMessages = createMemo<AgentPaneUpdate[]>(() => {
+    const sid = activeTermSessionId();
+    return sid === null ? NO_AGENT_MESSAGES : (agentPaneMessages()[sid] ?? NO_AGENT_MESSAGES);
+  });
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
   );
@@ -669,7 +679,7 @@ export default function App(): JSX.Element {
           slot={sid}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
-          messages={sid === null ? [] : (agentPaneMessages()[sid] ?? [])}
+          messages={focusedAgentMessages()}
           shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => focusPane(kind)}
         />

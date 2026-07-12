@@ -84,11 +84,11 @@ Codex uses the same `claude.allowAllTools` compatibility setting as Weavie's sha
 This does not bypass Codex hook trust. Native Codex injects no Weavie lifecycle hooks and does not pass
 `--dangerously-bypass-hook-trust`.
 
-Codex app-server can emit `item/started` after a command has already begun mutating disk, so per-item events
-cannot provide a reliable baseline. `SessionChangeTracker` instead snapshots the in-scope workspace once at
-`turn/started`, continues using native item notifications for immediate locations/status, and reconciles the
-workspace at `turn/completed` or `turn/interrupted`. This covers shell, MCP, dynamic-tool, creation, and
-deletion paths without depending on incomplete `PreToolUse` interception.
+Codex change tracking consumes only structured `fileChange` notifications whose paths the provider reports.
+Command, MCP, and dynamic-tool items still drive activity/status, but their unenumerated filesystem side-effects
+do not enter turn review, matching Claude Bash. Change and correction capture must never discover mutations by
+walking or snapshotting the workspace: its work is bounded by provider-reported or already-tracked paths, never
+by the number of files in the workspace.
 
 ## Architecture / placement
 

@@ -540,4 +540,81 @@ describe("toAgentTranscript", () => {
 
     expect(transcript.map((entry) => entry.text)).toEqual(["hello", "Hello!"]);
   });
+
+  it("assigns a unique id to every entry and nested step (the reconcile key precondition)", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "cmd1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "cmd2",
+        itemType: "commandExecution",
+        summary: "npm test",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "a1",
+        itemType: "agentMessage",
+        text: "answer one",
+        status: "completed",
+      },
+      { type: "turn-completed", providerId: "codex", turnId: "t1", status: "completed" },
+      // A message with no itemId must still get a unique id, not collide on "".
+      { type: "warning", providerId: "codex", turnId: "t1", summary: "heads up" },
+      { type: "user-message", providerId: "codex", turnId: "t2", itemId: "u2", text: "q2" },
+      {
+        type: "item-started",
+        providerId: "codex",
+        turnId: "t2",
+        itemId: "cmd3",
+        itemType: "commandExecution",
+        summary: "ls",
+        status: "inProgress",
+      },
+    ]);
+
+    const ids = [
+      ...transcript.map((entry) => entry.id),
+      ...transcript.flatMap((entry) => entry.details.map((step) => step.id)),
+    ];
+    expect(ids).not.toContain("");
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keeps a durable entry's id stable as later messages arrive", () => {
+    const prefix: AgentPaneUpdate[] = [
+      { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "a1",
+        itemType: "agentMessage",
+        text: "answer one",
+        status: "completed",
+      },
+    ];
+    const before = toAgentTranscript(prefix);
+    const assistantId = before.find((entry) => entry.tone === "assistant")?.id;
+    expect(assistantId).toBeDefined();
+
+    const after = toAgentTranscript([
+      ...prefix,
+      { type: "user-message", providerId: "codex", turnId: "t2", itemId: "u2", text: "q2" },
+    ]);
+    expect(after.find((entry) => entry.id === assistantId)?.text).toBe("answer one");
+  });
 });

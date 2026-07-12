@@ -166,6 +166,25 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Submit_WhileFreshTurnStarts_QueuesThenSteers() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("delay start", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start-pending.json")));
+		session.Submit(Submission("second", []));
+		File.WriteAllText(Path.Combine(_dir, "release-turn-start"), string.Empty);
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
+
+		using var started = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		using var steered = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-steer.json")));
+		Assert.Equal("delay start", started.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
+		Assert.Equal("second", steered.RootElement.GetProperty("params").GetProperty("input")[0].GetProperty("text").GetString());
+	}
+
+	[Fact]
 	public async Task Submit_MidTurn_SteersTheActiveTurn() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -260,6 +279,90 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		Assert.Contains("expected active turn", warning.PayloadJson ?? "", StringComparison.Ordinal);
 		Assert.DoesNotContain(messages, message => message.Type == "error");
 		Assert.DoesNotContain(messages, message => message.Type == "user-steer" && message.Text == "stale steer");
+	}
+
+	[Fact]
+	public async Task Restart_RetractsPendingApprovalCardsLoudly() {
+		var events = new CapturingAgentEventSink();
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("approval then crash", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-resolved" && message.ItemId == "approval-3"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "approval-resolved"
+			&& message.ItemId == "approval-3"
+			&& message.ThreadId == "thread_fake"
+			&& message.TurnId == "turn_fake"
+			&& message.IsPrimaryThread == true
+			&& message.Status == "cancel");
+		Assert.Contains(messages, message => message.Type == "warning" && message.ItemId == "approval-3");
+		Assert.Contains(events.Values, value => value is AgentPermissionResolved);
+	}
+
+	[Fact]
+	public async Task ResolveApproval_UnknownRequest_UnwedgesTheCardAndExplains() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.ResolveApproval("approval-ghost", "accept");
+
+		Assert.Contains(messages, message =>
+			message.Type == "approval-resolved" && message.ItemId == "approval-ghost" && message.Status == "cancel");
+		Assert.Contains(messages, message => message.Type == "error");
+	}
+
+	[Fact]
+	public async Task FileChangeApproval_CardCarriesTheChangedPathsFromTheItem() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+
+		session.Submit(Submission("file approval", []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+
+		var card = messages.Single(message => message.Type == "approval-requested");
+		Assert.Equal("item/fileChange/requestApproval", card.ItemType);
+		Assert.Equal("apply the patch", card.Summary);
+		Assert.Equal("src/App.cs, src/Program.cs", card.Text);
+	}
+
+	[Fact]
+	public async Task FileChangeApproval_UsesTheMatchingThreadAndTurnSummary() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("file approval collision", []));
+		await WaitForAsync(() => messages.Any(message => message.ItemId == "approval-4"));
+
+		var card = Assert.Single(messages, message => message.ItemId == "approval-4");
+		Assert.Equal("src/Root.cs", card.Text);
+	}
+
+	[Fact]
+	public async Task FileChangeTrackingFault_SurfacesErrorAndKeepsThePaneEvent() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new DirectChangeThrowingEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("file approval", []));
+		await WaitForAsync(() => messages.Any(message => message.Summary == "Change tracking failed for this file"));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
+
+		Assert.Contains(messages, message => message.ItemId == "item_edit" && message.Category == "edit");
 	}
 
 	[Fact]
@@ -708,13 +811,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 			Events = events,
 			CurrentSessionId = () => "slot-1",
-		}, threads, "node");
+		}, threads, TestNode.Command);
 		session.PaneMessage += messages.Add;
 		return session;
 	}
 
 	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 80; i++) {
+		for (int i = 0; i < 200; i++) {
 			if (done()) {
 				return;
 			}
@@ -736,6 +839,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 			Values.Add(value);
 			return AgentEventFeedback.None;
 		}
+	}
+
+	private sealed class DirectChangeThrowingEventSink : IAgentEventSink {
+		public AgentEventFeedback Observe(AgentEvent value) =>
+			value is AgentToolStarting
+				? throw new IOException("locked file")
+				: AgentEventFeedback.None;
 	}
 
 }

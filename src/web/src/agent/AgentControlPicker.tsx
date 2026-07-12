@@ -20,12 +20,23 @@ export function AgentControlPicker(props: { backendId: string; slot: string | nu
     return agentControlState(props.slot).axes.find((candidate) => candidate.id === id) ?? null;
   });
 
+  // Seed the highlight only when the picker opens or switches axes: a host re-push rebuilds the axes with
+  // fresh references, which would otherwise re-run this and snap keyboard navigation back mid-use.
+  let seededAxis: string | null = null;
   createEffect(() => {
     const current = axis();
-    if (current !== null) {
-      const index = current.options.findIndex((option) => option.id === current.value);
-      setHighlight(index >= 0 ? index : 0);
+    if (current === null) {
+      seededAxis = null;
+      return;
     }
+    if (current.id === seededAxis) {
+      // A re-push can shrink the options while open; keep the highlight in range without re-seeding it.
+      setHighlight((index) => Math.min(index, Math.max(0, current.options.length - 1)));
+      return;
+    }
+    seededAxis = current.id;
+    const index = current.options.findIndex((option) => option.id === current.value);
+    setHighlight(index >= 0 ? index : 0);
   });
 
   const pick = (optionId: string): void => {

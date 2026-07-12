@@ -23,9 +23,8 @@ describe("hasActiveTurn", () => {
     expect(hasActiveTurn([message("turn-started")])).toBe(true);
   });
 
-  it("is false again after the turn completes or is interrupted", () => {
+  it("is false again after the turn completes (interruption also arrives as turn-completed)", () => {
     expect(hasActiveTurn([message("turn-started"), message("turn-completed")])).toBe(false);
-    expect(hasActiveTurn([message("turn-started"), message("turn-interrupted")])).toBe(false);
   });
 
   it("tracks the latest turn across several", () => {
@@ -108,6 +107,21 @@ describe("pendingRequest", () => {
         { ...message("input-resolved", "same"), threadId: "sub", turnId: "turn" },
       ]),
     ).toEqual({ kind: "approval", requestId: "same" });
+  });
+
+  it("clears a thread-scoped request when a restart cancels it", () => {
+    expect(
+      pendingRequest([
+        message("turn-started"),
+        { ...message("approval-requested", "a1"), threadId: "root", turnId: "turn-1" },
+        {
+          ...message("approval-resolved", "a1"),
+          threadId: "root",
+          turnId: "turn-1",
+          status: "cancel",
+        },
+      ]),
+    ).toBeNull();
   });
 });
 

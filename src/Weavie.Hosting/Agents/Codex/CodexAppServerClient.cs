@@ -15,6 +15,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 	private readonly Action<string> _log;
 	private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
 	private readonly Lock _gate = new();
+	private readonly Lock _writeGate = new();
 	private readonly ProcessSupervisor _supervisor;
 	private Process? _process;
 

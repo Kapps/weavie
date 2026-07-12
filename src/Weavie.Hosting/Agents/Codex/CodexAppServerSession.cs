@@ -17,9 +17,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly Lock _gate = new();
 	private readonly Queue<CodexTurnInput> _pendingInputs = new();
 	private readonly HashSet<string> _pendingThreadStarts = new(StringComparer.Ordinal);
+	private readonly Dictionary<string, string> _fileChangeSummaries = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, byte> _resolvedRequests = new(StringComparer.Ordinal);
 	private long _nextId;
 	private string? _threadId;
 	private string? _turnId;
+	private bool _turnStarting;
 	private bool _started;
 	private bool _threadPersisted;
 	private bool _awaitingThreadAdoption;
@@ -87,25 +90,62 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		bool lifecycle = method is "thread/started" or "turn/started" or "turn/completed" or "turn/interrupted";
 		if (!deferredThreadStart && (!lifecycle || primary)
 			&& CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
-			EmitFeedback(_context.Events.Observe(agentEvent));
+			try {
+				EmitFeedback(_context.Events.Observe(agentEvent));
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Emit(new AgentPaneMessage {
+					Type = "error",
+					ProviderId = "codex",
+					ThreadId = CurrentThreadId(),
+					Summary = "Change tracking failed for this file",
+					Text = ex.Message,
+					Status = "error",
+				});
+			}
 		}
 
 		var paneMessage = CodexPaneMessages.FromNotification(method, CurrentThreadId(), root);
 		if (paneMessage is not null) {
+			string? paneItemKey = AgentPaneIdentity.ItemKey(paneMessage);
+			// The fileChange approval request carries only the item id — the changed paths live on the item
+			// events, so remember each edit item's summary to give a later approval card its substance.
+			// "fileChange" is the mapper's no-changes placeholder, not substance.
+			if (paneItemKey is not null
+				&& paneMessage is { Category: "edit", Summary.Length: > 0 }
+				&& paneMessage.Summary != "fileChange") {
+				lock (_gate) {
+					_fileChangeSummaries[paneItemKey] = paneMessage.Summary;
+				}
+			}
+
 			Emit(paneMessage);
 		}
 	}
 
 	private void HandleRequest(CodexServerRequest request) {
 		if (CodexApprovalResponses.IsPermissionApproval(request.Method) && BypassPermissions()) {
-			_client.Respond(request.ResponseId, CodexApprovalResponses.Build(request, "accept"));
+			try {
+				_client.Respond(request.ResponseId, CodexApprovalResponses.Build(request, "accept"));
+			} catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException) {
+				Emit(new AgentPaneMessage {
+					Type = "error",
+					ProviderId = "codex",
+					ThreadId = CurrentThreadId(),
+					ItemId = request.Id,
+					ItemType = request.Method,
+					Text = $"Codex asked for '{request.Method}' approval, but the bypass auto-accept could not be sent: {ex.Message}",
+					Status = "error",
+					PayloadJson = request.Message.GetRawText(),
+				});
+			}
+
 			return;
 		}
 
 		if (CodexApprovalResponses.CanResolve(request.Method) || CodexInputResponses.CanResolve(request.Method)) {
 			_pendingRequests[request.Id] = request;
 			_context.Events.Observe(new AgentPermissionRequested());
-			Emit(CodexPaneMessages.FromRequest(request));
+			Emit(WithFileChangeSubstance(request, CodexPaneMessages.FromRequest(request)));
 			return;
 		}
 
@@ -133,8 +173,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		if (turnId.Length > 0) {
 			lock (_gate) {
 				_turnId = turnId;
+				_turnStarting = false;
 			}
 			PersistThread();
+			FlushPendingInputs();
 		}
 	}
 
@@ -159,12 +201,38 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	// Clear the active turn only when the completion is for the turn we track: a late completion of an older
 	// turn must not wipe a newer one Codex has already started.
-	private void ForgetTurn(JsonElement root) {
+	private bool ForgetTurn(JsonElement root) {
 		string turnId = ReadTurnId(root);
 		lock (_gate) {
 			if (turnId.Length == 0 || string.Equals(turnId, _turnId, StringComparison.Ordinal)) {
 				_turnId = null;
+				_turnStarting = false;
+				// Approvals are turn-scoped; a late completion of an OLDER turn must not wipe the live
+				// turn's harvested edit summaries, so the clear shares the turn-id guard.
+				_fileChangeSummaries.Clear();
+				return true;
 			}
+		}
+		return false;
+	}
+
+	// Upstream fileChange approval params carry no changed paths (only threadId/turnId/itemId/reason/grantRoot);
+	// the card's substance is joined from the summaries harvested off that item's own notifications.
+	private AgentPaneMessage WithFileChangeSubstance(CodexServerRequest request, AgentPaneMessage card) {
+		if (card.Text is not null
+			|| !string.Equals(request.Method, "item/fileChange/requestApproval", StringComparison.Ordinal)
+			|| !request.Message.TryGetProperty("params", out var parameters)) {
+			return card;
+		}
+
+		string? itemKey = AgentPaneIdentity.ItemKey(
+			parameters.GetStringOrEmpty("threadId"),
+			parameters.GetStringOrEmpty("turnId"),
+			parameters.GetStringOrEmpty("itemId"));
+		lock (_gate) {
+			return itemKey is not null && _fileChangeSummaries.TryGetValue(itemKey, out string? changes)
+				? card with { Text = changes }
+				: card;
 		}
 	}
 
@@ -233,6 +301,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			return;
 		}
 
+		_resolvedRequests[request.Id] = 0;
 		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
 		string type = CodexInputResponses.CanResolve(request.Method) ? "input-resolved" : "approval-resolved";
 		Emit(ResolvedRequest(request, type, "resolved"));

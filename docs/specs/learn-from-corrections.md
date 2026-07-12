@@ -1,46 +1,54 @@
 # Learn from corrections
 
 Status: implemented
-Last updated: 2026-07-11
+Last updated: 2026-07-12
 
-Weavie sits between the user and the embedded agent and observes turn-review. When the user **reverts a
-hunk or hand-edits the agent's output**, that correction happens out-of-band and never enters the agent's
-transcript — so it is invisible to the model forever. That *net edit over agent output* is signal only
-Weavie has.
+Weavie sits between the user and the embedded agent. When the user **edits the agent's output in the editor
+or reverts a hunk in the review UI**, that correction never enters the agent's transcript — so it is
+invisible to the model forever. That *edit over agent output* is signal only Weavie has.
 
 This feature persists those corrections per-workspace and lets the user run **`/learn`** to have the
 primary session's Claude mine them for `AGENTS.md` rules. The division of labor is firm: **Weavie stores
 the signal; Claude does all the reasoning** — there is no classifier, scorer, or intent-detector in Core.
 The corpus holds raw deltas only.
 
+A correction is captured **as a discrete event, at the moment the user acts** — an editor save that lands
+over an agent hunk, or a review-UI revert — never reconstructed by diffing the working tree at a turn
+boundary. This is the definitive design: the tree-diff-at-boundary approach it replaces swept in machine
+noise (formatter reflow, regenerated build artifacts, a parallel agent's commits) and depended on a
+full-repo content scan. Capturing at the user's action, gated to the lines the agent actually wrote, records
+only genuine corrections.
+
 It reuses two existing systems almost whole:
 
 - The [contextual suggestions](../concepts/suggestions.md) surface (the `workspace.setup` card is the
   template for the nudge, the command, and prompt-into-session delivery).
-- The per-session agent-event fan-out (`AgentEventRouter`), where a `CorrectionRecorder` slots in as a
-  fourth fixed consumer beside `SessionChangeTracker` / `ObservedPermissionMode` / `SessionStatusMachine`.
+- The `SessionChangeTracker` review model, which already holds each file's agent output (`_current`) and
+  review baseline. The tracker raises a `Corrected` event; the `CorrectionRecorder` is a plain subscriber
+  (`Changes.Corrected += recorder.Record`) — no injected dependency, no router slot.
 
-The only new rendering primitive is a compact unified-diff emitter (`CorrectionDiff`) so a delta stores as
-one diff rather than doubling bytes with before/after text.
+The only new primitives are a line-alignment helper (`LineHunker`, which also backs `CorrectionDiff`) and a
+compact unified-diff emitter (`CorrectionDiff`) so a delta stores as one diff rather than doubling bytes.
 
 ## Model
 
 All in `Weavie.Core.Corrections` unless noted:
 
-- **`CorrectionRecord`** — one boundary's worth of corrections: the turn's user `Prompt` (inline,
-  truncated; null for providers that report none) plus a list of `CorrectionFile { Path, Delta }`.
-  `Delta` is a unified diff of `agentText → finalText`; `Path` is workspace-root-relative. Serializes as
-  one JSONL line.
+- **`CorrectionRecord`** — one user action's corrections: the producing turn's `Prompt` (inline, truncated;
+  null for providers that report none) plus a list of `CorrectionFile { Path, Delta }`. `Delta` is a
+  unified diff of `before → after`; `Path` is workspace-root-relative. Serializes as one JSONL line.
 - **`CorrectionCorpus`** (per workspace) — a byte-capped ring over `IFileSystem` at
   `~/.weavie/workspaces/<id>/corrections.jsonl` (`WeaviePaths.WorkspaceCorrectionsFile`): `Append`,
   `ReadAll`, `Take` (atomic read+clear), a locked `Count`, and a `Changed` event. Oldest-first; eviction
   drops whole leading lines.
-- **`CorrectionRecorder`** (per session) — the router's fourth consumer. Holds the pending prompt; at each
-  turn boundary drains the tracker and appends any net delta to the shared corpus. `FlushPending()` runs
-  the same drain on demand (/learn).
-- **`SessionChangeTracker` snapshot** (`SessionChangeTracker.Corrections.cs`) — a retained `_agentOutput`
-  map (what the agent last wrote per file, untouched by keep/revert) plus `DrainCorrections()`, which
-  re-reads disk for each entry and returns the differing `{RelativePath, AgentText, FinalText}` triples.
+- **`CorrectionRecorder`** (per session) — a plain subscriber to the tracker's `Corrected` event. Its
+  `Record(edits)` diffs each edit's `before → after` (`CorrectionDiff`), drops EOL-only deltas, and appends
+  one `CorrectionRecord` per producing prompt to the shared corpus.
+- **`SessionChangeTracker.Corrected`** (`SessionChangeTracker.Corrections.cs`) — the event, raising
+  `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from `RecordHandEdit` and the reverts.
+- **`LineHunker`** (`Weavie.Core.Changes`) — the LCS line alignment: `Hunks(before, after)` returns each
+  changed region's range on both sides. Its exact linear-memory alignment backs both provenance tracking and
+  `CorrectionDiff` (one alignment, no coarse large-file fallback).
 
 The corpus is **per-workspace** (rules about "how the agent codes in this repo" are repo-level, pooled
 across every session/worktree), which is why it is a standalone store owned by `HostCore` and **not** part
@@ -48,68 +56,62 @@ of the per-session tracker state.
 
 ## Capturing a correction
 
-The agent's original output cannot be reconstructed from live tracker state (`_current` is overwritten by
-reverts; `_reviewBaseline` advances on keeps), so it is snapshotted on every `RecordChange` (PostToolUse
-reads the post-edit disk content). The final state at a drain is a fresh disk read, which captures
-hand-edits the `WorkspaceWatcher` never routes to the tracker. The stored prompt is the *previous*
-boundary's — the one that produced the corrected output.
+A correction is emitted at the two moments the user acts on the agent's output; the tracker raises
+`Corrected` and the recorder appends. Nothing is reconstructed later, and nothing scans the tree.
 
-**The snapshot's lifetime follows the review model, not the turn.** Turn-review *accumulates*: the user is
-encouraged to fire several prompts and walk the review set later, so a revert can land many turns after
-the write. A per-turn snapshot drain would miss exactly those. Instead, at each boundary
-`DrainCorrections()`:
+**Editor save — `RecordHandEdit(path, content)`** (called from the `fs-write` bridge handler on every
+editor save that reaches disk). Each tracked file has a full-text provenance mirror whose live lines and
+deletion gaps carry their producing prompt and pending/kept state:
 
-1. picks each file's **final** — a fresh disk read while the file is still pending (so an ongoing hand-edit
-   is captured), or, once the file has settled, the content the user *settled on* (see below);
-2. diffs the snapshot against that final and reports the differing files (a correction reports **once**);
-3. advances each still-pending snapshot; drops a snapshot once its file has **no pending review changes
-   left** (review baseline == current — i.e. the user kept, reverted, or keep-all'ed it).
+1. agent completion aligns the pre-tool file with the provider-reported file and labels only changed lines
+   or deletion gaps; unchanged origins survive, including origins from earlier turns;
+2. every editor save advances the full mirror, but only a change wholly over one pending origin records.
+   An insertion records at an attributed deletion gap or strictly between lines from the same origin;
+3. unrelated user/external edits remain unlabelled, so a later agent edit cannot absorb them into agent
+   ownership. The review-only `_current` projection applies only attributed agent/correction changes.
 
-**A settled file's final is the accepted content, not later disk.** Once the user accepts (Keep/Revert),
-edits they make afterward are their own coding, not a correction of the agent. Keep/Revert already leave
-`_current` equal to the on-disk accepted content (they read/write disk), so a settled file falls back to
-`_current` and a post-accept hand-edit — which never touches `_current` — is correctly ignored. Keep-all
-(`AcceptTurn`) is the exception: it advances the review baseline from `_current`, which never sees
-hand-edits, so it explicitly **freezes disk-at-accept** into a `_settledFinal` map that the drain uses as
-the final for those files (so a hand-edit made *before* keep-all still records, one made *after* does not).
+**Review-UI revert.** `RevertHunk` records the rejected hunk (`before` = the agent's lines, `after` = the
+baseline lines spliced back); `RevertFile`/`RevertAll` record the whole file (`before` = `_current`,
+`after` = the review baseline, or empty when reverting a created file deletes it). Reverts write disk
+directly (never through `fs-write`), so they never double-fire with the editor path.
 
-So hand-edits over *still-unreviewed* agent output keep counting as corrections, while edits after the user
-accepted the output do not. One asymmetry is deliberate: a file the **agent itself** deletes (a Bash rm
-reconciled at PostToolUse) drops its snapshot — agent action, not a correction — while a **user revert**
-that deletes a created file keeps it, so the full-rejection records.
+Because capture is scoped to agent regions, **out-of-band edits are intentionally invisible**: a change made
+in vim, by a formatter run over the agent's Bash/exec, or by a parallel agent never flows through
+`fs-write` or a revert, so it is never a correction. This is what kills the false-positive classes the old
+tree-diff approach suffered — it is a deliberate narrowing, not a gap.
+
+**Prompt attribution.** Each attributed line/gap stores the in-flight turn's prompt, so different hunks in
+one file retain different producing turns. Codex reports no prompt, so its origins carry null.
 
 ```mermaid
 flowchart TD
-  A[Agent edits file - PostToolUse] --> B[SessionChangeTracker.RecordChange]
-  B --> C["_agentOutput[path] = post-edit content"]
-  U[User reverts hunk / hand-edits] --> D["disk changes; _agentOutput untouched"]
-  P[Next UserPromptSubmit, prompt P_N+1] --> R[AgentEventRouter fan-out]
-  R --> E[CorrectionRecorder.Observe]
-  E --> F["DrainCorrections(): per snapshot, re-read disk"]
-  F --> G{"snapshot != disk?"}
-  G -- yes --> H[CorrectionDiff snapshot → disk, per file]
-  H --> I["corpus.Append {prompt = pending, deltas}"]
+  A[Agent edits file - PostToolUse] --> B["RecordChange: label only reported changed lines / gaps"]
+  S[User saves in editor - fs-write] --> C["RecordHandEdit: advance mirror; emit only attributed edits"]
+  V[User reverts a hunk / file] --> W[RevertHunk / RevertFile / RevertAll]
+  C --> E{"changed an agent region?"}
+  W --> E
+  E -- yes --> F["tracker raises Corrected(before, after, producing prompt)"]
+  F --> G[CorrectionRecorder.Record - CorrectionDiff per edit]
+  G --> I["corpus.Append {prompt, deltas}"]
   I --> J[ring evict + per-entry truncate; Changed fires]
-  G -- no --> K[nothing recorded]
-  F --> L["snapshot := disk; dropped when file no longer pending"]
-  E --> M[pending prompt = P_N+1]
+  E -- no --> K[nothing recorded]
 ```
 
-An empty delta (the user kept everything, or the difference was EOL-only) records nothing.
+An empty delta (the difference was EOL-only, or the save touched nothing the agent wrote) records nothing.
+A file the **agent itself** deletes (a Bash rm reconciled at PostToolUse) records nothing — no user action
+fired — while a **user revert** that deletes a created file records the full rejection.
 
-**Prompt plumbing.** `HookRequest` gains `Prompt` (parsed from the Claude `UserPromptSubmit` payload) and
-`AgentPromptSubmitted` gains a `Prompt` field. Codex's `turn/started` carries no prompt, so a Codex
-correction records `{prompt: null, deltas}` — acceptable, since the delta is the signal and the prompt is
-context.
+**Prompt plumbing.** `HookRequest` carries `Prompt` (parsed from the Claude `UserPromptSubmit` payload) and
+`AgentPromptSubmitted` carries a `Prompt` field.
 
 ## Running `/learn`
 
 `/learn` is the Core command `weavie.learn.fromCorrections` ("Learn From My Corrections"), handled in
-`HostCore.Learn.cs`. It flushes every loaded session's recorder (the still-uncommitted last correction),
-reads the corpus, composes a static analysis prompt (`LearnPrompt.Compose` — header + corrections),
-**prefills** it into the **primary** session (Claude via bracketed paste, Codex via `PrefillPrompt`) —
-never auto-submits; the user reviews and presses Enter — then consumes the ring. Because prefill does not
-fire `UserPromptSubmit`, `/learn` records no spurious correction of its own.
+`HostCore.Learn.cs`. Corrections are already in the ring (recorded at each user action), so it just reads
+the corpus, composes a static analysis prompt (`LearnPrompt.Compose` — header + corrections), **prefills**
+it into the **primary** session (Claude via bracketed paste, Codex via `PrefillPrompt`) — never
+auto-submits; the user reviews and presses Enter — then consumes the ring. Because prefill does not fire
+`UserPromptSubmit`, `/learn` records no spurious correction of its own.
 
 Two loud edges, no silent paths:
 
@@ -124,8 +126,7 @@ Two loud edges, no silent paths:
 flowchart TD
   A[Card 'Yes' / palette / agent runCommand] --> B[weavie.learn.fromCorrections]
   B --> C[HostCore.RunLearn]
-  C --> D[FlushPending on each loaded session's recorder]
-  D --> E{corpus.Count == 0 or no primary?}
+  C --> E{corpus.Count == 0 or no primary?}
   E -- yes --> G[CommandResult.Failure - ring not drained]
   E -- no --> H[records = corpus.Take - atomic read+clear → Changed]
   H --> I[LearnPrompt.Compose]
@@ -195,40 +196,45 @@ an empty ring fails the command at the surface that meets the user.
 All follow from the best-effort-corpus stance and are surfaced to the model (which reasons about noise),
 not hidden:
 
-- A correction made to turn N during a later turn is attributed to the *latest* pending prompt, not the
-  one that produced the output.
-- A correction to the final turn is not in the ring until the next prompt — mitigated by `FlushPending()`
-  on `/learn` and on session dispose (so unloading a session after a full rejection still records it).
+- Only edits made **through Weavie's editor** (an `fs-write`) or a review-UI revert are captured; an edit
+  to an agent hunk made in an external editor is not. This is the deliberate narrowing that excludes machine
+  noise — the realistic correction workflow is in-editor.
+- A pure **insertion of new lines at the top or bottom edge** of an agent region (a prepend or an append,
+  rather than lines inserted *between* agent-written lines) is treated as new authoring, not a correction, so
+  it does not record — and so a run of the user's own lines typed at the end of an agent file, which autosave
+  saves repeatedly, never accumulates bogus corrections.
 - The ring is consumed at prefill; a user who abandons the prefilled prompt has spent the ring (the prompt
   text still holds every delta on screen).
-- A hand-edit by *another agent or the user for unrelated reasons* inside a still-pending file records as
-  a correction; the `LearnPrompt` instructs the model to discard such noise.
 
 ## Testing
 
 Per [integration-testing-strategy](integration-testing-strategy.md), no test runs the real model; hooks
 are replayed at the seam and the analysis text is never asserted. Coverage:
 
-- **Diff / corpus / recorder** (Core, `InMemoryFileSystem`) — hunk grouping + headers + EOL-normalized
-  no-ops; ring reload, FIFO eviction, per-entry ceilings, counted clears, malformed-line tolerance,
-  `Changed` events; capture semantics including the accumulate cases (late revert recorded; kept-file
-  edits not recorded; agent deletion not recorded; user revert-delete recorded; flush idempotent; Codex
-  null prompt).
+- **Hunker / diff / corpus / recorder** (Core, `InMemoryFileSystem`) — `LineHunker` change grouping +
+  range overlap; `CorrectionDiff` hunk grouping + headers + EOL-normalized no-ops; ring reload, FIFO
+  eviction, per-entry ceilings, counted clears, malformed-line tolerance, `Changed` events; capture
+  semantics (hand-edit over an agent hunk recorded; edit to an agent-untouched region **not** recorded;
+  repeated save of the same content records once; hunk/file revert recorded; late revert still recorded and
+  attributed to the producing prompt; kept-file edits not recorded; agent deletion not recorded; user
+  revert-delete recorded; Codex null prompt).
 - **Nudge** (Core) — below/at threshold, threshold setting honored, supplier re-read per `Evaluate()`.
-- **`/learn` full-stack** (`TestHost`) — hook-driven corrected turns surface the card at the default
-  threshold; the command bracketed-pastes header + corpus into the primary Claude pane with no trailing
-  submit; the persisted ring empties and the card withdraws; an empty ring fails the command and writes
-  nothing to the PTY.
+- **`/learn` full-stack** (`TestHost`) — hook-driven agent turns whose output the user edits via an
+  `fs-write` (the editor-save capture point) surface the card at the default threshold; the command
+  bracketed-pastes header + corpus into the primary Claude pane with no trailing submit; the persisted ring
+  empties and the card withdraws; an empty ring fails the command and writes nothing to the PTY.
 
-`HostSession` exposes its event router (`Events`), so integration tests drive the exact production fan-out
-(tracker + recorder ordering) rather than a test-only re-plumb.
+`HostSession` wires the recorder to the production event (`Changes.Corrected += Corrections.Record`), so the
+full-stack test drives the real capture seam (the `fs-write` handler) rather than a test-only re-plumb.
 
 ## Build order (as landed)
 
-1. `CorrectionRecord`, `CorrectionCorpus`, `CorrectionDiff` — pure Core, unit-tested over `InMemoryFileSystem`.
+1. `CorrectionRecord`, `CorrectionCorpus`, `LineHunker`, `CorrectionDiff` — pure Core, unit-tested over `InMemoryFileSystem`.
 2. Prompt plumbing — `HookRequest.Prompt`, `AgentPromptSubmitted(SessionId, Prompt)`, adapter, Codex protocol.
-3. Tracker snapshot — `_agentOutput` + `DrainCorrections()` (`SessionChangeTracker.Corrections.cs`).
-4. `CorrectionRecorder` + router wiring + `HostSession` construction + capture tests.
+3. Tracker `Corrected` event + action-time provenance mirror + revert capture
+   (`SessionChangeTracker.Corrections.cs`).
+4. `CorrectionRecorder` subscriber + `Changes.Corrected` wiring in `HostSession` + the `fs-write` capture
+   point (`HostCore.WebBridge.cs`) + capture tests.
 5. `CorrectionsSettings`, `SuggestionContext.PendingCorrectionCount`, the service supplier, the
    `corrections.learn` card, the corpus `Changed` → `Evaluate()` trigger.
 6. `weavie.learn.fromCorrections` + `HostCore.Learn.cs` + `LearnPrompt` — full-stack `/learn` tests.

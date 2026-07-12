@@ -337,6 +337,9 @@ export type HostBoundMessage =
   | { type: "lsp-start"; slot: string; server: string; channel: string }
   | { type: "lsp-data"; slot: string; channel: string; payload: unknown }
   | { type: "lsp-stop"; slot: string; channel: string }
+  // Sent once per page instance before its first lsp-start: the fresh page owns no channels, so the
+  // host drops servers still bound to an earlier page's epoch (reload/another tab) instead of leaking them.
+  | { type: "lsp-reset"; epoch: string }
   // The review walk asks the host for one file's turn diff (review-baseline vs current), so opening a file in
   // the review re-renders its inline applied diff even if its per-file turn-diff push was missed.
   | { type: "get-turn-diff"; path: string }

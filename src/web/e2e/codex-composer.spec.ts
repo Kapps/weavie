@@ -393,6 +393,27 @@ test.describe("Codex composer", () => {
     await expect(fastItem).toHaveClass(/active/);
   });
 
+  test("the approvals picker keeps its keyboard highlight across a host re-push", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+
+    await page.locator(".agent-status-segment", { hasText: "On request" }).click();
+    const options = page.locator(".agent-control-picker .agent-control-option");
+    await expect(options.nth(0)).toHaveClass(/active/); // seeded on the current value
+    await page.keyboard.press("ArrowDown");
+    await expect(options.nth(1)).toHaveClass(/active/);
+
+    // A control re-push (which every SetControl triggers) must not re-seed the highlight mid-use.
+    host.pushToWeb(controls);
+    await expect(options.nth(1)).toHaveClass(/active/);
+
+    // Keyboard selection still applies the highlighted option after the re-push.
+    await page.keyboard.press("Enter");
+    const set = await host.waitForMessage("agent-set-control");
+    expect(set).toMatchObject({ slot: "cx", axis: "approvalPolicy", value: "never" });
+  });
+
   test("typing / opens the slash menu and a skill stages a chip", async ({ page }) => {
     await mountCodex(page);
 
@@ -461,7 +482,7 @@ test.describe("Codex composer", () => {
     await expect(working).not.toHaveClass(/waiting/);
     await expect(working.locator(".agent-working-label")).toHaveText("Working");
 
-    host.pushToWeb(paneMessage({ type: "turn-interrupted", turnId: "t1", status: "interrupted" }));
+    host.pushToWeb(paneMessage({ type: "turn-completed", turnId: "t1", status: "interrupted" }));
     await expect(working).toHaveCount(0);
     await expect(submit).toHaveText("Run");
     await expect(interrupt).toHaveCount(0);

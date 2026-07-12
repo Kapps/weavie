@@ -316,9 +316,9 @@ public static class CodexAppServerProtocol {
 		value = method switch {
 			"thread/started" => new AgentSessionStarted("startup"),
 			// Codex's turn-start carries no prompt text; a correction it drains records with a null prompt.
-			"turn/started" => new AgentPromptSubmitted(null, null, ReconcileWorkspace: true),
-			"turn/completed" => new AgentTurnStopped(false, ReconcileWorkspace: true),
-			"turn/interrupted" => new AgentTurnStopped(false, ReconcileWorkspace: true),
+			"turn/started" => new AgentPromptSubmitted(null, null),
+			// An interrupted turn also ends with turn/completed (status "interrupted"); there is no separate event.
+			"turn/completed" => new AgentTurnStopped(false),
 			"item/started" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolStarting(mutation),
 			"item/completed" when TryReadMutation(doc.RootElement, out var mutation) => new AgentToolCompleted(mutation),
 			_ => new AgentOtherEvent(),
@@ -339,19 +339,11 @@ public static class CodexAppServerProtocol {
 			return true;
 		}
 
-		if (string.Equals(type, "commandExecution", StringComparison.Ordinal)
+		// A shell command / MCP / dynamic tool call may touch files, but — like Claude's Bash — Weavie doesn't
+		// scan the tree to find which; it still counts as agent activity (a tool event), just with no tracked mutation.
+		return string.Equals(type, "commandExecution", StringComparison.Ordinal)
 			|| string.Equals(type, "mcpToolCall", StringComparison.Ordinal)
-			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal)) {
-			string itemId = item.GetStringOrEmpty("id");
-			if (itemId.Length == 0) {
-				return false;
-			}
-
-			mutation = new AgentMutation.Workspace(itemId);
-			return true;
-		}
-
-		return false;
+			|| string.Equals(type, "dynamicToolCall", StringComparison.Ordinal);
 	}
 
 	private static AgentMutation ReadFileChangeMutation(JsonElement item) {

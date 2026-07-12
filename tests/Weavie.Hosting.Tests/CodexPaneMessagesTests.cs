@@ -84,14 +84,17 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
-	public void FromRequest_FileChangeApproval_ListsThePaths() {
+	public void FromRequest_FileChangeApproval_HasNoParamsSubstance() {
+		// Real fileChange approval params carry only ids/reason/grantRoot — the changed paths are joined by
+		// the session from the item's own notifications, never read from the request.
 		using var doc = JsonDocument.Parse(
-			"""{"id":"approval-2","method":"item/fileChange/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_2","changes":[{"path":"src/App.cs"},{"path":"src/Program.cs"}]}}""");
+			"""{"id":"approval-2","method":"item/fileChange/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_2","startedAtMs":1,"reason":"apply the patch"}}""");
 
 		var message = CodexPaneMessages.FromRequest(new CodexServerRequest("approval-2", "approval-2", "item/fileChange/requestApproval", doc.RootElement.Clone()));
 
 		Assert.Equal("approval-requested", message.Type);
-		Assert.Equal("src/App.cs, src/Program.cs", message.Text);
+		Assert.Equal("apply the patch", message.Summary);
+		Assert.Null(message.Text);
 	}
 
 	[Fact]
@@ -161,13 +164,16 @@ public sealed class CodexPaneMessagesTests {
 	public void FromNotification_MapsTurnLifecycleAsHiddenPaneState() {
 		using var turn = JsonDocument.Parse(
 			"""{"method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"completed"}}}""");
+		// Codex reports an interrupted turn as turn/completed with status "interrupted" — no separate method exists.
 		using var interrupted = JsonDocument.Parse(
-			"""{"method":"turn/interrupted","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"interrupted"}}}""");
+			"""{"method":"turn/completed","params":{"threadId":"thread_1","turn":{"id":"turn_1","status":"interrupted"}}}""");
 		using var status = JsonDocument.Parse(
 			"""{"method":"thread/status/changed","params":{"threadId":"thread_1","status":""}}""");
 
 		Assert.Equal("turn-completed", CodexPaneMessages.FromNotification("turn/completed", "thread_1", turn.RootElement)?.Type);
-		Assert.Equal("turn-interrupted", CodexPaneMessages.FromNotification("turn/interrupted", "thread_1", interrupted.RootElement)?.Type);
+		var interruptedMessage = CodexPaneMessages.FromNotification("turn/completed", "thread_1", interrupted.RootElement);
+		Assert.Equal("turn-completed", interruptedMessage?.Type);
+		Assert.Equal("interrupted", interruptedMessage?.Status);
 		Assert.Null(CodexPaneMessages.FromNotification("thread/status/changed", "thread_1", status.RootElement));
 	}
 

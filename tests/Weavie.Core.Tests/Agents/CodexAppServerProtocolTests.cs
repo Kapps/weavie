@@ -184,19 +184,19 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/started","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnStarted));
-		Assert.True(Assert.IsType<AgentPromptSubmitted>(turnStarted).ReconcileWorkspace);
+		Assert.IsType<AgentPromptSubmitted>(turnStarted);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
 			out var toolStarted));
 		var tool = Assert.IsType<AgentToolStarting>(toolStarted);
-		var workspace = Assert.IsType<AgentMutation.Workspace>(tool.Mutation);
-		Assert.Equal("item_1", workspace.InvocationId);
+		// A shell command counts as agent activity but carries no tracked mutation (Weavie doesn't scan for its side-effects).
+		Assert.IsType<AgentMutation.None>(tool.Mutation);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
 			out var turnCompleted));
-		Assert.True(Assert.IsType<AgentTurnStopped>(turnCompleted).ReconcileWorkspace);
+		Assert.IsType<AgentTurnStopped>(turnCompleted);
 	}
 
 	[Fact]
@@ -296,140 +296,60 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForMcpWrites() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-workspace-review"));
-		string file = Path.Combine(workspace, "src", "App.cs");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "old\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedJson = """{"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"item_1","status":"inProgress","server":"node_repl","tool":"js","arguments":{}}}}""";
-		string completedJson = """{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"item_1","status":"completed","server":"node_repl","tool":"js","arguments":{}}}}""";
-
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
-		changes.Observe(started);
-		fileSystem.WriteAllText(file, "old\nnew\n");
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
-		changes.Observe(completed);
-
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal("old\n", turn.BaselineText);
-		Assert.Equal("old\nnew\n", turn.CurrentText);
-	}
-
-	[Fact]
-	public void WorkspaceMutationLifecycle_IsCorrelatedByItemId() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-overlap-review"));
-		string file = Path.Combine(workspace, "deleted.txt");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "gone\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedA = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_a","status":"inProgress","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-		string startedB = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_b","status":"inProgress","command":"true","commandActions":[],"cwd":"/repo"}}}""";
-		string completedB = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_b","status":"completed","command":"true","commandActions":[],"cwd":"/repo"}}}""";
-		string completedA = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_a","status":"completed","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedA, out var aStarted));
-		changes.Observe(aStarted);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedB, out var bStarted));
-		changes.Observe(bStarted);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedB, out var bCompleted));
-		changes.Observe(bCompleted);
-		fileSystem.DeleteFile(file);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedA, out var aCompleted));
-		changes.Observe(aCompleted);
-
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal("gone\n", turn.BaselineText);
-		Assert.Equal(string.Empty, turn.CurrentText);
-	}
-
-	[Fact]
-	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForCreatedFiles() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-created-review"));
+	public void CommandExecutionThatDeletesATrackedFile_ReconcilesIt() {
+		// A shell command isn't scanned for side-effects, but its completion still reconciles disk deletions —
+		// so a file the agent created (a tracked fileChange) and then rm'd leaves the review board.
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-command-reconcile"));
 		string file = Path.Combine(workspace, "created.txt");
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(Path.Combine(workspace, "README.md"), "seed\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedJson = """{"method":"item/started","params":{"item":{"type":"dynamicToolCall","id":"item_1","status":"inProgress","tool":"write","arguments":{}}}}""";
-		string completedJson = """{"method":"item/completed","params":{"item":{"type":"dynamicToolCall","id":"item_1","status":"completed","tool":"write","arguments":{}}}}""";
-
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
-		changes.Observe(started);
-		fileSystem.WriteAllText(file, "new\n");
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
-		changes.Observe(completed);
-
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal(string.Empty, turn.BaselineText);
-		Assert.Equal("new\n", turn.CurrentText);
-	}
-
-	[Fact]
-	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForDeletedFiles() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-deleted-review"));
-		string file = Path.Combine(workspace, "deleted.txt");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "gone\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedJson = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-		string completedJson = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_1","status":"completed","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
-		changes.Observe(started);
-		fileSystem.DeleteFile(file);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
-		changes.Observe(completed);
-
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal("gone\n", turn.BaselineText);
-		Assert.Equal(string.Empty, turn.CurrentText);
-	}
-
-	[Fact]
-	public void TurnLifecycle_CapturesMutationThatPrecedesItemStarted() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-real-order"));
-		string file = Path.Combine(workspace, "existing.txt");
-		string created = Path.Combine(workspace, "created.txt");
-		string deleted = Path.Combine(workspace, "deleted.txt");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "old\n");
-		fileSystem.WriteAllText(deleted, "gone\n");
 		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
+		string pathJson = JsonSerializer.Serialize(file);
+		string editJson = "{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"fileChange\",\"id\":\"item_1\",\"status\":\"completed\",\"changes\":[{\"path\":"
+			+ pathJson + ",\"diff\":\"@@\",\"kind\":{\"type\":\"add\"}}]}}}";
+		string rmJson = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_2","status":"completed","command":"rm created.txt","commandActions":[],"cwd":"/repo"}}}""";
 
-		changes.Observe(new AgentPromptSubmitted(null, null, ReconcileWorkspace: true));
 		fileSystem.WriteAllText(file, "new\n");
-		fileSystem.WriteAllText(created, "created\n");
-		fileSystem.DeleteFile(deleted);
-		changes.Observe(new AgentToolStarting(new AgentMutation.Workspace("late-item")));
-		changes.Observe(new AgentToolCompleted(new AgentMutation.Workspace("late-item")));
-		changes.Observe(new AgentTurnStopped(false, ReconcileWorkspace: true));
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(editJson, out var edited));
+		changes.Observe(edited);
+		Assert.Single(changes.TurnChanges());
 
-		var turn = changes.TurnChanges().OrderBy(change => change.Path, StringComparer.Ordinal).ToList();
-		Assert.Equal(3, turn.Count);
-		Assert.Equal(created, turn[0].Path);
-		Assert.Equal(string.Empty, turn[0].BaselineText);
-		Assert.Equal("created\n", turn[0].CurrentText);
-		Assert.Equal(deleted, turn[1].Path);
-		Assert.Equal("gone\n", turn[1].BaselineText);
-		Assert.Equal(string.Empty, turn[1].CurrentText);
-		Assert.Equal(file, turn[2].Path);
-		Assert.Equal("old\n", turn[2].BaselineText);
-		Assert.Equal("new\n", turn[2].CurrentText);
+		fileSystem.DeleteFile(file);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(rmJson, out var removed));
+		changes.Observe(removed);
+
+		Assert.Empty(changes.TurnChanges());
+	}
+
+	[Theory]
+	[InlineData("commandExecution")]
+	[InlineData("mcpToolCall")]
+	[InlineData("dynamicToolCall")]
+	public void UnstructuredToolLifecycle_NeverEnumeratesTheWorkspace(string type) {
+		var fileSystem = new NoEnumerationFileSystem();
+		var changes = new SessionChangeTracker(fileSystem, Path.GetFullPath(Path.GetTempPath()), _ => true);
+		string startedJson = $"{{\"method\":\"item/started\",\"params\":{{\"item\":{{\"type\":\"{type}\",\"id\":\"item_1\"}}}}}}";
+		string completedJson = $"{{\"method\":\"item/completed\",\"params\":{{\"item\":{{\"type\":\"{type}\",\"id\":\"item_1\"}}}}}}";
+
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
+		changes.Observe(started);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
+		changes.Observe(completed);
+	}
+
+	private sealed class NoEnumerationFileSystem : IFileSystem {
+		private readonly InMemoryFileSystem _inner = new();
+
+		public bool FileExists(string path) => _inner.FileExists(path);
+		public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
+		public bool TryGetStat(string path, out FileStat stat) => _inner.TryGetStat(path, out stat);
+		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) =>
+			throw new Xunit.Sdk.XunitException($"Workspace enumeration attempted at {path}");
+		public string ReadAllText(string path) => _inner.ReadAllText(path);
+		public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
+		public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
+		public void WriteAllBytes(string path, byte[] contents) => _inner.WriteAllBytes(path, contents);
+		public void AppendAllText(string path, string contents) => _inner.AppendAllText(path, contents);
+		public void WriteAllTextAtomic(string path, string contents) => _inner.WriteAllTextAtomic(path, contents);
+		public void DeleteFile(string path) => _inner.DeleteFile(path);
 	}
 }

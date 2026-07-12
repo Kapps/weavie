@@ -2,7 +2,10 @@ import type { AgentPaneUpdate } from "../bridge";
 import { paneItemIdentity } from "./AgentPaneIdentity";
 import { hasItemId } from "./AgentPaneMessageFormat";
 
-/** Whether the pane's latest turn is still running (started with no completion/interruption yet). */
+/**
+ * Whether the pane's latest turn is still running (started with no completion yet). An interrupted turn
+ * also ends with `turn-completed` — Codex reports it as status "interrupted", never as a separate type.
+ */
 export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
   let active = false;
   for (const message of messages) {
@@ -11,7 +14,7 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
     }
     if (message.type === "turn-started") {
       active = true;
-    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+    } else if (message.type === "turn-completed") {
       active = false;
     }
   }
@@ -30,7 +33,7 @@ export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): numbe
     }
     if (message.type === "turn-started") {
       startedAt = message.receivedAt ?? null;
-    } else if (message.type === "turn-completed" || message.type === "turn-interrupted") {
+    } else if (message.type === "turn-completed") {
       startedAt = null;
     }
   }

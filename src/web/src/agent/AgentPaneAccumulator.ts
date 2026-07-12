@@ -32,12 +32,11 @@ export class AgentPaneAccumulator {
         : incoming;
     const state = this.state(slot);
     const key = itemKey(message);
+    // Every path only mutates state.messages (O(1)); a single per-frame flush publishes the snapshot. Publishing
+    // synchronously here would rebuild the whole transcript on every message — O(N²) across a turn or a replay.
     if (key !== null && isDelta(message)) {
-      this.bufferDelta(slot, state, key, message, publish);
-      return;
-    }
-
-    if (key !== null && message.type === "item-started") {
+      this.bufferDelta(state, key, message);
+    } else if (key !== null && message.type === "item-started") {
       const index = state.indexes.get(key);
       if (index === undefined) {
         state.indexes.set(key, state.messages.length);
@@ -48,9 +47,6 @@ export class AgentPaneAccumulator {
     } else if (key !== null && message.type === "item-completed") {
       const index = state.indexes.get(key);
       state.buffers.delete(key);
-      if (state.buffers.size === 0) {
-        state.scheduled = false;
-      }
       state.indexes.delete(key);
       if (index === undefined) {
         state.messages.push(message);
@@ -60,21 +56,17 @@ export class AgentPaneAccumulator {
     } else {
       state.messages.push(message);
     }
-    publish([...state.messages]);
+    this.scheduleFlush(state, slot, publish);
   }
 
   reset(slot: string, publish: Publish): void {
+    // Delete first: a flush queued before this reset re-fetches state by slot, finds none, and no-ops (see flush),
+    // so it can never republish the cleared transcript.
     this.slots.delete(slot);
     publish([]);
   }
 
-  private bufferDelta(
-    slot: string,
-    state: SlotState,
-    key: string,
-    message: AgentPaneUpdate,
-    publish: Publish,
-  ): void {
+  private bufferDelta(state: SlotState, key: string, message: AgentPaneUpdate): void {
     let buffer = state.buffers.get(key);
     if (buffer === undefined) {
       const existing = state.indexes.get(key);
@@ -88,10 +80,14 @@ export class AgentPaneAccumulator {
     }
     buffer.latest = message;
     buffer.chunks.push(message.text ?? "");
-    if (!state.scheduled) {
-      state.scheduled = true;
-      this.schedule(() => this.flush(slot, publish));
+  }
+
+  private scheduleFlush(state: SlotState, slot: string, publish: Publish): void {
+    if (state.scheduled) {
+      return;
     }
+    state.scheduled = true;
+    this.schedule(() => this.flush(slot, publish));
   }
 
   private flush(slot: string, publish: Publish): void {

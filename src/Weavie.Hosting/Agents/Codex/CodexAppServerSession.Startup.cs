@@ -20,21 +20,49 @@ public sealed partial class CodexAppServerSession {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
-		await _client.DisposeAsync().ConfigureAwait(false);
-		await _context.Registry.DisposeAsync().ConfigureAwait(false);
+		try {
+			await _client.DisposeAsync().ConfigureAwait(false);
+		} finally {
+			await _context.Registry.DisposeAsync().ConfigureAwait(false);
+		}
 	}
 
 	private void OnClientStarted(int attempt) {
+		RetractPendingRequests();
 		lock (_gate) {
 			_threadId = null;
 			_turnId = null;
+			_turnStarting = false;
 			_threadPersisted = false;
 			_awaitingThreadAdoption = false;
 			_pendingThreadStarts.Clear();
+			_fileChangeSummaries.Clear();
 		}
-		_pendingRequests.Clear();
 
 		Run(InitializeAsync);
+	}
+	// A restarted app-server no longer knows the requests the dead process asked, so leaving their cards
+	// pending would wedge the pane on an Accept that can never reach anything: resolve each card and say why.
+	private void RetractPendingRequests() {
+		foreach (string requestId in _pendingRequests.Keys) {
+			if (!_pendingRequests.TryRemove(requestId, out var request)) {
+				continue;
+			}
+
+			// Recorded as resolved so a decision click racing this retraction stays a silent no-op.
+			_resolvedRequests[request.Id] = 0;
+			EmitCancelledResolution(
+				request,
+				CodexApprovalResponses.CanResolve(request.Method) ? "approval-resolved" : "input-resolved");
+			Emit(new AgentPaneMessage {
+				Type = "warning",
+				ProviderId = "codex",
+				ItemId = request.Id,
+				ItemType = request.Method,
+				Summary = "Codex restarted; this pending request was discarded",
+				Status = "warning",
+			});
+		}
 	}
 
 	private void OnProcessStateChanged(Weavie.Core.Processes.SupervisorStateChanged change) =>

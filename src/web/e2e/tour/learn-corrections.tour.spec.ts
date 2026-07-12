@@ -6,10 +6,11 @@ import { appliedEdit } from "../harness/review";
 
 // VIDEO TOUR (not a committed regression spec — the C# HostCoreLearnTests pin this at the TestHost seam):
 // the full learn-from-corrections journey over the REAL stack — fake-claude turns (UserPromptSubmit with a
-// prompt + PreToolUse/edit/PostToolUse over the hook-bridge pipe), three user corrections (a review-UI hunk
-// revert, a Monaco hand-edit, an out-of-band disk edit), the per-workspace ring filling to the default
-// threshold (3), the "Teach Claude from your corrections?" card, Yes → the analysis prompt bracket-pasted
-// into the claude pane WITHOUT submitting, the ring consumed, and the empty-ring palette failure.
+// prompt + PreToolUse/edit/PostToolUse over the hook-bridge pipe), three user corrections each captured AT the
+// user's action (a review-UI hunk revert, then two Monaco hand-edits over the agent's lines — an editor save
+// records the correction, not a turn boundary), the per-workspace ring filling to the default threshold (3),
+// the "Teach Claude from your corrections?" card, Yes → the analysis prompt bracket-pasted into the claude
+// pane WITHOUT submitting, the ring consumed, and the empty-ring palette failure.
 
 const hold = (page: import("@playwright/test").Page, ms: number) => page.waitForTimeout(ms);
 
@@ -22,7 +23,6 @@ const HELLO_AGENT =
   "console.warn(message);\n";
 const NOTES_AGENT = "Deploy steps:\n1. build\n2. ship\n";
 const README_AGENT = "# Sample project\n\nWeavie rewrote this intro entirely.\n";
-const README_USER = "# Sample project\n\nKeep the original intro, please.\n";
 
 const SIG_1 = ".sig-boundary-2";
 const SIG_2 = ".sig-boundary-3";
@@ -122,7 +122,7 @@ test("three corrections fill the ring, the card offers /learn, Yes prefills the 
   const card = page.locator(".suggestion", { hasText: "Teach Claude from your corrections?" });
   const read = (rel: string) => readFileSync(join(weavie.workspace, rel), "utf8");
 
-  // ── Correction 1: revert a hunk in the inline review UI ──────────────────────────────────────────────
+  // ── Correction 1: revert a hunk in the inline review UI (recorded AT the revert) ──────────────────────
   await openFile(page, "hello.ts");
   await expect(page.locator(".weavie-inline-added")).toHaveCount(2, { timeout: 20_000 });
   await hold(page, 1800); // show the agent's pending diff
@@ -133,32 +133,37 @@ test("three corrections fill the ring, the card offers /learn, Yes prefills the 
   await expect(page.locator(".weavie-inline-added")).toHaveCount(1);
   await hold(page, 1500);
 
-  // Nothing recorded until the next turn boundary; no card anywhere.
-  expect(ringLines(weavie.home)).toBe(0);
-  await expect(page.locator(".suggestion")).toHaveCount(0);
-
-  // Next prompt boundary → the revert is drained into the ring.
-  writeFileSync(join(weavie.workspace, SIG_1), "");
+  // The revert IS the correction — it lands in the ring immediately, no boundary needed. Still no card (1 < 3).
   await expect.poll(() => ringLines(weavie.home), { timeout: 20_000 }).toBe(1);
+  await expect(page.locator(".suggestion")).toHaveCount(0);
+  writeFileSync(join(weavie.workspace, SIG_1), ""); // let fake-claude run its next turn (notes.txt)
 
-  // ── Correction 2: hand-edit the agent's output in the editor ─────────────────────────────────────────
+  // ── Correction 2: hand-edit the agent's first line in the editor (autosave records the correction) ────
   await openFile(page, "notes.txt");
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 20_000 });
   await hold(page, 1200);
   await page.locator(".monaco-editor .view-lines").first().click();
-  await page.keyboard.press("ControlOrMeta+End");
-  await page.keyboard.type("3. run the smoke tests first", { delay: 40 });
-  await expect.poll(() => read("notes.txt"), { timeout: 20_000 }).toContain("smoke tests"); // autosaved
+  await page.keyboard.press("ControlOrMeta+Home");
+  await page.keyboard.press("End");
+  await page.keyboard.type(" (reviewed)", { delay: 40 });
+  await expect.poll(() => read("notes.txt"), { timeout: 20_000 }).toContain("(reviewed)"); // autosaved
   await hold(page, 1200);
-
-  writeFileSync(join(weavie.workspace, SIG_2), "");
   await expect.poll(() => ringLines(weavie.home), { timeout: 20_000 }).toBe(2);
   await expect(page.locator(".suggestion")).toHaveCount(0); // still below the threshold of 3
+  writeFileSync(join(weavie.workspace, SIG_2), ""); // next turn (README.md)
 
-  // ── Correction 3: hand-edit on disk, outside the app entirely ────────────────────────────────────────
-  writeFileSync(join(weavie.workspace, "README.md"), README_USER);
-  writeFileSync(join(weavie.workspace, SIG_3), "");
+  // ── Correction 3: hand-edit the agent's rewritten README line in the editor ───────────────────────────
+  await openFile(page, "README.md");
+  await expect(page.locator(".weavie-inline-added").first()).toBeVisible({ timeout: 20_000 });
+  await hold(page, 1200);
+  await page.locator(".view-line", { hasText: "Weavie rewrote" }).click();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Shift+End");
+  await page.keyboard.type("Keep the original intro, please.", { delay: 40 });
+  await expect.poll(() => read("README.md"), { timeout: 20_000 }).toContain("Keep the original"); // autosaved
+  await hold(page, 1200);
   await expect.poll(() => ringLines(weavie.home), { timeout: 20_000 }).toBe(3);
+  writeFileSync(join(weavie.workspace, SIG_3), ""); // let fake-claude finish
 
   // ── The nudge appears at the default threshold (3) ───────────────────────────────────────────────────
   await expect(card).toBeVisible({ timeout: 20_000 });
@@ -184,7 +189,7 @@ test("three corrections fill the ring, the card offers /learn, Yes prefills the 
   // The deltas read -what-the-agent-wrote / +what-the-user-changed-it-to.
   expect(text).toContain("-  return `Hi there, ${name}!`;");
   expect(text).toContain("+  return `Hello, ${name}!`;");
-  expect(text).toContain("+3. run the smoke tests first");
+  expect(text).toContain("+Deploy steps: (reviewed)");
   expect(text).toContain("-Weavie rewrote this intro entirely.");
   expect(text).toContain("+Keep the original intro, please.");
   // The paste is the LAST thing in the pane — nothing (no submit echo, no response) follows its final

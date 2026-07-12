@@ -1,6 +1,8 @@
+using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Agents.Codex;
 using Weavie.Core.Commands;
+using Weavie.Core.Configuration;
 
 namespace Weavie.Hosting.Agents.Codex;
 
@@ -56,6 +58,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 			return;
 		}
 
+		if (!TryRememberControl(axis, value)) {
+			return;
+		}
+
 		lock (_gate) {
 			switch (axis) {
 				case "model": _modelOverride = value; DropInvalidDerivedOverrides(); break;
@@ -68,6 +74,31 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 		RaiseControlState();
 	}
+
+	private bool TryRememberControl(string axis, string value) {
+		string key = SettingKey(axis);
+		try {
+			var result = _context.Settings.Set(key, JsonSerializer.SerializeToElement(value));
+			if (result.ShadowedByEnv is not null) {
+				EmitError($"{key} is overridden by {result.ShadowedByEnv}; remove it before this choice can apply.");
+				return false;
+			}
+		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or SettingValidationException or SettingsFileMalformedException) {
+			EmitError(ex.Message);
+			return false;
+		}
+
+		return true;
+	}
+
+	private static string SettingKey(string axis) => axis switch {
+		"model" => CodexSettings.Model,
+		"effort" => CodexSettings.Effort,
+		"serviceTier" => CodexSettings.ServiceTier,
+		"approvalPolicy" => CodexSettings.ApprovalPolicy,
+		"sandbox" => CodexSettings.Sandbox,
+		_ => throw new ArgumentOutOfRangeException(nameof(axis)),
+	};
 
 	private string EffectiveModel() {
 		lock (_gate) {

@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Agents.Codex;
+using Weavie.Core.Configuration;
 using Weavie.Core.Json;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
@@ -255,17 +256,17 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private long NextRequest() => Interlocked.Increment(ref _nextId);
 
-	private string Model() => _context.Settings.RequireString("codex.model");
+	private string Model() => _context.Settings.RequireString(CodexSettings.Model);
 
-	private string Effort() => _context.Settings.RequireString("codex.effort");
+	private string Effort() => _context.Settings.RequireString(CodexSettings.Effort);
 
-	private string ServiceTier() => _context.Settings.RequireString("codex.serviceTier");
+	private string ServiceTier() => _context.Settings.RequireString(CodexSettings.ServiceTier);
 
 	private bool BypassPermissions() => _context.Settings.GetBool("claude.allowAllTools", fallback: false);
 
-	private string Sandbox() => _context.Settings.RequireString("codex.sandbox");
+	private string Sandbox() => _context.Settings.RequireString(CodexSettings.Sandbox);
 
-	private string ApprovalPolicy() => _context.Settings.RequireString("codex.approvalPolicy");
+	private string ApprovalPolicy() => _context.Settings.RequireString(CodexSettings.ApprovalPolicy);
 
 	private string DeveloperInstructions() => EmbeddedAgentGuidance.Compose(_context.Runtime);
 

@@ -45,6 +45,7 @@ export default defineConfig({
     {
       name: "chromium",
       testMatch: [
+        "agent-markdown-links.spec.ts",
         "bridge.spec.ts",
         "headless-host.spec.ts",
         "native-bridge.spec.ts",

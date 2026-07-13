@@ -28,6 +28,11 @@ describe("native agent transcript links", () => {
 
   it("only links forge refs when a ref base is available", () => {
     expect(linkAgentText("PR #328", true)[1]).toEqual({ kind: "ref", text: "#328", number: "328" });
-    expect(linkAgentText("PR #328", false)[1]).toEqual({ kind: "text", text: "#328" });
+    expect(linkAgentText("PR #328", false)).toEqual([{ kind: "text", text: "PR #328" }]);
+  });
+
+  it("reveals a bare path whose filename contains @", () => {
+    const path = "src/web/e2e/.recordings/page@883bef3dba4a5a81116faeb690fc011f.webm";
+    expect(linkAgentText(path, false)).toEqual([{ kind: "file", text: path, path, line: 1 }]);
   });
 });

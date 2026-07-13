@@ -12,6 +12,7 @@ function record(name, value) {
   fs.writeFileSync(name + ".tmp", JSON.stringify(value));
   fs.renameSync(name + ".tmp", name);
 }
+record("app-server-args.json", process.argv.slice(2));
 readline.createInterface({ input: process.stdin }).on("line", line => {
   const message = JSON.parse(line);
   if (message.method === "initialize") {

@@ -9,6 +9,7 @@ internal static class CodexAppServerConfig {
 		ArgumentNullException.ThrowIfNull(context);
 		string bearer = "Bearer " + context.Registry.Credential.Token;
 		return [
+			"-c", "allow_login_shell=false",
 			"-c", "mcp_servers.weavie.enabled=true",
 			"-c", "mcp_servers.weavie.required=true",
 			"-c", "mcp_servers.weavie.url=" + TomlString(context.Registry.StreamableHttpUrl),

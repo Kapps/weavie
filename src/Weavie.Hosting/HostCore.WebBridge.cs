@@ -260,6 +260,11 @@ public sealed partial class HostCore {
 				// The page tore a language client down (document closed / session switch) → kill its server.
 				SessionForSlot(root)?.Lsp.Stop(root.GetStringOrEmpty("channel"));
 				break;
+			case "lsp-reset":
+				// A fresh page owns no channels, so servers still bound to an earlier page instance's epoch
+				// (reload, another tab) are unreachable forever — drop them instead of leaking one per language.
+				DropLspChannelsFromOtherPages(root.GetStringOrEmpty("epoch"));
+				break;
 			case "list-dir":
 				_session?.ListDirectory(root.GetStringOrEmpty("path"));
 				break;
@@ -305,8 +310,13 @@ public sealed partial class HostCore {
 				// Data safety on a switch: the web flushes the outgoing session's working copies as fs-writes during
 				// rebind, which can land after _session flipped — routing by path saves them on the owning session.
 				if (ResolveFsSession(FsPath(root)) is { } writeSession) {
-					_bridge.PostToWeb(writeSession.FileProvider.Write(
-						FsId(root), FsPath(root), root.GetStringOrEmpty("content")));
+					string writeContent = root.GetStringOrEmpty("content");
+					string writeReply = writeSession.FileProvider.Write(FsId(root), FsPath(root), writeContent);
+					_bridge.PostToWeb(writeReply);
+					// A save that reached disk over an agent hunk is a correction — captured here, at the save.
+					if (WroteOk(writeReply)) {
+						writeSession.Changes.RecordHandEdit(FsPath(root), writeContent);
+					}
 				} else {
 					_bridge.PostToWeb(FileProviderProtocol.WriteError(FsId(root), "Path is outside every session worktree."));
 				}
@@ -1417,6 +1427,13 @@ public sealed partial class HostCore {
 	private static string FsPath(JsonElement root) =>
 		root.TryGetProperty("path", out var pathEl) ? pathEl.GetString() ?? string.Empty : string.Empty;
 
+	// Whether a FileProvider.Write reply reports the save reached disk, so a correction is only recorded for a
+	// write that actually landed (never for one rejected outside the worktree or failed by IO).
+	private static bool WroteOk(string writeReply) {
+		using var doc = JsonDocument.Parse(writeReply);
+		return doc.RootElement.TryGetProperty("ok", out var ok) && ok.ValueKind == JsonValueKind.True;
+	}
+
 	/// <summary>
 	/// Routes a terminal message to the controller for its <c>slot</c> (the session it names) and <c>session</c>
 	/// pane (default: claude): input/resize/ready from a background session's pane must reach THAT session's
@@ -1445,6 +1462,17 @@ public sealed partial class HostCore {
 		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
 		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
 		return session ?? _session;
+	}
+
+	private void DropLspChannelsFromOtherPages(string epoch) {
+		if (epoch.Length == 0) {
+			return;
+		}
+
+		_session?.Lsp.DropOtherEpochs(epoch);
+		foreach (var slot in _sessions?.Slots ?? []) {
+			slot.Session?.Lsp.DropOtherEpochs(epoch);
+		}
 	}
 
 	/// <summary>The embedded JSON-RPC <c>payload</c> of an <c>lsp-data</c> message as UTF-8 bytes (empty when absent).</summary>

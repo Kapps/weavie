@@ -13,8 +13,11 @@ internal interface ITlsFront : IAsyncDisposable {
 	/// <summary>The interface a spawned worker headless binds.</summary>
 	string WorkerBindAddress { get; }
 
-	/// <summary>The control-plane URL an operator registers as the remote agent (shown at startup).</summary>
-	string RegisterUrl { get; }
+	/// <summary>
+	/// The control-plane URL an operator registers as the remote agent (shown at startup), given the
+	/// <paramref name="controlPort"/> Kestrel actually bound (meaningful when launched with --port 0).
+	/// </summary>
+	string RegisterUrl(int controlPort);
 
 	/// <summary>
 	/// The worker page URL <c>/backend</c> returns for <paramref name="backend"/>, reached from a client that

@@ -4,9 +4,8 @@ using Weavie.Core.FileSystem;
 namespace Weavie.Core.Changes;
 
 /// <summary>
-/// Records every file changed during the session and the diff against each file's session baseline. Fed by the
-/// hook stream via <see cref="Observe"/>, which fires in every permission mode (the hook runs before the
-/// permission check). Read on the host UI thread but mutated from the hook accept loop — hence the lock.
+/// Records every file changed during the session and the diff against each file's session baseline. Provider
+/// events feed <see cref="Observe"/> from hook or native structured-agent streams; the lock protects their threads.
 /// <para>
 /// Scoped by <c>isInScope</c> to the session's worktree (+ scratch): an out-of-scope edit is dropped. The
 /// tracker's scope must match the editor's <c>file://</c> provider scope, else an open is pushed for a path
@@ -77,16 +76,22 @@ public sealed partial class SessionChangeTracker {
 	public event Action<IReadOnlyList<string>>? AcceptedCommitted;
 
 	/// <summary>
-	/// Folds a hook event into the change set: PreToolUse snapshots the baseline, PostToolUse records the new
-	/// content and reconciles disk deletions (<see cref="ReconcileDeletions"/>) so a mid-turn rm leaves the review
-	/// set. Out-of-scope edits are dropped. A new prompt (UserPromptSubmit) commits the faded accepted band —
-	/// kept hunks leave the diff view — but never resets the review baseline, so pending changes accumulate.
+	/// Folds provider events into the change set. Direct mutations capture and record their paths; prompt boundaries
+	/// commit accepted hunks. Unenumerated shell and tool side-effects are not discovered by scanning the workspace.
 	/// </summary>
 	public void Observe(AgentEvent value) {
 		ArgumentNullException.ThrowIfNull(value);
 
-		if (value is AgentPromptSubmitted) {
+		if (value is AgentPromptSubmitted submitted) {
+			lock (_gate) {
+				_currentPrompt = submitted.Prompt;
+			}
+
 			CommitAccepted();
+			return;
+		}
+
+		if (value is AgentTurnStopped) {
 			return;
 		}
 
@@ -100,16 +105,6 @@ public sealed partial class SessionChangeTracker {
 			AgentToolCompleted completed => completed.Mutation,
 			_ => new AgentMutation.None(),
 		};
-		if (mutation is AgentMutation.Workspace workspace) {
-			if (value is AgentToolStarting) {
-				CaptureWorkspaceBaselines(workspace.InvocationId);
-			} else if (value is AgentToolCompleted) {
-				RecordWorkspaceChanges(workspace.InvocationId);
-			}
-
-			return;
-		}
-
 		var paths = ExtractEditPaths(mutation).Where(_isInScope).ToList();
 		if (paths.Count == 0) {
 			return;
@@ -141,9 +136,7 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			_createdSinceBaseline.Clear();
-			// Freeze each accepted file's on-disk content as its correction "final" before a later hand-edit can
-			// move it — keep-all's review baseline comes from _current, which never sees hand-edits.
-			FreezeSettledFinalForAccept();
+			_provenance.Clear();
 			// Keep-all is the commit point — accepted changes are locked in, so the undo history resets here.
 			_undoStack.Clear();
 			_redoStack.Clear();
@@ -166,6 +159,7 @@ public sealed partial class SessionChangeTracker {
 				return;
 			}
 
+			PurgeAcceptedProvenance();
 			_undoStack.Clear();
 			_redoStack.Clear();
 		}
@@ -183,7 +177,6 @@ public sealed partial class SessionChangeTracker {
 			bool existed = _fileSystem.FileExists(path);
 			if (!TryReadOrEmpty(path, out string content)) {
 				Forget(path);
-				DropAgentOutput(path);
 				if (existed && _fileSystem.TryGetStat(path, out var stat)) {
 					_nonText.TryAdd(path, stat);
 				}
@@ -191,14 +184,19 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			_nonText.Remove(path);
-			_baseline.TryAdd(path, content);
-			if (_reviewBaseline.TryAdd(path, content) && !existed) {
-				_createdSinceBaseline.Add(path);
-			}
-
-			_acceptedAnchor.TryAdd(path, content); // seeded == reviewBaseline; diverges only as hunks are kept
-			_preEdit[path] = content;
+			CaptureBaselineLocked(path, content, existed);
 		}
+	}
+
+	private void CaptureBaselineLocked(string path, string content, bool existed) {
+		CaptureProvenanceBaseline(path, content);
+		_baseline.TryAdd(path, content);
+		if (_reviewBaseline.TryAdd(path, content) && !existed) {
+			_createdSinceBaseline.Add(path);
+		}
+
+		_acceptedAnchor.TryAdd(path, content); // seeded == reviewBaseline; diverges only as hunks are kept
+		_preEdit[path] = content;
 	}
 
 	/// <summary>Records <paramref name="path"/>'s latest content (baselining to empty if it appeared this session).</summary>
@@ -207,8 +205,10 @@ public sealed partial class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		bool reviewRemoved;
 		bool nonTextChanged;
+		bool ignoredNonText;
 		lock (_gate) {
 			if (!TryReadOrEmpty(path, out string content)) {
+				ignoredNonText = true;
 				reviewRemoved = _current.ContainsKey(path);
 				nonTextChanged = _fileSystem.TryGetStat(path, out var stat)
 					&& (!_nonText.TryGetValue(path, out var known) || stat.MtimeMs != known.MtimeMs || stat.Size != known.Size);
@@ -216,8 +216,8 @@ public sealed partial class SessionChangeTracker {
 					_nonText[path] = stat;
 				}
 				Forget(path);
-				DropAgentOutput(path);
 			} else {
+				ignoredNonText = false;
 				if (_nonText.Remove(path)) {
 					// A binary baseline cannot support a safe line-level reject; refresh the now-text file without review.
 					reviewRemoved = false;
@@ -232,14 +232,22 @@ public sealed partial class SessionChangeTracker {
 					}
 
 					_acceptedAnchor.TryAdd(path, string.Empty);
-					_current[path] = content;
-					SnapshotAgentOutput(path);
+					string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
+					string reviewCurrent = _current.GetValueOrDefault(path, before);
+					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent);
 				}
 			}
 		}
 
 		if (reviewRemoved) {
 			Changed?.Invoke();
+		}
+
+		if (ignoredNonText) {
+			if (nonTextChanged) {
+				FileChanged?.Invoke(path);
+			}
+			return;
 		}
 
 		if (nonTextChanged) {
@@ -285,6 +293,7 @@ public sealed partial class SessionChangeTracker {
 			_acceptedAnchor[path] = refContent;
 			_current[path] = diskContent;
 			_preEdit[path] = diskContent;
+			SeedProvenance(path, diskContent);
 			if (existedAtRef) {
 				_createdSinceBaseline.Remove(path);
 			} else {
@@ -305,7 +314,6 @@ public sealed partial class SessionChangeTracker {
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_fileSystem.FileExists(path)) {
 					Forget(path);
-					DropAgentOutput(path);
 					(removed ??= []).Add(path);
 				}
 			}
@@ -342,11 +350,16 @@ public sealed partial class SessionChangeTracker {
 	public RevertHunkOutcome RevertHunk(string path, LineRange baselineRange, LineRange currentRange, string guardText) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentNullException.ThrowIfNull(guardText);
+		List<CorrectionEdit> edits;
+		RevertHunkOutcome outcome;
 		lock (_gate) {
-			string currentRaw = ReadOrEmpty(path);
+			string currentRaw = _current.GetValueOrDefault(path, ReadOrEmpty(path));
 			var currentLines = SplitLines(currentRaw);
-			if (!TryGetSlice(currentLines, currentRange, out var currentSlice)
-				|| !string.Equals(string.Join("\n", currentSlice), guardText, StringComparison.Ordinal)) {
+			var diskLines = SplitLines(ReadOrEmpty(path));
+			var diskRange = MapCurrentRangeToActual(path, currentRange);
+			if (!TryGetSlice(diskLines, diskRange, out var guardedSlice)
+				|| !string.Equals(string.Join("\n", guardedSlice), guardText, StringComparison.Ordinal)
+				|| !TryGetSlice(currentLines, currentRange, out var currentSlice)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
 
@@ -360,20 +373,26 @@ public sealed partial class SessionChangeTracker {
 			newLines.InsertRange(currentRange.Start - 1, replacement);
 			string newContent = JoinLines(newLines, currentRaw);
 
+			// The rejected hunk is the correction: the agent's lines out, the baseline's back in.
+			edits = CorrectionsForRevert(path, currentRange, baselineRange);
 			var before = Capture(path, withDisk: true);
 			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
-			if (newContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
+			string diskContent = ApplyReviewChange(path, currentRaw, newContent);
+			if (diskContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
 				_fileSystem.DeleteFile(path);
 				Forget(path);
-				Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
-				return RevertHunkOutcome.Deleted;
+				outcome = RevertHunkOutcome.Deleted;
+			} else {
+				_fileSystem.WriteAllText(path, diskContent);
+				_current[path] = newContent;
+				outcome = RevertHunkOutcome.Reverted;
 			}
 
-			_fileSystem.WriteAllText(path, newContent);
-			_current[path] = newContent;
 			Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
-			return RevertHunkOutcome.Reverted;
 		}
+
+		RaiseCorrected(edits);
+		return outcome;
 	}
 
 	/// <summary>
@@ -383,16 +402,21 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="path">Absolute file path.</param>
 	public RevertHunkOutcome RevertFile(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
+		List<CorrectionEdit> edits;
+		RevertHunkOutcome outcome;
 		lock (_gate) {
 			if (!_reviewBaseline.ContainsKey(path)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
 
+			edits = RevertCorrections(path);
 			var before = Capture(path, withDisk: true);
-			var outcome = RevertFileLocked(path);
+			outcome = RevertFileLocked(path);
 			Record(ReviewActionKind.Revert, touchesDisk: true, [before], [path]);
-			return outcome;
 		}
+
+		RaiseCorrected(edits);
+		return outcome;
 	}
 
 	/// <summary>
@@ -400,6 +424,8 @@ public sealed partial class SessionChangeTracker {
 	/// analogue of <see cref="RevertFile"/>). A no-op (and not recorded) when the set is empty.
 	/// </summary>
 	public ReviewHistoryResult RevertAll() {
+		List<CorrectionEdit> edits;
+		ReviewHistoryResult result;
 		lock (_gate) {
 			var paths = new List<string>();
 			foreach (var (path, baseline) in _reviewBaseline) {
@@ -412,26 +438,47 @@ public sealed partial class SessionChangeTracker {
 				return ReviewHistoryResult.Blocked(false);
 			}
 
+			edits = [];
+			foreach (string path in paths) {
+				edits.AddRange(RevertCorrections(path));
+			}
+
 			var before = paths.ConvertAll(p => Capture(p, withDisk: true));
 			foreach (string path in paths) {
 				RevertFileLocked(path);
 			}
 
 			Record(ReviewActionKind.Revert, touchesDisk: true, before, paths);
-			return ReviewHistoryResult.Done(true, paths);
+			result = ReviewHistoryResult.Done(true, paths);
 		}
+
+		RaiseCorrected(edits);
+		return result;
+	}
+
+	// A whole-file revert's correction: the agent's current content out, the review baseline back in (empty when
+	// reverting a created file deletes it). Read before RevertFileLocked, which may forget the path. Holds _gate.
+	private List<CorrectionEdit> RevertCorrections(string path) {
+		string current = _current.GetValueOrDefault(path, string.Empty);
+		string baseline = _reviewBaseline.GetValueOrDefault(path, string.Empty);
+		return CorrectionsForRevert(
+			path,
+			new LineRange(1, LineDiff.SplitLines(current).Length + 1),
+			new LineRange(1, LineDiff.SplitLines(baseline).Length + 1));
 	}
 
 	// The revert-file body without locking or history, so RevertFile and RevertAll share it. Holds _gate.
 	private RevertHunkOutcome RevertFileLocked(string path) {
 		string baseline = _reviewBaseline.GetValueOrDefault(path, string.Empty);
-		if (baseline.Length == 0 && _createdSinceBaseline.Contains(path)) {
+		string current = _current.GetValueOrDefault(path, string.Empty);
+		string diskContent = ApplyReviewChange(path, current, baseline);
+		if (diskContent.Length == 0 && _createdSinceBaseline.Contains(path)) {
 			_fileSystem.DeleteFile(path);
 			Forget(path);
 			return RevertHunkOutcome.Deleted;
 		}
 
-		_fileSystem.WriteAllText(path, baseline);
+		_fileSystem.WriteAllText(path, diskContent);
 		_current[path] = baseline;
 		return RevertHunkOutcome.Reverted;
 	}
@@ -449,10 +496,13 @@ public sealed partial class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
-			string currentRaw = ReadOrEmpty(path);
+			string currentRaw = _current.GetValueOrDefault(path, ReadOrEmpty(path));
 			var currentLines = SplitLines(currentRaw);
-			if (!TryGetSlice(currentLines, currentRange, out var currentSlice)
-			|| !string.Equals(string.Join("\n", currentSlice), guardText, StringComparison.Ordinal)) {
+			var diskLines = SplitLines(ReadOrEmpty(path));
+			var diskRange = MapCurrentRangeToActual(path, currentRange);
+			if (!TryGetSlice(diskLines, diskRange, out var guardedSlice)
+				|| !string.Equals(string.Join("\n", guardedSlice), guardText, StringComparison.Ordinal)
+				|| !TryGetSlice(currentLines, currentRange, out var currentSlice)) {
 				return false;
 			}
 
@@ -466,7 +516,7 @@ public sealed partial class SessionChangeTracker {
 			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
 			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : currentRaw);
-			_current[path] = currentRaw;
+			SetPending(path, currentRange, false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
 			return true;
 		}
@@ -485,9 +535,9 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			var before = Capture(path, withDisk: false);
-			string current = ReadOrEmpty(path);
+			string current = _current[path];
 			_reviewBaseline[path] = current;
-			_current[path] = current;
+			SetAllPending(path, false);
 			// No-op keep (already at baseline) records nothing, so its undo wouldn't surprise with an empty step.
 			if (!string.Equals(before.ReviewBaseline, current, StringComparison.Ordinal)) {
 				Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
@@ -531,6 +581,11 @@ public sealed partial class SessionChangeTracker {
 			reviewLines.RemoveRange(reviewRange.Start - 1, reviewRange.EndExclusive - reviewRange.Start);
 			reviewLines.InsertRange(reviewRange.Start - 1, replacement);
 			_reviewBaseline[path] = JoinLines(reviewLines, reviewRaw); // disk + _current untouched — the hunk just goes bright again
+			foreach (var hunk in LineHunker.Hunks(
+				LineDiff.SplitLines(_reviewBaseline[path]),
+				LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty)))) {
+				SetPending(path, hunk.AfterRange, true);
+			}
 			return true;
 		}
 	}
@@ -543,6 +598,7 @@ public sealed partial class SessionChangeTracker {
 		_acceptedAnchor.Remove(path);
 		_preEdit.Remove(path);
 		_createdSinceBaseline.Remove(path);
+		_provenance.Remove(path);
 	}
 
 	/// <summary>

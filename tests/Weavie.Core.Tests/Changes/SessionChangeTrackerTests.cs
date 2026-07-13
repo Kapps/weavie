@@ -1,5 +1,4 @@
 using System.Text.Json;
-using Weavie.Core.Agents;
 using Weavie.Core.Changes;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Hooks;
@@ -157,29 +156,7 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void Observe_OverlappingWorkspaceMutations_KeepsEachToolBaseline() {
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText("/w/a.txt", "a0\n");
-		fileSystem.WriteAllText("/w/b.txt", "b0\n");
-		var tracker = Tracker(fileSystem);
-
-		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("tool-a")));
-		fileSystem.WriteAllText("/w/a.txt", "a1\n");
-		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("tool-b")));
-		fileSystem.WriteAllText("/w/b.txt", "b1\n");
-		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("tool-a")));
-		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("tool-b")));
-
-		var changes = tracker.TurnChanges().OrderBy(change => change.Path, StringComparer.Ordinal).ToList();
-		Assert.Equal([Path.Combine("/w", "a.txt"), Path.Combine("/w", "b.txt")], changes.Select(change => change.Path));
-		Assert.Equal("a0\n", changes[0].BaselineText);
-		Assert.Equal("a1\n", changes[0].CurrentText);
-		Assert.Equal("b0\n", changes[1].BaselineText);
-		Assert.Equal("b1\n", changes[1].CurrentText);
-	}
-
-	[Fact]
-	public void Observe_WorkspaceMutation_DoesNotTrackBinaryFile() {
+	public void RecordChange_NewBinaryFile_DoesNotEnterReview() {
 		var fileSystem = new InMemoryFileSystem();
 		var tracker = Tracker(fileSystem);
 		int changed = 0;
@@ -187,9 +164,9 @@ public sealed class SessionChangeTrackerTests {
 		tracker.Changed += () => changed++;
 		tracker.FileChanged += _ => fileChanged++;
 
-		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("download")));
+		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
-		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("download")));
+		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.Changes());
 		Assert.Empty(tracker.TurnChanges());
@@ -198,7 +175,7 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void Observe_UnchangedBinaryFile_DoesNotRaiseChangeEvents() {
+	public void RecordChange_UnchangedBinaryFile_DoesNotRaiseChangeEvents() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0xff]);
 		var tracker = Tracker(fileSystem);
@@ -207,8 +184,8 @@ public sealed class SessionChangeTrackerTests {
 		tracker.Changed += () => changed++;
 		tracker.FileChanged += _ => fileChanged++;
 
-		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("noop")));
-		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("noop")));
+		tracker.CaptureBaseline("/w/archive.bin");
+		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Equal(0, changed);
@@ -216,7 +193,7 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
-	public void Observe_ChangedBinaryFile_RaisesRefreshOnly() {
+	public void RecordChange_ChangedBinaryFile_RaisesRefreshOnly() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0x01]);
 		var tracker = Tracker(fileSystem);
@@ -225,9 +202,9 @@ public sealed class SessionChangeTrackerTests {
 		tracker.Changed += () => changed++;
 		tracker.FileChanged += _ => fileChanged++;
 
-		tracker.Observe(new AgentToolStarting(new AgentMutation.Workspace("download")));
+		tracker.CaptureBaseline("/w/archive.bin");
 		fileSystem.WriteAllBytes("/w/archive.bin", [0x50, 0x4b, 0x00, 0x02]);
-		tracker.Observe(new AgentToolCompleted(new AgentMutation.Workspace("download")));
+		tracker.RecordChange("/w/archive.bin");
 
 		Assert.Empty(tracker.TurnChanges());
 		Assert.Equal(0, changed);

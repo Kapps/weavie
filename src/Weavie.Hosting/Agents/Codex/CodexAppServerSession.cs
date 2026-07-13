@@ -2,6 +2,7 @@ using System.Collections.Concurrent;
 using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Agents.Codex;
+using Weavie.Core.Configuration;
 using Weavie.Core.Json;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
@@ -12,14 +13,16 @@ namespace Weavie.Hosting.Agents.Codex;
 public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly AgentSessionContext _context;
 	private readonly CodexAppServerClient _client;
-	private readonly ICodexHookIntegration _hooks;
 	private readonly CodexThreadStore _threads;
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
 	private readonly Queue<CodexTurnInput> _pendingInputs = new();
+	private readonly Dictionary<string, string> _fileChangeSummaries = new(StringComparer.Ordinal);
+	private readonly ConcurrentDictionary<string, byte> _resolvedRequests = new(StringComparer.Ordinal);
 	private long _nextId;
 	private string? _threadId;
 	private string? _turnId;
+	private bool _turnStarting;
 	private bool _started;
 	private bool _threadPersisted;
 
@@ -30,8 +33,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		ArgumentException.ThrowIfNullOrEmpty(command);
 		_context = context;
 		_threads = threads;
-		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
-		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace), _hooks);
+		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace));
 		WireClient();
 	}
 
@@ -42,34 +44,17 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		ArgumentNullException.ThrowIfNull(launch);
 		_context = context;
 		_threads = threads;
-		_hooks = new CodexHookIntegration(context.Registry.Port, context.Events, LogClient);
-		_client = Client(launch, _hooks);
+		_client = Client(launch);
 		WireClient();
 	}
 
-	internal CodexAppServerSession(
-		AgentSessionContext context,
-		CodexThreadStore threads,
-		string command,
-		ICodexHookIntegration hooks) {
-		ArgumentNullException.ThrowIfNull(context);
-		ArgumentNullException.ThrowIfNull(threads);
-		ArgumentException.ThrowIfNullOrEmpty(command);
-		ArgumentNullException.ThrowIfNull(hooks);
-		_context = context;
-		_threads = threads;
-		_hooks = hooks;
-		_client = Client(CodexAppServerLaunch.Raw(command, context.Workspace), hooks);
-		WireClient();
-	}
-
-	private CodexAppServerClient Client(CodexAppServerLaunch launch, ICodexHookIntegration hooks) =>
+	private CodexAppServerClient Client(CodexAppServerLaunch launch) =>
 		new(
 			launch,
-			hooks.GlobalArguments,
+			[],
 			CodexAppServerConfig.Arguments(_context),
-			hooks.AppServerArguments,
-			hooks.Environment,
+			[],
+			new Dictionary<string, string>(StringComparer.Ordinal),
 			LogClient);
 
 	private void WireClient() {
@@ -88,27 +73,67 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		string method = root.GetStringOrEmpty("method");
 		if (method == "turn/started") {
 			RememberTurn(root);
-		} else if (method is "turn/completed" or "turn/interrupted") {
+		} else if (method == "turn/completed") {
 			ForgetTurn(root);
 		} else if (method == "skills/changed") {
 			Run(RefreshSkillsAndPublishAsync);
 		}
 
 		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
-			EmitFeedback(_context.Events.Observe(agentEvent));
+			try {
+				EmitFeedback(_context.Events.Observe(agentEvent));
+			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
+				Emit(new AgentPaneMessage {
+					Type = "error",
+					ProviderId = "codex",
+					ThreadId = CurrentThreadId(),
+					Summary = "Change tracking failed for this file",
+					Text = ex.Message,
+					Status = "error",
+				});
+			}
 		}
 
 		var paneMessage = CodexPaneMessages.FromNotification(method, CurrentThreadId(), root);
 		if (paneMessage is not null) {
+			// The fileChange approval request carries only the item id — the changed paths live on the item
+			// events, so remember each edit item's summary to give a later approval card its substance.
+			// "fileChange" is the mapper's no-changes placeholder, not substance.
+			if (paneMessage is { Category: "edit", ItemId.Length: > 0, Summary.Length: > 0 }
+				&& paneMessage.Summary != "fileChange") {
+				lock (_gate) {
+					_fileChangeSummaries[paneMessage.ItemId] = paneMessage.Summary;
+				}
+			}
+
 			Emit(paneMessage);
 		}
 	}
 
 	private void HandleRequest(CodexServerRequest request) {
+		if (CodexApprovalResponses.IsPermissionApproval(request.Method) && BypassPermissions()) {
+			try {
+				_client.Respond(request.ResponseId, CodexApprovalResponses.Build(request, "accept"));
+			} catch (Exception ex) when (ex is IOException or InvalidOperationException or JsonException) {
+				Emit(new AgentPaneMessage {
+					Type = "error",
+					ProviderId = "codex",
+					ThreadId = CurrentThreadId(),
+					ItemId = request.Id,
+					ItemType = request.Method,
+					Text = $"Codex asked for '{request.Method}' approval, but the bypass auto-accept could not be sent: {ex.Message}",
+					Status = "error",
+					PayloadJson = request.Message.GetRawText(),
+				});
+			}
+
+			return;
+		}
+
 		if (CodexApprovalResponses.CanResolve(request.Method) || CodexInputResponses.CanResolve(request.Method)) {
 			_pendingRequests[request.Id] = request;
 			_context.Events.Observe(new AgentPermissionRequested());
-			Emit(CodexPaneMessages.FromRequest(request));
+			Emit(WithFileChangeSubstance(request, CodexPaneMessages.FromRequest(request)));
 			return;
 		}
 
@@ -136,8 +161,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		if (turnId.Length > 0) {
 			lock (_gate) {
 				_turnId = turnId;
+				_turnStarting = false;
 			}
 			PersistThread();
+			FlushPendingInputs();
 		}
 	}
 
@@ -162,12 +189,35 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	// Clear the active turn only when the completion is for the turn we track: a late completion of an older
 	// turn must not wipe a newer one Codex has already started.
-	private void ForgetTurn(JsonElement root) {
+	private bool ForgetTurn(JsonElement root) {
 		string turnId = ReadTurnId(root);
 		lock (_gate) {
 			if (turnId.Length == 0 || string.Equals(turnId, _turnId, StringComparison.Ordinal)) {
 				_turnId = null;
+				_turnStarting = false;
+				// Approvals are turn-scoped; a late completion of an OLDER turn must not wipe the live
+				// turn's harvested edit summaries, so the clear shares the turn-id guard.
+				_fileChangeSummaries.Clear();
+				return true;
 			}
+		}
+		return false;
+	}
+
+	// Upstream fileChange approval params carry no changed paths (only threadId/turnId/itemId/reason/grantRoot);
+	// the card's substance is joined from the summaries harvested off that item's own notifications.
+	private AgentPaneMessage WithFileChangeSubstance(CodexServerRequest request, AgentPaneMessage card) {
+		if (card.Text is not null
+			|| !string.Equals(request.Method, "item/fileChange/requestApproval", StringComparison.Ordinal)
+			|| !request.Message.TryGetProperty("params", out var parameters)) {
+			return card;
+		}
+
+		string itemId = parameters.GetStringOrEmpty("itemId");
+		lock (_gate) {
+			return itemId.Length > 0 && _fileChangeSummaries.TryGetValue(itemId, out string? changes)
+				? card with { Text = changes }
+				: card;
 		}
 	}
 
@@ -206,11 +256,17 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private long NextRequest() => Interlocked.Increment(ref _nextId);
 
-	private string Model() => _context.Settings.RequireString("codex.model");
+	private string Model() => _context.Settings.RequireString(CodexSettings.Model);
 
-	private string Sandbox() => _context.Settings.RequireString("codex.sandbox");
+	private string Effort() => _context.Settings.RequireString(CodexSettings.Effort);
 
-	private string ApprovalPolicy() => _context.Settings.RequireString("codex.approvalPolicy");
+	private string ServiceTier() => _context.Settings.RequireString(CodexSettings.ServiceTier);
+
+	private bool BypassPermissions() => _context.Settings.GetBool("claude.allowAllTools", fallback: false);
+
+	private string Sandbox() => _context.Settings.RequireString(CodexSettings.Sandbox);
+
+	private string ApprovalPolicy() => _context.Settings.RequireString(CodexSettings.ApprovalPolicy);
 
 	private string DeveloperInstructions() => EmbeddedAgentGuidance.Compose(_context.Runtime);
 

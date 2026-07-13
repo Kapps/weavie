@@ -387,11 +387,13 @@ public sealed partial class HostCore {
 		return _settings.RequireString(AgentSettings.DefaultProvider);
 	}
 
-	/// <summary>Persists a chosen provider as the standing default, so the next new session preselects it. Only an
-	/// available provider sticks; an unknown or unavailable id is ignored rather than stranding the prompt on it.</summary>
+	/// <summary>Persists a chosen provider as the standing default, so the next new session preselects it. Any
+	/// registered provider sticks — including one only installed on a remote backend, where the session actually
+	/// runs; local availability is irrelevant to a preselection the prompt always lets the user change. Only an
+	/// unregistered id is dropped, as garbage that would fail session creation.</summary>
 	private void RememberDefaultProvider(string? requestedProvider) {
 		string? provider = requestedProvider?.Trim();
-		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is { Available: true }) {
+		if (!string.IsNullOrEmpty(provider) && _agentProviders.FindInfo(provider) is not null) {
 			_settings.Set(AgentSettings.DefaultProvider, JsonSerializer.SerializeToElement(provider));
 		}
 	}
@@ -465,6 +467,9 @@ public sealed partial class HostCore {
 			// Pasted images go in a per-session subdir (keyed by worktree, like the scrollback log) so unloading
 			// one session's images never touches another's.
 			Path.Combine(WeaviePaths.WorkspacePastedImagesDir(Id), WorkspaceId.ForPath(cwd).Value),
+			// The structured agent pane's durable transcript (keyed by worktree, like the shell scrollback log)
+			// so its output restores across reload/unload/restart. Terminal-backed providers ignore it.
+			WeaviePaths.WorkspaceAgentPaneFile(Id, WorkspaceId.ForPath(cwd).Value),
 			Guid.NewGuid().ToString("n")[..8],
 			_commandRegistry, _keybindings, _themeOverrides, _corrections, _platform.PtyLauncher, provider, _runtime);
 		// Persist the shell scrollback (keyed by worktree path, stable across reloads) so a reattaching client

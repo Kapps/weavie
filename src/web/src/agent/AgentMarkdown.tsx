@@ -64,7 +64,9 @@ function linkifyText(root: HTMLElement, includeRefs: boolean): void {
   const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
   const nodes: Text[] = [];
   for (let node = walker.nextNode(); node !== null; node = walker.nextNode()) {
-    if (node instanceof Text && !node.parentElement?.closest("a, code, pre")) {
+    // Linkify inline `code` spans (the idiomatic way to quote a path), but leave fenced `pre` blocks
+    // literal — their highlight spans split paths across text nodes and code samples shouldn't auto-link.
+    if (node instanceof Text && !node.parentElement?.closest("a, pre")) {
       nodes.push(node);
     }
   }

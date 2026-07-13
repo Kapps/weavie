@@ -7,13 +7,13 @@ export interface ContentLinkMatch {
   kind: ContentLinkKind;
 }
 
-const PATH = String.raw`(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/])?[\w.\\/-]+\.[A-Za-z0-9]+`;
+const PATH = String.raw`(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/])?[\w.\\/@-]+\.[A-Za-z0-9]+`;
 const FILE_LINE = new RegExp(String.raw`${PATH}:\d+(?::\d+)?`, "g");
 const FILE_URI_RE = /file:\/\/\/[^\s"'<>()]*[^\s"'<>().,;:!?]/g;
 const URL_RE = /https?:\/\/[^\s"'<>()]*[^\s"'<>().,;:!?]/g;
 const TOOL_PATH = new RegExp(String.raw`(?<=[A-Za-z]\()${PATH}(?::\d+(?::\d+)?)?(?=\))`, "g");
 const BARE_PATH =
-  /(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/][\w.-]+(?:[\\/][\w.-]+)*|[\w.-]+(?:[\\/][\w.-]+)+)\.[A-Za-z][A-Za-z0-9]*/g;
+  /(?:[A-Za-z]:)?(?:[~.]{0,2}[\\/][\w.@-]+(?:[\\/][\w.@-]+)*|[\w.@-]+(?:[\\/][\w.@-]+)+)\.[A-Za-z][A-Za-z0-9]*/g;
 const REF_RE = /(?<![\w#&])#[1-9]\d*(?!\w)/g;
 
 export function findContentLinks(text: string, includeRefs: boolean): ContentLinkMatch[] {

@@ -1,6 +1,5 @@
 import { createEffect, createMemo, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentControlAxis } from "../bridge";
-import { setContext } from "../commands/context";
 import {
   agentControlState,
   closeControlPicker,
@@ -9,8 +8,8 @@ import {
 } from "./agent-controls-store";
 
 // The popover that opens above a status-line segment (or from a `/model`-style command): the axis's options,
-// keyboard-navigable. `agentControlPickerOpen` is set while open so the composer's Enter/Escape commands stand
-// down and this window handler drives selection instead — the same overlay pattern the slash menu uses.
+// keyboard-navigable. AgentStatusLine owns the `agentControlPickerOpen` gate (whenever any picker is open) so the
+// composer's Enter/Escape commands stand down and this window handler drives selection instead.
 export function AgentControlPicker(props: { backendId: string; slot: string | null }): JSX.Element {
   const [highlight, setHighlight] = createSignal(0);
   const axis = createMemo<AgentControlAxis | null>(() => {
@@ -21,15 +20,24 @@ export function AgentControlPicker(props: { backendId: string; slot: string | nu
     return agentControlState(props.slot).axes.find((candidate) => candidate.id === id) ?? null;
   });
 
+  // Seed the highlight only when the picker opens or switches axes: a host re-push rebuilds the axes with
+  // fresh references, which would otherwise re-run this and snap keyboard navigation back mid-use.
+  let seededAxis: string | null = null;
   createEffect(() => {
     const current = axis();
-    setContext("agentControlPickerOpen", current !== null);
-    if (current !== null) {
-      const index = current.options.findIndex((option) => option.id === current.value);
-      setHighlight(index >= 0 ? index : 0);
+    if (current === null) {
+      seededAxis = null;
+      return;
     }
+    if (current.id === seededAxis) {
+      // A re-push can shrink the options while open; keep the highlight in range without re-seeding it.
+      setHighlight((index) => Math.min(index, Math.max(0, current.options.length - 1)));
+      return;
+    }
+    seededAxis = current.id;
+    const index = current.options.findIndex((option) => option.id === current.value);
+    setHighlight(index >= 0 ? index : 0);
   });
-  onCleanup(() => setContext("agentControlPickerOpen", false));
 
   const pick = (optionId: string): void => {
     const slot = props.slot;

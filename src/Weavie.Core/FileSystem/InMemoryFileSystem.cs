@@ -124,6 +124,14 @@ public sealed class InMemoryFileSystem : IFileSystem {
 	}
 
 	/// <inheritdoc/>
+	public void AppendAllText(string path, string contents) {
+		ArgumentNullException.ThrowIfNull(contents);
+		byte[] added = Encoding.UTF8.GetBytes(contents);
+		byte[] existing = _files.TryGetValue(Normalize(path), out byte[]? current) ? current : [];
+		Store(path, [.. existing, .. added]);
+	}
+
+	/// <inheritdoc/>
 	public void WriteAllTextAtomic(string path, string contents) {
 		// A single dictionary assignment is atomic, honoring the same all-or-nothing contract
 		// the real filesystem provides via temp-file + replace.

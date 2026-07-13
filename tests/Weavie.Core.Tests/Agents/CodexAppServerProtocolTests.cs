@@ -25,15 +25,6 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void HooksList_SendsSessionCwd() {
-		using var doc = JsonDocument.Parse(CodexAppServerProtocol.HooksList(7, "/repo"));
-		var parameters = doc.RootElement.GetProperty("params");
-
-		Assert.Equal("hooks/list", doc.RootElement.GetProperty("method").GetString());
-		Assert.Equal("/repo", parameters.GetProperty("cwds")[0].GetString());
-	}
-
-	[Fact]
 	public void ThreadStart_OmitsEmptyModel() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.ThreadStart(
 			8, "", "/repo", "workspace-write", "on-request", "use weavie tools"));
@@ -63,9 +54,9 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TurnStart_CarriesThreadWorkspacePolicyAndText_OmittingEmptyModel() {
+	public void TurnStart_CarriesThreadWorkspacePolicyAndText_OmittingEmptyModelEffortAndTier() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
-			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", ""));
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "", ""));
 		var parameters = doc.RootElement.GetProperty("params");
 
 		Assert.Equal("turn/start", doc.RootElement.GetProperty("method").GetString());
@@ -76,21 +67,42 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("/repo", parameters.GetProperty("sandboxPolicy").GetProperty("writableRoots")[0].GetString());
 		Assert.Equal("fix it", parameters.GetProperty("input")[0].GetProperty("text").GetString());
 		Assert.False(parameters.TryGetProperty("model", out _));
+		Assert.False(parameters.TryGetProperty("effort", out _));
+		Assert.False(parameters.TryGetProperty("serviceTier", out _));
 	}
 
 	[Fact]
 	public void TurnStart_CarriesModelOverride_ForLiveModelChange() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
-			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "gpt-5.5"));
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "gpt-5.5", "", ""));
 
 		Assert.Equal("gpt-5.5", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public void TurnStart_CarriesEffort_AndClearsServiceTierToNull() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "high", "standard"));
+		var parameters = doc.RootElement.GetProperty("params");
+
+		Assert.Equal("high", parameters.GetProperty("effort").GetString());
+		// "standard" clears any tier: it serializes as an explicit JSON null, not the string "standard".
+		Assert.Equal(JsonValueKind.Null, parameters.GetProperty("serviceTier").ValueKind);
+	}
+
+	[Fact]
+	public void TurnStart_CarriesServiceTier_WhenSet() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "fix it", "/repo", "workspace-write", "on-request", "", "", "priority"));
+
+		Assert.Equal("priority", doc.RootElement.GetProperty("params").GetProperty("serviceTier").GetString());
 	}
 
 	[Fact]
 	public void TurnStartWithInputs_CarriesTextImageAndSkillItems() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStartWithInputs(
 			13, "thr_1", "describe it", ["/tmp/paste-1.png"], [new CodexSkill("review-pr", "/s/review-pr", "Review a PR.")],
-			"/repo", "workspace-write", "on-request", "gpt-5.5"));
+			"/repo", "workspace-write", "on-request", "gpt-5.5", "", ""));
 		var parameters = doc.RootElement.GetProperty("params");
 		var input = parameters.GetProperty("input");
 
@@ -122,15 +134,27 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void TryReadModels_MapsOptionsAndCatalogDefault() {
+	public void TryReadModelCatalog_MapsModelsEffortsAndServiceTiers() {
 		using var doc = JsonDocument.Parse(
-			"""{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model.","hidden":false,"isDefault":true},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4 mini","description":"Fast model.","hidden":false,"isDefault":false}]}""");
+			"""{"data":[{"id":"gpt-5.5","model":"gpt-5.5","displayName":"GPT-5.5","description":"Frontier model.","hidden":false,"isDefault":true,"defaultReasoningEffort":"medium","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast."},{"reasoningEffort":"medium","description":"Balanced."},{"reasoningEffort":"xhigh","description":"Extra."}],"defaultServiceTier":"","serviceTiers":[{"id":"priority","name":"Fast","description":"1.5x speed."}]},{"id":"gpt-5.4-mini","model":"gpt-5.4-mini","displayName":"GPT-5.4 mini","description":"Fast model.","hidden":false,"isDefault":false,"defaultReasoningEffort":"low","supportedReasoningEfforts":[{"reasoningEffort":"low","description":"Fast."}],"serviceTiers":[]}]}""");
 
-		Assert.True(CodexAppServerProtocol.TryReadModels(doc.RootElement, out var models, out string defaultModel));
-		Assert.Equal("gpt-5.5", defaultModel);
-		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], models.Select(model => model.Id));
-		Assert.Equal("GPT-5.5", models[0].Label);
-		Assert.Equal("Frontier model.", models[0].Description);
+		Assert.True(CodexModelCatalog.TryReadModelCatalog(doc.RootElement, out var models));
+		Assert.Equal(["gpt-5.5", "gpt-5.4-mini"], models.Select(model => model.Model.Id));
+
+		var frontier = models[0];
+		Assert.True(frontier.IsDefault);
+		Assert.Equal("GPT-5.5", frontier.Model.Label);
+		Assert.Equal("medium", frontier.DefaultEffort);
+		Assert.Equal(["low", "medium", "xhigh"], frontier.Efforts.Select(effort => effort.Id));
+		Assert.Equal("X-High", frontier.Efforts[2].Label); // xhigh prettified
+		var tier = Assert.Single(frontier.ServiceTiers);
+		Assert.Equal("priority", tier.Id);
+		Assert.Equal("Fast", tier.Label);
+
+		var mini = models[1];
+		Assert.False(mini.IsDefault);
+		Assert.Empty(mini.ServiceTiers);
+		Assert.Equal(["low"], mini.Efforts.Select(effort => effort.Id));
 	}
 
 	[Fact]
@@ -166,8 +190,8 @@ public sealed class CodexAppServerProtocolTests {
 			"""{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"dotnet test","commandActions":[],"cwd":"/repo"}}}""",
 			out var toolStarted));
 		var tool = Assert.IsType<AgentToolStarting>(toolStarted);
-		var workspace = Assert.IsType<AgentMutation.Workspace>(tool.Mutation);
-		Assert.Equal("item_1", workspace.InvocationId);
+		// A shell command counts as agent activity but carries no tracked mutation (Weavie doesn't scan for its side-effects).
+		Assert.IsType<AgentMutation.None>(tool.Mutation);
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(
 			"""{"method":"turn/completed","params":{"turn":{"id":"turn_1"}}}""",
@@ -272,108 +296,61 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
-	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForMcpWrites() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-workspace-review"));
-		string file = Path.Combine(workspace, "src", "App.cs");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "old\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedJson = """{"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"item_1","status":"inProgress","server":"node_repl","tool":"js","arguments":{}}}}""";
-		string completedJson = """{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"item_1","status":"completed","server":"node_repl","tool":"js","arguments":{}}}}""";
-
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
-		changes.Observe(started);
-		fileSystem.WriteAllText(file, "old\nnew\n");
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
-		changes.Observe(completed);
-
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal("old\n", turn.BaselineText);
-		Assert.Equal("old\nnew\n", turn.CurrentText);
-	}
-
-	[Fact]
-	public void WorkspaceMutationLifecycle_IsCorrelatedByItemId() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-overlap-review"));
-		string file = Path.Combine(workspace, "deleted.txt");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "gone\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedA = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_a","status":"inProgress","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-		string startedB = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_b","status":"inProgress","command":"true","commandActions":[],"cwd":"/repo"}}}""";
-		string completedB = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_b","status":"completed","command":"true","commandActions":[],"cwd":"/repo"}}}""";
-		string completedA = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_a","status":"completed","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedA, out var aStarted));
-		changes.Observe(aStarted);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedB, out var bStarted));
-		changes.Observe(bStarted);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedB, out var bCompleted));
-		changes.Observe(bCompleted);
-		fileSystem.DeleteFile(file);
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedA, out var aCompleted));
-		changes.Observe(aCompleted);
-
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal("gone\n", turn.BaselineText);
-		Assert.Equal(string.Empty, turn.CurrentText);
-	}
-
-	[Fact]
-	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForCreatedFiles() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-created-review"));
+	public void CommandExecutionThatDeletesATrackedFile_ReconcilesIt() {
+		// A shell command isn't scanned for side-effects, but its completion still reconciles disk deletions —
+		// so a file the agent created (a tracked fileChange) and then rm'd leaves the review board.
+		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-command-reconcile"));
 		string file = Path.Combine(workspace, "created.txt");
 		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(Path.Combine(workspace, "README.md"), "seed\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedJson = """{"method":"item/started","params":{"item":{"type":"dynamicToolCall","id":"item_1","status":"inProgress","tool":"write","arguments":{}}}}""";
-		string completedJson = """{"method":"item/completed","params":{"item":{"type":"dynamicToolCall","id":"item_1","status":"completed","tool":"write","arguments":{}}}}""";
+		var changes = new SessionChangeTracker(fileSystem, workspace, _ => true);
+		string pathJson = JsonSerializer.Serialize(file);
+		string editJson = "{\"method\":\"item/completed\",\"params\":{\"item\":{\"type\":\"fileChange\",\"id\":\"item_1\",\"status\":\"completed\",\"changes\":[{\"path\":"
+			+ pathJson + ",\"diff\":\"@@\",\"kind\":{\"type\":\"add\"}}]}}}";
+		string rmJson = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_2","status":"completed","command":"rm created.txt","commandActions":[],"cwd":"/repo"}}}""";
 
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
-		changes.Observe(started);
 		fileSystem.WriteAllText(file, "new\n");
-		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
-		changes.Observe(completed);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(editJson, out var edited));
+		changes.Observe(edited);
+		Assert.Single(changes.TurnChanges());
 
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal(string.Empty, turn.BaselineText);
-		Assert.Equal("new\n", turn.CurrentText);
+		fileSystem.DeleteFile(file);
+		Assert.True(CodexAppServerProtocol.TryAdaptNotification(rmJson, out var removed));
+		changes.Observe(removed);
+
+		Assert.Empty(changes.TurnChanges());
 	}
 
-	[Fact]
-	public void WorkspaceMutationLifecycle_FeedsTurnReviewDiffForDeletedFiles() {
-		string workspace = Path.GetFullPath(Path.Combine(Path.GetTempPath(), "weavie-codex-deleted-review"));
-		string file = Path.Combine(workspace, "deleted.txt");
-		var fileSystem = new InMemoryFileSystem();
-		fileSystem.WriteAllText(file, "gone\n");
-		var changes = new SessionChangeTracker(
-			fileSystem,
-			workspace,
-			_ => true);
-		string startedJson = """{"method":"item/started","params":{"item":{"type":"commandExecution","id":"item_1","status":"inProgress","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
-		string completedJson = """{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"item_1","status":"completed","command":"rm deleted.txt","commandActions":[],"cwd":"/repo"}}}""";
+	[Theory]
+	[InlineData("commandExecution")]
+	[InlineData("mcpToolCall")]
+	[InlineData("dynamicToolCall")]
+	public void UnstructuredToolLifecycle_NeverEnumeratesTheWorkspace(string type) {
+		var fileSystem = new NoEnumerationFileSystem();
+		var changes = new SessionChangeTracker(fileSystem, Path.GetFullPath(Path.GetTempPath()), _ => true);
+		string startedJson = $"{{\"method\":\"item/started\",\"params\":{{\"item\":{{\"type\":\"{type}\",\"id\":\"item_1\"}}}}}}";
+		string completedJson = $"{{\"method\":\"item/completed\",\"params\":{{\"item\":{{\"type\":\"{type}\",\"id\":\"item_1\"}}}}}}";
 
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(startedJson, out var started));
 		changes.Observe(started);
-		fileSystem.DeleteFile(file);
 		Assert.True(CodexAppServerProtocol.TryAdaptNotification(completedJson, out var completed));
 		changes.Observe(completed);
+	}
 
-		var turn = Assert.Single(changes.TurnChanges());
-		Assert.Equal(file, turn.Path);
-		Assert.Equal("gone\n", turn.BaselineText);
-		Assert.Equal(string.Empty, turn.CurrentText);
+	private sealed class NoEnumerationFileSystem : IFileSystem {
+		private readonly InMemoryFileSystem _inner = new();
+
+		public bool FileExists(string path) => _inner.FileExists(path);
+		public bool DirectoryExists(string path) => _inner.DirectoryExists(path);
+		public bool TryGetStat(string path, out FileStat stat) => _inner.TryGetStat(path, out stat);
+		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) =>
+			throw new Xunit.Sdk.XunitException($"Workspace enumeration attempted at {path}");
+		public string ReadAllText(string path) => _inner.ReadAllText(path);
+		public bool TryReadAllText(string path, out string contents) => _inner.TryReadAllText(path, out contents);
+		public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
+		public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
+		public void WriteAllBytes(string path, byte[] contents) => _inner.WriteAllBytes(path, contents);
+		public void AppendAllText(string path, string contents) => _inner.AppendAllText(path, contents);
+		public void WriteAllTextAtomic(string path, string contents) => _inner.WriteAllTextAtomic(path, contents);
+		public void DeleteFile(string path) => _inner.DeleteFile(path);
 	}
 }

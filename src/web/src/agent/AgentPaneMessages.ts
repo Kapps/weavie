@@ -178,7 +178,7 @@ function entry(
   return {
     actionMessage: actionMessage(message),
     details: [],
-    id: message.itemId ?? `${message.type}-${sequence}`,
+    id: hasItemId(message) ? message.itemId : `${message.type}-${sequence}`,
     kind,
     label,
     status,
@@ -250,7 +250,9 @@ function step(
   return {
     category,
     detailText: normalizeText(message.text),
-    id: message.itemId ?? `${message.type}:${message.turnId ?? "session"}:${category}`,
+    id: hasItemId(message)
+      ? message.itemId
+      : `${message.type}:${message.turnId ?? "session"}:${category}`,
     label: normalized === null ? category : `${category} ${normalized}`,
     status,
     tone,

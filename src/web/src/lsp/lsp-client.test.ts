@@ -87,6 +87,7 @@ vi.mock("vscode-languageclient", () => ({
 }));
 vi.mock("../bridge", () => ({
   log: () => {},
+  postToBackend: () => {},
   activeBackendId: () => bus.backend,
   onSessionMessage: (h: (msg: unknown, backendId: string) => void) => {
     bus.sessionHandlers.push(h);

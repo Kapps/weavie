@@ -2,7 +2,6 @@ import { type ChildProcess, spawn } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
 import { Agent, get as httpGet } from "node:http";
-import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -72,23 +71,28 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
       );
     }
     return new Promise((resolve, reject) => {
-      let closed = false;
-      let taskkillFinished = false;
-      const finish = (): void => {
-        if (closed && taskkillFinished) {
-          resolve();
+      let settled = false;
+      const settle = (action: () => void): void => {
+        if (!settled) {
+          settled = true;
+          action();
         }
       };
-      proc.once("close", () => {
-        closed = true;
-        finish();
-      });
+      // `close` (the root's stdio pipes all shut) is the only reliable proof the tree is gone — taskkill's
+      // own exit code is not: `/T` returns non-zero (e.g. 255) merely because a descendant self-exited before
+      // it got there, while the root is dying and `close` is a beat behind.
+      proc.once("close", () => settle(resolve));
       const taskkill = spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" });
-      taskkill.once("exit", () => {
-        taskkillFinished = true;
-        finish();
+      taskkill.once("exit", (code) => {
+        // The kill attempt is done; `close` follows within a beat if the tree died. Bound the wait so a
+        // genuinely surviving tree fails teardown loudly instead of hanging it forever.
+        setTimeout(() => {
+          settle(() =>
+            reject(new Error(`process tree ${pid} survived taskkill (exit ${code ?? -1})`)),
+          );
+        }, 5000).unref();
       });
-      taskkill.once("error", reject);
+      taskkill.once("error", (error) => settle(() => reject(error)));
     });
   }
   if (proc.exitCode !== null || proc.signalCode !== null) {
@@ -120,26 +124,12 @@ export function killProcessTree(proc: ChildProcess): Promise<void> {
   });
 }
 
-export function freePort(): Promise<number> {
-  return new Promise((resolve, reject) => {
-    const srv = createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const address = srv.address();
-      if (address === null || typeof address === "string") {
-        reject(new Error("could not allocate a port"));
-        return;
-      }
-      const { port } = address;
-      srv.close(() => resolve(port));
-    });
-  });
-}
-
-// Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
-// the listener.
-function waitForListening(
+// Resolve with the port the host actually bound (it prints the matched line only once its listener is up),
+// so the browser never races the listener and parallel workers can never collide on a pre-picked port.
+export function waitForPortLine(
   proc: ChildProcess,
   getLog: () => string,
+  pattern: RegExp,
   timeoutMs: number,
 ): Promise<number> {
   return new Promise((resolve, reject) => {
@@ -148,7 +138,7 @@ function waitForListening(
       timeoutMs,
     );
     const onData = () => {
-      const match = getLog().match(/open\s+http:\/\/127\.0\.0\.1:(\d+)/);
+      const match = getLog().match(pattern);
       if (match) {
         clearTimeout(timer);
         proc.stdout?.off("data", onData);
@@ -288,7 +278,7 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
 
   // The host prints the ready line only after its listener is bound and accepting, so the parsed port is
   // connectable the moment it appears.
-  const port = await waitForListening(proc, () => log, 40_000);
+  const port = await waitForPortLine(proc, () => log, /open\s+http:\/\/127\.0\.0\.1:(\d+)/, 40_000);
   const url = `http://127.0.0.1:${port}/`;
 
   return {

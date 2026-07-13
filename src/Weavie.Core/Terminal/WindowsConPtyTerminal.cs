@@ -11,10 +11,6 @@ namespace Weavie.Core.Terminal;
 /// The Windows sibling of <see cref="PosixPtyTerminal"/>. <c>CreateProcess</c> searches PATH.
 /// </summary>
 public sealed class WindowsConPtyTerminal : ITerminal {
-	// Dispose's bounded waits: for graceful exit after closing the pseudo console, then after force-terminating.
-	private static readonly TimeSpan GracefulExitTimeout = TimeSpan.FromSeconds(3);
-	private static readonly TimeSpan ForcedExitTimeout = TimeSpan.FromSeconds(2);
-
 	private readonly Lock _gate = new();
 	private readonly Lock _writeGate = new();
 	private nint _hPC;
@@ -22,6 +18,7 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 	private nint _outputRead;
 	private nint _hProcess;
 	private nint _hThread;
+	private nint _hJob;
 	private Thread? _readThread;
 	private volatile bool _running;
 	private int _exitRaised;
@@ -68,7 +65,7 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 					Marshal.ThrowExceptionForHR(hr);
 				}
 
-				var pi = SpawnChild(startInfo, _hPC);
+				var (pi, job) = SpawnChild(startInfo, _hPC);
 
 				// Drop our PTY-side pipe ends only AFTER the child attaches: ConHost starts lazily at
 				// CreateProcess, so closing outputWrite earlier yields no output. Dropping our outputWrite copy
@@ -80,6 +77,7 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 
 				_hProcess = pi.hProcess;
 				_hThread = pi.hThread;
+				_hJob = job;
 				_inputWrite = inputWrite;
 				_outputRead = outputRead;
 				inputWrite = 0;
@@ -99,13 +97,15 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 		}
 	}
 
-	private static unsafe ProcessInformation SpawnChild(TerminalStartInfo startInfo, nint hPC) {
+	private static unsafe (ProcessInformation Process, nint Job) SpawnChild(TerminalStartInfo startInfo, nint hPC) {
 		// Size the attribute list (the first call fails with ERROR_INSUFFICIENT_BUFFER and reports the size).
 		nint listSize = 0;
 		InitializeProcThreadAttributeList(0, 1, 0, ref listSize);
 
 		nint attrList = Marshal.AllocHGlobal(listSize);
 		nint envBlock = BuildEnvironmentBlock(startInfo);
+		nint job = 0;
+		ProcessInformation pi = default;
 		try {
 			if (!InitializeProcThreadAttributeList(attrList, 1, 0, ref listSize)) {
 				throw new Win32Exception(Marshal.GetLastWin32Error(), "InitializeProcThreadAttributeList failed.");
@@ -130,23 +130,38 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 			startupInfo.StartupInfo.hStdOutput = 0;
 			startupInfo.StartupInfo.hStdError = 0;
 
+			job = CreateKillOnCloseJob();
 			bool ok = CreateProcess(
 				lpApplicationName: null,
 				lpCommandLine: BuildCommandLine(startInfo),
 				lpProcessAttributes: 0,
 				lpThreadAttributes: 0,
 				bInheritHandles: false,
-				dwCreationFlags: EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT,
+				dwCreationFlags: EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
 				lpEnvironment: envBlock,
 				lpCurrentDirectory: string.IsNullOrEmpty(startInfo.WorkingDirectory) ? null : startInfo.WorkingDirectory,
 				lpStartupInfo: ref startupInfo,
-				lpProcessInformation: out var pi);
+				lpProcessInformation: out pi);
 
 			if (!ok) {
 				throw new Win32Exception(Marshal.GetLastWin32Error(), $"CreateProcess('{startInfo.Command}') failed.");
 			}
 
-			return pi;
+			if (!AssignProcessToJobObject(job, pi.hProcess)) {
+				throw new Win32Exception(Marshal.GetLastWin32Error(), "AssignProcessToJobObject failed.");
+			}
+
+			if (ResumeThread(pi.hThread) == uint.MaxValue) {
+				throw new Win32Exception(Marshal.GetLastWin32Error(), "ResumeThread failed.");
+			}
+
+			return (pi, job);
+		} catch {
+			if (pi.hProcess != 0) { TerminateProcess(pi.hProcess, 1); }
+			if (pi.hThread != 0) { CloseHandle(pi.hThread); }
+			if (pi.hProcess != 0) { CloseHandle(pi.hProcess); }
+			if (job != 0) { CloseHandle(job); }
+			throw;
 		} finally {
 			if (attrList != 0) {
 				DeleteProcThreadAttributeList(attrList);
@@ -156,6 +171,27 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 				Marshal.FreeHGlobal(envBlock);
 			}
 		}
+	}
+
+	private static nint CreateKillOnCloseJob() {
+		nint job = CreateJobObject(0, null);
+		if (job == 0) {
+			throw new Win32Exception(Marshal.GetLastWin32Error(), "CreateJobObject failed.");
+		}
+
+		var limits = new JobObjectExtendedLimitInformation();
+		limits.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+		if (!SetInformationJobObject(
+				job,
+				JobObjectExtendedLimitInformationClass,
+				ref limits,
+				(uint)Marshal.SizeOf<JobObjectExtendedLimitInformation>())) {
+			int error = Marshal.GetLastWin32Error();
+			CloseHandle(job);
+			throw new Win32Exception(error, "SetInformationJobObject failed.");
+		}
+
+		return job;
 	}
 
 	/// <summary>
@@ -293,28 +329,27 @@ public sealed class WindowsConPtyTerminal : ITerminal {
 
 	/// <inheritdoc/>
 	public void Dispose() {
-		nint process;
 		Thread? readThread;
 		lock (_gate) {
-			// Closing the pseudo console signals the child to exit gracefully (and tear down its descendants);
-			// the read loop then sees EOF and RaiseExited reaps the child.
+			// Job ownership closes the process-tree race: killing the host also closes this handle, and an explicit
+			// dispose terminates every descendant before ClosePseudoConsole can wait on a surviving client.
+			if (_hJob != 0) {
+				CloseHandle(_hJob);
+				_hJob = 0;
+			}
+
 			if (_hPC != 0) {
 				ClosePseudoConsole(_hPC);
 				_hPC = 0;
 			}
 
-			process = _hProcess;
 			readThread = _readThread;
 		}
 
-		// Block until the child exits so a following worktree removal can't race a process still cwd'd there;
-		// force-terminate if it ignores the console close. Off _gate so the read loop's final OnOutput can run,
-		// and skipped if we are the read thread (avoids self-joining).
+		// The job makes tree termination deterministic, so wait for the pipe reader instead of imposing a timeout
+		// that can let a descendant outlive its workspace.
 		if (readThread is { IsAlive: true } && Environment.CurrentManagedThreadId != readThread.ManagedThreadId) {
-			if (!readThread.Join(GracefulExitTimeout) && process != 0) {
-				TerminateProcess(process, 1);
-				readThread.Join(ForcedExitTimeout);
-			}
+			readThread.Join();
 		}
 
 		lock (_gate) {

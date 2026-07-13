@@ -92,6 +92,16 @@ public sealed class LocalFileSystem : IFileSystem {
 	}
 
 	/// <inheritdoc/>
+	public void AppendAllText(string path, string contents) {
+		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
+		if (!string.IsNullOrEmpty(directory)) {
+			Directory.CreateDirectory(directory);
+		}
+
+		File.AppendAllText(path, contents, Utf8NoBom);
+	}
+
+	/// <inheritdoc/>
 	public void WriteAllTextAtomic(string path, string contents) {
 		string? directory = Path.GetDirectoryName(Path.GetFullPath(path));
 		if (!string.IsNullOrEmpty(directory)) {

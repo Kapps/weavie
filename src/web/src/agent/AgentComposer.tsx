@@ -9,7 +9,14 @@ import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
 import { AgentSlashMenu } from "./AgentSlashMenu";
-import { agentControlState, openControlPicker, setAgentControl } from "./agent-controls-store";
+import {
+  agentControlState,
+  currentModel,
+  MODEL_AXIS,
+  openControlPicker,
+  setAgentControl,
+  toggleModelFast,
+} from "./agent-controls-store";
 import {
   captureAgentImagePaste,
   composerState,
@@ -52,11 +59,13 @@ export function AgentComposer(props: {
   const composer = createMemo(() => composerState(props.backendId, props.slot));
   const pendingLegacyImages = createMemo(() => countPendingLegacyImages(props.messages));
   const turnActive = createMemo(() => hasActiveTurn(props.messages));
-  const pending = createMemo(() => (turnActive() ? pendingRequest(props.messages) : null));
+  // Resolution-based, not turn-scoped: a card stays answerable until its request resolves, so the chord
+  // and the "waiting" label never go dead on a card that still shows its buttons.
+  const pending = createMemo(() => pendingRequest(props.messages));
   const pendingKind = createMemo(() => pending()?.kind ?? null);
   const canInterrupt = createMemo(() => props.slot !== null && turnActive());
 
-  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to moments a card is actually pending.
+  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to the same approval the card chips advertise.
   createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
   onCleanup(() => setContext("agentApprovalPending", false));
 
@@ -284,11 +293,42 @@ export function AgentComposer(props: {
       return true;
     });
 
+  // Applies a `value` arg to an axis directly (palette / Claude), or opens the merged model picker when bare.
+  const registerModelSelect = (commandId: string, axis: string): (() => void) =>
+    registerCommand(commandId, (args: unknown) => {
+      const slot = props.slot;
+      if (slot === null) {
+        return false;
+      }
+      const value = (args as { value?: unknown } | undefined)?.value;
+      if (typeof value === "string" && value.length > 0) {
+        setAgentControl(props.backendId, slot, axis, value);
+      } else {
+        openControlPicker(MODEL_AXIS);
+      }
+      return true;
+    });
+
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
-  const offSelectModel = registerSelect(CommandIds.selectModel, "model");
+  // Model and Effort both live in the one cascading picker; a bare command opens it, a value arg sets that axis.
+  const offSelectModel = registerModelSelect(CommandIds.selectModel, "model");
+  const offSelectEffort = registerModelSelect(CommandIds.selectEffort, "effort");
   const offSelectApproval = registerSelect(CommandIds.selectApprovalPolicy, "approvalPolicy");
   const offSelectSandbox = registerSelect(CommandIds.selectSandbox, "sandbox");
+  // Fast Mode toggles the active model's service tier (no picker).
+  const offToggleFast = registerCommand(CommandIds.toggleFastMode, () => {
+    const slot = props.slot;
+    if (slot === null) {
+      return false;
+    }
+    const model = currentModel(slot);
+    if (model === undefined || model.fastTier === "") {
+      return false;
+    }
+    toggleModelFast(props.backendId, slot, model);
+    return true;
+  });
   const offApprove = registerDecision(CommandIds.agentApprove, "accept");
   const offApproveForSession = registerDecision(
     CommandIds.agentApproveForSession,
@@ -301,6 +341,8 @@ export function AgentComposer(props: {
   onCleanup(offSelectModel);
   onCleanup(offSelectApproval);
   onCleanup(offSelectSandbox);
+  onCleanup(offSelectEffort);
+  onCleanup(offToggleFast);
   onCleanup(offApprove);
   onCleanup(offApproveForSession);
   onCleanup(offDecline);

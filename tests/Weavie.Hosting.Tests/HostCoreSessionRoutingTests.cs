@@ -172,16 +172,17 @@ public sealed class HostCoreSessionRoutingTests {
 	}
 
 	[Fact]
-	public async Task BinaryWorkspaceMutation_RefreshesFileWithoutReviewPayloadOrReplay() {
+	public async Task BinaryFileMutation_RefreshesFileWithoutReviewPayloadOrReplay() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest();
 		Assert.NotNull(session);
 		string file = Path.Combine(host.RepoRoot, "archive.bin");
+		var mutation = new AgentMutation.File(file, Cwd: null, ProvidesEditLocation: true);
 
-		session!.Events.Observe(new AgentToolStarting(new AgentMutation.Workspace("download")));
+		session!.Events.Observe(new AgentToolStarting(mutation));
 		File.WriteAllBytes(file, [0x50, 0x4b, 0x00, 0xff]);
 		host.Bridge.Clear();
-		session.Events.Observe(new AgentToolCompleted(new AgentMutation.Workspace("download")));
+		session.Events.Observe(new AgentToolCompleted(mutation));
 
 		Assert.Single(host.Bridge.PostedOfType("fs-change"));
 		Assert.Empty(host.Bridge.PostedOfType("turn-diff"));

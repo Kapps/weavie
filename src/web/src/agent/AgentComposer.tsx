@@ -59,11 +59,13 @@ export function AgentComposer(props: {
   const composer = createMemo(() => composerState(props.backendId, props.slot));
   const pendingLegacyImages = createMemo(() => countPendingLegacyImages(props.messages));
   const turnActive = createMemo(() => hasActiveTurn(props.messages));
-  const pending = createMemo(() => (turnActive() ? pendingRequest(props.messages) : null));
+  // Resolution-based, not turn-scoped: a card stays answerable until its request resolves, so the chord
+  // and the "waiting" label never go dead on a card that still shows its buttons.
+  const pending = createMemo(() => pendingRequest(props.messages));
   const pendingKind = createMemo(() => pending()?.kind ?? null);
   const canInterrupt = createMemo(() => props.slot !== null && turnActive());
 
-  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to moments a card is actually pending.
+  // Gates the Alt+Y / Alt+Shift+Y / Alt+N approval chords to the same approval the card chips advertise.
   createEffect(() => setContext("agentApprovalPending", pendingKind() === "approval"));
   onCleanup(() => setContext("agentApprovalPending", false));
 

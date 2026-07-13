@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { activeTurnStartedAt, formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
+import {
+  activeTurnStartedAt,
+  formatElapsed,
+  hasActiveTurn,
+  pendingApproval,
+  pendingRequest,
+} from "./turn-progress";
 
 const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
@@ -61,10 +67,16 @@ describe("pendingRequest", () => {
     ).toBe(null);
   });
 
-  it("drops stale requests when the turn ends or a new one starts", () => {
-    const stale = [message("turn-started"), message("approval-requested", "a1")];
-    expect(kindOf([...stale, message("turn-completed")])).toBe(null);
-    expect(kindOf([...stale, message("turn-started")])).toBe(null);
+  it("keeps an unresolved request across turn boundaries until it is resolved", () => {
+    const pending = [message("turn-started"), message("approval-requested", "a1")];
+    // A turn boundary must not drop a still-actionable card; only its matching resolution clears it.
+    expect(kindOf([...pending, message("turn-completed")])).toBe("approval");
+    expect(kindOf([...pending, message("turn-completed"), message("turn-started")])).toBe(
+      "approval",
+    );
+    expect(
+      kindOf([...pending, message("turn-completed"), message("approval-resolved", "a1")]),
+    ).toBe(null);
   });
 
   it("exposes the newest unresolved request id for keyboard decisions", () => {
@@ -76,6 +88,30 @@ describe("pendingRequest", () => {
         message("approval-resolved", "a2"),
       ]),
     ).toEqual({ kind: "approval", requestId: "a1" });
+  });
+});
+
+describe("pendingApproval", () => {
+  it("is the newest unresolved approval, regardless of turn state", () => {
+    expect(
+      pendingApproval([
+        message("turn-started"),
+        message("approval-requested", "a1"),
+        message("turn-completed"),
+      ]),
+    ).toEqual({ kind: "approval", requestId: "a1" });
+  });
+
+  it("is null when the newest unresolved request is an input, not an approval", () => {
+    expect(
+      pendingApproval([message("approval-requested", "a1"), message("input-requested", "q1")]),
+    ).toBe(null);
+  });
+
+  it("clears once the approval resolves", () => {
+    expect(
+      pendingApproval([message("approval-requested", "a1"), message("approval-resolved", "a1")]),
+    ).toBe(null);
   });
 });
 

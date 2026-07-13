@@ -32,6 +32,22 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Start_DisablesLoginShellForCommands() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new NullAgentEventSink(), messages);
+
+		session.Start();
+		string path = Path.Combine(_dir, "app-server-args.json");
+		await WaitForAsync(() => File.Exists(path));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(path));
+		string[] arguments = [.. doc.RootElement.EnumerateArray().Select(value => value.GetString() ?? string.Empty)];
+		int setting = Array.IndexOf(arguments, "allow_login_shell=false");
+		Assert.True(setting > 0);
+		Assert.Equal("-c", arguments[setting - 1]);
+	}
+
+	[Fact]
 	public async Task Start_DoesNotSurfaceInternalLifecycleCards() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];

@@ -378,6 +378,8 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
 
 		Assert.Contains(events.Values, value => value is AgentPermissionRequested);
+		// The unanswered request drives NeedsInput so a backgrounded session still pings the user.
+		Assert.Contains(events.Values, value => value is AgentPermissionResolved { RequiresUserInput: true });
 
 		session.ResolveApproval("approval-1", "accept");
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "approval-response.json")));

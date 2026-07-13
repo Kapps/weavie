@@ -580,6 +580,34 @@ test.describe("Codex composer", () => {
     expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
   });
 
+  // Regression: once the approval resolves, its decision buttons must go — the card is no longer actionable.
+  // The header status flips reactively; the buttons must flip with it in the same live update (no re-mount).
+  test("a resolved approval drops its decision buttons in place", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    host.pushToWeb(
+      paneMessage({
+        type: "approval-requested",
+        itemId: "a1",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        text: "dotnet test tests/Weavie.Hosting.Tests",
+      }),
+    );
+
+    const card = page.locator(".agent-entry-request");
+    const buttons = card.locator(".agent-approval-actions button");
+    await expect(buttons.filter({ hasText: "Accept" }).first()).toBeVisible();
+
+    host.pushToWeb(
+      paneMessage({ type: "approval-resolved", itemId: "a1", status: "acceptForSession" }),
+    );
+
+    await expect(card.locator(".agent-entry-status")).toHaveText("accepted for session");
+    await expect(buttons).toHaveCount(0);
+  });
+
   // Regression: a turn boundary must not strip a still-unresolved approval of its hotkeys. The chip and the
   // chord derive from resolution state, not turn state, so the card stays keyboard-answerable while it shows
   // its buttons — even after a turn-completed races in ahead of the answer.

@@ -42,7 +42,10 @@ public sealed class FileProviderService {
 		}
 
 		try {
-			string content = _fileSystem.ReadAllText(path);
+			if (!_fileSystem.TryReadAllText(path, out string content)) {
+				return FileProviderProtocol.ReadError(id, "Binary files cannot be opened as text.");
+			}
+
 			_fileSystem.TryGetStat(path, out var stat);
 			return FileProviderProtocol.ReadResult(id, content, stat);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -86,7 +89,7 @@ public sealed class FileProviderService {
 		}
 
 		try {
-			return _fileSystem.ReadAllText(path);
+			return _fileSystem.TryReadAllText(path, out string content) ? content : null;
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return null;
 		}

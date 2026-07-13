@@ -46,6 +46,26 @@ test.describe("remote bridge transport", () => {
     }).toPass({ timeout: 20_000 });
   });
 
+  test("the status bar reports network problems until reconnect replay completes", async ({
+    page,
+  }) => {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    await expect(page.locator(".connection-banner")).toHaveCount(0);
+
+    host.pauseBridgeReady();
+    host.disconnectBridge();
+
+    await expect(page.locator(".footer-network-problem")).toHaveText("Network Problems");
+    await expect
+      .poll(() => host.received.filter((message) => message.type === "ready").length)
+      .toBeGreaterThanOrEqual(2);
+    await expect(page.locator(".footer-network-problem")).toBeVisible();
+
+    host.resumeBridgeReady();
+    await expect(page.locator(".footer-network-problem")).toHaveCount(0);
+  });
+
   test("a replayed device query goes unanswered; the same query live is answered", async ({
     page,
   }) => {

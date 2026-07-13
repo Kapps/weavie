@@ -2,7 +2,7 @@
 // window.__weavieReceive). JSON messages; in a plain browser (dev) the host handler is absent and outbound
 // is a no-op by design, never a thrown error.
 
-import { createMemo, createSignal } from "solid-js";
+import { createSignal } from "solid-js";
 import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
@@ -242,7 +242,7 @@ export interface SearchMatch {
 }
 
 export type HostBoundMessage =
-  | { type: "ready" }
+  | { type: "ready"; bridgeId?: string }
   | { type: "monaco-ready" }
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
   // The xterm pane is mounted and ready to host the PTY child. `slot` is the workspace session (rail id)
@@ -720,6 +720,9 @@ export type WebBoundMessage =
   // worker updated under it sees a different build than its boot-time __WEAVIE_SHELL__.buildNumber
   // and reloads itself to pick up the matching assets.
   | { type: "host-info"; buildNumber: string }
+  // Ordered tail of the host's synchronous `ready` replay. A WebSocket transport is online only once this
+  // arrives, so an outbox-overflow reconnect cannot hide while its state replay is still congested.
+  | { type: "bridge-ready"; bridgeId: string }
   // Host answers list-dir with a directory's entries (directories first), each with an absolute path.
   | {
       type: "dir-listing";
@@ -823,11 +826,9 @@ function clearBackendPhase(id: string): void {
 }
 
 /** The live link state of the backend currently driving the page (online unless its socket is opening/retrying). */
-export const activeBackendPhase = createMemo<BackendPhase>(
-  () => phases().get(activeBackend()) ?? "online",
-);
+export const activeBackendPhase = (): BackendPhase => phases().get(activeBackend()) ?? "online";
 /** True while the active backend's link is down (opening or reconnecting) — the panes can't reach their host. */
-export const activeBackendOffline = createMemo<boolean>(() => activeBackendPhase() !== "online");
+export const activeBackendOffline = (): boolean => activeBackendPhase() !== "online";
 
 // These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
 // feed the rail, the New Session typeahead, the active backend's suggestions/recent-files, and local-only
@@ -955,6 +956,7 @@ const nativeTransport: BridgeTransport = {
 // The `ready` announcement that makes a host (re-)push its state — sent on every remote (re)connect and on a
 // local reconnect (main.tsx sends the local backend's initial one).
 const READY_HELLO = JSON.stringify({ type: "ready" });
+const BRIDGE_READY_PREFIX = '{"type":"bridge-ready",';
 
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
 // before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
@@ -965,6 +967,9 @@ class WebSocketTransport implements BridgeTransport {
   private readonly reliableAgentFrames = new ReliableAgentFrames();
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private readyId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+  private readyHello = JSON.stringify({ type: "ready", bridgeId: this.readyId });
+  private socketAttempt = 0;
   // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
   private hasOpened = false;
   // Set once the backend is deliberately disconnected; stops the close→reconnect loop for good.
@@ -994,12 +999,13 @@ class WebSocketTransport implements BridgeTransport {
   }
 
   send(json: string): void {
-    this.reliableAgentFrames.track(json);
+    const frame = json === READY_HELLO ? this.readyHello : json;
+    this.reliableAgentFrames.track(frame);
     if (this.socket !== null && this.socket.readyState === WebSocket.OPEN) {
-      this.socket.send(json);
+      this.socket.send(frame);
       return;
     }
-    this.outbox.push(json);
+    this.outbox.push(frame);
   }
 
   /** Disconnect for good: stop reconnecting and close the socket (the user removed this remote backend). */
@@ -1038,20 +1044,27 @@ class WebSocketTransport implements BridgeTransport {
       this.onDrop();
       return;
     }
+    if (this.socketAttempt++ > 0) {
+      const priorReadyHello = this.readyHello;
+      this.readyId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+      this.readyHello = JSON.stringify({ type: "ready", bridgeId: this.readyId });
+      for (let i = 0; i < this.outbox.length; i++) {
+        if (this.outbox[i] === priorReadyHello) {
+          this.outbox[i] = this.readyHello;
+        }
+      }
+    }
+    const readyHello = this.readyHello;
+    const readyAck = JSON.stringify({ type: "bridge-ready", bridgeId: this.readyId });
     this.socket = socket;
     socket.onopen = (): void => {
       this.reconnectDelayMs = 500;
-      if (this.phase === "reconnecting") {
-        notify("info", `Reconnected to ${this.label}.`, this.connectionToastKey);
-      }
-      this.phase = "online";
-      setBackendPhase(this.backendId, "online");
       if (this.hello !== undefined) {
-        socket.send(this.hello);
+        socket.send(this.hello === READY_HELLO ? readyHello : this.hello);
       } else if (this.hasOpened) {
         // The local backend's initial `ready` came from main.tsx; the host re-pushes state (and re-syncs
         // terminals) only on `ready`, so a reconnect re-announces it here (remotes' `hello` already does).
-        socket.send(READY_HELLO);
+        socket.send(readyHello);
       }
       this.hasOpened = true;
       const pending = this.outbox.splice(0, this.outbox.length);
@@ -1067,6 +1080,17 @@ class WebSocketTransport implements BridgeTransport {
     };
     socket.onmessage = (event: MessageEvent): void => {
       if (typeof event.data === "string") {
+        if (event.data.startsWith(BRIDGE_READY_PREFIX)) {
+          if (this.socket !== socket || event.data !== readyAck) {
+            return; // another tab's broadcast replay marker
+          }
+          if (this.phase === "reconnecting") {
+            notify("info", `Reconnected to ${this.label}.`, this.connectionToastKey);
+          }
+          this.phase = "online";
+          setBackendPhase(this.backendId, "online");
+          return;
+        }
         this.reliableAgentFrames.acknowledge(event.data);
         deliverFromHost(event.data, this.backendId);
       }

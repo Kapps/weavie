@@ -91,7 +91,10 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 		session.Submit(Submission("queued prompt", []));
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Text == "queued prompt"));
+		// Flaked 2026-07-13 02:03 UTC under CI load: this path spans a subprocess spawn plus the
+		// initialize -> thread/resume -> turn/start round trips before the queued submission lands.
+		// https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250
+		await WaitForAsync(() => messages.Any(message => message.Text == "queued prompt"), attempts: 400);
 
 		int history = messages.FindIndex(message => message.Text == "old answer");
 		int queued = messages.FindIndex(message => message.Text == "queued prompt");
@@ -378,6 +381,8 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-requested"));
 
 		Assert.Contains(events.Values, value => value is AgentPermissionRequested);
+		// The unanswered request drives NeedsInput so a backgrounded session still pings the user.
+		Assert.Contains(events.Values, value => value is AgentPermissionResolved { RequiresUserInput: true });
 
 		session.ResolveApproval("approval-1", "accept");
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "approval-response.json")));
@@ -883,8 +888,14 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		return session;
 	}
 
-	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 200; i++) {
+	private static async Task WaitForAsync(Func<bool> done) => await WaitForAsync(done, attempts: 200);
+
+	// Scoped override for waits that inherently span a subprocess spawn plus multiple JSON-RPC round
+	// trips (initialize -> thread/resume -> turn/start), which cost more than the in-process assertions
+	// the default budget is sized for. Widening the shared 200-attempt default instead would double the
+	// failure-detection latency for every other test in this class on every CI run.
+	private static async Task WaitForAsync(Func<bool> done, int attempts) {
+		for (int i = 0; i < attempts; i++) {
 			if (done()) {
 				return;
 			}

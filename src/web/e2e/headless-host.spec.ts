@@ -87,6 +87,6 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     await expect.poll(() => page.evaluate("window.__WEAVIE_BRIDGE_WS__")).toBe("auto");
 
     // The page's `ready` must reach the real C# session — proof the bridge round-trips end to end.
-    await expect.poll(() => log, { timeout: 15_000 }).toContain('{"type":"ready"}');
+    await expect.poll(() => log, { timeout: 15_000 }).toContain('{"type":"ready","bridgeId":');
   });
 });

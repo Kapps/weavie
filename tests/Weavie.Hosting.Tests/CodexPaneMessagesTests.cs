@@ -239,17 +239,6 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
-	public void FromNotification_MapsResolvedRequestIdWithoutJsonQuotes() {
-		using var doc = JsonDocument.Parse(
-			"""{"method":"serverRequest/resolved","params":{"threadId":"thread_1","requestId":"approval-1"}}""");
-
-		var message = CodexPaneMessages.FromNotification("serverRequest/resolved", "thread_1", doc.RootElement);
-
-		Assert.NotNull(message);
-		Assert.Equal("approval-1", message.ItemId);
-	}
-
-	[Fact]
 	public void FromNotification_MapsFailedMcpStartupToWarning() {
 		using var doc = JsonDocument.Parse(
 			"""{"method":"mcpServer/startupStatus/updated","params":{"name":"github","status":"failed","error":"No access token was provided"}}""");

@@ -44,6 +44,8 @@ export class MockHost {
   private readonly http: Server;
   private readonly wss: WebSocketServer;
   private socket: WebSocket | null = null;
+  private bridgeReadyPaused = false;
+  private bridgeId = "";
   private readonly waiters: { type: string; resolve: (m: Message) => void }[] = [];
   private port = 0;
 
@@ -88,6 +90,22 @@ export class MockHost {
       throw new Error("pushToWeb: no page is connected to the bridge yet");
     }
     this.socket.send(JSON.stringify(message));
+  }
+
+  /** Holds the ordered ready-tail marker so reconnect UI can be asserted while state replay is incomplete. */
+  pauseBridgeReady(): void {
+    this.bridgeReadyPaused = true;
+  }
+
+  /** Releases a held ready-tail marker to mark the current bridge replay complete. */
+  resumeBridgeReady(): void {
+    this.bridgeReadyPaused = false;
+    this.pushToWeb({ type: "bridge-ready", bridgeId: this.bridgeId });
+  }
+
+  /** Drops only the live bridge socket; the server stays up so the page reconnects normally. */
+  disconnectBridge(): void {
+    this.socket?.terminate();
   }
 
   /** Resolves with the next (or already-received) host-bound message of the given type. */
@@ -136,6 +154,13 @@ export class MockHost {
       return;
     }
     this.received.push(message);
+
+    if (message.type === "ready") {
+      this.bridgeId = typeof message.bridgeId === "string" ? message.bridgeId : "";
+      if (!this.bridgeReadyPaused) {
+        this.pushToWeb({ type: "bridge-ready", bridgeId: this.bridgeId });
+      }
+    }
 
     const waiter = this.waiters.find((w) => w.type === message.type);
     if (waiter !== undefined) {

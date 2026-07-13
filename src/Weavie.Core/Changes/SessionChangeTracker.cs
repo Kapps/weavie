@@ -28,6 +28,9 @@ public sealed partial class SessionChangeTracker {
 	private readonly Dictionary<string, string> _acceptedAnchor = new(StringComparer.Ordinal);
 	// Each file's content at the most recent edit's PreToolUse; diffed against post-edit in EditLocationFor.
 	private readonly Dictionary<string, string> _preEdit = new(StringComparer.Ordinal);
+	// Non-text files never enter the diff dictionaries; their stat is enough to refresh an open media/editor
+	// surface when a workspace-wide tool changes them without serializing their contents.
+	private readonly Dictionary<string, FileStat> _nonText = new(StringComparer.Ordinal);
 	// Files absent on disk when their review baseline was captured, so reverting their last hunk deletes rather
 	// than leaves a 0-byte file. Keys off existence-at-baseline, not emptiness.
 	private readonly HashSet<string> _createdSinceBaseline = new(StringComparer.Ordinal);
@@ -172,7 +175,15 @@ public sealed partial class SessionChangeTracker {
 			// Disk content here is the pre-edit file. Seed baselines if missing; track existence so a later revert
 			// deletes rather than truncates a file that didn't yet exist.
 			bool existed = _fileSystem.FileExists(path);
-			string content = ReadOrEmpty(path);
+			if (!TryReadOrEmpty(path, out string content)) {
+				Forget(path);
+				if (existed && _fileSystem.TryGetStat(path, out var stat)) {
+					_nonText.TryAdd(path, stat);
+				}
+				return;
+			}
+
+			_nonText.Remove(path);
 			CaptureBaselineLocked(path, content, existed);
 		}
 	}
@@ -192,18 +203,60 @@ public sealed partial class SessionChangeTracker {
 	/// <param name="path">Absolute file path.</param>
 	public void RecordChange(string path) {
 		ArgumentException.ThrowIfNullOrEmpty(path);
+		bool reviewRemoved;
+		bool nonTextChanged;
+		bool ignoredNonText;
 		lock (_gate) {
-			_baseline.TryAdd(path, string.Empty);
-			// First review-touch with no prior CaptureBaseline: the file appeared this session, so it didn't exist at baseline.
-			if (_reviewBaseline.TryAdd(path, string.Empty)) {
-				_createdSinceBaseline.Add(path);
-			}
+			if (!TryReadOrEmpty(path, out string content)) {
+				ignoredNonText = true;
+				reviewRemoved = _current.ContainsKey(path);
+				nonTextChanged = _fileSystem.TryGetStat(path, out var stat)
+					&& (!_nonText.TryGetValue(path, out var known) || stat.MtimeMs != known.MtimeMs || stat.Size != known.Size);
+				if (stat.Exists) {
+					_nonText[path] = stat;
+				}
+				Forget(path);
+			} else {
+				ignoredNonText = false;
+				if (_nonText.Remove(path)) {
+					// A binary baseline cannot support a safe line-level reject; refresh the now-text file without review.
+					reviewRemoved = false;
+					nonTextChanged = true;
+				} else {
+					reviewRemoved = false;
+					nonTextChanged = false;
+					_baseline.TryAdd(path, string.Empty);
+					// First review-touch with no prior CaptureBaseline: the file appeared this session, so it didn't exist at baseline.
+					if (_reviewBaseline.TryAdd(path, string.Empty)) {
+						_createdSinceBaseline.Add(path);
+					}
 
-			_acceptedAnchor.TryAdd(path, string.Empty);
-			string content = ReadOrEmpty(path);
-			string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
-			string reviewCurrent = _current.GetValueOrDefault(path, before);
-			_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent);
+					_acceptedAnchor.TryAdd(path, string.Empty);
+					string before = _preEdit.GetValueOrDefault(path, _current.GetValueOrDefault(path, string.Empty));
+					string reviewCurrent = _current.GetValueOrDefault(path, before);
+					_current[path] = RecordAgentProvenance(path, before, content, reviewCurrent);
+				}
+			}
+		}
+
+		if (reviewRemoved) {
+			Changed?.Invoke();
+		}
+
+		if (ignoredNonText) {
+			if (nonTextChanged) {
+				FileChanged?.Invoke(path);
+			}
+			return;
+		}
+
+		if (nonTextChanged) {
+			FileChanged?.Invoke(path);
+			return;
+		}
+
+		if (reviewRemoved) {
+			return;
 		}
 
 		Changed?.Invoke();
@@ -257,10 +310,17 @@ public sealed partial class SessionChangeTracker {
 	private void ReconcileDeletions() {
 		List<string>? removed = null;
 		lock (_gate) {
-			// Snapshot keys first: Forget mutates _current while we iterate. Only _current files appear in the review walk.
+			// Snapshot keys first: Forget mutates _current while we iterate.
 			foreach (string path in new List<string>(_current.Keys)) {
 				if (!_fileSystem.FileExists(path)) {
 					Forget(path);
+					(removed ??= []).Add(path);
+				}
+			}
+
+			foreach (string path in new List<string>(_nonText.Keys)) {
+				if (!_fileSystem.FileExists(path)) {
+					_nonText.Remove(path);
 					(removed ??= []).Add(path);
 				}
 			}
@@ -345,6 +405,10 @@ public sealed partial class SessionChangeTracker {
 		List<CorrectionEdit> edits;
 		RevertHunkOutcome outcome;
 		lock (_gate) {
+			if (!_reviewBaseline.ContainsKey(path)) {
+				return RevertHunkOutcome.GuardMismatch;
+			}
+
 			edits = RevertCorrections(path);
 			var before = Capture(path, withDisk: true);
 			outcome = RevertFileLocked(path);
@@ -654,6 +718,15 @@ public sealed partial class SessionChangeTracker {
 	}
 
 	private string ReadOrEmpty(string path) => _fileSystem.FileExists(path) ? _fileSystem.ReadAllText(path) : string.Empty;
+
+	private bool TryReadOrEmpty(string path, out string contents) {
+		if (_fileSystem.FileExists(path)) {
+			return _fileSystem.TryReadAllText(path, out contents);
+		}
+
+		contents = string.Empty;
+		return true;
+	}
 
 	// Split text the way a Monaco model does (CRLF/CR normalized to LF), so the web's line ranges line up with Core's slices.
 	private static List<string> SplitLines(string text) =>

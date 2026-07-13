@@ -345,6 +345,7 @@ public sealed class CodexAppServerProtocolTests {
 		public IReadOnlyList<DirectoryEntry> EnumerateDirectory(string path) =>
 			throw new Xunit.Sdk.XunitException($"Workspace enumeration attempted at {path}");
 		public string ReadAllText(string path) => _inner.ReadAllText(path);
+		public bool TryReadAllText(string path, out string contents) => _inner.TryReadAllText(path, out contents);
 		public byte[] ReadAllBytes(string path) => _inner.ReadAllBytes(path);
 		public void WriteAllText(string path, string contents) => _inner.WriteAllText(path, contents);
 		public void WriteAllBytes(string path, byte[] contents) => _inner.WriteAllBytes(path, contents);

@@ -146,6 +146,9 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		if (CodexApprovalResponses.CanResolve(request.Method) || CodexInputResponses.CanResolve(request.Method)) {
 			_pendingRequests[request.Id] = request;
 			_context.Events.Observe(new AgentPermissionRequested());
+			// Past the bypass auto-accept, this request always needs the user — so, like Claude's pass-through gate,
+			// resolve it as needing input to drive the session to NeedsInput (and ping a backgrounded pane).
+			_context.Events.Observe(new AgentPermissionResolved(RequiresUserInput: true));
 			Emit(WithFileChangeSubstance(request, CodexPaneMessages.FromRequest(request)));
 			return;
 		}

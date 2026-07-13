@@ -610,8 +610,8 @@ test.describe("Codex composer", () => {
     expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
   });
 
-  // Pins the follow pill: scrolling up pauses follow and shows the pill; clicking it re-sticks.
-  test("scrolling up shows the jump-to-latest pill", async ({ page }) => {
+  // Pins the follow threshold and pill: staying within three lines keeps following; scrolling farther up pauses it.
+  test("scrolling beyond three lines shows the jump-to-latest pill", async ({ page }) => {
     await mountCodex(page);
     for (let i = 0; i < 40; i += 1) {
       host.pushToWeb(userMessage(`prompt ${i}\nwith\nseveral\nlines`));
@@ -622,7 +622,27 @@ test.describe("Codex composer", () => {
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(pill).toHaveCount(0);
 
-    await body.evaluate((el) => el.scrollTo({ top: 0 }));
+    const scrollLinesFromBottom = (lines: number): Promise<void> =>
+      body.evaluate(
+        (el, linesFromBottom) =>
+          new Promise<void>((resolve) => {
+            el.addEventListener("scroll", () => resolve(), { once: true });
+            const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
+            el.scrollTo({
+              top: el.scrollHeight - el.clientHeight - lineHeight * linesFromBottom,
+            });
+          }),
+        lines,
+      );
+
+    await scrollLinesFromBottom(3);
+    await expect(pill).toHaveCount(0);
+    host.pushToWeb(userMessage("near-bottom follow check"));
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeLessThan(1);
+
+    await scrollLinesFromBottom(4);
     await expect(pill).toBeVisible();
     await page.screenshot({ path: join(shotsDir, "10-follow-pill.png") });
 
@@ -630,7 +650,12 @@ test.describe("Codex composer", () => {
     await expect(pill).toHaveCount(0);
     await expect
       .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(40);
+      .toBeLessThan(1);
+    host.pushToWeb(userMessage("follow after jump to latest"));
+    await expect(page.getByText("follow after jump to latest", { exact: true })).toBeVisible();
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeLessThan(1);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

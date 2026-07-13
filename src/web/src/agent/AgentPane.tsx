@@ -32,14 +32,13 @@ export function AgentPane(props: {
   // Only the card the keyboard chords answer wears the chips.
   const keyboardApprovalId = createMemo(() => pendingApproval(props.messages)?.requestId ?? null);
 
-  const isAtBottom = (): boolean => {
+  const isNearBottom = (): boolean => {
     if (bodyRef === undefined) {
       return true;
     }
     const distance = bodyRef.scrollHeight - bodyRef.scrollTop - bodyRef.clientHeight;
-    // Allow only rounding noise. A generous "near bottom" threshold makes opening a disclosure or
-    // scrolling slightly upward opt back into auto-scroll, which yanks the content out from under the user.
-    return distance <= 4;
+    const lineHeight = Number.parseFloat(getComputedStyle(bodyRef).lineHeight);
+    return distance <= Math.ceil(lineHeight * 3);
   };
 
   const scrollToBottom = (): void => {
@@ -65,13 +64,13 @@ export function AgentPane(props: {
     if (programmaticScroll) {
       programmaticScroll = false;
       if (bodyRef !== undefined && bodyRef.scrollTop === assignedTop) {
-        if (!isAtBottom()) {
+        if (!isNearBottom()) {
           scrollToBottom();
         }
         return;
       }
     }
-    setStickToBottom(isAtBottom());
+    setStickToBottom(isNearBottom());
   };
 
   // Follow content growth: props.messages changes once per publish (including text deltas), so this tracks the
@@ -156,7 +155,7 @@ export function AgentPane(props: {
         messages={props.messages}
         slot={props.slot}
         onSubmitted={() => {
-          if (isAtBottom()) {
+          if (isNearBottom()) {
             setStickToBottom(true);
           }
         }}

@@ -40,13 +40,15 @@ export interface PendingRequest {
   requestId: string;
 }
 
-/** The latest unresolved approval/input request — the turn is blocked on the user, not working. */
+/**
+ * The latest request whose itemId has no resolution yet — the same resolution-based signal that keeps the
+ * card's buttons on screen. A turn boundary must NOT clear it: a request is answerable for exactly as long
+ * as it is unresolved, so the hotkey chip and chord never drop off a card that still shows its buttons.
+ */
 export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
   const pending = new Map<string, PendingRequestKind>();
   for (const message of messages) {
-    if (message.type === "turn-started" || message.type === "turn-completed") {
-      pending.clear();
-    } else if (message.type === "approval-requested" && hasItemId(message)) {
+    if (message.type === "approval-requested" && hasItemId(message)) {
       pending.set(message.itemId, "approval");
     } else if (message.type === "input-requested" && hasItemId(message)) {
       pending.set(message.itemId, "input");
@@ -65,13 +67,11 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
 }
 
 /**
- * The one approval the keyboard decision commands answer: the newest pending request of an active
- * turn, when it is an approval. The chips and the commands must derive this identically.
+ * The one approval the keyboard decision commands answer and the card chips advertise: the newest
+ * unresolved approval. Derived from the same resolution state as the buttons, so the chip, the chord, and
+ * the buttons agree — a card is keyboard-answerable for exactly as long as it is clickable.
  */
 export function pendingApproval(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
-  if (!hasActiveTurn(messages)) {
-    return null;
-  }
   const request = pendingRequest(messages);
   return request !== null && request.kind === "approval" ? request : null;
 }

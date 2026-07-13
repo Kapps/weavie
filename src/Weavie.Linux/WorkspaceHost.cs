@@ -56,6 +56,9 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 
 		_window = Gtk.gtk_window_new(Gtk.WindowToplevel);
 		Gtk.gtk_window_set_title(_window, "weavie");
+		IntPtr icon = GdkPixbuf.LoadFile(Path.Combine(AppContext.BaseDirectory, "weavie.png"));
+		Gtk.gtk_window_set_icon(_window, icon);
+		GLib.g_object_unref(icon);
 		Gtk.gtk_container_add(_window, _webView);
 		_onDestroy = OnWindowDestroy;
 		_ = GLib.g_signal_connect_data(

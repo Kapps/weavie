@@ -17,6 +17,13 @@
     <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Content Include="..\web\public\weavie.png" Link="weavie.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
+  </ItemGroup>
+
   <!--
     Release/CI: build the Vite web app as part of the dotnet build so a shippable build needs no
     manual `pnpm run build`. Incremental (Inputs/Outputs) — a no-op when web sources are unchanged.

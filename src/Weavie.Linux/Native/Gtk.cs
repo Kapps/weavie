@@ -31,6 +31,9 @@ internal static partial class Gtk {
 	internal static partial void gtk_window_set_title(IntPtr window, string title);
 
 	[LibraryImport(Lib)]
+	internal static partial void gtk_window_set_icon(IntPtr window, IntPtr icon);
+
+	[LibraryImport(Lib)]
 	internal static partial void gtk_window_set_default_size(IntPtr window, int width, int height);
 
 	[LibraryImport(Lib)]

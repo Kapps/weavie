@@ -145,6 +145,26 @@ export const railSessions = createMemo<RailSession[]>(() => {
     .map((s) => (s.isLocal ? s : { ...s, agentHue: agentHue(s.locationName) }));
 });
 
+/**
+ * The rail chip a next/prev step over `list` (LOADED chips only) should land on for `delta` (±1, wrapping), or
+ * null when there's nothing to move to. With no active chip — e.g. deleting the focused session leaves the page
+ * bound to a backend with no docked chip — any single chip is a valid recovery target (near end: first for next,
+ * last for prev), so Ctrl+Tab / Ctrl+Shift+Tab recover focus instead of dead-keying.
+ */
+export function stepRailTarget(list: RailSession[], delta: number): RailSession | null {
+  const current = list.findIndex((s) => s.active);
+  if (list.length < (current < 0 ? 1 : 2)) {
+    return null;
+  }
+  let index: number;
+  if (current < 0) {
+    index = delta < 0 ? list.length - 1 : 0;
+  } else {
+    index = (current + delta + list.length) % list.length;
+  }
+  return list[index] ?? null;
+}
+
 /** Every registered remote agent and its sessions, for the cloud panel (connected first, offline faded). */
 export const remoteAgentRows = createMemo<RemoteAgentRow[]>(() => {
   const remotes = connectedBackends().filter((b) => !b.isLocal);

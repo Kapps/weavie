@@ -513,6 +513,7 @@ public sealed class WorktreeManagerTests {
 				DirtyPaths.Any(p => PathEquals(p, worktreeDirectory))
 					? WorktreeChangeState.Modified
 					: WorktreeChangeState.Clean,
+				[],
 				[]));
 
 		public Task<bool> IsBranchMergedAsync(string repositoryDirectory, string branch, string into, CancellationToken ct = default) =>

@@ -61,6 +61,7 @@ import {
   remoteAgentRows,
   sessions,
   sessionsReceived,
+  stepRailTarget,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
 import { TitleBar } from "./chrome/TitleBar";
@@ -477,16 +478,14 @@ export default function App(): JSX.Element {
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };
 
-  // Step the active session to the next/prev LOADED rail chip (delta ±1, wraps); dormant chips are skipped.
-  // Returns whether it stepped, so with <2 loaded sessions the keystroke falls through (matching tab next/prev).
+  // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant chips skipped); false falls the
+  // keystroke through when there's nothing to move to.
   const stepSession = (delta: number): boolean => {
-    const list = railSessions().filter((s) => s.loaded);
-    const current = list.findIndex((s) => s.active);
-    if (list.length < 2 || current < 0) {
-      return false;
-    }
-    const target = list[(current + delta + list.length) % list.length];
-    if (target === undefined) {
+    const target = stepRailTarget(
+      railSessions().filter((s) => s.loaded),
+      delta,
+    );
+    if (target === null) {
       return false;
     }
     switchToSession(target);
@@ -500,8 +499,8 @@ export default function App(): JSX.Element {
     id: string;
     label: string;
     state: DeleteSessionState;
-    untrackedFiles: string[];
-    untrackedCount: number;
+    changedFiles: string[];
+    changedCount: number;
     backendId: string;
   } | null>(null);
   // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Classify the
@@ -527,16 +526,19 @@ export default function App(): JSX.Element {
       | {
           state?: DeleteSessionState;
           label?: string;
+          changedFiles?: string[];
+          changedCount?: number;
           untrackedFiles?: string[];
           untrackedCount?: number;
         }
       | undefined;
+    const changedFiles = info?.changedFiles ?? info?.untrackedFiles ?? [];
     setDeleteReq({
       id,
       label: info?.label ?? id,
       state: info?.state ?? "clean",
-      untrackedFiles: info?.untrackedFiles ?? [],
-      untrackedCount: info?.untrackedCount ?? 0,
+      changedFiles,
+      changedCount: info?.changedCount ?? info?.untrackedCount ?? changedFiles.length,
       backendId,
     });
   };
@@ -861,6 +863,14 @@ export default function App(): JSX.Element {
         agentPaneAccumulator.ingest(message.slot, message.message, (messages) =>
           setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
         );
+      } else if (message.type === "agent-pane-batch") {
+        // A reconnect's whole-snapshot replay: ingest each in order; the accumulator's scheduled flush
+        // publishes once, so this is O(N) work and a single reactive update, not N.
+        for (const paneMessage of message.messages) {
+          agentPaneAccumulator.ingest(message.slot, paneMessage, (messages) =>
+            setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
+          );
+        }
       } else if (message.type === "agent-pane-reset") {
         agentPaneAccumulator.reset(message.slot, (messages) =>
           setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
@@ -1145,8 +1155,8 @@ export default function App(): JSX.Element {
         return true;
       }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
-      // still cycles tabs): cycle the rail, wrapping. stepSession returns false with <2 sessions so the chord
-      // falls through.
+      // still cycles tabs): cycle the rail, wrapping. stepSession returns false only when there's no chip to move
+      // to (empty rail, or a lone active chip), so the chord falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
       // Focus Session (programmatic; the notification click-through): bring a session to the foreground by
@@ -1526,8 +1536,8 @@ export default function App(): JSX.Element {
           <DeleteSessionDialog
             label={req().label}
             state={req().state}
-            untrackedFiles={req().untrackedFiles}
-            untrackedCount={req().untrackedCount}
+            changedFiles={req().changedFiles}
+            changedCount={req().changedCount}
             onConfirm={confirmDeleteSession}
             onCancel={() => setDeleteReq(null)}
           />

@@ -55,6 +55,9 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The isolated ring behind <c>weavie.view.logs</c> — append lines to exercise the log viewer.</summary>
 	public LogBuffer LogBuffer => _services.LogBuffer;
 
+	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
+	public SettingsStore Settings => _services.Settings;
+
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
 	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
 

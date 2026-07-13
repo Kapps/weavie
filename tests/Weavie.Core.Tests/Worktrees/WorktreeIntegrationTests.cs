@@ -79,12 +79,14 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		// Fresh worktree off a commit: clean, no untracked files.
 		var clean = await _git.GetChangeStateAsync(record.Path);
 		Assert.Equal(WorktreeChangeState.Clean, clean.State);
+		Assert.Empty(clean.TrackedFiles);
 		Assert.Empty(clean.UntrackedFiles);
 
 		// A file git doesn't know about: untracked-only, and named in the list.
 		File.WriteAllText(Path.Combine(record.Path, "temp.txt"), "scratch\n");
 		var untracked = await _git.GetChangeStateAsync(record.Path);
 		Assert.Equal(WorktreeChangeState.UntrackedOnly, untracked.State);
+		Assert.Empty(untracked.TrackedFiles);
 		Assert.Equal(["temp.txt"], untracked.UntrackedFiles);
 
 		// Editing a tracked file is a tracked change even with the untracked file present — the stronger
@@ -92,7 +94,29 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
 		var modified = await _git.GetChangeStateAsync(record.Path);
 		Assert.Equal(WorktreeChangeState.Modified, modified.State);
+		Assert.Equal(["readme.txt"], modified.TrackedFiles);
 		Assert.Equal(["temp.txt"], modified.UntrackedFiles);
+	}
+
+	[Fact]
+	public async Task GetChangeState_ListsStagedAddDeleteAndRenamePaths() {
+		File.WriteAllText(Path.Combine(_repo, "delete-me.txt"), "delete\n");
+		File.WriteAllText(Path.Combine(_repo, "rename-me.txt"), "rename\n");
+		RunGit(_repo, "add", "-A");
+		RunGit(_repo, "-c", "user.email=test@weavie.dev", "-c", "user.name=Weavie Test", "commit", "-m", "more files");
+		var record = await NewManager().CreateAsync("staged-changes", "main");
+
+		File.WriteAllText(Path.Combine(record.Path, "readme.txt"), "edited\n");
+		File.Delete(Path.Combine(record.Path, "delete-me.txt"));
+		File.Move(Path.Combine(record.Path, "rename-me.txt"), Path.Combine(record.Path, "renamed.txt"));
+		File.WriteAllText(Path.Combine(record.Path, "staged-new.txt"), "new\n");
+		RunGit(record.Path, "add", "-A");
+
+		var status = await _git.GetChangeStateAsync(record.Path);
+
+		Assert.Equal(WorktreeChangeState.Modified, status.State);
+		Assert.Equal(["delete-me.txt", "readme.txt", "renamed.txt", "staged-new.txt"], status.TrackedFiles);
+		Assert.Empty(status.UntrackedFiles);
 	}
 
 	[Fact]

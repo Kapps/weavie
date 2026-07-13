@@ -17,7 +17,8 @@ public sealed class AgentSessionHostTests {
 	[Fact]
 	public async Task StructuredProvider_DoesNotStartUntilSlotIsKnown() {
 		string slot = string.Empty;
-		await using var fixture = CreateFixture(() => slot, static (_, _) => { });
+		// Window 0 so each live message posts its own agent-pane frame, asserted synchronously below.
+		await using var fixture = CreateFixture(() => slot, static (_, _) => { }, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		Assert.False(session.Started);
@@ -45,9 +46,9 @@ public sealed class AgentSessionHostTests {
 		bridge.Clear();
 		host.ReplayPane();
 
-		var replayed = Assert.Single(bridge.PostedOfType("agent-pane"), value =>
-			value.GetProperty("message").GetProperty("itemId").GetString() == "item-1");
-		Assert.Equal("hello world", replayed.GetProperty("message").GetProperty("text").GetString());
+		var replayed = Assert.Single(Replayed(bridge), value =>
+			value.GetProperty("itemId").GetString() == "item-1");
+		Assert.Equal("hello world", replayed.GetProperty("text").GetString());
 
 		session.Emit(new AgentPaneMessage {
 			Type = "agent-message-delta",
@@ -68,9 +69,9 @@ public sealed class AgentSessionHostTests {
 		bridge.Clear();
 		host.ReplayPane();
 
-		string?[] shared = [.. bridge.PostedOfType("agent-pane")
-			.Where(value => value.GetProperty("message").GetProperty("itemId").GetString() == "item-shared")
-			.Select(value => value.GetProperty("message").GetProperty("text").GetString())];
+		string?[] shared = [.. Replayed(bridge)
+			.Where(value => value.GetProperty("itemId").GetString() == "item-shared")
+			.Select(value => value.GetProperty("text").GetString())];
 		Assert.Collection(
 			shared,
 			value => Assert.Equal("alpha", value),
@@ -95,10 +96,50 @@ public sealed class AgentSessionHostTests {
 		bridge.Clear();
 		host.ReplayPane();
 
-		string?[] collisionTexts = [.. bridge.PostedOfType("agent-pane")
-			.Where(value => value.GetProperty("message").GetProperty("itemId").GetString() == "item-collision")
-			.Select(value => value.GetProperty("message").GetProperty("text").GetString())];
+		string?[] collisionTexts = [.. Replayed(bridge)
+			.Where(value => value.GetProperty("itemId").GetString() == "item-collision")
+			.Select(value => value.GetProperty("text").GetString())];
 		Assert.Equal(collisions.Select(collision => collision.Text), collisionTexts);
+	}
+
+	[Fact]
+	public async Task ReplayPane_batches_the_whole_transcript_into_one_frame() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+
+		host.Structured!.Start();
+		// A long transcript — far past the bridge's 512-deep outbox. Before batching, ReplayPane posted one frame
+		// per entry, bursting past the outbox on a slow (remote) link and getting the healthy page dropped.
+		for (int i = 0; i < 1000; i++) {
+			session.Emit(Completed($"item-{i}", $"line {i}"));
+		}
+		bridge.Clear();
+		host.ReplayPane();
+
+		// The whole replay is a reset plus a single batch frame — a bounded burst no matter how long the transcript.
+		Assert.Equal(2, bridge.Posted.Count);
+		Assert.Single(bridge.PostedOfType("agent-pane-reset"));
+		var batch = Assert.Single(bridge.PostedOfType("agent-pane-batch"));
+		Assert.Equal(1001, batch.GetProperty("messages").GetArrayLength()); // 1000 items + the "started" marker
+	}
+
+	[Fact]
+	public async Task LiveMessages_within_the_window_coalesce_into_one_batch_frame() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 200);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+
+		host.Structured!.Start(); // "started"
+		for (int i = 0; i < 5; i++) {
+			session.Emit(Completed($"item-{i}", $"line {i}"));
+		}
+
+		// The 6 messages (started + 5) all land inside one window, so the flush is a single batch frame — no
+		// per-message agent-pane frame escapes, which is what keeps a fast turn from flooding the outbox.
+		int count = await Wait.ForAsync(() =>
+			bridge.PostedOfType("agent-pane-batch").Count is var c and > 0 ? c : (int?)null);
+		Assert.Equal(1, count);
+		Assert.Empty(bridge.PostedOfType("agent-pane"));
+		Assert.Equal(6, Replayed(bridge).Count);
 	}
 
 	[Fact]
@@ -106,17 +147,18 @@ public sealed class AgentSessionHostTests {
 		// A prior session's persisted result — the durable transcript on disk before this session is built.
 		await using var fixture = CreateFixture(
 			static () => "slot-1",
-			static (fileSystem, transcriptPath) => new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(
-				Completed("item-1", "prior result")));
+			static (fileSystem, transcriptPath) =>
+				new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(Completed("item-1", "prior result")),
+			0);
 
 		// The provider hasn't started (no thread/resume, no hydration): a reconnecting page's ReplayPane still
 		// restores the prior result — from the synchronous disk seed. This is the reopen-reconnect fix.
 		Assert.False(fixture.Session.Started);
 		fixture.Host.ReplayPane();
 
-		var replayed = Assert.Single(fixture.Bridge.PostedOfType("agent-pane"));
-		Assert.Equal("item-completed", replayed.GetProperty("message").GetProperty("type").GetString());
-		Assert.Equal("prior result", replayed.GetProperty("message").GetProperty("text").GetString());
+		var replayed = Assert.Single(Replayed(fixture.Bridge));
+		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
+		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
 	}
 
 	// Regression for the remote cold-start blank pane: on a slow resume, a page's ReplayPane (page `ready`, one
@@ -126,7 +168,7 @@ public sealed class AgentSessionHostTests {
 	// transcript, whichever way the two interleave.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
-		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { });
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
 		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
@@ -172,25 +214,45 @@ public sealed class AgentSessionHostTests {
 		}
 	}
 
+	// The messages carried by the single agent-pane-batch frame the bridge received (a replay or a live flush).
+	private static IReadOnlyList<JsonElement> Replayed(FakeHostBridge bridge) {
+		var batch = Assert.Single(bridge.PostedOfType("agent-pane-batch"));
+		return [.. batch.GetProperty("messages").EnumerateArray()];
+	}
+
 	// The item ids the page would render, reconstructed from the posts in order: a reset clears the pane, an
-	// agent-pane message appends its item (keyed, so a repeat updates in place) — mirroring AgentPaneAccumulator.
+	// agent-pane message (or each entry of an agent-pane-batch) appends its item (keyed, so a repeat updates in
+	// place) — mirroring AgentPaneAccumulator.
 	private static IReadOnlyList<string> VisibleItemIds(FakeHostBridge bridge) {
 		var order = new List<string>();
 		var indexes = new Dictionary<string, int>(StringComparer.Ordinal);
-		foreach (string json in bridge.Posted) {
-			using var doc = JsonDocument.Parse(json);
-			var root = doc.RootElement;
-			string? type = root.GetProperty("type").GetString();
-			if (type == "agent-pane-reset") {
-				order.Clear();
-				indexes.Clear();
-			} else if (type == "agent-pane"
-				&& root.GetProperty("message").TryGetProperty("itemId", out var id)
+		void Append(JsonElement paneMessage) {
+			if (paneMessage.TryGetProperty("itemId", out var id)
 				&& id.ValueKind == JsonValueKind.String
 				&& id.GetString() is { } itemId
 				&& !indexes.ContainsKey(itemId)) {
 				indexes[itemId] = order.Count;
 				order.Add(itemId);
+			}
+		}
+
+		foreach (string json in bridge.Posted) {
+			using var doc = JsonDocument.Parse(json);
+			var root = doc.RootElement;
+			switch (root.GetProperty("type").GetString()) {
+				case "agent-pane-reset":
+					order.Clear();
+					indexes.Clear();
+					break;
+				case "agent-pane":
+					Append(root.GetProperty("message"));
+					break;
+				case "agent-pane-batch":
+					foreach (var paneMessage in root.GetProperty("messages").EnumerateArray()) {
+						Append(paneMessage);
+					}
+
+					break;
 			}
 		}
 
@@ -206,13 +268,14 @@ public sealed class AgentSessionHostTests {
 		Status = "completed",
 	};
 
-	private static HostFixture CreateFixture(Func<string> slot, Action<IFileSystem, string> seedTranscript) {
+	private static HostFixture CreateFixture(Func<string> slot, Action<IFileSystem, string> seedTranscript, long paneCoalesceMs) {
 		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(dir);
 		var fileSystem = new InMemoryFileSystem();
 		string transcriptPath = Path.Combine(dir, "agent-pane.json");
 		seedTranscript(fileSystem, transcriptPath);
 		var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
+		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(paneCoalesceMs));
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var bridge = new FakeHostBridge();
 		var registry = new CapabilityRegistryHost(

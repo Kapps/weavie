@@ -486,6 +486,9 @@ export type WebBoundMessage =
   // setting changed), so `respawn` is true for a full reset. Session switches don't reset (pure show/hide).
   | { type: "term-reset"; slot: string; session: TermSession; respawn: boolean }
   | { type: "agent-pane"; slot: string; workspace: string; message: AgentPaneUpdate }
+  // A whole pane snapshot in one frame (a reconnect's replay); the web ingests each message in order. Batched
+  // host-side so a long transcript can't burst past the bridge's bounded outbox and get the page dropped.
+  | { type: "agent-pane-batch"; slot: string; workspace: string; messages: AgentPaneUpdate[] }
   | { type: "agent-pane-reset"; slot: string; workspace: string }
   | { type: "agent-controls"; slot: string; workspace: string; state: AgentControlState }
   | {

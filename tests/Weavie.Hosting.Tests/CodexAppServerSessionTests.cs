@@ -32,6 +32,22 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Start_DisablesLoginShellForCommands() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new NullAgentEventSink(), messages);
+
+		session.Start();
+		string path = Path.Combine(_dir, "app-server-args.json");
+		await WaitForAsync(() => File.Exists(path));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(path));
+		string[] arguments = [.. doc.RootElement.EnumerateArray().Select(value => value.GetString() ?? string.Empty)];
+		int setting = Array.IndexOf(arguments, "allow_login_shell=false");
+		Assert.True(setting > 0);
+		Assert.Equal("-c", arguments[setting - 1]);
+	}
+
+	[Fact]
 	public async Task Start_DoesNotSurfaceInternalLifecycleCards() {
 		var events = new CapturingAgentEventSink();
 		List<AgentPaneMessage> messages = [];
@@ -91,7 +107,10 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 		session.Submit(Submission("queued prompt", []));
 		session.Start();
-		await WaitForAsync(() => messages.Any(message => message.Text == "queued prompt"));
+		// Flaked 2026-07-13 02:03 UTC under CI load: this path spans a subprocess spawn plus the
+		// initialize -> thread/resume -> turn/start round trips before the queued submission lands.
+		// https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250
+		await WaitForAsync(() => messages.Any(message => message.Text == "queued prompt"), attempts: 400);
 
 		int history = messages.FindIndex(message => message.Text == "old answer");
 		int queued = messages.FindIndex(message => message.Text == "queued prompt");
@@ -885,12 +904,14 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		return session;
 	}
 
-	// Flaked 2026-07-13 02:03 UTC (ThreadResume_HydratesBeforeSubmittingInputQueuedDuringStartup timed out
-	// under CI load): https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250
-	// The next run on unrelated commits passed with no code change, confirming a timing flake rather than
-	// a regression. Doubled the poll budget (5s -> 10s) for this class's fake-subprocess round trips.
-	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 400; i++) {
+	private static async Task WaitForAsync(Func<bool> done) => await WaitForAsync(done, attempts: 200);
+
+	// Scoped override for waits that inherently span a subprocess spawn plus multiple JSON-RPC round
+	// trips (initialize -> thread/resume -> turn/start), which cost more than the in-process assertions
+	// the default budget is sized for. Widening the shared 200-attempt default instead would double the
+	// failure-detection latency for every other test in this class on every CI run.
+	private static async Task WaitForAsync(Func<bool> done, int attempts) {
+		for (int i = 0; i < attempts; i++) {
 			if (done()) {
 				return;
 			}

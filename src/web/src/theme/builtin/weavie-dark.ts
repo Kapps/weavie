@@ -45,9 +45,9 @@ export const WEAVIE_DARK: VsCodeColorTheme = {
     "editorError.foreground": "#e07a7a",
 
     // ── Diff (inline change review + standalone diff editor) ────────────────────────────────────────
-    // One green/red family shared with the gutter markers above; the washes carry their own alpha.
-    "diffEditor.insertedLineBackground": "#5a9a6a21",
-    "diffEditor.insertedTextBackground": "#5a9a6a3d",
+    // Dark, saturated green washes keep muted syntax (especially comments) legible when the layers stack.
+    "diffEditor.insertedLineBackground": "#2ea04314",
+    "diffEditor.insertedTextBackground": "#2ea04324",
     "diffEditor.removedLineBackground": "#c47a7a21",
     "diffEditor.removedTextBackground": "#c47a7a3d",
     "editorWarning.foreground": "#e0b060",

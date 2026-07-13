@@ -59,9 +59,7 @@ export function toAgentTranscript(messages: readonly AgentPaneUpdate[]): AgentTr
     upsertStep(activity, update);
   }
 
-  return collapseAssistantUpdates(
-    collapseEditLocations(entries.map((entry) => stripMutable(entry))),
-  );
+  return clusterTurnActivity(collapseEditLocations(entries.map((entry) => stripMutable(entry))));
 }
 
 function coalesceStreaming(messages: readonly AgentPaneUpdate[]): AgentPaneUpdate[] {
@@ -176,7 +174,7 @@ function entry(
   return {
     actionMessage: actionMessage(message),
     details: [],
-    id: hasItemId(message) ? message.itemId : `${message.type}-${sequence}`,
+    id: paneItemIdentity(message) ?? `${message.type}-${sequence}`,
     kind,
     label,
     status,
@@ -319,7 +317,7 @@ function stripMutable(entry: AgentTranscriptEntry | MutableActivity): AgentTrans
   };
 }
 
-function collapseAssistantUpdates(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
+function clusterTurnActivity(entries: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
   const output: AgentTranscriptEntry[] = [];
   let group: AgentTranscriptEntry[] = [];
   for (const entry of entries) {
@@ -390,37 +388,7 @@ function editStep(entry: AgentTranscriptEntry): AgentActivityStep {
 }
 
 function flushGroup(output: AgentTranscriptEntry[], group: AgentTranscriptEntry[]): void {
-  output.push(...clusterActivity(collapseEarlierAssistant(group)));
-}
-
-function collapseEarlierAssistant(group: AgentTranscriptEntry[]): AgentTranscriptEntry[] {
-  const assistantIndexes = group.flatMap((entry, index) =>
-    isAssistantMessage(entry) ? [index] : [],
-  );
-  if (assistantIndexes.length <= 1) {
-    return group;
-  }
-
-  const lastAssistantIndex = assistantIndexes[assistantIndexes.length - 1];
-  const collapsed = assistantIndexes
-    .slice(0, -1)
-    .map((index) => group[index])
-    .filter((entry) => entry !== undefined);
-  const collapsedIndexes = new Set(assistantIndexes.slice(0, -1));
-  const output: AgentTranscriptEntry[] = [];
-  for (let i = 0; i < group.length; i += 1) {
-    const entry = group[i];
-    if (entry === undefined || collapsedIndexes.has(i)) {
-      continue;
-    }
-
-    if (i === lastAssistantIndex) {
-      output.push(earlierUpdatesEntry(collapsed));
-    }
-
-    output.push(entry);
-  }
-  return output;
+  output.push(...clusterActivity(group));
 }
 
 // Keep a turn's activity hugging the bottom — just above the result, or the pending request while
@@ -452,32 +420,6 @@ function isActivityEntry(entry: AgentTranscriptEntry): boolean {
 
 function isPendingRequest(entry: AgentTranscriptEntry): boolean {
   return entry.kind === "request" && entry.status === "pending";
-}
-
-function earlierUpdatesEntry(entries: AgentTranscriptEntry[]): AgentTranscriptEntry {
-  return {
-    actionMessage: null,
-    details: entries.map((entry, index) => ({
-      category: "update",
-      detailText: entry.text ?? entry.summary,
-      id: `${entry.id}:update`,
-      label: updateLabel(entry, index),
-      status: null,
-      tone: "muted",
-    })),
-    id: `updates-${entries[0]?.id ?? "empty"}`,
-    kind: "activity",
-    label: "Earlier updates",
-    status: null,
-    summary: null,
-    text: null,
-    tone: "activity",
-  };
-}
-
-function updateLabel(entry: AgentTranscriptEntry, index: number): string {
-  const firstLine = (entry.text ?? entry.summary)?.split(/\r?\n/, 1)[0]?.trim();
-  return firstLine === undefined || firstLine.length === 0 ? `update ${index + 1}` : firstLine;
 }
 
 function isAssistantMessage(entry: AgentTranscriptEntry): boolean {

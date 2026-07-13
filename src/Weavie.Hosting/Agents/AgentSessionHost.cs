@@ -13,6 +13,9 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	private readonly Dictionary<string, int> _paneItemIndexes = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, PaneDeltaBuffer> _paneDeltaBuffers = new(StringComparer.Ordinal);
 	private readonly Lock _paneGate = new();
+	// Batches live pane messages into fewer bridge frames so a fast turn (or a resumed thread's history replay)
+	// can't burst past the bridge's bounded outbox and drop a network-slow page. See AgentPaneCoalescer.
+	private readonly AgentPaneCoalescer _coalescer;
 
 	// Durable transcript for the structured pane (null for terminal-backed providers, which repaint themselves).
 	// Seeds the replay buffer SYNCHRONOUSLY at construction, so a reconnecting page's ReplayPane restores the pane
@@ -36,6 +39,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		ArgumentException.ThrowIfNullOrEmpty(transcriptPath);
 		_context = context;
 		_bridge = bridge;
+		_coalescer = new AgentPaneCoalescer(PostPaneBatch, settings.RequireInt(AgentSettings.PaneCoalesceMs));
 		Provider = provider.Info;
 		Session = provider.CreateSession(context);
 		if (Session is ITerminalAgentSession terminalSession) {
@@ -81,6 +85,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
 		Terminal?.Dispose();
+		_coalescer.Dispose();
 		await DisposeProviderAsync().ConfigureAwait(false);
 	}
 
@@ -95,10 +100,11 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 				snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
 			}
 
+			// Every buffered live message is already in the snapshot (it was stored before it was coalesced), so
+			// drop the buffer or the timer would re-post it as a batch after this replay and duplicate it.
+			_coalescer.Discard();
 			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
-			foreach (var message in snapshot) {
-				_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
-			}
+			_bridge.PostToWeb(AgentPaneProtocol.Batch(_context.CurrentSessionId(), _context.Workspace, snapshot));
 		}
 	}
 
@@ -124,16 +130,27 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 				_paneItemIndexes.Clear();
 				_paneDeltaBuffers.Clear();
 				_transcript?.Clear();
+				// Buffered pre-reset messages are being wiped; drop them so a later flush can't resurrect them.
+				_coalescer.Discard();
 				_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
 			}
 			return;
 		}
+
+		// Store and buffer under one lock so a concurrent ReplayPane either sees this message in the snapshot AND
+		// discards it from the buffer, or sees neither — never both (which would duplicate it on the wire).
 		lock (_paneGate) {
 			StorePaneMessage(message);
 			_transcript?.Append(message);
-			_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
+			_coalescer.Add(message);
 		}
 	}
+
+	// The coalescer's sink: a lone message keeps today's `agent-pane` frame; a batch (only ever formed during a
+	// burst) becomes one `agent-pane-batch`. Both ingest identically page-side, so this is a pure wire economy.
+	private void PostPaneBatch(IReadOnlyList<AgentPaneMessage> messages) => _bridge.PostToWeb(messages.Count == 1
+		? AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, messages[0])
+		: AgentPaneProtocol.Batch(_context.CurrentSessionId(), _context.Workspace, messages));
 
 	private void StorePaneMessage(AgentPaneMessage message) {
 		string? key = AgentPaneIdentity.ItemKey(message);

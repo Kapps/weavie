@@ -244,9 +244,6 @@ function detailsKey(slot: string | null, entryId: string): string {
 }
 
 function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
-  if (entry.label === "Earlier updates") {
-    return `show ${count} earlier update${count === 1 ? "" : "s"}`;
-  }
   if (entry.label === "Edits") {
     return `show ${count} edit${count === 1 ? "" : "s"}`;
   }

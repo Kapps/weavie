@@ -1,4 +1,6 @@
+using System.Text.Json;
 using Weavie.Core;
+using Weavie.Core.Configuration;
 using Weavie.Core.Sessions;
 using Weavie.Core.Workspaces;
 using Xunit;
@@ -14,6 +16,8 @@ namespace Weavie.Hosting.Tests;
 public sealed class CodexPanePersistenceTests {
 	private static async Task<TestHost> StartWithCodexSessionAsync(string branch) {
 		var host = await TestHost.StartAsync();
+		// Post each pane message immediately so a message is asserted the moment it's emitted (no coalesce window).
+		host.Settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L));
 		var result = await host.Core.NewSessionAsync(new NewSessionRequest {
 			Branch = branch,
 			Base = "main",
@@ -24,14 +28,21 @@ public sealed class CodexPanePersistenceTests {
 	}
 
 	private static bool HasPaneMessage(FakeHostBridge bridge, string slot, string type, string? text) {
-		foreach (var posted in bridge.PostedOfType("agent-pane")) {
-			if (posted.GetProperty("slot").GetString() != slot) {
-				continue;
-			}
+		bool Matches(JsonElement message) =>
+			message.GetProperty("type").GetString() == type
+			&& (text is null || message.GetProperty("text").GetString() == text);
 
-			var message = posted.GetProperty("message");
-			if (message.GetProperty("type").GetString() == type
-				&& (text is null || message.GetProperty("text").GetString() == text)) {
+		// A live turn posts one `agent-pane` per message; a reconnect's ReplayPane posts the whole snapshot as a
+		// single `agent-pane-batch`, so a restored transcript is found there.
+		foreach (var posted in bridge.PostedOfType("agent-pane")) {
+			if (posted.GetProperty("slot").GetString() == slot && Matches(posted.GetProperty("message"))) {
+				return true;
+			}
+		}
+
+		foreach (var posted in bridge.PostedOfType("agent-pane-batch")) {
+			if (posted.GetProperty("slot").GetString() == slot
+				&& posted.GetProperty("messages").EnumerateArray().Any(Matches)) {
 				return true;
 			}
 		}

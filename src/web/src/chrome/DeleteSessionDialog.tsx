@@ -13,9 +13,9 @@ export type DeleteSessionState = "clean" | "untracked" | "modified";
 export function DeleteSessionDialog(props: {
   label: string;
   state: DeleteSessionState;
-  // The first few untracked files a delete would remove, plus the total, to name them in the confirm.
-  untrackedFiles: string[];
-  untrackedCount: number;
+  // The first few uncommitted paths a delete would discard, plus their total.
+  changedFiles: string[];
+  changedCount: number;
   onConfirm: () => void;
   onCancel: () => void;
 }): JSX.Element {
@@ -80,27 +80,29 @@ export function DeleteSessionDialog(props: {
                 <strong>untracked files</strong> — they aren't committed, so they can't be
                 recovered. The branch is kept.
               </div>
-              <Show when={props.untrackedFiles.length > 0}>
-                <ul class="confirm-file-list">
-                  <For each={props.untrackedFiles}>{(file) => <li>{file}</li>}</For>
-                  <Show when={props.untrackedCount > props.untrackedFiles.length}>
-                    <li class="confirm-file-more">
-                      …and {props.untrackedCount - props.untrackedFiles.length} more
-                    </li>
-                  </Show>
-                </ul>
-              </Show>
-              <Show when={armed()}>
-                <div class="confirm-warn">
-                  Click confirm to delete the worktree and its untracked files.
-                </div>
-              </Show>
             </Show>
             <Show when={props.state === "modified"}>
               <div>
                 "{props.label}" has <strong>uncommitted changes</strong> that will be permanently
                 lost when its worktree is removed. The branch keeps only committed work.
               </div>
+            </Show>
+            <Show when={props.state !== "clean" && props.changedFiles.length > 0}>
+              <ul class="confirm-file-list">
+                <For each={props.changedFiles}>{(file) => <li>{file}</li>}</For>
+                <Show when={props.changedCount > props.changedFiles.length}>
+                  <li class="confirm-file-more">
+                    …and {props.changedCount - props.changedFiles.length} more
+                  </li>
+                </Show>
+              </ul>
+            </Show>
+            <Show when={props.state === "untracked" && armed()}>
+              <div class="confirm-warn">
+                Click confirm to delete the worktree and its untracked files.
+              </div>
+            </Show>
+            <Show when={props.state === "modified"}>
               <label class="confirm-check">
                 <input
                   type="checkbox"

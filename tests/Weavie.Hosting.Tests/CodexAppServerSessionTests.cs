@@ -885,8 +885,12 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		return session;
 	}
 
+	// Flaked 2026-07-13 02:03 UTC (ThreadResume_HydratesBeforeSubmittingInputQueuedDuringStartup timed out
+	// under CI load): https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250
+	// The next run on unrelated commits passed with no code change, confirming a timing flake rather than
+	// a regression. Doubled the poll budget (5s -> 10s) for this class's fake-subprocess round trips.
 	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 200; i++) {
+		for (int i = 0; i < 400; i++) {
 			if (done()) {
 				return;
 			}

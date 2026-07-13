@@ -279,7 +279,7 @@ describe("toAgentTranscript", () => {
     ]);
   });
 
-  it("collapses earlier assistant narration into expandable updates", () => {
+  it("keeps every assistant update in its own transcript entry", () => {
     const transcript = toAgentTranscript([
       { type: "user-message", providerId: "codex", text: "edit a comment" },
       {
@@ -310,13 +310,11 @@ describe("toAgentTranscript", () => {
 
     expect(transcript.map((entry) => [entry.label, entry.text])).toEqual([
       ["You", "edit a comment"],
-      ["Earlier updates", null],
+      ["Codex", "I'll scan for a low-risk comment."],
+      ["Codex", "I found a safe candidate."],
       ["Codex", "Edited one comment in src/file.ts."],
     ]);
-    expect(transcript[1]?.details.map((step) => step.detailText)).toEqual([
-      "I'll scan for a low-risk comment.",
-      "I found a safe candidate.",
-    ]);
+    expect(new Set(transcript.slice(1).map((entry) => entry.id)).size).toBe(3);
   });
 
   it("does not collapse final assistant messages across prompts", () => {
@@ -367,8 +365,9 @@ describe("toAgentTranscript", () => {
       },
     ]);
 
-    expect(transcript[1]?.details.map((step) => step.detailText)).toEqual(["Primary update"]);
+    expect(transcript[1]?.text).toBe("Primary update");
     expect(transcript[2]?.text).toBe("Subagent update");
+    expect(transcript[1]?.id).not.toBe(transcript[2]?.id);
   });
 
   it("scopes request resolution and reported errors to their originating thread", () => {

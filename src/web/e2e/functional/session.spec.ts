@@ -1,5 +1,8 @@
+import { writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
+import { sessionWorktrees } from "../harness/git-workspace";
 
 // Session lifecycle through the rail + commands: create (fork a worktree session off the current one),
 // switch, unload, and reopen. Sessions and worktrees are a HostCore concern that differs structurally on
@@ -46,4 +49,30 @@ test("delete a session removes its chip @cross", async ({ page }) => {
   await dialog.locator(".confirm-btn-danger").click();
 
   await expect(chips).toHaveCount(1);
+});
+
+test("delete confirmation names tracked and untracked work that will be lost @cross", async ({
+  page,
+  weavie,
+}) => {
+  const chips = page.locator(".session-chip");
+  await runCommand(page, "Fork Session");
+  await expect(chips).toHaveCount(2);
+  const [worktree] = sessionWorktrees(weavie.workspace);
+  if (worktree === undefined) {
+    throw new Error("forked session did not create a git worktree");
+  }
+  await Promise.all([
+    writeFile(join(worktree, "hello.ts"), "tracked edit\n"),
+    writeFile(join(worktree, "scratch.txt"), "untracked work\n"),
+  ]);
+
+  await chips.nth(1).click({ button: "right" });
+  await page.locator(".context-menu-item.danger", { hasText: "Delete" }).click();
+
+  const dialog = page.locator(".confirm-dialog");
+  await expect(dialog.locator(".confirm-file-list")).toContainText("hello.ts");
+  await expect(dialog.locator(".confirm-file-list")).toContainText("scratch.txt");
+  await expect(dialog.locator(".confirm-check input")).not.toBeChecked();
+  await expect(dialog.locator(".confirm-btn-danger")).toBeDisabled();
 });

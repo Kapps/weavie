@@ -16,12 +16,16 @@ public enum WorktreeChangeState {
 }
 
 /// <summary>
-/// A worktree's change classification plus the untracked files a delete would remove — so the confirm can name
-/// the first few of them.
+/// A worktree's change classification plus the tracked and untracked changes a delete would discard — so the
+/// confirm can name the first few of them.
 /// </summary>
 /// <param name="State">How dirty the worktree is.</param>
+/// <param name="TrackedFiles">Repo-relative paths with tracked changes, path-ordered.</param>
 /// <param name="UntrackedFiles">Repo-relative paths of the untracked files, path-ordered.</param>
-public sealed record WorktreeChangeStatus(WorktreeChangeState State, IReadOnlyList<string> UntrackedFiles);
+public sealed record WorktreeChangeStatus(
+	WorktreeChangeState State,
+	IReadOnlyList<string> TrackedFiles,
+	IReadOnlyList<string> UntrackedFiles);
 
 /// <summary>
 /// The git operations Weavie's worktree-per-session feature needs, behind an interface so the worktree
@@ -81,7 +85,7 @@ public interface IGitService {
 
 	/// <summary>
 	/// Classifies <paramref name="worktreeDirectory"/>'s working tree (clean / untracked-only / modified) and
-	/// lists its untracked files, so a delete confirm can name the ones it would remove.
+	/// lists its tracked and untracked changes, so a delete confirm can name what it would discard.
 	/// </summary>
 	Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default);
 

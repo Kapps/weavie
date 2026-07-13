@@ -493,8 +493,8 @@ export default function App(): JSX.Element {
     id: string;
     label: string;
     state: DeleteSessionState;
-    untrackedFiles: string[];
-    untrackedCount: number;
+    changedFiles: string[];
+    changedCount: number;
     backendId: string;
   } | null>(null);
   // Interactive delete (rail menu / cloud panel / palette): no args targets the active session. Classify the
@@ -520,16 +520,19 @@ export default function App(): JSX.Element {
       | {
           state?: DeleteSessionState;
           label?: string;
+          changedFiles?: string[];
+          changedCount?: number;
           untrackedFiles?: string[];
           untrackedCount?: number;
         }
       | undefined;
+    const changedFiles = info?.changedFiles ?? info?.untrackedFiles ?? [];
     setDeleteReq({
       id,
       label: info?.label ?? id,
       state: info?.state ?? "clean",
-      untrackedFiles: info?.untrackedFiles ?? [],
-      untrackedCount: info?.untrackedCount ?? 0,
+      changedFiles,
+      changedCount: info?.changedCount ?? info?.untrackedCount ?? changedFiles.length,
       backendId,
     });
   };
@@ -1511,8 +1514,8 @@ export default function App(): JSX.Element {
           <DeleteSessionDialog
             label={req().label}
             state={req().state}
-            untrackedFiles={req().untrackedFiles}
-            untrackedCount={req().untrackedCount}
+            changedFiles={req().changedFiles}
+            changedCount={req().changedCount}
             onConfirm={confirmDeleteSession}
             onCancel={() => setDeleteReq(null)}
           />

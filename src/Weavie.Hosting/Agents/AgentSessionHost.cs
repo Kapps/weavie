@@ -86,17 +86,19 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 
 	/// <summary>Replays the structured pane state accumulated for this session.</summary>
 	public void ReplayPane() {
-		List<AgentPaneMessage> snapshot;
+		// Post under the gate so this replay's reset+messages stay ordered against a concurrent hydrate/resume
+		// (another thread): posting outside it let a trailing reset land after hydrate's content and blank the
+		// pane on a slow remote cold-start. Under the gate each writer's reset+messages is atomic on the wire.
 		lock (_paneGate) {
-			snapshot = [.. _paneMessages];
+			List<AgentPaneMessage> snapshot = [.. _paneMessages];
 			foreach (var buffer in _paneDeltaBuffers.Values) {
 				snapshot[buffer.Index] = buffer.Latest with { Text = buffer.Text.ToString() };
 			}
-		}
 
-		_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
-		foreach (var message in snapshot) {
-			_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
+			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
+			foreach (var message in snapshot) {
+				_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
+			}
 		}
 	}
 
@@ -114,22 +116,23 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		_bridge.PostToWeb(AgentControlsProtocol.Message(_context.CurrentSessionId(), _context.Workspace, state));
 
 	private void PublishPaneMessage(AgentPaneMessage message) {
+		// Post inside the gate so this writer's mutation and its web post stay ordered against a concurrent
+		// ReplayPane (see the note there); the post is a bridge enqueue, no costlier than the append above it.
 		if (message.Type == "transcript-reset") {
 			lock (_paneGate) {
 				_paneMessages.Clear();
 				_paneItemIndexes.Clear();
 				_paneDeltaBuffers.Clear();
 				_transcript?.Clear();
+				_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
 			}
-			_bridge.PostToWeb(AgentPaneProtocol.Reset(_context.CurrentSessionId(), _context.Workspace));
 			return;
 		}
 		lock (_paneGate) {
 			StorePaneMessage(message);
 			_transcript?.Append(message);
+			_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
 		}
-
-		_bridge.PostToWeb(AgentPaneProtocol.Message(_context.CurrentSessionId(), _context.Workspace, message));
 	}
 
 	private void StorePaneMessage(AgentPaneMessage message) {

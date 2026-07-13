@@ -419,6 +419,11 @@
   color: var(--accent);
 }
 
+.footer-network-problem {
+  color: var(--warn);
+  font-weight: 600;
+}
+
 .footer-glyph {
   color: var(--accent);
 }

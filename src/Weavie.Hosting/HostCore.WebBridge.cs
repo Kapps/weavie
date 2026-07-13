@@ -438,6 +438,12 @@ public sealed partial class HostCore {
 				}
 
 				Ready?.Invoke();
+				// The WebSocket transport stays degraded until this ordered tail marker proves the complete synchronous
+				// restore train reached the page. Native transports harmlessly ignore it.
+				_bridge.PostToWeb(JsonSerializer.Serialize(new {
+					type = "bridge-ready",
+					bridgeId = root.TryGetProperty("bridgeId", out var bridgeId) ? bridgeId.GetString() ?? string.Empty : string.Empty,
+				}));
 				Log($"[weavie] {json}");
 				break;
 			case "monaco-ready":
@@ -785,11 +791,8 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Pushes a live-refresh of one edited file via an <c>fs-change</c> (VSCode reloads the non-dirty model from disk).</summary>
-	private void PushRefreshToWeb(string path) {
-		if (_session?.Changes.Get(path) is { } change) {
-			_bridge.PostToWeb(FileProviderProtocol.Changed(change.Path, "updated"));
-		}
-	}
+	private void PushRefreshToWeb(string path) =>
+		_bridge.PostToWeb(FileProviderProtocol.Changed(path, "updated"));
 
 	/// <summary>
 	/// Pushes an <c>fs-change</c> removal for a file deleted mid-turn so the page closes its tab and clears the

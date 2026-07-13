@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Weavie.Core.Agents;
 using Weavie.Core.Diffs;
 using Weavie.Core.Hooks;
 using Xunit;
@@ -48,6 +49,17 @@ public sealed class HostCoreSessionRoutingTests {
 		var lsp = host.Bridge.LastOfType("lsp-config");
 		Assert.True(lsp.HasValue);
 		Assert.False(string.IsNullOrEmpty(lsp!.Value.GetProperty("config").GetProperty("slot").GetString()));
+	}
+
+	[Fact]
+	public async Task Ready_EndsItsSynchronousReplayWithBridgeReady() {
+		await using var host = await TestHost.StartAsync();
+		host.Bridge.Clear();
+
+		host.Send("""{"type":"ready"}""");
+
+		using var tail = JsonDocument.Parse(host.Bridge.Posted[^1]);
+		Assert.Equal("bridge-ready", tail.RootElement.GetProperty("type").GetString());
 	}
 
 	[Fact]
@@ -157,6 +169,31 @@ public sealed class HostCoreSessionRoutingTests {
 		var files = turn!.Value.GetProperty("files");
 		Assert.Equal(1, files.GetArrayLength());
 		Assert.Equal(file, files[0].GetProperty("path").GetString());
+	}
+
+	[Fact]
+	public async Task BinaryFileMutation_RefreshesFileWithoutReviewPayloadOrReplay() {
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest();
+		Assert.NotNull(session);
+		string file = Path.Combine(host.RepoRoot, "archive.bin");
+		var mutation = new AgentMutation.File(file, Cwd: null, ProvidesEditLocation: true);
+
+		session!.Events.Observe(new AgentToolStarting(mutation));
+		File.WriteAllBytes(file, [0x50, 0x4b, 0x00, 0xff]);
+		host.Bridge.Clear();
+		session.Events.Observe(new AgentToolCompleted(mutation));
+
+		Assert.Single(host.Bridge.PostedOfType("fs-change"));
+		Assert.Empty(host.Bridge.PostedOfType("turn-diff"));
+		Assert.Empty(host.Bridge.PostedOfType("turn-changes"));
+
+		host.Bridge.Clear();
+		host.Send("""{"type":"monaco-ready"}""");
+		Assert.Empty(host.Bridge.PostedOfType("turn-diff"));
+		var changes = host.Bridge.LastOfType("turn-changes");
+		Assert.True(changes.HasValue);
+		Assert.Equal(0, changes.Value.GetProperty("files").GetArrayLength());
 	}
 
 	[Fact]

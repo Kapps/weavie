@@ -1163,9 +1163,13 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     save,
     flushDirty: () => host?.flushDirty() ?? Promise.resolve(),
     setReviewFiles: (files, label) => {
-      // The label (empty for a plain turn) names a PR/ref review in the subtitle. The host drives which file
-      // opens (it opens the first changed file on arm, and re-pushes per-file diffs on switch-in); this only
-      // reflects the file set + label onto the parked navigator, so a PR/ref review parks like a turn does.
+      // The host owns the set: removed files lose their marker, while the remaining set + label drives the
+      // parked navigator (including a parked PR/ref review).
+      for (const previous of reviewFiles) {
+        if (!files.some((file) => samePath(file.path, previous.path))) {
+          inlineDiff?.clear(previous.path);
+        }
+      }
       reviewLabel = label;
       reviewFiles = files;
       updateParkedReview();

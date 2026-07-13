@@ -80,7 +80,7 @@
    (insertedTextBackground) stack on a fully-changed line; the theme keys carry alpha so dark text stays
    legible on top of both, and light themes supply their own lighter washes. */
 .weavie-inline-added {
-  background: var(--diff-added-line, #5a9a6a21);
+  background: var(--diff-added-line, #2ea04314);
 }
 
 .weavie-inline-added-gutter {
@@ -92,7 +92,7 @@
 }
 
 .weavie-inline-added-text {
-  background: var(--diff-added-text, #5a9a6a3d);
+  background: var(--diff-added-text, #2ea04324);
 }
 
 /* A wholly-new file: the whole file is added, so per-line green (wash + char overlay) would slab the editor. It

@@ -205,6 +205,58 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task SubagentLifecycle_KeepsThePrimaryTurnActiveAndNarrationVisible() {
+		var events = new CapturingAgentEventSink();
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("subagent", []));
+		await WaitForAsync(() => messages.Any(message => message.Text == "Subagent update"));
+
+		var narration = Assert.Single(messages, message => message.Text == "Subagent update");
+		Assert.False(narration.IsPrimaryThread);
+		Assert.Single(events.Values.OfType<AgentPromptSubmitted>());
+		Assert.Single(events.Values.OfType<AgentSessionStarted>());
+		Assert.Empty(events.Values.OfType<AgentTurnStopped>());
+
+		session.Submit(Submission("keep going", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-steer.json")));
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-steer.json")));
+		Assert.Equal("turn_fake", doc.RootElement.GetProperty("params").GetProperty("expectedTurnId").GetString());
+	}
+
+	[Theory]
+	[InlineData("server resolves approval", "thread_fake", "turn_fake", true)]
+	[InlineData("server resolves subapproval", "thread_sub", "turn_sub", false)]
+	public async Task ServerResolvedRequest_ClearsPendingStateWithOriginalProvenance(
+		string prompt,
+		string threadId,
+		string turnId,
+		bool primary) {
+		var events = new CapturingAgentEventSink();
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(events, messages);
+
+		session.Start();
+		await WaitForAsync(() => events.Values.OfType<AgentSessionStarted>().Any());
+		session.Submit(Submission(prompt, []));
+		await WaitForAsync(() => messages.Any(message => message.Type == "approval-resolved"));
+
+		var resolved = Assert.Single(messages, message => message.Type == "approval-resolved");
+		Assert.Equal(threadId, resolved.ThreadId);
+		Assert.Equal(turnId, resolved.TurnId);
+		Assert.Equal(primary, resolved.IsPrimaryThread);
+		Assert.Contains(events.Values, value => value is AgentPermissionRequested);
+		Assert.Contains(events.Values, value => value is AgentPermissionResolved { RequiresUserInput: false });
+
+		int resolvedCount = messages.Count(message => message.Type == "approval-resolved");
+		session.ResolveApproval("cleanup-1", "accept");
+		Assert.Equal(resolvedCount, messages.Count(message => message.Type == "approval-resolved"));
+	}
+
+	[Fact]
 	public async Task Submit_WhenSteerRejected_SurfacesCodexCodeAndRecoversAsFreshTurn() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -243,7 +295,12 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => messages.Any(message => message.Type == "approval-resolved" && message.ItemId == "approval-3"));
 
 		Assert.Contains(messages, message =>
-			message.Type == "approval-resolved" && message.ItemId == "approval-3" && message.Status == "cancel");
+			message.Type == "approval-resolved"
+			&& message.ItemId == "approval-3"
+			&& message.ThreadId == "thread_fake"
+			&& message.TurnId == "turn_fake"
+			&& message.IsPrimaryThread == true
+			&& message.Status == "cancel");
 		Assert.Contains(messages, message => message.Type == "warning" && message.ItemId == "approval-3");
 		Assert.Contains(events.Values, value => value is AgentPermissionResolved);
 	}
@@ -281,6 +338,20 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task FileChangeApproval_UsesTheMatchingThreadAndTurnSummary() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "thread-start.json")));
+		session.Submit(Submission("file approval collision", []));
+		await WaitForAsync(() => messages.Any(message => message.ItemId == "approval-4"));
+
+		var card = Assert.Single(messages, message => message.ItemId == "approval-4");
+		Assert.Equal("src/Root.cs", card.Text);
+	}
+
+	[Fact]
 	public async Task FileChangeTrackingFault_SurfacesErrorAndKeepsThePaneEvent() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new DirectChangeThrowingEventSink(), messages);
@@ -315,6 +386,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "approval-response.json")));
 		Assert.Equal("approval-1", doc.RootElement.GetProperty("id").GetString());
 		Assert.Equal("accept", doc.RootElement.GetProperty("result").GetProperty("decision").GetString());
+		var resolved = Assert.Single(messages, message => message.Type == "approval-resolved");
+		Assert.Equal("thread_fake", resolved.ThreadId);
+		Assert.Equal("turn_fake", resolved.TurnId);
 
 		int errorCount = messages.Count(message => message.Type == "error");
 		session.ResolveApproval("approval-1", "accept");
@@ -470,6 +544,72 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 	}
 
 	[Fact]
+	public async Task Controls_RememberSelections_ForNewCodexSessions() {
+		List<AgentPaneMessage> messages = [];
+		await using (var session = CreateSession(new CapturingAgentEventSink(), messages)) {
+			session.Start();
+			await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+			session.SetControl("model", "gpt-5.5");
+			session.SetControl("effort", "high");
+			session.SetControl("serviceTier", "priority");
+			session.SetControl("approvalPolicy", "never");
+			session.SetControl("sandbox", "read-only");
+
+			Assert.Equal("gpt-5.5", _settings!.RequireString(CodexSettings.Model));
+			Assert.Equal("high", _settings.RequireString(CodexSettings.Effort));
+			Assert.Equal("priority", _settings.RequireString(CodexSettings.ServiceTier));
+			Assert.Equal("never", _settings.RequireString(CodexSettings.ApprovalPolicy));
+			Assert.Equal("read-only", _settings.RequireString(CodexSettings.Sandbox));
+		}
+
+		File.Delete(Path.Combine(_dir, "thread-start.json"));
+		List<AgentPaneMessage> reopenedMessages = [];
+		await using var reopened = CreateSession(new CapturingAgentEventSink(), reopenedMessages);
+
+		reopened.Start();
+		await WaitForAsync(() => reopened.ControlState.ModelControl.Models.Count > 0);
+
+		var control = reopened.ControlState;
+		var current = CurrentModel(control);
+		Assert.Equal("gpt-5.5", current.Id);
+		Assert.Equal("high", current.Effort);
+		Assert.True(current.FastOn);
+		Assert.Equal("never", control.Axes.Single(axis => axis.Id == "approvalPolicy").Value);
+		Assert.Equal("read-only", control.Axes.Single(axis => axis.Id == "sandbox").Value);
+
+		using (var thread = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "thread-start.json")))) {
+			var parameters = thread.RootElement.GetProperty("params");
+			Assert.Equal("gpt-5.5", parameters.GetProperty("model").GetString());
+			Assert.Equal("never", parameters.GetProperty("approvalPolicy").GetString());
+			Assert.Equal("read-only", parameters.GetProperty("sandbox").GetString());
+		}
+
+		reopened.Submit(Submission("go", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+		using var turn = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var turnParameters = turn.RootElement.GetProperty("params");
+		Assert.Equal("high", turnParameters.GetProperty("effort").GetString());
+		Assert.Equal("priority", turnParameters.GetProperty("serviceTier").GetString());
+	}
+
+	[Fact]
+	public async Task SetControl_WhenSettingsAreMalformed_SurfacesErrorAndKeepsControl() {
+		File.WriteAllText(Path.Combine(_dir, "settings.toml"), "codex = [");
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		session.SetControl("sandbox", "read-only");
+		await WaitForAsync(() => messages.Any(message => message.Type == "error"));
+
+		Assert.Contains(messages, message =>
+			message.Type == "error" && message.Text!.Contains("settings.toml has TOML parse errors", StringComparison.Ordinal));
+		Assert.Equal("workspace-write", session.ControlState.Axes.Single(axis => axis.Id == "sandbox").Value);
+	}
+
+	[Fact]
 	public async Task Controls_ExposeEffortAndFast_DerivedFromCurrentModel() {
 		List<AgentPaneMessage> messages = [];
 		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
@@ -555,6 +695,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
 
 		session.SetControl("serviceTier", "standard"); // Fast off explicitly
+		Assert.Equal("standard", _settings!.RequireString(CodexSettings.ServiceTier));
 		session.Submit(Submission("go", []));
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
 

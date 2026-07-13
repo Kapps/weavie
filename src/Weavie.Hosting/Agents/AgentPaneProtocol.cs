@@ -27,6 +27,7 @@ internal static class AgentPaneProtocol {
 				type = message.Type,
 				providerId = message.ProviderId,
 				threadId = message.ThreadId,
+				isPrimaryThread = message.IsPrimaryThread,
 				turnId = message.TurnId,
 				itemId = message.ItemId,
 				itemType = message.ItemType,

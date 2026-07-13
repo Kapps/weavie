@@ -59,6 +59,19 @@ public sealed class CodexPaneMessagesTests {
 	}
 
 	[Fact]
+	public void AgentPaneProtocol_SerializesPrimaryThreadClassification() {
+		string json = AgentPaneProtocol.Message("slot-1", "/repo", new AgentPaneMessage {
+			Type = "item-completed",
+			ProviderId = "codex",
+			ThreadId = "thread_sub",
+			IsPrimaryThread = false,
+		});
+
+		using var doc = JsonDocument.Parse(json);
+		Assert.False(doc.RootElement.GetProperty("message").GetProperty("isPrimaryThread").GetBoolean());
+	}
+
+	[Fact]
 	public void FromRequest_CommandApproval_ShowsTheCommand() {
 		using var doc = JsonDocument.Parse(
 			"""{"id":"approval-1","method":"item/commandExecution/requestApproval","params":{"threadId":"thread_1","turnId":"turn_1","itemId":"item_1","command":"dotnet test tests/Weavie.Hosting.Tests","cwd":"/repo","reason":"Verify the change."}}""");

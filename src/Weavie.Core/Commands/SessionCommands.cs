@@ -19,6 +19,9 @@ public static class SessionCommands {
 	/// <summary>Opens the pull-request picker (check out a PR's branch as a session) in the UI; <c>$mod+Shift+r</c>.</summary>
 	public const string OpenPr = "weavie.pr.open";
 
+	/// <summary>Opens the active branch's detected pull request in the browser; <c>$mod+Shift+g</c>.</summary>
+	public const string OpenCurrentPr = "weavie.pr.openCurrent";
+
 	/// <summary>Forks the current session into a new worktree off its HEAD (args <c>branch</c>/<c>handoff</c>).</summary>
 	public const string ForkSession = "weavie.session.fork";
 
@@ -97,6 +100,17 @@ public static class SessionCommands {
 				+ "branch, seeding the session's agent with the PR's context.",
 			Aliases = ["open pr", "open pull request", "review pr", "check out pr", "open github pr", "pull request"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+r" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = OpenCurrentPr,
+			Title = "Open Current Pull Request",
+			RunsIn = CommandLocation.Web,
+			Category = "Session",
+			Description = "Open the pull request associated with the active branch in the system browser.",
+			Aliases = ["open current pr", "view pull request", "open branch pr"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+g", When = "pullRequestAvailable" }],
+			When = "pullRequestAvailable",
 		});
 
 		registry.Register(new CommandDefinition {

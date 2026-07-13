@@ -83,6 +83,57 @@ public sealed class AgentSessionHostTests {
 		var replayed = Assert.Single(bridge.PostedOfType("agent-pane"), value =>
 			value.GetProperty("message").GetProperty("itemId").GetString() == "item-1");
 		Assert.Equal("hello world", replayed.GetProperty("message").GetProperty("text").GetString());
+
+		session.Emit(new AgentPaneMessage {
+			Type = "agent-message-delta",
+			ProviderId = "codex",
+			ThreadId = "thread-a",
+			TurnId = "turn-shared",
+			ItemId = "item-shared",
+			Text = "alpha",
+		});
+		session.Emit(new AgentPaneMessage {
+			Type = "agent-message-delta",
+			ProviderId = "codex",
+			ThreadId = "thread-b",
+			TurnId = "turn-shared",
+			ItemId = "item-shared",
+			Text = "beta",
+		});
+		bridge.Clear();
+		host.ReplayPane();
+
+		string?[] shared = [.. bridge.PostedOfType("agent-pane")
+			.Where(value => value.GetProperty("message").GetProperty("itemId").GetString() == "item-shared")
+			.Select(value => value.GetProperty("message").GetProperty("text").GetString())];
+		Assert.Collection(
+			shared,
+			value => Assert.Equal("alpha", value),
+			value => Assert.Equal("beta", value));
+
+		(string? Thread, string? Turn, string Text)[] collisions = [
+			(null, "session", "missing-thread"),
+			("thread", null, "missing-turn"),
+			("a:b", "c", "thread-delimiter"),
+			("a", "b:c", "turn-delimiter"),
+		];
+		foreach (var collision in collisions) {
+			session.Emit(new AgentPaneMessage {
+				Type = "agent-message-delta",
+				ProviderId = "codex",
+				ThreadId = collision.Thread,
+				TurnId = collision.Turn,
+				ItemId = "item-collision",
+				Text = collision.Text,
+			});
+		}
+		bridge.Clear();
+		host.ReplayPane();
+
+		string?[] collisionTexts = [.. bridge.PostedOfType("agent-pane")
+			.Where(value => value.GetProperty("message").GetProperty("itemId").GetString() == "item-collision")
+			.Select(value => value.GetProperty("message").GetProperty("text").GetString())];
+		Assert.Equal(collisions.Select(collision => collision.Text), collisionTexts);
 	}
 
 	[Fact]

@@ -6,6 +6,7 @@ using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
+using Weavie.Core.Review;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
@@ -63,12 +64,23 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// </summary>
 	public static Task<TestHost> StartAsync(Action<string> prepareRepo) => StartAsync(prepareRepo, sendReady: true);
 
+	/// <summary>As <see cref="StartAsync(Action{string})"/>, with deterministic pull requests exposed by the host.</summary>
+	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IReadOnlyList<PullRequestSummary> pullRequests) =>
+		StartAsync(prepareRepo, new StaticPullRequestProvider(pullRequests, []), sendReady: true);
+
+	/// <summary>As <see cref="StartAsync(Action{string})"/>, with a test-controlled pull request provider.</summary>
+	public static Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests) =>
+		StartAsync(prepareRepo, pullRequests, sendReady: true);
+
 	/// <summary>
 	/// As <see cref="StartAsync(Action{string})"/>, but only delivers the page's <c>ready</c> message when
 	/// <paramref name="sendReady"/> is true. Pass false to assert on host behavior BEFORE a page connects (e.g.
 	/// that a startup push is held rather than dropped), then call <c>Send</c> with a <c>ready</c> message.
 	/// </summary>
-	public static async Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) {
+	public static Task<TestHost> StartAsync(Action<string> prepareRepo, bool sendReady) =>
+		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), sendReady);
+
+	private static async Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests, bool sendReady) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -84,7 +96,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 		var sourceHttp = new StubHttpMessageHandler();
 		string sourcesDir = Path.Combine(tempRoot, "sources");
-		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir);
+		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge);
 		var core = new HostCore(platform, services, repo);
@@ -135,7 +147,11 @@ internal sealed class TestHost : IAsyncDisposable {
 		Bridge.Receive("""{"type":"ready"}""");
 	}
 
-	private static HostServices IsolatedServices(string tempRoot, StubHttpMessageHandler sourceHttp, string sourcesDir) {
+	private static HostServices IsolatedServices(
+		string tempRoot,
+		StubHttpMessageHandler sourceHttp,
+		string sourcesDir,
+		IPullRequestProvider pullRequests) {
 		var settings = CoreSettings.CreateStore(Path.Combine(tempRoot, "settings.toml"), enableWatcher: false);
 		var registry = CoreCommands.CreateRegistry();
 		var keybindings = new KeybindingStore(registry, Path.Combine(tempRoot, "keybindings.json"), enableWatcher: false);
@@ -155,7 +171,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			AgentProviders = agentProviders,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
-			PullRequests = new Weavie.Core.Review.StaticPullRequestProvider([], []),
+			PullRequests = pullRequests,
 			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),
 			// A fresh, uninstalled buffer — tests never tee Console (that would hijack the xunit console).

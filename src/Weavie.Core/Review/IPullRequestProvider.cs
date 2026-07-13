@@ -10,6 +10,9 @@ public interface IPullRequestProvider {
 	/// <summary>The open pull requests for <paramref name="repo"/>, most-recently-updated first — the picker's default list.</summary>
 	Task<IReadOnlyList<PullRequestSummary>> ListOpenAsync(RepoRef repo, CancellationToken ct = default);
 
+	/// <summary>The open pull request whose head is <paramref name="headOwner"/>:<paramref name="branch"/>, or <c>null</c>.</summary>
+	Task<PullRequestSummary?> FindOpenForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default);
+
 	/// <summary>
 	/// Pull requests matching <paramref name="query"/> (forge-side search), so the picker scales past the default
 	/// list without fetching everything. Results may omit branch refs — resolve via <see cref="GetAsync"/> on open.

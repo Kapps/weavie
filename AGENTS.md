@@ -70,17 +70,12 @@ launch, crash-restart with backoff, the crash-loop breaker, and clean teardown; 
 delegates so it works for both PTY children and `System.Diagnostics.Process`. Transient one-shot helpers
 (e.g. the hook relay) are exempt. See [docs/specs/process-supervisor.md](docs/specs/process-supervisor.md).
 
-## Shared branch / parallel agents
+## Failures & CI
 
-Multiple agents may work this branch and working tree at the same time. Files can change under you
-mid-task, and a build or test can fail on code you didn't touch (another agent's half-saved work).
-
-- A **transient local failure** from another agent's half-saved work (a file mid-edit in the shared
-  working tree) is not yours to chase: don't revert it or retry in a tight loop — wait, then re-run.
-- But **once a failure is real and reproducible — especially any red CI check on your PR — you own
-  it. Always fix errors and CI failures; never wave one off as "not my problem" or "pre-existing"
-  because it's outside your change set.** A green pipeline is the bar for done, whoever introduced
-  the break. If a fix is genuinely outside your scope or ambiguous, say so and ask — don't ignore it.
+- **A failure is yours once it's real and reproducible — especially any red CI check on your PR.
+  Always fix errors and CI failures; never wave one off as "not my problem" or "pre-existing"
+  because it's outside your change set.** A green pipeline is the bar for done. If a fix is genuinely
+  outside your scope or ambiguous, say so and ask — don't ignore it.
 - **Never accept a flaky test and hide it — that's a silent fallback.** A skip, a quarantine, a
   retry loop, a loosened assertion, or "re-ran it and it passed" all bury the defect. When you find
   a flake, root-cause it and fix it.

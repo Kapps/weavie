@@ -29,9 +29,109 @@ describe("AgentPaneAccumulator", () => {
     accumulator.ingest("slot-1", update("item-started", ""), publish);
     accumulator.ingest("slot-1", update("command-output-delta", "part"), publish);
     accumulator.ingest("slot-1", update("item-completed", "final"), publish);
+    // One flush, not one publish per message — the completion supersedes the buffered delta in the snapshot.
+    expect(scheduled).toHaveLength(1);
     scheduled[0]?.();
 
     expect(messages).toEqual([update("item-completed", "final")]);
+  });
+
+  it("keeps equal turn and item ids distinct across threads", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.ingest(
+      "slot-1",
+      { ...update("agent-message-delta", "alpha"), threadId: "thread-a" },
+      publish,
+    );
+    accumulator.ingest(
+      "slot-1",
+      { ...update("agent-message-delta", "beta"), threadId: "thread-b" },
+      publish,
+    );
+    for (const flush of scheduled) flush();
+
+    expect(messages.map((message) => [message.threadId, message.text])).toEqual([
+      ["thread-a", "alpha"],
+      ["thread-b", "beta"],
+    ]);
+  });
+
+  it("does not alias missing fields or delimiter-bearing opaque ids", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    const collisions: AgentPaneUpdate[] = [
+      { ...update("agent-message-delta", "missing-thread"), threadId: null, turnId: "session" },
+      { ...update("agent-message-delta", "missing-turn"), threadId: "thread", turnId: null },
+      { ...update("agent-message-delta", "thread-delimiter"), threadId: "a:b", turnId: "c" },
+      { ...update("agent-message-delta", "turn-delimiter"), threadId: "a", turnId: "b:c" },
+    ];
+    for (const collision of collisions) accumulator.ingest("slot-1", collision, publish);
+    for (const flush of scheduled) flush();
+
+    expect(messages.map((message) => message.text)).toEqual(
+      collisions.map((message) => message.text),
+    );
+  });
+
+  it("coalesces a non-delta burst to a single publish per frame", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let publishes = 0;
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      publishes += 1;
+      messages = value;
+    };
+    // Distinct items so nothing coalesces at the item level: without per-frame batching this would publish 500×.
+    for (let index = 0; index < 500; index += 1) {
+      accumulator.ingest(
+        "slot-1",
+        { ...update("item-started", ""), itemId: `item-${index}` },
+        publish,
+      );
+    }
+
+    expect(publishes).toBe(0);
+    expect(scheduled).toHaveLength(1);
+    scheduled[0]?.();
+    expect(publishes).toBe(1);
+    expect(messages).toHaveLength(500);
+  });
+
+  it("makes an approval request visible after the next flush", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    accumulator.ingest("slot-1", update("approval-requested", ""), (value) => {
+      messages = value;
+    });
+
+    expect(messages).toHaveLength(0);
+    scheduled[0]?.();
+    expect(messages).toEqual([update("approval-requested", "")]);
+  });
+
+  it("resets to empty and a flush queued before the reset does not republish", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [update("item-completed", "stale")];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.ingest("slot-1", update("item-started", ""), publish);
+    accumulator.reset("slot-1", publish);
+    expect(messages).toEqual([]);
+    scheduled[0]?.();
+    expect(messages).toEqual([]);
   });
 });
 

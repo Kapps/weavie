@@ -393,6 +393,7 @@ public sealed partial class HostCore {
 				PushRecentFilesToWeb();
 				PushSessionList();
 				PushGitStatus();
+				PushPullRequestStatus();
 				PushRefLinkBase();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();

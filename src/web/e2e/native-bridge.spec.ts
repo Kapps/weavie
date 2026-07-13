@@ -35,8 +35,21 @@ test.describe("native in-process bridge contract", () => {
     await page.addInitScript(() => {
       const sent: string[] = [];
       (window as unknown as { __weavieSent: string[] }).__weavieSent = sent;
+      let receive: ((event: { data: unknown }) => void) | null = null;
+      const chrome = (window as unknown as { chrome?: Record<string, unknown> }).chrome ?? {};
+      chrome.webview = {
+        postMessage: (json: string) => sent.push(json),
+        addEventListener: (type: string, listener: (event: { data: unknown }) => void) => {
+          if (type === "message") receive = listener;
+        },
+      };
+      (window as unknown as { chrome: Record<string, unknown> }).chrome = chrome;
+      (window as unknown as { __weavieHostPush: (raw: string) => void }).__weavieHostPush = (raw) =>
+        receive?.({ data: raw });
       (window as unknown as { webkit: unknown }).webkit = {
-        messageHandlers: { weavie: { postMessage: (json: string) => sent.push(json) } },
+        messageHandlers: {
+          weavie: { postMessage: (json: string) => sent.push(json) },
+        },
       };
     });
 
@@ -58,16 +71,32 @@ test.describe("native in-process bridge contract", () => {
       })
       .toBe(true);
 
-    // Inbound: a host push via window.__weavieReceive reaches the app, which renders the toast. Re-pushed
-    // under toPass because App registers its host listener only after mount.
+    // Inbound: Windows' ordered WebView2 message event reaches the app. Re-pushed under toPass because App
+    // registers its host listener only after mount.
     const toast = page.locator(".toast-msg", { hasText: "hello-native" });
     await expect(async () => {
       await page.evaluate(() =>
-        (window as unknown as { __weavieReceive: (raw: string) => void }).__weavieReceive(
+        (window as unknown as { __weavieHostPush: (raw: string) => void }).__weavieHostPush(
           JSON.stringify({ type: "notify", level: "info", message: "hello-native" }),
         ),
       );
       await expect(toast).toBeVisible({ timeout: 1000 });
     }).toPass({ timeout: 20_000 });
+
+    await page.evaluate(() => {
+      const push = (window as unknown as { __weavieHostPush: (raw: string) => void })
+        .__weavieHostPush;
+      for (let index = 0; index < 100; index += 1) {
+        push(
+          JSON.stringify({
+            type: "notify",
+            level: "info",
+            message: `ordered-${index}`,
+            key: "ordered-native",
+          }),
+        );
+      }
+    });
+    await expect(page.locator(".toast-msg", { hasText: "ordered-99" })).toBeVisible();
   });
 });

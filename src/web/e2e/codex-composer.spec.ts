@@ -150,6 +150,9 @@ const catalog = {
       "alt+shift+y",
     ]),
     agentCommand("weavie.agent.decline", "Decline Agent Request", approvalWhen, ["alt+n"]),
+    agentCommand("weavie.pr.openCurrent", "Open Current Pull Request", "pullRequestAvailable", [
+      "$mod+shift+g",
+    ]),
   ],
   keybindings: [
     { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
@@ -157,6 +160,11 @@ const catalog = {
     { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
     { key: "alt+shift+y", command: "weavie.agent.approveForSession", when: approvalWhen },
     { key: "alt+n", command: "weavie.agent.decline", when: approvalWhen },
+    {
+      key: "$mod+shift+g",
+      command: "weavie.pr.openCurrent",
+      when: "pullRequestAvailable",
+    },
   ],
 };
 
@@ -203,6 +211,111 @@ test.describe("Codex composer", () => {
     await expect(segments.nth(2)).toContainText("Workspace write");
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
+  });
+
+  test("status line links the current branch's pull request", async ({ page }) => {
+    await mountCodex(page);
+    const url = `${host.url}/pull/123`;
+    host.pushToWeb(catalog);
+    host.pushToWeb({ type: "git-status", branch: "feat/native-ui-pr", dirty: false });
+    host.pushToWeb({
+      type: "pull-request-status",
+      slot: "cx",
+      branch: "feat/native-ui-pr",
+      pullRequest: { number: 123, url },
+      error: null,
+    });
+
+    const link = page.locator(".agent-status-pr");
+    await expect(link).toHaveText("#123");
+    const modifier = process.platform === "darwin" ? "⌘" : "Ctrl";
+    await expect(link).toHaveAttribute("title", new RegExp(`${modifier}\\+Shift\\+G`));
+    const popupPromise = page.waitForEvent("popup");
+    await link.click();
+    await expect(await popupPromise).toHaveURL(url);
+
+    host.pushToWeb({ type: "git-status", branch: "another-branch", dirty: false });
+    await expect(link).toHaveCount(0);
+  });
+
+  test("subagent completion keeps the primary turn working until its own result", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    host.pushToWeb(
+      paneMessage({
+        type: "user-message",
+        threadId: "thread-primary",
+        text: "Do the work",
+      }),
+    );
+    host.pushToWeb(
+      paneMessage({
+        type: "turn-started",
+        threadId: "thread-primary",
+        turnId: "turn-primary",
+        isPrimaryThread: true,
+      }),
+    );
+    host.pushToWeb(
+      paneMessage({
+        type: "turn-started",
+        threadId: "thread-subagent",
+        turnId: "turn-subagent",
+        isPrimaryThread: false,
+      }),
+    );
+    host.pushToWeb(
+      paneMessage({
+        type: "item-completed",
+        threadId: "thread-subagent",
+        turnId: "turn-subagent",
+        itemId: "subagent-update",
+        itemType: "agentMessage",
+        isPrimaryThread: false,
+        text: "Subagent found the cause.",
+      }),
+    );
+    host.pushToWeb(
+      paneMessage({
+        type: "turn-completed",
+        threadId: "thread-subagent",
+        turnId: "turn-subagent",
+        isPrimaryThread: false,
+      }),
+    );
+
+    await expect(page.locator(".agent-working")).toBeVisible();
+    await expect(page.locator(".agent-compose button[type='submit']")).toHaveText("Steer");
+    await expect(
+      page.locator(".agent-markdown", { hasText: "Subagent found the cause." }),
+    ).toBeVisible();
+
+    host.pushToWeb(
+      paneMessage({
+        type: "item-completed",
+        threadId: "thread-primary",
+        turnId: "turn-primary",
+        itemId: "primary-result",
+        itemType: "agentMessage",
+        isPrimaryThread: true,
+        text: "Primary work is done.",
+      }),
+    );
+    host.pushToWeb(
+      paneMessage({
+        type: "turn-completed",
+        threadId: "thread-primary",
+        turnId: "turn-primary",
+        isPrimaryThread: true,
+      }),
+    );
+
+    await expect(page.locator(".agent-working")).toHaveCount(0);
+    await expect(page.locator(".agent-compose button[type='submit']")).toHaveText("Run");
+    await expect(
+      page.locator(".agent-entry-result", { hasText: "Primary work is done." }),
+    ).toContainText("Results");
   });
 
   test("the model picker switches model via the models column", async ({ page }) => {
@@ -460,6 +573,36 @@ test.describe("Codex composer", () => {
     const accept = card.locator("button", { hasText: "Accept" }).first();
     await expect(accept.locator(".agent-key-chip")).toHaveText("Alt+Y");
     await page.screenshot({ path: join(shotsDir, "09-approval-card.png") });
+
+    await page.locator("[data-agent-composer] textarea").click();
+    await page.keyboard.press("Alt+y");
+    const decision = await host.waitForMessage("agent-approval");
+    expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
+  });
+
+  // Regression: a turn boundary must not strip a still-unresolved approval of its hotkeys. The chip and the
+  // chord derive from resolution state, not turn state, so the card stays keyboard-answerable while it shows
+  // its buttons — even after a turn-completed races in ahead of the answer.
+  test("an unresolved approval keeps its hotkeys after the turn reports completed", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    host.pushToWeb(
+      paneMessage({
+        type: "approval-requested",
+        itemId: "a1",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        text: "dotnet test tests/Weavie.Hosting.Tests",
+      }),
+    );
+    host.pushToWeb(paneMessage({ type: "turn-completed", turnId: "t1", status: "completed" }));
+
+    const card = page.locator(".agent-entry-request");
+    const accept = card.locator("button", { hasText: "Accept" }).first();
+    await expect(accept.locator(".agent-key-chip")).toHaveText("Alt+Y");
 
     await page.locator("[data-agent-composer] textarea").click();
     await page.keyboard.press("Alt+y");

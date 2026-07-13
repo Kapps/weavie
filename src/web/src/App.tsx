@@ -34,11 +34,13 @@ import { ContextMenu, type ContextMenuEntry, type ContextMenuState } from "./chr
 import { DeleteSessionDialog, type DeleteSessionState } from "./chrome/DeleteSessionDialog";
 import { DiffAgainstPrompt } from "./chrome/DiffAgainstPrompt";
 import { EditorFooter } from "./chrome/EditorFooter";
+import { gitStatus } from "./chrome/git-status-store";
 import { MacTitleBar } from "./chrome/MacTitleBar";
 import { NewSessionPrompt } from "./chrome/NewSessionPrompt";
 import { OpenPrPrompt } from "./chrome/OpenPrPrompt";
 import { focusOmnibar } from "./chrome/omnibar-controller";
 import { PaneFooter } from "./chrome/PaneFooter";
+import { pullRequestStatus } from "./chrome/pull-request-store";
 import { RegisterAgentModal } from "./chrome/RegisterAgentModal";
 import { RemoteAgentsPanel } from "./chrome/RemoteAgentsPanel";
 import { ResizeFrame } from "./chrome/ResizeFrame";
@@ -145,6 +147,8 @@ const MAC_TITLEBAR = SHELL?.titleBar === "mac";
 const HAS_TITLEBAR = CUSTOM_TITLEBAR || MAC_TITLEBAR;
 
 const AGENT_PANE_KIND = "terminal:claude";
+// A shared empty message list so an absent focused slot yields a stable reference (see focusedAgentMessages).
+const NO_AGENT_MESSAGES: AgentPaneUpdate[] = [];
 
 // Maps a terminal-backed pane kind ("terminal:claude" / "terminal:shell") to its pane id.
 const paneOf = (kind: string): TermSession => (kind === AGENT_PANE_KIND ? "claude" : "shell");
@@ -213,6 +217,19 @@ export default function App(): JSX.Element {
   // The session whose panes are shown (null before the first rail push); flipping it switches which
   // session's terminals are visible.
   const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
+  const currentPullRequest = createMemo(() => {
+    const status = pullRequestStatus(activeBackendId(), activeTermSessionId());
+    return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
+  });
+  createEffect(() => setContext("pullRequestAvailable", currentPullRequest() !== null));
+  // A stable reference to the FOCUSED session's pane messages. `agentPaneMessages` is a whole-record signal that
+  // re-fires on *any* slot's ingest, so reading it directly would recompute the focused Codex transcript whenever
+  // a background session streams. This memo's default (===) equality gates that: it re-runs on every record
+  // change but returns the same array until the focused slot's own array changes.
+  const focusedAgentMessages = createMemo<AgentPaneUpdate[]>(() => {
+    const sid = activeTermSessionId();
+    return sid === null ? NO_AGENT_MESSAGES : (agentPaneMessages()[sid] ?? NO_AGENT_MESSAGES);
+  });
   const activeProviderId = createMemo<"claude" | "codex" | null>(
     () => sessions().find((s) => s.active)?.providerId ?? null,
   );
@@ -662,7 +679,7 @@ export default function App(): JSX.Element {
           slot={sid}
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
-          messages={sid === null ? [] : (agentPaneMessages()[sid] ?? [])}
+          messages={focusedAgentMessages()}
           shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => focusPane(kind)}
         />
@@ -1087,6 +1104,13 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.newSessionPrompt, () => setNewSessionOpen(true)),
       // Open Pull Request… (Ctrl+Shift+R / palette): pick a PR to check out as a session.
       registerCommand(CommandIds.openPr, () => setOpenPrOpen(true)),
+      registerCommand(CommandIds.openCurrentPr, () => {
+        const pullRequest = currentPullRequest();
+        if (pullRequest === null) {
+          return false;
+        }
+        openUrlExternal(pullRequest.url);
+      }),
       // Diff Against… (Ctrl+Shift+D / palette): review the working tree against a ref. A 'ref' arg (Claude /
       // a keybinding) skips the prompt; the helpers are the same flow with their ref fixed.
       registerCommand(CommandIds.diffAgainst, (args) => {

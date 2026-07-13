@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { AgentPaneUpdate } from "../bridge";
-import { activeTurnStartedAt, formatElapsed, hasActiveTurn, pendingRequest } from "./turn-progress";
+import {
+  activeTurnStartedAt,
+  formatElapsed,
+  hasActiveTurn,
+  pendingApproval,
+  pendingRequest,
+} from "./turn-progress";
 
 const message = (type: string, itemId?: string): AgentPaneUpdate => ({
   type,
@@ -32,6 +38,16 @@ describe("hasActiveTurn", () => {
       hasActiveTurn([message("turn-started"), message("turn-completed"), message("turn-started")]),
     ).toBe(true);
   });
+
+  it("ignores subagent lifecycle while the primary turn is running", () => {
+    expect(
+      hasActiveTurn([
+        { ...started(1000), isPrimaryThread: true },
+        { ...message("turn-started"), isPrimaryThread: false },
+        { ...message("turn-completed"), isPrimaryThread: false },
+      ]),
+    ).toBe(true);
+  });
 });
 
 const kindOf = (messages: AgentPaneUpdate[]) => pendingRequest(messages)?.kind ?? null;
@@ -61,10 +77,26 @@ describe("pendingRequest", () => {
     ).toBe(null);
   });
 
-  it("drops stale requests when the turn ends or a new one starts", () => {
-    const stale = [message("turn-started"), message("approval-requested", "a1")];
-    expect(kindOf([...stale, message("turn-completed")])).toBe(null);
-    expect(kindOf([...stale, message("turn-started")])).toBe(null);
+  it("keeps an unresolved request across turn boundaries until it is resolved", () => {
+    const pending = [message("turn-started"), message("approval-requested", "a1")];
+    // A turn boundary must not drop a still-actionable card; only its matching resolution clears it.
+    expect(kindOf([...pending, message("turn-completed")])).toBe("approval");
+    expect(kindOf([...pending, message("turn-completed"), message("turn-started")])).toBe(
+      "approval",
+    );
+    expect(
+      kindOf([...pending, message("turn-completed"), message("approval-resolved", "a1")]),
+    ).toBe(null);
+  });
+
+  it("does not clear pending requests at a subagent boundary", () => {
+    expect(
+      pendingRequest([
+        { ...message("turn-started"), isPrimaryThread: true },
+        message("approval-requested", "a1"),
+        { ...message("turn-completed"), isPrimaryThread: false },
+      ]),
+    ).toEqual({ kind: "approval", requestId: "a1" });
   });
 
   it("exposes the newest unresolved request id for keyboard decisions", () => {
@@ -76,6 +108,56 @@ describe("pendingRequest", () => {
         message("approval-resolved", "a2"),
       ]),
     ).toEqual({ kind: "approval", requestId: "a1" });
+  });
+
+  it("resolves only the request from the matching thread and turn", () => {
+    expect(
+      pendingRequest([
+        message("turn-started"),
+        { ...message("approval-requested", "same"), threadId: "root", turnId: "turn" },
+        { ...message("input-requested", "same"), threadId: "sub", turnId: "turn" },
+        { ...message("input-resolved", "same"), threadId: "sub", turnId: "turn" },
+      ]),
+    ).toEqual({ kind: "approval", requestId: "same" });
+  });
+
+  it("clears a thread-scoped request when a restart cancels it", () => {
+    expect(
+      pendingRequest([
+        message("turn-started"),
+        { ...message("approval-requested", "a1"), threadId: "root", turnId: "turn-1" },
+        {
+          ...message("approval-resolved", "a1"),
+          threadId: "root",
+          turnId: "turn-1",
+          status: "cancel",
+        },
+      ]),
+    ).toBeNull();
+  });
+});
+
+describe("pendingApproval", () => {
+  it("is the newest unresolved approval, regardless of turn state", () => {
+    expect(
+      pendingApproval([
+        message("turn-started"),
+        message("approval-requested", "a1"),
+        message("turn-completed"),
+      ]),
+    ).toEqual({ kind: "approval", requestId: "a1" });
+  });
+
+  it("is null when the newest unresolved request is an input, not an approval", () => {
+    expect(
+      pendingApproval([message("approval-requested", "a1"), message("input-requested", "q1")]),
+    ).toBe(null);
+  });
+
+  it("clears once the approval resolves", () => {
+    expect(
+      pendingApproval([message("approval-requested", "a1"), message("approval-resolved", "a1")]),
+    ).toBe(null);
   });
 });
 
@@ -98,6 +180,16 @@ describe("activeTurnStartedAt", () => {
   it("is stable regardless of later activity within the turn", () => {
     expect(
       activeTurnStartedAt([started(2000), message("item-started"), message("item-completed")]),
+    ).toBe(2000);
+  });
+
+  it("keeps the primary timer across subagent turns", () => {
+    expect(
+      activeTurnStartedAt([
+        { ...started(2000), isPrimaryThread: true },
+        { ...started(5000), isPrimaryThread: false },
+        { ...message("turn-completed"), isPrimaryThread: false },
+      ]),
     ).toBe(2000);
   });
 });

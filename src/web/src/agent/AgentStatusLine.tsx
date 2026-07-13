@@ -1,5 +1,10 @@
-import { createEffect, For, type JSX, onCleanup, Show } from "solid-js";
+import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
+import { gitStatus } from "../chrome/git-status-store";
+import { pullRequestStatus } from "../chrome/pull-request-store";
 import { setContext } from "../commands/context";
+import { keyHint } from "../commands/key-hint";
+import { dispatchCommand, onCommandsChanged } from "../commands/registry";
+import { CommandIds } from "../commands/types";
 import { AgentControlPicker } from "./AgentControlPicker";
 import { AgentModelPicker } from "./AgentModelPicker";
 import {
@@ -17,6 +22,21 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.slot);
   const modelLabel = (): string => state().modelControl.valueLabel;
   const hasModel = (): boolean => state().modelControl.models.length > 0;
+  const [commandsVersion, setCommandsVersion] = createSignal(0);
+  onCleanup(onCommandsChanged(() => setCommandsVersion((version) => version + 1)));
+  const prStatus = () => pullRequestStatus(props.backendId, props.slot);
+  const pullRequest = () => {
+    const status = prStatus();
+    return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
+  };
+  const prError = (): string | null => {
+    const status = prStatus();
+    return status !== null && status.branch === gitStatus()?.branch ? status.error : null;
+  };
+  const pullRequestTitle = (number: number): string => {
+    commandsVersion();
+    return `Open PR #${number} in browser${keyHint(CommandIds.openCurrentPr)}`;
+  };
   // Switching sessions abandons an open picker so it can't apply to the wrong session.
   createEffect(() => {
     props.slot;
@@ -27,7 +47,9 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
   onCleanup(() => setContext("agentControlPickerOpen", false));
 
   return (
-    <Show when={hasModel() || state().axes.length > 0}>
+    <Show
+      when={hasModel() || state().axes.length > 0 || pullRequest() !== null || prError() !== null}
+    >
       <div class="agent-status-line">
         <Show when={hasModel()}>
           <button
@@ -52,6 +74,28 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
             </button>
           )}
         </For>
+        <Show when={pullRequest()}>
+          {(pr) => (
+            <button
+              type="button"
+              class="agent-status-segment agent-status-pr"
+              title={pullRequestTitle(pr().number)}
+              onClick={() => void dispatchCommand(CommandIds.openCurrentPr)}
+            >
+              #{pr().number}
+            </button>
+          )}
+        </Show>
+        <Show when={prError()}>
+          {(error) => (
+            <span
+              class="agent-status-segment agent-status-unavailable"
+              title={`Pull request detection unavailable: ${error()}`}
+            >
+              PR ?
+            </span>
+          )}
+        </Show>
         <AgentModelPicker backendId={props.backendId} slot={props.slot} />
         <AgentControlPicker backendId={props.backendId} slot={props.slot} />
       </div>

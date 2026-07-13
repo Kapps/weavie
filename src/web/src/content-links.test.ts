@@ -23,6 +23,13 @@ describe("findContentLinks", () => {
       { start: 5, end: 34, text: "file:///home/user/a%20b.ts#12", kind: "file" },
     ]);
   });
+
+  it("links a bare path whose filename contains @ (e.g. Playwright recordings)", () => {
+    const path = "src/web/e2e/.recordings/page@883bef3dba4a5a81116faeb690fc011f.webm";
+    expect(findContentLinks(`Recording ${path} saved`, false)).toEqual([
+      { start: 10, end: 10 + path.length, text: path, kind: "file" },
+    ]);
+  });
 });
 
 describe("parseFileReference", () => {

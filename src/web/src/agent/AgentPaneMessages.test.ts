@@ -344,6 +344,83 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
   });
 
+  it("keeps primary and subagent narration with colliding item ids", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", threadId: "primary", text: "work" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "primary",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Primary update",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "subagent",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Subagent update",
+      },
+    ]);
+
+    expect(transcript[1]?.details.map((step) => step.detailText)).toEqual(["Primary update"]);
+    expect(transcript[2]?.text).toBe("Subagent update");
+  });
+
+  it("scopes request resolution and reported errors to their originating thread", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        threadId: "root",
+        turnId: "same-turn",
+        itemId: "same-item",
+        status: "pending",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        threadId: "sub",
+        turnId: "same-turn",
+        itemId: "same-item",
+        status: "pending",
+      },
+      {
+        type: "approval-resolved",
+        providerId: "codex",
+        threadId: "sub",
+        turnId: "same-turn",
+        itemId: "same-item",
+        status: "accept",
+      },
+      {
+        type: "error",
+        providerId: "codex",
+        threadId: "sub",
+        turnId: "same-turn",
+        text: "Subagent failed",
+      },
+      {
+        type: "turn-completed",
+        providerId: "codex",
+        threadId: "root",
+        turnId: "same-turn",
+        status: "failed",
+        text: "Root failed",
+      },
+    ]);
+
+    const requests = transcript.filter((entry) => entry.kind === "request");
+    expect(requests.map((entry) => entry.status)).toEqual(["pending", "accepted"]);
+    expect(transcript.filter((entry) => entry.tone === "error").map((entry) => entry.text)).toEqual(
+      ["Subagent failed", "Root failed"],
+    );
+  });
+
   it("clusters the working block just above the result when work precedes later chatter", () => {
     const transcript = toAgentTranscript([
       {
@@ -462,5 +539,82 @@ describe("toAgentTranscript", () => {
     ]);
 
     expect(transcript.map((entry) => entry.text)).toEqual(["hello", "Hello!"]);
+  });
+
+  it("assigns a unique id to every entry and nested step (the reconcile key precondition)", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "cmd1",
+        itemType: "commandExecution",
+        summary: "git status",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "cmd2",
+        itemType: "commandExecution",
+        summary: "npm test",
+        status: "completed",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "a1",
+        itemType: "agentMessage",
+        text: "answer one",
+        status: "completed",
+      },
+      { type: "turn-completed", providerId: "codex", turnId: "t1", status: "completed" },
+      // A message with no itemId must still get a unique id, not collide on "".
+      { type: "warning", providerId: "codex", turnId: "t1", summary: "heads up" },
+      { type: "user-message", providerId: "codex", turnId: "t2", itemId: "u2", text: "q2" },
+      {
+        type: "item-started",
+        providerId: "codex",
+        turnId: "t2",
+        itemId: "cmd3",
+        itemType: "commandExecution",
+        summary: "ls",
+        status: "inProgress",
+      },
+    ]);
+
+    const ids = [
+      ...transcript.map((entry) => entry.id),
+      ...transcript.flatMap((entry) => entry.details.map((step) => step.id)),
+    ];
+    expect(ids).not.toContain("");
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it("keeps a durable entry's id stable as later messages arrive", () => {
+    const prefix: AgentPaneUpdate[] = [
+      { type: "user-message", providerId: "codex", turnId: "t1", itemId: "u1", text: "q1" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        turnId: "t1",
+        itemId: "a1",
+        itemType: "agentMessage",
+        text: "answer one",
+        status: "completed",
+      },
+    ];
+    const before = toAgentTranscript(prefix);
+    const assistantId = before.find((entry) => entry.tone === "assistant")?.id;
+    expect(assistantId).toBeDefined();
+
+    const after = toAgentTranscript([
+      ...prefix,
+      { type: "user-message", providerId: "codex", turnId: "t2", itemId: "u2", text: "q2" },
+    ]);
+    expect(after.find((entry) => entry.id === assistantId)?.text).toBe("answer one");
   });
 });

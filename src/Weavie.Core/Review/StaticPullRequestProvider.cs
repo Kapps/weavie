@@ -28,6 +28,12 @@ public sealed class StaticPullRequestProvider : IPullRequestProvider, IReviewCom
 	}
 
 	/// <inheritdoc/>
+	public Task<PullRequestSummary?> FindOpenForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		return Task.FromResult(_pullRequests.FirstOrDefault(p => p.HeadRef.Equals(branch, StringComparison.Ordinal)));
+	}
+
+	/// <inheritdoc/>
 	public Task<IReadOnlyList<PullRequestSummary>> SearchAsync(RepoRef repo, string query, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		string q = query.Trim();

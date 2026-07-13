@@ -4,9 +4,9 @@ import { paneActivityIdentity, paneItemIdentity, paneTurnIdentity } from "./Agen
 import {
   displayStatus,
   hasItemId,
-  isResolutionMessage,
   normalizeStatus,
   normalizeText,
+  requestLifecycles,
 } from "./AgentPaneMessageFormat";
 import type {
   AgentActivityStep,
@@ -114,19 +114,9 @@ function isDelta(message: AgentPaneUpdate): boolean {
 
 function collectResolved(messages: readonly AgentPaneUpdate[]): ReadonlyMap<string, string> {
   const resolved = new Map<string, string>();
-  for (const message of messages) {
-    if (!isResolutionMessage(message) || !hasItemId(message)) {
-      continue;
-    }
-
-    const status = normalizeStatus(message.status) ?? "resolved";
-    const key = paneItemIdentity(message);
-    if (key === null) {
-      continue;
-    }
-    const current = resolved.get(key);
-    if (current === undefined || current === "resolved") {
-      resolved.set(key, status);
+  for (const lifecycle of requestLifecycles(messages)) {
+    if (lifecycle.resolvedStatus !== null) {
+      resolved.set(lifecycle.key, lifecycle.resolvedStatus);
     }
   }
   return resolved;

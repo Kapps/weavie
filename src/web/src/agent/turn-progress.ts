@@ -1,6 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
-import { paneItemIdentity } from "./AgentPaneIdentity";
-import { hasItemId } from "./AgentPaneMessageFormat";
+import { type RequestKind, requestLifecycles } from "./AgentPaneMessageFormat";
 
 /**
  * Whether the pane's latest turn is still running (started with no completion yet). An interrupted turn
@@ -40,7 +39,7 @@ export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): numbe
   return startedAt;
 }
 
-export type PendingRequestKind = "approval" | "input";
+export type PendingRequestKind = RequestKind;
 
 export interface PendingRequest {
   kind: PendingRequestKind;
@@ -48,30 +47,16 @@ export interface PendingRequest {
 }
 
 /**
- * The latest request whose itemId has no resolution yet — the same resolution-based signal that keeps the
- * card's buttons on screen. A turn boundary must NOT clear it: a request is answerable for exactly as long
- * as it is unresolved, so the hotkey chip and chord never drop off a card that still shows its buttons.
+ * The latest request still open in the shared lifecycle fold — the same resolution-based signal that keeps
+ * the card's buttons on screen. A turn boundary does not clear it: a request is answerable for exactly as
+ * long as it is unresolved, so the hotkey chip and chord never drop off a card that still shows its buttons.
  */
 export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
-  const pending = new Map<string, PendingRequest>();
-  for (const message of messages) {
-    if (message.type === "approval-requested" && hasItemId(message)) {
-      const key = paneItemIdentity(message);
-      if (key !== null) pending.set(key, { kind: "approval", requestId: message.itemId });
-    } else if (message.type === "input-requested" && hasItemId(message)) {
-      const key = paneItemIdentity(message);
-      if (key !== null) pending.set(key, { kind: "input", requestId: message.itemId });
-    } else if (
-      (message.type === "approval-resolved" || message.type === "input-resolved") &&
-      hasItemId(message)
-    ) {
-      const key = paneItemIdentity(message);
-      if (key !== null) pending.delete(key);
-    }
-  }
   let latest: PendingRequest | null = null;
-  for (const request of pending.values()) {
-    latest = request;
+  for (const lifecycle of requestLifecycles(messages)) {
+    if (lifecycle.resolvedStatus === null) {
+      latest = { kind: lifecycle.kind, requestId: lifecycle.requestId };
+    }
   }
   return latest;
 }

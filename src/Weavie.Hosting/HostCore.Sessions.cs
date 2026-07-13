@@ -767,6 +767,7 @@ public sealed partial class HostCore {
 
 		// A gone/half-removed worktree (no .git) can't be inspected and has nothing left to lose — classify clean.
 		string state = "clean";
+		IReadOnlyList<string> tracked = [];
 		IReadOnlyList<string> untracked = [];
 		if (IsLiveWorktree(target.WorktreePath)) {
 			try {
@@ -776,17 +777,22 @@ public sealed partial class HostCore {
 					WorktreeChangeState.Modified => "modified",
 					_ => "clean",
 				};
+				tracked = status.TrackedFiles;
 				untracked = status.UntrackedFiles;
 			} catch (GitException ex) {
 				return CommandResult.Failure($"Couldn't check '{target.Label}' for changes: {ex.Message}");
 			}
 		}
 
-		// Name the first few files the confirm would delete; the dialog renders "…and N more" from the total.
+		// Name the first few changes the delete would discard; the dialog renders "…and N more" from the total.
 		const int previewLimit = 5;
+		string[] changed = [.. tracked.Concat(untracked).Order(StringComparer.Ordinal)];
 		return CommandResult.Success(null, JsonSerializer.Serialize(new {
 			state,
 			label = target.Label,
+			changedFiles = changed.Take(previewLimit).ToArray(),
+			changedCount = changed.Length,
+			// Older remote pages still read these fields for the untracked-only dialog.
 			untrackedFiles = untracked.Take(previewLimit).ToArray(),
 			untrackedCount = untracked.Count,
 		}));

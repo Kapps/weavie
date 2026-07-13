@@ -161,25 +161,28 @@ public sealed class GitService : IGitService {
 	/// <inheritdoc/>
 	public async Task<WorktreeChangeStatus> GetChangeStateAsync(string worktreeDirectory, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
-		// -z NUL-separates entries and drops the C-style path quoting, so untracked names come out verbatim. A
-		// rename adds a bare source-path entry (no status code); it reads as tracked, which a rename is anyway.
+		// -z NUL-separates entries and drops C-style path quoting. A rename/copy is followed by its bare source
+		// path, which is consumed with the status record rather than surfaced as a second changed file.
 		var result = await RunCheckedAsync(worktreeDirectory, PorcelainStatusZArgs, ct).ConfigureAwait(false);
 		string[] entries = result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries);
-		// Porcelain marks untracked paths with a leading "?? "; any other code is a tracked change.
+		var tracked = new List<string>();
 		var untracked = new List<string>();
-		bool tracked = false;
-		foreach (string entry in entries) {
+		for (int i = 0; i < entries.Length; i++) {
+			string entry = entries[i];
 			if (entry.StartsWith("?? ", StringComparison.Ordinal)) {
 				untracked.Add(entry[3..]);
 			} else {
-				tracked = true;
+				tracked.Add(entry[3..]);
+				if (entry[0] is 'R' or 'C' || entry[1] is 'R' or 'C') {
+					i++;
+				}
 			}
 		}
 
-		var state = entries.Length == 0 ? WorktreeChangeState.Clean
-			: tracked ? WorktreeChangeState.Modified
-			: WorktreeChangeState.UntrackedOnly;
-		return new WorktreeChangeStatus(state, untracked);
+		var state = tracked.Count > 0 ? WorktreeChangeState.Modified
+			: untracked.Count > 0 ? WorktreeChangeState.UntrackedOnly
+			: WorktreeChangeState.Clean;
+		return new WorktreeChangeStatus(state, tracked, untracked);
 	}
 
 	/// <inheritdoc/>

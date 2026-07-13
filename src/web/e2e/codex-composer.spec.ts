@@ -580,6 +580,34 @@ test.describe("Codex composer", () => {
     expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
   });
 
+  // Regression: once the approval resolves, its decision buttons must go — the card is no longer actionable.
+  // The header status flips reactively; the buttons must flip with it in the same live update (no re-mount).
+  test("a resolved approval drops its decision buttons in place", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    host.pushToWeb(
+      paneMessage({
+        type: "approval-requested",
+        itemId: "a1",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        text: "dotnet test tests/Weavie.Hosting.Tests",
+      }),
+    );
+
+    const card = page.locator(".agent-entry-request");
+    const buttons = card.locator(".agent-approval-actions button");
+    await expect(buttons.filter({ hasText: "Accept" }).first()).toBeVisible();
+
+    host.pushToWeb(
+      paneMessage({ type: "approval-resolved", itemId: "a1", status: "acceptForSession" }),
+    );
+
+    await expect(card.locator(".agent-entry-status")).toHaveText("accepted for session");
+    await expect(buttons).toHaveCount(0);
+  });
+
   // Regression: a turn boundary must not strip a still-unresolved approval of its hotkeys. The chip and the
   // chord derive from resolution state, not turn state, so the card stays keyboard-answerable while it shows
   // its buttons — even after a turn-completed races in ahead of the answer.
@@ -610,8 +638,8 @@ test.describe("Codex composer", () => {
     expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
   });
 
-  // Pins the follow pill: scrolling up pauses follow and shows the pill; clicking it re-sticks.
-  test("scrolling up shows the jump-to-latest pill", async ({ page }) => {
+  // Pins the follow threshold and pill: staying within three lines keeps following; scrolling farther up pauses it.
+  test("scrolling beyond three lines shows the jump-to-latest pill", async ({ page }) => {
     await mountCodex(page);
     for (let i = 0; i < 40; i += 1) {
       host.pushToWeb(userMessage(`prompt ${i}\nwith\nseveral\nlines`));
@@ -622,7 +650,27 @@ test.describe("Codex composer", () => {
     await expect(page.locator(".agent-entry").first()).toBeVisible();
     await expect(pill).toHaveCount(0);
 
-    await body.evaluate((el) => el.scrollTo({ top: 0 }));
+    const scrollLinesFromBottom = (lines: number): Promise<void> =>
+      body.evaluate(
+        (el, linesFromBottom) =>
+          new Promise<void>((resolve) => {
+            el.addEventListener("scroll", () => resolve(), { once: true });
+            const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight);
+            el.scrollTo({
+              top: el.scrollHeight - el.clientHeight - lineHeight * linesFromBottom,
+            });
+          }),
+        lines,
+      );
+
+    await scrollLinesFromBottom(3);
+    await expect(pill).toHaveCount(0);
+    host.pushToWeb(userMessage("near-bottom follow check"));
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeLessThan(1);
+
+    await scrollLinesFromBottom(4);
     await expect(pill).toBeVisible();
     await page.screenshot({ path: join(shotsDir, "10-follow-pill.png") });
 
@@ -630,7 +678,12 @@ test.describe("Codex composer", () => {
     await expect(pill).toHaveCount(0);
     await expect
       .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
-      .toBeLessThan(40);
+      .toBeLessThan(1);
+    host.pushToWeb(userMessage("follow after jump to latest"));
+    await expect(page.getByText("follow after jump to latest", { exact: true })).toBeVisible();
+    await expect
+      .poll(() => body.evaluate((el) => el.scrollHeight - el.scrollTop - el.clientHeight))
+      .toBeLessThan(1);
   });
 
   test("Up/Down recall previously submitted prompts", async ({ page }) => {

@@ -7,7 +7,6 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Sessions;
-using Weavie.Core.Shell;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents;
 using Xunit;
@@ -17,45 +16,10 @@ namespace Weavie.Hosting.Tests;
 public sealed class AgentSessionHostTests {
 	[Fact]
 	public async Task StructuredProvider_DoesNotStartUntilSlotIsKnown() {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
 		string slot = string.Empty;
-		var fileSystem = new InMemoryFileSystem();
-		using var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
-		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L)); // assert live frames synchronously
-		var commandRegistry = CoreCommands.CreateRegistry();
-		var bridge = new FakeHostBridge();
-		await using var registry = new CapabilityRegistryHost(
-			AgentSessionCredential.Create(),
-			FakeDiffPresenter.AlwaysKeep(),
-			[dir],
-			"weavie",
-			settings,
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
-			new EditorStore(),
-			exposeIdeTools: true,
-			new CommandDispatcher(commandRegistry),
-			new KeybindingStore(commandRegistry, Path.Combine(dir, "keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			() => slot);
-		var session = new FakeStructuredSession();
-		await using var host = new AgentSessionHost(
-			new FakeStructuredProvider(session),
-			new AgentSessionContext {
-				Settings = settings,
-				Workspace = dir,
-				FileSystem = fileSystem,
-				Registry = registry,
-				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),
-				Editor = new EditorStore(),
-				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-				Events = new NullAgentEventSink(),
-				CurrentSessionId = () => slot,
-			},
-			bridge,
-			settings,
-			new NoopPtyLauncher(),
-			Path.Combine(dir, "agent-pane.json"));
+		// Window 0 so each live message posts its own agent-pane frame, asserted synchronously below.
+		await using var fixture = CreateFixture(() => slot, static (_, _) => { }, 0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		Assert.False(session.Started);
 		slot = "slot-1";
@@ -140,57 +104,14 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task ReplayPane_batches_the_whole_transcript_into_one_frame() {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
-		var fileSystem = new InMemoryFileSystem();
-		using var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
-		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L)); // assert live frames synchronously
-		var commandRegistry = CoreCommands.CreateRegistry();
-		var bridge = new FakeHostBridge();
-		await using var registry = new CapabilityRegistryHost(
-			AgentSessionCredential.Create(),
-			FakeDiffPresenter.AlwaysKeep(),
-			[dir],
-			"weavie",
-			settings,
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
-			new EditorStore(),
-			exposeIdeTools: true,
-			new CommandDispatcher(commandRegistry),
-			new KeybindingStore(commandRegistry, Path.Combine(dir, "keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			() => "slot-1");
-		var session = new FakeStructuredSession();
-		await using var host = new AgentSessionHost(
-			new FakeStructuredProvider(session),
-			new AgentSessionContext {
-				Settings = settings,
-				Workspace = dir,
-				FileSystem = fileSystem,
-				Registry = registry,
-				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),
-				Editor = new EditorStore(),
-				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-				Events = new NullAgentEventSink(),
-				CurrentSessionId = () => "slot-1",
-			},
-			bridge,
-			settings,
-			new NoopPtyLauncher(),
-			Path.Combine(dir, "agent-pane.json"));
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		host.Structured!.Start();
 		// A long transcript — far past the bridge's 512-deep outbox. Before batching, ReplayPane posted one frame
 		// per entry, bursting past the outbox on a slow (remote) link and getting the healthy page dropped.
 		for (int i = 0; i < 1000; i++) {
-			session.Emit(new AgentPaneMessage {
-				Type = "item-completed",
-				ProviderId = "codex",
-				TurnId = $"turn-{i}",
-				ItemId = $"item-{i}",
-				Text = $"line {i}",
-				Status = "completed",
-			});
+			session.Emit(Completed($"item-{i}", $"line {i}"));
 		}
 		bridge.Clear();
 		host.ReplayPane();
@@ -204,55 +125,12 @@ public sealed class AgentSessionHostTests {
 
 	[Fact]
 	public async Task LiveMessages_within_the_window_coalesce_into_one_batch_frame() {
-		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
-		Directory.CreateDirectory(dir);
-		var fileSystem = new InMemoryFileSystem();
-		using var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
-		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(200L)); // batch a burst within 200ms
-		var commandRegistry = CoreCommands.CreateRegistry();
-		var bridge = new FakeHostBridge();
-		await using var registry = new CapabilityRegistryHost(
-			AgentSessionCredential.Create(),
-			FakeDiffPresenter.AlwaysKeep(),
-			[dir],
-			"weavie",
-			settings,
-			new LayoutStore(fileSystem, LayoutPanes.CreateRegistry(), "/layout.json"),
-			new EditorStore(),
-			exposeIdeTools: true,
-			new CommandDispatcher(commandRegistry),
-			new KeybindingStore(commandRegistry, Path.Combine(dir, "keybindings.json"), enableWatcher: false),
-			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			() => "slot-1");
-		var session = new FakeStructuredSession();
-		await using var host = new AgentSessionHost(
-			new FakeStructuredProvider(session),
-			new AgentSessionContext {
-				Settings = settings,
-				Workspace = dir,
-				FileSystem = fileSystem,
-				Registry = registry,
-				DiffPresenter = FakeDiffPresenter.AlwaysKeep(),
-				Editor = new EditorStore(),
-				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
-				Events = new NullAgentEventSink(),
-				CurrentSessionId = () => "slot-1",
-			},
-			bridge,
-			settings,
-			new NoopPtyLauncher(),
-			Path.Combine(dir, "agent-pane.json"));
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 200);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
 
 		host.Structured!.Start(); // "started"
 		for (int i = 0; i < 5; i++) {
-			session.Emit(new AgentPaneMessage {
-				Type = "item-completed",
-				ProviderId = "codex",
-				TurnId = $"turn-{i}",
-				ItemId = $"item-{i}",
-				Text = $"line {i}",
-				Status = "completed",
-			});
+			session.Emit(Completed($"item-{i}", $"line {i}"));
 		}
 
 		// The 6 messages (started + 5) all land inside one window, so the flush is a single batch frame — no
@@ -264,33 +142,143 @@ public sealed class AgentSessionHostTests {
 		Assert.Equal(6, Replayed(bridge).Count);
 	}
 
+	[Fact]
+	public async Task StructuredProvider_SeedsPersistedTranscript_BeforeStart() {
+		// A prior session's persisted result — the durable transcript on disk before this session is built.
+		await using var fixture = CreateFixture(
+			static () => "slot-1",
+			static (fileSystem, transcriptPath) =>
+				new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(Completed("item-1", "prior result")),
+			0);
+
+		// The provider hasn't started (no thread/resume, no hydration): a reconnecting page's ReplayPane still
+		// restores the prior result — from the synchronous disk seed. This is the reopen-reconnect fix.
+		Assert.False(fixture.Session.Started);
+		fixture.Host.ReplayPane();
+
+		var replayed = Assert.Single(Replayed(fixture.Bridge));
+		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
+		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
+	}
+
+	// Regression for the remote cold-start blank pane: on a slow resume, a page's ReplayPane (page `ready`, one
+	// thread) races the async hydrate (thread/resume, another thread). Both reset then repopulate the pane. Unless
+	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
+	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
+	// transcript, whichever way the two interleave.
+	[Fact]
+	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
+		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
+		var (bridge, session, host) = (fixture.Bridge, fixture.Session, fixture.Host);
+
+		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
+		AgentPaneMessage[] hydrated = [Completed("fresh-0", "fresh a"), Completed("fresh-1", "fresh b")];
+
+		for (int iteration = 0; iteration < 40; iteration++) {
+			// Restore the "large disk seed already present" baseline before each race — the wide seed makes
+			// ReplayPane's post loop long enough to reliably expose an unordered trailing reset.
+			session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+			for (int i = 0; i < 100; i++) {
+				session.Emit(Completed($"seed-{i}", $"seed {i}"));
+			}
+
+			bridge.Clear();
+			Exception? threadError = null;
+			var barrier = new Barrier(2);
+			var hydrate = new Thread(() => {
+				try {
+					barrier.SignalAndWait();
+					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+					foreach (var message in hydrated) {
+						session.Emit(message);
+					}
+				} catch (Exception ex) {
+					threadError = ex;
+				}
+			});
+			var replay = new Thread(() => {
+				try {
+					barrier.SignalAndWait();
+					host.ReplayPane();
+				} catch (Exception ex) {
+					threadError = ex;
+				}
+			});
+			hydrate.Start();
+			replay.Start();
+			hydrate.Join();
+			replay.Join();
+
+			Assert.Null(threadError);
+			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));
+		}
+	}
+
 	// The messages carried by the single agent-pane-batch frame the bridge received (a replay or a live flush).
 	private static IReadOnlyList<JsonElement> Replayed(FakeHostBridge bridge) {
 		var batch = Assert.Single(bridge.PostedOfType("agent-pane-batch"));
 		return [.. batch.GetProperty("messages").EnumerateArray()];
 	}
 
-	[Fact]
-	public async Task StructuredProvider_SeedsPersistedTranscript_BeforeStart() {
+	// The item ids the page would render, reconstructed from the posts in order: a reset clears the pane, an
+	// agent-pane message (or each entry of an agent-pane-batch) appends its item (keyed, so a repeat updates in
+	// place) — mirroring AgentPaneAccumulator.
+	private static IReadOnlyList<string> VisibleItemIds(FakeHostBridge bridge) {
+		var order = new List<string>();
+		var indexes = new Dictionary<string, int>(StringComparer.Ordinal);
+		void Append(JsonElement paneMessage) {
+			if (paneMessage.TryGetProperty("itemId", out var id)
+				&& id.ValueKind == JsonValueKind.String
+				&& id.GetString() is { } itemId
+				&& !indexes.ContainsKey(itemId)) {
+				indexes[itemId] = order.Count;
+				order.Add(itemId);
+			}
+		}
+
+		foreach (string json in bridge.Posted) {
+			using var doc = JsonDocument.Parse(json);
+			var root = doc.RootElement;
+			switch (root.GetProperty("type").GetString()) {
+				case "agent-pane-reset":
+					order.Clear();
+					indexes.Clear();
+					break;
+				case "agent-pane":
+					Append(root.GetProperty("message"));
+					break;
+				case "agent-pane-batch":
+					foreach (var paneMessage in root.GetProperty("messages").EnumerateArray()) {
+						Append(paneMessage);
+					}
+
+					break;
+			}
+		}
+
+		return order;
+	}
+
+	private static AgentPaneMessage Completed(string itemId, string text) => new() {
+		Type = "item-completed",
+		ProviderId = "codex",
+		TurnId = "turn",
+		ItemId = itemId,
+		Text = text,
+		Status = "completed",
+	};
+
+	private static HostFixture CreateFixture(Func<string> slot, Action<IFileSystem, string> seedTranscript, long paneCoalesceMs) {
 		string dir = Path.Combine(Path.GetTempPath(), "weavie-agent-host-tests", Guid.NewGuid().ToString("N"));
 		Directory.CreateDirectory(dir);
 		var fileSystem = new InMemoryFileSystem();
 		string transcriptPath = Path.Combine(dir, "agent-pane.json");
-		// A prior session's persisted result — the durable transcript on disk before this session is built.
-		new AgentPaneTranscriptStore(fileSystem, transcriptPath).Append(new AgentPaneMessage {
-			Type = "item-completed",
-			ProviderId = "codex",
-			TurnId = "turn-1",
-			ItemId = "item-1",
-			Text = "prior result",
-			Status = "completed",
-		});
-
-		using var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
-		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(0L)); // assert live frames synchronously
+		seedTranscript(fileSystem, transcriptPath);
+		var settings = CoreSettings.CreateStore(Path.Combine(dir, "settings.toml"), enableWatcher: false);
+		settings.Set(AgentSettings.PaneCoalesceMs, JsonSerializer.SerializeToElement(paneCoalesceMs));
 		var commandRegistry = CoreCommands.CreateRegistry();
 		var bridge = new FakeHostBridge();
-		await using var registry = new CapabilityRegistryHost(
+		var registry = new CapabilityRegistryHost(
 			AgentSessionCredential.Create(),
 			FakeDiffPresenter.AlwaysKeep(),
 			[dir],
@@ -302,9 +290,9 @@ public sealed class AgentSessionHostTests {
 			new CommandDispatcher(commandRegistry),
 			new KeybindingStore(commandRegistry, Path.Combine(dir, "keybindings.json"), enableWatcher: false),
 			new ThemeOverridesStore(fileSystem, "/theme-overrides.json"),
-			() => "slot-1");
+			slot);
 		var session = new FakeStructuredSession();
-		await using var host = new AgentSessionHost(
+		var host = new AgentSessionHost(
 			new FakeStructuredProvider(session),
 			new AgentSessionContext {
 				Settings = settings,
@@ -315,21 +303,32 @@ public sealed class AgentSessionHostTests {
 				Editor = new EditorStore(),
 				Runtime = new HostRuntimeInfo(HostTransport.Local, Managed: false, "test"),
 				Events = new NullAgentEventSink(),
-				CurrentSessionId = () => "slot-1",
+				CurrentSessionId = slot,
 			},
 			bridge,
 			settings,
 			new NoopPtyLauncher(),
 			transcriptPath);
+		return new HostFixture(bridge, session, host, registry, settings);
+	}
 
-		// The provider hasn't started (no thread/resume, no hydration): a reconnecting page's ReplayPane still
-		// restores the prior result — from the synchronous disk seed. This is the reopen-reconnect fix.
-		Assert.False(session.Started);
-		host.ReplayPane();
+	private sealed class HostFixture(
+		FakeHostBridge bridge,
+		FakeStructuredSession session,
+		AgentSessionHost host,
+		CapabilityRegistryHost registry,
+		SettingsStore settings) : IAsyncDisposable {
+		public FakeHostBridge Bridge => bridge;
 
-		var replayed = Assert.Single(Replayed(bridge));
-		Assert.Equal("item-completed", replayed.GetProperty("type").GetString());
-		Assert.Equal("prior result", replayed.GetProperty("text").GetString());
+		public FakeStructuredSession Session => session;
+
+		public AgentSessionHost Host => host;
+
+		public async ValueTask DisposeAsync() {
+			await host.DisposeAsync();
+			await registry.DisposeAsync();
+			settings.Dispose();
+		}
 	}
 
 	private sealed class FakeStructuredProvider(FakeStructuredSession session) : IAgentProvider {

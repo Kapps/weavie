@@ -57,6 +57,19 @@ public sealed class FileProviderServiceTests {
 	}
 
 	[Fact]
+	public void Read_BinaryFile_ReturnsSmallTextError() {
+		var (service, fs) = New();
+		string path = Path.Combine(Workspace, "archive.bin");
+		fs.WriteAllBytes(path, [0x50, 0x4b, 0x00, 0xff]);
+
+		var root = JsonDocument.Parse(service.Read("r1", path)).RootElement;
+
+		Assert.False(root.GetProperty("ok").GetBoolean());
+		Assert.Equal("Binary files cannot be opened as text.", root.GetProperty("error").GetString());
+		Assert.False(root.TryGetProperty("content", out _));
+	}
+
+	[Fact]
 	public void CanRead_MatchesConfinementAndExistence() {
 		var (service, fs) = New();
 		string inside = Path.Combine(Workspace, "a.cs");

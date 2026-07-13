@@ -18,7 +18,6 @@ internal static class CodexPaneMessages {
 			"item/commandExecution/outputDelta" => FromDelta("command-output-delta", "commandExecution", root),
 			"item/fileChange/patchUpdated" => FromPatch(root),
 			"turn/diff/updated" => FromDiff(root),
-			"serverRequest/resolved" => FromResolved(root),
 			"mcpServer/startupStatus/updated" => FromMcpStartupStatus(root),
 			_ => null,
 		};
@@ -269,19 +268,6 @@ internal static class CodexPaneMessages {
 			ItemId = parameters.GetStringOrEmpty("itemId"),
 			Category = "edit",
 			Summary = SummarizeChanges(parameters),
-			PayloadJson = root.GetRawText(),
-		};
-	}
-
-	private static AgentPaneMessage FromResolved(JsonElement root) {
-		var parameters = root.GetProperty("params");
-		return new AgentPaneMessage {
-			Type = "approval-resolved",
-			ProviderId = "codex",
-			ThreadId = parameters.GetStringOrEmpty("threadId"),
-			TurnId = parameters.GetStringOrEmpty("turnId"),
-			ItemId = parameters.TryGetProperty("requestId", out var id) ? CodexAppServerClient.ReadRequestId(id) : null,
-			Status = "resolved",
 			PayloadJson = root.GetRawText(),
 		};
 	}

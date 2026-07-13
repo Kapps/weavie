@@ -39,6 +39,25 @@ class FakeWebSocket {
     this.readyState = 3;
     this.onclose?.();
   }
+
+  /** Simulate one host frame reaching the page. */
+  receive(data: Record<string, unknown>): void {
+    this.onmessage?.({ data: JSON.stringify(data) });
+  }
+
+  /** Complete the latest ready replay with its per-connection correlation id. */
+  completeReady(): void {
+    this.receive(this.readyAck());
+  }
+
+  /** The acknowledgement matching this socket's latest ready frame. */
+  readyAck(): Record<string, unknown> {
+    const ready = [...this.sent]
+      .reverse()
+      .map((frame) => JSON.parse(frame) as { type?: string; bridgeId?: string })
+      .find((frame) => frame.type === "ready");
+    return { type: "bridge-ready", bridgeId: ready?.bridgeId ?? "" };
+  }
 }
 
 // The bridge module's load-time IIFE reads these; a bare object with no __WEAVIE_BRIDGE_WS__ means "no local
@@ -66,6 +85,7 @@ describe("WebSocketTransport reconnect", () => {
     );
 
     bridge.connectBackend("remote:test", "Test", resolveUrl);
+    bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0); // flush the initial resolve → open
 
     expect(resolveUrl).toHaveBeenCalledTimes(1);
@@ -73,7 +93,14 @@ describe("WebSocketTransport reconnect", () => {
     expect(FakeWebSocket.instances[0]?.url).toBe(urls[0]);
 
     FakeWebSocket.instances[0]?.open();
+    expect(bridge.activeBackendPhase()).toBe("connecting");
+    FakeWebSocket.instances[0]?.receive({ type: "bridge-ready", bridgeId: "another-page" });
+    expect(bridge.activeBackendPhase()).toBe("connecting");
+    const firstReadyAck = FakeWebSocket.instances[0]?.readyAck() ?? {};
+    FakeWebSocket.instances[0]?.completeReady();
+    expect(bridge.activeBackendPhase()).toBe("online");
     FakeWebSocket.instances[0]?.drop(); // link lost → schedule a reconnect (500ms backoff)
+    expect(bridge.activeBackendPhase()).toBe("reconnecting");
 
     await vi.advanceTimersByTimeAsync(600); // fire the reconnect timer + flush its resolve → open
 
@@ -81,6 +108,12 @@ describe("WebSocketTransport reconnect", () => {
     expect(resolveUrl).toHaveBeenCalledTimes(2);
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(FakeWebSocket.instances[1]?.url).toBe(urls[1]);
+    FakeWebSocket.instances[1]?.open();
+    expect(bridge.activeBackendPhase()).toBe("reconnecting");
+    FakeWebSocket.instances[1]?.receive(firstReadyAck);
+    expect(bridge.activeBackendPhase()).toBe("reconnecting");
+    FakeWebSocket.instances[1]?.completeReady();
+    expect(bridge.activeBackendPhase()).toBe("online");
   });
 
   it("does not re-arm a reconnect when the backend is disposed mid-handshake", async () => {
@@ -102,5 +135,21 @@ describe("WebSocketTransport reconnect", () => {
     // No socket opened, and — the point — no reconnect loop left running for a backend that's gone.
     expect(FakeWebSocket.instances).toHaveLength(0);
     expect(resolveUrl).toHaveBeenCalledTimes(1);
+  });
+
+  it("correlates a ready queued before a socket that fails to open", async () => {
+    const resolveUrl = vi.fn((): Promise<string> => Promise.resolve("ws://host/weavie-bridge"));
+    bridge.connectBackend("remote:test", "Test", resolveUrl);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+
+    bridge.postToBackend("remote:test", { type: "ready" });
+    FakeWebSocket.instances[0]?.drop();
+    await vi.advanceTimersByTimeAsync(600);
+    FakeWebSocket.instances[1]?.open();
+    expect(bridge.activeBackendPhase()).toBe("reconnecting");
+
+    FakeWebSocket.instances[1]?.completeReady();
+    expect(bridge.activeBackendPhase()).toBe("online");
   });
 });

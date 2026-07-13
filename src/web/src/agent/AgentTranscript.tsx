@@ -1,4 +1,4 @@
-import { createMemo, createSignal, For, type JSX, Show } from "solid-js";
+import { createMemo, createSignal, For, type JSX, Match, Show, Switch } from "solid-js";
 import type { AgentPaneUpdate } from "../bridge";
 import { liveKeyLabel } from "../commands/keys-live";
 import { CommandIds } from "../commands/types";
@@ -164,30 +164,36 @@ function showEntryHeader(entry: AgentTranscriptEntry): boolean {
   return entry.kind !== "message" || entry.tone !== "assistant";
 }
 
+// Reactive, not a one-shot branch: a resolution flips entry.status live (never a re-mount), so the buttons
+// must drop with it. An early `return` reads status once at creation and strands the buttons after the answer.
 function EntryActions(props: {
   entry: AgentTranscriptEntry;
   keyboardApprovalId: string | null;
   slot: string | null;
 }): JSX.Element {
-  const message = props.entry.actionMessage;
-  if (message === null) {
-    return null;
-  }
-  if (message.type === "approval-requested" && props.entry.status === "pending") {
-    return (
-      <ApprovalActions
-        slot={props.slot}
-        requestId={message.itemId}
-        answersToKeys={
-          props.keyboardApprovalId !== null && message.itemId === props.keyboardApprovalId
-        }
-      />
-    );
-  }
-  if (message.type === "input-requested" && props.entry.status === "pending") {
-    return <InputRequestActions slot={props.slot} message={message} />;
-  }
-  return message.type === "edit-location" ? <EditLocationActions target={message.text} /> : null;
+  return (
+    <Show when={props.entry.actionMessage}>
+      {(message) => (
+        <Switch>
+          <Match when={message().type === "approval-requested" && props.entry.status === "pending"}>
+            <ApprovalActions
+              slot={props.slot}
+              requestId={message().itemId}
+              answersToKeys={
+                props.keyboardApprovalId !== null && message().itemId === props.keyboardApprovalId
+              }
+            />
+          </Match>
+          <Match when={message().type === "input-requested" && props.entry.status === "pending"}>
+            <InputRequestActions slot={props.slot} message={message()} />
+          </Match>
+          <Match when={message().type === "edit-location"}>
+            <EditLocationActions target={message().text} />
+          </Match>
+        </Switch>
+      )}
+    </Show>
+  );
 }
 
 function ActivityDetails(props: {
@@ -238,9 +244,6 @@ function detailsKey(slot: string | null, entryId: string): string {
 }
 
 function activityDetailsSummary(entry: AgentTranscriptEntry, count: number): string {
-  if (entry.label === "Earlier updates") {
-    return `show ${count} earlier update${count === 1 ? "" : "s"}`;
-  }
   if (entry.label === "Edits") {
     return `show ${count} edit${count === 1 ? "" : "s"}`;
   }

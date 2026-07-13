@@ -61,6 +61,7 @@ import {
   remoteAgentRows,
   sessions,
   sessionsReceived,
+  stepRailTarget,
 } from "./chrome/session-store";
 import { suggestions } from "./chrome/suggestions-store";
 import { TitleBar } from "./chrome/TitleBar";
@@ -471,16 +472,14 @@ export default function App(): JSX.Element {
     return connectedBackends().some((b) => b.id === last) ? last : "local";
   };
 
-  // Step the active session to the next/prev LOADED rail chip (delta ±1, wraps); dormant chips are skipped.
-  // Returns whether it stepped, so with <2 loaded sessions the keystroke falls through (matching tab next/prev).
+  // Switch to the next/prev LOADED rail chip stepRailTarget picks (dormant chips skipped); false falls the
+  // keystroke through when there's nothing to move to.
   const stepSession = (delta: number): boolean => {
-    const list = railSessions().filter((s) => s.loaded);
-    const current = list.findIndex((s) => s.active);
-    if (list.length < 2 || current < 0) {
-      return false;
-    }
-    const target = list[(current + delta + list.length) % list.length];
-    if (target === undefined) {
+    const target = stepRailTarget(
+      railSessions().filter((s) => s.loaded),
+      delta,
+    );
+    if (target === null) {
       return false;
     }
     switchToSession(target);
@@ -1139,8 +1138,8 @@ export default function App(): JSX.Element {
         return true;
       }),
       // Next / Previous Session (Ctrl+Tab / Ctrl+Shift+Tab, gated !editorFocused so the editor's own Ctrl+Tab
-      // still cycles tabs): cycle the rail, wrapping. stepSession returns false with <2 sessions so the chord
-      // falls through.
+      // still cycles tabs): cycle the rail, wrapping. stepSession returns false only when there's no chip to move
+      // to (empty rail, or a lone active chip), so the chord falls through.
       registerCommand(CommandIds.nextSession, () => stepSession(1)),
       registerCommand(CommandIds.prevSession, () => stepSession(-1)),
       // Focus Session (programmatic; the notification click-through): bring a session to the foreground by

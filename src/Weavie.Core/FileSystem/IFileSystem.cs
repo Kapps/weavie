@@ -41,6 +41,12 @@ public interface IFileSystem {
 	/// <summary>Reads the whole file as UTF-8 text. Throws if it does not exist.</summary>
 	string ReadAllText(string path);
 
+	/// <summary>
+	/// Reads the whole file as UTF-8 text, returning <see langword="false"/> for binary content (invalid UTF-8 or
+	/// a NUL character). Throws if the file does not exist.
+	/// </summary>
+	bool TryReadAllText(string path, out string contents);
+
 	/// <summary>Reads the whole file as raw bytes. Throws if it does not exist.</summary>
 	byte[] ReadAllBytes(string path);
 

@@ -63,6 +63,12 @@ public sealed class LocalFileSystem : IFileSystem {
 	public string ReadAllText(string path) => File.ReadAllText(path, Utf8NoBom);
 
 	/// <inheritdoc/>
+	public bool TryReadAllText(string path, out string contents) {
+		using var stream = File.OpenRead(path);
+		return TextFileReader.TryRead(stream, out contents);
+	}
+
+	/// <inheritdoc/>
 	public byte[] ReadAllBytes(string path) => File.ReadAllBytes(path);
 
 	/// <inheritdoc/>

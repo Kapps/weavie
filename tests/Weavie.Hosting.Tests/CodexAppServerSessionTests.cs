@@ -883,8 +883,13 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		return session;
 	}
 
+	// Flaked 2026-07-13T01:58Z on ci/test (linux) (ThreadResume_HydratesBeforeSubmittingInputQueuedDuringStartup):
+	// https://github.com/Kapps/weavie/actions/runs/29218522631/job/86719007250 — TimeoutException after 5s.
+	// The fake app-server is a real spawned Node child process, so its round trips are subject to CI scheduling
+	// jitter; production ordering (hydrate-then-flush) is not racy. Widened the bound to 20s to absorb that
+	// jitter without hiding a real regression.
 	private static async Task WaitForAsync(Func<bool> done) {
-		for (int i = 0; i < 200; i++) {
+		for (int i = 0; i < 800; i++) {
 			if (done()) {
 				return;
 			}

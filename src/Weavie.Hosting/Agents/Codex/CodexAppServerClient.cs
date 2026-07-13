@@ -220,7 +220,7 @@ public sealed partial class CodexAppServerClient : IAsyncDisposable {
 		return new CodexRequestException(code, message, error.GetRawText());
 	}
 
-	private static string ReadRequestId(JsonElement id) =>
+	internal static string ReadRequestId(JsonElement id) =>
 		id.ValueKind == JsonValueKind.String
 			? id.GetString() ?? string.Empty
 			: id.GetRawText();

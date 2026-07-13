@@ -812,6 +812,18 @@
   background: color-mix(in srgb, var(--accent) 12%, transparent);
 }
 
+.agent-status-pr {
+  color: color-mix(in srgb, var(--fg) 82%, var(--dim));
+}
+
+.agent-status-unavailable {
+  cursor: default;
+}
+
+.agent-status-unavailable:hover {
+  background: transparent;
+}
+
 .agent-status-key {
   color: color-mix(in srgb, var(--dim) 82%, transparent);
   text-transform: uppercase;

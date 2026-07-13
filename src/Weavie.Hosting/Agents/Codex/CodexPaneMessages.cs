@@ -279,7 +279,8 @@ internal static class CodexPaneMessages {
 			Type = "approval-resolved",
 			ProviderId = "codex",
 			ThreadId = parameters.GetStringOrEmpty("threadId"),
-			ItemId = parameters.TryGetProperty("requestId", out var id) ? RequestId(id) : null,
+			TurnId = parameters.GetStringOrEmpty("turnId"),
+			ItemId = parameters.TryGetProperty("requestId", out var id) ? CodexAppServerClient.ReadRequestId(id) : null,
 			Status = "resolved",
 			PayloadJson = root.GetRawText(),
 		};
@@ -408,9 +409,6 @@ internal static class CodexPaneMessages {
 	}
 
 	private static string SummarizeFileChange(JsonElement item) => SummarizeChanges(item);
-
-	private static string? RequestId(JsonElement id) =>
-		id.ValueKind == JsonValueKind.String ? id.GetString() : id.GetRawText();
 
 	private static string? SummarizeCommand(string command) {
 		if (command.Length == 0) {

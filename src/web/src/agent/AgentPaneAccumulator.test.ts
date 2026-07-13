@@ -36,6 +36,52 @@ describe("AgentPaneAccumulator", () => {
     expect(messages).toEqual([update("item-completed", "final")]);
   });
 
+  it("keeps equal turn and item ids distinct across threads", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    accumulator.ingest(
+      "slot-1",
+      { ...update("agent-message-delta", "alpha"), threadId: "thread-a" },
+      publish,
+    );
+    accumulator.ingest(
+      "slot-1",
+      { ...update("agent-message-delta", "beta"), threadId: "thread-b" },
+      publish,
+    );
+    for (const flush of scheduled) flush();
+
+    expect(messages.map((message) => [message.threadId, message.text])).toEqual([
+      ["thread-a", "alpha"],
+      ["thread-b", "beta"],
+    ]);
+  });
+
+  it("does not alias missing fields or delimiter-bearing opaque ids", () => {
+    const scheduled: Array<() => void> = [];
+    const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));
+    let messages: AgentPaneUpdate[] = [];
+    const publish = (value: AgentPaneUpdate[]): void => {
+      messages = value;
+    };
+    const collisions: AgentPaneUpdate[] = [
+      { ...update("agent-message-delta", "missing-thread"), threadId: null, turnId: "session" },
+      { ...update("agent-message-delta", "missing-turn"), threadId: "thread", turnId: null },
+      { ...update("agent-message-delta", "thread-delimiter"), threadId: "a:b", turnId: "c" },
+      { ...update("agent-message-delta", "turn-delimiter"), threadId: "a", turnId: "b:c" },
+    ];
+    for (const collision of collisions) accumulator.ingest("slot-1", collision, publish);
+    for (const flush of scheduled) flush();
+
+    expect(messages.map((message) => message.text)).toEqual(
+      collisions.map((message) => message.text),
+    );
+  });
+
   it("coalesces a non-delta burst to a single publish per frame", () => {
     const scheduled: Array<() => void> = [];
     const accumulator = new AgentPaneAccumulator((callback) => scheduled.push(callback));

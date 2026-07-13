@@ -33,6 +33,19 @@ public sealed class GitHubReviewProvider : IPullRequestProvider, IReviewCommentS
 	}
 
 	/// <inheritdoc/>
+	public async Task<PullRequestSummary?> FindOpenForBranchAsync(RepoRef repo, string headOwner, string branch, CancellationToken ct = default) {
+		ArgumentNullException.ThrowIfNull(repo);
+		ArgumentException.ThrowIfNullOrWhiteSpace(headOwner);
+		ArgumentException.ThrowIfNullOrWhiteSpace(branch);
+		string head = Uri.EscapeDataString($"{headOwner}:{branch}");
+		string body = await SendAsync(
+			repo, HttpMethod.Get,
+			$"/repos/{repo.Owner}/{repo.Name}/pulls?state=open&head={head}&sort=updated&direction=desc&per_page=1",
+			null, ct).ConfigureAwait(false);
+		return ParsePullRequests(body).FirstOrDefault();
+	}
+
+	/// <inheritdoc/>
 	public async Task<IReadOnlyList<PullRequestSummary>> SearchAsync(RepoRef repo, string query, CancellationToken ct = default) {
 		ArgumentNullException.ThrowIfNull(repo);
 		// /search/issues ranks across the repo; scope to PRs. The result items are issue-shaped (no head/base

@@ -17,6 +17,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private readonly ConcurrentDictionary<string, CodexServerRequest> _pendingRequests = new(StringComparer.Ordinal);
 	private readonly Lock _gate = new();
 	private readonly Queue<CodexTurnInput> _pendingInputs = new();
+	private readonly HashSet<string> _pendingThreadStarts = new(StringComparer.Ordinal);
 	private readonly Dictionary<string, string> _fileChangeSummaries = new(StringComparer.Ordinal);
 	private readonly ConcurrentDictionary<string, byte> _resolvedRequests = new(StringComparer.Ordinal);
 	private long _nextId;
@@ -25,6 +26,7 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 	private bool _turnStarting;
 	private bool _started;
 	private bool _threadPersisted;
+	private bool _awaitingThreadAdoption;
 
 	/// <summary>Creates a worktree-scoped Codex app-server session.</summary>
 	public CodexAppServerSession(AgentSessionContext context, CodexThreadStore threads, string command) {
@@ -71,15 +73,24 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		// Track the turn boundary before anything that can throw, so the active-turn id can never silently
 		// desync from Codex and leave a later steer targeting a turn the server has already moved past.
 		string method = root.GetStringOrEmpty("method");
-		if (method == "turn/started") {
+		if (method == "serverRequest/resolved") {
+			HandleServerRequestResolved(root);
+			return;
+		}
+
+		bool deferredThreadStart = method == "thread/started" && DeferThreadStart(root);
+		bool primary = !deferredThreadStart && IsPrimaryThread(root);
+		if (primary && method == "turn/started") {
 			RememberTurn(root);
-		} else if (method == "turn/completed") {
+		} else if (primary && method is "turn/completed" or "turn/interrupted") {
 			ForgetTurn(root);
 		} else if (method == "skills/changed") {
 			Run(RefreshSkillsAndPublishAsync);
 		}
 
-		if (CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
+		bool lifecycle = method is "thread/started" or "turn/started" or "turn/completed" or "turn/interrupted";
+		if (!deferredThreadStart && (!lifecycle || primary)
+			&& CodexAppServerProtocol.TryAdaptNotification(root.GetRawText(), out var agentEvent)) {
 			try {
 				EmitFeedback(_context.Events.Observe(agentEvent));
 			} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -96,13 +107,15 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 		var paneMessage = CodexPaneMessages.FromNotification(method, CurrentThreadId(), root);
 		if (paneMessage is not null) {
+			string? paneItemKey = AgentPaneIdentity.ItemKey(paneMessage);
 			// The fileChange approval request carries only the item id — the changed paths live on the item
 			// events, so remember each edit item's summary to give a later approval card its substance.
 			// "fileChange" is the mapper's no-changes placeholder, not substance.
-			if (paneMessage is { Category: "edit", ItemId.Length: > 0, Summary.Length: > 0 }
+			if (paneItemKey is not null
+				&& paneMessage is { Category: "edit", Summary.Length: > 0 }
 				&& paneMessage.Summary != "fileChange") {
 				lock (_gate) {
-					_fileChangeSummaries[paneMessage.ItemId] = paneMessage.Summary;
+					_fileChangeSummaries[paneItemKey] = paneMessage.Summary;
 				}
 			}
 
@@ -213,9 +226,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			return card;
 		}
 
-		string itemId = parameters.GetStringOrEmpty("itemId");
+		string? itemKey = AgentPaneIdentity.ItemKey(
+			parameters.GetStringOrEmpty("threadId"),
+			parameters.GetStringOrEmpty("turnId"),
+			parameters.GetStringOrEmpty("itemId"));
 		lock (_gate) {
-			return itemId.Length > 0 && _fileChangeSummaries.TryGetValue(itemId, out string? changes)
+			return itemKey is not null && _fileChangeSummaries.TryGetValue(itemKey, out string? changes)
 				? card with { Text = changes }
 				: card;
 		}
@@ -253,6 +269,47 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 			return _threadId;
 		}
 	}
+
+	private bool IsPrimaryThread(JsonElement root) => IsPrimaryThread(ReadNotificationThreadId(root));
+
+	private bool DeferThreadStart(JsonElement root) {
+		string threadId = ReadNotificationThreadId(root);
+		lock (_gate) {
+			if (!_awaitingThreadAdoption || _threadId is not null || threadId.Length == 0) {
+				return false;
+			}
+
+			_pendingThreadStarts.Add(threadId);
+			return true;
+		}
+	}
+
+	private static string ReadNotificationThreadId(JsonElement root) {
+		if (!root.TryGetProperty("params", out var parameters)) {
+			return string.Empty;
+		}
+
+		return root.GetStringOrEmpty("method") == "thread/started"
+			&& parameters.TryGetProperty("thread", out var thread)
+			? thread.GetStringOrEmpty("id")
+			: parameters.GetStringOrEmpty("threadId");
+	}
+
+	private void HandleServerRequestResolved(JsonElement root) {
+		if (!root.TryGetProperty("params", out var parameters)
+			|| !parameters.TryGetProperty("requestId", out var id)
+			|| !_pendingRequests.TryRemove(CodexAppServerClient.ReadRequestId(id), out var request)) {
+			return;
+		}
+
+		_resolvedRequests[request.Id] = 0;
+		_context.Events.Observe(new AgentPermissionResolved(HasPendingUserRequest()));
+		string type = CodexInputResponses.CanResolve(request.Method) ? "input-resolved" : "approval-resolved";
+		Emit(ResolvedRequest(request, type, "resolved"));
+	}
+
+	private bool IsPrimaryThread(string? threadId) =>
+		string.IsNullOrEmpty(threadId) || string.Equals(threadId, CurrentThreadId(), StringComparison.Ordinal);
 
 	private long NextRequest() => Interlocked.Increment(ref _nextId);
 
@@ -297,7 +354,8 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 		}
 	}
 
-	private void Emit(AgentPaneMessage message) => PaneMessage?.Invoke(message);
+	private void Emit(AgentPaneMessage message) =>
+		PaneMessage?.Invoke(message with { IsPrimaryThread = IsPrimaryThread(message.ThreadId) });
 
 	private sealed record CodexTurnInput(string Text, IReadOnlyList<AgentInputAttachment> Images, IReadOnlyList<string> SkillNames);
 }

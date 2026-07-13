@@ -263,9 +263,11 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>Resolves the workspace's <c>origin</c> remote URL to a <see cref="RepoRef"/>, or <c>null</c> when it isn't a forge repo.</summary>
-	private async Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) {
+	private Task<RepoRef?> ResolveOriginRepoAsync(CancellationToken ct) => ResolveRemoteRepoAsync("origin", ct);
+
+	private async Task<RepoRef?> ResolveRemoteRepoAsync(string remote, CancellationToken ct) {
 		try {
-			string? url = await new GitService().GetRemoteUrlAsync(WorkspaceRoot, "origin", ct).ConfigureAwait(false);
+			string? url = await new GitService().GetRemoteUrlAsync(WorkspaceRoot, remote, ct).ConfigureAwait(false);
 			return RepoRef.FromRemoteUrl(url);
 		} catch (GitException) {
 			return null;

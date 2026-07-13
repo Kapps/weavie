@@ -133,7 +133,7 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 	}
 
 	private void StorePaneMessage(AgentPaneMessage message) {
-		string? key = ItemKey(message);
+		string? key = AgentPaneIdentity.ItemKey(message);
 		if (key is null) {
 			_paneMessages.Add(message);
 			return;
@@ -173,9 +173,6 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 
 		_paneMessages.Add(message);
 	}
-
-	private static string? ItemKey(AgentPaneMessage message) =>
-		string.IsNullOrEmpty(message.ItemId) ? null : $"{message.TurnId ?? "session"}:{message.ItemId}";
 
 	private static bool IsDelta(AgentPaneMessage message) =>
 		message.Type is "agent-message-delta" or "plan-delta" or "command-output-delta";

@@ -344,6 +344,83 @@ describe("toAgentTranscript", () => {
     expect(transcript.map((entry) => entry.label)).toEqual(["You", "Codex", "You", "Codex"]);
   });
 
+  it("keeps primary and subagent narration with colliding item ids", () => {
+    const transcript = toAgentTranscript([
+      { type: "user-message", providerId: "codex", threadId: "primary", text: "work" },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "primary",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Primary update",
+      },
+      {
+        type: "item-completed",
+        providerId: "codex",
+        threadId: "subagent",
+        turnId: "turn-1",
+        itemId: "message-1",
+        itemType: "agentMessage",
+        text: "Subagent update",
+      },
+    ]);
+
+    expect(transcript[1]?.details.map((step) => step.detailText)).toEqual(["Primary update"]);
+    expect(transcript[2]?.text).toBe("Subagent update");
+  });
+
+  it("scopes request resolution and reported errors to their originating thread", () => {
+    const transcript = toAgentTranscript([
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        threadId: "root",
+        turnId: "same-turn",
+        itemId: "same-item",
+        status: "pending",
+      },
+      {
+        type: "approval-requested",
+        providerId: "codex",
+        threadId: "sub",
+        turnId: "same-turn",
+        itemId: "same-item",
+        status: "pending",
+      },
+      {
+        type: "approval-resolved",
+        providerId: "codex",
+        threadId: "sub",
+        turnId: "same-turn",
+        itemId: "same-item",
+        status: "accept",
+      },
+      {
+        type: "error",
+        providerId: "codex",
+        threadId: "sub",
+        turnId: "same-turn",
+        text: "Subagent failed",
+      },
+      {
+        type: "turn-completed",
+        providerId: "codex",
+        threadId: "root",
+        turnId: "same-turn",
+        status: "failed",
+        text: "Root failed",
+      },
+    ]);
+
+    const requests = transcript.filter((entry) => entry.kind === "request");
+    expect(requests.map((entry) => entry.status)).toEqual(["pending", "accepted"]);
+    expect(transcript.filter((entry) => entry.tone === "error").map((entry) => entry.text)).toEqual(
+      ["Subagent failed", "Root failed"],
+    );
+  });
+
   it("clusters the working block just above the result when work precedes later chatter", () => {
     const transcript = toAgentTranscript([
       {

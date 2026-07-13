@@ -1,4 +1,5 @@
 import type { AgentPaneUpdate } from "../bridge";
+import { paneItemIdentity } from "./AgentPaneIdentity";
 import { hasItemId } from "./AgentPaneMessageFormat";
 
 /**
@@ -8,6 +9,9 @@ import { hasItemId } from "./AgentPaneMessageFormat";
 export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
   let active = false;
   for (const message of messages) {
+    if (!isPrimary(message)) {
+      continue;
+    }
     if (message.type === "turn-started") {
       active = true;
     } else if (message.type === "turn-completed") {
@@ -24,6 +28,9 @@ export function hasActiveTurn(messages: readonly AgentPaneUpdate[]): boolean {
 export function activeTurnStartedAt(messages: readonly AgentPaneUpdate[]): number | null {
   let startedAt: number | null = null;
   for (const message of messages) {
+    if (!isPrimary(message)) {
+      continue;
+    }
     if (message.type === "turn-started") {
       startedAt = message.receivedAt ?? null;
     } else if (message.type === "turn-completed") {
@@ -46,22 +53,25 @@ export interface PendingRequest {
  * as it is unresolved, so the hotkey chip and chord never drop off a card that still shows its buttons.
  */
 export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
-  const pending = new Map<string, PendingRequestKind>();
+  const pending = new Map<string, PendingRequest>();
   for (const message of messages) {
     if (message.type === "approval-requested" && hasItemId(message)) {
-      pending.set(message.itemId, "approval");
+      const key = paneItemIdentity(message);
+      if (key !== null) pending.set(key, { kind: "approval", requestId: message.itemId });
     } else if (message.type === "input-requested" && hasItemId(message)) {
-      pending.set(message.itemId, "input");
+      const key = paneItemIdentity(message);
+      if (key !== null) pending.set(key, { kind: "input", requestId: message.itemId });
     } else if (
       (message.type === "approval-resolved" || message.type === "input-resolved") &&
       hasItemId(message)
     ) {
-      pending.delete(message.itemId);
+      const key = paneItemIdentity(message);
+      if (key !== null) pending.delete(key);
     }
   }
   let latest: PendingRequest | null = null;
-  for (const [requestId, kind] of pending) {
-    latest = { kind, requestId };
+  for (const request of pending.values()) {
+    latest = request;
   }
   return latest;
 }
@@ -74,6 +84,10 @@ export function pendingRequest(messages: readonly AgentPaneUpdate[]): PendingReq
 export function pendingApproval(messages: readonly AgentPaneUpdate[]): PendingRequest | null {
   const request = pendingRequest(messages);
   return request !== null && request.kind === "approval" ? request : null;
+}
+
+function isPrimary(message: AgentPaneUpdate): boolean {
+  return message.isPrimaryThread !== false;
 }
 
 /** Elapsed working time as a compact label: "8s", "1m 05s", "1h 02m". */

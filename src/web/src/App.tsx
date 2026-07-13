@@ -849,6 +849,14 @@ export default function App(): JSX.Element {
         agentPaneAccumulator.ingest(message.slot, message.message, (messages) =>
           setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
         );
+      } else if (message.type === "agent-pane-batch") {
+        // A reconnect's whole-snapshot replay: ingest each in order; the accumulator's scheduled flush
+        // publishes once, so this is O(N) work and a single reactive update, not N.
+        for (const paneMessage of message.messages) {
+          agentPaneAccumulator.ingest(message.slot, paneMessage, (messages) =>
+            setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),
+          );
+        }
       } else if (message.type === "agent-pane-reset") {
         agentPaneAccumulator.reset(message.slot, (messages) =>
           setAgentPaneMessages((prev) => ({ ...prev, [message.slot]: messages })),

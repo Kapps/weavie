@@ -580,6 +580,36 @@ test.describe("Codex composer", () => {
     expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
   });
 
+  // Regression: a turn boundary must not strip a still-unresolved approval of its hotkeys. The chip and the
+  // chord derive from resolution state, not turn state, so the card stays keyboard-answerable while it shows
+  // its buttons — even after a turn-completed races in ahead of the answer.
+  test("an unresolved approval keeps its hotkeys after the turn reports completed", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb(paneMessage({ type: "turn-started", turnId: "t1", status: "inProgress" }));
+    host.pushToWeb(
+      paneMessage({
+        type: "approval-requested",
+        itemId: "a1",
+        status: "pending",
+        summary: "Wants to run the test suite.",
+        text: "dotnet test tests/Weavie.Hosting.Tests",
+      }),
+    );
+    host.pushToWeb(paneMessage({ type: "turn-completed", turnId: "t1", status: "completed" }));
+
+    const card = page.locator(".agent-entry-request");
+    const accept = card.locator("button", { hasText: "Accept" }).first();
+    await expect(accept.locator(".agent-key-chip")).toHaveText("Alt+Y");
+
+    await page.locator("[data-agent-composer] textarea").click();
+    await page.keyboard.press("Alt+y");
+    const decision = await host.waitForMessage("agent-approval");
+    expect(decision).toMatchObject({ slot: "cx", requestId: "a1", decision: "accept" });
+  });
+
   // Pins the follow pill: scrolling up pauses follow and shows the pill; clicking it re-sticks.
   test("scrolling up shows the jump-to-latest pill", async ({ page }) => {
     await mountCodex(page);

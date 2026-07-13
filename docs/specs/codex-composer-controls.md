@@ -42,15 +42,16 @@ web reaches only through provider-neutral bridge messages — a sibling to `IStr
 Verified against the installed Codex app-server schema (`codex app-server generate-json-schema`): `turn/start`
 accepts `model`, `approvalPolicy`, and `sandboxPolicy` — each *"for this turn and subsequent turns."* So a live
 model change needs **no thread restart**: the Codex session holds session-local overrides and sends the
-effective values on the next `turn/start`. `SetControl` validates against the axis options, updates the
-override, and raises `ControlStateChanged`; the status line reflects it immediately.
+effective values on the next `turn/start`. `SetControl` validates against the axis options, stores the selected
+value as the default for subsequent Codex sessions, updates the override, and raises `ControlStateChanged`; the
+status line reflects it immediately.
 
 ```mermaid
 flowchart LR
   seg["status segment / /model"] -->|openControlPicker| picker[AgentControlPicker]
   picker -->|agent-set-control| wb[HostCore.WebBridge]
   wb -->|SetControl| ctl[CodexAppServerSession.Controls]
-  ctl -->|override + ControlStateChanged| host[AgentSessionHost]
+  ctl -->|setting + override + ControlStateChanged| host[AgentSessionHost]
   host -->|agent-controls push| store[agent-controls-store]
   store --> seg
   ctl -.->|EffectiveModel/Sandbox/Approval| turn["next turn/start"]

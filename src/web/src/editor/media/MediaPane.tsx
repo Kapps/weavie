@@ -1,61 +1,103 @@
-import { createEffect, createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
+import {
+  createEffect,
+  createMemo,
+  createSignal,
+  type JSX,
+  onCleanup,
+  onMount,
+  Show,
+} from "solid-js";
+import { mediaResourceUrl, onHostMessage } from "../../bridge";
 import { currentEditorOptions, onEditorOptionsChanged } from "../../editor-options";
-import { basename } from "../fs-path";
-import { loadMedia, mediaDoc, releaseMedia } from "./media-store";
+import { basename, samePath } from "../fs-path";
 import { mediaTypeOf } from "./media-types";
 
 /**
  * The media-tab surface: the active image/video file rendered over the (kept-mounted) Monaco host, at the
- * same layer as the Preview/Web overlays. Bytes come from media-store as a Blob URL; a `<video>` gets native
- * controls (autoplaying unless editor.videoAutoplay is off), and the pane focuses itself on mount so the
- * keyboard reaches them (space/arrows). Errors — a
- * too-large file, a failed read, a deletion — render loudly in the pane where the user is looking.
+ * same layer as the Preview/Web overlays. The browser streams bytes directly from the workspace HTTP server.
+ * Videos get native controls, and the pane focuses itself so the keyboard reaches them. Failed reads and
+ * deletions render loudly in the pane.
  */
-export default function MediaPane(props: { path: () => string }): JSX.Element {
+export default function MediaPane(props: {
+  backendId: () => string;
+  sessionId: () => string;
+  path: () => string;
+}): JSX.Element {
   let host!: HTMLDivElement;
-
-  // Fetch on mount and on every tab switch within the pane, releasing the outgoing path's Blob URL. The
-  // loaded path is captured in a plain variable because disposal runs AFTER the driving memo has already
-  // recomputed to null — an onCleanup that re-read props.path() would release nothing and leak the blob.
-  let loaded: string | undefined;
-  createEffect(() => {
-    const path = props.path();
-    if (loaded !== undefined && loaded !== path) {
-      releaseMedia(loaded);
-    }
-    loaded = path;
-    loadMedia(path);
-  });
-  onCleanup(() => {
-    if (loaded !== undefined) {
-      releaseMedia(loaded);
-    }
-  });
   onMount(() => host.focus());
 
   // Live view of editor.videoAutoplay — toggling it updates the mounted element, so the next load honors it.
   const [autoplay, setAutoplay] = createSignal(currentEditorOptions().videoAutoplay);
   onCleanup(onEditorOptionsChanged((options) => setAutoplay(options.videoAutoplay)));
 
-  const doc = (): ReturnType<typeof mediaDoc> => mediaDoc(props.path());
+  const [revision, setRevision] = createSignal(0);
+  const [status, setStatus] = createSignal<"loading" | "ready" | "error">("loading");
+  const [error, setError] = createSignal<string | null>(null);
+  const url = createMemo(() =>
+    mediaResourceUrl(props.backendId(), props.sessionId(), props.path(), revision()),
+  );
+  createEffect(() => {
+    if (url() === null) {
+      setStatus("error");
+      setError(`No media endpoint is available for ${basename(props.path())}.`);
+    } else {
+      setStatus("loading");
+      setError(null);
+    }
+  });
+  onCleanup(
+    onHostMessage((message) => {
+      if (message.type !== "fs-change") {
+        return;
+      }
+      const change = message.changes.find((candidate) => samePath(candidate.path, props.path()));
+      if (change?.kind === "deleted") {
+        setStatus("error");
+        setError(`${basename(props.path())} was deleted.`);
+      } else if (change !== undefined) {
+        setRevision((value) => value + 1);
+      }
+    }),
+  );
+
+  const failed = (): void => {
+    setStatus("error");
+    setError(`Unable to load ${basename(props.path())}.`);
+  };
 
   return (
     <div class="editor-media" data-kind="editor" tabindex="0" ref={host}>
-      <Show when={doc()?.url !== undefined}>
-        <Show
-          when={mediaTypeOf(props.path())?.kind === "video"}
-          fallback={
-            <img class="editor-media-content" src={doc()?.url} alt={basename(props.path())} />
-          }
-        >
-          {/* biome-ignore lint/a11y/useMediaCaption: workspace video files carry no caption tracks. */}
-          <video class="editor-media-content" src={doc()?.url} controls autoplay={autoplay()} />
-        </Show>
+      <Show when={url()} keyed>
+        {(src) => (
+          <Show
+            when={mediaTypeOf(props.path())?.kind === "video"}
+            fallback={
+              <img
+                class="editor-media-content"
+                src={src}
+                alt={basename(props.path())}
+                onLoad={() => setStatus("ready")}
+                onError={failed}
+              />
+            }
+          >
+            {/* biome-ignore lint/a11y/useMediaCaption: workspace video files carry no caption tracks. */}
+            <video
+              class="editor-media-content"
+              src={src}
+              controls
+              preload="metadata"
+              autoplay={autoplay()}
+              onLoadedMetadata={() => setStatus("ready")}
+              onError={failed}
+            />
+          </Show>
+        )}
       </Show>
-      <Show when={doc()?.status === "error"}>
-        <div class="editor-media-notice">{doc()?.error}</div>
+      <Show when={status() === "error"}>
+        <div class="editor-media-notice">{error()}</div>
       </Show>
-      <Show when={doc()?.status === "loading" && doc()?.url === undefined}>
+      <Show when={status() === "loading"}>
         <div class="editor-media-notice">Loading {basename(props.path())}…</div>
       </Show>
     </div>

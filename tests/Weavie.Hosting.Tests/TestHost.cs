@@ -12,6 +12,7 @@ using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
 using Weavie.Core.Theming;
 using Weavie.Hosting.Agents.Claude;
+using Weavie.Hosting.Web;
 
 namespace Weavie.Hosting.Tests;
 
@@ -99,7 +100,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		var services = IsolatedServices(tempRoot, sourceHttp, sourcesDir, pullRequests);
 		var bridge = new FakeHostBridge();
 		var platform = new TestPlatform(bridge);
-		var core = new HostCore(platform, services, repo);
+		var core = new HostCore(
+			platform,
+			services,
+			repo,
+			WorkspaceHttpServerOptions.Native(Path.Combine(tempRoot, "wwwroot")),
+			UnavailableWorkspaceWebSocketBridge.Instance);
 		await core.StartAsync().ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		if (sendReady) {
@@ -142,7 +148,12 @@ internal sealed class TestHost : IAsyncDisposable {
 		beforeRestart();
 		Bridge = new FakeHostBridge();
 		Platform = new TestPlatform(Bridge);
-		Core = new HostCore(Platform, _services, RepoRoot);
+		Core = new HostCore(
+			Platform,
+			_services,
+			RepoRoot,
+			WorkspaceHttpServerOptions.Native(Path.Combine(_tempRoot, "wwwroot")),
+			UnavailableWorkspaceWebSocketBridge.Instance);
 		await Core.StartAsync().ConfigureAwait(false);
 		Bridge.Receive("""{"type":"ready"}""");
 	}

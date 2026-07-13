@@ -189,7 +189,7 @@ public sealed class HeadlessRemoteAuthTests(RemoteHeadlessFixture fixture) : ICl
 	}
 }
 
-/// <summary>Launches a real LOCAL (loopback, no-token) headless once for the suite.</summary>
+/// <summary>Launches a real token-gated LOCAL loopback headless once for the suite.</summary>
 public sealed class LocalHeadlessFixture : IAsyncLifetime {
 	private readonly string _workspace =
 		Path.Combine(Path.GetTempPath(), "weavie-local-tests", Guid.NewGuid().ToString("N"));
@@ -218,22 +218,26 @@ public sealed class LocalHeadlessFixture : IAsyncLifetime {
 }
 
 /// <summary>
-/// Local mode is loopback-only and unauthenticated by design — the document is served with no token, and the
-/// bridge's only defense against a malicious browser tab is the same-origin (CSWSH) check (which applies here,
-/// not in token-gated remote mode).
+/// Local mode is loopback-only and uses a server-minted token, so ambient web pages cannot read workspace files.
 /// </summary>
 public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClassFixture<LocalHeadlessFixture> {
 	private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(20) };
 
 	[Fact]
-	public async Task Document_is_served_without_a_token_in_local_mode() {
-		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/");
+	public async Task Document_is_served_with_the_generated_token_in_local_mode() {
+		var response = await Http.GetAsync(fixture.Host.PageUrl);
 		Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 	}
 
 	[Fact]
+	public async Task Document_is_denied_without_the_generated_token_in_local_mode() {
+		var response = await Http.GetAsync($"{fixture.Host.BaseUrl}/");
+		Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+	}
+
+	[Fact]
 	public async Task Bridge_websocket_upgrade_is_rejected_with_a_foreign_origin() {
-		// No token here, so the same-origin check is the bridge's sole defense: a foreign browser tab is refused.
+		// A foreign browser tab without the generated token is refused before the WebSocket upgrade.
 		using var socket = new ClientWebSocket();
 		socket.Options.SetRequestHeader("Origin", "http://evil.example");
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -243,11 +247,11 @@ public sealed class HeadlessLocalAuthTests(LocalHeadlessFixture fixture) : IClas
 
 	[Fact]
 	public async Task Bridge_websocket_upgrade_succeeds_with_a_matching_origin() {
-		// The local page is same-origin with its loopback host, so a matching Origin connects (no token needed).
+		string token = new Uri(fixture.Host.PageUrl).Query.TrimStart('?');
 		using var socket = new ClientWebSocket();
 		socket.Options.SetRequestHeader("Origin", $"http://127.0.0.1:{fixture.Host.Port}");
 		using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(20));
-		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge"), cts.Token);
+		await socket.ConnectAsync(new Uri($"ws://127.0.0.1:{fixture.Host.Port}/weavie-bridge?{token}"), cts.Token);
 		Assert.Equal(WebSocketState.Open, socket.State);
 		try {
 			await socket.CloseAsync(WebSocketCloseStatus.NormalClosure, "done", cts.Token);

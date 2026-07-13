@@ -17,10 +17,6 @@ namespace Weavie.Win;
 /// else lives in the shared core. Created/tracked by <see cref="AppController"/>, which owns the shared stores.
 /// </summary>
 internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatform {
-	// Synthetic virtual-host name; https keeps the page in a secure same-origin context (workers + Event Timing
-	// API behave), mirroring the macOS app:// scheme.
-	private const string AppHost = "weavie.dev";
-
 	// Maps the WKWebView script-message API the shared frontend speaks onto WebView2's postMessage, so the web app
 	// runs unmodified across platforms.
 	private const string BridgeShim =
@@ -104,7 +100,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			ReviewComments = github,
 			Sources = Weavie.Core.Sources.SourceConnector.CreateDefault(),
 			LogBuffer = _app.LogBuffer,
-		}, workspaceRoot);
+		}, workspaceRoot,
+		WorkspaceHttpServerOptions.Native(Path.Combine(AppContext.BaseDirectory, "wwwroot")),
+		UnavailableWorkspaceWebSocketBridge.Instance);
 		// On the page's `ready`, push the native window state (maximize glyph + blur dim) the core can't know.
 		_core.Ready += OnPageReady;
 

@@ -27,6 +27,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	private HostServices? _services;
 	private RecentWorkspaces? _recents;
 	private AppSchemeHandler? _scheme;
+	private string? _wwwroot;
 
 	private IntPtr _window;
 	private IntPtr _webView;
@@ -41,6 +42,7 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	/// </summary>
 	internal void Start() {
 		string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
+		_wwwroot = wwwroot;
 
 		// App-global Core stores + the recents that drive reopen-last and the welcome screen's list.
 		_services = HostServices.CreateDefault();
@@ -75,7 +77,12 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 	/// </summary>
 	private void OpenWorkspace(string root) {
 		_recents!.Add(root);
-		_core = new HostCore(new LinuxPlatform(_bridge, _recents), _services!, root);
+		_core = new HostCore(
+			new LinuxPlatform(_bridge, _recents),
+			_services!,
+			root,
+			WorkspaceHttpServerOptions.Native(_wwwroot!),
+			UnavailableWorkspaceWebSocketBridge.Instance);
 
 		// Linux can't enumerate monitor work-areas (no GDK binding), so the on-screen guard is inert and saved
 		// bounds are trusted; the empty screen list leaves it that way.
@@ -86,13 +93,12 @@ internal sealed partial class WorkspaceHost : IWebSurface {
 		// touches nothing GTK-affine.
 		_core.StartAsync().GetAwaiter().GetResult();
 
-		// Drop any welcome injection (its window.__WEAVIE_WELCOME__) so it can't leak into the workspace page, then
-		// inject the bootstrap globals before navigation so the app mounts at the user's settings with no flash.
+		// Drop any welcome injection (its window.__WEAVIE_WELCOME__) so it can't leak into the workspace page.
+		// The shared server injects the workspace bootstrap into index.html before the module graph.
 		WebKit.webkit_user_content_manager_remove_all_scripts(_contentManager);
-		InjectAtDocumentStart(_core.BuildBootstrap());
 
 		ShowWindow();
-		WebKit.webkit_web_view_load_uri(_webView, "app://app/index.html");
+		WebKit.webkit_web_view_load_uri(_webView, _core.WorkspacePageUrl);
 	}
 
 	/// <summary>Sizes/positions the window for <paramref name="placement"/>; resizes live when already on screen (welcome → workspace).</summary>

@@ -17,22 +17,18 @@ public sealed class DevWebBringUp : IDisposable {
 
 	private readonly WebAppLauncher _launcher;
 	private readonly IWebSurface _surface;
-	private readonly string _bundleOrigin;
 	private readonly WebDevServer _devServer;
 
 	/// <param name="launcher">The shared success-path bring-up.</param>
 	/// <param name="surface">The host's native WebView operations (for rendering the error page).</param>
 	/// <param name="devWebRoot">The Vite source dir (from <see cref="DevWebRoot"/>), or <c>null</c> when unresolved.</param>
-	/// <param name="bundleOrigin">The host's bundled-assets origin, used when the developer accepts the stale bundle.</param>
 	/// <param name="log">Sink for dev-server output.</param>
-	public DevWebBringUp(WebAppLauncher launcher, IWebSurface surface, string? devWebRoot, string bundleOrigin, Action<string> log) {
+	public DevWebBringUp(WebAppLauncher launcher, IWebSurface surface, string? devWebRoot, Action<string> log) {
 		ArgumentNullException.ThrowIfNull(launcher);
 		ArgumentNullException.ThrowIfNull(surface);
-		ArgumentException.ThrowIfNullOrEmpty(bundleOrigin);
 		ArgumentNullException.ThrowIfNull(log);
 		_launcher = launcher;
 		_surface = surface;
-		_bundleOrigin = bundleOrigin;
 		_devServer = new WebDevServer(log, devWebRoot);
 	}
 
@@ -53,7 +49,7 @@ public sealed class DevWebBringUp : IDisposable {
 	}
 
 	/// <summary>The developer explicitly accepts the possibly-stale bundle: brings the app up against it.</summary>
-	public Task LoadBundleAsync() => _launcher.LaunchAsync(_bundleOrigin);
+	public Task LoadBundleAsync() => _launcher.LaunchBundleAsync();
 
 	/// <summary>
 	/// (Re)starts the dev server and returns its origin without re-running the backend — for a host recovering a

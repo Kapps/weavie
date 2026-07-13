@@ -1,4 +1,4 @@
-import { createSignal } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import { onHostMessage, postToHost } from "../bridge";
 import { samePath } from "./fs-path";
 import type { EditorSession, EditorSessionEntry, EditorViewState } from "./session-types";
@@ -9,6 +9,10 @@ import type { EditorSession, EditorSessionEntry, EditorViewState } from "./sessi
 // so there is no loop. Imported at top level (App.tsx) so this signal survives HMR rather than reloading with
 // the dynamic editor chunk.
 const [session, setSession] = createSignal<EditorSession | null>(null);
+const [editorOwner, setEditorOwner] = createSignal<string | null>(null);
+const [editorBackendId, setEditorBackendId] = createSignal<string | null>(null);
+
+export { editorBackendId, editorOwner };
 
 // Web/source tabs are web-only overlay surfaces — never reported to the host or persisted (the host would treat
 // their path as a file). Only real file tabs round-trip.
@@ -36,12 +40,6 @@ let lastStructure = "";
 // The session id these tabs belong to (from the last set-editor-session). Every outbound editor message
 // carries it so the host can reject a debounced send that lands after a session switch, rather than corrupt
 // the now-active session. Null until the first set-editor-session.
-let currentOwner: string | null = null;
-
-/// The session id the editor's tabs currently belong to (for stamping outbound editor messages).
-export function editorOwner(): string | null {
-  return currentOwner;
-}
 
 // Tell the host the live open-tab set so Claude's getOpenEditors reports it (and close_tab can target it).
 function emitOpenEditors(session: EditorSession): void {
@@ -49,7 +47,7 @@ function emitOpenEditors(session: EditorSession): void {
   // Web/source tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a path as a file.
   postToHost({
     type: "open-editors-changed",
-    sessionId: currentOwner,
+    sessionId: editorOwner(),
     editors: session.open.filter(isFileTab).map((entry) => ({
       path: entry.path,
       isActive: entry.path === session.active,
@@ -59,17 +57,20 @@ function emitOpenEditors(session: EditorSession): void {
   });
 }
 
-onHostMessage((message) => {
+onHostMessage((message, backendId) => {
   if (message.type === "set-editor-session") {
     // Adopt the incoming id and DROP any pending debounced send: it carries the previous session's tabs and,
     // landing after this rebind, would contaminate the incoming session (cross-worktree tab bug).
-    currentOwner = message.sessionId ?? null;
     if (postTimer !== undefined) {
       clearTimeout(postTimer);
       postTimer = undefined;
     }
     const seeded = { active: message.session.active, open: normalize(message.session.open) };
-    setSession(seeded);
+    batch(() => {
+      setEditorBackendId(backendId);
+      setEditorOwner(message.sessionId ?? null);
+      setSession(seeded);
+    });
     // Report the restored set so getOpenEditors works immediately, without waiting for a tab change.
     emitOpenEditors(seeded);
   }
@@ -134,8 +135,8 @@ function sendEditorSession(s: EditorSession, owner: string | null): void {
 function commit(next: EditorSession): void {
   setSession(next);
   // Capture the owner now, not when the timer fires: this change describes the session active when the user
-  // made it, even if a session switch lands a new currentOwner before the debounce fires.
-  const owner = currentOwner;
+  // made it, even if a session switch lands a new editor owner before the debounce fires.
+  const owner = editorOwner();
   if (postTimer !== undefined) {
     clearTimeout(postTimer);
   }
@@ -161,9 +162,9 @@ export function flushEditorSession(): void {
   postTimer = undefined;
   const current = session();
   if (current !== null) {
-    // Runs while the outgoing session still owns the tab set, so the live currentOwner records it under the
+    // Runs while the outgoing session still owns the tab set, so the live editor owner records it under the
     // correct session.
-    sendEditorSession(current, currentOwner);
+    sendEditorSession(current, editorOwner());
   }
 }
 

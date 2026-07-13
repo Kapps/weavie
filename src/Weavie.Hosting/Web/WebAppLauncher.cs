@@ -32,4 +32,11 @@ public sealed class WebAppLauncher {
 		await _surface.InjectStartupScriptAsync(_core.BuildBootstrap()).ConfigureAwait(false);
 		_surface.Navigate($"{origin}/index.html{_indexQuery}");
 	}
+
+	/// <summary>Brings the app up from the shared workspace HTTP server's bundled document.</summary>
+	public async Task LaunchBundleAsync() {
+		await _core.StartAsync().ConfigureAwait(false);
+		string suffix = string.IsNullOrEmpty(_indexQuery) ? string.Empty : "&" + _indexQuery.TrimStart('?');
+		_surface.Navigate(_core.WorkspacePageUrl + suffix);
+	}
 }

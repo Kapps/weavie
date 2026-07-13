@@ -486,6 +486,7 @@ public sealed partial class HostCore {
 		}
 
 		WireSession(session);
+		_mediaRoutes.Register(session.Id, [session.WorkspaceRoot, session.Scratch.Directory, session.PastedImages.Directory]);
 		return session;
 	}
 
@@ -808,6 +809,7 @@ public sealed partial class HostCore {
 		// Detach and push the rail BEFORE the teardown: the chip fades the moment the session is dormant, not
 		// after process teardown finishes (Windows can take many seconds to release the children's handles).
 		slot.Session = null;
+		_mediaRoutes.Unregister(session.Id);
 		PushSessionList();
 		PersistSessionState();
 		await session.DisposeAsync().ConfigureAwait(false);

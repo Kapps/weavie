@@ -52,19 +52,22 @@ internal static class Hosts {
 public sealed class HostHandle : IAsyncDisposable {
 	private readonly Process _process;
 
-	private HostHandle(Process process, int port) {
+	private HostHandle(Process process, int port, string pageUrl) {
 		_process = process;
 		Port = port;
+		PageUrl = pageUrl;
 	}
 
 	public int Port { get; }
 
 	public string BaseUrl => $"http://127.0.0.1:{Port}";
 
+	public string PageUrl { get; }
+
 	public static async Task<HostHandle> StartAsync(
 		string dll, IReadOnlyList<string> args, int port, string readyMarker, TimeSpan timeout) {
 		var output = new StringBuilder();
-		var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+		var ready = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
 
 		var psi = new ProcessStartInfo("dotnet") {
 			RedirectStandardOutput = true,
@@ -87,7 +90,7 @@ public sealed class HostHandle : IAsyncDisposable {
 			}
 
 			if (e.Data.Contains(readyMarker, StringComparison.Ordinal)) {
-				ready.TrySetResult();
+				ready.TrySetResult(e.Data);
 			}
 		}
 
@@ -100,8 +103,9 @@ public sealed class HostHandle : IAsyncDisposable {
 		process.BeginOutputReadLine();
 		process.BeginErrorReadLine();
 
+		string readyLine;
 		try {
-			await ready.Task.WaitAsync(timeout).ConfigureAwait(false);
+			readyLine = await ready.Task.WaitAsync(timeout).ConfigureAwait(false);
 			// The banner prints before the port actually binds, so the marker races the listener. Poll a real
 			// TCP connect until it accepts to close the race deterministically.
 			await WaitForPortAsync(port, process, TimeSpan.FromSeconds(20)).ConfigureAwait(false);
@@ -110,7 +114,10 @@ public sealed class HostHandle : IAsyncDisposable {
 			throw new InvalidOperationException($"host did not become ready in {timeout.TotalSeconds:F0}s:\n{Snapshot(output)}");
 		}
 
-		return new HostHandle(process, port);
+		string pageUrl = readyLine.Contains("[weavie-headless] open  ", StringComparison.Ordinal)
+			? readyLine.Split("open  ", StringSplitOptions.None)[1].Split("  in a browser", StringSplitOptions.None)[0]
+			: $"http://127.0.0.1:{port}/";
+		return new HostHandle(process, port, pageUrl);
 	}
 
 	private static async Task WaitForPortAsync(int port, Process process, TimeSpan timeout) {

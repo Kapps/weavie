@@ -1,5 +1,6 @@
 using System.Collections.Concurrent;
 using System.Reflection;
+using System.Text.Json;
 using Weavie.Core;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
@@ -17,6 +18,7 @@ using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
 using Weavie.Core.Workspaces;
 using Weavie.Core.Worktrees;
+using Weavie.Hosting.Web;
 
 namespace Weavie.Hosting;
 
@@ -58,6 +60,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly SessionStore _sessionStore;
 	private readonly RecentFilesStore _recentFiles;
 	private readonly CorrectionCorpus _corrections;
+	private readonly WorkspaceMediaRoutes _mediaRoutes = new();
+	private readonly WorkspaceHttpServer _http;
 	// In-flight web commands invoked by Claude (runCommand → run-command): token → completion, settled by the
 	// web's command-ack (or a 5s timeout). Concurrent: acks arrive on the UI thread, the await is off it.
 	private readonly ConcurrentDictionary<string, TaskCompletionSource<CommandResult>> _pendingWebCommands = new();
@@ -95,10 +99,17 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// Builds only the cheap per-workspace stores (layout + editor session) so the shell can read the saved window
 	/// geometry before creating its window; the heavy graph is built by <see cref="StartAsync"/>.
 	/// </summary>
-	public HostCore(IHostPlatform platform, HostServices services, string workspaceRoot) {
+	public HostCore(
+		IHostPlatform platform,
+		HostServices services,
+		string workspaceRoot,
+		WorkspaceHttpServerOptions httpOptions,
+		IWorkspaceWebSocketBridge httpBridge) {
 		ArgumentNullException.ThrowIfNull(platform);
 		ArgumentNullException.ThrowIfNull(services);
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
+		ArgumentNullException.ThrowIfNull(httpOptions);
+		ArgumentNullException.ThrowIfNull(httpBridge);
 		_platform = platform;
 		// The build a managed worker actually loaded (its own versions/<build>/ path), or the dev version — surfaced
 		// to the embedded claude so it knows whether it's a remote worker and on which build. See HostRuntimeInfo.
@@ -137,6 +148,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_corrections = new CorrectionCorpus(new LocalFileSystem(), WeaviePaths.WorkspaceCorrectionsFile(Id));
 		_corrections.Log += Log;
 		_corrections.Changed += () => _suggestions?.Evaluate();
+		_http = new WorkspaceHttpServer(this, httpOptions, httpBridge, _mediaRoutes);
 	}
 
 	// The last file recorded as recent, so the active-editor stream (which re-fires on every cursor move within a
@@ -154,6 +166,12 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 	/// <summary>The absolute workspace root this core serves.</summary>
 	public string WorkspaceRoot { get; }
+
+	/// <summary>The shared HTTP origin serving this workspace's app and streamed resources.</summary>
+	public string WorkspaceOrigin => _http.Origin;
+
+	/// <summary>The authenticated workspace document served by the shared HTTP server.</summary>
+	public string WorkspacePageUrl => _http.PageUrl;
 
 	/// <summary>The saved window geometry for this workspace, or <c>null</c> when there's none (the shell centers a default).</summary>
 	public WindowState? SavedWindow => _layout.Current.Window;
@@ -180,6 +198,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	private async Task StartCoreAsync() {
+		await _http.StartAsync().ConfigureAwait(false);
 		// Record any unhandled background-thread exception to a crash log (and stderr) before the runtime tears
 		// down, so a hard exit leaves a trace instead of vanishing; surfaced as a toast on the next launch.
 		CrashReporter.Install(line => Log($"[crash] {line}"));
@@ -239,7 +258,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 
 		WireReactions();
+		_http.MarkReady();
 	}
+
+	/// <summary>Waits for this workspace server to be stopped (the Headless process lifetime).</summary>
+	public Task WaitForShutdownAsync() => _http.WaitForShutdownAsync();
 
 	/// <summary>
 	/// The page-bootstrap script the shell injects at document-start: resolved fonts, editor options, theme, LSP
@@ -249,7 +272,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	public string BuildBootstrap() {
 		string lsp = _primarySession?.LspConfigJson ?? "null";
 		return
-			string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings, null)};"))
+			$"window.__WEAVIE_RESOURCE_BASE__ = {JsonSerializer.Serialize(_http.MediaBaseUrl)};"
+			+ string.Concat(LiveSettingGroups.Select(g => $"window.{g.Global} = {g.Build(_settings, null)};"))
 			+ $"window.__WEAVIE_THEME__ = {ThemeJson.Build(_settings, _themeOverrides, messageType: null, log: Log)};"
 			+ $"window.__WEAVIE_LSP__ = {lsp};"
 			+ BuildTestProfileScript()
@@ -402,6 +426,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 
 	/// <inheritdoc/>
 	public async ValueTask DisposeAsync() {
+		await _http.DisposeAsync().ConfigureAwait(false);
 		if (_onKeybindingsChanged is not null) {
 			_keybindings.KeybindingsChanged -= _onKeybindingsChanged;
 			_onKeybindingsChanged = null;

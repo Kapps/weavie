@@ -3,9 +3,9 @@ import type { EditorSessionEntry } from "./session-types";
 
 // Capture the store's host listener + every outbound message; the bridge itself is window-coupled.
 const posted = vi.hoisted(() => [] as Array<Record<string, unknown>>);
-const hostHandlers = vi.hoisted(() => [] as Array<(m: unknown) => void>);
+const hostHandlers = vi.hoisted(() => [] as Array<(m: unknown, backendId: string) => void>);
 vi.mock("../bridge", () => ({
-  onHostMessage: (h: (m: unknown) => void) => {
+  onHostMessage: (h: (m: unknown, backendId: string) => void) => {
     hostHandlers.push(h);
     return () => {};
   },
@@ -19,9 +19,9 @@ const store = await import("./session-store");
 type Entry = EditorSessionEntry;
 
 // Seed the store via the host's set-editor-session, then clear the captured traffic so each test starts fresh.
-function seed(open: Entry[], active: string | null, owner = "sess-1"): void {
+function seed(open: Entry[], active: string | null, owner = "sess-1", backendId = "local"): void {
   for (const h of hostHandlers) {
-    h({ type: "set-editor-session", sessionId: owner, session: { active, open } });
+    h({ type: "set-editor-session", sessionId: owner, session: { active, open } }, backendId);
   }
   posted.length = 0;
 }
@@ -240,5 +240,11 @@ describe("session ownership", () => {
     // No editor-session-changed for the abandoned sess-A change should have fired.
     expect(posted.some((m) => m.type === "editor-session-changed")).toBe(false);
     expect(store.editorOwner()).toBe("sess-B");
+  });
+
+  it("publishes backend and session ownership together", () => {
+    seed([], null, "sess-remote", "remote:devbox");
+    expect(store.editorBackendId()).toBe("remote:devbox");
+    expect(store.editorOwner()).toBe("sess-remote");
   });
 });

@@ -82,6 +82,23 @@ public static class CoreSettings {
 		});
 
 		registry.Register(new SettingDefinition {
+			Key = AgentSettings.PaneCoalesceMs,
+			Kind = SettingKind.Int,
+			Description = "How long (milliseconds) to batch a native agent pane's live messages into one update "
+				+ "before sending it to the page. Batching keeps a fast turn (or a resumed thread replaying its "
+				+ "whole history) from flooding the bridge and dropping a network-slow page mid-stream. 16 by "
+				+ "default — one frame at 60fps, imperceptible; 0 sends every message immediately (no batching). "
+				+ "Takes effect on the next session.",
+			Aliases = ["agent pane batching", "coalesce agent output", "agent output batching",
+				"pane flush interval"],
+			Apply = ApplyMode.NextSession,
+			Default = 16L,
+			Validate = static value => value is long ms && ms >= 0
+				? ValidationResult.Success
+				: ValidationResult.Failure("agent.paneCoalesceMs must be 0 (off) or a positive number of milliseconds."),
+		});
+
+		registry.Register(new SettingDefinition {
 			Key = AgentSettings.DefaultProvider,
 			Kind = SettingKind.String,
 			Description = "Agent provider used for newly-created sessions. Existing sessions keep their provider. "

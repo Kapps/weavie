@@ -11,6 +11,9 @@ public static class AgentSettings {
 	/// <summary>The provider id new sessions default to; the New Session prompt both reads and updates it.</summary>
 	public const string DefaultProvider = "agent.defaultProvider";
 
+	/// <summary>How long (ms) to batch a structured pane's live messages into one bridge frame; 0 sends each inline.</summary>
+	public const string PaneCoalesceMs = "agent.paneCoalesceMs";
+
 	/// <summary>The keys the host subscribes to, to re-push on change.</summary>
 	public static readonly IReadOnlyList<string> Keys = [DefaultProvider];
 

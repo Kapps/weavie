@@ -17,7 +17,7 @@ import {
   type IStat,
   registerFileSystemOverlay,
 } from "@codingame/monaco-vscode-files-service-override";
-import { onHostMessage, postToHost, type WebBoundMessage } from "../bridge";
+import { onHostMessage, postToEditorBackend, type WebBoundMessage } from "../bridge";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
 
 // A correlated request can't wedge a model resolve forever: if the host never replies (a dropped message, a
@@ -57,9 +57,14 @@ function request(message: {
       resolve(result);
     });
     if (message.type === "fs-write") {
-      postToHost({ type: "fs-write", id, path: message.path, content: message.content ?? "" });
+      postToEditorBackend({
+        type: "fs-write",
+        id,
+        path: message.path,
+        content: message.content ?? "",
+      });
     } else {
-      postToHost({ type: message.type, id, path: message.path });
+      postToEditorBackend({ type: message.type, id, path: message.path });
     }
   });
 }

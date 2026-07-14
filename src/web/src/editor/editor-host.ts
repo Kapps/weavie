@@ -73,8 +73,8 @@ export interface EditorHost {
    */
   flush(path: string): Promise<void>;
   /**
-   * Flushes every dirty working copy to the current backend and resolves once all saves land. Called before a
-   * cross-backend switch so unsaved edits persist on their own host rather than routing to the one switched to.
+   * Flushes every dirty working copy to its editor-owning backend and resolves once all saves land. Called
+   * before a cross-backend switch so unsaved edits persist on their own host.
    */
   flushDirty(): Promise<void>;
   /** Clears the editor to an empty pane (the last tab was closed). */
@@ -534,10 +534,9 @@ export async function createEditorHost(
     editor.setModel(null);
   };
 
-  // Flush every dirty working copy to the current backend and resolve once all saves land. Called before a
-  // cross-backend switch so the outgoing session's unsaved edits persist on their own (still-active) host:
-  // fs-writes route to the active backend, so flipping first would send them to the wrong one (rejected as
-  // out-of-worktree, edit lost). Individual save failures surface as toasts and don't block the others.
+  // Flush every dirty working copy and resolve once all saves land. File writes stay pinned to the editor
+  // owner; finishing before a cross-backend rebind lets the outgoing models be released without losing edits.
+  // Individual save failures surface as toasts and don't block the others.
   const flushDirty = async (): Promise<void> => {
     const saves: Promise<void>[] = [];
     for (const key of [...refs.keys()]) {

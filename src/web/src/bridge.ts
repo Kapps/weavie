@@ -2,7 +2,7 @@
 // window.__weavieReceive). JSON messages; in a plain browser (dev) the host handler is absent and outbound
 // is a no-op by design, never a thrown error.
 
-import { createSignal } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
@@ -709,7 +709,7 @@ export type WebBoundMessage =
   // The worker's build identity, pushed first on every `ready` cycle. A tab that reconnected to a
   // worker updated under it sees a different build than its boot-time __WEAVIE_SHELL__.buildNumber
   // and reloads itself to pick up the matching assets.
-  | { type: "host-info"; buildNumber: string }
+  | { type: "host-info"; buildNumber: string; readyReplayProtocol?: number }
   // Ordered tail of the host's synchronous `ready` replay. A WebSocket transport is online only once this
   // arrives, so an outbox-overflow reconnect cannot hide while its state replay is still congested.
   | { type: "bridge-ready"; bridgeId: string }
@@ -776,8 +776,8 @@ export type WebBoundMessage =
 type WebMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 type SessionMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 
-// Listeners that render the page — they only ever see the ACTIVE backend's traffic, so a background
-// backend can never paint over what's on screen.
+// Listeners that render the page see the active backend plus correlated filesystem replies from the backend
+// that owns the mounted editor. Background traffic cannot otherwise paint over the screen.
 const listeners = new Set<WebMessageHandler>();
 // Listeners for the cross-backend rail: session-list / session-status from EVERY connected backend, tagged
 // with their origin backend, so the rail can show local + remote sessions side by side.
@@ -788,6 +788,11 @@ const sessionListeners = new Set<SessionMessageHandler>();
 const [activeBackend, setActiveBackend] = createSignal("local");
 /** The default backend's id — the machine the user is at (the native shell, or the same-origin headless host). */
 export const LOCAL_BACKEND_ID = "local";
+// The backend that most recently supplied the editor session currently mounted in Monaco. During a backend
+// switch this deliberately remains the outgoing backend until the incoming set-editor-session arrives.
+const [editorBackendId, setEditorBackendId] = createSignal<string | null>(null);
+
+export { editorBackendId };
 
 // The live link state of a backend's transport: opening for the first time, connected, or dropped and
 // retrying. The native in-process backend has no entry and is treated as always online. Drives the
@@ -822,7 +827,8 @@ export const activeBackendOffline = (): boolean => activeBackendPhase() !== "onl
 
 // These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
 // feed the rail, the New Session typeahead, the active backend's suggestions/recent-files, and local-only
-// registry/rail state. Everything else is gated to the bound backend.
+// registry/rail state. Editor replies are separately pinned to the editor-owning backend; everything else is
+// gated to the active backend.
 function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
@@ -877,9 +883,8 @@ function failPendingForBackend(backendId: string, reason: string): void {
   }
 }
 
-// Parse one inbound JSON line and route it: a command-result resolves its awaiting caller by token (never
-// gated); session messages fan out to the rail listeners tagged with `backendId`; all else reaches page
-// listeners only from the active backend. Shared by every transport.
+// Parse one inbound JSON line and route it: command results resolve by token; session messages fan out to the
+// rail; page listeners receive the active backend plus correlated filesystem replies from the editor owner.
 function deliverFromHost(raw: string, backendId: string): void {
   let parsed: WebBoundMessage;
   try {
@@ -902,19 +907,39 @@ function deliverFromHost(raw: string, backendId: string): void {
     }
     return;
   }
-  // Local-machine pushes (the OS clipboard reply, the native window state) route from the local backend
-  // only, whichever backend drives the page; everything else is gated to the active backend.
+  // Local-machine pushes route only from local. Other background traffic is dropped except filesystem replies
+  // from the mounted editor's owner, which must settle requests issued before an active-backend handoff.
   const localMachinePush =
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
     parsed.type === "window-state" ||
     parsed.type === "notification-prefs" ||
     parsed.type === "agent-defaults";
-  if (localMachinePush ? backendId !== LOCAL_BACKEND_ID : backendId !== activeBackend()) {
+  const editorReply =
+    backendId === editorBackendId() &&
+    (parsed.type === "fs-stat-result" ||
+      parsed.type === "fs-read-result" ||
+      parsed.type === "fs-write-result");
+  if (
+    localMachinePush
+      ? backendId !== LOCAL_BACKEND_ID
+      : backendId !== activeBackend() && !editorReply
+  ) {
     return;
   }
-  for (const listener of listeners) {
-    listener(parsed, backendId);
+  const deliver = (): void => {
+    for (const listener of listeners) {
+      listener(parsed, backendId);
+    }
+  };
+  if (parsed.type === "set-editor-session") {
+    // One transaction keeps MediaPane from observing an incoming backend with the outgoing session/path.
+    batch(() => {
+      setEditorBackendId(backendId);
+      deliver();
+    });
+  } else {
+    deliver();
   }
 }
 
@@ -952,7 +977,6 @@ const nativeTransport: BridgeTransport = {
 // The `ready` announcement that makes a host (re-)push its state — sent on every remote (re)connect and on a
 // local reconnect (main.tsx sends the local backend's initial one).
 const READY_HELLO = JSON.stringify({ type: "ready" });
-const BRIDGE_READY_PREFIX = '{"type":"bridge-ready",';
 
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
 // before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
@@ -1054,7 +1078,6 @@ class WebSocketTransport implements BridgeTransport {
       }
     }
     const readyHello = this.readyHello;
-    const readyAck = JSON.stringify({ type: "bridge-ready", bridgeId: this.readyId });
     this.socket = socket;
     socket.onopen = (): void => {
       this.reconnectDelayMs = 500;
@@ -1078,23 +1101,48 @@ class WebSocketTransport implements BridgeTransport {
       }
     };
     socket.onmessage = (event: MessageEvent): void => {
+      if (this.socket !== socket) {
+        return;
+      }
       if (typeof event.data === "string") {
-        if (event.data.startsWith(BRIDGE_READY_PREFIX)) {
-          if (this.socket !== socket || event.data !== readyAck) {
-            return; // another tab's broadcast replay marker
+        const controlPrefix = event.data.slice(0, 128);
+        if (controlPrefix.includes('"type":"host-info"')) {
+          try {
+            const info = JSON.parse(event.data) as {
+              type?: string;
+              readyReplayProtocol?: number;
+            };
+            // Protocol 0 predates the ordered tail marker: receiving host-info is the legacy proof that the
+            // socket is live. Capable hosts stay degraded until their correlated bridge-ready arrives below.
+            if (info.type === "host-info" && info.readyReplayProtocol === undefined) {
+              this.markOnline();
+            }
+          } catch {
+            // deliverFromHost reports malformed host JSON below.
           }
-          if (this.phase === "reconnecting") {
-            notify("info", `Reconnected to ${this.label}.`, this.connectionToastKey);
+        } else if (controlPrefix.includes('"type":"bridge-ready"')) {
+          let ack: { type?: string; bridgeId?: string } = {};
+          try {
+            ack = JSON.parse(event.data) as { type?: string; bridgeId?: string };
+          } catch {
+            // deliverFromHost reports malformed host JSON below.
           }
-          this.phase = "online";
-          setBackendPhase(this.backendId, "online");
-          return;
+          if (ack.type === "bridge-ready") {
+            if (ack.bridgeId !== this.readyId) {
+              return; // another tab's broadcast replay marker
+            }
+            this.markOnline();
+            return;
+          }
         }
         this.reliableAgentFrames.acknowledge(event.data);
         deliverFromHost(event.data, this.backendId);
       }
     };
     socket.onclose = (): void => {
+      if (this.socket !== socket) {
+        return;
+      }
       this.socket = null;
       // The link dropped: fail any commands awaiting this backend's reply rather than leave them hanging.
       failPendingForBackend(
@@ -1110,6 +1158,14 @@ class WebSocketTransport implements BridgeTransport {
       // transport blip never surfaces as an uncaught error.
       socket.close();
     };
+  }
+
+  private markOnline(): void {
+    if (this.phase === "reconnecting") {
+      notify("info", `Reconnected to ${this.label}.`, this.connectionToastKey);
+    }
+    this.phase = "online";
+    setBackendPhase(this.backendId, "online");
   }
 
   // A link that dropped (or never opened): raise exactly one toast on the online→retry transition (and one on
@@ -1324,6 +1380,11 @@ function dropWhileOffline(backendId: string, message: HostBoundMessage): boolean
 /** Send to the active backend (the page's current backend). */
 export function postToHost(message: HostBoundMessage): void {
   postToBackend(activeBackend(), message);
+}
+
+/** Route file-provider work to the host that owns the editor session, including during a backend handoff. */
+export function postToEditorBackend(message: HostBoundMessage): void {
+  postToBackend(editorBackendId() ?? activeBackend(), message);
 }
 
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */

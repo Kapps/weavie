@@ -56,9 +56,9 @@ unmodified `HostCore`. The **web frontend connects to several at once** and desi
 backend that drives the page; the rail merges every backend's `session-list` (tagged by location) so
 local + remote sessions sit together. The two rules:
 
-- **session-list / session-status are aggregated from all backends** (the rail). Everything else
-  (terminals, editor, layout, diffs) is delivered to the page **only from the active backend**, so a
-  background backend can never paint over what's on screen.
+- **session-list / session-status are aggregated from all backends** (the rail). Page traffic otherwise comes
+  from the active backend, except correlated filesystem replies from the backend that owns the mounted editor;
+  those settle work issued before a handoff and cannot paint unrelated background state.
 - **Switching to a session on another backend** just rebinds the page to it: its normal switch reply
   (`term-reset` → the panes re-emit `term-ready`, plus `set-editor-session`) re-attaches the terminals
   and editor, and `fs-*` / `term-input` then flow to that backend — so a remote session's Claude and
@@ -179,6 +179,15 @@ upgrade **requires** the token (`?token=`); the page is reached at `…/?token=<
 that token onto the `auto` bridge URL. Inside the app, **New Session creates a worktree on the box** via
 the shared `HostCore` flow (recorded in the worktree registry, reconciled against `git worktree list`, so
 nothing leaks) — no runner involvement per session.
+
+Bridge readiness is negotiated on every socket. A worker advertising `readyReplayProtocol: 1` in
+`host-info` ends its synchronous `ready` replay with a correlated `bridge-ready`; the client remains in
+Connecting/Reconnecting until that marker arrives. A worker without the field predates the marker, so its
+`host-info` is the readiness proof. This makes rolling worker updates compatible in both directions without
+an arbitrary timeout. Session-named messages also fail closed: an unknown `slot` is stale or belongs to a
+different backend and is ignored, while only a genuinely absent `slot` uses the legacy active-session route.
+Editor file and media requests stay pinned to the backend that supplied the mounted editor session until the
+incoming backend supplies its replacement, so an in-flight render cannot cross the handoff.
 
 ## The three scenarios — one primitive, different creators
 

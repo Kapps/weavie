@@ -82,12 +82,13 @@ public sealed partial class HostCore {
 				HandleAgentAttachmentRemove(root);
 				break;
 			case "term-resize": {
+					var terminal = TerminalFor(root);
 					int cols = root.GetProperty("cols").GetInt32();
 					int rows = root.GetProperty("rows").GetInt32();
-					TerminalFor(root)?.Resize(cols, rows);
+					terminal?.Resize(cols, rows);
 					// Seed for the next restart: only the shell replays a raw scrollback log, so only its real size must
 					// survive. term-resize is active-pane-only, so this never records the 80×24 a hidden pane reports.
-					if (root.GetStringOrEmpty("session") == "shell") {
+					if (terminal is not null && root.GetStringOrEmpty("session") == "shell") {
 						_sessionStore.RecordShellSize(cols, rows);
 					}
 
@@ -373,7 +374,7 @@ public sealed partial class HostCore {
 				// init — PostToWeb before navigation no-ops (window.__weavieReceive doesn't exist yet).
 				// Build identity first: a tab reconnecting to a worker updated under it compares this against its
 				// boot-time __WEAVIE_SHELL__.buildNumber and reloads itself to pick up the matching assets.
-				_bridge.PostToWeb($"{{\"type\":\"host-info\",\"buildNumber\":{JsonString(BuildNumber)}}}");
+				_bridge.PostToWeb($"{{\"type\":\"host-info\",\"buildNumber\":{JsonString(BuildNumber)},\"readyReplayProtocol\":1}}");
 				PushLayoutToWeb();
 				// The ACTIVE session's editor tabs — normally the primary, but a restored worktree session may be
 				// active after a reopen/update restart, and the page must open its tabs, not the primary's.
@@ -1429,31 +1430,37 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Routes a terminal message to the controller for its <c>slot</c> (the session it names) and <c>session</c>
 	/// pane (default: claude): input/resize/ready from a background session's pane must reach THAT session's
-	/// controller, not the active one. Falls back to the active session when the slot is absent or no longer loaded.
+	/// controller, not the active one. An absent slot is the legacy protocol and uses the active session; a named
+	/// slot that is not loaded is rejected so stale cross-backend traffic can never reach the active PTY.
 	/// </summary>
 	private TerminalController? TerminalFor(JsonElement root) {
 		string? pane = root.TryGetProperty("session", out var s) ? s.GetString() : null;
-		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
-		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
-		// Flag a named-but-unresolvable slot: misrouted input/resize is a real bug the fallback shouldn't hide. An
-		// absent slot is the older protocol — silent.
-		if (!string.IsNullOrEmpty(slot) && session is null) {
-			Log($"[weavie] term message named slot '{slot}' which isn't loaded — falling back to the active session '{_session?.Id}'");
-		}
-
-		session ??= _session;
+		var session = SessionForSlot(root);
 		return pane == "shell" ? session?.Shell : session?.Claude;
 	}
 
 	/// <summary>
 	/// Resolves the session a message names by its <c>slot</c> (the terminal's routing, sans pane): a background
-	/// session's work (LSP, a pasted image) must reach THAT session, not the active one. Falls back to the active
-	/// session when the slot is absent or no longer loaded.
+	/// session's work (LSP, a pasted image) must reach THAT session, not the active one. An absent slot uses the
+	/// active session for legacy clients; an unresolvable named slot is rejected.
 	/// </summary>
 	private HostSession? SessionForSlot(JsonElement root) {
-		string? slot = root.TryGetProperty("slot", out var sl) ? sl.GetString() : null;
-		var session = !string.IsNullOrEmpty(slot) ? _sessions?.Find(slot)?.Session : null;
-		return session ?? _session;
+		if (!root.TryGetProperty("slot", out var sl)) {
+			return _session;
+		}
+
+		string? slot = sl.ValueKind == JsonValueKind.String ? sl.GetString() : null;
+		if (string.IsNullOrEmpty(slot)) {
+			Log($"[weavie] {root.GetStringOrEmpty("type")} has an invalid slot — ignored");
+			return null;
+		}
+
+		var session = _sessions?.Find(slot)?.Session;
+		if (session is null) {
+			Log($"[weavie] {root.GetStringOrEmpty("type")} named slot '{slot}' which isn't loaded — ignored");
+		}
+
+		return session;
 	}
 
 	private void DropLspChannelsFromOtherPages(string epoch) {

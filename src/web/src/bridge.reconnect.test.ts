@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { BackendEndpoint, WebBoundMessage } from "./bridge";
 
 // Regression guard for the remote-reconnect bug: a restarted runner mints a fresh worker port+token, so the
 // transport must RE-RESOLVE its URL on every reconnect (not retry the one it opened with, which is now dead).
@@ -45,6 +46,15 @@ class FakeWebSocket {
     this.onmessage?.({ data: JSON.stringify(data) });
   }
 
+  /** Advertise whether the connected host emits an ordered ready replay marker. */
+  receiveHostInfo(readyReplayProtocol?: number): void {
+    const message: Record<string, unknown> = { type: "host-info", buildNumber: "test" };
+    if (readyReplayProtocol !== undefined) {
+      message.readyReplayProtocol = readyReplayProtocol;
+    }
+    this.receive(message);
+  }
+
   /** Complete the latest ready replay with its per-connection correlation id. */
   completeReady(): void {
     this.receive(this.readyAck());
@@ -66,6 +76,10 @@ vi.stubGlobal("window", { location: { search: "", protocol: "http:", host: "loca
 vi.stubGlobal("WebSocket", FakeWebSocket);
 
 const bridge = await import("./bridge");
+const endpoint = (bridgeUrl: string): BackendEndpoint => ({
+  bridgeUrl,
+  resourceBase: bridgeUrl.replace(/^ws:/, "http:").replace("/weavie-bridge", "/weavie-media"),
+});
 
 describe("WebSocketTransport reconnect", () => {
   beforeEach(() => {
@@ -79,10 +93,7 @@ describe("WebSocketTransport reconnect", () => {
 
   it("re-resolves the URL on each reconnect so it follows a restarted runner's fresh worker", async () => {
     const urls = ["ws://host:9/weavie-bridge?token=old", "ws://host:10/weavie-bridge?token=new"];
-    const endpoints = urls.map((bridgeUrl) => ({
-      bridgeUrl,
-      resourceBase: bridgeUrl.replace(/^ws:/, "http:").replace("/weavie-bridge", "/weavie-media"),
-    }));
+    const endpoints = urls.map(endpoint);
     let n = 0;
     const resolveEndpoint = vi.fn(() =>
       Promise.resolve(endpoints[Math.min(n++, endpoints.length - 1)] as (typeof endpoints)[number]),
@@ -98,10 +109,15 @@ describe("WebSocketTransport reconnect", () => {
 
     FakeWebSocket.instances[0]?.open();
     expect(bridge.activeBackendPhase()).toBe("connecting");
+    FakeWebSocket.instances[0]?.receiveHostInfo(1);
+    expect(bridge.activeBackendPhase()).toBe("connecting");
     FakeWebSocket.instances[0]?.receive({ type: "bridge-ready", bridgeId: "another-page" });
     expect(bridge.activeBackendPhase()).toBe("connecting");
     const firstReadyAck = FakeWebSocket.instances[0]?.readyAck() ?? {};
-    FakeWebSocket.instances[0]?.completeReady();
+    FakeWebSocket.instances[0]?.receive({
+      bridgeId: firstReadyAck.bridgeId,
+      type: "bridge-ready",
+    });
     expect(bridge.activeBackendPhase()).toBe("online");
     FakeWebSocket.instances[0]?.drop(); // link lost → schedule a reconnect (500ms backoff)
     expect(bridge.activeBackendPhase()).toBe("reconnecting");
@@ -121,6 +137,86 @@ describe("WebSocketTransport reconnect", () => {
     expect(bridge.activeBackendPhase()).toBe("reconnecting");
     FakeWebSocket.instances[1]?.completeReady();
     expect(bridge.activeBackendPhase()).toBe("online");
+  });
+
+  it("negotiates readiness independently with legacy and replay-aware workers", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+
+    FakeWebSocket.instances[0]?.open();
+    FakeWebSocket.instances[0]?.receiveHostInfo();
+    expect(bridge.activeBackendPhase()).toBe("online");
+
+    FakeWebSocket.instances[0]?.drop();
+    await vi.advanceTimersByTimeAsync(600);
+    FakeWebSocket.instances[1]?.open();
+    FakeWebSocket.instances[1]?.receiveHostInfo(1);
+    expect(bridge.activeBackendPhase()).toBe("reconnecting");
+
+    FakeWebSocket.instances[1]?.completeReady();
+    expect(bridge.activeBackendPhase()).toBe("online");
+  });
+
+  it("keeps editor file requests on their owning backend during a backend handoff", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const socket = FakeWebSocket.instances[0];
+    const replies: WebBoundMessage[] = [];
+    const offMessage = bridge.onHostMessage((message) => replies.push(message));
+    socket?.open();
+    socket?.receiveHostInfo();
+    socket?.receive({
+      type: "set-editor-session",
+      sessionId: "remote-session",
+      session: { active: null, open: [] },
+    });
+    expect(bridge.editorBackendId()).toBe("remote:test");
+    expect(
+      bridge.mediaResourceUrl(
+        bridge.editorBackendId() as string,
+        "remote-session",
+        "/remote/file.png",
+        0,
+      ),
+    ).toContain("session=remote-session&path=%2Fremote%2Ffile.png");
+
+    bridge.setActiveBackendId("local");
+    expect(bridge.editorBackendId()).toBe("remote:test");
+    bridge.postToEditorBackend({ type: "fs-stat", id: "fs1", path: "/remote/file.png" });
+
+    expect(JSON.parse(socket?.sent.at(-1) ?? "{}")).toMatchObject({
+      type: "fs-stat",
+      id: "fs1",
+      path: "/remote/file.png",
+    });
+    socket?.receive({ type: "fs-stat-result", id: "fs1", ok: true, exists: true, size: 2 });
+    expect(replies.at(-1)).toMatchObject({ type: "fs-stat-result", id: "fs1", ok: true });
+    offMessage();
+  });
+
+  it("delivers non-control frames whose nested payload mentions bridge-ready", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const messages: WebBoundMessage[] = [];
+    const offMessage = bridge.onHostMessage((message) => messages.push(message));
+    FakeWebSocket.instances[0]?.open();
+    FakeWebSocket.instances[0]?.receive({
+      type: "notify",
+      level: "info",
+      message: "ordinary payload",
+      nested: { type: "bridge-ready" },
+    });
+
+    expect(messages.at(-1)).toMatchObject({ type: "notify", message: "ordinary payload" });
+    offMessage();
   });
 
   it("does not re-arm a reconnect when the backend is disposed mid-handshake", async () => {

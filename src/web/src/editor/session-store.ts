@@ -1,5 +1,5 @@
 import { batch, createSignal } from "solid-js";
-import { onHostMessage, postToHost } from "../bridge";
+import { editorBackendId, onHostMessage, postToEditorBackend } from "../bridge";
 import { samePath } from "./fs-path";
 import type { EditorSession, EditorSessionEntry, EditorViewState } from "./session-types";
 
@@ -10,7 +10,6 @@ import type { EditorSession, EditorSessionEntry, EditorViewState } from "./sessi
 // the dynamic editor chunk.
 const [session, setSession] = createSignal<EditorSession | null>(null);
 const [editorOwner, setEditorOwner] = createSignal<string | null>(null);
-const [editorBackendId, setEditorBackendId] = createSignal<string | null>(null);
 
 export { editorBackendId, editorOwner };
 
@@ -45,7 +44,7 @@ let lastStructure = "";
 function emitOpenEditors(session: EditorSession): void {
   lastStructure = structureKey(session);
   // Web/source tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a path as a file.
-  postToHost({
+  postToEditorBackend({
     type: "open-editors-changed",
     sessionId: editorOwner(),
     editors: session.open.filter(isFileTab).map((entry) => ({
@@ -57,7 +56,7 @@ function emitOpenEditors(session: EditorSession): void {
   });
 }
 
-onHostMessage((message, backendId) => {
+onHostMessage((message) => {
   if (message.type === "set-editor-session") {
     // Adopt the incoming id and DROP any pending debounced send: it carries the previous session's tabs and,
     // landing after this rebind, would contaminate the incoming session (cross-worktree tab bug).
@@ -67,7 +66,6 @@ onHostMessage((message, backendId) => {
     }
     const seeded = { active: message.session.active, open: normalize(message.session.open) };
     batch(() => {
-      setEditorBackendId(backendId);
       setEditorOwner(message.sessionId ?? null);
       setSession(seeded);
     });
@@ -125,7 +123,7 @@ function sendEditorSession(s: EditorSession, owner: string | null): void {
   }));
   const active =
     s.active !== null && files.some((entry) => entry.path === s.active) ? s.active : null;
-  postToHost({
+  postToEditorBackend({
     type: "editor-session-changed",
     sessionId: owner,
     session: { active, open },

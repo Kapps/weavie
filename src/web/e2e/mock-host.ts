@@ -31,6 +31,8 @@ export interface MockHostOptions {
   distDir: string;
   /** Seed files the host-backed file provider can read, keyed by absolute native path. */
   files?: Record<string, string>;
+  /** Ready replay protocol advertised by the host; 0 models workers predating bridge-ready. */
+  readyReplayProtocol?: 0 | 1;
 }
 
 /** A running mock host: an HTTP server for the app plus a WebSocket bridge endpoint. */
@@ -44,6 +46,7 @@ export class MockHost {
   private readonly media = new Map<string, Buffer>();
 
   private readonly distDir: string;
+  private readonly readyReplayProtocol: 0 | 1;
   private readonly http: Server;
   private readonly wss: WebSocketServer;
   private socket: WebSocket | null = null;
@@ -52,8 +55,9 @@ export class MockHost {
   private readonly waiters: { type: string; resolve: (m: Message) => void }[] = [];
   private port = 0;
 
-  private constructor(distDir: string, files: Record<string, string>) {
+  private constructor(distDir: string, files: Record<string, string>, readyReplayProtocol: 0 | 1) {
     this.distDir = distDir;
+    this.readyReplayProtocol = readyReplayProtocol;
     this.files = new Map(Object.entries(files));
     this.http = createServer(
       (req, res) => void this.serveStatic(req.url ?? "/", req.method ?? "GET", res),
@@ -64,7 +68,11 @@ export class MockHost {
 
   /** Starts a mock host on an ephemeral port and resolves once it is accepting connections. */
   static async start(options: MockHostOptions): Promise<MockHost> {
-    const host = new MockHost(options.distDir, options.files ?? {});
+    const host = new MockHost(
+      options.distDir,
+      options.files ?? {},
+      options.readyReplayProtocol ?? 1,
+    );
     await new Promise<void>((resolve) => host.http.listen(0, "127.0.0.1", resolve));
     const address = host.http.address();
     if (address === null || typeof address === "string") {
@@ -167,7 +175,12 @@ export class MockHost {
 
     if (message.type === "ready") {
       this.bridgeId = typeof message.bridgeId === "string" ? message.bridgeId : "";
-      if (!this.bridgeReadyPaused) {
+      this.pushToWeb(
+        this.readyReplayProtocol === 1
+          ? { type: "host-info", buildNumber: "test", readyReplayProtocol: 1 }
+          : { type: "host-info", buildNumber: "test" },
+      );
+      if (this.readyReplayProtocol === 1 && !this.bridgeReadyPaused) {
         this.pushToWeb({ type: "bridge-ready", bridgeId: this.bridgeId });
       }
     }

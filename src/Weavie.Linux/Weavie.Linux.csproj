@@ -13,8 +13,16 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
     <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\web\public\weavie.png" Link="weavie.png">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <CopyToPublishDirectory>PreserveNewest</CopyToPublishDirectory>
+    </Content>
   </ItemGroup>
 
   <!--

@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { WebBoundMessage } from "./bridge";
+import type { BackendEndpoint, WebBoundMessage } from "./bridge";
 
 // Regression guard for the remote-reconnect bug: a restarted runner mints a fresh worker port+token, so the
 // transport must RE-RESOLVE its URL on every reconnect (not retry the one it opened with, which is now dead).
@@ -76,6 +76,10 @@ vi.stubGlobal("window", { location: { search: "", protocol: "http:", host: "loca
 vi.stubGlobal("WebSocket", FakeWebSocket);
 
 const bridge = await import("./bridge");
+const endpoint = (bridgeUrl: string): BackendEndpoint => ({
+  bridgeUrl,
+  resourceBase: bridgeUrl.replace(/^ws:/, "http:").replace("/weavie-bridge", "/weavie-media"),
+});
 
 describe("WebSocketTransport reconnect", () => {
   beforeEach(() => {
@@ -89,16 +93,17 @@ describe("WebSocketTransport reconnect", () => {
 
   it("re-resolves the URL on each reconnect so it follows a restarted runner's fresh worker", async () => {
     const urls = ["ws://host:9/weavie-bridge?token=old", "ws://host:10/weavie-bridge?token=new"];
+    const endpoints = urls.map(endpoint);
     let n = 0;
-    const resolveUrl = vi.fn(
-      (): Promise<string> => Promise.resolve(urls[Math.min(n++, urls.length - 1)] as string),
+    const resolveEndpoint = vi.fn(() =>
+      Promise.resolve(endpoints[Math.min(n++, endpoints.length - 1)] as (typeof endpoints)[number]),
     );
 
-    bridge.connectBackend("remote:test", "Test", resolveUrl);
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
     bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0); // flush the initial resolve → open
 
-    expect(resolveUrl).toHaveBeenCalledTimes(1);
+    expect(resolveEndpoint).toHaveBeenCalledTimes(1);
     expect(FakeWebSocket.instances).toHaveLength(1);
     expect(FakeWebSocket.instances[0]?.url).toBe(urls[0]);
 
@@ -120,9 +125,12 @@ describe("WebSocketTransport reconnect", () => {
     await vi.advanceTimersByTimeAsync(600); // fire the reconnect timer + flush its resolve → open
 
     // The reconnect re-ran the resolver and opened the runner's NEW worker URL, not the stale one it dropped.
-    expect(resolveUrl).toHaveBeenCalledTimes(2);
+    expect(resolveEndpoint).toHaveBeenCalledTimes(2);
     expect(FakeWebSocket.instances).toHaveLength(2);
     expect(FakeWebSocket.instances[1]?.url).toBe(urls[1]);
+    expect(bridge.mediaResourceUrl("remote:test", "session 1", "/repo/a clip.webm", 2)).toBe(
+      "http://host:10/weavie-media?token=new&session=session+1&path=%2Frepo%2Fa+clip.webm&rev=2",
+    );
     FakeWebSocket.instances[1]?.open();
     expect(bridge.activeBackendPhase()).toBe("reconnecting");
     FakeWebSocket.instances[1]?.receive(firstReadyAck);
@@ -132,8 +140,8 @@ describe("WebSocketTransport reconnect", () => {
   });
 
   it("negotiates readiness independently with legacy and replay-aware workers", async () => {
-    const resolveUrl = vi.fn((): Promise<string> => Promise.resolve("ws://host/weavie-bridge"));
-    bridge.connectBackend("remote:test", "Test", resolveUrl);
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
     bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0);
 
@@ -152,8 +160,8 @@ describe("WebSocketTransport reconnect", () => {
   });
 
   it("keeps editor file requests on their owning backend during a backend handoff", async () => {
-    const resolveUrl = vi.fn((): Promise<string> => Promise.resolve("ws://host/weavie-bridge"));
-    bridge.connectBackend("remote:test", "Test", resolveUrl);
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
     bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0);
 
@@ -167,8 +175,18 @@ describe("WebSocketTransport reconnect", () => {
       sessionId: "remote-session",
       session: { active: null, open: [] },
     });
+    expect(bridge.editorBackendId()).toBe("remote:test");
+    expect(
+      bridge.mediaResourceUrl(
+        bridge.editorBackendId() as string,
+        "remote-session",
+        "/remote/file.png",
+        0,
+      ),
+    ).toContain("session=remote-session&path=%2Fremote%2Ffile.png");
 
     bridge.setActiveBackendId("local");
+    expect(bridge.editorBackendId()).toBe("remote:test");
     bridge.postToEditorBackend({ type: "fs-stat", id: "fs1", path: "/remote/file.png" });
 
     expect(JSON.parse(socket?.sent.at(-1) ?? "{}")).toMatchObject({
@@ -182,8 +200,8 @@ describe("WebSocketTransport reconnect", () => {
   });
 
   it("delivers non-control frames whose nested payload mentions bridge-ready", async () => {
-    const resolveUrl = vi.fn((): Promise<string> => Promise.resolve("ws://host/weavie-bridge"));
-    bridge.connectBackend("remote:test", "Test", resolveUrl);
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
     bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0);
 
@@ -203,15 +221,15 @@ describe("WebSocketTransport reconnect", () => {
 
   it("does not re-arm a reconnect when the backend is disposed mid-handshake", async () => {
     let reject: (reason: unknown) => void = () => {};
-    const resolveUrl = vi.fn(
-      (): Promise<string> =>
+    const resolveEndpoint = vi.fn(
+      (): Promise<{ bridgeUrl: string; resourceBase: string }> =>
         new Promise((_, rej) => {
           reject = rej;
         }),
     );
 
-    bridge.connectBackend("remote:test", "Test", resolveUrl);
-    expect(resolveUrl).toHaveBeenCalledTimes(1); // handshake in flight, not yet settled
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    expect(resolveEndpoint).toHaveBeenCalledTimes(1); // handshake in flight, not yet settled
 
     bridge.disconnectBackend("remote:test"); // the user removes the agent before it resolves
     reject(new Error("runner unreachable")); // the in-flight handshake then fails
@@ -219,12 +237,17 @@ describe("WebSocketTransport reconnect", () => {
 
     // No socket opened, and — the point — no reconnect loop left running for a backend that's gone.
     expect(FakeWebSocket.instances).toHaveLength(0);
-    expect(resolveUrl).toHaveBeenCalledTimes(1);
+    expect(resolveEndpoint).toHaveBeenCalledTimes(1);
   });
 
   it("correlates a ready queued before a socket that fails to open", async () => {
-    const resolveUrl = vi.fn((): Promise<string> => Promise.resolve("ws://host/weavie-bridge"));
-    bridge.connectBackend("remote:test", "Test", resolveUrl);
+    const resolveEndpoint = vi.fn(() =>
+      Promise.resolve({
+        bridgeUrl: "ws://host/weavie-bridge",
+        resourceBase: "http://host/weavie-media",
+      }),
+    );
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
     bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0);
 

@@ -108,11 +108,17 @@ All three surfaces live in the WebView and read their state over the bridge:
 | Chrome (rail, title bar, omnibar, menus, file browser) | **SolidJS** components, `src/web/src/chrome/`, `src/web/src/layout/` | session list / status / commands |
 
 The build is Vite, multi-page (`index.html` for the workspace, `welcome.html` for the empty state), output
-copied to the host's `wwwroot`. The native host serves it from a secure virtual origin —
-`https://weavie.dev` via WebView2's `SetVirtualHostNameToFolderMapping`
-(`src/Weavie.Win/WorkspaceWindow.WebView.cs`) — with no network and no localhost port. A Headless worker
-serves the same `wwwroot` over Kestrel and injects bootstrap globals into `index.html`
-(`src/Weavie.Headless/Program.cs`).
+copied to the host's `wwwroot`. Every workspace HostCore owns the same token-gated Kestrel server
+(`src/Weavie.Hosting/Web/WorkspaceHttpServer.cs`): native hosts bind it to an OS-assigned loopback port,
+while Headless supplies its configured local/remote binding. It serves the app, injects bootstrap globals,
+and streams confined workspace media with HTTP ranges. Native welcome windows may still use their app/WebView
+resource scheme because they have no workspace HostCore or file access.
+
+Images and videos do not ride the JSON bridge. Their elements load `/weavie-media` directly with the server
+token, exact loaded-session id, and path. The shared route accepts only that session's worktree, the
+workspace scratch directory, and that session's pasted-image directory; missing and disallowed paths are both
+404. ASP.NET Core owns Range and conditional responses, so video seeking is byte streaming rather than a
+full-file base64 message and browser remounts reuse an unchanged URL.
 
 ## Flow 1 — a keystroke in the Claude TUI
 
@@ -242,7 +248,7 @@ A remote machine runs **two** processes: the **runner** (control plane) and the 
 
 ```mermaid
 graph TB
-    subgraph web["web (local WebView @ https://weavie.dev)"]
+    subgraph web["web (local token-gated loopback workspace origin)"]
         RA["remote-agents.ts"]
         BK["connectBackend → WebSocketTransport"]
     end
@@ -256,7 +262,7 @@ graph TB
     RUN -->|"Ensure()"| BM
     BM -->|"supervises"| WK
     RUN -->|"{ url: http://host:NNNN/?token=workerToken }"| RA
-    BK -->|"ws://host:NNNN/weavie-bridge?token=workerToken"| WK
+    BK -->|"bridge WebSocket + HTTP media ranges<br/>same worker origin/token"| WK
 ```
 
 1. The user registers a `RemoteAgent { url, token }` — the runner's base URL plus its token. The host
@@ -268,8 +274,8 @@ graph TB
    worktree session via its shared `HostCore` — no process per session.
 3. The runner returns the worker's page URL, `http://<host>:<port>/?token=<workerToken>`, built against the
    request's own host so it is reachable by the same path the client used.
-4. The web converts that page URL to a bridge URL (`pageUrlToBridgeWs`: `http→ws`, carry the token) and calls
-   `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
+4. The web converts that page URL to a backend descriptor (bridge WebSocket plus HTTP media base, both carrying
+   the token) and calls `connectBackend`, opening a `WebSocketTransport` to `…/weavie-bridge`. From there it is just another
    backend: terminals, files, status — all the flows above — over that socket. The transport re-runs this
    `GET /backend` handshake on **every** reconnect, so when the runner is restarted — which mints a fresh
    worker port+token — the socket follows it to the new worker instead of retrying the now-dead URL forever.
@@ -287,15 +293,15 @@ but LSP was a literal `ws://127.0.0.1:{lspPort}` baked into the config — the *
 nothing was listening ❌. So a remote session silently aimed language intelligence at the wrong machine.
 
 Folding LSP into the bridge removed that: there is no LSP socket left to mis-address. What remains is the
-bridge's single constraint, now shared by every capability — the **mixed-content** problem. The WebView runs the
-page at the secure origin `https://weavie.dev`, and a browser will only open an insecure socket to **loopback**
+bridge's single constraint, now shared by every control-plane capability — the **mixed-content** problem. A
+browser on an HTTPS origin will only open an insecure socket to **loopback**
 (treated as trustworthy) or a **TLS** origin. A plain `ws://<remote>` is neither, so it is blocked. This is
 solved by terminating TLS in front of the one loopback bridge — `--tls tailscale` runs `tailscale serve` (the
 node's trusted `*.ts.net` cert, zero client install), or `--tls proxy` for any reverse proxy. See
 [tls-on-the-runner](../specs/tls-on-the-runner.md).
 
-Because LSP now rides the one bridge socket, there is exactly **one** endpoint per backend to secure and to
-proxy — not two, one of them a per-session dynamic port. Solve the bridge's reachability once and language
+Because LSP now rides the one bridge socket, there is exactly **one authenticated HTTP origin** per backend to
+secure and proxy — not a second per-session LSP port. Solve the bridge's reachability once and language
 intelligence comes along for free: the web already derives `wss://` from an `https://` page, so when the bridge
 upgrades, LSP rides it with no LSP-side change. See [lsp-over-bridge](../specs/lsp-over-bridge.md).
 

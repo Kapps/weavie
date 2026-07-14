@@ -36,7 +36,6 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		string wwwroot = Path.Combine(resourcePath, "wwwroot");
 
 		var config = new WKWebViewConfiguration();
-		config.SetUrlSchemeHandler(new AppSchemeHandler(wwwroot), "app");
 		config.UserContentController.AddScriptMessageHandler(_bridge, "weavie");
 #if DEBUG
 		// Allow the Web Inspector for local debugging (Debug builds only).
@@ -45,7 +44,12 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// Render at the display's full refresh (120Hz) instead of WKWebView's default 60fps pacing.
 		WebKitFeatureFlags.DisablePrefer60Fps(config.Preferences);
 
-		_core = new HostCore(this, app.Services, workspace);
+		_core = new HostCore(
+			this,
+			app.Services,
+			workspace,
+			WorkspaceHttpServerOptions.Native(wwwroot),
+			UnavailableWorkspaceWebSocketBridge.Instance);
 
 		// Startup geometry via the shared placement policy: saved-if-valid-and-on-screen, else centered.
 		var screens = NSScreen.Screens

@@ -1,6 +1,6 @@
 import type { JSX } from "solid-js";
 
-// The app mark, from the shared `/weavie.svg` asset (also backs the favicon and the .ico/appiconset). Sized
+// The app mark, from the shared `/weavie.png` asset (also backs the favicon and native app icons). Sized
 // via `size` (number = px), defaulting to 1em. A full-color brand mark, so it doesn't follow `currentColor`.
 export function WeavieIcon(props: { size?: number | string }): JSX.Element {
   const size = (): string =>
@@ -11,7 +11,7 @@ export function WeavieIcon(props: { size?: number | string }): JSX.Element {
         : props.size;
   return (
     <img
-      src="/weavie.svg"
+      src="/weavie.png"
       alt=""
       aria-hidden="true"
       // Style as a string, not an object: a dynamic object-style emits a `setStyleProperty` helper that

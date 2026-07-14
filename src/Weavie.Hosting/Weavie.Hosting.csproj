@@ -17,6 +17,10 @@
   </ItemGroup>
 
 	<ItemGroup>
+		<FrameworkReference Include="Microsoft.AspNetCore.App" />
+	</ItemGroup>
+
+	<ItemGroup>
 		<!-- The integration test harness drives the real HostCore and reaches a couple of internal test seams
 		     (e.g. the active session) to assert on host behavior the page can't trigger directly. -->
 		<InternalsVisibleTo Include="Weavie.Hosting.Tests" />

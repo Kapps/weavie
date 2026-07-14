@@ -2,7 +2,7 @@
 // window.__weavieReceive). JSON messages; in a plain browser (dev) the host handler is absent and outbound
 // is a no-op by design, never a thrown error.
 
-import { createSignal } from "solid-js";
+import { batch, createSignal } from "solid-js";
 import type { CommandInfo, CommandResult, ResolvedKeybinding } from "./commands/types";
 import type { EditorSession } from "./editor/session-types";
 import type { LayoutDocument } from "./layout/types";
@@ -347,8 +347,6 @@ export type HostBoundMessage =
   // Each request carries an `id` the host echoes on the matching fs-*-result, correlating the reply.
   | { type: "fs-stat"; id: string; path: string }
   | { type: "fs-read"; id: string; path: string }
-  // Raw bytes (base64) for the media pane's image/video render — same confinement + correlation as fs-read.
-  | { type: "fs-read-bytes"; id: string; path: string }
   | { type: "fs-write"; id: string; path: string; content: string }
   // Inline diff (acceptEdits mode): accept the whole turn's changes — clears the inline markers. The host
   // snapshots the per-turn baseline to current and re-pushes an (empty) turn diff.
@@ -641,17 +639,6 @@ export type WebBoundMessage =
       code?: string;
       error?: string;
     }
-  // Reply to fs-read-bytes, correlated by `id`: the file's raw bytes as base64 (or code:"FileNotFound" / error).
-  | {
-      type: "fs-read-bytes-result";
-      id: string;
-      ok: boolean;
-      dataB64?: string;
-      mtimeMs?: number;
-      size?: number;
-      code?: string;
-      error?: string;
-    }
   | {
       type: "fs-write-result";
       id: string;
@@ -786,11 +773,11 @@ export type WebBoundMessage =
       data?: unknown;
     };
 
-type WebMessageHandler = (msg: WebBoundMessage) => void;
+type WebMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 type SessionMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 
-// Listeners that render the page — they only ever see the ACTIVE backend's traffic, so a background
-// backend can never paint over what's on screen.
+// Listeners that render the page see the active backend plus correlated filesystem replies from the backend
+// that owns the mounted editor. Background traffic cannot otherwise paint over the screen.
 const listeners = new Set<WebMessageHandler>();
 // Listeners for the cross-backend rail: session-list / session-status from EVERY connected backend, tagged
 // with their origin backend, so the rail can show local + remote sessions side by side.
@@ -803,7 +790,9 @@ const [activeBackend, setActiveBackend] = createSignal("local");
 export const LOCAL_BACKEND_ID = "local";
 // The backend that most recently supplied the editor session currently mounted in Monaco. During a backend
 // switch this deliberately remains the outgoing backend until the incoming set-editor-session arrives.
-let editorBackend = LOCAL_BACKEND_ID;
+const [editorBackendId, setEditorBackendId] = createSignal<string | null>(null);
+
+export { editorBackendId };
 
 // The live link state of a backend's transport: opening for the first time, connected, or dropped and
 // retrying. The native in-process backend has no entry and is treated as always online. Drives the
@@ -838,7 +827,8 @@ export const activeBackendOffline = (): boolean => activeBackendPhase() !== "onl
 
 // These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
 // feed the rail, the New Session typeahead, the active backend's suggestions/recent-files, and local-only
-// registry/rail state. Everything else is gated to the bound backend.
+// registry/rail state. Editor replies are separately pinned to the editor-owning backend; everything else is
+// gated to the active backend.
 function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
@@ -893,9 +883,8 @@ function failPendingForBackend(backendId: string, reason: string): void {
   }
 }
 
-// Parse one inbound JSON line and route it: a command-result resolves its awaiting caller by token (never
-// gated); session messages fan out to the rail listeners tagged with `backendId`; all else reaches page
-// listeners only from the active backend. Shared by every transport.
+// Parse one inbound JSON line and route it: command results resolve by token; session messages fan out to the
+// rail; page listeners receive the active backend plus correlated filesystem replies from the editor owner.
 function deliverFromHost(raw: string, backendId: string): void {
   let parsed: WebBoundMessage;
   try {
@@ -918,8 +907,8 @@ function deliverFromHost(raw: string, backendId: string): void {
     }
     return;
   }
-  // Local-machine pushes (the OS clipboard reply, the native window state) route from the local backend
-  // only, whichever backend drives the page; everything else is gated to the active backend.
+  // Local-machine pushes route only from local. Other background traffic is dropped except filesystem replies
+  // from the mounted editor's owner, which must settle requests issued before an active-backend handoff.
   const localMachinePush =
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
@@ -927,11 +916,10 @@ function deliverFromHost(raw: string, backendId: string): void {
     parsed.type === "notification-prefs" ||
     parsed.type === "agent-defaults";
   const editorReply =
-    backendId === editorBackend &&
+    backendId === editorBackendId() &&
     (parsed.type === "fs-stat-result" ||
       parsed.type === "fs-read-result" ||
-      parsed.type === "fs-write-result" ||
-      parsed.type === "fs-read-bytes-result");
+      parsed.type === "fs-write-result");
   if (
     localMachinePush
       ? backendId !== LOCAL_BACKEND_ID
@@ -939,11 +927,19 @@ function deliverFromHost(raw: string, backendId: string): void {
   ) {
     return;
   }
+  const deliver = (): void => {
+    for (const listener of listeners) {
+      listener(parsed, backendId);
+    }
+  };
   if (parsed.type === "set-editor-session") {
-    editorBackend = backendId;
-  }
-  for (const listener of listeners) {
-    listener(parsed);
+    // One transaction keeps MediaPane from observing an incoming backend with the outgoing session/path.
+    batch(() => {
+      setEditorBackendId(backendId);
+      deliver();
+    });
+  } else {
+    deliver();
   }
 }
 
@@ -952,6 +948,12 @@ function deliverFromHost(raw: string, backendId: string): void {
 interface BridgeTransport {
   send(json: string): void;
   dispose(): void;
+}
+
+/** The control and streamed-resource URLs resolved together for one backend instance. */
+export interface BackendEndpoint {
+  bridgeUrl: string;
+  resourceBase: string;
 }
 
 // The native desktop shells' in-process script-message channel (inject `window.webkit.messageHandlers.weavie`
@@ -1005,7 +1007,7 @@ class WebSocketTransport implements BridgeTransport {
     // Re-resolved on every (re)connect, so a reconnect always targets the backend's CURRENT bridge URL. A
     // restarted runner mints a fresh worker port+token (see remote-agents.ts), so a URL fixed at construction
     // would be dead for good after the first restart. The local backend's resolver returns its static URL.
-    private readonly resolveUrl: () => Promise<string>,
+    private readonly resolveEndpoint: () => Promise<BackendEndpoint>,
     // Human label for connection toasts/banner ("the Weavie host" for local, the agent name for a remote).
     private readonly label: string,
     // Re-sent on every (re)connect, so a backend re-pushes its state after a dropped link. Remotes pass
@@ -1045,8 +1047,11 @@ class WebSocketTransport implements BridgeTransport {
     // Resolve the current URL first — a remote agent re-runs its runner handshake here, so a reconnect
     // follows the runner to its freshly-minted worker. A resolver failure (runner/control-plane unreachable)
     // is a drop like any other: retry with backoff.
-    void this.resolveUrl().then(
-      (url) => this.openSocket(url),
+    void this.resolveEndpoint().then(
+      (endpoint) => {
+        setBackendResourceBase(this.backendId, endpoint.resourceBase);
+        this.openSocket(endpoint.bridgeUrl);
+      },
       () => this.onDrop(),
     );
   }
@@ -1190,7 +1195,7 @@ class WebSocketTransport implements BridgeTransport {
 
 // Resolve the remote bridge URL: a `?weavie-bridge=` query override wins, else `window.__WEAVIE_BRIDGE_WS__`.
 // "auto" derives a same-origin `ws(s)://<host>/weavie-bridge` (the serve host also serves the page).
-function resolveBridgeWsUrl(): string | null {
+function resolveBridgeEndpoint(): BackendEndpoint | null {
   const override = new URLSearchParams(window.location.search).get("weavie-bridge");
   const configured = override ?? window.__WEAVIE_BRIDGE_WS__ ?? "";
   if (configured === "") {
@@ -1198,13 +1203,21 @@ function resolveBridgeWsUrl(): string | null {
   }
   if (configured === "auto") {
     const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-    // A remote runner serves the page at `…/?token=<t>` and gates the bridge on that token; carry it onto
-    // the derived same-origin bridge URL. Absent (plain local headless), the bridge is ungated.
+    // The workspace page carries its server token; preserve it on the derived bridge URL.
     const token = new URLSearchParams(window.location.search).get("token");
     const query = token === null ? "" : `?token=${encodeURIComponent(token)}`;
-    return `${scheme}//${window.location.host}/weavie-bridge${query}`;
+    return {
+      bridgeUrl: `${scheme}//${window.location.host}/weavie-bridge${query}`,
+      resourceBase:
+        window.__WEAVIE_RESOURCE_BASE__ ??
+        `${window.location.protocol}//${window.location.host}/weavie-media${query}`,
+    };
   }
-  return configured;
+  const bridgeUrl = new URL(configured);
+  const resource = new URL(configured);
+  resource.protocol = bridgeUrl.protocol === "wss:" ? "https:" : "http:";
+  resource.pathname = "/weavie-media";
+  return { bridgeUrl: configured, resourceBase: resource.toString() };
 }
 
 // A connected backend: a transport plus its display identity. "local" is the default backend; remotes carry
@@ -1222,6 +1235,29 @@ interface Backend {
 
 const backends = new Map<string, Backend>();
 const [backendList, setBackendList] = createSignal<BackendInfo[]>([]);
+const [backendResourceBases, setBackendResourceBases] = createSignal<Record<string, string>>({});
+
+function setBackendResourceBase(backendId: string, resourceBase: string): void {
+  setBackendResourceBases((current) => ({ ...current, [backendId]: resourceBase }));
+}
+
+/** Builds an authenticated media URL for an exact backend/session/path, preserving the backend token. */
+export function mediaResourceUrl(
+  backendId: string,
+  sessionId: string,
+  path: string,
+  revision: number,
+): string | null {
+  const base = backendResourceBases()[backendId];
+  if (base === undefined) {
+    return null;
+  }
+  const url = new URL(base, window.location.href);
+  url.searchParams.set("session", sessionId);
+  url.searchParams.set("path", path);
+  url.searchParams.set("rev", revision.toString());
+  return url.toString();
+}
 
 function publishBackends(): void {
   setBackendList([...backends.values()].map((b) => b.info));
@@ -1252,14 +1288,17 @@ export function isBrowserHostedShell(): boolean {
   let transport: BridgeTransport | null = null;
   if (window.webkit?.messageHandlers?.weavie !== undefined) {
     transport = nativeTransport;
+    if (window.__WEAVIE_RESOURCE_BASE__ !== undefined) {
+      setBackendResourceBase(LOCAL_BACKEND_ID, window.__WEAVIE_RESOURCE_BASE__);
+    }
   } else {
-    const wsUrl = resolveBridgeWsUrl();
-    if (wsUrl !== null) {
+    const endpoint = resolveBridgeEndpoint();
+    if (endpoint !== null) {
       // The local backend's URL is static (same-origin, token fixed for the page's life); the resolver just
       // hands it back on each reconnect.
       transport = new WebSocketTransport(
         LOCAL_BACKEND_ID,
-        () => Promise.resolve(wsUrl),
+        () => Promise.resolve(endpoint),
         "the Weavie host",
       );
       browserHostedShell = true;
@@ -1275,14 +1314,18 @@ export function isBrowserHostedShell(): boolean {
 })();
 
 // Connect an additional (remote) backend so its sessions appear on the rail. Its page-painting traffic stays
-// suppressed until made active (see deliverFromHost). `resolveUrl` is re-run on every (re)connect so a reconnect
+// suppressed until made active (see deliverFromHost). The descriptor is re-resolved on every (re)connect so a reconnect
 // re-derives the runner's current worker (fresh port+token after a runner restart). Idempotent per id.
-export function connectBackend(id: string, name: string, resolveUrl: () => Promise<string>): void {
+export function connectBackend(
+  id: string,
+  name: string,
+  resolveEndpoint: () => Promise<BackendEndpoint>,
+): void {
   if (backends.has(id)) {
     return;
   }
   // `ready` is the hello, re-sent on every (re)connect so the session-list comes back after a drop.
-  const transport = new WebSocketTransport(id, resolveUrl, name, READY_HELLO);
+  const transport = new WebSocketTransport(id, resolveEndpoint, name, READY_HELLO);
   backends.set(id, { info: { id, name, isLocal: false }, transport });
   publishBackends();
 }
@@ -1299,6 +1342,10 @@ export function disconnectBackend(id: string): void {
   }
   backend.transport.dispose();
   backends.delete(id);
+  setBackendResourceBases((current) => {
+    const { [id]: _removed, ...rest } = current;
+    return rest;
+  });
   failPendingForBackend(id, "The backend was disconnected.");
   publishBackends();
   if (activeBackend() === id) {
@@ -1337,7 +1384,7 @@ export function postToHost(message: HostBoundMessage): void {
 
 /** Route file-provider work to the host that owns the editor session, including during a backend handoff. */
 export function postToEditorBackend(message: HostBoundMessage): void {
-  postToBackend(editorBackend, message);
+  postToBackend(editorBackendId() ?? activeBackend(), message);
 }
 
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */

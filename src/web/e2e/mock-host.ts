@@ -39,8 +39,11 @@ export interface MockHostOptions {
 export class MockHost {
   /** Every message the page sent to the host, in arrival order. */
   readonly received: Message[] = [];
+  /** Every streamed-media request, including rejected mixed backend/session/path identities. */
+  readonly mediaRequests: Array<{ session: string; path: string; status: number }> = [];
   /** Files the fs-* provider serves, keyed by path; tests can mutate between steps. */
   readonly files: Map<string, string>;
+  private readonly media = new Map<string, Buffer>();
 
   private readonly distDir: string;
   private readonly readyReplayProtocol: 0 | 1;
@@ -56,7 +59,9 @@ export class MockHost {
     this.distDir = distDir;
     this.readyReplayProtocol = readyReplayProtocol;
     this.files = new Map(Object.entries(files));
-    this.http = createServer((req, res) => void this.serveStatic(req.url ?? "/", res));
+    this.http = createServer(
+      (req, res) => void this.serveStatic(req.url ?? "/", req.method ?? "GET", res),
+    );
     this.wss = new WebSocketServer({ server: this.http, path: "/weavie-bridge" });
     this.wss.on("connection", (ws) => this.onConnection(ws));
   }
@@ -90,6 +95,11 @@ export class MockHost {
   /** The full page URL with the bridge transport wired in (the way a test should navigate). */
   pageUrl(path = "/"): string {
     return `${this.url}${path}?weavie-bridge=${encodeURIComponent(this.bridgeUrl)}`;
+  }
+
+  /** Allows one exact authenticated media identity to stream from this backend. */
+  setMedia(session: string, path: string, bytes: Buffer): void {
+    this.media.set(JSON.stringify([session, path]), bytes);
   }
 
   /** Pushes a web-bound message (host -> page) over the live bridge socket. */
@@ -240,9 +250,37 @@ export class MockHost {
 
   private async serveStatic(
     rawUrl: string,
+    method: string,
     res: import("node:http").ServerResponse,
   ): Promise<void> {
-    const pathname = decodeURIComponent(rawUrl.split("?")[0]);
+    const request = new URL(rawUrl, this.url);
+    const pathname = request.pathname;
+    if (pathname === "/backend") {
+      const headers = {
+        "access-control-allow-origin": "*",
+        "access-control-allow-headers": "Authorization",
+      };
+      if (method === "OPTIONS") {
+        res.writeHead(204, headers).end();
+      } else {
+        res
+          .writeHead(200, { ...headers, "content-type": "application/json" })
+          .end(JSON.stringify({ url: `${this.url}/index.html?token=mock` }));
+      }
+      return;
+    }
+    if (pathname === "/weavie-media") {
+      const session = request.searchParams.get("session") ?? "";
+      const path = request.searchParams.get("path") ?? "";
+      const body = this.media.get(JSON.stringify([session, path]));
+      const status = body === undefined ? 404 : 200;
+      this.mediaRequests.push({ session, path, status });
+      res
+        .writeHead(status, { "content-type": "image/png", "access-control-allow-origin": "*" })
+        .end(body ?? "not found");
+      return;
+    }
+
     const relative = pathname === "/" ? "index.html" : pathname.replace(/^\/+/, "");
     // Contain the served path inside distDir; a path that escapes is a 403.
     const resolved = normalize(join(this.distDir, relative));

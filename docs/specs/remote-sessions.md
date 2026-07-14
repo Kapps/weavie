@@ -56,9 +56,9 @@ unmodified `HostCore`. The **web frontend connects to several at once** and desi
 backend that drives the page; the rail merges every backend's `session-list` (tagged by location) so
 local + remote sessions sit together. The two rules:
 
-- **session-list / session-status are aggregated from all backends** (the rail). Everything else
-  (terminals, editor, layout, diffs) is delivered to the page **only from the active backend**, so a
-  background backend can never paint over what's on screen.
+- **session-list / session-status are aggregated from all backends** (the rail). Page traffic otherwise comes
+  from the active backend, except correlated filesystem replies from the backend that owns the mounted editor;
+  those settle work issued before a handoff and cannot paint unrelated background state.
 - **Switching to a session on another backend** just rebinds the page to it: its normal switch reply
   (`term-reset` → the panes re-emit `term-ready`, plus `set-editor-session`) re-attaches the terminals
   and editor, and `fs-*` / `term-input` then flow to that backend — so a remote session's Claude and

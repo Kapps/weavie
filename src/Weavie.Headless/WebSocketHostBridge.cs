@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Threading.Channels;
 using Weavie.Hosting;
+using Weavie.Hosting.Web;
 
 namespace Weavie.Headless;
 
@@ -15,7 +16,7 @@ namespace Weavie.Headless;
 /// behind is dropped loudly. Pushes with no page connected are dropped, never buffered (each page re-requests
 /// state on its <c>ready</c>).
 /// </summary>
-internal sealed class WebSocketHostBridge : IHostBridge {
+internal sealed class WebSocketHostBridge : IHostBridge, IWorkspaceWebSocketBridge {
 	// A connection this many messages behind is treated as dead/hopeless and dropped — far above any healthy
 	// burst (a loopback page drains in microseconds), low enough to bound memory and fail fast. A dropped page's
 	// transport reconnects and re-requests state, so an over-eager drop self-heals rather than losing the page.
@@ -33,6 +34,9 @@ internal sealed class WebSocketHostBridge : IHostBridge {
 
 	/// <inheritdoc/>
 	public event Action<string>? MessageReceived;
+
+	/// <inheritdoc/>
+	public bool Available => true;
 
 	/// <inheritdoc/>
 	public void PostToWeb(string json) {

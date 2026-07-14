@@ -22,6 +22,10 @@ export const PIXEL_BLUE = Buffer.from(
   "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEElEQVR4nGNgYPiPAw0pCQCpcD/BFMrqcwAAAABJRU5ErkJggg==",
   "base64",
 );
+export const CLIP_WEBM = Buffer.from(
+  "GkXfo59ChoEBQveBAULygQRC84EIQoKEd2VibUKHgQJChYECGFOAZwEAAAAAAAJkEU2bdLpNu4tTq4QVSalmU6yBoU27i1OrhBZUrmtTrIHWTbuMU6uEElTDZ1OsggEjTbuMU6uEHFO7a1OsggJO7AEAAAAAAABZAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAVSalmsCrXsYMPQkBNgIxMYXZmNjEuNy4xMDNXQYxMYXZmNjEuNy4xMDNEiYhAaQAAAAAAABZUrmvIrgEAAAAAAAA/14EBc8WILUl/TyUyNf+cgQAitZyDdW5kiIEAhoVWX1ZQOYOBASPjg4QCYloA4JCwgRC6gRCagQJVsIRVuYEBElTDZ0B/c3OfY8CAZ8iZRaOHRU5DT0RFUkSHjExhdmY2MS43LjEwM3Nz2mPAi2PFiC1Jf08lMjX/Z8ilRaOHRU5DT0RFUkSHmExhdmM2MS4xOS4xMDEgbGlidnB4LXZwOWfIoUWjiERVUkFUSU9ORIeTMDA6MDA6MDAuMjAwMDAwMDAwAB9DtnVAoOeBAKPHgQAAgIJJg0IAAPAA9gY4JBwYQgAAIEAAIpv//37W51kbEm4xKqCivVWz88y7B/L1AqpCjvQBJjHYEQL////5+sf///bZAACjk4EAKACGAECSnChJQAADcAAAQkCjk4EAUACGAECSnCxKwAADcAAAQkCjk4EAeACGAECSnCxJwAADcAAAQkCjk4EAoACGAECSnChIoAADcAAAQkAcU7trkbuPs4EAt4r3gQHxggGo8IED",
+  "base64",
+);
 
 /**
  * A small inline 200×80 PNG so seeded/injected images render with no network. It must be data:image/png
@@ -50,8 +54,7 @@ const SEED: Record<string, string | Buffer> = {
     "console.log(message);\n",
   "notes.txt": "just plain text\n",
   "pixel.png": PIXEL_RED,
-  // Not a decodable video — enough to drive the media pane's byte pipeline; decode is the browser's job.
-  "clip.webm": Buffer.from("not-a-real-webm"),
+  "clip.webm": CLIP_WEBM,
 };
 
 // A throwaway git repo so HostCore can create sessions/worktrees off HEAD. Returns the path; call

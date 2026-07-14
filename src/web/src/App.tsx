@@ -98,7 +98,13 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
-import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import {
+  activePath,
+  editorBackendId,
+  editorOwner,
+  flushEditorSession,
+  openTabs,
+} from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   setSourceDoc,
@@ -445,9 +451,9 @@ export default function App(): JSX.Element {
   });
 
   // Bind the page to `backendId`, then run `then` (which posts the session command). When crossing to a
-  // different backend, first persist the outgoing session's unsaved edits on their own (still-active) host:
-  // fs-writes route to the active backend, so flipping before the flush lands them on the wrong one — rejected
-  // as out-of-worktree, the edit lost. Same-backend binds run synchronously.
+  // different backend, first persist the outgoing session's unsaved edits before requesting the incoming
+  // session. File writes remain pinned to the editor owner throughout the handoff. Same-backend binds run
+  // synchronously.
   const bindBackend = (backendId: string, then: () => void): void => {
     if (backendId === activeBackendId()) {
       then();
@@ -655,8 +661,16 @@ export default function App(): JSX.Element {
               </Suspense>
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
-            <Show when={activeMediaPath() !== null}>
-              <MediaPane path={() => activeMediaPath() as string} />
+            <Show
+              when={
+                activeMediaPath() !== null && editorBackendId() !== null && editorOwner() !== null
+              }
+            >
+              <MediaPane
+                backendId={() => editorBackendId() as string}
+                sessionId={() => editorOwner() as string}
+                path={() => activeMediaPath() as string}
+              />
             </Show>
             {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
             <Show when={activeWebUrl() !== null}>

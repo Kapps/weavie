@@ -68,6 +68,7 @@ import { TitleBar } from "./chrome/TitleBar";
 import { UpdateOverlay } from "./chrome/UpdateOverlay";
 import { UrlPrompt } from "./chrome/UrlPrompt";
 import { surfacePostUpdateNotice, updateRestarting } from "./chrome/update-store";
+import { hostWindowFocused, windowMaximized } from "./chrome/window-state";
 import { writeClipboard } from "./clipboard";
 import { paneFocusContext, setContext } from "./commands/context";
 import { installDoubleShift } from "./commands/double-shift";
@@ -334,11 +335,9 @@ export default function App(): JSX.Element {
   };
   // The right-click menu for the editor body + terminal panes (the tab strip / rail own their own).
   const [contextMenu, setContextMenu] = createSignal<ContextMenuState | null>(null);
-  // Host-pushed window chrome (maximize glyph + blur dim) and the flat workspace file index shared by the
-  // omnibar's "Go to File" and the file browser. indexRoot is the ACTIVE session's worktree root — it
-  // follows session switches (host re-pushes file-index on each), seeded from WORKSPACE_ROOT until the first.
-  const [maximized, setMaximized] = createSignal(false);
-  const [windowFocused, setWindowFocused] = createSignal(true);
+  // The flat workspace file index shared by the omnibar's "Go to File" and the file browser. indexRoot is
+  // the ACTIVE session's worktree root — it follows session switches (host re-pushes file-index on each),
+  // seeded from WORKSPACE_ROOT until the first.
   const [fileIndex, setFileIndex] = createSignal<string[]>([]);
   const [indexRoot, setIndexRoot] = createSignal<string | null>(WORKSPACE_ROOT);
   // True between a switch's index invalidation (pending file-index) and the new worktree's walked index.
@@ -916,9 +915,6 @@ export default function App(): JSX.Element {
         );
       } else if (message.type === "dir-listing") {
         setDirListings((prev) => ({ ...prev, [message.path]: message.entries }));
-      } else if (message.type === "window-state") {
-        setMaximized(message.maximized);
-        setWindowFocused(message.focused);
       } else if (message.type === "file-index") {
         // A switch re-pushes the index rooted at the new worktree. On a root change, drop the cached listings
         // (keyed by absolute path, so they'd otherwise linger) and let the browser re-list the new tree. A
@@ -1275,8 +1271,8 @@ export default function App(): JSX.Element {
     <div class="app">
       <Show when={CUSTOM_TITLEBAR}>
         <TitleBar
-          maximized={maximized()}
-          focused={windowFocused()}
+          maximized={windowMaximized()}
+          focused={hostWindowFocused()}
           files={fileIndex()}
           filesPending={indexPending()}
           root={indexRoot()}
@@ -1296,7 +1292,7 @@ export default function App(): JSX.Element {
         />
       </Show>
       <Show when={CUSTOM_TITLEBAR}>
-        <ResizeFrame maximized={maximized()} />
+        <ResizeFrame maximized={windowMaximized()} />
       </Show>
       <Show when={MAC_TITLEBAR}>
         <MacTitleBar

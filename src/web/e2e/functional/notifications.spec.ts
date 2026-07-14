@@ -160,6 +160,32 @@ test.describe("two sessions: the background session pings; clicking focuses it",
   });
 });
 
+test.describe("minimized native window: the webview's stale hasFocus() must not mute the ping", () => {
+  test.use({
+    fakeScript: turnScript({ hook_event_name: "Stop" }),
+    // The WebView2/WKWebView quirk under test: document.hasFocus() keeps reporting true after the
+    // native window is minimized or deactivated.
+    preNavigate: recorders({ focused: true }),
+  });
+
+  test("the shell's window-state {focused:false} push overrides it and the sound plays", async ({
+    page,
+    weavie,
+  }) => {
+    // The shell knows the window deactivated and pushed window-state, delivered as a local host message.
+    await page.evaluate(() => {
+      (window as unknown as { __weavieReceive: (raw: string) => void }).__weavieReceive(
+        JSON.stringify({ type: "window-state", maximized: false, focused: false }),
+      );
+    });
+    writeFileSync(join(weavie.workspace, SIGNAL), "");
+
+    await expect.poll(() => sounds(page)).toHaveLength(1);
+    expect((await sounds(page))[0]).toContain("/sounds/weavie/sounds/turn-complete.wav");
+    await expect.poll(() => notifications(page)).toHaveLength(1);
+  });
+});
+
 test.describe("suppression: focused window, active session", () => {
   test.use({
     fakeScript: turnScript({ hook_event_name: "Stop" }),

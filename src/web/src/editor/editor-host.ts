@@ -52,11 +52,15 @@ function nextPaint(): Promise<void> {
 export interface EditorHost {
   readonly editor: monaco.editor.IStandaloneCodeEditor;
   /**
-   * Switches the editor to a file working copy; `placement` reveals a 1-based `line` or restores the tab's saved
-   * view state. Resolves `true` when shown (or superseded by a newer open), `false` when unreadable — the host
-   * has already toasted, and the caller rolls its now-broken tab back.
+   * Switches the editor to a file working copy; `placement` reveals a 1-based `line` (optionally at `column`;
+   * `focus: false` reveals without stealing focus) or restores the tab's saved view state. Resolves `true` when
+   * shown (or superseded by a newer open), `false` when unreadable — the host has already toasted, and the
+   * caller rolls its now-broken tab back.
    */
-  show(path: string, placement: { line: number } | { viewState: unknown }): Promise<boolean>;
+  show(
+    path: string,
+    placement: { line: number; column?: number; focus?: boolean } | { viewState: unknown },
+  ): Promise<boolean>;
   /**
    * Closes a tab: flushes its pending save, then releases its refcounted working-copy reference (the only site
    * that disposes one, never dispose()). The caller must switch the editor off this model first. Pass `discard`
@@ -400,7 +404,7 @@ export async function createEditorHost(
   const showFile = async (
     uri: monaco.Uri,
     placement:
-      | { line: number }
+      | { line: number; column?: number; focus?: boolean }
       | { selection: monaco.IRange }
       | { viewState: monaco.editor.ICodeEditorViewState | null },
   ): Promise<boolean> => {
@@ -435,9 +439,13 @@ export async function createEditorHost(
       }
       editor.setModel(ref.object.textEditorModel);
       if ("line" in placement) {
-        editor.revealLineInCenter(placement.line);
-        editor.setPosition({ lineNumber: placement.line, column: 1 });
-        editor.focus();
+        const position = { lineNumber: placement.line, column: placement.column ?? 1 };
+        editor.revealPositionInCenter(position);
+        editor.setPosition(position);
+        // focus: false = reveal only (the search panel's live preview keeps typing in its own input).
+        if (placement.focus !== false) {
+          editor.focus();
+        }
       } else if ("selection" in placement) {
         editor.setSelection(placement.selection);
         editor.revealRangeInCenterIfOutsideViewport(placement.selection);
@@ -461,7 +469,7 @@ export async function createEditorHost(
 
   const show = (
     path: string,
-    placement: { line: number } | { viewState: unknown },
+    placement: { line: number; column?: number; focus?: boolean } | { viewState: unknown },
   ): Promise<boolean> => {
     const resolved =
       "line" in placement

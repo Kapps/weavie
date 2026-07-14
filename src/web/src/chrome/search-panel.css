@@ -29,25 +29,37 @@
   font-weight: 600;
 }
 
-.search-close {
+.search-head-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-icon-btn {
   display: inline-flex;
   align-items: center;
   background: transparent;
   color: var(--dim);
   border: none;
+  border-radius: 3px;
+  padding: 2px;
   cursor: pointer;
 }
 
-.search-close svg {
+.search-icon-btn svg {
   width: 1.15em;
   height: 1.15em;
 }
 
-.search-close:hover {
+.search-icon-btn:hover {
   color: var(--fg);
 }
 
-.search-close:focus-visible {
+.search-icon-btn.active {
+  color: var(--accent);
+}
+
+.search-icon-btn:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
@@ -74,6 +86,7 @@
 
 .search-input {
   flex: 1 1 auto;
+  min-width: 0;
   background: var(--bar);
   color: var(--fg);
   border: 1px solid var(--border);
@@ -87,12 +100,79 @@
   border-color: var(--accent);
 }
 
-.search-truncated {
+/* The match-option toggles (Aa / word / regex); `active` mirrors aria-pressed. */
+.search-toggles {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.search-toggle {
+  display: inline-flex;
+  align-items: center;
+  background: transparent;
+  color: var(--dim);
+  border: 1px solid transparent;
+  border-radius: 3px;
+  padding: 2px;
+  cursor: pointer;
+}
+
+.search-toggle svg {
+  width: 1.15em;
+  height: 1.15em;
+}
+
+.search-toggle:hover {
+  color: var(--fg);
+}
+
+.search-toggle.active {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--bar);
+}
+
+.search-toggle:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Include/exclude glob filters (comma-separated; a bare name matches at any depth). */
+.search-filters {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.search-glob {
+  background: var(--bar);
+  color: var(--fg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font: inherit;
+  font-size: 0.9em;
+}
+
+.search-glob:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.search-summary {
   flex: 0 0 auto;
   padding: 6px 12px;
-  color: var(--warn, var(--accent));
+  color: var(--dim);
   font-size: 0.85em;
   border-bottom: 1px solid var(--border);
+}
+
+.search-summary.warn {
+  color: var(--warn, var(--accent));
 }
 
 .search-error {
@@ -116,13 +196,16 @@
 }
 
 .search-group-head {
+  position: sticky;
+  top: 0;
+  z-index: 1;
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
   padding: 3px 8px;
   border: none;
-  background: transparent;
+  background: var(--bg);
   color: var(--accent);
   font: inherit;
   font-weight: 600;
@@ -196,4 +279,29 @@
   overflow: hidden;
   text-overflow: ellipsis;
   font-family: var(--mono, monospace);
+}
+
+/* Matched substrings reuse the omnibar's .tb-hl mark; underline on the selected row for contrast. */
+.search-row.selected .tb-hl {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* Keyboard hints footer — the discoverable map of the panel's keys. */
+.search-hints {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 12px;
+  padding: 6px 12px;
+  color: var(--dim);
+  font-size: 0.8em;
+  border-top: 1px solid var(--border);
+}
+
+.search-hints kbd {
+  font-family: inherit;
+  background: var(--bar);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 0 4px;
 }

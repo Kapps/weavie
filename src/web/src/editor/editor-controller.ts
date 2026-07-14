@@ -148,6 +148,13 @@ export interface EditorController {
   handleMessage(message: WebBoundMessage): boolean;
   /** Focuses the editor (for focus-pane). */
   focusEditor(): void;
+  /** The editor's current selection text for seeding a search: non-empty and single-line, else null. */
+  selectionText(): string | null;
+  /**
+   * Opens a find-in-files hit in the preview tab, landing the cursor at line:column. `focus: false` reveals
+   * without stealing focus — the panel's live preview while arrowing through results.
+   */
+  openMatch(path: string, line: number, column: number, focus: boolean): void;
   /** Focuses the editor and triggers a Monaco action by id (e.g. the editor right-click Copy/Cut/Paste);
    * false when no editor is mounted. */
   triggerAction(actionId: string): boolean;
@@ -1151,6 +1158,22 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openSourceTab,
     handleMessage,
     focusEditor: () => host?.editor.focus(),
+    selectionText: () => {
+      const selection = host?.editor.getSelection();
+      const model = host?.editor.getModel();
+      if (
+        selection == null ||
+        model == null ||
+        selection.isEmpty() ||
+        selection.startLineNumber !== selection.endLineNumber
+      ) {
+        return null;
+      }
+      return model.getValueInRange(selection);
+    },
+    openMatch: (path, line, column, focus) => {
+      void applyActive(openTab(path, { line, column, focus, preview: true }));
+    },
     triggerAction: (actionId) => {
       if (host === undefined) {
         return false;

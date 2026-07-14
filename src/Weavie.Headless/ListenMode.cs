@@ -10,7 +10,7 @@ internal abstract record ListenMode {
 	private ListenMode() {
 	}
 
-	/// <summary>Loopback only, no auth. The default for local dev / a host driven by a native shell.</summary>
+	/// <summary>Loopback only. The shared workspace server mints its authentication token at startup.</summary>
 	internal sealed record Local : ListenMode;
 
 	/// <summary>A network bind with a required token; auth is enforced for every request.</summary>

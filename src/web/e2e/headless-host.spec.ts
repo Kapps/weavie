@@ -23,7 +23,7 @@ const hostDll = join(
 
 // Resolve with the port the host actually bound, parsed from its ready line, so the browser never races
 // the listener and never assumes the requested port.
-function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<number> {
+function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<string> {
   return new Promise((resolve, reject) => {
     const timer = setTimeout(
       () => reject(new Error("host did not report listening in time")),
@@ -32,10 +32,10 @@ function waitForListening(proc: ChildProcess, timeoutMs: number): Promise<number
     let buffer = "";
     proc.stdout?.on("data", (chunk: Buffer) => {
       buffer += chunk.toString("utf8");
-      const match = buffer.match(/open\s+http:\/\/127\.0\.0\.1:(\d+)/);
+      const match = buffer.match(/open\s+(http:\/\/127\.0\.0\.1:\d+\/index\.html\?token=[^\s]+)/);
       if (match) {
         clearTimeout(timer);
-        resolve(Number(match[1]));
+        resolve(match[1] as string);
       }
     });
     proc.on("exit", (code) => {
@@ -53,7 +53,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
 
   let proc: ChildProcess;
   let log = "";
-  let port = 0;
+  let pageUrl = "";
 
   test.beforeAll(async () => {
     // A throwaway workspace so the test never mutates the repo or collides on the editor-session file.
@@ -70,7 +70,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
     proc.stdout?.on("data", (chunk: Buffer) => {
       log += chunk.toString("utf8");
     });
-    port = await waitForListening(proc, 30_000);
+    pageUrl = await waitForListening(proc, 30_000);
   });
 
   test.afterAll(() => {
@@ -80,7 +80,7 @@ test.describe("headless host (real Weavie.Core over WebSocket)", () => {
   test("a browser connects over WebSocket and its `ready` reaches the C# session", async ({
     page,
   }) => {
-    await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "domcontentloaded" });
+    await page.goto(pageUrl, { waitUntil: "domcontentloaded" });
 
     // The host injected the bridge URL, so the web picked the WebSocket transport. (String form so the
     // browser-only `window` global isn't referenced in this Node test module.)

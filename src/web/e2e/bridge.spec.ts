@@ -46,6 +46,111 @@ test.describe("remote bridge transport", () => {
     }).toPass({ timeout: 20_000 });
   });
 
+  test("a backend switch never mixes the incoming resource host with the outgoing media identity", async ({
+    page,
+  }) => {
+    const remote = await MockHost.start({ distDir });
+    const pixel = Buffer.from(
+      "iVBORw0KGgoAAAANSUhEUgAAAAgAAAAICAIAAABLbSncAAAAEklEQVR4nGP4z8CAFWEXHbQSACj/P8Fu7N9hAAAAAElFTkSuQmCC",
+      "base64",
+    );
+    host.setMedia("local-owner", "/local/pixel.png", pixel);
+    remote.setMedia("remote-owner", "/remote/pixel.png", pixel);
+
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitForMessage("ready");
+      const localChip = {
+        id: "local-slot",
+        label: "main",
+        active: true,
+        loaded: true,
+        primary: true,
+        providerId: "claude",
+        status: "idle",
+        hue: 200,
+        monogram: "M",
+      };
+      await expect(async () => {
+        host.pushToWeb({ type: "session-list", sessions: [localChip] });
+        await expect
+          .poll(() => host.received.some((message) => message.type === "term-ready"), {
+            timeout: 1000,
+          })
+          .toBe(true);
+      }).toPass({ timeout: 20_000 });
+      host.pushToWeb({
+        type: "set-editor-session",
+        sessionId: "local-owner",
+        session: {
+          active: "/local/pixel.png",
+          open: [{ path: "/local/pixel.png", viewState: null }],
+        },
+      });
+      const image = page.locator(".editor-media img");
+      await expect(image).toHaveJSProperty("naturalWidth", 8);
+
+      host.pushToWeb({
+        type: "remote-agents",
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitForMessage("ready");
+      remote.pushToWeb({
+        type: "session-list",
+        sessions: [{ ...localChip, id: "remote-slot", label: "remote", primary: false }],
+      });
+      host.pushToWeb({
+        type: "rail-state",
+        lastLocation: "local",
+        promoted: ["remote:devbox remote-slot"],
+      });
+      const remoteChip = page.locator(".session-chip.remote");
+      await expect(remoteChip).toBeVisible();
+
+      const remoteSwitch = remote.waitForMessage("switch-session");
+      await remoteChip.click();
+      await remoteSwitch;
+      remote.pushToWeb({
+        type: "set-editor-session",
+        sessionId: "remote-owner",
+        session: {
+          active: "/remote/pixel.png",
+          open: [{ path: "/remote/pixel.png", viewState: null }],
+        },
+      });
+      await expect(image).toHaveJSProperty("naturalWidth", 8);
+
+      const localSwitch = host.waitForMessage("switch-session");
+      await page.locator(".session-chip:not(.active)").click();
+      await localSwitch;
+      host.pushToWeb({
+        type: "set-editor-session",
+        sessionId: "local-owner",
+        session: {
+          active: "/local/pixel.png",
+          open: [{ path: "/local/pixel.png", viewState: null }],
+        },
+      });
+      await expect(image).toHaveJSProperty("naturalWidth", 8);
+
+      expect(
+        [...host.mediaRequests, ...remote.mediaRequests].filter((request) => request.status >= 400),
+      ).toEqual([]);
+      expect(host.mediaRequests).toContainEqual({
+        session: "local-owner",
+        path: "/local/pixel.png",
+        status: 200,
+      });
+      expect(remote.mediaRequests).toContainEqual({
+        session: "remote-owner",
+        path: "/remote/pixel.png",
+        status: 200,
+      });
+    } finally {
+      await remote.close();
+    }
+  });
+
   test("the status bar reports network problems until reconnect replay completes", async ({
     page,
   }) => {

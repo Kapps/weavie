@@ -1,13 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const calls = vi.hoisted(() => ({
-  connect: [] as Array<[string, string, () => Promise<string>]>,
+  connect: [] as Array<
+    [string, string, () => Promise<{ bridgeUrl: string; resourceBase: string }>]
+  >,
   disconnect: [] as string[],
   posted: [] as Array<Record<string, unknown>>,
 }));
 vi.mock("../bridge", () => ({
-  connectBackend: (id: string, name: string, resolveUrl: () => Promise<string>) =>
-    calls.connect.push([id, name, resolveUrl]),
+  connectBackend: (
+    id: string,
+    name: string,
+    resolveUrl: () => Promise<{ bridgeUrl: string; resourceBase: string }>,
+  ) => calls.connect.push([id, name, resolveUrl]),
   disconnectBackend: (id: string) => calls.disconnect.push(id),
   connectedBackends: () => [],
   onSessionMessage: () => () => {},
@@ -58,7 +63,10 @@ describe("addAgent", () => {
     expect(calls.connect[0]?.[0]).toBe("remote:bob");
     // The transport gets a resolver, not a fixed URL, so a reconnect re-runs the runner handshake. It derives
     // the bridge WS from the worker page URL, carrying the token.
-    expect(await calls.connect[0]?.[2]()).toBe("wss://host:9/weavie-bridge?token=abc");
+    expect(await calls.connect[0]?.[2]()).toEqual({
+      bridgeUrl: "wss://host:9/weavie-bridge?token=abc",
+      resourceBase: "https://host:9/weavie-media?token=abc",
+    });
     expect(calls.posted).toContainEqual({
       type: "add-remote-agent",
       name: "bob",
@@ -82,7 +90,10 @@ describe("addAgent", () => {
     const resolve = calls.connect[0]?.[2];
     // addAgent's up-front validation consumed the first advertisement; the resolver the transport reconnects
     // through re-fetches and picks up whatever the runner advertises now — the new port+token, not the stale one.
-    expect(await resolve?.()).toBe("wss://host:10/weavie-bridge?token=new");
+    expect(await resolve?.()).toEqual({
+      bridgeUrl: "wss://host:10/weavie-bridge?token=new",
+      resourceBase: "https://host:10/weavie-media?token=new",
+    });
   });
 
   it("rejects and never persists when the runner is unreachable", async () => {

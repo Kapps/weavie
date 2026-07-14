@@ -168,10 +168,10 @@ bring-up doesn't depend on the session/git work, and vice versa. (The WebView2 u
 already persisted at `~/.weavie/internals/webview2` — not recreated per run.)
 
 **Done (this branch).** `HostCore.StartAsync` is now idempotent (caches its run under a lock). The Win
-shell starts the WebView2 environment task, then — in Release only — kicks off `StartAsync` so the
+shell starts the WebView2 environment task, then kicks off `StartAsync` so the
 backend (sessions + git) builds while the browser process spins up out-of-process, then awaits the env;
-the web launcher later joins the same cached run. Debug stays serial (it navigates a dev-server origin,
-not `https://weavie.dev`, so the page origin must not be pre-pinned). No thread-affinity change:
+the web launcher later joins the same cached run. In Debug the shared workspace server still owns resources
+while Vite owns the hot-reload document origin. No thread-affinity change:
 `CreateSession` still runs on the UI thread exactly as before, just interleaved with the env spin-up.
 **Needs a runtime startup check** on Windows (Debug + Release).
 

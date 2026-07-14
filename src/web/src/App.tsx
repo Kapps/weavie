@@ -98,7 +98,13 @@ import { SaveAsPrompt } from "./editor/SaveAsPrompt";
 // Registers the set-editor-session listener at module load, before the host's one-shot restore push; the
 // store otherwise lives only in the later editor chunk, so the push would arrive with no listener. Also
 // keeps it alive across HMR.
-import { activePath, flushEditorSession, openTabs } from "./editor/session-store";
+import {
+  activePath,
+  editorBackendId,
+  editorOwner,
+  flushEditorSession,
+  openTabs,
+} from "./editor/session-store";
 import { activeSourceEditor } from "./editor/source/source-edit";
 import {
   setSourceDoc,
@@ -647,8 +653,16 @@ export default function App(): JSX.Element {
               </Suspense>
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}
-            <Show when={activeMediaPath() !== null}>
-              <MediaPane path={() => activeMediaPath() as string} />
+            <Show
+              when={
+                activeMediaPath() !== null && editorBackendId() !== null && editorOwner() !== null
+              }
+            >
+              <MediaPane
+                backendId={() => editorBackendId() as string}
+                sessionId={() => editorOwner() as string}
+                path={() => activeMediaPath() as string}
+              />
             </Show>
             {/* A web tab: render its URL in an iframe over the still-mounted Monaco host. */}
             <Show when={activeWebUrl() !== null}>

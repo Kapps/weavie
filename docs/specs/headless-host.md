@@ -1,6 +1,6 @@
 # Headless host (browser-connectable Weavie)
 
-**Status:** implemented (Phase 1, loopback). The **web WebSocket transport**, the **`Weavie.Headless`
+**Status:** implemented. The **web WebSocket transport**, the **`Weavie.Headless`
 host**, and an **end-to-end harness** (a mock host plus a real-host integration test) are landed and
 verified on Linux: a real browser connects over a WebSocket to the headless host and its `ready` reaches
 the C# `Weavie.Core` session. Built on the shared `Weavie.Hosting` / `IHostBridge` layer (from the
@@ -62,8 +62,9 @@ The bridge URL comes from (first wins):
   The literal value `"auto"` derives a same-origin `ws(s)://<location.host>/weavie-bridge` — the common
   case where the headless host serves both the page and the socket.
 
-So the headless host's only web-facing obligations are: **serve the built app**, and **inject
-`window.__WEAVIE_BRIDGE_WS__ = "auto"`** (or a concrete URL) into `index.html`.
+The shared `WorkspaceHttpServer` serves the built app, injects
+`window.__WEAVIE_BRIDGE_WS__ = "auto"`, and exposes the same authenticated media endpoint used by native
+hosts. Headless supplies only the binding, token policy, WebSocket bridge endpoint, and remote control flag.
 
 ## C# side — `Weavie.Headless` (landed)
 
@@ -77,11 +78,10 @@ native window, geometry, and main-thread marshaling stripped out. Three files:
   `MessageReceived`. The bridge **outlives any one connection** — like the native hosts, the host persists
   while the page reloads — so a browser refresh just re-attaches a fresh socket and the page re-sends
   `ready`. Pushes made with no page connected are dropped (the page re-requests state on `ready`).
-- **`Program.cs`** — Kestrel on `127.0.0.1:<port>` (env `WEAVIE_SERVE_PORT`, default 8700; `0` binds an
-  OS-assigned port, reported by the ready line, which prints only once the listener accepts). Serves the
-  built `wwwroot`, injecting the bootstrap globals (`__WEAVIE_BRIDGE_WS__="auto"` + fonts + command /
-  keybinding catalog) into `index.html` before the module graph runs — the document-start injection the
-  native shells do via `AddUserScript`. Exposes the `/weavie-bridge` WebSocket upgrade.
+- **`Program.cs`** — resolves local/remote binding and services, then constructs HostCore with the shared
+  `WorkspaceHttpServer`. Local mode mints a random token; remote mode requires the runner-supplied token.
+  Port `0` remains the race-free OS-assigned-port path, and the ready line prints the authenticated page URL
+  only after Kestrel and HostCore are ready.
 - **`HeadlessSession`** — builds the same `Weavie.Core` graph the native shells do (settings, commands /
   keybindings, the two terminal controllers, the `FileProviderService`, the IDE/registry MCP servers, the
   `LayoutStore` + `EditorSessionStore`, change tracking) and runs the identical `OnWebMessage` dispatch,

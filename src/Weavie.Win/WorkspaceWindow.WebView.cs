@@ -38,9 +38,6 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		await _webView.EnsureCoreWebView2Async(environment);
 		var core = _webView.CoreWebView2;
 
-		// Serve the built web app from wwwroot over https://weavie.dev/ (no network, no localhost port), the WebView2
-		// counterpart of the macOS app:// scheme handler.
-		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
 #if DEBUG
 		core.Settings.AreDevToolsEnabled = true; // local debugging, Debug builds only
@@ -75,7 +72,6 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		_devBringUp = new DevWebBringUp(
 			launcher, this,
 			DevWebRoot.Resolve(System.Reflection.Assembly.GetExecutingAssembly()),
-			$"https://{AppHost}",
 			line => {
 				Console.WriteLine($"[vite] {line}");
 				Console.Out.Flush();
@@ -90,7 +86,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 			Console.WriteLine($"[weavie] hot reload: serving web from {devOrigin} (Vite dev server)");
 		}
 #else
-		await launcher.LaunchAsync($"https://{AppHost}");
+		await launcher.LaunchBundleAsync();
 #endif
 
 		ScheduleSnapshotIfRequested();
@@ -133,7 +129,8 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// top-level navigation to any other web origin and route it to the OS browser instead.
 		if (!Uri.TryCreate(e.Uri, UriKind.Absolute, out var uri)
 			|| (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
-			|| string.Equals(uri.Host, AppHost, StringComparison.OrdinalIgnoreCase)) {
+			|| (Uri.TryCreate(_core.WorkspaceOrigin, UriKind.Absolute, out var workspace)
+				&& uri.Scheme == workspace.Scheme && uri.Host == workspace.Host && uri.Port == workspace.Port)) {
 			return;
 		}
 
@@ -196,7 +193,7 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		}
 
 		core.NavigationStarting -= OnDevRecoveryNavigationStarting;
-		Console.WriteLine($"[weavie] loading STALE bundled wwwroot at https://{AppHost} (explicit developer choice)");
+		Console.WriteLine("[weavie] loading the STALE bundled workspace app (explicit developer choice)");
 		await _devBringUp.LoadBundleAsync();
 	}
 
@@ -237,11 +234,11 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 				_devOrigin = revived;
 				core.Navigate($"{revived}/index.html");
 			} else {
-				// Dev server is gone for good: stop chasing it and load the bundle that's always mapped.
+				// Dev server is gone for good: stop chasing it and load the shared server's bundle.
 				_devOrigin = null;
 				core.NavigationCompleted -= OnNavigationCompleted;
-				Console.WriteLine($"[weavie] dev server could not be revived; loading bundled wwwroot at https://{AppHost}");
-				core.Navigate($"https://{AppHost}/index.html");
+				Console.WriteLine("[weavie] dev server could not be revived; loading the bundled workspace app");
+				await _devBringUp.LoadBundleAsync();
 			}
 		} finally {
 			_recoveringDevServer = false;

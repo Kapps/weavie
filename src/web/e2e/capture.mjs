@@ -92,14 +92,17 @@ function freePort() {
 
 function waitForHost(proc, timeoutMs) {
   return new Promise((res, rej) => {
+    let output = "";
     const timer = setTimeout(
       () => rej(new Error("host did not report listening in time")),
       timeoutMs,
     );
     proc.stdout.on("data", (chunk) => {
-      if (chunk.toString("utf8").includes("open  http://")) {
+      output += chunk.toString("utf8");
+      const match = output.match(/open\s+(http:\/\/\S+)/);
+      if (match) {
         clearTimeout(timer);
-        res();
+        res(match[1]);
       }
     });
     proc.on("exit", (code) => {
@@ -122,7 +125,7 @@ async function main() {
   });
 
   try {
-    await waitForHost(host, 60_000);
+    const pageUrl = await waitForHost(host, 60_000);
     // When the project pins a Playwright newer than the pre-installed browser build, launch the bundled
     // Chromium directly (WEAVIE_CHROMIUM) instead of downloading a matching build.
     const executablePath = process.env.WEAVIE_CHROMIUM || undefined;
@@ -135,7 +138,7 @@ async function main() {
       const page = await context.newPage();
       page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
       page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
-      await page.goto(`http://127.0.0.1:${port}/`, { waitUntil: "load" });
+      await page.goto(pageUrl, { waitUntil: "load" });
 
       const tour = await loadTour();
       await tour(page);
@@ -149,7 +152,7 @@ async function main() {
       await browser.close();
     }
   } finally {
-    host.kill("SIGINT");
+    host.kill();
   }
 }
 

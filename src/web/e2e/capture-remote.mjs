@@ -40,12 +40,12 @@ const RUNNER_TOKEN = "capturetoken";
 // The remote gets its own repo so its worktrees don't collide with the local host's on this one machine.
 const remoteRepo = join("/tmp", "weavie-remote-demo");
 
-async function tour(page, localUrl, runnerUrl) {
+async function tour(page, localPageUrl, runnerUrl) {
   const settle = (ms) => page.waitForTimeout(ms);
   await page.emulateMedia({ colorScheme: "dark" });
 
   // 1. Boot the local Weavie.
-  await page.goto(`${localUrl}/`, { waitUntil: "load" });
+  await page.goto(localPageUrl, { waitUntil: "load" });
   await page
     .locator("#splash")
     .waitFor({ state: "detached", timeout: 45_000 })
@@ -113,13 +113,17 @@ function freePort() {
   });
 }
 
-function waitForLine(proc, needle, timeoutMs) {
+function waitForLine(proc, expected, timeoutMs) {
   return new Promise((res, rej) => {
-    const timer = setTimeout(() => rej(new Error(`did not see "${needle}" in time`)), timeoutMs);
+    let output = "";
+    const timer = setTimeout(() => rej(new Error(`did not see "${expected}" in time`)), timeoutMs);
     proc.stdout.on("data", (chunk) => {
-      if (chunk.toString("utf8").includes(needle)) {
+      output += chunk.toString("utf8");
+      const match =
+        typeof expected === "string" ? output.includes(expected) : output.match(expected);
+      if (match) {
         clearTimeout(timer);
-        res();
+        res(Array.isArray(match) ? match[1] : undefined);
       }
     });
     proc.on("exit", (code) => {
@@ -180,8 +184,8 @@ async function main() {
   );
 
   try {
-    await Promise.all([
-      waitForLine(local, "open  http://", 60_000),
+    const [localPageUrl] = await Promise.all([
+      waitForLine(local, /open\s+(http:\/\/\S+)/, 60_000),
       waitForLine(runner, "control plane: http://", 60_000),
     ]);
     const browser = await chromium.launch();
@@ -193,7 +197,7 @@ async function main() {
     page.on("console", (msg) => console.log(`[page:${msg.type()}] ${msg.text()}`));
     page.on("pageerror", (err) => console.log(`[page:error] ${err.message}`));
 
-    await tour(page, localUrl, runnerUrl);
+    await tour(page, localPageUrl, runnerUrl);
 
     const video = page.video();
     await context.close();
@@ -201,8 +205,8 @@ async function main() {
     const webm = video ? await video.path() : null;
     console.log(`\n[capture] recording: ${webm ?? "(none)"}`);
   } finally {
-    runner.kill("SIGINT");
-    local.kill("SIGINT");
+    runner.kill();
+    local.kill();
   }
 }
 

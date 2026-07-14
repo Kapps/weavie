@@ -279,7 +279,11 @@ export async function launchHeadless(options: LaunchOptions): Promise<WeavieHost
   // The host prints the ready line only after its listener is bound and accepting, so the parsed port is
   // connectable the moment it appears.
   const port = await waitForPortLine(proc, () => log, /open\s+http:\/\/127\.0\.0\.1:(\d+)/, 40_000);
-  const url = `http://127.0.0.1:${port}/`;
+  const token = log.match(/open\s+http:\/\/127\.0\.0\.1:\d+\/index\.html\?token=([^\s]+)/)?.[1];
+  if (token === undefined) {
+    throw new Error(`headless host did not advertise its token-gated page:\n${log}`);
+  }
+  const url = `http://127.0.0.1:${port}/index.html?token=${token}`;
 
   return {
     url,

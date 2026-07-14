@@ -23,6 +23,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <!-- The WinForms/WPF desktop implicit-usings set omits System.IO; the shared Core code and the
          rest of the host assume it's implicit (as it is under the other SDKs). Restore it. -->
     <Using Include="System.IO" />

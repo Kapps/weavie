@@ -1,32 +1,18 @@
-using System.Text;
-using Microsoft.Extensions.FileProviders;
+using System.Runtime.InteropServices;
 using Weavie.Core.Mcp;
 using Weavie.Headless;
 using Weavie.Hosting;
+using Weavie.Hosting.Web;
 
 string wwwroot = Path.Combine(AppContext.BaseDirectory, "wwwroot");
 int port = ResolvePort(args);
 string workspaceOverride = ResolveWorkspace(args);
-
-// Unsafe combinations fail closed (exit 1); see ListenMode for the auth invariant.
 var (listen, listenError) = ListenMode.Resolve(args);
 if (listen is null) {
 	Console.Error.WriteLine($"[weavie-headless] {listenError}");
 	return 1;
 }
 
-string bind = listen.BindAddress;
-
-// Remote mode token-gates every request, so the bridge's legitimate client is cross-origin by design (the
-// app at https://weavie.dev, the runner's picker page on another port). The CSWSH same-origin check below is
-// therefore the LOCAL no-token mode's only bridge defense and applies only there.
-bool tokenGated = listen is ListenMode.Remote;
-
-// The host outlives any one page: built once, each browser connection (re)attaches its socket. The serial
-// dispatcher is this host's "UI thread": inbound bridge messages and posted session work run on it in order,
-// so a session switch and an async push (a PR diff, the file-index walk) can never interleave. A posted
-// action that throws means session state can no longer be trusted — crash loudly (a native UI thread does
-// the same) rather than pump on in a silently inconsistent host.
 var dispatcher = new SerialUiDispatcher(ex => {
 	Console.Error.WriteLine($"[weavie-headless] dispatched action failed: {ex}");
 	Console.Error.Flush();
@@ -34,15 +20,11 @@ var dispatcher = new SerialUiDispatcher(ex => {
 });
 var bridge = new WebSocketHostBridge(dispatcher);
 var services = HostServices.CreateDefault();
-// Deterministic Open-PR journeys for the integration harness / capture: a JSON file of canned PRs replaces the
-// live GitHub provider, the PR analogue of WEAVIE_FAKE_CLAUDE_SCRIPT. Unset in normal use.
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_PRS") is { Length: > 0 } fakePrsPath && File.Exists(fakePrsPath)) {
 	var fakePrs = FakePullRequests.FromFile(fakePrsPath);
 	services = services with { PullRequests = fakePrs, ReviewComments = fakePrs };
 }
 
-// Deterministic Notion connect/fetch journeys for the integration harness / capture: a JSON file of the canned
-// doc swaps the real OAuth+API connector for one that fakes the sign-in and serves it. Unset in normal use.
 if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } fakeNotionPath && File.Exists(fakeNotionPath)) {
 	services = services with { Sources = FakeNotionSource.FromFile(fakeNotionPath) };
 }
@@ -50,124 +32,41 @@ if (Environment.GetEnvironmentVariable("WEAVIE_FAKE_NOTION") is { Length: > 0 } 
 string workspace = !string.IsNullOrEmpty(workspaceOverride)
 	? workspaceOverride
 	: services.Settings.GetString("workspace") ?? Environment.CurrentDirectory;
+var http = listen is ListenMode.Remote remote
+	? new WorkspaceHttpServerOptions(remote.Bind, port, remote.Token, wwwroot, true)
+	: WorkspaceHttpServerOptions.Loopback(port, wwwroot);
 var transport = listen is ListenMode.Remote ? HostTransport.Remote : HostTransport.Local;
-await using var core = new HostCore(new HeadlessPlatform(bridge, dispatcher, transport), services, workspace);
-bool coreReady = false;
+await using var core = new HostCore(
+	new HeadlessPlatform(bridge, dispatcher, transport),
+	services,
+	workspace,
+	http,
+	bridge);
 
-var builder = WebApplication.CreateBuilder(args);
-builder.Logging.ClearProviders(); // We print our own status; Kestrel request logging is noise here.
-builder.WebHost.UseUrls($"http://{bind}:{port}");
-await using var app = builder.Build();
-
-// Keepalive with a timeout so a half-open peer (an unclean refresh / crash / sleep / network drop, which sends
-// no close frame) is actively detected and aborted, instead of lingering as a zombie the bridge keeps
-// broadcasting to. The per-connection send queues bound the damage either way; this is the prompt detector.
-app.UseWebSockets(new WebSocketOptions {
-	KeepAliveInterval = TimeSpan.FromSeconds(30),
-	KeepAliveTimeout = TimeSpan.FromSeconds(30),
-});
-
-var assets = Directory.Exists(wwwroot) ? new PhysicalFileProvider(wwwroot) : null;
-
-// Default-deny auth gate, active only in remote mode: every request needs the token except public static
-// assets (real wwwroot files other than index.html, which hold no secrets).
-if (listen is ListenMode.Remote remote) {
-	string authToken = remote.Token;
-	app.Use(async (context, next) => {
-		var path = context.Request.Path;
-		bool publicAsset = assets is not null
-			&& path != "/" && path != "/index.html"
-			&& assets.GetFileInfo(path.Value ?? "/").Exists;
-		if (publicAsset || TokenMatches(context, authToken)) {
-			await next().ConfigureAwait(false);
-			return;
-		}
-
-		context.Response.StatusCode = StatusCodes.Status401Unauthorized;
-	});
-}
-
-app.Use(async (context, next) => {
-	if (System.Threading.Volatile.Read(ref coreReady)) {
-		await next().ConfigureAwait(false);
-		return;
-	}
-
-	context.Response.StatusCode = StatusCodes.Status503ServiceUnavailable;
-	await context.Response.WriteAsync("weavie-headless is starting").ConfigureAwait(false);
-});
-
-// Serve index.html ourselves to inject the bootstrap globals before the module graph runs; must precede
-// the static middleware, which would otherwise serve it verbatim.
-app.Use(async (context, next) => {
-	string path = context.Request.Path.Value ?? "/";
-	if (path is "/" or "/index.html") {
-		await ServeIndexAsync(context, wwwroot, core).ConfigureAwait(false);
-		return;
-	}
-
-	await next().ConfigureAwait(false);
-});
-
-if (assets is not null) {
-	app.UseStaticFiles(new StaticFileOptions { FileProvider = assets });
-}
-
-// The bridge endpoint: each browser connection drives the single long-lived headless session.
-app.Map("/weavie-bridge", async context => {
-	if (!context.WebSockets.IsWebSocketRequest) {
-		context.Response.StatusCode = StatusCodes.Status400BadRequest;
-		return;
-	}
-
-	// CSWSH guard for the LOCAL no-token mode only — there the bridge has no other auth, so a cross-origin
-	// browser upgrade (Origin authority ≠ our own Host) is a foreign page and is rejected. In remote mode the
-	// token already gated this request and the real client is cross-origin by design, so the check must not run.
-	if (!tokenGated && !SameOriginOrNonBrowser(context.Request)) {
-		context.Response.StatusCode = StatusCodes.Status403Forbidden;
-		return;
-	}
-
-	using var socket = await context.WebSockets.AcceptWebSocketAsync().ConfigureAwait(false);
-	// A bridge socket is long-lived by design, so graceful shutdown must cancel it directly — otherwise
-	// Kestrel waits the full HostOptions.ShutdownTimeout (30s) for it, hanging every Ctrl+C with a page open.
-	using var serveLifetime = CancellationTokenSource.CreateLinkedTokenSource(
-		context.RequestAborted, app.Lifetime.ApplicationStopping);
-	await bridge.ServeAsync(socket, serveLifetime.Token).ConfigureAwait(false);
-});
-
-// The runner's update control plane, REMOTE MODE ONLY: there the default-deny middleware token-gates
-// it, and the runner is its only legitimate caller. Local no-token mode must not map a state-changing
-// endpoint any web page could POST to cross-origin (a drive-by drain would exit the app). Status
-// reports this worker's identity + drain state (the runner's post-restart confirm probe); drain begins
-// the gated exit — the worker exits 0 at the first quiet moment and the runner respawns it from the
-// staged version. See docs/specs/runner-auto-update.md.
-if (tokenGated) {
-	app.MapGet("/control/status", () => Results.Json(new {
-		buildNumber = HostCore.BuildNumber,
-		draining = core.Draining,
-	}));
-	app.MapPost("/control/drain", () => {
-		core.BeginDrain(app.Lifetime.StopApplication);
-		return Results.Accepted();
-	});
-}
-
-// Start before printing the ready line so it reports the port actually bound (port 0 asks the OS for a
-// free one — the race-free way for a supervisor to spawn many hosts) and never precedes the listener.
-// Kestrel owns the worker port before HostCore starts, so HostCore children cannot claim it.
-await app.StartAsync().ConfigureAwait(false);
 await core.StartAsync().ConfigureAwait(false);
-System.Threading.Volatile.Write(ref coreReady, true);
-int boundPort = new Uri(app.Urls.First()).Port;
-string shownHost = bind is "0.0.0.0" or "::" ? "127.0.0.1" : bind;
-string tokenSuffix = listen is ListenMode.Remote shown ? $"/?token={shown.Token}" : string.Empty;
 Console.WriteLine($"[weavie-headless] workspace: {core.WorkspaceRoot}");
-Console.WriteLine($"[weavie-headless] open  http://{shownHost}:{boundPort}{tokenSuffix}  in a browser");
+Console.WriteLine($"[weavie-headless] open  {core.WorkspacePageUrl}  in a browser");
 Console.Out.Flush();
-await app.WaitForShutdownAsync().ConfigureAwait(false);
+using var shutdown = new CancellationTokenSource();
+ConsoleCancelEventHandler cancel = (_, args) => {
+	args.Cancel = true;
+	shutdown.Cancel();
+};
+Console.CancelKeyPress += cancel;
+using var termination = OperatingSystem.IsWindows()
+	? null
+	: PosixSignalRegistration.Create(PosixSignal.SIGTERM, context => {
+		context.Cancel = true;
+		shutdown.Cancel();
+	});
+try {
+	await core.WaitForShutdownAsync().WaitAsync(shutdown.Token).ConfigureAwait(false);
+} catch (OperationCanceledException) when (shutdown.IsCancellationRequested) {
+	// The process signal enters the same orderly HostCore disposal as an HTTP drain.
+} finally {
+	Console.CancelKeyPress -= cancel;
+}
 
-// Best-effort cleanup of the app-global stores' file watchers (core disposes the sessions).
 services.Keybindings.Dispose();
 services.Settings.Dispose();
 return 0;
@@ -182,32 +81,6 @@ static int ResolvePort(string[] args) {
 	return int.TryParse(Environment.GetEnvironmentVariable("WEAVIE_SERVE_PORT"), out int fromEnv) ? fromEnv : 8700;
 }
 
-// A WS upgrade is same-origin (Origin authority == this server's Host) or has no Origin (a non-browser client,
-// which carries no ambient credentials so isn't a CSWSH vector). Anything else is a foreign page → reject.
-static bool SameOriginOrNonBrowser(HttpRequest request) {
-	string origin = request.Headers.Origin.ToString();
-	if (string.IsNullOrEmpty(origin)) {
-		return true;
-	}
-
-	return Uri.TryCreate(origin, UriKind.Absolute, out var parsed)
-		&& string.Equals(parsed.Authority, request.Host.Value, StringComparison.OrdinalIgnoreCase);
-}
-
-static bool TokenMatches(HttpContext context, string expected) {
-	string presented = context.Request.Query.TryGetValue("token", out var t) ? t.ToString() : string.Empty;
-	if (presented.Length != expected.Length) {
-		return false;
-	}
-
-	int diff = 0;
-	for (int i = 0; i < expected.Length; i++) {
-		diff |= presented[i] ^ expected[i];
-	}
-
-	return diff == 0;
-}
-
 static string ResolveWorkspace(string[] args) {
 	for (int i = 0; i < args.Length - 1; i++) {
 		if (args[i] == "--workspace") {
@@ -216,32 +89,4 @@ static string ResolveWorkspace(string[] args) {
 	}
 
 	return Environment.GetEnvironmentVariable("WEAVIE_SERVE_WORKSPACE") ?? string.Empty;
-}
-
-static async Task ServeIndexAsync(HttpContext context, string wwwroot, HostCore core) {
-	string indexPath = Path.Combine(wwwroot, "index.html");
-	context.Response.ContentType = "text/html; charset=utf-8";
-	if (!File.Exists(indexPath)) {
-		await context.Response.WriteAsync(
-			"<!doctype html><meta charset=utf-8><body style=\"font-family:sans-serif;padding:2rem\">"
-			+ "<h1>weavie headless</h1><p>Web assets not found. Run <code>pnpm run build</code> in "
-			+ "<code>src/web</code>, then rebuild the host.</p>").ConfigureAwait(false);
-		return;
-	}
-
-	string html;
-	try {
-		html = await File.ReadAllTextAsync(indexPath, Encoding.UTF8).ConfigureAwait(false);
-	} catch (IOException ex) {
-		context.Response.StatusCode = StatusCodes.Status500InternalServerError;
-		await context.Response.WriteAsync($"failed to read index.html: {ex.Message}").ConfigureAwait(false);
-		return;
-	}
-
-	// The page picks the WebSocket transport from __WEAVIE_BRIDGE_WS__; the rest is the shared host bootstrap.
-	string bootstrap = $"<script>window.__WEAVIE_BRIDGE_WS__ = \"auto\";{core.BuildBootstrap()}</script>";
-	html = html.Contains("<head>", StringComparison.Ordinal)
-		? html.Replace("<head>", "<head>" + bootstrap, StringComparison.Ordinal)
-		: bootstrap + html;
-	await context.Response.WriteAsync(html).ConfigureAwait(false);
 }

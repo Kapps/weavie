@@ -9,8 +9,7 @@ namespace Weavie.Core.Editor;
 /// </summary>
 public sealed class FileProviderService {
 	private readonly IFileSystem _fileSystem;
-	private readonly string _workspaceRoot;
-	private readonly string _scratchRoot;
+	private readonly WorkspaceFileScope _scope;
 
 	/// <summary>Constrains all access to <paramref name="workspaceRoot"/> and <paramref name="scratchRoot"/>.</summary>
 	/// <param name="fileSystem">The session filesystem the editor reads/writes through.</param>
@@ -21,8 +20,7 @@ public sealed class FileProviderService {
 		ArgumentException.ThrowIfNullOrEmpty(workspaceRoot);
 		ArgumentException.ThrowIfNullOrEmpty(scratchRoot);
 		_fileSystem = fileSystem;
-		_workspaceRoot = workspaceRoot;
-		_scratchRoot = scratchRoot;
+		_scope = new WorkspaceFileScope([workspaceRoot, scratchRoot]);
 	}
 
 	/// <summary>Answers <c>fs-stat</c>: the file's metadata, or <c>exists:false</c> for a missing/out-of-workspace path.</summary>
@@ -50,21 +48,6 @@ public sealed class FileProviderService {
 			return FileProviderProtocol.ReadResult(id, content, stat);
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
 			return FileProviderProtocol.ReadError(id, ex.Message);
-		}
-	}
-
-	/// <summary>Answers <c>fs-read-bytes</c>: the file's raw bytes (base64), a clean FileNotFound, or a loud read error.</summary>
-	public string ReadBytes(string id, string path) {
-		if (!IsAllowed(path) || !_fileSystem.FileExists(path)) {
-			return FileProviderProtocol.ReadBytesNotFound(id);
-		}
-
-		try {
-			byte[] bytes = _fileSystem.ReadAllBytes(path);
-			_fileSystem.TryGetStat(path, out var stat);
-			return FileProviderProtocol.ReadBytesResult(id, bytes, stat);
-		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
-			return FileProviderProtocol.ReadBytesError(id, ex.Message);
 		}
 	}
 
@@ -111,7 +94,5 @@ public sealed class FileProviderService {
 		}
 	}
 
-	private bool IsAllowed(string path) =>
-		BufferStore.IsWithinWorkspace(_workspaceRoot, path)
-		|| BufferStore.IsWithinWorkspace(_scratchRoot, path);
+	private bool IsAllowed(string path) => _scope.Contains(path);
 }

@@ -1,5 +1,6 @@
 import { createSignal } from "solid-js";
 import {
+  type BackendEndpoint,
   connectBackend,
   connectedBackends,
   disconnectBackend,
@@ -96,10 +97,10 @@ function connectAgent(agent: RemoteAgent): void {
   connectBackend(agentBackendId(agent.name), agent.name, () => resolveWorkerBridge(agent));
 }
 
-// Resolve the agent's CURRENT worker bridge URL via the runner control plane (GET /backend ensures the worker
+// Resolve the agent's CURRENT worker bridge/resource URLs via the runner control plane (GET /backend ensures the worker
 // is up and returns its page URL + token). Throws on any failure so the transport treats it as a drop and
 // retries with backoff, following the runner back up after a restart.
-async function resolveWorkerBridge(agent: RemoteAgent): Promise<string> {
+async function resolveWorkerBridge(agent: RemoteAgent): Promise<BackendEndpoint> {
   const base = agent.url.replace(/\/+$/, "");
   let res: Response;
   try {
@@ -116,15 +117,18 @@ async function resolveWorkerBridge(agent: RemoteAgent): Promise<string> {
   if (typeof body.url !== "string") {
     throw new Error("runner /backend returned no worker url");
   }
-  return pageUrlToBridgeWs(body.url);
+  return pageUrlToBackendEndpoint(body.url);
 }
 
 // The runner returns the worker's page URL (http://host:port/?token=T); the bridge lives at /weavie-bridge on
 // the same host, gated by the same token.
-function pageUrlToBridgeWs(pageUrl: string): string {
+function pageUrlToBackendEndpoint(pageUrl: string): BackendEndpoint {
   const u = new URL(pageUrl);
   const scheme = u.protocol === "https:" ? "wss:" : "ws:";
   const token = u.searchParams.get("token");
   const query = token === null ? "" : `?token=${encodeURIComponent(token)}`;
-  return `${scheme}//${u.host}/weavie-bridge${query}`;
+  return {
+    bridgeUrl: `${scheme}//${u.host}/weavie-bridge${query}`,
+    resourceBase: `${u.protocol}//${u.host}/weavie-media${query}`,
+  };
 }

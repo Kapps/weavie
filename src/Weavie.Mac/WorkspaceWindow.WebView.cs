@@ -21,14 +21,13 @@ internal sealed partial class WorkspaceWindow {
 		_devBringUp = new DevWebBringUp(
 			launcher, this,
 			DevWebRoot.Resolve(Assembly.GetExecutingAssembly()),
-			"app://app",
 			line => {
 				Console.WriteLine($"[vite] {line}");
 				Console.Out.Flush();
 			});
 		await _devBringUp.RunAsync().ConfigureAwait(false);
 #else
-		await launcher.LaunchAsync("app://app").ConfigureAwait(false);
+		await launcher.LaunchBundleAsync().ConfigureAwait(false);
 #endif
 	}
 
@@ -110,7 +109,7 @@ internal sealed partial class WorkspaceWindow {
 			return;
 		}
 
-		Console.WriteLine("[weavie] loading STALE bundled wwwroot at app://app (explicit developer choice)");
+		Console.WriteLine("[weavie] loading the STALE bundled workspace app (explicit developer choice)");
 		await _devBringUp.LoadBundleAsync().ConfigureAwait(false);
 	}
 #endif

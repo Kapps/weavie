@@ -13,6 +13,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
     <ProjectReference Include="..\Weavie.Core\Weavie.Core.csproj" />
     <ProjectReference Include="..\Weavie.Hosting\Weavie.Hosting.csproj" />
   </ItemGroup>

@@ -76,13 +76,13 @@ The important coupling is concentrated even though Claude terminology appears th
 
 ```mermaid
 flowchart TB
-    HC["HostCore"] --> HS["HostSession<br/>editor Â· files Â· LSP Â· worktree"]
+    HC["HostCore"] --> HS["HostSession<br/>editor · files · LSP · worktree"]
     HS --> AH["AgentSessionHost<br/>per-worktree composition"]
     AH --> P["IAgentProvider"]
     P --> C["ClaudeAgentSession"]
-    AH --> T["TerminalController<br/>PTY bridge Â· supervision"]
+    AH --> T["TerminalController<br/>PTY bridge · supervision"]
     T --> PL["IPtyLauncher<br/>platform rendering only"]
-    C --> CI["ClaudeIdeIntegration<br/>IDE discovery Â· hooks Â· resume"]
+    C --> CI["ClaudeIdeIntegration<br/>IDE discovery · hooks · resume"]
     C --> CR["CapabilityRegistryHost<br/>standard MCP"]
     CI --> EA["Claude event adapter"]
     EA --> E["normalized AgentEvent stream"]
@@ -249,7 +249,7 @@ it becomes persisted session data and travels with the session through load, unl
 Each phase is independently buildable, testable, and behavior-preserving. No phase may leave another host or
 the shared working tree broken.
 
-### Phase 0 â€” freeze Claude behavior
+### Phase 0 — freeze Claude behavior
 
 Add missing characterization coverage before changing ownership:
 
@@ -263,7 +263,7 @@ Add missing characterization coverage before changing ownership:
 
 **Gate:** tests describe the behavior being moved, including failure paths. Production code is unchanged.
 
-### Phase 1 â€” extract the Claude session lifecycle
+### Phase 1 — extract the Claude session lifecycle
 
 Introduce the provider/session contracts and move Claude-only launch, resume, transcript, startup watcher, and
 recovery behavior out of `TerminalController` into `ClaudeAgentSession`. Keep direct hook consumers temporarily
@@ -271,7 +271,7 @@ if needed to keep the phase small.
 
 **Gate:** launch and resume characterization tests are unchanged; all existing suites remain green.
 
-### Phase 2 â€” make PTY infrastructure provider-blind
+### Phase 2 — make PTY infrastructure provider-blind
 
 Replace `PtyLaunchRequest.IsClaude` and Claude-specific request fields with resolved neutral launch data. Move
 agent flag/environment construction into Claude. Keep platform-specific executable wrapping in the platform
@@ -279,17 +279,17 @@ launchers. The generic terminal retains `ProcessSupervisor` with the same restar
 
 **Gate:** Windows/POSIX launch snapshots and terminal/supervisor tests are identical in effect.
 
-### Phase 3 â€” normalize consumed events
+### Phase 3 — normalize consumed events
 
 Add the Claude event adapter. Move `SessionStatusMachine`, `SessionChangeTracker`, edit disposition, resume
 adoption, and clickable edit locations one consumer at a time from `HookRequest` to normalized events. Keep
 the hook pipe, request parser, policy, and decision serializer Claude-owned. Preserve the synchronous
-observe â†’ edit-location feedback â†’ hook-response path.
+observe → edit-location feedback → hook-response path.
 
 **Gate:** each old consumer test is ported alongside its consumer, and full-stack permission/change-review
 journeys remain unchanged.
 
-### Phase 4 â€” separate standard MCP from Claude IDE integration
+### Phase 4 — separate standard MCP from Claude IDE integration
 
 Extract `CapabilityRegistryHost`. Move IDE discovery, lock file, hook setup, and Claude-generated files into
 `ClaudeIdeIntegration`. Preserve tools, schemas, tokens, endpoints, file permissions, cleanup, and launch flags.
@@ -297,7 +297,7 @@ Extract `CapabilityRegistryHost`. Move IDE discovery, lock file, hook setup, and
 **Gate:** capability-registry and IDE protocol tests prove the same tools and lifecycle; real fake-Claude MCP
 journeys remain green.
 
-### Phase 5 â€” compose through `AgentSessionHost`
+### Phase 5 — compose through `AgentSessionHost`
 
 Replace `HostSession`'s inline Claude assembly and subscriptions with `AgentSessionHost`. Register Claude as
 the sole provider in `HostServices`. Internally prefer `Agent` where the concept is genuinely generic, while
@@ -305,7 +305,7 @@ leaving compatibility names at public/wire/persistence surfaces.
 
 **Gate:** the Claude parity matrix below is green on the completed abstraction. No Codex code exists yet.
 
-### Phase 6 â€” provider contract proof
+### Phase 6 — provider contract proof
 
 Run the provider contract suite, all Core/Hosting/host builds, web typecheck/unit tests, the complete headless
 functional suite, and the remote transport-sensitive subset. Exercise a real local Claude session on supported
@@ -317,7 +317,7 @@ implementation begin.
 
 ## Claude parity matrix
 
-Every row is required. â€œNot touchedâ€ is not evidence; each row needs an automated test, an existing journey
+Every row is required. “Not touched” is not evidence; each row needs an automated test, an existing journey
 named in the implementation plan, or an explicit manual runtime check where automation cannot reach a native
 surface.
 
@@ -376,27 +376,27 @@ close. Record any unautomated check and its result in the implementation PR.
 
 Create:
 
-- `src/Weavie.Core/Agents/IAgentProvider.cs` â€” provider and live-session contracts.
-- `src/Weavie.Core/Agents/AgentLaunch.cs` â€” neutral logical launch data.
-- `src/Weavie.Core/Agents/AgentEvent.cs` â€” discriminated normalized events and provider capability metadata.
-- `src/Weavie.Core/Agents/IAgentEventSink.cs` â€” synchronous normalized observation and feedback contract.
-- `src/Weavie.Core/Agents/AgentProviderRegistry.cs` â€” required provider registration and lookup.
-- `src/Weavie.Core/Agents/Claude/ClaudeHookEventAdapter.cs` â€” raw Claude hooks to normalized events.
-- `src/Weavie.Core/Agents/Claude/ClaudeIdeIntegration.cs` â€” Claude IDE discovery, hook relay, and generated launch files.
-- `src/Weavie.Core/Mcp/CapabilityRegistryHost.cs` â€” standard model-facing Weavie MCP host.
-- `src/Weavie.Hosting/Agents/AgentSessionHost.cs` â€” provider/terminal/consumer composition.
-- `src/Weavie.Hosting/Agents/Claude/ClaudeAgentProvider.cs` â€” Claude provider factory and app-global state.
-- `src/Weavie.Hosting/Agents/Claude/ClaudeAgentSession.cs` â€” per-worktree Claude launch, resume, IDE, hooks, and cleanup.
+- `src/Weavie.Core/Agents/IAgentProvider.cs` — provider and live-session contracts.
+- `src/Weavie.Core/Agents/AgentLaunch.cs` — neutral logical launch data.
+- `src/Weavie.Core/Agents/AgentEvent.cs` — discriminated normalized events and provider capability metadata.
+- `src/Weavie.Core/Agents/IAgentEventSink.cs` — synchronous normalized observation and feedback contract.
+- `src/Weavie.Core/Agents/AgentProviderRegistry.cs` — required provider registration and lookup.
+- `src/Weavie.Core/Agents/Claude/ClaudeHookEventAdapter.cs` — raw Claude hooks to normalized events.
+- `src/Weavie.Core/Agents/Claude/ClaudeIdeIntegration.cs` — Claude IDE discovery, hook relay, and generated launch files.
+- `src/Weavie.Core/Mcp/CapabilityRegistryHost.cs` — standard model-facing Weavie MCP host.
+- `src/Weavie.Hosting/Agents/AgentSessionHost.cs` — provider/terminal/consumer composition.
+- `src/Weavie.Hosting/Agents/Claude/ClaudeAgentProvider.cs` — Claude provider factory and app-global state.
+- `src/Weavie.Hosting/Agents/Claude/ClaudeAgentSession.cs` — per-worktree Claude launch, resume, IDE, hooks, and cleanup.
 
 Modify or split:
 
-- `TerminalController.cs` â€” retain generic PTY bridge and supervision only.
-- `IPtyLauncher.cs`, `WindowsPtyLauncher.cs`, `PosixPtyLauncher.cs` â€” render neutral launches.
-- `HostSession.cs` â€” delegate embedded-agent composition to `AgentSessionHost`.
-- `IdeIntegration.cs` â€” split into `CapabilityRegistryHost` and `ClaudeIdeIntegration`, then remove the mixed class.
-- `HostServices.cs`, `HostCore.cs`, `HostCore.Sessions.cs` â€” require and pass the provider registry.
-- `SessionStatusMachine`, `SessionChangeTracker`, and `ObservedPermissionMode` â€” consume normalized events.
-- Existing Claude persistence/startup classes â€” move behind the provider without changing their state formats.
+- `TerminalController.cs` — retain generic PTY bridge and supervision only.
+- `IPtyLauncher.cs`, `WindowsPtyLauncher.cs`, `PosixPtyLauncher.cs` — render neutral launches.
+- `HostSession.cs` — delegate embedded-agent composition to `AgentSessionHost`.
+- `IdeIntegration.cs` — split into `CapabilityRegistryHost` and `ClaudeIdeIntegration`, then remove the mixed class.
+- `HostServices.cs`, `HostCore.cs`, `HostCore.Sessions.cs` — require and pass the provider registry.
+- `SessionStatusMachine`, `SessionChangeTracker`, and `ObservedPermissionMode` — consume normalized events.
+- Existing Claude persistence/startup classes — move behind the provider without changing their state formats.
 
 Do not mechanically rename every Claude reference. Text and identifiers are changed only when ownership moves
 or when a name would make the new internal boundary false.

@@ -163,6 +163,10 @@ hit a number.
 - **State the final state, not the path to it.** Never narrate the order of operations that produced
   something ("first X, then Y, now Z"); say only what it *is* now. Applies to comments, commit
   messages, and docs.
+- **Spelling is a CI gate.** `cspell` checks comments, identifiers, strings, and docs across the whole
+  repo (config: root `cspell.json`; run `pnpm --dir src/web run spell`). It splits camelCase/PascalCase
+  and accepts both US and UK spelling. A genuinely-new term (API symbol, product name, coined compound)
+  goes in `project-words.txt` — the single project dictionary; fix real typos, don't allowlist them.
 
 ## Output conventions
 

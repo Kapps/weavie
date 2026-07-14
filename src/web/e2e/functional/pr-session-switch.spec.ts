@@ -48,6 +48,12 @@ test("S1: navigator disappears on switch to non-PR session and returns on switch
 test("S4: replying to a PR comment after a round-trip switch still posts and refreshes", async ({
   page,
 }) => {
+  // Flaked 2026-07-14 00:08 UTC on Windows CI (test timeout of 30000ms exceeded, mid first walkToChangedFile):
+  // https://github.com/Kapps/weavie/actions/runs/29294504536/job/86964980379
+  // Heavyweight like S2-race/S2 (pr-switch-race.spec.ts, pr-two-sessions.spec.ts): a PR open + two file walks +
+  // two session switches + a comment round-trip outlasts the 30s default on the slow, serialized Windows/macOS
+  // runners even with no contention. Marked slow (triples the budget) rather than retried, matching those tests.
+  test.slow();
   await openPr101(page);
 
   // Walk to hello.ts (the commented file).

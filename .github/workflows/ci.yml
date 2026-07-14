@@ -108,11 +108,9 @@ jobs:
         run: pnpm run test
 
       # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
-      # --skip-manifest-update pins the SDK-bundled workload manifest instead of the advertised feed
-      # version, which currently resolves to a macOS SDK requiring an Xcode newer than the runner ships.
       - name: Restore macOS workload
         if: matrix.name == 'macos'
-        run: dotnet workload restore ${{ matrix.project }} --skip-manifest-update
+        run: dotnet workload restore ${{ matrix.project }}
 
       - name: Restore
         run: dotnet restore ${{ matrix.project }}

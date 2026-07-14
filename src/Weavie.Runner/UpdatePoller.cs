@@ -74,10 +74,11 @@ public sealed class UpdatePoller : IDisposable {
 	/// <summary>Starts the update loop: reconcile a boot mid-update, then poll now and every 15 minutes.</summary>
 	public void Start() => _ = Task.Run(async () => {
 		_log($"enabled — runner build {RunnerIdentity.BuildNumber}, polling {ReleaseTag} every {PollInterval.TotalMinutes:0}m");
-		// Staged ≠ confirmed at boot means a prior runner died mid-update: the worker Ensure() spawns is
-		// an unconfirmed build, so run the apply flow first — its confirm/rollback watches that spawn.
+		// Staged ≠ confirmed at boot means a prior runner died mid-update: the worker Ensure() already
+		// spawned is that unconfirmed staged build, so just confirm it (no drain/restart — there is no old
+		// worker to swap, and draining an already-staged worker would hang on a busy session forever).
 		if (_store.StagedBuild is { } staged && staged != _store.ConfirmedGoodBuild) {
-			await GuardedAsync(() => _backends.ApplyStagedUpdateAsync(_store, SetPhase, _stop.Token)).ConfigureAwait(false);
+			await GuardedAsync(() => _backends.ConfirmStagedWorkerAsync(_store, SetPhase, _stop.Token)).ConfigureAwait(false);
 		}
 
 		while (!_stop.IsCancellationRequested) {

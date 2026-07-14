@@ -209,9 +209,13 @@ across the swap.
   rollback is a loud event — picker page and update UI, not a log line.
 - **Download/verify failure**: staged state is unchanged; the failure is surfaced on the picker
   page and the next poll retries.
-- **A runner restarted mid-update** (staged ≠ confirmed at boot) re-runs the apply flow at startup,
-  so the confirm/rollback machinery also covers a bad build spawned by a fresh runner — the swap is
-  always watched by known-good code.
+- **A runner restarted mid-update** (staged ≠ confirmed at boot) *confirms* the worker it already
+  spawned from the staged version — it does **not** drain or restart it. `Ensure()` launched that
+  worker straight from `current`, so there is no old build to swap away from; draining an
+  already-staged worker would only hold it hostage to a busy session, never confirm, and re-hang the
+  same recovery on every restart. Only the confirm/rollback machinery runs, so a bad build spawned by
+  a fresh runner is still caught. (A drain-and-swap is for the runtime path, where a genuinely newer
+  build is staged while an old worker serves.)
 - **The tab cannot report a dead worker**: if the rollback build also fails to start, connected
   tabs have no server left to learn from (the overlay persists over the reconnect loop); the truth
   lives on the picker page, which names the failure.

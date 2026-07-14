@@ -22,6 +22,7 @@ public sealed record BundleManifest {
 /// its web assets mid-flight). See docs/specs/runner-auto-update.md.
 /// </summary>
 public sealed class VersionStore {
+	private static readonly JsonSerializerOptions ManifestJson = new() { PropertyNameCaseInsensitive = true };
 	private readonly object _gate = new();
 	private readonly string _root;
 	private readonly Action<string> _log;
@@ -49,6 +50,7 @@ public sealed class VersionStore {
 	internal static VersionStore OpenAt(string root, Action<string> log) {
 		ArgumentException.ThrowIfNullOrEmpty(root);
 		ArgumentNullException.ThrowIfNull(log);
+		root = Path.GetFullPath(root);
 		Directory.CreateDirectory(Path.Combine(root, "versions"));
 		// Crash leftovers from an interrupted download/extract; nothing live ever runs from staging.
 		string staging = Path.Combine(root, "staging");
@@ -57,7 +59,9 @@ public sealed class VersionStore {
 			log("cleared leftover staging dir");
 		}
 
-		return new VersionStore(root, log, StateFile.Load(Path.Combine(root, "state.json")));
+		var store = new VersionStore(root, log, StateFile.Load(Path.Combine(root, "state.json")));
+		store.ReconcileStateFromCurrent();
+		return store;
 	}
 
 	/// <summary>
@@ -96,6 +100,28 @@ public sealed class VersionStore {
 	}
 
 	/// <summary>
+	/// Associates a verified release digest with the installed staged build. A build number has one immutable
+	/// identity, so publishing different content under the same number is rejected.
+	/// </summary>
+	public void RecordStagedDigest(int build, string digest) {
+		ArgumentException.ThrowIfNullOrEmpty(digest);
+		lock (_gate) {
+			if (_state.Staged != build) {
+				throw new InvalidOperationException($"build {build} is not the staged build {_state.Staged}");
+			}
+
+			if (_state.StagedDigest is { } existing && !string.Equals(existing, digest, StringComparison.OrdinalIgnoreCase)) {
+				throw new InvalidDataException($"build {build} is already associated with a different release digest");
+			}
+
+			if (_state.StagedDigest is null) {
+				_state = _state with { StagedDigest = digest };
+				_state.Save();
+			}
+		}
+	}
+
+	/// <summary>
 	/// The worker executable of the <c>current</c> version, resolved to its concrete <c>versions/&lt;build&gt;/</c>
 	/// path, or null when no managed version exists (spawn falls back to the co-located worker probe).
 	/// </summary>
@@ -110,9 +136,9 @@ public sealed class VersionStore {
 	}
 
 	/// <summary>
-	/// Adopts an extracted bundle as the staged version: moves <paramref name="extractedVersionDir"/> into
-	/// <c>versions/&lt;build&gt;/</c>, re-points <c>current</c>, and records it (with <paramref name="digest"/>)
-	/// as staged. The caller has already verified the digest and the spawn contract.
+	/// Adopts an extracted bundle as the staged version: installs its immutable version directory when absent,
+	/// reuses a matching complete directory after an interrupted stage, re-points <c>current</c>, and records the
+	/// verified <paramref name="digest"/>. The caller has already checked the digest and spawn contract.
 	/// </summary>
 	public void Stage(BundleManifest manifest, string extractedVersionDir, string digest) {
 		ArgumentNullException.ThrowIfNull(manifest);
@@ -121,10 +147,15 @@ public sealed class VersionStore {
 		lock (_gate) {
 			string target = VersionDir(manifest.BuildNumber);
 			if (Directory.Exists(target)) {
-				Directory.Delete(target, recursive: true); // a re-staged build replaces its dir wholesale
+				var existing = ReadVersionManifest(target, manifest.BuildNumber);
+				if (existing.SpawnContract != manifest.SpawnContract) {
+					throw new InvalidDataException(
+						$"version {manifest.BuildNumber} already exists with spawn contract {existing.SpawnContract}, not {manifest.SpawnContract}");
+				}
+			} else {
+				Directory.Move(extractedVersionDir, target);
 			}
 
-			Directory.Move(extractedVersionDir, target);
 			PointCurrentAt(manifest.BuildNumber);
 			_state = _state with { Staged = manifest.BuildNumber, StagedDigest = digest };
 			_state.Save();
@@ -158,6 +189,7 @@ public sealed class VersionStore {
 
 			if (_state.StagedDigest is { } badDigest && !_state.BadDigests.Contains(badDigest)) {
 				_state = _state with { BadDigests = [.. _state.BadDigests, badDigest] };
+				_state.Save();
 			}
 
 			PointCurrentAt(good);
@@ -177,15 +209,66 @@ public sealed class VersionStore {
 		return File.Exists(apphost) ? apphost : Path.Combine(versionDir, "worker", "Weavie.Headless.dll");
 	}
 
-	// Re-pointed under the store lock (every in-process reader takes it); File.Delete unlinks a symlink
-	// without following it, so the target version dir is never touched.
+	// Build the replacement link first, then rename it over current so a crash cannot leave current absent.
 	private void PointCurrentAt(int build) {
 		string current = Path.Combine(_root, "current");
-		if (new FileInfo(current).LinkTarget is not null) {
-			File.Delete(current);
+		string replacement = current + ".new";
+		File.Delete(replacement);
+		Directory.CreateSymbolicLink(replacement, Path.Combine("versions", build.ToString()));
+		try {
+			File.Move(replacement, current, overwrite: true);
+		} catch {
+			File.Delete(replacement);
+			throw;
+		}
+	}
+
+	// The release tarball deliberately has no mutable state.json. Current is the crash-safe selector,
+	// so it restores staged state both for a fresh install and for a crash between selector and state writes.
+	private void ReconcileStateFromCurrent() {
+		string current = Path.Combine(_root, "current");
+		string? link = new FileInfo(current).LinkTarget;
+		if (link is null) {
+			if (File.Exists(current) || Directory.Exists(current) || _state.Staged is not null) {
+				throw new InvalidDataException($"managed runner selector is missing or is not a symbolic link: {current}");
+			}
+
+			return;
 		}
 
-		Directory.CreateSymbolicLink(current, Path.Combine("versions", build.ToString()));
+		string target = Path.TrimEndingDirectorySeparator(Path.GetFullPath(link, _root));
+		string versions = Path.TrimEndingDirectorySeparator(Path.Combine(_root, "versions"));
+		string buildName = Path.GetFileName(target);
+		var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
+		if (!string.Equals(Path.GetDirectoryName(target), versions, comparison)
+			|| !int.TryParse(buildName, out int build)
+			|| !string.Equals(buildName, build.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal)) {
+			throw new InvalidDataException($"managed runner selector points outside versions/<build>: {current} -> {link}");
+		}
+
+		ReadVersionManifest(target, build);
+		if (_state.Staged == build) {
+			return;
+		}
+
+		_state = _state with { Staged = build, StagedDigest = null };
+		_state.Save();
+		_log($"adopted installed build {build}");
+	}
+
+	private static BundleManifest ReadVersionManifest(string versionDir, int expectedBuild) {
+		string manifestPath = Path.Combine(versionDir, "manifest.json");
+		if (!File.Exists(manifestPath) || !File.Exists(WorkerExecutable(versionDir))) {
+			throw new InvalidDataException($"version {expectedBuild} is incomplete: {versionDir}");
+		}
+
+		var manifest = ReadManifest(manifestPath, $"version {expectedBuild} has an empty manifest");
+		if (manifest.BuildNumber != expectedBuild) {
+			throw new InvalidDataException(
+				$"version directory {expectedBuild} contains manifest for build {manifest.BuildNumber}");
+		}
+
+		return manifest;
 	}
 
 	private void PruneLocked() {
@@ -243,12 +326,13 @@ public sealed class VersionStore {
 			throw new InvalidDataException("bundle has no manifest.json — not an auto-update bundle");
 		}
 
-		var manifest = JsonSerializer.Deserialize<BundleManifest>(
-			File.ReadAllText(manifestPath),
-			new JsonSerializerOptions { PropertyNameCaseInsensitive = true })
-			?? throw new InvalidDataException("bundle manifest.json is empty");
+		var manifest = ReadManifest(manifestPath, "bundle manifest.json is empty");
 		return (manifest, versionDir);
 	}
+
+	private static BundleManifest ReadManifest(string path, string emptyMessage) =>
+		JsonSerializer.Deserialize<BundleManifest>(File.ReadAllText(path), ManifestJson)
+		?? throw new InvalidDataException(emptyMessage);
 
 	private sealed record StateFile {
 		public int? Staged { get; init; }

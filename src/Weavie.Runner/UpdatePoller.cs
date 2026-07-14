@@ -175,9 +175,17 @@ public sealed class UpdatePoller : IDisposable {
 				return;
 			}
 
-			if (_store.StagedBuild is { } staged && manifest.BuildNumber <= staged) {
-				Skip(found.Digest, "idle", null);
-				return;
+			if (_store.StagedBuild is { } staged) {
+				if (manifest.BuildNumber == staged) {
+					_store.RecordStagedDigest(staged, found.Digest);
+					SetPhase("idle", null);
+					return;
+				}
+
+				if (manifest.BuildNumber < staged) {
+					Skip(found.Digest, "idle", null);
+					return;
+				}
 			}
 
 			_store.Stage(manifest, versionDir, found.Digest);

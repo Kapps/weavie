@@ -21,6 +21,93 @@ public sealed class VersionStoreTests : IDisposable {
 	}
 
 	[Fact]
+	public void Open_AdoptsTheCurrentBuildFromAReleaseLayoutWithoutState() {
+		InstallVersion(100);
+		PointCurrentAt(100);
+
+		var store = VersionStore.OpenAt(_root, _ => { });
+
+		Assert.Equal(100, store.StagedBuild);
+		Assert.Equal(100, VersionStore.OpenAt(_root, _ => { }).StagedBuild);
+	}
+
+	[Fact]
+	public void Open_ReconcilesStateToCurrentAfterAnInterruptedSelectorSwap() {
+		var store = VersionStore.OpenAt(_root, _ => { });
+		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
+		store.MarkConfirmedGood(100);
+		InstallVersion(101);
+		PointCurrentAt(101);
+
+		var reopened = VersionStore.OpenAt(_root, _ => { });
+
+		Assert.Equal(101, reopened.StagedBuild);
+		Assert.Equal(100, reopened.ConfirmedGoodBuild);
+		Assert.False(reopened.IsKnownDigest("sha256:aa"));
+	}
+
+	[Fact]
+	public void Stage_AdoptsAnExistingMatchingVersionWithoutReplacingIt() {
+		string existing = InstallVersion(100);
+		string worker = Path.Combine(existing, "worker", "Weavie.Headless.dll");
+		File.WriteAllText(worker, "live");
+		string downloaded = MakeExtractedVersion(100);
+		var store = VersionStore.OpenAt(_root, _ => { });
+
+		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, downloaded, "sha256:aa");
+
+		Assert.Equal("live", File.ReadAllText(worker));
+		Assert.True(Directory.Exists(downloaded));
+		Assert.Equal(100, store.StagedBuild);
+	}
+
+	[Fact]
+	public void Stage_RejectsAnExistingBuildWithDifferentIdentityWithoutMutatingIt() {
+		string existing = InstallVersion(100);
+		string worker = Path.Combine(existing, "worker", "Weavie.Headless.dll");
+		File.WriteAllText(worker, "live");
+		string downloaded = MakeExtractedVersion(100);
+		var store = VersionStore.OpenAt(_root, _ => { });
+
+		Assert.Throws<InvalidDataException>(() =>
+			store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 2 }, downloaded, "sha256:aa"));
+		Assert.Equal("live", File.ReadAllText(worker));
+		Assert.Null(store.StagedBuild);
+		Assert.Null(new FileInfo(Path.Combine(_root, "current")).LinkTarget);
+	}
+
+	[Fact]
+	public void RecordStagedDigest_RejectsDifferentContentForTheSameBuild() {
+		InstallVersion(100);
+		PointCurrentAt(100);
+		var store = VersionStore.OpenAt(_root, _ => { });
+
+		store.RecordStagedDigest(100, "sha256:aa");
+		store.RecordStagedDigest(100, "sha256:aa");
+
+		Assert.Throws<InvalidDataException>(() => store.RecordStagedDigest(100, "sha256:bb"));
+		Assert.True(store.IsKnownDigest("sha256:aa"));
+		Assert.False(store.IsKnownDigest("sha256:bb"));
+	}
+
+	[Fact]
+	public void Open_RejectsADanglingCurrentSelector() {
+		Directory.CreateDirectory(_root);
+		PointCurrentAt(100);
+
+		Assert.Throws<InvalidDataException>(() => VersionStore.OpenAt(_root, _ => { }));
+	}
+
+	[Fact]
+	public void Open_RejectsCurrentOutsideTheManagedVersionsDirectory() {
+		string outside = MakeExtractedVersion(100);
+		Directory.CreateDirectory(_root);
+		Directory.CreateSymbolicLink(Path.Combine(_root, "current"), outside);
+
+		Assert.Throws<InvalidDataException>(() => VersionStore.OpenAt(_root, _ => { }));
+	}
+
+	[Fact]
 	public void Stage_FlipsCurrent_AndPersistsAcrossReopen() {
 		var store = VersionStore.OpenAt(_root, _ => { });
 		store.Stage(new BundleManifest { BuildNumber = 100, SpawnContract = 1 }, MakeExtractedVersion(100), "sha256:aa");
@@ -30,6 +117,7 @@ public sealed class VersionStoreTests : IDisposable {
 		string current = Path.Combine(_root, "current");
 		Assert.Equal(Path.Combine("versions", "100"), new FileInfo(current).LinkTarget);
 		Assert.Equal(Path.Combine(_root, "versions", "100", "worker", "Weavie.Headless.dll"), store.ActiveWorkerPath());
+		Assert.Null(new FileInfo(current + ".new").LinkTarget);
 
 		// A fresh open (a restarted runner) reads the same state back from disk.
 		var reopened = VersionStore.OpenAt(_root, _ => { });
@@ -122,5 +210,21 @@ public sealed class VersionStoreTests : IDisposable {
 		File.WriteAllText(Path.Combine(dir, "worker", "Weavie.Headless.dll"), "bin");
 		File.WriteAllText(Path.Combine(dir, "manifest.json"), $$"""{ "buildNumber": {{build}}, "spawnContract": 1 }""");
 		return dir;
+	}
+
+	private string InstallVersion(int build) {
+		string target = Path.Combine(_root, "versions", build.ToString());
+		Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+		Directory.Move(MakeExtractedVersion(build), target);
+		return target;
+	}
+
+	private void PointCurrentAt(int build) {
+		string current = Path.Combine(_root, "current");
+		if (new FileInfo(current).LinkTarget is not null) {
+			File.Delete(current);
+		}
+
+		Directory.CreateSymbolicLink(current, Path.Combine("versions", build.ToString()));
 	}
 }

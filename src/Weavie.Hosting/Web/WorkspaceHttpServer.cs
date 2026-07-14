@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.FileProviders;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Net.Http.Headers;
 
@@ -15,7 +16,6 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 	private readonly WorkspaceHttpServerOptions _options;
 	private readonly IWorkspaceWebSocketBridge _bridge;
 	private readonly WorkspaceMediaRoutes _media;
-	private readonly TaskCompletionSource _stopped = new(TaskCreationOptions.RunContinuationsAsynchronously);
 	private WebApplication? _app;
 	private PhysicalFileProvider? _assets;
 	private bool _ready;
@@ -121,16 +121,15 @@ public sealed class WorkspaceHttpServer : IAsyncDisposable {
 
 		await app.StartAsync().ConfigureAwait(false);
 		Origin = NormalizeOrigin(app.Urls.First(), _options.BindAddress);
-		app.Lifetime.ApplicationStopped.Register(_stopped.SetResult);
 	}
 
 	/// <summary>Marks the Core graph ready for dynamic requests.</summary>
 	public void MarkReady() => Volatile.Write(ref _ready, true);
 
-	/// <summary>Waits until Kestrel is asked to shut down.</summary>
+	/// <summary>Runs the host's graceful shutdown after Kestrel is asked to stop.</summary>
 	public Task WaitForShutdownAsync() => _app is null
 		? throw new InvalidOperationException("The workspace server has not started.")
-		: _stopped.Task;
+		: _app.WaitForShutdownAsync();
 
 	private async Task ServeMediaAsync(HttpContext context) {
 		string session = context.Request.Query["session"].ToString();

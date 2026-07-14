@@ -92,9 +92,11 @@ each, ever.
 | yes | no | ✔ | — |
 | no | (any) | ✔ | ✔ |
 
-Focus = `document.hasFocus()` + `visibilitychange`; native shells additionally push
-`window-state {focused}` (`src/web/src/bridge.ts:581`). Active session = active `backendId` + active
-rail chip from `session-store.ts`.
+Focus = `windowFocused()` (`chrome/window-state.ts`): `document.hasFocus()` ∧ page visible ∧ the
+shell's last `window-state {focused}` push (true where no shell pushes one). Inside WebView2/WKWebView
+`document.hasFocus()` keeps reporting true after the native window is minimized or deactivated, so
+visibility and the host push corroborate it — any signal saying "away" wins. Active session = active
+`backendId` + active rail chip from `session-store.ts`.
 
 ## One owner of audio
 
@@ -251,8 +253,8 @@ already mutes the session you're watching, and turn-complete notifications match
 
 ## Open questions
 
-- `document.hasFocus()` fidelity inside WebView2/WKWebView when the native window loses OS focus —
-  matters for sound suppression whenever the shells ship this feature; `window-state {focused}` is
-  the corroborating signal.
+- Only the Windows shell pushes `window-state {focused}` today. On Mac/Linux, minimize is caught by
+  page visibility, but an app switch that leaves the window visible still depends on the webview's
+  `document.hasFocus()` — wiring those shells' focus pushes closes the remaining gap.
 - "Long-running command finished" as a fourth event: no clean duration signal exists today; excluded
   rather than faked.

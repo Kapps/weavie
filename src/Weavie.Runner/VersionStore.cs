@@ -216,7 +216,7 @@ public sealed class VersionStore {
 		File.Delete(replacement);
 		Directory.CreateSymbolicLink(replacement, Path.Combine("versions", build.ToString()));
 		try {
-			File.Move(replacement, current, overwrite: true);
+			AtomicPath.Replace(replacement, current);
 		} catch {
 			File.Delete(replacement);
 			throw;

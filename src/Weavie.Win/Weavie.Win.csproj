@@ -5,6 +5,8 @@
     <!-- Allow restore/build of this Windows-only TFM from non-Windows hosts (e.g. `dotnet restore` on Linux/CI). -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
     <OutputType>WinExe</OutputType>
+    <!-- The shipped app is just "Weavie" — the per-OS shell is an implementation detail, not the binary name. -->
+    <AssemblyName>Weavie</AssemblyName>
     <!-- The exe / Explorer / default taskbar icon. The same .ico is embedded below for Form.Icon. -->
     <ApplicationIcon>weavie.ico</ApplicationIcon>
     <UseWindowsForms>true</UseWindowsForms>

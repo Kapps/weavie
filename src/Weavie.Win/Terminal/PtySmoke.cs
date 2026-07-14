@@ -4,7 +4,7 @@ using Weavie.Core.Terminal;
 namespace Weavie.Win.Terminal;
 
 /// <summary>
-/// Headless ConPTY self-check (<c>Weavie.Win.exe --pty-smoke</c>): spawns a throwaway pseudo console, echoes a
+/// Headless ConPTY self-check (<c>Weavie.exe --pty-smoke</c>): spawns a throwaway pseudo console, echoes a
 /// marker, and confirms it round-trips — exercising the Windows terminal stack without the UI. Diagnostic only.
 /// </summary>
 internal static class PtySmoke {

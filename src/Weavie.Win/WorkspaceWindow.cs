@@ -268,6 +268,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		}
 
 		_webViewTornDown = true;
+		_bridge.Dispose();
 		try {
 			_webView.Dispose();
 		} catch (Exception ex) {

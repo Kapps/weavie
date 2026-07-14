@@ -160,14 +160,14 @@ jobs:
       # and on Apple Silicon an invalid signature reads as "damaged and can't be opened"), and zip it
       # (a drag-to-Applications bundle — friendlier for an unsigned app than an unsigned .pkg). It's
       # still not Developer-ID-signed/notarized, so first launch is right-click > Open (or
-      # `xattr -dr com.apple.quarantine Weavie.Mac.app`).
+      # `xattr -dr com.apple.quarantine Weavie.app`).
       - name: Package macOS app
         if: matrix.name == 'osx-arm64'
         shell: bash
         run: |
-          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.rid }}/Weavie.Mac.app"
+          app="src/Weavie.Mac/bin/Release/net10.0-macos/${{ matrix.rid }}/Weavie.app"
           required=(
-            "$app/Contents/MacOS/Weavie.Mac"
+            "$app/Contents/MacOS/Weavie"
             "$app/Contents/Resources/wwwroot/index.html"
             "$app/Contents/MonoBundle/libweavie_pty.dylib"
             "$app/Contents/MonoBundle/weavie-hook-relay"
@@ -177,7 +177,7 @@ jobs:
             if [ -e "$f" ]; then echo "ok: $f"; else echo "MISSING: $f"; missing=1; fi
           done
           if [ "$missing" -ne 0 ]; then
-            echo "::error::Built Weavie.Mac.app is incomplete — see MISSING entries above."
+            echo "::error::Built Weavie.app is incomplete — see MISSING entries above."
             echo "Bundle contents:"; find "$app" -maxdepth 3 -print
             exit 1
           fi

@@ -3,6 +3,8 @@
   <PropertyGroup>
     <TargetFramework>net10.0-macos</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- The shipped app is just "Weavie" (Weavie.app) — the per-OS shell is an implementation detail. -->
+    <AssemblyName>Weavie</AssemblyName>
     <!-- This machine is macOS 26; floor at 14.0 so modern (non-deprecated) AppKit APIs
          pass the CA1422 obsolete-API gate. -->
     <SupportedOSPlatformVersion>14.0</SupportedOSPlatformVersion>

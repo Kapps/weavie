@@ -66,6 +66,19 @@ test.describe("remote bridge transport", () => {
     await expect(page.locator(".footer-network-problem")).toHaveCount(0);
   });
 
+  test("a legacy worker clears connecting state without a bridge-ready marker", async ({
+    page,
+  }) => {
+    await host.close();
+    host = await MockHost.start({ distDir, readyReplayProtocol: 0 });
+
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+
+    await expect(page.locator(".connection-banner")).toHaveCount(0);
+    await expect(page.locator(".footer-network-problem")).toHaveCount(0);
+  });
+
   test("a replayed device query goes unanswered; the same query live is answered", async ({
     page,
   }) => {

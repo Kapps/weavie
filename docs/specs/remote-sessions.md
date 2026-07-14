@@ -180,6 +180,15 @@ that token onto the `auto` bridge URL. Inside the app, **New Session creates a w
 the shared `HostCore` flow (recorded in the worktree registry, reconciled against `git worktree list`, so
 nothing leaks) — no runner involvement per session.
 
+Bridge readiness is negotiated on every socket. A worker advertising `readyReplayProtocol: 1` in
+`host-info` ends its synchronous `ready` replay with a correlated `bridge-ready`; the client remains in
+Connecting/Reconnecting until that marker arrives. A worker without the field predates the marker, so its
+`host-info` is the readiness proof. This makes rolling worker updates compatible in both directions without
+an arbitrary timeout. Session-named messages also fail closed: an unknown `slot` is stale or belongs to a
+different backend and is ignored, while only a genuinely absent `slot` uses the legacy active-session route.
+Editor file and media requests stay pinned to the backend that supplied the mounted editor session until the
+incoming backend supplies its replacement, so an in-flight render cannot cross the handoff.
+
 ## The three scenarios — one primitive, different creators
 
 The shared currency everywhere is `{ url, token }` + the existing bridge. Only *who mints it* differs:

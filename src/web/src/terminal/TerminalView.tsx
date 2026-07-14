@@ -3,7 +3,13 @@ import { WebglAddon } from "@xterm/addon-webgl";
 import { type FontWeight, Terminal } from "@xterm/xterm";
 import "@xterm/xterm/css/xterm.css";
 import { createEffect, type JSX, onCleanup, onMount } from "solid-js";
-import { isBrowserHostedShell, log, onHostMessage, postToHost, type TermSession } from "../bridge";
+import {
+  isBrowserHostedShell,
+  log,
+  onHostMessage,
+  postToBackend,
+  type TermSession,
+} from "../bridge";
 import { IS_MAC } from "../commands/keybindings";
 import { currentFonts, onFontsChanged } from "../fonts";
 import { currentXtermTheme, onXtermThemeChanged } from "../theme";
@@ -47,6 +53,9 @@ export function TerminalView(props: {
   // it). `url` is the URL under the pointer (if any), so the menu can offer to open it. The shell opens the menu.
   onContextMenu?: (event: MouseEvent, url: string | undefined) => void;
 }): JSX.Element {
+  // A pane belongs to the backend that created it. Capture that identity at mount so a cross-backend switch
+  // cannot retarget late resize/ready/input callbacks to the newly active host while this pane unmounts.
+  const backendId = props.backendId;
   let container!: HTMLDivElement;
   // Reports the URL currently under the pointer (set once links are wired in onMount), for the right-click menu.
   let hoveredUrl: () => string | undefined = () => undefined;
@@ -182,7 +191,7 @@ export function TerminalView(props: {
     // injected into claude. The shell has no use for it; a pasted path there would just try to run.
     const offImagePaste =
       props.pane === "claude"
-        ? attachImagePaste(container, () => props.backendId, props.slot)
+        ? attachImagePaste(container, () => backendId, props.slot)
         : (): void => {};
     const onContainerFocus = (): void => noteTerminalFocus(termKey);
     container.addEventListener("focusin", onContainerFocus);
@@ -193,7 +202,7 @@ export function TerminalView(props: {
     // OSC 7 cwd → the host, so a reopened shell relaunches where the user was.
     const offCwd = term.parser.registerOscHandler(7, (data) => {
       try {
-        postToHost({
+        postToBackend(backendId, {
           type: "term-cwd",
           slot: props.slot,
           session: props.pane,
@@ -219,7 +228,7 @@ export function TerminalView(props: {
     });
 
     const sendInput = (data: string): void => {
-      postToHost({
+      postToBackend(backendId, {
         type: "term-input",
         slot: props.slot,
         session: props.pane,
@@ -274,11 +283,17 @@ export function TerminalView(props: {
     });
 
     term.onResize(({ cols, rows }) => {
-      postToHost({ type: "term-resize", slot: props.slot, session: props.pane, cols, rows });
+      postToBackend(backendId, {
+        type: "term-resize",
+        slot: props.slot,
+        session: props.pane,
+        cols,
+        rows,
+      });
     });
 
     // Ask the host to start (or repaint) this session's PTY child sized to the fitted terminal.
-    postToHost({
+    postToBackend(backendId, {
       type: "term-ready",
       slot: props.slot,
       session: props.pane,
@@ -342,7 +357,7 @@ export function TerminalView(props: {
           } else {
             term.write("\x1b[H\x1b[2J\x1b[3J");
           }
-          postToHost({
+          postToBackend(backendId, {
             type: "term-ready",
             slot: props.slot,
             session: props.pane,

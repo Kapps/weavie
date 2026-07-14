@@ -8,7 +8,7 @@ vi.mock("../../bridge", () => ({
     hostHandlers.push(h);
     return () => {};
   },
-  postToHost: (m: Record<string, unknown>) => {
+  postToEditorBackend: (m: Record<string, unknown>) => {
     posted.push(m);
   },
 }));

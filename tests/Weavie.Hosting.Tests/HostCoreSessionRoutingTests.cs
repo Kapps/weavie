@@ -56,10 +56,30 @@ public sealed class HostCoreSessionRoutingTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.Send("""{"type":"ready"}""");
+		host.Send("""{"type":"ready","bridgeId":"page-1"}""");
 
+		var info = host.Bridge.LastOfType("host-info");
+		Assert.True(info.HasValue);
+		Assert.Equal(1, info.Value.GetProperty("readyReplayProtocol").GetInt32());
 		using var tail = JsonDocument.Parse(host.Bridge.Posted[^1]);
 		Assert.Equal("bridge-ready", tail.RootElement.GetProperty("type").GetString());
+		Assert.Equal("page-1", tail.RootElement.GetProperty("bridgeId").GetString());
+	}
+
+	[Fact]
+	public async Task TerminalMessage_NamingAnUnknownSlot_IsIgnoredInsteadOfReachingTheActiveSession() {
+		await using var host = await TestHost.StartAsync();
+		int terminalsBefore = host.Platform.NoopLauncher.Created.Count;
+
+		host.Send("""{"type":"term-ready","slot":"another-backend-session","session":"shell","cols":80,"rows":24}""");
+
+		Assert.Equal(terminalsBefore, host.Platform.NoopLauncher.Created.Count);
+		host.Send("""{"type":"term-ready","slot":"","session":"shell","cols":80,"rows":24}""");
+		host.Send("""{"type":"term-ready","slot":null,"session":"shell","cols":80,"rows":24}""");
+		Assert.Equal(terminalsBefore, host.Platform.NoopLauncher.Created.Count);
+		// Slot-less messages remain compatible with legacy clients and still address the active session.
+		host.Send("""{"type":"term-ready","session":"shell","cols":80,"rows":24}""");
+		Assert.Equal(terminalsBefore + 1, host.Platform.NoopLauncher.Created.Count);
 	}
 
 	[Fact]

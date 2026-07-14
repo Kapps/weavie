@@ -192,11 +192,17 @@ export default function App(): JSX.Element {
     const kind = activePane();
     return fullscreen() && kind !== null ? { type: "pane", id: "fullscreen", kind } : layoutRoot();
   });
-  // Each loaded session's terminal panes register their focus fn here on mount, keyed `${slot}:${pane}`;
-  // focusPane resolves the active session's entry. (The editor focuses via the controller directly.)
+  const sessionKey = (backendId: string, slot: string): string => `${backendId}\0${slot}`;
+  const splitSessionKey = (key: string): [backendId: string, slot: string] => {
+    const separator = key.indexOf("\0");
+    return [key.slice(0, separator), key.slice(separator + 1)];
+  };
+  const terminalPaneKey = (backendId: string, slot: string, pane: string): string =>
+    `${sessionKey(backendId, slot)}\0${pane}`;
+  // Each loaded session's terminal panes register their focus fn here on mount; focusPane resolves the active
+  // backend and session's entry. (The editor focuses via the controller directly.)
   const terminalFocus = new Map<string, () => void>();
-  // The child-set terminal title (OSC 0/2) per `${slot}:${pane}`, shown in the shell pane header (the claude
-  // pane keeps its fixed "Claude Code" label).
+  // The child-set terminal title (OSC 0/2), shown in the shell pane header (the agent pane keeps its fixed label).
   const [paneTitles, setPaneTitles] = createSignal<Record<string, string>>({});
   const [agentPaneMessages, setAgentPaneMessages] = createSignal<Record<string, AgentPaneUpdate[]>>(
     {},
@@ -207,17 +213,19 @@ export default function App(): JSX.Element {
   // Whether the Ctrl+N pane-switch hint badges are shown (the editor.paneShortcutHints setting; live-updated).
   const [showPaneHints, setShowPaneHints] = createSignal(currentEditorOptions().paneShortcutHints);
 
-  // A stable string[] of the active backend's loaded session ids, so <For> never remounts a session's
+  // Stable backend/session keys for the active backend's loaded sessions, so <For> never remounts a session's
   // terminals across rail pushes — keeping them alive makes a switch pure show/hide. Excludes dormant and
-  // other-backend sessions.
-  const termSessionIds = createMemo(() =>
+  // other-backend sessions while ensuring a backend switch remounts even when both backends use the same id.
+  const termSessionKeys = createMemo(() =>
     sessions()
       .filter((s) => s.loaded && s.backendId === activeBackendId())
-      .map((s) => s.id),
+      .map((s) => sessionKey(s.backendId, s.id)),
   );
   // The session whose panes are shown (null before the first rail push); flipping it switches which
   // session's terminals are visible.
-  const activeTermSessionId = createMemo(() => sessions().find((s) => s.active)?.id ?? null);
+  const activeTermSessionId = createMemo(
+    () => sessions().find((s) => s.backendId === activeBackendId() && s.active)?.id ?? null,
+  );
   const currentPullRequest = createMemo(() => {
     const status = pullRequestStatus(activeBackendId(), activeTermSessionId());
     return status !== null && status.branch === gitStatus()?.branch ? status.pullRequest : null;
@@ -358,7 +366,7 @@ export default function App(): JSX.Element {
   // bring the editor up so the shell still reveals. When terminals DO exist, their paint drives it (and reveals
   // before the editor eval), so this stays out of the way — it only fires when there is nothing to jam.
   createEffect(() => {
-    if (sessionsReceived() && termSessionIds().length === 0) {
+    if (sessionsReceived() && termSessionKeys().length === 0) {
       startEditorOnce();
     }
   });
@@ -380,7 +388,7 @@ export default function App(): JSX.Element {
     const pane = paneOf(kind);
     const sid = activeTermSessionId();
     if (sid !== null) {
-      terminalFocus.get(`${sid}:${pane}`)?.();
+      terminalFocus.get(terminalPaneKey(activeBackendId(), sid, pane))?.();
     }
   };
 
@@ -693,17 +701,19 @@ export default function App(): JSX.Element {
       if (kind === AGENT_PANE_KIND) {
         return "Claude Code";
       }
-      const title = paneTitles()[`${activeTermSessionId()}:${pane}`];
+      const sid = activeTermSessionId();
+      const title =
+        sid === null ? undefined : paneTitles()[terminalPaneKey(activeBackendId(), sid, pane)];
       return title !== undefined && title.length > 0 ? title : "Terminal";
     };
-    const paneSessionIds = (): string[] =>
+    const paneSessionKeys = (): string[] =>
       kind === AGENT_PANE_KIND
         ? sessions()
             .filter(
               (s) => s.loaded && s.backendId === activeBackendId() && s.providerId === "claude",
             )
-            .map((s) => s.id)
-        : termSessionIds();
+            .map((s) => sessionKey(s.backendId, s.id))
+        : termSessionKeys();
     return (
       <div
         class="terminal-surface"
@@ -727,16 +737,19 @@ export default function App(): JSX.Element {
           </Show>
         </div>
         <div class="pane-body">
-          {/* One live xterm per loaded session, only the active shown. Keyed by session id so a session keeps
-              its xterm across rail pushes — switching is pure show/hide, no reset/replay. */}
-          <For each={paneSessionIds()}>
-            {(sid) => {
-              const isActive = (): boolean => sid === activeTermSessionId();
-              onCleanup(() => terminalFocus.delete(`${sid}:${pane}`));
+          {/* One live xterm per loaded session, only the active shown. Backend/session keys preserve xterms
+              across rail pushes but unmount them when the selected backend changes. */}
+          <For each={paneSessionKeys()}>
+            {(key) => {
+              const [backendId, sid] = splitSessionKey(key);
+              const paneKey = terminalPaneKey(backendId, sid, pane);
+              const isActive = (): boolean =>
+                backendId === activeBackendId() && sid === activeTermSessionId();
+              onCleanup(() => terminalFocus.delete(paneKey));
               return (
                 <div class="term-host" classList={{ hidden: !isActive() }}>
                   <TerminalView
-                    backendId={activeBackendId()}
+                    backendId={backendId}
                     slot={sid}
                     pane={pane}
                     active={isActive()}
@@ -744,10 +757,8 @@ export default function App(): JSX.Element {
                       dismissSplash();
                       startEditorOnce();
                     }}
-                    onFocusReady={(focus) => terminalFocus.set(`${sid}:${pane}`, focus)}
-                    onTitle={(title) =>
-                      setPaneTitles((prev) => ({ ...prev, [`${sid}:${pane}`]: title }))
-                    }
+                    onFocusReady={(focus) => terminalFocus.set(paneKey, focus)}
+                    onTitle={(title) => setPaneTitles((prev) => ({ ...prev, [paneKey]: title }))}
                     onContextMenu={(event, url) => {
                       const entries: ContextMenuEntry[] = [];
                       // A URL under the pointer leads with the two ways to open it (browser is the click default).

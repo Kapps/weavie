@@ -255,6 +255,11 @@ with a bumped `spawnContract` generation in `manifest.json`, which the runner ch
 own compiled-in generation *before* applying a bundle — never a silently-spawned worker that can't
 start.
 
+The page/worker bridge evolves additively during the same rolling swap. Each socket negotiates its ready
+replay protocol through `host-info`: workers that advertise protocol 1 must send the correlated replay-tail
+marker, while an absent field identifies a legacy worker whose `host-info` completes connection setup. The
+client never carries that decision across reconnects because the next worker may be a different build.
+
 ## Configuration
 
 Runner CLI/env surface, matching the existing `RunnerOptions` pattern (args → env → default):

@@ -3,7 +3,7 @@
 // collide with host-file-provider's `fs{n}` correlation map. A host fs-change push for a tracked path
 // re-fetches it (the old frame stays up until the new bytes land); a delete becomes a loud in-pane error.
 import { createSignal } from "solid-js";
-import { onHostMessage, postToHost } from "../../bridge";
+import { onHostMessage, postToEditorBackend } from "../../bridge";
 import { basename, samePath } from "../fs-path";
 import { MAX_MEDIA_BYTES, mediaTypeOf } from "./media-types";
 
@@ -72,7 +72,7 @@ function send(path: string, type: "fs-stat" | "fs-read-bytes"): void {
     }
     requestPath.delete(id);
   }, REQUEST_TIMEOUT_MS);
-  postToHost({ type, id, path });
+  postToEditorBackend({ type, id, path });
 }
 
 function fail(path: string, error: string): void {

@@ -1,5 +1,5 @@
 import type { Page } from "@playwright/test";
-import { awaitEditorReady } from "../harness/actions";
+import { awaitEditorReady, openFile, runCommand } from "../harness/actions";
 import { expect, test } from "../harness/fixtures";
 
 // Find in Files journeys: seeding from the editor selection, arrow live-preview vs Enter commit (cursor on
@@ -36,13 +36,10 @@ async function caret(page: Page): Promise<{ lineNumber: number; column: number }
 }
 
 // Opens hello.ts and selects `greet` on line 1 ("export function greet" → columns 17-22) via the handle,
-// so the selection is deterministic rather than driven by double-click hit-testing.
+// so the selection is deterministic rather than driven by double-click hit-testing. openFile waits for the
+// editor to actually bind the model (data-active-file) before the selection is applied.
 async function selectGreet(page: Page): Promise<void> {
-  await awaitEditorReady(page);
-  await page.locator(".tb-omnibar-input").click();
-  await page.locator(".tb-omnibar-input").fill("hello.ts");
-  await page.locator(".tb-omnibar-input").press("Enter");
-  await expect(page.locator(".editor")).toHaveAttribute("data-active-file", /hello\.ts$/);
+  await openFile(page, "hello.ts");
   await page.evaluate(() => {
     const editor = (window as WeavieWindow).__WEAVIE_EDITOR__;
     if (editor === undefined) {
@@ -149,4 +146,22 @@ test("match-case / whole-word / regex chords and include-exclude globs shape the
   await expect(groups.filter({ hasText: "hello.ts" })).toHaveCount(1);
   await exclude.fill("hello.ts");
   await expect(page.locator(".search-empty")).toContainText("check the include/exclude filters");
+});
+
+test("a session switch clears stale results so stepping can't open the previous worktree", async ({
+  page,
+}) => {
+  await awaitEditorReady(page);
+  await openSearch(page);
+  await page.locator(".search-input").fill("greet");
+  await expect(page.locator(".search-row").first()).toBeVisible();
+
+  // Forking switches to a new session on its own worktree; the prior worktree's results (and any pending
+  // F4 target) must not survive, or stepping would open a path that routes into the wrong worktree.
+  await runCommand(page, "Fork Session");
+  await expect(page.locator(".session-chip")).toHaveCount(2);
+  await expect(page.locator(".search-row")).toHaveCount(0);
+  // F4 with the cleared list is a no-op — no tab opens.
+  await page.keyboard.press("F4");
+  await expect(page.locator(".search-row")).toHaveCount(0);
 });

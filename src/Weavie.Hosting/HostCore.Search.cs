@@ -19,6 +19,8 @@ public sealed partial class HostCore {
 			return;
 		}
 
+		// Read every field off `root` here, before the first await: the dispatcher's `using` JsonDocument is
+		// disposed the moment this returns to it, so a read after the await below would hit a disposed element.
 		int token = root.GetIntOr("token", 0);
 		string query = root.GetStringOrEmpty("query");
 		var options = new GrepOptions {

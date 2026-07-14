@@ -67,15 +67,23 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
   });
 
   const onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      props.onClose();
+      return;
+    }
+    // Arrows/Enter drive the result list only from the query input — in a glob field they're plain text
+    // editing (Enter is a natural "apply", not "open the selected match").
+    if ((e.target as HTMLElement).classList.contains("search-glob")) {
+      return;
+    }
+
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       moveAndPreview(e.key === "ArrowDown" ? 1 : -1);
     } else if (e.key === "Enter") {
       e.preventDefault();
       openSelected();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      props.onClose();
     }
   };
 

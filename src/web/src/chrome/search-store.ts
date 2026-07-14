@@ -49,8 +49,18 @@ let token = 0;
 let sentFor = applied();
 let debounceTimer = 0;
 let previewTimer = 0;
+// The session whose worktree the current results came from; a switch invalidates them (paths route elsewhere).
+let resultsSession: string | null = null;
 // How results open in the editor — injected by App (the editor controller), like setNotifySink.
 let opener: (match: SearchMatch, focus: boolean) => void = () => {};
+
+function clearResults(): void {
+  setMatches([]);
+  setTruncated(false);
+  setError(null);
+  setSelected(-1);
+  setCollapsed(new Set<string>());
+}
 
 onHostMessage((message) => {
   if (message.type === "find-in-files-results" && message.token === token) {
@@ -61,6 +71,14 @@ onHostMessage((message) => {
     setSelected(message.matches.length > 0 ? 0 : -1);
     setCollapsed(new Set<string>());
     setApplied(sentFor);
+  } else if (message.type === "set-editor-session" && message.sessionId !== resultsSession) {
+    // A session switch: the results (and any pending reply) belong to the previous worktree, so drop them —
+    // else F4 (ungated, works with the panel closed) would open a stale path into the new session. The query
+    // and options are kept; the user re-runs against the new worktree.
+    resultsSession = message.sessionId ?? null;
+    token += 1; // orphan any in-flight reply for the old session
+    clearResults();
+    setSettled(true);
   }
 });
 

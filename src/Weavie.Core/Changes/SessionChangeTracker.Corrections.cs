@@ -379,12 +379,12 @@ public sealed partial class SessionChangeTracker {
 		return boundary + delta;
 	}
 
-	private void SetPending(string path, LineRange currentRange, bool pending) {
-		if (!_provenance.TryGetValue(path, out var provenance)
-			|| !_current.TryGetValue(path, out string? current)) {
+	// <paramref name="actual"/> is in provenance.Text (== disk) space, which is how provenance.Lines is indexed.
+	// Callers holding a _current-space range map it through MapCurrentRangeToActual first.
+	private void SetPending(string path, LineRange actual, bool pending) {
+		if (!_provenance.TryGetValue(path, out var provenance)) {
 			return;
 		}
-		var actual = MapRange(currentRange, LineHunker.Hunks(LineDiff.SplitLines(current), LineDiff.SplitLines(provenance.Text)));
 		for (int i = actual.Start - 1; i < actual.EndExclusive - 1 && i < provenance.Lines.Count; i++) {
 			if (provenance.Lines[i] is { } origin) {
 				provenance.Lines[i] = origin with { Pending = pending };
@@ -404,6 +404,16 @@ public sealed partial class SessionChangeTracker {
 			return currentRange;
 		}
 		return MapRange(currentRange, LineHunker.Hunks(LineDiff.SplitLines(current), LineDiff.SplitLines(provenance.Text)));
+	}
+
+	// The inverse of MapCurrentRangeToActual: a live-model (== provenance.Text / disk) range → its position in
+	// _current (which omits the user's non-agent edits). Identity when the two coincide, so a clean review is untouched.
+	private LineRange MapActualRangeToCurrent(string path, LineRange actualRange) {
+		if (!_provenance.TryGetValue(path, out var provenance)
+			|| !_current.TryGetValue(path, out string? current)) {
+			return actualRange;
+		}
+		return MapRange(actualRange, LineHunker.Hunks(LineDiff.SplitLines(provenance.Text), LineDiff.SplitLines(current)));
 	}
 
 	private void SetAllPending(string path, bool pending) {

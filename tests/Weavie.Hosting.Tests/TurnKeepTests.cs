@@ -59,6 +59,34 @@ public sealed class TurnKeepTests {
 	}
 
 	[Fact]
+	public async Task KeepHunk_AfterNonAgentHandEdit_KeepsTheAgentHunk() {
+		// The reported bug: a hand edit to a region the agent didn't author shifts the agent hunk's line number,
+		// and the web (which diffs the live model) sends that shifted position. The keep must not fail its guard.
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+
+		session.Changes.CaptureBaseline(path); // baseline = "hello\n"
+		File.WriteAllText(path, "hello\nAGENT\n"); // agent adds line 2
+		session.Changes.RecordChange(path);
+
+		// User prepends an unrelated line and autosaves — the fs-write handler records the hand edit. "AGENT" is now
+		// live-model line 3; _current stays "hello\nAGENT\n" because the insertion isn't over an agent line.
+		File.WriteAllText(path, "MINE\nhello\nAGENT\n");
+		session.Changes.RecordHandEdit(path, "MINE\nhello\nAGENT\n");
+
+		host.Bridge.Clear();
+		host.Send($$"""
+			{"type":"keep-hunk","path":{{JsonSerializer.Serialize(path)}},"baselineStart":2,"baselineEndExclusive":2,"currentStart":3,"currentEndExclusive":4,"guardText":"AGENT"}
+			""");
+
+		Assert.Equal("MINE\nhello\nAGENT\n", File.ReadAllText(path)); // disk untouched — keep is not a write
+		var turn = session.Changes.GetTurn(path);
+		Assert.NotNull(turn);
+		Assert.Equal(turn!.BaselineText, turn.CurrentText); // the agent hunk is now accepted — no pending band left
+	}
+
+	[Fact]
 	public async Task UnkeepHunk_ReturnsAKeptHunkToThePendingBand() {
 		await using var host = await TestHost.StartAsync();
 		var session = host.Core.ActiveSessionForTest() ?? throw new InvalidOperationException("no active session");

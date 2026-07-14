@@ -510,6 +510,42 @@ public sealed class SessionChangeTrackerTests {
 	}
 
 	[Fact]
+	public void RevertHunk_MergedAgentAndUserHunk_RevertsOnlyTheAgentLine() {
+		// The agent changed line 2 (b→B); the user then changed the adjacent line 3 (c→C), which the diff engine
+		// folds into one hunk. Reverting it must restore the agent's line but keep the user's edit on disk.
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\nb\nc\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nc\n");
+		tracker.RecordChange("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\nB\nC\n"); // user edits agent-untouched line 3
+		tracker.RecordHandEdit("/w/a.txt", "a\nB\nC\n");
+
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(2, 4), new LineRange(2, 4), "B\nC");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.Equal("a\nb\nC\n", fileSystem.ReadAllText("/w/a.txt")); // agent's B reverted, user's C preserved
+	}
+
+	[Fact]
+	public void RevertHunk_CrlfFile_AfterNonAgentInsertion_RevertsKeepingCrlfAndUserLine() {
+		var fileSystem = new InMemoryFileSystem();
+		fileSystem.WriteAllText("/w/a.txt", "a\r\nb\r\nc\r\n");
+		var tracker = Tracker(fileSystem);
+		tracker.CaptureBaseline("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "a\r\nB\r\nc\r\n"); // agent changes line 2
+		tracker.RecordChange("/w/a.txt");
+		fileSystem.WriteAllText("/w/a.txt", "MINE\r\na\r\nB\r\nc\r\n"); // user prepends — "B" is now live-model line 3
+		tracker.RecordHandEdit("/w/a.txt", "MINE\r\na\r\nB\r\nc\r\n");
+
+		var outcome = tracker.RevertHunk("/w/a.txt", new LineRange(2, 3), new LineRange(3, 4), "B");
+
+		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
+		Assert.Equal("MINE\r\na\r\nb\r\nc\r\n", fileSystem.ReadAllText("/w/a.txt")); // CRLF kept, user line preserved
+	}
+
+	[Fact]
 	public void RevertFile_CreatedFileDeleted_ExistingRestoredToBaseline() {
 		var fileSystem = new InMemoryFileSystem();
 		fileSystem.WriteAllText("/w/a.txt", "a0\n");

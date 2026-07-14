@@ -221,26 +221,28 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
-	public void RevertHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+	public void RevertHunk_AfterIgnoredInsertion_RevertsAgentHunkKeepingUserLine() {
 		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
 		Boundary("p1");
 		AgentEdit("app.cs", "a\nb\nc\nD\n");
-		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n"); // user inserts "MINE" — the agent's "D" is now live-model line 5
 
-		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D");
+		// The web diffs against the live model, so it sends "D"'s live-model position (5), not its _current one (4).
+		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(5, 6), "D");
 
 		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
 		Assert.Equal("a\nMINE\nb\nc\nd\n", _fs.ReadAllText(Abs("app.cs")));
 	}
 
 	[Fact]
-	public void KeepHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+	public void KeepHunk_AfterIgnoredInsertion_KeepsAgentHunk() {
 		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
 		Boundary("p1");
 		AgentEdit("app.cs", "a\nb\nc\nD\n");
-		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n"); // user inserts "MINE" — the agent's "D" is now live-model line 5
 
-		Assert.True(_tracker.KeepHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D"));
+		// The web sends "D"'s live-model position (5); the keep must not fail the guard by remapping it.
+		Assert.True(_tracker.KeepHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(5, 6), "D"));
 	}
 
 	[Fact]

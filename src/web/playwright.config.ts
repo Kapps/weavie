@@ -28,6 +28,13 @@ export default defineConfig({
   // No retries: the flakiness was runner-resource contention (fixed by right-sizing `workers` above), not a
   // real defect, so a green run must stand on its own rather than being rescued by a re-run.
   retries: 0,
+  // The `weavie` auto fixture (harness/fixtures.ts) budgets up to 40s for the host to boot and the splash
+  // to clear — genuine dotnet-host + browser spawn latency, worse on the slower hosted Windows/macOS
+  // runners. Playwright's 30s default per-test timeout is shorter than that budget, so on those runners
+  // ANY test (not just the heavyweight PR ones already marked test.slow()) can get killed mid-boot before
+  // its own body ever runs. Raise the ceiling there so the fixture's stated boot budget is actually
+  // reachable; Linux keeps the default since cold boots there land in 2-6s.
+  timeout: process.platform === "linux" ? 30_000 : 60_000,
   reporter: "list",
   // A weavie e2e assertion often waits on a full-stack round-trip (host + fake-claude + hook bridge + MCP +
   // render), not a DOM tick, so the 5s Playwright default is too tight even uncontended (a whole test runs

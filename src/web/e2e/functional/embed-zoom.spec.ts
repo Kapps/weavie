@@ -89,6 +89,12 @@ test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape,
   await expect(lightbox).toHaveCount(0);
 });
 
+// Flaked 2026-07-14 00:45 UTC on Windows CI (test timeout of 30000ms exceeded while setting up "weavie",
+// #splash never cleared): https://github.com/Kapps/weavie/actions/runs/29296154331/job/86970001988
+// Not this test's fault — the shared `weavie` boot fixture (harness/fixtures.ts) budgets up to 40s for the
+// host to boot, longer than Playwright's 30s default test timeout, so a slow Windows boot can kill any test
+// before its body even starts. Fixed at the root in playwright.config.ts (raised the per-test timeout on
+// non-Linux runners) rather than marking this one test slow.
 test("the zoom chord declines in a plain Monaco view — no lightbox", async ({ page }) => {
   await openFile(page, "hello.ts");
   await page.locator(".monaco-editor .view-lines").first().click();

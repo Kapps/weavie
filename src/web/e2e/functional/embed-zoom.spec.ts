@@ -90,6 +90,14 @@ test("preview embeds zoom into the full-app lightbox (magnifier, arrows, Escape,
 });
 
 test("the zoom chord declines in a plain Monaco view — no lightbox", async ({ page }) => {
+  // Flaked 2026-07-14 00:31 UTC on Windows CI (test timeout of 30000ms exceeded while setting up
+  // "weavie" — #splash never cleared within the fixture's own 40s wait, i.e. the dotnet-host cold boot
+  // ate the whole 30s test budget before this test's own body ever ran):
+  // https://github.com/Kapps/weavie/actions/runs/29296154331/job/86970001988
+  // Every preceding/following test in the same job booted in 3-9s, so this isn't this test's own logic —
+  // it's the same generic Windows-runner boot-time variance editor.spec.ts's @cross test hit (cold boot
+  // alone can outrun the 30s default). Marked slow (triples the budget) to absorb it, not retried.
+  test.slow();
   await openFile(page, "hello.ts");
   await page.locator(".monaco-editor .view-lines").first().click();
   await page.keyboard.press("ControlOrMeta+Shift+z");

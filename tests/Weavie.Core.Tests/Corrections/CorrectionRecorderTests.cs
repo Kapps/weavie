@@ -196,6 +196,80 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
+	public void ProgressiveTypingOverOneAgentHunk_CoalescesToOneCorrection() {
+		// The user types their replacement over an agent line; autosave fires on every keystroke-pause, so each
+		// intermediate state reaches RecordHandEdit. Those are one correction, not five — they must coalesce into a
+		// single agent → final-text entry rather than piling up the intermediate states.
+		Boundary("p1");
+		AgentEdit("app.cs", "agent line\n");
+		HandEdit("app.cs", "u\n");
+		HandEdit("app.cs", "us\n");
+		HandEdit("app.cs", "use\n");
+		HandEdit("app.cs", "user\n");
+
+		var record = Assert.Single(_corpus.ReadAll());
+		Assert.Equal("p1", record.Prompt);
+		var file = Assert.Single(record.Files);
+		Assert.Contains("-agent line", file.Delta, StringComparison.Ordinal); // anchored at the original agent text …
+		Assert.Contains("+user", file.Delta, StringComparison.Ordinal); // … through to the final content
+		Assert.DoesNotContain("+us\n", file.Delta, StringComparison.Ordinal); // no intermediate keystroke states
+	}
+
+	[Fact]
+	public void AlternatingCorrectionsToTwoRegionsOfOneAgentEdit_CoalesceIndependently() {
+		// One agent edit mints one origin across BOTH hunks it wrote (lines 1 and 3). The user then alternates
+		// corrections between those two regions across autosaves. Sharing an origin must not collapse them into one
+		// chain: each region coalesces to its own agent-output → final entry, none left at an intermediate state.
+		_fs.WriteAllText(Abs("app.cs"), "x1\nx2\nx3\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nx2\nC\n"); // one edit, one origin, two non-contiguous hunks
+
+		HandEdit("app.cs", "A1\nx2\nC\n"); // region 1 …
+		HandEdit("app.cs", "A12\nx2\nC\n"); // … keeps typing (coalesces)
+		HandEdit("app.cs", "A12\nx2\nC1\n"); // now region 2 …
+		HandEdit("app.cs", "A12\nx2\nC12\n"); // … keeps typing (coalesces)
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p1"], records.Select(record => record.Prompt));
+		Assert.Contains("+A12", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("+A1\n", records[0].Files[0].Delta, StringComparison.Ordinal); // not an intermediate
+		Assert.Contains("+C12", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RetypingARegionBackToAgentOutput_DropsTheCorrection() {
+		// The user edits the agent's line, then keeps typing until it matches the agent's output again — the
+		// correction vanished, so its corpus entry must be dropped, not left at the last intermediate state.
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		HandEdit("app.cs", "agnt\n"); // a correction is recorded …
+		Assert.Equal(1, _corpus.Count);
+
+		HandEdit("app.cs", "agent\n"); // … then retyped back to the agent's output
+
+		Assert.Equal(0, _corpus.Count);
+	}
+
+	[Fact]
+	public void CorrectionsToTwoRegionsAcrossSaves_CoalesceIndependently() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n"); // agent wrote line 1
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n"); // agent wrote line 2
+
+		HandEdit("app.cs", "A1\nB\n"); // correct line 1 …
+		HandEdit("app.cs", "A12\nB\n"); // … keep typing on it (coalesces)
+		HandEdit("app.cs", "A12\nB1\n"); // now correct line 2 …
+		HandEdit("app.cs", "A12\nB12\n"); // … keep typing on it (coalesces)
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+A12", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+B12", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void RevertFile_RecordsReversal() {
 		_fs.WriteAllText(Abs("app.cs"), "one\n");
 		Boundary("p1");

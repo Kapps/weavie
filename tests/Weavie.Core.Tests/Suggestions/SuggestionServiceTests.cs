@@ -125,14 +125,14 @@ public sealed class SuggestionServiceTests : IDisposable {
 
 	[Fact]
 	public async Task CorrectionsBelowThreshold_LearnCardNotOffered() {
-		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 2);
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 9);
 
 		Assert.DoesNotContain(LearnId, harness.ActiveIds());
 	}
 
 	[Fact]
 	public async Task CorrectionsAtThreshold_LearnCardOffered() {
-		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 3);
+		var harness = await StartAsync(EmptySettings(), NoManifest, static () => 10);
 
 		Assert.Contains(LearnId, harness.ActiveIds());
 	}

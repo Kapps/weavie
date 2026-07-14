@@ -5,7 +5,9 @@ namespace Weavie.Core.Changes;
 /// <param name="Before">The agent-authored text the user changed.</param>
 /// <param name="After">The user's replacement text.</param>
 /// <param name="Prompt">The prompt that produced the corrected text; null when the provider reports none.</param>
-public sealed record CorrectionEdit(string RelativePath, string Before, string After, string? Prompt);
+/// <param name="OriginId">The agent region's stable id, so successive editor saves over one region coalesce into a single correction rather than recording each intermediate keystroke-save.</param>
+/// <param name="Continuable">True for an editor save (which autosave repeats as the user types, so it may be superseded by a later save); false for a discrete review-UI revert.</param>
+public sealed record CorrectionEdit(string RelativePath, string Before, string After, string? Prompt, long OriginId, bool Continuable);
 
 public sealed partial class SessionChangeTracker {
 	private string? _currentPrompt;
@@ -39,7 +41,9 @@ public sealed partial class SessionChangeTracker {
 						Relativize(path),
 						Slice(beforeLines, change.BeforeRange),
 						Slice(afterLines, change.AfterRange),
-						change.Origin.Prompt));
+						change.Origin.Prompt,
+						change.Origin.Id,
+						Continuable: true));
 				}
 			}
 
@@ -313,7 +317,9 @@ public sealed partial class SessionChangeTracker {
 							Relativize(path),
 							string.Empty,
 							string.Join("\n", segment.Lines),
-							segment.Origin.Prompt));
+							segment.Origin.Prompt,
+							segment.Origin.Id,
+							Continuable: false));
 					}
 				}
 				continue;
@@ -330,7 +336,9 @@ public sealed partial class SessionChangeTracker {
 					Relativize(path),
 					Slice(currentLines, hunk.BeforeRange),
 					Slice(baselineLines, hunk.AfterRange),
-					common.Prompt));
+					common.Prompt,
+					common.Id,
+					Continuable: false));
 				continue;
 			}
 
@@ -343,7 +351,7 @@ public sealed partial class SessionChangeTracker {
 				var after = i < paired
 					? new LineRange(hunk.AfterRange.Start + i, hunk.AfterRange.Start + i + 1)
 					: new LineRange(hunk.AfterRange.EndExclusive, hunk.AfterRange.EndExclusive);
-				edits.Add(new CorrectionEdit(Relativize(path), Slice(currentLines, before), Slice(baselineLines, after), origin.Prompt));
+				edits.Add(new CorrectionEdit(Relativize(path), Slice(currentLines, before), Slice(baselineLines, after), origin.Prompt, origin.Id, Continuable: false));
 			}
 		}
 		return edits;

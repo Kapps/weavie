@@ -22,9 +22,11 @@ public sealed class HostCoreLearnTests {
 		session.Claude!.EnsureStarted();
 		var claude = Assert.Single(host.Platform.NoopLauncher.Created);
 		string file = Path.Combine(host.RepoRoot, "app.cs");
+		host.Settings.Set("corrections.learnThreshold", JsonDocument.Parse("3").RootElement);
 
 		// Four corrected turns: the agent edits, then the user edits the agent's output in the editor — an
-		// fs-write that captures the correction at the save (not a boundary). Three meets the default threshold.
+		// fs-write that captures the correction at the save (not a boundary). Each turn is a distinct region, so
+		// the four stay four (coalescing only collapses re-saves of one region); three meets the pinned threshold.
 		for (int turn = 1; turn <= 4; turn++) {
 			Boundary(session, $"prompt {turn}");
 			AgentEdit(session, file, $"agent version {turn}\n");

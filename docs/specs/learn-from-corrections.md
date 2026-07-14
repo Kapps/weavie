@@ -38,12 +38,19 @@ All in `Weavie.Core.Corrections` unless noted:
   null for providers that report none) plus a list of `CorrectionFile { Path, Delta }`. `Delta` is a
   unified diff of `before → after`; `Path` is workspace-root-relative. Serializes as one JSONL line.
 - **`CorrectionCorpus`** (per workspace) — a byte-capped ring over `IFileSystem` at
-  `~/.weavie/workspaces/<id>/corrections.jsonl` (`WeaviePaths.WorkspaceCorrectionsFile`): `Append`,
-  `ReadAll`, `Take` (atomic read+clear), a locked `Count`, and a `Changed` event. Oldest-first; eviction
-  drops whole leading lines.
-- **`CorrectionRecorder`** (per session) — a plain subscriber to the tracker's `Corrected` event. Its
-  `Record(edits)` diffs each edit's `before → after` (`CorrectionDiff`), drops EOL-only deltas, and appends
-  one `CorrectionRecord` per producing prompt to the shared corpus.
+  `~/.weavie/workspaces/<id>/corrections.jsonl` (`WeaviePaths.WorkspaceCorrectionsFile`): `Append` (returns the
+  stored line), `Coalesce(record, previousLine)` (replaces that line in place, or appends fresh when it is gone),
+  `Remove(line)`, `ReadAll`, `Take` (atomic read+clear), a locked `Count`, and a `Changed` event. Oldest-first;
+  eviction drops whole leading lines. A `Coalesce` that replaces (count unchanged) does not fire `Changed`, so the
+  nudge is not re-evaluated per keystroke-save.
+- **`CorrectionRecorder`** (per session) — a plain subscriber to the tracker's `Corrected` event. A discrete
+  revert appends one `CorrectionRecord` per producing prompt. An editor save (which autosave repeats as the user
+  types) **coalesces per agent region**: successive saves that keep retyping over one region supersede a single
+  entry (anchored at the region's original agent text through to the current content) instead of recording every
+  intermediate keystroke-save; retyping a region back to the agent's own output drops the entry. It keys
+  coalescing on the region's origin id plus running-replacement continuity (the save's new text picks up where the
+  last left off, over text that still had content), so a restore-from-empty or a deletion boundary stays a
+  distinct correction.
 - **`SessionChangeTracker.Corrected`** (`SessionChangeTracker.Corrections.cs`) — the event, raising
   `CorrectionEdit { RelativePath, Before, After, Prompt }` batches from `RecordHandEdit` and the reverts.
 - **`LineHunker`** (`Weavie.Core.Changes`) — the LCS line alignment: `Hunks(before, after)` returns each
@@ -152,8 +159,10 @@ existing triggers (probe completion, setting change), **the corpus's `Changed` e
 card appears the moment an append crosses the threshold and withdraws the moment /learn consumes the ring,
 with no per-session trigger plumbing.
 
-`corrections.learnThreshold` (Int, default 3, min 1, `Live`) is the only user-facing setting — the byte
-caps below are context-budget invariants, not config.
+`corrections.learnThreshold` (Int, default 10, min 1, `Live`) is the only user-facing setting — the byte
+caps below are context-budget invariants, not config. Because per-region coalescing makes each recorded entry a
+distinct correction rather than an intermediate keystroke-save, the count is a meaningful signal, and the default
+asks for a genuine pattern before nudging.
 
 ## Storage, eviction, truncation
 
@@ -199,6 +208,11 @@ not hidden:
 - Only edits made **through Weavie's editor** (an `fs-write`) or a review-UI revert are captured; an edit
   to an agent hunk made in an external editor is not. This is the deliberate narrowing that excludes machine
   noise — the realistic correction workflow is in-editor.
+- Successive editor saves that **retype over one agent region** coalesce into a single entry. One agent edit mints
+  one origin across all its hunks, so a region is identified within its origin by running-replacement continuity (a
+  live chain per region), letting the user alternate corrections between two regions of one edit and have each
+  coalesce independently. What deliberately does *not* coalesce is a genuinely distinct correction — a
+  restore-from-empty, a deletion boundary, or a discontinuous re-edit — which starts its own entry, as intended.
 - A pure **insertion of new lines at the top or bottom edge** of an agent region (a prepend or an append,
   rather than lines inserted *between* agent-written lines) is treated as new authoring, not a correction, so
   it does not record — and so a run of the user's own lines typed at the end of an agent file, which autosave
@@ -213,9 +227,11 @@ are replayed at the seam and the analysis text is never asserted. Coverage:
 
 - **Hunker / diff / corpus / recorder** (Core, `InMemoryFileSystem`) — `LineHunker` change grouping +
   range overlap; `CorrectionDiff` hunk grouping + headers + EOL-normalized no-ops; ring reload, FIFO
-  eviction, per-entry ceilings, counted clears, malformed-line tolerance, `Changed` events; capture
+  eviction, per-entry ceilings, counted clears, malformed-line tolerance, `Changed` events, `Coalesce`
+  (replace-in-place / append-when-gone, no `Changed` on a replace) and `Remove`; capture
   semantics (hand-edit over an agent hunk recorded; edit to an agent-untouched region **not** recorded;
-  repeated save of the same content records once; hunk/file revert recorded; late revert still recorded and
+  repeated save of the same content records once; **progressive typing over one hunk coalesces to a single
+  agent-output → final entry**, two regions edited across saves coalesce independently; hunk/file revert recorded; late revert still recorded and
   attributed to the producing prompt; kept-file edits not recorded; agent deletion not recorded; user
   revert-delete recorded; Codex null prompt).
 - **Nudge** (Core) — below/at threshold, threshold setting honored, supplier re-read per `Evaluate()`.

@@ -46,7 +46,7 @@ public sealed class CorrectionCorpus {
 	/// <summary>Diagnostic log line — read/persist failures on the best-effort ring.</summary>
 	public event Action<string>? Log;
 
-	/// <summary>Raised after an <see cref="Append"/> or <see cref="Take"/> changed the ring (fires outside the lock).</summary>
+	/// <summary>Raised after the ring's entry count changed — an <see cref="Append"/>, a fresh-appending <see cref="Coalesce"/>, a <see cref="Remove"/>, or a <see cref="Take"/> (fires outside the lock). An in-place <see cref="Coalesce"/> replace leaves the count unchanged and does not fire.</summary>
 	public event Action? Changed;
 
 	/// <summary>How many corrections the ring currently holds.</summary>
@@ -60,24 +60,89 @@ public sealed class CorrectionCorpus {
 
 	/// <summary>
 	/// Appends <paramref name="record"/> (truncated to the per-entry ceilings), evicts oldest lines while over
-	/// <see cref="MaxBytes"/>, and persists the ring.
+	/// <see cref="MaxBytes"/>, and persists the ring. Returns the stored line so a follow-up
+	/// <see cref="Coalesce"/> can supersede it.
 	/// </summary>
 	/// <param name="record">The correction to append.</param>
-	public void Append(CorrectionRecord record) {
+	public string Append(CorrectionRecord record) {
 		ArgumentNullException.ThrowIfNull(record);
 		string line = Serialize(Bound(record));
 		lock (_gate) {
-			_lines.Add(line);
-			_bytes += Encoding.UTF8.GetByteCount(line) + 1;
-			while (_bytes > MaxBytes && _lines.Count > 1) {
-				_bytes -= Encoding.UTF8.GetByteCount(_lines[0]) + 1;
-				_lines.RemoveAt(0);
+			AddLocked(line);
+		}
+
+		Changed?.Invoke();
+		return line;
+	}
+
+	/// <summary>
+	/// Replaces <paramref name="previousLine"/> (the line a prior <see cref="Append"/>/<see cref="Coalesce"/>
+	/// returned) with <paramref name="record"/> in place, so successive editor saves over one agent region evolve a
+	/// single entry instead of piling up intermediate ones. When that line is gone (evicted or already consumed by
+	/// <c>/learn</c>) this appends fresh. Returns the new stored line. Count is unchanged on a replace, so the nudge
+	/// (which re-evaluates on <see cref="Changed"/>) is not disturbed per keystroke — only a fresh append fires it.
+	/// </summary>
+	/// <param name="record">The superseding correction.</param>
+	/// <param name="previousLine">The line to replace.</param>
+	public string Coalesce(CorrectionRecord record, string previousLine) {
+		ArgumentNullException.ThrowIfNull(record);
+		ArgumentNullException.ThrowIfNull(previousLine);
+		string line = Serialize(Bound(record));
+		bool appended = false;
+		lock (_gate) {
+			int index = _lines.LastIndexOf(previousLine);
+			if (index < 0) {
+				AddLocked(line);
+				appended = true;
+			} else {
+				_bytes += Encoding.UTF8.GetByteCount(line) - Encoding.UTF8.GetByteCount(_lines[index]);
+				_lines[index] = line;
+				EvictLocked();
+				PersistLocked();
+			}
+		}
+
+		if (appended) {
+			Changed?.Invoke();
+		}
+
+		return line;
+	}
+
+	/// <summary>
+	/// Removes <paramref name="line"/> (a line a prior <see cref="Append"/>/<see cref="Coalesce"/> returned) when a
+	/// running correction was retyped back to the agent's own output, so nothing is left to learn from. A no-op when
+	/// the line is already gone.
+	/// </summary>
+	/// <param name="line">The line to drop.</param>
+	public void Remove(string line) {
+		ArgumentNullException.ThrowIfNull(line);
+		lock (_gate) {
+			int index = _lines.LastIndexOf(line);
+			if (index < 0) {
+				return;
 			}
 
+			_bytes -= Encoding.UTF8.GetByteCount(_lines[index]) + 1;
+			_lines.RemoveAt(index);
 			PersistLocked();
 		}
 
 		Changed?.Invoke();
+	}
+
+	private void AddLocked(string line) {
+		_lines.Add(line);
+		_bytes += Encoding.UTF8.GetByteCount(line) + 1;
+		EvictLocked();
+		PersistLocked();
+	}
+
+	private void EvictLocked() {
+		while (_bytes > MaxBytes && _lines.Count > 1) {
+			_bytes -= Encoding.UTF8.GetByteCount(_lines[0]) + 1;
+			_lines.RemoveAt(0);
+		}
 	}
 
 	/// <summary>The recorded corrections, oldest first.</summary>

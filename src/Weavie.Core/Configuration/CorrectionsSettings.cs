@@ -17,7 +17,7 @@ public static class CorrectionsSettings {
 				+ "Corrections command works at any count; this only gates the nudge.",
 			Aliases = ["learn threshold", "corrections threshold", "when to suggest learning", "correction nudge count"],
 			Apply = ApplyMode.Live,
-			Default = 3L,
+			Default = 10L,
 			Validate = value => value is long threshold && threshold >= 1
 				? ValidationResult.Success
 				: ValidationResult.Failure("must be an integer of at least 1"),

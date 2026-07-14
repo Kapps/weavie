@@ -47,9 +47,7 @@ public sealed class HostBridge : IHostBridge, IDisposable {
 	public void Dispose() {
 		_outbound?.Dispose();
 		_outbound = null;
-		if (_core is not null) {
-			_core.WebMessageReceived -= OnWebMessageReceived;
-			_core = null;
-		}
+		_core?.WebMessageReceived -= OnWebMessageReceived;
+		_core = null;
 	}
 }

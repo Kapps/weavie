@@ -178,6 +178,7 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 
 		_webViewTornDown = true;
 		_controller?.Detach();
+		_bridge.Dispose();
 		try {
 			_webView.Dispose();
 		} catch (Exception ex) {

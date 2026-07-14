@@ -98,7 +98,7 @@ public sealed partial class BackendManager {
 					return;
 				}
 
-				if (supervisor.State == SupervisorState.Running && !await TryDrainAsync(backend, report).ConfigureAwait(false)) {
+				if (supervisor.State == SupervisorState.Running && !await TryDrainAsync(backend, report, ct).ConfigureAwait(false)) {
 					// The worker is up but not answering yet (it may have just respawned); retry shortly.
 					await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
 					continue;
@@ -111,16 +111,25 @@ public sealed partial class BackendManager {
 		}
 	}
 
-	private async Task<bool> TryDrainAsync(WorkspaceBackend backend, Action<string, string?> report) {
+	internal async Task<bool> TryDrainAsync(
+		WorkspaceBackend backend,
+		Action<string, string?> report,
+		CancellationToken ct) {
 		try {
-			using var response = await _http.PostAsync(ControlUrl(backend, "drain"), content: null).ConfigureAwait(false);
+			using var response = await _http.PostAsync(ControlUrl(backend, "drain"), content: null, ct).ConfigureAwait(false);
+			if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable) {
+				report("updating", "worker is still starting; drain will retry");
+				return false;
+			}
+
 			if (!response.IsSuccessStatusCode) {
 				report("updating", $"worker refused the drain request ({(int)response.StatusCode})");
 				return false;
 			}
 
+			report("updating", "waiting for the workspace to go quiet");
 			return true;
-		} catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
+		} catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException) {
 			// TaskCanceledException = the HttpClient timeout: a hung worker is a retry, never a crash.
 			report("updating", $"worker not answering the drain request yet: {ex.Message}");
 			return false;

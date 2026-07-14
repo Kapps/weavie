@@ -15,7 +15,7 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	// The address workers listen on (loopback), doubling as the host the update flow's control
 	// requests (drain / status) connect to.
 	private readonly string _workerHost;
-	private readonly HttpClient _http = new();
+	private readonly HttpClient _http;
 	private readonly object _gate = new();
 	private WorkspaceBackend? _backend;
 
@@ -23,13 +23,18 @@ public sealed partial class BackendManager : IAsyncDisposable {
 	/// Creates a manager that provisions workers per <paramref name="options"/>, reaching each worker's
 	/// control endpoints at <paramref name="workerHost"/> (the bind address the launcher spawns them on).
 	/// </summary>
-	public BackendManager(RunnerOptions options, HeadlessLauncher launcher, string workerHost) {
+	public BackendManager(RunnerOptions options, HeadlessLauncher launcher, string workerHost)
+		: this(options, launcher, workerHost, new HttpClient()) { }
+
+	internal BackendManager(RunnerOptions options, HeadlessLauncher launcher, string workerHost, HttpClient http) {
 		ArgumentNullException.ThrowIfNull(options);
 		ArgumentNullException.ThrowIfNull(launcher);
 		ArgumentException.ThrowIfNullOrEmpty(workerHost);
+		ArgumentNullException.ThrowIfNull(http);
 		_options = options;
 		_launcher = launcher;
 		_workerHost = workerHost;
+		_http = http;
 	}
 
 	/// <summary>The current backend, or <c>null</c> before the first <see cref="Ensure"/> call.</summary>

@@ -330,64 +330,26 @@ public sealed class GitService : IGitService {
 		return result.ExitCode == 0 ? result.StdOut.Split('\0', StringSplitOptions.RemoveEmptyEntries) : null;
 	}
 
-	/// <summary>The most matches a content search returns; hitting it sets <see cref="GrepResult.Truncated"/> so the user is told the list is incomplete.</summary>
-	public const int GrepMatchCap = 500;
-
 	/// <summary>
-	/// Searches the worktree's file contents for the literal <paramref name="query"/> (<c>git grep -F</c>) across
+	/// Searches the worktree's file contents for <paramref name="query"/> under <paramref name="options"/> across
 	/// tracked + untracked-but-not-ignored files, skipping binaries. An empty query returns no matches without
-	/// running git. Results are capped (<see cref="GrepMatchCap"/>) with <see cref="GrepResult.Truncated"/> set.
+	/// running git. Results are capped (<see cref="GitGrep.MatchCap"/>) with <see cref="GrepResult.Truncated"/>
+	/// set. A bad query (e.g. an invalid regex) throws <see cref="GitException"/> carrying git's message.
 	/// </summary>
-	public async Task<GrepResult> GrepAsync(string worktreeDirectory, string query, CancellationToken ct = default) {
+	public async Task<GrepResult> GrepAsync(string worktreeDirectory, string query, GrepOptions options, CancellationToken ct = default) {
 		ArgumentException.ThrowIfNullOrEmpty(worktreeDirectory);
 		ArgumentNullException.ThrowIfNull(query);
+		ArgumentNullException.ThrowIfNull(options);
 		if (query.Length == 0) {
 			return new GrepResult { Matches = [], Truncated = false };
 		}
 
-		// -n line numbers, -I skip binaries, -F fixed string (literal, never a regex), --no-color clean output,
-		// --untracked also searches new-but-not-ignored files. "-e <query> --" keeps the query an operand, never
-		// read as an option even when it starts with "-". Exit 1 = no matches.
-		var result = await RunAsync(
-			worktreeDirectory,
-			["grep", "-n", "-I", "-F", "--no-color", "--untracked", "-e", query, "--"],
-			ct).ConfigureAwait(false);
-		if (result.ExitCode is not (0 or 1)) {
+		var result = await RunAsync(worktreeDirectory, GitGrep.BuildArgs(query, options), ct).ConfigureAwait(false);
+		if (result.ExitCode is not (0 or 1)) { // exit 1 = no matches
 			throw new GitException($"git grep failed (exit {result.ExitCode}): {result.StdErr.Trim()}");
 		}
 
-		return ParseGrep(result.StdOut, GrepMatchCap);
-	}
-
-	/// <summary>
-	/// Parses <c>git grep -n</c> output (<c>path:line:preview</c> per line) into matches, capping at
-	/// <paramref name="cap"/> and flagging truncation. Pure, so it's testable without a repository.
-	/// </summary>
-	public static GrepResult ParseGrep(string output, int cap) {
-		ArgumentNullException.ThrowIfNull(output);
-		var matches = new List<GrepMatch>();
-		bool truncated = false;
-		foreach (string raw in output.Replace("\r", "", StringComparison.Ordinal).Split('\n', StringSplitOptions.RemoveEmptyEntries)) {
-			if (matches.Count >= cap) {
-				truncated = true;
-				break;
-			}
-
-			// path:line:preview — the preview itself may contain ':', so split only the first two fields.
-			int p1 = raw.IndexOf(':', StringComparison.Ordinal);
-			int p2 = p1 < 0 ? -1 : raw.IndexOf(':', p1 + 1);
-			if (p2 < 0 || !int.TryParse(raw.AsSpan(p1 + 1, p2 - p1 - 1), out int line)) {
-				continue;
-			}
-
-			matches.Add(new GrepMatch {
-				Path = raw[..p1],
-				Line = line,
-				Preview = raw[(p2 + 1)..],
-			});
-		}
-
-		return new GrepResult { Matches = matches, Truncated = truncated };
+		return GitGrep.Parse(result.StdOut, GitGrep.MatchCap);
 	}
 
 	/// <summary>Parses <c>git diff --numstat</c> output ("added\tremoved\tpath" per line; binary files report "-"). Pure, for tests.</summary>

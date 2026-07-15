@@ -65,6 +65,12 @@ public static class WeaviePaths {
 	/// </summary>
 	public static string RailStateFile { get; } = Path.Combine(Root, "rail-state.json");
 
+	/// <summary>
+	/// The find-in-files panel's sticky UI state (match options, include/exclude globs, recent search terms):
+	/// <c>~/.weavie/search-state.json</c>. Runtime UI state, never settings.toml. See <see cref="Search.SearchStateStore"/>.
+	/// </summary>
+	public static string SearchStateFile { get; } = Path.Combine(Root, "search-state.json");
+
 	/// <summary>The per-theme color overrides document (spec §6): <c>~/.weavie/theme-overrides.json</c>. Its own file, never part of settings.toml.</summary>
 	public static string ThemeOverridesFile { get; } = Path.Combine(Root, "theme-overrides.json");
 

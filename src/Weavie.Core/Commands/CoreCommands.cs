@@ -29,8 +29,26 @@ public static class CoreCommands {
 	/// <summary>Focuses the omnibar in workspace-symbol ("Go to Symbol in Workspace", #) mode.</summary>
 	public const string GoToWorkspaceSymbol = "weavie.omnibar.goToWorkspaceSymbol";
 
-	/// <summary>Opens the project-wide content-search ("find in files") panel.</summary>
+	/// <summary>Opens the project-wide content-search ("find in files") panel, seeded from the editor selection.</summary>
 	public const string FindInFiles = "weavie.search.findInFiles";
+
+	/// <summary>Toggles the search panel's Match Case option; bound to <c>alt+c</c> while the panel is focused.</summary>
+	public const string SearchToggleMatchCase = "weavie.search.toggleMatchCase";
+
+	/// <summary>Toggles the search panel's Whole Word option; bound to <c>alt+w</c> while the panel is focused.</summary>
+	public const string SearchToggleWholeWord = "weavie.search.toggleWholeWord";
+
+	/// <summary>Toggles the search panel's Regular Expression option; bound to <c>alt+r</c> while the panel is focused.</summary>
+	public const string SearchToggleRegex = "weavie.search.toggleRegex";
+
+	/// <summary>Toggles whether the search excludes gitignored files; bound to <c>alt+g</c> while the panel is focused.</summary>
+	public const string SearchToggleGitignore = "weavie.search.toggleGitignore";
+
+	/// <summary>Jumps to the next find-in-files result (opens it in the editor); bound to <c>F4</c>.</summary>
+	public const string SearchNextResult = "weavie.search.nextResult";
+
+	/// <summary>Jumps to the previous find-in-files result (opens it in the editor); bound to <c>Shift+F4</c>.</summary>
+	public const string SearchPrevResult = "weavie.search.prevResult";
 
 	/// <summary>Reopens (restarts) the shell terminal pane.</summary>
 	public const string ReopenTerminal = "weavie.terminal.reopen";
@@ -384,10 +402,79 @@ public static class CoreCommands {
 			Title = "Find in Files",
 			RunsIn = CommandLocation.Web,
 			Category = "Search",
-			Description = "Search the active session's workspace for text in file contents, grouped by file; "
-				+ "click or Enter on a result jumps to that line.",
+			Description = "Search the active session's workspace for text in file contents, seeded from the "
+				+ "editor selection. Supports match case / whole word / regex and include/exclude file globs; "
+				+ "arrows preview each result, Enter jumps to it.",
 			Aliases = ["find in files", "search files", "search in files", "grep", "search project", "find text"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+f" }],
+		});
+
+		// The search panel's option toggles. Web-handled and searchPanelFocused-gated, so the alt chords are
+		// free everywhere else; each button in the panel advertises its binding via the catalog (keyHint).
+		registry.Register(new CommandDefinition {
+			Id = SearchToggleMatchCase,
+			Title = "Search: Match Case",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Toggle case-sensitive matching for Find in Files.",
+			Aliases = ["match case", "case sensitive search", "toggle case"],
+			When = "searchPanelFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+c" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SearchToggleWholeWord,
+			Title = "Search: Whole Word",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Toggle whole-word matching for Find in Files.",
+			Aliases = ["whole word", "match whole word", "word search"],
+			When = "searchPanelFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+w" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SearchToggleRegex,
+			Title = "Search: Use Regular Expression",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Toggle regular-expression matching for Find in Files.",
+			Aliases = ["regex", "regular expression", "toggle regex"],
+			When = "searchPanelFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+r" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SearchToggleGitignore,
+			Title = "Search: Exclude Gitignored Files",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Toggle whether Find in Files skips gitignored files (on by default).",
+			Aliases = ["exclude gitignored", "gitignore", "search ignored files", "include ignored"],
+			When = "searchPanelFocused",
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+g" }],
+		});
+
+		// Result stepping works from anywhere (no When): the handlers decline when there are no results, so the
+		// chords fall through — and from the editor they walk the last search without refocusing the panel.
+		registry.Register(new CommandDefinition {
+			Id = SearchNextResult,
+			Title = "Search: Next Result",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Jump to the next Find in Files result, opening it in the editor.",
+			Aliases = ["next search result", "next match", "next result"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "f4" }],
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = SearchPrevResult,
+			Title = "Search: Previous Result",
+			RunsIn = CommandLocation.Web,
+			Category = "Search",
+			Description = "Jump to the previous Find in Files result, opening it in the editor.",
+			Aliases = ["previous search result", "previous match", "previous result"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "shift+f4" }],
 		});
 
 		// Open Folder + Open URL. Both web-handled: Open Folder posts the existing menu-action to the host's native

@@ -367,7 +367,7 @@ public sealed partial class HostCore {
 				PushFileIndexToWeb(invalidate: false);
 				break;
 			case "find-in-files":
-				_ = SearchInFilesAsync(root.GetStringOrEmpty("query"));
+				_ = SearchInFilesAsync(root);
 				break;
 			case "ready":
 				// The page's bridge listener is live; push the persisted state to restore it. Must go on `ready`, not
@@ -389,6 +389,7 @@ public sealed partial class HostCore {
 				PushRefLinkBase();
 				PushRemoteAgentsToWeb();
 				PushRailStateToWeb();
+				PushSearchStateToWeb();
 				// Re-advertise the active session's LSP catalog so a reconnect (a remote bridge drop, a refresh)
 				// rebinds language clients on fresh channels — the resync the remote path needs. Background backends
 				// are suppressed page-side, so only the active backend rebinds. See docs/specs/lsp-over-bridge.md.
@@ -495,6 +496,21 @@ public sealed partial class HostCore {
 				// The page's promoted-remote-session set changed; persist the full set it sent.
 				_railState.SetPromoted(StringArray(root, "promoted"));
 				break;
+			case "set-search-options":
+				// The find-in-files panel's match options / include-exclude globs changed; persist them (not the term).
+				_searchState.SetOptions(new GrepOptions {
+					CaseSensitive = root.GetBoolOrFalse("caseSensitive"),
+					WholeWord = root.GetBoolOrFalse("wholeWord"),
+					Regex = root.GetBoolOrFalse("regex"),
+					ExcludeGitignored = root.GetBoolOr("excludeGitignored", fallback: true),
+					Include = root.GetStringOrEmpty("include"),
+					Exclude = root.GetStringOrEmpty("exclude"),
+				});
+				break;
+			case "add-search-term":
+				// The user ran a search (opened a result / closed the panel); record the term in the MRU history.
+				_searchState.AddRecentTerm(root.GetStringOrEmpty("term"));
+				break;
 			case "log":
 				// A web-side log() (e.g. an editor-init failure): route it into the captured console stream, tagged,
 				// so it lands in the in-app log viewer as a readable line rather than raw JSON.
@@ -545,6 +561,27 @@ public sealed partial class HostCore {
 			lastLocation = _railState.LastLocation,
 			promoted = _railState.Promoted,
 		}));
+
+	/// <summary>
+	/// Pushes the persisted find-in-files state (match options + include/exclude globs + recent terms) so the
+	/// panel restores the user's last search mode and history — never the search term itself. Honored only from
+	/// the local backend (it's a local-machine file).
+	/// </summary>
+	private void PushSearchStateToWeb() {
+		var state = _searchState.Current;
+		_bridge.PostToWeb(JsonSerializer.Serialize(new {
+			type = "search-state",
+			options = new {
+				caseSensitive = state.Options.CaseSensitive,
+				wholeWord = state.Options.WholeWord,
+				regex = state.Options.Regex,
+				excludeGitignored = state.Options.ExcludeGitignored,
+				include = state.Options.Include,
+				exclude = state.Options.Exclude,
+			},
+			recentTerms = state.RecentTerms,
+		}));
+	}
 
 	/// <summary>Pushes the persisted/reconciled layout document to the web app as a compact set-layout message.</summary>
 	private void PushLayoutToWeb() {
@@ -638,46 +675,6 @@ public sealed partial class HostCore {
 					_bridge.PostToWeb(ShellProtocol.BuildFileIndex(session.FileIndex.Root, files));
 				}
 			});
-		});
-	}
-
-	/// <summary>
-	/// Runs the find-in-files content search over the active session's worktree (<c>git grep</c>) and pushes the
-	/// matches (each with a canonical absolute path so a click reuses an open tab). The query is echoed back so the
-	/// page can drop a stale reply for a query the user has typed past; an empty query clears results without git.
-	/// A git failure sets <c>error</c> so the panel says the search failed rather than reporting it as no matches.
-	/// </summary>
-	private async Task SearchInFilesAsync(string query) {
-		if (_session is not { } session) {
-			return;
-		}
-
-		string root = session.WorkspaceRoot;
-		var matches = new List<object>();
-		bool truncated = false;
-		string? error = null;
-		if (query.Length > 0) {
-			try {
-				var result = await new GitService().GrepAsync(root, query, CancellationToken.None).ConfigureAwait(false);
-				truncated = result.Truncated;
-				foreach (var m in result.Matches) {
-					matches.Add(new {
-						path = WorkspacePaths.CanonicalFsPath(Path.GetFullPath(Path.Combine(root, m.Path))),
-						line = m.Line,
-						preview = m.Preview,
-					});
-				}
-			} catch (GitException ex) {
-				error = ex.Message;
-				Log($"[weavie] find-in-files failed: {ex.Message}");
-			}
-		}
-
-		// Guard + post on the UI thread, so a slow grep can't check active, lose to a switch, and still post.
-		_ui.Post(() => {
-			if (ReferenceEquals(_session, session)) {
-				_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "find-in-files-results", query, matches, truncated, error }));
-			}
 		});
 	}
 

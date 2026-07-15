@@ -235,10 +235,14 @@ export interface EditorOptionsSpec {
  */
 export type CommentProseMode = "none" | "documentation" | "multiline" | "all";
 
-/** One find-in-files content-search hit: the file's absolute path, 1-based line, and the matched line. */
+/**
+ * One find-in-files content-search hit: the file's absolute path, the 1-based line, the 1-based UTF-16 column
+ * of the line's first match (where the editor lands), and the matched line's text.
+ */
 export interface SearchMatch {
   path: string;
   line: number;
+  column: number;
   preview: string;
 }
 
@@ -459,8 +463,19 @@ export type HostBoundMessage =
   // The omnibar asks the host to (re)send the workspace's flat file list for "Go to File".
   | { type: "request-file-index" }
   // Find-in-files: search the active session's worktree contents (git grep); the host replies with
-  // find-in-files-results echoing the query. An empty query clears results without running git.
-  | { type: "find-in-files"; query: string }
+  // find-in-files-results echoing the request `token`. An empty query clears results without running git.
+  // `include`/`exclude` are comma-separated path globs; `regex` searches as POSIX ERE instead of literally.
+  | {
+      type: "find-in-files";
+      token: number;
+      query: string;
+      caseSensitive: boolean;
+      wholeWord: boolean;
+      regex: boolean;
+      excludeGitignored: boolean;
+      include: string;
+      exclude: string;
+    }
   // Remote-agent registry (host persists, web connects). add/remove persist/forget an agent. Both target the
   // local backend, since the registry is a local-machine concept. See remote-agents.ts.
   | { type: "add-remote-agent"; name: string; url: string; token: string }
@@ -469,6 +484,19 @@ export type HostBoundMessage =
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
+  // Find-in-files sticky UI state (host-persisted in ~/.weavie/search-state.json; local backend). set-search-options
+  // persists the match mode + globs; add-search-term records a run search in the recent-terms MRU. The current
+  // query is never persisted. See search-prefs.ts.
+  | {
+      type: "set-search-options";
+      caseSensitive: boolean;
+      wholeWord: boolean;
+      regex: boolean;
+      excludeGitignored: boolean;
+      include: string;
+      exclude: string;
+    }
+  | { type: "add-search-term"; term: string }
   // Remember the provider chosen in the New Session prompt as the default (agent.defaultProvider). Always the
   // local host: the prompt's default is a local preference, independent of where the session is created.
   | { type: "set-agent-default"; providerId: "claude" | "codex" }
@@ -726,11 +754,12 @@ export type WebBoundMessage =
   // `pending` = a session switch invalidated the index and the new worktree's walk is still running: files is
   // empty and the omnibar shows a loading state instead of claiming the worktree has no files.
   | { type: "file-index"; root: string; files: string[]; pending?: boolean }
-  // Host answers find-in-files with the content-search matches, echoing the `query` so the page can drop a
-  // stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
-  // `error` ⇒ the git search failed (e.g. git unavailable); the panel shows it rather than "No results".
+  // Host answers find-in-files with the content-search matches, echoing the request `token` so the page can
+  // drop a stale reply. `truncated` ⇒ the match cap was hit and the list is incomplete (surfaced in the panel).
+  // `error` ⇒ the git search failed (e.g. a bad regex/glob); the panel shows it rather than "No results".
   | {
       type: "find-in-files-results";
+      token: number;
       query: string;
       matches: SearchMatch[];
       truncated: boolean;
@@ -761,6 +790,21 @@ export type WebBoundMessage =
   // Host pushes the persisted session-rail UI state (on `ready` and on any change, from this or another
   // window). Honored only from the local backend. See rail-state.ts.
   | { type: "rail-state"; lastLocation: string; promoted: string[] }
+  // Host pushes the persisted find-in-files state (on `ready` and on any change). Honored only from the local
+  // backend. `options` restores the match mode + globs; `recentTerms` seeds the Alt+Up/Down history. The current
+  // query is never carried. See search-prefs.ts.
+  | {
+      type: "search-state";
+      options: {
+        caseSensitive: boolean;
+        wholeWord: boolean;
+        regex: boolean;
+        excludeGitignored: boolean;
+        include: string;
+        exclude: string;
+      };
+      recentTerms: string[];
+    }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
   | { type: "run-command"; id: string; args?: unknown; token: string }
   // Reply to a tokened invoke-command: the command's outcome, routed back to the issuing client by `token`
@@ -844,7 +888,8 @@ function isSessionMessage(type: string): boolean {
     type === "prs-result" ||
     type === "pr-resolved" ||
     type === "remote-agents" ||
-    type === "rail-state"
+    type === "rail-state" ||
+    type === "search-state"
   );
 }
 

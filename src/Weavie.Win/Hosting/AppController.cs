@@ -4,6 +4,7 @@ using Weavie.Core.Configuration;
 using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
+using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Suggestions;
 using Weavie.Core.Theming;
@@ -96,6 +97,13 @@ internal sealed class AppController : ApplicationContext {
 			Console.Out.Flush();
 		};
 
+		// Find-in-files UI state (~/.weavie/search-state.json) — options + globs + recent terms; app-global.
+		SearchState = new SearchStateStore(new LocalFileSystem(), path: null);
+		SearchState.Log += line => {
+			Console.WriteLine(line);
+			Console.Out.Flush();
+		};
+
 		// Recent workspaces (~/.weavie/recents.json) drive reopen-last-on-launch and the Open Recent menu;
 		// the manager wraps them with open/focus/dedupe.
 		var recents = new RecentWorkspaces(new LocalFileSystem(), path: null);
@@ -150,6 +158,9 @@ internal sealed class AppController : ApplicationContext {
 
 	/// <summary>App-global session-rail UI state (rail-state.json), shared across windows.</summary>
 	public RailStateStore RailState { get; }
+
+	/// <summary>App-global find-in-files UI state (search-state.json), shared across windows.</summary>
+	public SearchStateStore SearchState { get; }
 
 	/// <summary>App-global captured console output (stdout/stderr), backing the in-app log viewer; one buffer per process.</summary>
 	public LogBuffer LogBuffer { get; }

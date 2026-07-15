@@ -87,9 +87,12 @@ export function activePath(): string | null {
   return session()?.active ?? null;
 }
 
-// Where to place the editor on a tab switch: reveal a 1-based line (fresh open / navigation), or restore the
-// tab's saved Monaco view state (switching back to an open tab).
-export type Placement = { line: number } | { viewState: EditorViewState | null };
+// Where to place the editor on a tab switch: reveal a 1-based line (fresh open / navigation; an optional
+// column lands the cursor mid-line, and `focus: false` reveals without stealing focus — the search panel's
+// live preview), or restore the tab's saved Monaco view state (switching back to an open tab).
+export type Placement =
+  | { line: number; column?: number; focus?: boolean }
+  | { viewState: EditorViewState | null };
 
 /// A request for the controller to show `path` placed by `placement` (the result of a store mutation that
 /// changed which tab is active).
@@ -170,10 +173,23 @@ export function flushEditorSession(): void {
 /// open promotes a preview tab. Returns the file to show + placement — `line` (> 1) wins, else saved view state.
 export function openTab(
   path: string,
-  opts: { line?: number; preview?: boolean; scratch?: boolean; kind?: "web" | "source" } = {},
+  opts: {
+    line?: number;
+    column?: number;
+    focus?: boolean;
+    preview?: boolean;
+    scratch?: boolean;
+    kind?: "web" | "source";
+  } = {},
 ): ActivateResult {
   const current = session() ?? { active: null, open: [] };
   const line = opts.line ?? 1;
+  // A column means an explicit position (a search hit can sit on line 1), so it always wins over view state.
+  const linePlacement: Placement = {
+    line,
+    ...(opts.column !== undefined ? { column: opts.column } : {}),
+    ...(opts.focus !== undefined ? { focus: opts.focus } : {}),
+  };
   // A scratch (untitled) buffer is always a persistent tab, never a preview slot.
   const scratch = opts.scratch === true;
   const preview = !scratch && opts.preview === true;
@@ -186,7 +202,10 @@ export function openTab(
         ? current.open.map((entry) => (entry === existing ? { ...entry, preview: false } : entry))
         : current.open;
     commit({ active: existing.path, open });
-    const placement: Placement = line > 1 ? { line } : { viewState: existing.viewState ?? null };
+    const placement: Placement =
+      line > 1 || opts.column !== undefined
+        ? linePlacement
+        : { viewState: existing.viewState ?? null };
     return { path: existing.path, placement };
   }
   let open: EditorSessionEntry[];
@@ -211,7 +230,7 @@ export function openTab(
     ]);
   }
   commit({ active: path, open });
-  return { path, placement: { line } };
+  return { path, placement: linePlacement };
 }
 
 /// Activates an already-open tab, restoring its saved view state. Returns null if the tab isn't open.

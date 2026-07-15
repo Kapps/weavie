@@ -12,6 +12,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Layout;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
+using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Suggestions;
@@ -45,6 +46,8 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private readonly RemoteAgentStore _remoteAgents;
 	// App-global session-rail UI state (last-used backend + promoted remote sessions); same push pattern.
 	private readonly RailStateStore _railState;
+	// App-global find-in-files UI state (match options, include/exclude globs, recent terms); same push pattern.
+	private readonly SearchStateStore _searchState;
 	// App-global captured console output (stdout/stderr teed into a bounded ring), served by the in-app log viewer.
 	private readonly LogBuffer _logBuffer;
 	// Lists open PRs for the Open-PR flow (GitHub by default; a static stub under the headless harness).
@@ -94,6 +97,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	private Action<string>? _onThemeOverridesChanged;
 	private Action? _onRemoteAgentsChanged;
 	private Action? _onRailStateChanged;
+	private Action? _onSearchStateChanged;
 	private IDisposable? _shellSettingSubscription;
 
 	/// <summary>
@@ -125,6 +129,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_agentProviders = services.AgentProviders;
 		_remoteAgents = services.RemoteAgents;
 		_railState = services.RailState;
+		_searchState = services.SearchState;
 		_logBuffer = services.LogBuffer;
 		_pullRequests = services.PullRequests;
 		_reviewComments = services.ReviewComments;
@@ -374,6 +379,10 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		_onRailStateChanged = PushRailStateToWeb;
 		_railState.Changed += _onRailStateChanged;
 
+		// Find-in-files UI state (options + globs + recent terms): same re-push-on-change.
+		_onSearchStateChanged = PushSearchStateToWeb;
+		_searchState.Changed += _onSearchStateChanged;
+
 		// Layout: when the store changes (a reconciled web edit, or an MCP setLayout), push the canonical
 		// document back so the web re-renders. Change events arrive off the UI thread.
 		_layout.Changed += _ => _ui.Post(PushLayoutToWeb);
@@ -528,6 +537,11 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onRailStateChanged is not null) {
 			_railState.Changed -= _onRailStateChanged;
 			_onRailStateChanged = null;
+		}
+
+		if (_onSearchStateChanged is not null) {
+			_searchState.Changed -= _onSearchStateChanged;
+			_onSearchStateChanged = null;
 		}
 	}
 }

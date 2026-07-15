@@ -6,6 +6,7 @@ using Weavie.Core.Diagnostics;
 using Weavie.Core.FileSystem;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
+using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Sources;
 using Weavie.Core.Suggestions;
@@ -52,6 +53,12 @@ public sealed record HostServices {
 	public required RailStateStore RailState { get; init; }
 
 	/// <summary>
+	/// The find-in-files panel's UI state (<c>~/.weavie/search-state.json</c>) — match options, include/exclude
+	/// globs, recent search terms; app-global so every window shares it and re-pushes it to its page on change.
+	/// </summary>
+	public required SearchStateStore SearchState { get; init; }
+
+	/// <summary>
 	/// Lists open pull requests for the Open-PR flow. The default talks to GitHub; the headless harness swaps a
 	/// <see cref="StaticPullRequestProvider"/> so a PR journey is deterministic and offline.
 	/// </summary>
@@ -94,6 +101,8 @@ public sealed record HostServices {
 		remoteAgents.Log += Log;
 		var railState = new RailStateStore(new LocalFileSystem(), path: null);
 		railState.Log += Log;
+		var searchState = new SearchStateStore(new LocalFileSystem(), path: null);
+		searchState.Log += Log;
 		var github = new GitHubReviewProvider(http: null, new GitHubTokenSource());
 		return new HostServices {
 			Settings = settings,
@@ -104,6 +113,7 @@ public sealed record HostServices {
 			AgentProviders = agentProviders,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
+			SearchState = searchState,
 			PullRequests = github,
 			ReviewComments = github,
 			Sources = SourceConnector.CreateDefault(),

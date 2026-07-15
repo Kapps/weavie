@@ -7,6 +7,7 @@ using Weavie.Core.FileSystem;
 using Weavie.Core.Mcp;
 using Weavie.Core.Remote;
 using Weavie.Core.Review;
+using Weavie.Core.Search;
 using Weavie.Core.Sessions;
 using Weavie.Core.Shell;
 using Weavie.Core.Terminal;
@@ -183,6 +184,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		agentProviders.Register(new FakeCodexAgentProvider());
 		var remoteAgents = new RemoteAgentStore(new LocalFileSystem(), Path.Combine(tempRoot, "remote-agents.json"));
 		var railState = new RailStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "rail-state.json"));
+		var searchState = new SearchStateStore(new LocalFileSystem(), Path.Combine(tempRoot, "search-state.json"));
 		return new HostServices {
 			Settings = settings,
 			CommandRegistry = registry,
@@ -192,6 +194,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			AgentProviders = agentProviders,
 			RemoteAgents = remoteAgents,
 			RailState = railState,
+			SearchState = searchState,
 			PullRequests = pullRequests,
 			ReviewComments = new Weavie.Core.Review.StaticPullRequestProvider([], []),
 			Sources = BuildSourceConnector(sourceHttp, sourcesDir),

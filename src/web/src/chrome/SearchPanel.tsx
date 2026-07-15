@@ -1,179 +1,126 @@
 import { ChevronDown, ChevronRight, Search, X } from "lucide-solid";
-import { createMemo, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { onHostMessage, postToHost, type SearchMatch } from "../bridge";
-
-// Debounce so each keystroke doesn't spawn a git grep; ~200ms is responsive without thrashing.
-const DEBOUNCE_MS = 200;
+import { createEffect, For, type JSX, on, onCleanup, Show } from "solid-js";
+import type { SearchMatch } from "../bridge";
+import { setContext } from "../commands/context";
+import { keyLabel } from "../commands/key-hint";
+import { CommandIds } from "../commands/types";
+import { highlightSlice } from "./highlight";
+import { SearchToggles } from "./SearchToggles";
+import { matchPositions } from "./search-model";
+import {
+  cancelPreview,
+  commitCurrentTerm,
+  cycleHistory,
+  moveAndPreview,
+  openSelected,
+  searchState as s,
+  selectMatch,
+  setGlobs,
+  setQuery,
+  toggleGroup,
+  toggleSearchOption,
+} from "./search-store";
 
 function leafName(path: string): string {
   const parts = path.split(/[\\/]/).filter((p) => p.length > 0);
   return parts.length > 0 ? (parts[parts.length - 1] ?? path) : path;
 }
 
-// Matches grouped by their file path, preserving git grep's order (files in first-seen order, lines within).
-interface FileGroup {
-  path: string;
-  matches: SearchMatch[];
-}
-
-function groupByFile(matches: SearchMatch[]): FileGroup[] {
-  const groups: FileGroup[] = [];
-  const byPath = new Map<string, FileGroup>();
-  for (const match of matches) {
-    let group = byPath.get(match.path);
-    if (group === undefined) {
-      group = { path: match.path, matches: [] };
-      byPath.set(match.path, group);
-      groups.push(group);
-    }
-    group.matches.push(match);
-  }
-  return groups;
-}
-
 /**
- * Project-wide content search (find in files): a left-docked panel with a debounced query input and the
- * matches grouped by file (line + preview per row). Click or Enter on a row jumps to that file:line via the
- * host's reveal-file; arrows move the selection, Esc closes. The host runs `git grep` over the active
- * session's worktree and replies with find-in-files-results (echoing the query, so a stale reply is dropped).
+ * Project-wide content search (find in files): a left-docked panel over the module search store. The query
+ * seeds from the editor selection; match case / whole word / regex toggle inline (their chords advertised via
+ * the catalog); include/exclude globs filter paths. Arrows live-preview the selected match without leaving the
+ * input, Enter commits (opens + focuses the editor), Esc closes. The host greps the active session's worktree.
  */
 export function SearchPanel(props: { onClose: () => void }): JSX.Element {
-  const [query, setQuery] = createSignal("");
-  const [matches, setMatches] = createSignal<SearchMatch[]>([]);
-  const [truncated, setTruncated] = createSignal(false);
-  // The git-search error (e.g. git unavailable), so a failed search isn't reported as "No results".
-  const [error, setError] = createSignal<string | null>(null);
-  // Whether a reply for the current query has arrived, so "No results" only shows once the search settled.
-  const [settled, setSettled] = createSignal(true);
-  // The selected row in the flattened match list (index into matches()); -1 when there are none.
-  const [selected, setSelected] = createSignal(0);
-  const [collapsed, setCollapsed] = createSignal<Set<string>>(new Set());
+  let root!: HTMLDivElement;
   let input!: HTMLInputElement;
   let listRef: HTMLDivElement | undefined;
-  let debounceTimer = 0;
 
-  const groups = createMemo<FileGroup[]>(() => groupByFile(matches()));
+  // Focus + select the input on mount and on every re-seed (Ctrl+Shift+F while already open).
+  createEffect(
+    on(s.seedNonce, () => {
+      input.focus();
+      input.select();
+    }),
+  );
 
-  const search = (q: string): void => {
-    const trimmed = q.trim();
-    if (trimmed.length === 0) {
-      setMatches([]);
-      setTruncated(false);
-      setError(null);
-      setSettled(true);
-      return;
-    }
-    setSettled(false);
-    postToHost({ type: "find-in-files", query: trimmed });
-  };
+  // Keep the selected row in view — for arrows and F4 stepping alike.
+  createEffect(
+    on(s.selected, () => {
+      queueMicrotask(() => {
+        listRef?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
+      });
+    }),
+  );
 
-  const onInput = (value: string): void => {
-    setQuery(value);
-    window.clearTimeout(debounceTimer);
-    debounceTimer = window.setTimeout(() => search(value), DEBOUNCE_MS);
-  };
-
-  const openMatch = (match: SearchMatch | undefined): void => {
-    if (match === undefined) {
-      return;
-    }
-    // Preview tab (single-jump), matching the omnibar/file-browser open; the editor reuses an open tab.
-    postToHost({ type: "reveal-file", path: match.path, line: match.line, preview: true });
-  };
-
-  const scrollSelectedIntoView = (): void => {
-    queueMicrotask(() => {
-      listRef?.querySelector('[data-selected="true"]')?.scrollIntoView({ block: "nearest" });
-    });
-  };
-
-  // Indices into matches() that are actually rendered (their file group is expanded). Keyboard nav moves
-  // over these, so the selection can never wander into a collapsed group and vanish off screen.
-  const visibleIndices = createMemo<number[]>(() => {
-    const hidden = collapsed();
-    const indices: number[] = [];
-    matches().forEach((match, i) => {
-      if (!hidden.has(match.path)) {
-        indices.push(i);
-      }
-    });
-    return indices;
+  onCleanup(() => {
+    setContext("searchPanelFocused", false);
+    cancelPreview();
+    // A search that ran but was never opened still counts as recent — record it as the panel closes.
+    commitCurrentTerm();
   });
-
-  const move = (delta: number): void => {
-    const visible = visibleIndices();
-    if (visible.length === 0) {
-      return;
-    }
-    setSelected((current) => {
-      const pos = visible.indexOf(current);
-      if (pos !== -1) {
-        return visible[Math.min(Math.max(pos + delta, 0), visible.length - 1)] ?? current;
-      }
-      // The selected row was hidden by a collapse: land on the nearest visible row in the move's direction.
-      return delta > 0
-        ? (visible.find((i) => i > current) ?? visible[visible.length - 1] ?? current)
-        : (visible.findLast((i) => i < current) ?? visible[0] ?? current);
-    });
-    scrollSelectedIntoView();
-  };
 
   const onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      move(1);
-    } else if (e.key === "ArrowUp") {
-      e.preventDefault();
-      move(-1);
-    } else if (e.key === "Enter") {
-      e.preventDefault();
-      // Only ever open the row the user can see; a selection hidden by a collapse must not open blind.
-      if (visibleIndices().includes(selected())) {
-        openMatch(matches()[selected()]);
-      }
-    } else if (e.key === "Escape") {
+    if (e.key === "Escape") {
       e.preventDefault();
       props.onClose();
+      return;
+    }
+    // Arrows/Enter drive the result list only from the query input — in a glob field they're plain text
+    // editing (Enter is a natural "apply", not "open the selected match").
+    if ((e.target as HTMLElement).classList.contains("search-glob")) {
+      return;
+    }
+
+    if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      // Alt+Up/Down cycle recent search terms (Up = older), leaving the plain arrows for result navigation.
+      e.preventDefault();
+      cycleHistory(e.key === "ArrowUp" ? 1 : -1);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+      e.preventDefault();
+      moveAndPreview(e.key === "ArrowDown" ? 1 : -1);
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      openSelected();
     }
   };
 
-  const toggleGroup = (path: string): void => {
-    setCollapsed((s) => {
-      const next = new Set(s);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
+  const toggle = (key: "caseSensitive" | "wholeWord" | "regex" | "excludeGitignored"): void => {
+    toggleSearchOption(key);
+    input.focus();
   };
 
-  onMount(() => {
-    input.focus();
-    const off = onHostMessage((message) => {
-      // Drop a stale reply for a query the user has since typed past (echoed query check).
-      if (message.type === "find-in-files-results" && message.query === query().trim()) {
-        setMatches(message.matches);
-        setTruncated(message.truncated);
-        setError(message.error ?? null);
-        setSettled(true);
-        setSelected(message.matches.length > 0 ? 0 : -1);
-      }
-    });
-    onCleanup(() => {
-      off();
-      window.clearTimeout(debounceTimer);
-    });
-  });
+  const summary = (): string => {
+    const count = s.matches().length;
+    const files = s.groups().length;
+    return s.truncated()
+      ? `Showing the first ${count} matches — narrow the search`
+      : `${count} ${count === 1 ? "match" : "matches"} in ${files} ${files === 1 ? "file" : "files"}`;
+  };
+
+  const highlighted = (match: SearchMatch): JSX.Element => {
+    const text = match.preview.trim();
+    const a = s.applied();
+    return highlightSlice(text, matchPositions(text, a.query, a.options), 0);
+  };
 
   return (
-    <div class="search-panel" role="search" onKeyDown={onKeyDown}>
+    <div
+      ref={root}
+      class="search-panel"
+      role="search"
+      onKeyDown={onKeyDown}
+      onFocusIn={() => setContext("searchPanelFocused", true)}
+      onFocusOut={(e) =>
+        setContext("searchPanelFocused", root.contains(e.relatedTarget as Node | null))
+      }
+    >
       <div class="search-head">
         <span class="search-title">Search</span>
         <button
           type="button"
-          class="search-close"
+          class="search-icon-btn"
           title="Close (Esc)"
           onClick={() => props.onClose()}
         >
@@ -190,62 +137,88 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
           type="text"
           spellcheck={false}
           placeholder="Search in files"
-          value={query()}
-          onInput={(e) => onInput(e.currentTarget.value)}
+          value={s.query()}
+          onInput={(e) => setQuery(e.currentTarget.value)}
+        />
+        <SearchToggles options={s.options()} onToggle={toggle} />
+      </div>
+      <div class="search-filters">
+        <input
+          class="search-glob"
+          type="text"
+          spellcheck={false}
+          placeholder="Files to include (e.g. src/, *.ts)"
+          value={s.options().include}
+          onInput={(e) => setGlobs("include", e.currentTarget.value)}
+        />
+        <input
+          class="search-glob"
+          type="text"
+          spellcheck={false}
+          placeholder="Files to exclude (e.g. *.test.ts, dist/)"
+          value={s.options().exclude}
+          onInput={(e) => setGlobs("exclude", e.currentTarget.value)}
         />
       </div>
-      <Show when={truncated()}>
-        <div class="search-truncated">
-          Showing the first {matches().length} matches — results truncated. Refine your search.
-        </div>
+      <Show when={s.error() !== null}>
+        <div class="search-error">Search failed: {s.error()}</div>
       </Show>
-      <Show when={error() !== null}>
-        <div class="search-error">Search failed: {error()}</div>
+      <Show when={s.settled() && s.error() === null && s.matches().length > 0}>
+        <div class="search-summary" classList={{ warn: s.truncated() }}>
+          {summary()}
+        </div>
       </Show>
       <div class="search-body" ref={listRef}>
         <Show
-          when={matches().length > 0}
+          when={s.matches().length > 0}
           fallback={
-            <Show when={query().trim().length > 0 && settled() && error() === null}>
-              <div class="search-empty">No results</div>
+            <Show when={s.query().trim().length > 0 && s.settled() && s.error() === null}>
+              <div class="search-empty">
+                No results
+                {s.options().include.length > 0 || s.options().exclude.length > 0
+                  ? " — check the include/exclude filters"
+                  : ""}
+              </div>
             </Show>
           }
         >
-          <For each={groups()}>
+          <For each={s.groups()}>
             {(group) => (
               <div class="search-group">
                 <button
                   type="button"
                   class="search-group-head"
+                  tabindex={-1}
                   title={group.path}
                   onClick={() => toggleGroup(group.path)}
                 >
                   <span class="search-twisty" aria-hidden="true">
-                    <Show when={collapsed().has(group.path)} fallback={<ChevronDown />}>
+                    <Show when={s.collapsed().has(group.path)} fallback={<ChevronDown />}>
                       <ChevronRight />
                     </Show>
                   </span>
                   <span class="search-group-name">{leafName(group.path)}</span>
                   <span class="search-group-count">{group.matches.length}</span>
                 </button>
-                <Show when={!collapsed().has(group.path)}>
+                <Show when={!s.collapsed().has(group.path)}>
                   <For each={group.matches}>
                     {(match) => {
-                      const index = (): number => matches().indexOf(match);
+                      const index = (): number => s.matches().indexOf(match);
                       return (
                         <button
                           type="button"
                           class="search-row"
-                          data-selected={index() === selected()}
-                          classList={{ selected: index() === selected() }}
+                          tabindex={-1}
+                          data-selected={index() === s.selected()}
+                          classList={{ selected: index() === s.selected() }}
                           onMouseDown={(e) => {
                             e.preventDefault();
-                            setSelected(index());
-                            openMatch(match);
+                            selectMatch(index());
+                            openSelected();
                           }}
                         >
                           <span class="search-row-line">{match.line}</span>
-                          <span class="search-row-preview">{match.preview.trim()}</span>
+                          <span class="search-row-preview">{highlighted(match)}</span>
                         </button>
                       );
                     }}
@@ -255,6 +228,20 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
             )}
           </For>
         </Show>
+      </div>
+      <div class="search-hints">
+        <span>
+          <kbd>↑↓</kbd> preview
+        </span>
+        <span>
+          <kbd>Alt+↑↓</kbd> history
+        </span>
+        <span>
+          <kbd>Enter</kbd> open
+        </span>
+        <span>
+          <kbd>{keyLabel(CommandIds.searchNextResult)}</kbd> from editor
+        </span>
       </div>
     </div>
   );

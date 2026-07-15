@@ -22,10 +22,15 @@ public static class JsonElementExtensions {
 
 	/// <summary>The boolean value of <paramref name="name"/>, or <c>false</c> if absent/not a boolean.</summary>
 	public static bool GetBoolOrFalse(this JsonElement element, string name) =>
+		element.GetBoolOr(name, fallback: false);
+
+	/// <summary>The boolean value of <paramref name="name"/>, or <paramref name="fallback"/> if absent/not a boolean.</summary>
+	public static bool GetBoolOr(this JsonElement element, string name, bool fallback) =>
 		element.ValueKind == JsonValueKind.Object
 		&& element.TryGetProperty(name, out var value)
 		&& value.ValueKind is JsonValueKind.True or JsonValueKind.False
-		&& value.GetBoolean();
+			? value.GetBoolean()
+			: fallback;
 
 	/// <summary>The int value of <paramref name="name"/>, or <paramref name="fallback"/> if absent/not a number.</summary>
 	public static int GetIntOr(this JsonElement element, string name, int fallback) =>

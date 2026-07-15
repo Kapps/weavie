@@ -48,6 +48,12 @@ import { lastLocation, promoteNextSessionOn, setLastLocation } from "./chrome/ra
 import { agentBackendId, removeAgent } from "./chrome/remote-agents";
 import { SessionRail } from "./chrome/SessionRail";
 import { SourceTokenPrompt } from "./chrome/SourceTokenPrompt";
+import {
+  seedSearch,
+  setSearchOpener,
+  stepSearchResult,
+  toggleSearchOption,
+} from "./chrome/search-store";
 // Top-level import keeps the session store out of any hot-swapping component so the rail + active-session
 // status survive HMR.
 import {
@@ -352,6 +358,8 @@ export default function App(): JSX.Element {
     confirm,
     promptScratchName,
   });
+  // Find-in-files results open through the editor controller (preview tab, cursor on the match's column).
+  setSearchOpener((match, focus) => editor.openMatch(match.path, match.line, match.column, focus));
 
   // Bring the editor up once, deferred one frame past the first terminal paint so the splash-removed shell
   // reveals before the multi-MB editor chunk's eval + Monaco creation jams the main thread. Idempotent: both
@@ -1020,8 +1028,29 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.focusOmnibarCommands, () => focusOmnibar("command")),
       registerCommand(CommandIds.goToSymbol, () => focusOmnibar("docSymbol")),
       registerCommand(CommandIds.goToWorkspaceSymbol, () => focusOmnibar("wsSymbol")),
-      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel (it focuses its input on mount).
-      registerCommand(CommandIds.findInFiles, () => setSearchOpen(true)),
+      // Find in Files (Ctrl+Shift+F / palette): open the content-search panel seeded from the editor selection
+      // (re-invoking while open re-seeds + refocuses the input).
+      registerCommand(CommandIds.findInFiles, () => {
+        seedSearch(editor.selectionText());
+        setSearchOpen(true);
+      }),
+      // The panel's option toggles (searchPanelFocused-gated chords; visible-panel-gated here so a palette run
+      // with the panel closed falls through instead of flipping hidden state).
+      registerCommand(CommandIds.searchToggleMatchCase, () =>
+        searchOpen() ? toggleSearchOption("caseSensitive") : false,
+      ),
+      registerCommand(CommandIds.searchToggleWholeWord, () =>
+        searchOpen() ? toggleSearchOption("wholeWord") : false,
+      ),
+      registerCommand(CommandIds.searchToggleRegex, () =>
+        searchOpen() ? toggleSearchOption("regex") : false,
+      ),
+      registerCommand(CommandIds.searchToggleGitignore, () =>
+        searchOpen() ? toggleSearchOption("excludeGitignored") : false,
+      ),
+      // F4 / Shift+F4 step the last search's results from anywhere; they decline (fall through) with none.
+      registerCommand(CommandIds.searchNextResult, () => stepSearchResult(1)),
+      registerCommand(CommandIds.searchPrevResult, () => stepSearchResult(-1)),
 
       // Notion block editing (source-edit.ts): the handlers return false when no source block/edit is live, so
       // the plain Enter/Escape chords fall through everywhere else.
@@ -1490,7 +1519,12 @@ export default function App(): JSX.Element {
       </Show>
       <Show when={searchOpen()}>
         <Suspense>
-          <SearchPanel onClose={() => setSearchOpen(false)} />
+          <SearchPanel
+            onClose={() => {
+              setSearchOpen(false);
+              editor.focusEditor();
+            }}
+          />
         </Suspense>
       </Show>
       <Toasts

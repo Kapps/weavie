@@ -39,6 +39,7 @@ import { currentMonacoTheme, onMonacoThemeChanged } from "../theme";
 import { applyMonacoTheme } from "../theme/monaco-theme";
 import { registerBroadGrammars } from "./grammars/register-broad-grammars";
 import { installHostFileProvider } from "./host-file-provider";
+import { getNotificationServiceOverride } from "./notification-service";
 
 declare global {
   interface Window {
@@ -135,6 +136,9 @@ async function doInit(): Promise<void> {
     ...getModelServiceOverride(),
     ...getEditorServiceOverride(openEditor),
     ...getFileServiceOverride(),
+    // Route Monaco's INotificationService (failed rename / code action) to Weavie toasts; the standalone
+    // default only logs to the console, leaving a failed refactor invisible.
+    ...getNotificationServiceOverride(),
   });
 
   // Front `file://` with the host-backed provider, after initialize() and before any model resolves.

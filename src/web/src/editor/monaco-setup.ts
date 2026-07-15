@@ -78,6 +78,9 @@ export function createEditor(container: HTMLElement): monaco.editor.IStandaloneC
   // Publish the live editor for e2e / diagnostics introspection (read-only); a rebuild overwrites it. See
   // global.d.ts.
   window.__WEAVIE_EDITOR__ = editor;
+  // Publish the monaco namespace too, so e2e can register the LSP-backed providers (rename, code actions) the
+  // harness has no language server to supply — the only way to drive those UX paths deterministically.
+  window.__WEAVIE_MONACO__ = monaco;
   return editor;
 }
 

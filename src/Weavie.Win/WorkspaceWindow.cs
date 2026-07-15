@@ -89,6 +89,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 			AgentProviders = agentProviders,
 			RemoteAgents = _app.RemoteAgents,
 			RailState = _app.RailState,
+			SearchState = _app.SearchState,
 			PullRequests = github,
 			ReviewComments = github,
 			Sources = Weavie.Core.Sources.SourceConnector.CreateDefault(),

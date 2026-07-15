@@ -6,7 +6,14 @@ namespace Weavie.Core.Tests;
 /// <summary>Tests for the pure <see cref="GitGrep"/> layer: flag/pathspec mapping and the <c>-z --column</c> parser.</summary>
 public sealed class GitGrepTests {
 	private static GrepOptions Options() =>
-		new() { CaseSensitive = false, WholeWord = false, Regex = false, Include = "", Exclude = "" };
+		new() {
+			CaseSensitive = false,
+			WholeWord = false,
+			Regex = false,
+			Include = "",
+			Exclude = "",
+			ExcludeGitignored = true,
+		};
 
 	/// <summary>One <c>git grep -n --column -z</c> output record: <c>path NUL line NUL column NUL text NL</c>.</summary>
 	private static string Row(string path, string line, string column, string text) =>
@@ -25,6 +32,15 @@ public sealed class GitGrepTests {
 		var args = GitGrep.BuildArgs("foo", Options() with { CaseSensitive = true, WholeWord = true, Regex = true });
 
 		Assert.Equal(["grep", "-n", "--column", "-z", "-I", "--no-color", "--untracked", "-E", "-w", "-e", "foo", "--"], args);
+	}
+
+	[Fact]
+	public void BuildArgs_ExcludeGitignoredOff_AddsNoExcludeStandard() {
+		var on = GitGrep.BuildArgs("foo", Options());
+		var off = GitGrep.BuildArgs("foo", Options() with { ExcludeGitignored = false });
+
+		Assert.DoesNotContain("--no-exclude-standard", on);
+		Assert.Contains("--no-exclude-standard", off);
 	}
 
 	[Fact]

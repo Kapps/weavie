@@ -21,6 +21,12 @@ public static class GitGrep {
 		ArgumentNullException.ThrowIfNull(query);
 		ArgumentNullException.ThrowIfNull(options);
 		var args = new List<string> { "grep", "-n", "--column", "-z", "-I", "--no-color", "--untracked" };
+		if (!options.ExcludeGitignored) {
+			// --untracked already searches untracked-but-not-ignored files; --no-exclude-standard drops the
+			// ignore rules on top, so gitignored files (node_modules, build output) are searched too.
+			args.Add("--no-exclude-standard");
+		}
+
 		args.Add(options.Regex ? "-E" : "-F");
 		if (!options.CaseSensitive) {
 			args.Add("-i");

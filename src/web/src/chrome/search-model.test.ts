@@ -14,6 +14,7 @@ const opts = (over: Partial<SearchOptions>): SearchOptions => ({
   caseSensitive: false,
   wholeWord: false,
   regex: false,
+  excludeGitignored: true,
   include: "",
   exclude: "",
   ...over,

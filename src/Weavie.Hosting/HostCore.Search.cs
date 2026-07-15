@@ -29,6 +29,7 @@ public sealed partial class HostCore {
 			Regex = root.GetBoolOrFalse("regex"),
 			Include = root.GetStringOrEmpty("include"),
 			Exclude = root.GetStringOrEmpty("exclude"),
+			ExcludeGitignored = root.GetBoolOr("excludeGitignored", fallback: true),
 		};
 		string workspaceRoot = session.WorkspaceRoot;
 		var matches = new List<object>();

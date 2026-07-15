@@ -1,22 +1,16 @@
-import {
-  CaseSensitive,
-  ChevronDown,
-  ChevronRight,
-  ListFilter,
-  Regex,
-  Search,
-  WholeWord,
-  X,
-} from "lucide-solid";
+import { ChevronDown, ChevronRight, Search, X } from "lucide-solid";
 import { createEffect, For, type JSX, on, onCleanup, Show } from "solid-js";
 import type { SearchMatch } from "../bridge";
 import { setContext } from "../commands/context";
-import { keyHint, keyLabel } from "../commands/key-hint";
+import { keyLabel } from "../commands/key-hint";
 import { CommandIds } from "../commands/types";
 import { highlightSlice } from "./highlight";
+import { SearchToggles } from "./SearchToggles";
 import { matchPositions } from "./search-model";
 import {
   cancelPreview,
+  commitCurrentTerm,
+  cycleHistory,
   moveAndPreview,
   openSelected,
   searchState as s,
@@ -24,7 +18,6 @@ import {
   setGlobs,
   setQuery,
   toggleGroup,
-  toggleSearchFilters,
   toggleSearchOption,
 } from "./search-store";
 
@@ -64,6 +57,8 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
   onCleanup(() => {
     setContext("searchPanelFocused", false);
     cancelPreview();
+    // A search that ran but was never opened still counts as recent — record it as the panel closes.
+    commitCurrentTerm();
   });
 
   const onKeyDown = (e: KeyboardEvent): void => {
@@ -78,7 +73,11 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
       return;
     }
 
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (e.altKey && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+      // Alt+Up/Down cycle recent search terms (Up = older), leaving the plain arrows for result navigation.
+      e.preventDefault();
+      cycleHistory(e.key === "ArrowUp" ? 1 : -1);
+    } else if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       moveAndPreview(e.key === "ArrowDown" ? 1 : -1);
     } else if (e.key === "Enter") {
@@ -87,14 +86,10 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
     }
   };
 
-  const toggle = (key: "caseSensitive" | "wholeWord" | "regex"): void => {
+  const toggle = (key: "caseSensitive" | "wholeWord" | "regex" | "excludeGitignored"): void => {
     toggleSearchOption(key);
     input.focus();
   };
-
-  // The filter row stays visible while a glob is set, so an active filter is never hidden state.
-  const filtersVisible = (): boolean =>
-    s.filtersOpen() || s.options().include.length > 0 || s.options().exclude.length > 0;
 
   const summary = (): string => {
     const count = s.matches().length;
@@ -123,29 +118,14 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
     >
       <div class="search-head">
         <span class="search-title">Search</span>
-        <span class="search-head-actions">
-          <button
-            type="button"
-            class="search-icon-btn"
-            classList={{ active: filtersVisible() }}
-            aria-pressed={filtersVisible()}
-            title={`Files to include/exclude${keyHint(CommandIds.searchToggleFilters)}`}
-            onClick={() => {
-              toggleSearchFilters();
-              input.focus();
-            }}
-          >
-            <ListFilter />
-          </button>
-          <button
-            type="button"
-            class="search-icon-btn"
-            title="Close (Esc)"
-            onClick={() => props.onClose()}
-          >
-            <X />
-          </button>
-        </span>
+        <button
+          type="button"
+          class="search-icon-btn"
+          title="Close (Esc)"
+          onClick={() => props.onClose()}
+        >
+          <X />
+        </button>
       </div>
       <div class="search-input-row">
         <span class="search-input-icon" aria-hidden="true">
@@ -160,59 +140,26 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
           value={s.query()}
           onInput={(e) => setQuery(e.currentTarget.value)}
         />
-        <span class="search-toggles">
-          <button
-            type="button"
-            class="search-toggle"
-            classList={{ active: s.options().caseSensitive }}
-            aria-pressed={s.options().caseSensitive}
-            title={`Match case${keyHint(CommandIds.searchToggleMatchCase)}`}
-            onClick={() => toggle("caseSensitive")}
-          >
-            <CaseSensitive />
-          </button>
-          <button
-            type="button"
-            class="search-toggle"
-            classList={{ active: s.options().wholeWord }}
-            aria-pressed={s.options().wholeWord}
-            title={`Whole word${keyHint(CommandIds.searchToggleWholeWord)}`}
-            onClick={() => toggle("wholeWord")}
-          >
-            <WholeWord />
-          </button>
-          <button
-            type="button"
-            class="search-toggle"
-            classList={{ active: s.options().regex }}
-            aria-pressed={s.options().regex}
-            title={`Use regular expression${keyHint(CommandIds.searchToggleRegex)}`}
-            onClick={() => toggle("regex")}
-          >
-            <Regex />
-          </button>
-        </span>
+        <SearchToggles options={s.options()} onToggle={toggle} />
       </div>
-      <Show when={filtersVisible()}>
-        <div class="search-filters">
-          <input
-            class="search-glob"
-            type="text"
-            spellcheck={false}
-            placeholder="Files to include (e.g. src/, *.ts)"
-            value={s.options().include}
-            onInput={(e) => setGlobs("include", e.currentTarget.value)}
-          />
-          <input
-            class="search-glob"
-            type="text"
-            spellcheck={false}
-            placeholder="Files to exclude (e.g. *.test.ts, dist/)"
-            value={s.options().exclude}
-            onInput={(e) => setGlobs("exclude", e.currentTarget.value)}
-          />
-        </div>
-      </Show>
+      <div class="search-filters">
+        <input
+          class="search-glob"
+          type="text"
+          spellcheck={false}
+          placeholder="Files to include (e.g. src/, *.ts)"
+          value={s.options().include}
+          onInput={(e) => setGlobs("include", e.currentTarget.value)}
+        />
+        <input
+          class="search-glob"
+          type="text"
+          spellcheck={false}
+          placeholder="Files to exclude (e.g. *.test.ts, dist/)"
+          value={s.options().exclude}
+          onInput={(e) => setGlobs("exclude", e.currentTarget.value)}
+        />
+      </div>
       <Show when={s.error() !== null}>
         <div class="search-error">Search failed: {s.error()}</div>
       </Show>
@@ -287,13 +234,13 @@ export function SearchPanel(props: { onClose: () => void }): JSX.Element {
           <kbd>↑↓</kbd> preview
         </span>
         <span>
+          <kbd>Alt+↑↓</kbd> history
+        </span>
+        <span>
           <kbd>Enter</kbd> open
         </span>
         <span>
-          <kbd>{keyLabel(CommandIds.searchNextResult)}</kbd> next from editor
-        </span>
-        <span>
-          <kbd>Esc</kbd> close
+          <kbd>{keyLabel(CommandIds.searchNextResult)}</kbd> from editor
         </span>
       </div>
     </div>

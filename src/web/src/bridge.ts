@@ -472,6 +472,7 @@ export type HostBoundMessage =
       caseSensitive: boolean;
       wholeWord: boolean;
       regex: boolean;
+      excludeGitignored: boolean;
       include: string;
       exclude: string;
     }
@@ -483,6 +484,19 @@ export type HostBoundMessage =
   // set-last-location remembers where the last session was created; set-promoted carries the promoted set.
   | { type: "set-last-location"; location: string }
   | { type: "set-promoted"; promoted: string[] }
+  // Find-in-files sticky UI state (host-persisted in ~/.weavie/search-state.json; local backend). set-search-options
+  // persists the match mode + globs; add-search-term records a run search in the recent-terms MRU. The current
+  // query is never persisted. See search-prefs.ts.
+  | {
+      type: "set-search-options";
+      caseSensitive: boolean;
+      wholeWord: boolean;
+      regex: boolean;
+      excludeGitignored: boolean;
+      include: string;
+      exclude: string;
+    }
+  | { type: "add-search-term"; term: string }
   // Remember the provider chosen in the New Session prompt as the default (agent.defaultProvider). Always the
   // local host: the prompt's default is a local preference, independent of where the session is created.
   | { type: "set-agent-default"; providerId: "claude" | "codex" }
@@ -776,6 +790,21 @@ export type WebBoundMessage =
   // Host pushes the persisted session-rail UI state (on `ready` and on any change, from this or another
   // window). Honored only from the local backend. See rail-state.ts.
   | { type: "rail-state"; lastLocation: string; promoted: string[] }
+  // Host pushes the persisted find-in-files state (on `ready` and on any change). Honored only from the local
+  // backend. `options` restores the match mode + globs; `recentTerms` seeds the Alt+Up/Down history. The current
+  // query is never carried. See search-prefs.ts.
+  | {
+      type: "search-state";
+      options: {
+        caseSensitive: boolean;
+        wholeWord: boolean;
+        regex: boolean;
+        excludeGitignored: boolean;
+        include: string;
+        exclude: string;
+      };
+      recentTerms: string[];
+    }
   // Host asks the web to run a web command Claude invoked over MCP; the web replies with command-ack.
   | { type: "run-command"; id: string; args?: unknown; token: string }
   // Reply to a tokened invoke-command: the command's outcome, routed back to the issuing client by `token`
@@ -859,7 +888,8 @@ function isSessionMessage(type: string): boolean {
     type === "prs-result" ||
     type === "pr-resolved" ||
     type === "remote-agents" ||
-    type === "rail-state"
+    type === "rail-state" ||
+    type === "search-state"
   );
 }
 

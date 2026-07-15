@@ -5,6 +5,7 @@ export interface SearchOptions {
   caseSensitive: boolean;
   wholeWord: boolean;
   regex: boolean;
+  excludeGitignored: boolean;
   include: string;
   exclude: string;
 }

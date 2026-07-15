@@ -52,7 +52,6 @@ import {
   seedSearch,
   setSearchOpener,
   stepSearchResult,
-  toggleSearchFilters,
   toggleSearchOption,
 } from "./chrome/search-store";
 // Top-level import keeps the session store out of any hot-swapping component so the rail + active-session
@@ -1046,8 +1045,8 @@ export default function App(): JSX.Element {
       registerCommand(CommandIds.searchToggleRegex, () =>
         searchOpen() ? toggleSearchOption("regex") : false,
       ),
-      registerCommand(CommandIds.searchToggleFilters, () =>
-        searchOpen() ? toggleSearchFilters() : false,
+      registerCommand(CommandIds.searchToggleGitignore, () =>
+        searchOpen() ? toggleSearchOption("excludeGitignored") : false,
       ),
       // F4 / Shift+F4 step the last search's results from anywhere; they decline (fall through) with none.
       registerCommand(CommandIds.searchNextResult, () => stepSearchResult(1)),

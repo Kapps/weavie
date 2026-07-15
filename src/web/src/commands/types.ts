@@ -58,7 +58,7 @@ export const CommandIds = {
   searchToggleMatchCase: "weavie.search.toggleMatchCase",
   searchToggleWholeWord: "weavie.search.toggleWholeWord",
   searchToggleRegex: "weavie.search.toggleRegex",
-  searchToggleFilters: "weavie.search.toggleFilters",
+  searchToggleGitignore: "weavie.search.toggleGitignore",
   searchNextResult: "weavie.search.nextResult",
   searchPrevResult: "weavie.search.prevResult",
   reopenTerminal: "weavie.terminal.reopen",

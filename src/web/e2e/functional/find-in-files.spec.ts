@@ -133,11 +133,10 @@ test("match-case / whole-word / regex chords and include-exclude globs shape the
   await expect(page.locator(".search-error")).toContainText("Search failed");
   await page.keyboard.press("Alt+r");
 
-  // Include/exclude globs (row toggled by its chord): include *.ts drops README.md; excluding hello.ts
+  // Include/exclude globs (always visible — no toggle): include *.ts drops README.md; excluding hello.ts
   // then empties it, since the include already narrowed to that one file.
   await input.fill("Hello");
   await expect(groups.filter({ hasText: "README.md" })).toHaveCount(1);
-  await page.keyboard.press("ControlOrMeta+Shift+j");
   const include = page.locator(".search-glob").nth(0);
   const exclude = page.locator(".search-glob").nth(1);
   await expect(include).toBeVisible();

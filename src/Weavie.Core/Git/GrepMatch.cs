@@ -31,6 +31,9 @@ public sealed record GrepOptions {
 
 	/// <summary>Comma-separated path globs to skip (each becomes a <c>:(exclude)</c> pathspec); empty skips nothing.</summary>
 	public required string Exclude { get; init; }
+
+	/// <summary>Skip gitignored files (the git-grep default); off searches them too (<c>--no-exclude-standard</c>).</summary>
+	public required bool ExcludeGitignored { get; init; }
 }
 
 /// <summary>The result of a content search: its matches and whether they were capped (more existed than returned).</summary>

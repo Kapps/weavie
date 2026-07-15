@@ -41,8 +41,8 @@ public static class CoreCommands {
 	/// <summary>Toggles the search panel's Regular Expression option; bound to <c>alt+r</c> while the panel is focused.</summary>
 	public const string SearchToggleRegex = "weavie.search.toggleRegex";
 
-	/// <summary>Toggles the search panel's files-to-include/exclude filter row; bound to <c>$mod+Shift+j</c> while the panel is focused.</summary>
-	public const string SearchToggleFilters = "weavie.search.toggleFilters";
+	/// <summary>Toggles whether the search excludes gitignored files; bound to <c>alt+g</c> while the panel is focused.</summary>
+	public const string SearchToggleGitignore = "weavie.search.toggleGitignore";
 
 	/// <summary>Jumps to the next find-in-files result (opens it in the editor); bound to <c>F4</c>.</summary>
 	public const string SearchNextResult = "weavie.search.nextResult";
@@ -445,14 +445,14 @@ public static class CoreCommands {
 		});
 
 		registry.Register(new CommandDefinition {
-			Id = SearchToggleFilters,
-			Title = "Search: Files to Include/Exclude",
+			Id = SearchToggleGitignore,
+			Title = "Search: Exclude Gitignored Files",
 			RunsIn = CommandLocation.Web,
 			Category = "Search",
-			Description = "Show or hide the Find in Files include/exclude glob filters.",
-			Aliases = ["search filters", "files to include", "files to exclude", "search details"],
+			Description = "Toggle whether Find in Files skips gitignored files (on by default).",
+			Aliases = ["exclude gitignored", "gitignore", "search ignored files", "include ignored"],
 			When = "searchPanelFocused",
-			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+Shift+j" }],
+			DefaultKeybindings = [new CommandKeybinding { Key = "alt+g" }],
 		});
 
 		// Result stepping works from anywhere (no When): the handlers decline when there are no results, so the

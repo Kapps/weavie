@@ -114,6 +114,15 @@ jobs:
       # Each version's real install is a plain directory (e.g. Xcode_26.6.app); the runner also adds
       # symlink aliases (e.g. Xcode_26.6.0.app) that don't resolve their nested SDK path, so restrict
       # to -type d to land on the real bundle.
+      #
+      # Known flake: 2026-07-14 ~21:40-23:17 UTC, `test (macos)` failed at Build with "requires Xcode
+      # 26.6. The current version of Xcode is 26.5" on runs
+      # https://github.com/Kapps/weavie/actions/runs/29370399377 and
+      # https://github.com/Kapps/weavie/actions/runs/29371814577 — even after this step landed (PR
+      # #389), because the drawn runner instance had no Xcode 26.6 install at all, not just a stale
+      # default. Nothing to select in that case; not a code defect. Self-resolved once GitHub's
+      # macos-26 runner fleet finished rolling out Xcode 26.6 (green again from run 29379809555,
+      # 2026-07-15T00:43:26Z on).
       - name: Select latest Xcode
         if: matrix.name == 'macos'
         run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"

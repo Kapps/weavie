@@ -148,6 +148,14 @@ jobs:
       # 26.5.10301 needs Xcode 26.6, but the image defaults to 26.5). Both ship side-by-side on the
       # runner, so select the newest installed one rather than a version pinned here that would
       # itself go stale the next time the workload's requirement moves. See ci.yml.
+      #
+      # Known flake: 2026-07-14 22:37-23:17 UTC, `publish (osx-arm64)` failed at Publish with the same
+      # Xcode 26.6/26.5 mismatch on runs
+      # https://github.com/Kapps/weavie/actions/runs/29373579290 and
+      # https://github.com/Kapps/weavie/actions/runs/29375700623 — the drawn runner had no Xcode 26.6
+      # install to select, so this step's mitigation had nothing to work with; not a code defect.
+      # Self-resolved once GitHub's macos-26 runner fleet finished rolling out Xcode 26.6 (green again
+      # from run 29378950147, 2026-07-15T00:24:25Z on).
       - name: Select latest Xcode
         if: matrix.name == 'osx-arm64'
         run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"

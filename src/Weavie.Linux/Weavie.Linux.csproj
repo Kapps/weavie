@@ -5,6 +5,8 @@
          P/Invoke resolved at runtime, so no Linux-specific TFM or workload is needed to build. -->
     <TargetFramework>net10.0</TargetFramework>
     <OutputType>Exe</OutputType>
+    <!-- The shipped app is just "Weavie" — the per-OS shell is an implementation detail, not the binary name. -->
+    <AssemblyName>Weavie</AssemblyName>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <!-- The source-generated LibraryImport marshalling stubs (GTK/WebKit/GLib P/Invoke) require unsafe. -->

@@ -94,6 +94,11 @@ The runner polls the Releases API for a build number above its staged-latest, ho
   `current` runs that version until someone extracts a newer tarball or restarts it — workers
   spawn from its co-located `worker/` via the existing probe, unchanged. The flag only adds the
   poller on top of the same layout.
+- The release tarball intentionally has no mutable `state.json`. On first open, the runner validates
+  and adopts the build selected by `current`; `current` is also authoritative after a crash between
+  its swap and the state write. Version directories are immutable: staging reuses an existing build
+  only when its manifest and worker are valid, and never deletes it. The `current` symlink itself is
+  replaced with an atomic rename.
 - Downloads land in a temp dir and move into `versions/<N>/` only after the asset digest verifies
   against the API's `digest` field — never a partially-extracted version dir.
 - **Workers are always spawned from a concrete, resolved version path** — never through the
@@ -134,7 +139,8 @@ across the swap.
    *update-pending* state to connected clients.
 3. **Drain**: the runner requests drain on a token-gated worker control endpoint. The worker owns
    the gate, and draining never asks the user to confirm anything — updates apply automatically at
-   the first quiet moment. It has two phases:
+   the first quiet moment. A startup `503` from the worker is retryable: the process is running but
+   its Core graph is not ready to drain yet. It has two phases:
    - **Pending** — the box is busy. Everything keeps working normally; new prompts are allowed and
      simply extend the wait. A passive *update pending* indicator names what is holding the update.
      There is **no drain timeout** — a busy box holds the update until quiet, and *restart now* (a
@@ -178,6 +184,8 @@ across the swap.
    `Idle`, and `Start()` runs again from there — but the update path must go **`Stop()` →
    `Start()`**: only `Stop()` clears the crash-history window, and a rollback that skips it would
    inherit the bad version's crashes and insta-trip the breaker on the known-good version.
+   The drain callback signals the Generic Host's `ApplicationStopping`; Headless's lifetime wait
+   must drive `StopAsync` through `ApplicationStopped` so the worker process can actually exit.
 5. **Confirm**: the runner probes the worker's control endpoint, which reports its `BuildNumber`;
    the number answering marks that version confirmed-good in `state.json`. (The runner never speaks
    the bridge, so confirmation is an HTTP probe, not a WS handshake.) Confirmation means "boots and
@@ -209,9 +217,13 @@ across the swap.
   rollback is a loud event — picker page and update UI, not a log line.
 - **Download/verify failure**: staged state is unchanged; the failure is surfaced on the picker
   page and the next poll retries.
-- **A runner restarted mid-update** (staged ≠ confirmed at boot) re-runs the apply flow at startup,
-  so the confirm/rollback machinery also covers a bad build spawned by a fresh runner — the swap is
-  always watched by known-good code.
+- **A runner restarted mid-update** (staged ≠ confirmed at boot) *confirms* the worker it already
+  spawned from the staged version — it does **not** drain or restart it. `Ensure()` launched that
+  worker straight from `current`, so there is no old build to swap away from; draining an
+  already-staged worker would only hold it hostage to a busy session, never confirm, and re-hang the
+  same recovery on every restart. Only the confirm/rollback machinery runs, so a bad build spawned by
+  a fresh runner is still caught. (A drain-and-swap is for the runtime path, where a genuinely newer
+  build is staged while an old worker serves.)
 - **The tab cannot report a dead worker**: if the rollback build also fails to start, connected
   tabs have no server left to learn from (the overlay persists over the reconnect loop); the truth
   lives on the picker page, which names the failure.

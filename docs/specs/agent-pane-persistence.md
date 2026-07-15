@@ -18,6 +18,10 @@ gap is the bug:
   its `ready` → `ReplayPane` fires *before* the async resume/hydration lands. There is nothing in the
   in-memory buffer to replay yet, so the pane is empty — restore was gated on a network round-trip the
   reconnect lost the race to.
+- **Connect to a background remote backend** loses its otherwise-correct `ready` replay at the browser's
+  active-backend gate. Selecting that backend must project the transcript again after the gate admits it.
+- **Initial native connect** can answer `ready` synchronously, so the page must mount its transcript listener
+  before announcing that it is ready for replay.
 
 `HydrateTranscript` alone cannot fix the reconnect case: the resume is inherently async.
 
@@ -35,6 +39,11 @@ snapshot synchronously, in the constructor** — before `Start()`, before any re
 page's `ReplayPane` always has the prior output to replay immediately, independent of the async resume.
 It appends each durable message on publish, and on a `transcript-reset` it clears the buffer *and* the
 persisted file.
+
+`AgentSessionHost.ReplayState` projects the pane and controls at both authoritative browser-binding points:
+the page's `ready` replay and `HostCore.SwitchToSlot`. The page sends its initial `ready` only after `App`
+mounts, so a synchronous native reply has a listener. Background remote traffic stays isolated; selecting
+that backend replays its retained state after it becomes active instead of admitting cross-backend frames.
 
 The two mechanisms are complementary, not redundant:
 

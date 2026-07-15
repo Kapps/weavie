@@ -79,10 +79,19 @@ public sealed class SessionManager : IAsyncDisposable {
 			ActiveSlot = null;
 		}
 
+		var failures = new List<Exception>();
 		foreach (var slot in snapshot) {
 			if (slot.Session is { } session) {
-				await session.DisposeAsync().ConfigureAwait(false);
+				try {
+					await session.DisposeAsync().ConfigureAwait(false);
+				} catch (Exception ex) {
+					failures.Add(ex);
+				}
 			}
+		}
+
+		if (failures.Count > 0) {
+			throw new AggregateException("One or more sessions failed to shut down.", failures);
 		}
 	}
 }

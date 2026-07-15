@@ -12,7 +12,7 @@ public sealed record AgentControlOption {
 	public string? Description { get; init; }
 }
 
-/// <summary>One adjustable control on a session (approvals, sandbox) with its current value and choices.</summary>
+/// <summary>One adjustable control on a session (mode, approvals, sandbox) with its current value and choices.</summary>
 public sealed record AgentControlAxis {
 	/// <summary>The provider-opaque axis key the web echoes back verbatim (e.g. <c>sandbox</c>).</summary>
 	public required string Id { get; init; }
@@ -28,6 +28,9 @@ public sealed record AgentControlAxis {
 
 	/// <summary>The choices offered when the axis is opened.</summary>
 	public required IReadOnlyList<AgentControlOption> Options { get; init; }
+
+	/// <summary>The command that operates this axis, used to advertise its effective keybinding.</summary>
+	public string? CommandId { get; init; }
 }
 
 /// <summary>One model in the combined model control, with the reasoning efforts and Fast state it offers.</summary>
@@ -95,7 +98,7 @@ public sealed record AgentControlState {
 	/// <summary>The merged model / effort / Fast control shown first in the status line.</summary>
 	public required AgentModelControl ModelControl { get; init; }
 
-	/// <summary>The remaining adjustable control axes (approvals, sandbox) shown in the composer status line.</summary>
+	/// <summary>The remaining adjustable control axes (mode, approvals, sandbox) shown in the composer status line.</summary>
 	public required IReadOnlyList<AgentControlAxis> Axes { get; init; }
 
 	/// <summary>The slash-menu entries offered when the composer starts with a slash.</summary>

@@ -196,6 +196,80 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
+	public void ProgressiveTypingOverOneAgentHunk_CoalescesToOneCorrection() {
+		// The user types their replacement over an agent line; autosave fires on every keystroke-pause, so each
+		// intermediate state reaches RecordHandEdit. Those are one correction, not five — they must coalesce into a
+		// single agent → final-text entry rather than piling up the intermediate states.
+		Boundary("p1");
+		AgentEdit("app.cs", "agent line\n");
+		HandEdit("app.cs", "u\n");
+		HandEdit("app.cs", "us\n");
+		HandEdit("app.cs", "use\n");
+		HandEdit("app.cs", "user\n");
+
+		var record = Assert.Single(_corpus.ReadAll());
+		Assert.Equal("p1", record.Prompt);
+		var file = Assert.Single(record.Files);
+		Assert.Contains("-agent line", file.Delta, StringComparison.Ordinal); // anchored at the original agent text …
+		Assert.Contains("+user", file.Delta, StringComparison.Ordinal); // … through to the final content
+		Assert.DoesNotContain("+us\n", file.Delta, StringComparison.Ordinal); // no intermediate keystroke states
+	}
+
+	[Fact]
+	public void AlternatingCorrectionsToTwoRegionsOfOneAgentEdit_CoalesceIndependently() {
+		// One agent edit mints one origin across BOTH hunks it wrote (lines 1 and 3). The user then alternates
+		// corrections between those two regions across autosaves. Sharing an origin must not collapse them into one
+		// chain: each region coalesces to its own agent-output → final entry, none left at an intermediate state.
+		_fs.WriteAllText(Abs("app.cs"), "x1\nx2\nx3\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nx2\nC\n"); // one edit, one origin, two non-contiguous hunks
+
+		HandEdit("app.cs", "A1\nx2\nC\n"); // region 1 …
+		HandEdit("app.cs", "A12\nx2\nC\n"); // … keeps typing (coalesces)
+		HandEdit("app.cs", "A12\nx2\nC1\n"); // now region 2 …
+		HandEdit("app.cs", "A12\nx2\nC12\n"); // … keeps typing (coalesces)
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p1"], records.Select(record => record.Prompt));
+		Assert.Contains("+A12", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.DoesNotContain("+A1\n", records[0].Files[0].Delta, StringComparison.Ordinal); // not an intermediate
+		Assert.Contains("+C12", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
+	public void RetypingARegionBackToAgentOutput_DropsTheCorrection() {
+		// The user edits the agent's line, then keeps typing until it matches the agent's output again — the
+		// correction vanished, so its corpus entry must be dropped, not left at the last intermediate state.
+		Boundary("p1");
+		AgentEdit("app.cs", "agent\n");
+		HandEdit("app.cs", "agnt\n"); // a correction is recorded …
+		Assert.Equal(1, _corpus.Count);
+
+		HandEdit("app.cs", "agent\n"); // … then retyped back to the agent's output
+
+		Assert.Equal(0, _corpus.Count);
+	}
+
+	[Fact]
+	public void CorrectionsToTwoRegionsAcrossSaves_CoalesceIndependently() {
+		_fs.WriteAllText(Abs("app.cs"), "a\nb\n");
+		Boundary("p1");
+		AgentEdit("app.cs", "A\nb\n"); // agent wrote line 1
+		Boundary("p2");
+		AgentEdit("app.cs", "A\nB\n"); // agent wrote line 2
+
+		HandEdit("app.cs", "A1\nB\n"); // correct line 1 …
+		HandEdit("app.cs", "A12\nB\n"); // … keep typing on it (coalesces)
+		HandEdit("app.cs", "A12\nB1\n"); // now correct line 2 …
+		HandEdit("app.cs", "A12\nB12\n"); // … keep typing on it (coalesces)
+
+		var records = _corpus.ReadAll();
+		Assert.Equal(["p1", "p2"], records.Select(record => record.Prompt));
+		Assert.Contains("+A12", Assert.Single(records[0].Files).Delta, StringComparison.Ordinal);
+		Assert.Contains("+B12", Assert.Single(records[1].Files).Delta, StringComparison.Ordinal);
+	}
+
+	[Fact]
 	public void RevertFile_RecordsReversal() {
 		_fs.WriteAllText(Abs("app.cs"), "one\n");
 		Boundary("p1");
@@ -221,26 +295,28 @@ public sealed class CorrectionRecorderTests {
 	}
 
 	[Fact]
-	public void RevertHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+	public void RevertHunk_AfterIgnoredInsertion_RevertsAgentHunkKeepingUserLine() {
 		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
 		Boundary("p1");
 		AgentEdit("app.cs", "a\nb\nc\nD\n");
-		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n"); // user inserts "MINE" — the agent's "D" is now live-model line 5
 
-		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D");
+		// The web diffs against the live model, so it sends "D"'s live-model position (5), not its _current one (4).
+		var outcome = _tracker.RevertHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(5, 6), "D");
 
 		Assert.Equal(RevertHunkOutcome.Reverted, outcome);
 		Assert.Equal("a\nMINE\nb\nc\nd\n", _fs.ReadAllText(Abs("app.cs")));
 	}
 
 	[Fact]
-	public void KeepHunk_AfterIgnoredInsertion_MapsTheDiskGuard() {
+	public void KeepHunk_AfterIgnoredInsertion_KeepsAgentHunk() {
 		_fs.WriteAllText(Abs("app.cs"), "a\nb\nc\nd\n");
 		Boundary("p1");
 		AgentEdit("app.cs", "a\nb\nc\nD\n");
-		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n");
+		HandEdit("app.cs", "a\nMINE\nb\nc\nD\n"); // user inserts "MINE" — the agent's "D" is now live-model line 5
 
-		Assert.True(_tracker.KeepHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(4, 5), "D"));
+		// The web sends "D"'s live-model position (5); the keep must not fail the guard by remapping it.
+		Assert.True(_tracker.KeepHunk(Abs("app.cs"), new LineRange(4, 5), new LineRange(5, 6), "D"));
 	}
 
 	[Fact]
@@ -446,6 +522,28 @@ public sealed class CorrectionRecorderTests {
 		HandEdit("app.cs", "user line\n");
 
 		Assert.Null(Assert.Single(_corpus.ReadAll()).Prompt);
+	}
+
+	[Fact]
+	public void InFlightRegionsBeyondCap_EvictsOldestRegion_StoppingItsCoalescing() {
+		// Open MaxInFlightRegions distinct regions, each left correcting-but-unfinished (never retyped back to
+		// the agent's output), then open one more. The dictionary must not just grow forever: the oldest region
+		// (region 0) should have been evicted, so its next save starts a FRESH chain (a new corpus append)
+		// instead of coalescing into (replacing) its existing entry.
+		for (int i = 0; i < CorrectionRecorder.MaxInFlightRegions; i++) {
+			Boundary($"p{i}");
+			AgentEdit($"file{i}.cs", "agent\n");
+			HandEdit($"file{i}.cs", "correcting\n");
+		}
+
+		Boundary("overflow");
+		AgentEdit("overflow.cs", "agent\n");
+		HandEdit("overflow.cs", "correcting\n");
+
+		int countBeforeContinuedEdit = _corpus.Count;
+		HandEdit("file0.cs", "correcting-more\n"); // region 0's chain, if still tracked, would coalesce in place
+
+		Assert.Equal(countBeforeContinuedEdit + 1, _corpus.Count); // a fresh append, not a same-count coalesce
 	}
 
 	private void Boundary(string? prompt) => _tracker.Observe(new AgentPromptSubmitted("session", prompt));

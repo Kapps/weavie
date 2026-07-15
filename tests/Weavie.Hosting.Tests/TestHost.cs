@@ -85,6 +85,20 @@ internal sealed class TestHost : IAsyncDisposable {
 		StartAsync(prepareRepo, new StaticPullRequestProvider([], []), sendReady);
 
 	private static async Task<TestHost> StartAsync(Action<string> prepareRepo, IPullRequestProvider pullRequests, bool sendReady) {
+		var host = Create(prepareRepo, pullRequests);
+		await host.Core.StartAsync().ConfigureAwait(false);
+		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
+		if (sendReady) {
+			host.Bridge.Receive("""{"type":"ready"}""");
+		}
+
+		return host;
+	}
+
+	/// <summary>Builds the real host graph without starting it, for startup/shutdown lifecycle tests.</summary>
+	public static TestHost CreateUnstarted() => Create(_ => { }, new StaticPullRequestProvider([], []));
+
+	private static TestHost Create(Action<string> prepareRepo, IPullRequestProvider pullRequests) {
 		string tempRoot = Path.Combine(Path.GetTempPath(), "weavie-host-it-" + Guid.NewGuid().ToString("n"));
 		string repo = Path.Combine(tempRoot, "repo");
 		Directory.CreateDirectory(repo);
@@ -109,12 +123,6 @@ internal sealed class TestHost : IAsyncDisposable {
 			repo,
 			WorkspaceHttpServerOptions.Native(Path.Combine(tempRoot, "wwwroot")),
 			UnavailableWorkspaceWebSocketBridge.Instance);
-		await core.StartAsync().ConfigureAwait(false);
-		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
-		if (sendReady) {
-			bridge.Receive("""{"type":"ready"}""");
-		}
-
 		return new TestHost(tempRoot, repo, services, bridge, platform, core, sourceHttp, sourcesDir);
 	}
 
@@ -136,8 +144,7 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>
 	/// Simulates a worker restart (what a runner auto-update respawn does): disposes the live core and brings a
-	/// fresh one up over the same repo — same workspace id, so it re-reads the persisted per-workspace stores. A
-	/// fresh bridge is used because a disposed core does not detach its <c>OnWebMessage</c> handler.
+	/// fresh one up over the same repo — same workspace id, so it re-reads the persisted per-workspace stores.
 	/// </summary>
 	public Task RestartAsync() => RestartAsync(static () => {
 	});

@@ -6,6 +6,9 @@ namespace Weavie.Core.Agents.Codex;
 /// <summary>A discoverable Codex skill: the name and path a structured skill turn input needs, plus its description.</summary>
 public sealed record CodexSkill(string Name, string Path, string Description);
 
+/// <summary>A collaboration-mode preset advertised by Codex for use on subsequent turns.</summary>
+public sealed record CodexCollaborationMode(string Name, string Mode, string? Model, string? ReasoningEffort);
+
 /// <summary>Builds and interprets Codex app-server JSON-RPC messages over JSONL stdio.</summary>
 public static class CodexAppServerProtocol {
 	/// <summary>Builds the initial JSON-RPC initialize request.</summary>
@@ -41,6 +44,10 @@ public static class CodexAppServerProtocol {
 	/// <summary>Builds a model/list request for the models offered to the user in the status line picker.</summary>
 	public static string ModelList(long id, bool includeHidden) =>
 		JsonSerializer.Serialize(new { method = "model/list", id, @params = new { includeHidden } });
+
+	/// <summary>Builds a collaborationMode/list request for Codex's native conversation-mode presets.</summary>
+	public static string CollaborationModeList(long id) =>
+		JsonSerializer.Serialize(new { method = "collaborationMode/list", id, @params = new { } });
 
 	/// <summary>Builds a skills/list request for the skills discoverable from the session working directory.</summary>
 	public static string SkillsList(long id, string cwd) {
@@ -107,7 +114,32 @@ public static class CodexAppServerProtocol {
 		ArgumentNullException.ThrowIfNull(model);
 		ArgumentNullException.ThrowIfNull(effort);
 		ArgumentNullException.ThrowIfNull(serviceTier);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, [TextInput(prompt)]);
+		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, null, [TextInput(prompt)]);
+	}
+
+	/// <summary>Builds a turn/start request with one text item and a native collaboration mode.</summary>
+	public static string TurnStart(
+		long id,
+		string threadId,
+		string prompt,
+		string cwd,
+		string sandbox,
+		string approvalPolicy,
+		string model,
+		string effort,
+		string serviceTier,
+		CodexCollaborationMode collaborationMode) {
+		ArgumentNullException.ThrowIfNull(collaborationMode);
+		ArgumentException.ThrowIfNullOrEmpty(threadId);
+		ArgumentException.ThrowIfNullOrEmpty(prompt);
+		ArgumentException.ThrowIfNullOrEmpty(cwd);
+		ArgumentException.ThrowIfNullOrEmpty(sandbox);
+		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
+		ArgumentNullException.ThrowIfNull(model);
+		ArgumentNullException.ThrowIfNull(effort);
+		ArgumentNullException.ThrowIfNull(serviceTier);
+		return TurnStartWithInput(
+			id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, collaborationMode, [TextInput(prompt)]);
 	}
 
 	/// <summary>Builds a turn/start request with text plus attached local images and staged skill input items.</summary>
@@ -133,7 +165,46 @@ public static class CodexAppServerProtocol {
 		ArgumentNullException.ThrowIfNull(model);
 		ArgumentNullException.ThrowIfNull(effort);
 		ArgumentNullException.ThrowIfNull(serviceTier);
-		return TurnStartWithInput(id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, InputItems(prompt, imagePaths, skills));
+		return TurnStartWithInput(
+			id, threadId, cwd, sandbox, approvalPolicy, model, effort, serviceTier, null, InputItems(prompt, imagePaths, skills));
+	}
+
+	/// <summary>Builds a turn/start request with rich inputs and a native collaboration mode.</summary>
+	public static string TurnStartWithInputs(
+		long id,
+		string threadId,
+		string prompt,
+		IReadOnlyList<string> imagePaths,
+		IReadOnlyList<CodexSkill> skills,
+		string cwd,
+		string sandbox,
+		string approvalPolicy,
+		string model,
+		string effort,
+		string serviceTier,
+		CodexCollaborationMode collaborationMode) {
+		ArgumentNullException.ThrowIfNull(collaborationMode);
+		ArgumentException.ThrowIfNullOrEmpty(threadId);
+		ArgumentNullException.ThrowIfNull(prompt);
+		ArgumentNullException.ThrowIfNull(imagePaths);
+		ArgumentNullException.ThrowIfNull(skills);
+		ArgumentException.ThrowIfNullOrEmpty(cwd);
+		ArgumentException.ThrowIfNullOrEmpty(sandbox);
+		ArgumentException.ThrowIfNullOrEmpty(approvalPolicy);
+		ArgumentNullException.ThrowIfNull(model);
+		ArgumentNullException.ThrowIfNull(effort);
+		ArgumentNullException.ThrowIfNull(serviceTier);
+		return TurnStartWithInput(
+			id,
+			threadId,
+			cwd,
+			sandbox,
+			approvalPolicy,
+			model,
+			effort,
+			serviceTier,
+			collaborationMode,
+			InputItems(prompt, imagePaths, skills));
 	}
 
 	/// <summary>Builds a turn/steer request for an in-flight turn.</summary>
@@ -169,6 +240,7 @@ public static class CodexAppServerProtocol {
 		string model,
 		string effort,
 		string serviceTier,
+		CodexCollaborationMode? collaborationMode,
 		object[] input) {
 		// model/effort override the thread for this and subsequent turns, which is how a live in-session change
 		// takes effect without a restart. An empty model/effort leaves the thread's current value untouched.
@@ -179,11 +251,24 @@ public static class CodexAppServerProtocol {
 			["sandboxPolicy"] = SandboxPolicy(sandbox, cwd),
 			["input"] = input,
 		};
-		PutIfSet(parameters, "model", model);
-		PutIfSet(parameters, "effort", effort);
+		if (collaborationMode is null) {
+			PutIfSet(parameters, "model", model);
+			PutIfSet(parameters, "effort", effort);
+		} else {
+			parameters["collaborationMode"] = new {
+				mode = collaborationMode.Mode,
+				settings = new {
+					model = collaborationMode.Model ?? model,
+					reasoning_effort = collaborationMode.ReasoningEffort ?? NullIfEmpty(effort),
+					developer_instructions = (string?)null,
+				},
+			};
+		}
 		PutServiceTier(parameters, serviceTier);
 		return JsonSerializer.Serialize(new { method = "turn/start", id, @params = parameters });
 	}
+
+	private static string? NullIfEmpty(string value) => value.Length == 0 ? null : value;
 
 	private static void PutIfSet(IDictionary<string, object?> parameters, string key, string value) {
 		if (!string.IsNullOrWhiteSpace(value)) {
@@ -285,6 +370,23 @@ public static class CodexAppServerProtocol {
 		}
 
 		skills = parsed;
+		return true;
+	}
+
+	/// <summary>Reads collaborationMode/list into the presets Codex currently advertises.</summary>
+	public static bool TryReadCollaborationModes(JsonElement result, out IReadOnlyList<CodexCollaborationMode> modes) {
+		modes = [];
+		if (!result.TryGetProperty("data", out var data) || data.ValueKind != JsonValueKind.Array) {
+			return false;
+		}
+
+		modes = [.. data.EnumerateArray()
+			.Select(item => new CodexCollaborationMode(
+				item.GetStringOrEmpty("name"),
+				item.GetStringOrEmpty("mode"),
+				item.GetStringOrNull("model"),
+				item.GetStringOrNull("reasoning_effort")))
+			.Where(mode => mode.Name.Length > 0 && mode.Mode.Length > 0)];
 		return true;
 	}
 

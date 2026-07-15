@@ -20,13 +20,42 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 
 	// Emits a deterministic, persistable turn (a user echo + a completed agent message) so the transcript store
 	// has real content to persist and replay. Keeps everything synchronous for race-free tests.
-	private sealed class FakeCodexAgentSession : IStructuredAgentSession {
+	private sealed class FakeCodexAgentSession : IStructuredAgentSession, IStructuredAgentControls {
+		private bool _started;
 		private int _turns;
 
 		public event Action<AgentPaneMessage>? PaneMessage;
+		public event Action<AgentControlState>? ControlStateChanged;
 
-		public void Start() =>
+		public AgentControlState ControlState { get; } = new() {
+			ModelControl = new AgentModelControl {
+				Value = "gpt-test",
+				ValueLabel = "GPT Test",
+				Models = [new AgentModelChoice {
+					Id = "gpt-test",
+					Label = "GPT Test",
+					Current = true,
+					Effort = string.Empty,
+					Efforts = [],
+					FastTier = string.Empty,
+					FastOn = false,
+				}],
+			},
+			Axes = [
+				Axis("approvalPolicy", "Approvals", "On request"),
+				Axis("sandbox", "Sandbox", "Workspace write"),
+			],
+			Slash = [],
+		};
+
+		public void Start() {
+			if (_started) {
+				return;
+			}
+			_started = true;
 			PaneMessage?.Invoke(new AgentPaneMessage { Type = "thread-ready", ProviderId = "codex", Status = "ready" });
+			ControlStateChanged?.Invoke(ControlState);
+		}
 
 		public void Submit(AgentTurnSubmission submission) {
 			ArgumentNullException.ThrowIfNull(submission);
@@ -71,6 +100,17 @@ internal sealed class FakeCodexAgentProvider : IAgentProvider {
 		public void ResolveInput(string requestId, IReadOnlyDictionary<string, IReadOnlyList<string>> answers) {
 		}
 
+		public void SetControl(string axis, string value) {
+		}
+
 		public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+
+		private static AgentControlAxis Axis(string id, string label, string valueLabel) => new() {
+			Id = id,
+			Label = label,
+			Value = valueLabel,
+			ValueLabel = valueLabel,
+			Options = [],
+		};
 	}
 }

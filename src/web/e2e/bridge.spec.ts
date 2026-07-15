@@ -7,6 +7,27 @@ import { MockHost } from "./mock-host";
 // The built app from `vite build`; the e2e run builds it first (see the `e2e` npm script).
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
 
+function sessionChip(
+  id: string,
+  label: string,
+  providerId: "claude" | "codex",
+  active: boolean,
+  primary: boolean,
+) {
+  return {
+    id,
+    label,
+    active,
+    loaded: true,
+    primary,
+    providerId,
+    agentSurface: providerId === "codex" ? "structured" : "terminal",
+    status: "idle",
+    hue: 200,
+    monogram: label.slice(0, 1).toUpperCase(),
+  };
+}
+
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {
     throw new Error(
@@ -31,19 +52,16 @@ test.describe("remote bridge transport", () => {
   }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
 
-    // Outbound: main.tsx posts { type: "ready" } at module load, before the WebSocket opens. It must still
-    // arrive — proving the transport buffers pre-open sends and flushes them on connect.
+    // Outbound: main.tsx posts { type: "ready" } after mounting App, usually before the WebSocket opens. It
+    // must still arrive — proving the transport buffers pre-open sends and flushes them on connect.
     const ready = await host.waitForMessage("ready");
     expect(ready.type).toBe("ready");
 
     // Inbound: the host pushes a notify; the app must render it as a toast — proving a WebSocket frame
-    // reaches deliverFromHost -> onHostMessage -> App's notify handler. Re-pushed under toPass because App
-    // registers its host listener only after mount, so the first push can land before the listener exists.
+    // reaches deliverFromHost -> onHostMessage -> App's notify handler.
     const toast = page.locator(".toast-msg", { hasText: "hello-from-mock-host" });
-    await expect(async () => {
-      host.pushToWeb({ type: "notify", level: "info", message: "hello-from-mock-host" });
-      await expect(toast).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 20_000 });
+    host.pushToWeb({ type: "notify", level: "info", message: "hello-from-mock-host" });
+    await expect(toast).toBeVisible();
   });
 
   test("a backend switch never mixes the incoming resource host with the outgoing media identity", async ({
@@ -60,17 +78,7 @@ test.describe("remote bridge transport", () => {
     try {
       await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
       await host.waitForMessage("ready");
-      const localChip = {
-        id: "local-slot",
-        label: "main",
-        active: true,
-        loaded: true,
-        primary: true,
-        providerId: "claude",
-        status: "idle",
-        hue: 200,
-        monogram: "M",
-      };
+      const localChip = sessionChip("local-slot", "main", "claude", true, true);
       await expect(async () => {
         host.pushToWeb({ type: "session-list", sessions: [localChip] });
         await expect
@@ -146,6 +154,77 @@ test.describe("remote bridge transport", () => {
         path: "/remote/pixel.png",
         status: 200,
       });
+    } finally {
+      await remote.close();
+    }
+  });
+
+  test("selecting a background remote Codex session replays the transcript hidden at connect", async ({
+    page,
+  }) => {
+    const remote = await MockHost.start({ distDir });
+    try {
+      await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+      await host.waitForMessage("ready");
+      host.pushToWeb({
+        type: "session-list",
+        sessions: [sessionChip("local-slot", "main", "claude", true, true)],
+      });
+      host.pushToWeb({
+        type: "remote-agents",
+        agents: [{ name: "devbox", url: remote.url, token: "runner-token" }],
+      });
+      await remote.waitForMessage("ready");
+      remote.pushToWeb({
+        type: "session-list",
+        sessions: [sessionChip("remote-codex", "codex", "codex", true, false)],
+      });
+      host.pushToWeb({
+        type: "rail-state",
+        lastLocation: "local",
+        promoted: ["remote:devbox remote-codex"],
+      });
+
+      const transcript = {
+        type: "item-completed",
+        providerId: "codex",
+        itemId: "answer",
+        itemType: "agentMessage",
+        status: "completed",
+        text: "retained remote transcript",
+      };
+      remote.pushToWeb({
+        type: "agent-pane-reset",
+        slot: "remote-codex",
+        workspace: "/remote/repo",
+      });
+      remote.pushToWeb({
+        type: "agent-pane-batch",
+        slot: "remote-codex",
+        workspace: "/remote/repo",
+        messages: [transcript],
+      });
+      await expect(page.getByText(transcript.text)).toHaveCount(0);
+
+      const remoteChip = page.locator(".session-chip.remote");
+      await expect(remoteChip).toBeVisible();
+      const switched = remote.waitForMessage("switch-session");
+      await remoteChip.click();
+      await switched;
+
+      // HostCore.SwitchToSlot now sends this authoritative replay after the web has admitted the backend.
+      remote.pushToWeb({
+        type: "agent-pane-reset",
+        slot: "remote-codex",
+        workspace: "/remote/repo",
+      });
+      remote.pushToWeb({
+        type: "agent-pane-batch",
+        slot: "remote-codex",
+        workspace: "/remote/repo",
+        messages: [transcript],
+      });
+      await expect(page.getByText(transcript.text)).toBeVisible();
     } finally {
       await remote.close();
     }
@@ -245,9 +324,9 @@ test.describe("remote bridge transport", () => {
     page.on("pageerror", (error) => pageErrors.push(error.message));
 
     await page.goto(`${host.url}/`, { waitUntil: "domcontentloaded" });
-    // The shell renders right after main.tsx posts its module-load `ready` (render() follows that line), so a
-    // visible layout-root is the deterministic proof the page booted and had its chance to send — by which point
-    // the absent-bridge "none" transport must have swallowed every send. No fixed sleep.
+    // The shell renders immediately before main.tsx posts `ready`, so a visible layout-root is the deterministic
+    // proof the page booted and had its chance to send — by which point the absent-bridge "none" transport must
+    // have swallowed every send. No fixed sleep.
     await expect(page.locator(".layout-root")).toBeVisible();
 
     expect(host.received).toHaveLength(0);

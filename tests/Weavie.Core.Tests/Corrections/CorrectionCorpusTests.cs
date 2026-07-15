@@ -124,6 +124,48 @@ public sealed class CorrectionCorpusTests {
 	}
 
 	[Fact]
+	public void Coalesce_ReplacesTheReturnedLineInPlace_WithoutGrowingOrFiringChanged() {
+		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
+		string first = corpus.Append(Record("a", 10));
+		int changesAfterAppend = 0;
+		corpus.Changed += () => changesAfterAppend++;
+
+		corpus.Coalesce(Record("b", 10), first); // supersede the same entry
+
+		Assert.Equal(1, corpus.Count); // count unchanged …
+		Assert.Equal("b", Assert.Single(corpus.ReadAll()).Prompt); // … but content replaced
+		Assert.Equal(0, changesAfterAppend); // a replace must not disturb the nudge
+	}
+
+	[Fact]
+	public void Coalesce_WhenPreviousLineGone_AppendsFreshAndFiresChanged() {
+		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
+		string first = corpus.Append(Record("a", 10));
+		corpus.Take(); // the entry /learn consumed the line the caller still holds
+		int changes = 0;
+		corpus.Changed += () => changes++;
+
+		corpus.Coalesce(Record("b", 10), first);
+
+		Assert.Equal("b", Assert.Single(corpus.ReadAll()).Prompt);
+		Assert.Equal(1, changes);
+	}
+
+	[Fact]
+	public void Remove_DropsTheReturnedLine_AndFiresChanged() {
+		var corpus = new CorrectionCorpus(new InMemoryFileSystem(), CorpusPath);
+		corpus.Append(Record("keep", 10));
+		string second = corpus.Append(Record("gone", 10));
+		int changes = 0;
+		corpus.Changed += () => changes++;
+
+		corpus.Remove(second);
+
+		Assert.Equal("keep", Assert.Single(corpus.ReadAll()).Prompt);
+		Assert.Equal(1, changes);
+	}
+
+	[Fact]
 	public void Load_MalformedLine_IsDropped() {
 		var fs = new InMemoryFileSystem();
 		new CorrectionCorpus(fs, CorpusPath).Append(Record("valid", 10));

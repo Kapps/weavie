@@ -5,6 +5,7 @@
 
 import { onSessionMessage } from "../bridge";
 import { findSession } from "../chrome/session-store";
+import { windowFocused } from "../chrome/window-state";
 import { notificationPrefs } from "./prefs";
 import { presentOsNotification, setTitleBadge } from "./presenter";
 import { playAttentionSound } from "./sounds";
@@ -19,7 +20,7 @@ onSessionMessage((message, backendId) => {
   }
   // RailSession.active is already gated on its backend driving the page, so one predicate covers both
   // "this backend is active" and "this chip is the active one".
-  const focused = document.hasFocus();
+  const focused = windowFocused();
   if (focused && (findSession(backendId, message.slot)?.active ?? false)) {
     return;
   }

@@ -2,43 +2,28 @@ using Weavie.Core.Processes;
 
 namespace Weavie.Runner;
 
-// The drain-and-swap half of BackendManager: applies a staged update to the running worker while
+// The confirm/swap half of BackendManager: brings the worker onto the staged version and confirms it,
 // preserving the WorkspaceBackend (same port + token — reconnecting tabs and the TLS-front mapping
-// depend on both), rolling back via the supervisor's crash-loop breaker. All lifecycle mutations run
-// behind the same _gate Ensure() uses, so a concurrent /backend hit can't re-provision mid-swap.
-// See docs/specs/runner-auto-update.md.
+// depend on both), rolling back via the supervisor's crash-loop breaker. A runtime update drains + swaps
+// a running old worker; boot recovery only confirms the worker Ensure() already spawned from the staged
+// version. All lifecycle mutations run behind the same _gate Ensure() uses, so a concurrent /backend hit
+// can't re-provision mid-swap. See docs/specs/runner-auto-update.md.
 public sealed partial class BackendManager {
 	private bool _updating;
 
 	/// <summary>
-	/// Applies the staged version to the worker: asks it to drain (it exits 0 at the first quiet moment —
-	/// unbounded by design; only the user's restart-now accelerates it), respawns the same backend from the
-	/// staged version, confirms the running build over <c>/control/status</c>, and rolls back to the
+	/// Applies a newly-staged version to the RUNNING worker: asks it to drain (it exits 0 at the first quiet
+	/// moment — unbounded by design; only the user's restart-now accelerates it), respawns the same backend
+	/// from the staged version, confirms the running build over <c>/control/status</c>, and rolls back to the
 	/// confirmed-good version when the new one trips the crash-loop breaker. Progress and the terminal
 	/// outcome go to <paramref name="report"/> as (phase, detail) — sticky outcomes are <c>rolled-back</c>
 	/// and <c>failed</c>. No-op when an apply is already in flight (the staged build only got newer; the
 	/// respawn resolves the newest).
 	/// </summary>
-	public async Task ApplyStagedUpdateAsync(VersionStore store, Action<string, string?> report, CancellationToken ct) {
+	public Task ApplyStagedUpdateAsync(VersionStore store, Action<string, string?> report, CancellationToken ct) {
 		ArgumentNullException.ThrowIfNull(store);
 		ArgumentNullException.ThrowIfNull(report);
-		WorkspaceBackend? backend;
-		lock (_gate) {
-			if (_updating) {
-				return;
-			}
-
-			_updating = true;
-			backend = _backend;
-		}
-
-		try {
-			if (backend is null) {
-				// No worker was ever provisioned; the next Ensure() spawns straight from the staged version.
-				report("idle", null);
-				return;
-			}
-
+		return RunExclusiveAsync(report, async backend => {
 			report("updating", "waiting for the workspace to go quiet");
 			await DrainUntilStoppedAsync(backend, report, ct).ConfigureAwait(false);
 
@@ -51,6 +36,43 @@ public sealed partial class BackendManager {
 			}
 
 			await ConfirmOrRollbackAsync(backend, store, report, ct).ConfigureAwait(false);
+		});
+	}
+
+	/// <summary>
+	/// Boot recovery for a staged ≠ confirmed store: confirms (or rolls back) the worker Ensure() already
+	/// spawned straight from the staged version. Deliberately does NOT drain or restart — there is no old
+	/// build running to swap away from, so draining would only hold the already-correct worker hostage to a
+	/// busy session, never confirm, and re-hang on every restart. Reports and rolls back exactly like
+	/// <see cref="ApplyStagedUpdateAsync"/>.
+	/// </summary>
+	public Task ConfirmStagedWorkerAsync(VersionStore store, Action<string, string?> report, CancellationToken ct) {
+		ArgumentNullException.ThrowIfNull(store);
+		ArgumentNullException.ThrowIfNull(report);
+		return RunExclusiveAsync(report, backend => ConfirmOrRollbackAsync(backend, store, report, ct));
+	}
+
+	// Serializes an update action behind the _updating guard (a concurrent Ensure() hands the backend back
+	// as-is while it runs). A null backend means none was ever provisioned — the next Ensure() spawns
+	// straight from the staged version, so there is nothing to confirm.
+	private async Task RunExclusiveAsync(Action<string, string?> report, Func<WorkspaceBackend, Task> body) {
+		WorkspaceBackend? backend;
+		lock (_gate) {
+			if (_updating) {
+				return;
+			}
+
+			_updating = true;
+			backend = _backend;
+		}
+
+		try {
+			if (backend is null) {
+				report("idle", null);
+				return;
+			}
+
+			await body(backend).ConfigureAwait(false);
 		} finally {
 			lock (_gate) {
 				_updating = false;
@@ -76,7 +98,7 @@ public sealed partial class BackendManager {
 					return;
 				}
 
-				if (supervisor.State == SupervisorState.Running && !await TryDrainAsync(backend, report).ConfigureAwait(false)) {
+				if (supervisor.State == SupervisorState.Running && !await TryDrainAsync(backend, report, ct).ConfigureAwait(false)) {
 					// The worker is up but not answering yet (it may have just respawned); retry shortly.
 					await Task.Delay(TimeSpan.FromSeconds(1), ct).ConfigureAwait(false);
 					continue;
@@ -89,16 +111,25 @@ public sealed partial class BackendManager {
 		}
 	}
 
-	private async Task<bool> TryDrainAsync(WorkspaceBackend backend, Action<string, string?> report) {
+	internal async Task<bool> TryDrainAsync(
+		WorkspaceBackend backend,
+		Action<string, string?> report,
+		CancellationToken ct) {
 		try {
-			using var response = await _http.PostAsync(ControlUrl(backend, "drain"), content: null).ConfigureAwait(false);
+			using var response = await _http.PostAsync(ControlUrl(backend, "drain"), content: null, ct).ConfigureAwait(false);
+			if (response.StatusCode == System.Net.HttpStatusCode.ServiceUnavailable) {
+				report("updating", "worker is still starting; drain will retry");
+				return false;
+			}
+
 			if (!response.IsSuccessStatusCode) {
 				report("updating", $"worker refused the drain request ({(int)response.StatusCode})");
 				return false;
 			}
 
+			report("updating", "waiting for the workspace to go quiet");
 			return true;
-		} catch (Exception ex) when (ex is HttpRequestException or TaskCanceledException) {
+		} catch (Exception ex) when (!ct.IsCancellationRequested && ex is HttpRequestException or TaskCanceledException) {
 			// TaskCanceledException = the HttpClient timeout: a hung worker is a retry, never a crash.
 			report("updating", $"worker not answering the drain request yet: {ex.Message}");
 			return false;

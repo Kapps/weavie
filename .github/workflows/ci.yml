@@ -107,6 +107,17 @@ jobs:
         working-directory: src/web
         run: pnpm run test
 
+      # macOS-only: the hosted image's default Xcode lags the .NET macOS workload's requirement
+      # (e.g. workload 26.5.10301 needs Xcode 26.6, but the image defaults to 26.5). Both ship
+      # side-by-side on the runner, so select the newest installed one rather than a version pinned
+      # here that would itself go stale the next time the workload's requirement moves.
+      # Each version's real install is a plain directory (e.g. Xcode_26.6.app); the runner also adds
+      # symlink aliases (e.g. Xcode_26.6.0.app) that don't resolve their nested SDK path, so restrict
+      # to -type d to land on the real bundle.
+      - name: Select latest Xcode
+        if: matrix.name == 'macos'
+        run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"
+
       # macOS-only: install the `macos` workload the Weavie.Mac TFM (net10.0-macos) requires.
       - name: Restore macOS workload
         if: matrix.name == 'macos'

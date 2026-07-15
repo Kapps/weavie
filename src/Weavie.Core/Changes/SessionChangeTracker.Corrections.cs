@@ -5,7 +5,9 @@ namespace Weavie.Core.Changes;
 /// <param name="Before">The agent-authored text the user changed.</param>
 /// <param name="After">The user's replacement text.</param>
 /// <param name="Prompt">The prompt that produced the corrected text; null when the provider reports none.</param>
-public sealed record CorrectionEdit(string RelativePath, string Before, string After, string? Prompt);
+/// <param name="OriginId">The agent region's stable id, so successive editor saves over one region coalesce into a single correction rather than recording each intermediate keystroke-save.</param>
+/// <param name="Continuable">True for an editor save (which autosave repeats as the user types, so it may be superseded by a later save); false for a discrete review-UI revert.</param>
+public sealed record CorrectionEdit(string RelativePath, string Before, string After, string? Prompt, long OriginId, bool Continuable);
 
 public sealed partial class SessionChangeTracker {
 	private string? _currentPrompt;
@@ -39,7 +41,9 @@ public sealed partial class SessionChangeTracker {
 						Relativize(path),
 						Slice(beforeLines, change.BeforeRange),
 						Slice(afterLines, change.AfterRange),
-						change.Origin.Prompt));
+						change.Origin.Prompt,
+						change.Origin.Id,
+						Continuable: true));
 				}
 			}
 
@@ -313,7 +317,9 @@ public sealed partial class SessionChangeTracker {
 							Relativize(path),
 							string.Empty,
 							string.Join("\n", segment.Lines),
-							segment.Origin.Prompt));
+							segment.Origin.Prompt,
+							segment.Origin.Id,
+							Continuable: false));
 					}
 				}
 				continue;
@@ -330,7 +336,9 @@ public sealed partial class SessionChangeTracker {
 					Relativize(path),
 					Slice(currentLines, hunk.BeforeRange),
 					Slice(baselineLines, hunk.AfterRange),
-					common.Prompt));
+					common.Prompt,
+					common.Id,
+					Continuable: false));
 				continue;
 			}
 
@@ -343,7 +351,7 @@ public sealed partial class SessionChangeTracker {
 				var after = i < paired
 					? new LineRange(hunk.AfterRange.Start + i, hunk.AfterRange.Start + i + 1)
 					: new LineRange(hunk.AfterRange.EndExclusive, hunk.AfterRange.EndExclusive);
-				edits.Add(new CorrectionEdit(Relativize(path), Slice(currentLines, before), Slice(baselineLines, after), origin.Prompt));
+				edits.Add(new CorrectionEdit(Relativize(path), Slice(currentLines, before), Slice(baselineLines, after), origin.Prompt, origin.Id, Continuable: false));
 			}
 		}
 		return edits;
@@ -379,12 +387,12 @@ public sealed partial class SessionChangeTracker {
 		return boundary + delta;
 	}
 
-	private void SetPending(string path, LineRange currentRange, bool pending) {
-		if (!_provenance.TryGetValue(path, out var provenance)
-			|| !_current.TryGetValue(path, out string? current)) {
+	// <paramref name="actual"/> is in provenance.Text (== disk) space, which is how provenance.Lines is indexed.
+	// Callers holding a _current-space range map it through MapCurrentRangeToActual first.
+	private void SetPending(string path, LineRange actual, bool pending) {
+		if (!_provenance.TryGetValue(path, out var provenance)) {
 			return;
 		}
-		var actual = MapRange(currentRange, LineHunker.Hunks(LineDiff.SplitLines(current), LineDiff.SplitLines(provenance.Text)));
 		for (int i = actual.Start - 1; i < actual.EndExclusive - 1 && i < provenance.Lines.Count; i++) {
 			if (provenance.Lines[i] is { } origin) {
 				provenance.Lines[i] = origin with { Pending = pending };
@@ -404,6 +412,16 @@ public sealed partial class SessionChangeTracker {
 			return currentRange;
 		}
 		return MapRange(currentRange, LineHunker.Hunks(LineDiff.SplitLines(current), LineDiff.SplitLines(provenance.Text)));
+	}
+
+	// The inverse of MapCurrentRangeToActual: a live-model (== provenance.Text / disk) range → its position in
+	// _current (which omits the user's non-agent edits). Identity when the two coincide, so a clean review is untouched.
+	private LineRange MapActualRangeToCurrent(string path, LineRange actualRange) {
+		if (!_provenance.TryGetValue(path, out var provenance)
+			|| !_current.TryGetValue(path, out string? current)) {
+			return actualRange;
+		}
+		return MapRange(actualRange, LineHunker.Hunks(LineDiff.SplitLines(provenance.Text), LineDiff.SplitLines(current)));
 	}
 
 	private void SetAllPending(string path, bool pending) {

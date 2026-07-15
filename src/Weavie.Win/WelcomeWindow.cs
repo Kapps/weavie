@@ -36,9 +36,12 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 
 	private readonly AppController _app;
 	private readonly HostBridge _bridge = new();
+	private readonly ControlUiDispatcher _dispatcher;
 	private readonly WebView2 _webView;
 	private WelcomeController? _controller;
-	private bool _webViewTornDown;
+	private Task _initializationTask = Task.CompletedTask;
+	private bool _closing;
+	private bool _closeCommitted;
 
 	public WelcomeWindow(AppController app) {
 		ArgumentNullException.ThrowIfNull(app);
@@ -49,6 +52,7 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		BackColor = StartupBackground;
 		MinimumSize = new Size(620, 460);
 		StartPosition = FormStartPosition.Manual;
+		_dispatcher = new ControlUiDispatcher(this);
 
 		_webView = new WebView2 {
 			Dock = DockStyle.Fill,
@@ -79,13 +83,21 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		base.WndProc(ref m);
 	}
 
-	private async void OnLoad(object? sender, EventArgs e) {
+	private void OnLoad(object? sender, EventArgs e) {
 		SizeToScreen();
+		if (!_closing) {
+			_initializationTask = InitializeForWindowAsync();
+		}
+	}
+
+	private async Task InitializeForWindowAsync() {
 		try {
 			await InitializeAsync();
 		} catch (Exception ex) {
 			Console.Error.WriteLine($"[weavie] welcome initialization failed: {ex}");
-			MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			if (!_closing) {
+				MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			}
 		}
 	}
 
@@ -111,11 +123,23 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		Directory.CreateDirectory(userDataFolder);
 
 		var environment = await CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
+		if (_closing) {
+			return;
+		}
+
 		await _webView.EnsureCoreWebView2Async(environment);
+		if (_closing) {
+			return;
+		}
+
 		var core = _webView.CoreWebView2;
 
 		core.SetVirtualHostNameToFolderMapping(AppHost, wwwroot, CoreWebView2HostResourceAccessKind.Allow);
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
+		if (_closing) {
+			return;
+		}
+
 #if DEBUG
 		core.Settings.AreDevToolsEnabled = true; // local debugging, Debug builds only
 #else
@@ -142,13 +166,13 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 	}
 
 	// IWebSurface — the WebView2 ops the shared welcome flow drives; WebView2 is UI-thread-affine, so each marshals.
-	void IWebSurface.Navigate(string url) => RunOnUi(() => _webView.CoreWebView2?.Navigate(url));
+	void IWebSurface.Navigate(string url) => _dispatcher.Post(() => _webView.CoreWebView2?.Navigate(url));
 
-	void IWebSurface.RenderHtml(string html) => RunOnUi(() => _webView.CoreWebView2?.NavigateToString(html));
+	void IWebSurface.RenderHtml(string html) => _dispatcher.Post(() => _webView.CoreWebView2?.NavigateToString(html));
 
 	Task IWebSurface.InjectStartupScriptAsync(string script) {
 		var tcs = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-		RunOnUi(async () => {
+		_dispatcher.Post(async () => {
 			try {
 				if (_webView.CoreWebView2 is { } core) {
 					await core.AddScriptToExecuteOnDocumentCreatedAsync(script);
@@ -162,26 +186,50 @@ internal sealed class WelcomeWindow : Form, IWebSurface {
 		return tcs.Task;
 	}
 
-	private void RunOnUi(Action action) {
-		if (InvokeRequired) {
-			BeginInvoke(action);
-		} else {
-			action();
-		}
-	}
-
-	/// <summary>Tears the WebView2 down deterministically before the handle is destroyed.</summary>
 	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
-		if (_webViewTornDown) {
+		if (_closeCommitted) {
 			return;
 		}
 
-		_webViewTornDown = true;
-		_controller?.Detach();
+		e.Cancel = true;
+		if (_closing) {
+			return;
+		}
+
+		_closing = true;
+		// Opening a recent workspace closes this window inside WebView2's callback; unwind it before teardown.
+		BeginInvoke((Action)FinishCloseAsync);
+	}
+
+	private async void FinishCloseAsync() {
+		Exception? failure = null;
+		try {
+			await _initializationTask;
+		} catch (Exception ex) {
+			failure = ex;
+		}
+
+		try {
+			_controller?.Detach();
+		} catch (Exception ex) {
+			failure = ShutdownFailure.Add(failure, ex);
+		}
+
+		try {
+			_bridge.Dispose();
+		} catch (Exception ex) {
+			failure = ShutdownFailure.Add(failure, ex);
+		}
+
+		_dispatcher.Close();
 		try {
 			_webView.Dispose();
 		} catch (Exception ex) {
-			Console.Error.WriteLine($"[weavie] welcome webview teardown: {ex.Message}");
+			failure = ShutdownFailure.Add(failure, ex);
 		}
+
+		_closeCommitted = true;
+		Close();
+		ShutdownFailure.ThrowIfAny(failure);
 	}
 }

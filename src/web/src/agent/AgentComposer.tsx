@@ -15,6 +15,7 @@ import {
   MODEL_AXIS,
   openControlPicker,
   setAgentControl,
+  toggleAgentControl,
   toggleModelFast,
 } from "./agent-controls-store";
 import {
@@ -311,6 +312,10 @@ export function AgentComposer(props: {
 
   const offSubmit = registerCommand(CommandIds.agentSubmit, submit);
   const offInterrupt = registerCommand(CommandIds.agentInterrupt, interrupt);
+  const offTogglePlan = registerCommand(CommandIds.togglePlanMode, () => {
+    const slot = props.slot;
+    return slot !== null && toggleAgentControl(props.backendId, slot, CommandIds.togglePlanMode);
+  });
   // Model and Effort both live in the one cascading picker; a bare command opens it, a value arg sets that axis.
   const offSelectModel = registerModelSelect(CommandIds.selectModel, "model");
   const offSelectEffort = registerModelSelect(CommandIds.selectEffort, "effort");
@@ -338,6 +343,7 @@ export function AgentComposer(props: {
   onCleanup(offNativePaste);
   onCleanup(offSubmit);
   onCleanup(offInterrupt);
+  onCleanup(offTogglePlan);
   onCleanup(offSelectModel);
   onCleanup(offSelectApproval);
   onCleanup(offSelectSandbox);

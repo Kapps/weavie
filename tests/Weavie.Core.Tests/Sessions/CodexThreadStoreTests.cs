@@ -16,6 +16,7 @@ public sealed class CodexThreadStoreTests {
 
 		Assert.False(launch.Resume);
 		Assert.Null(launch.ThreadId);
+		Assert.Empty(launch.Mode);
 	}
 
 	[Fact]
@@ -28,6 +29,22 @@ public sealed class CodexThreadStoreTests {
 
 		Assert.True(launch.Resume);
 		Assert.Equal("thr_123", launch.ThreadId);
+	}
+
+	[Fact]
+	public void CollaborationMode_PersistsWithItsConversationOnly() {
+		var fs = new InMemoryFileSystem();
+		var store = new CodexThreadStore(fs, StorePath);
+		store.Adopt("/repo-a", "thr_a", "plan");
+		store.Adopt("/repo-b", "thr_b", "plan");
+		store.SetMode("/repo-a", "default");
+
+		var reopened = new CodexThreadStore(fs, StorePath);
+
+		Assert.Equal("default", reopened.Resolve("/repo-a").Mode);
+		Assert.Equal("plan", reopened.Resolve("/repo-b").Mode);
+		Assert.Equal("thr_a", reopened.Resolve("/repo-a").ThreadId);
+		Assert.Equal("thr_b", reopened.Resolve("/repo-b").ThreadId);
 	}
 
 	[Fact]

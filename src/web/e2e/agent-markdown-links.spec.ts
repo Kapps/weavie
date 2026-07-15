@@ -70,17 +70,14 @@ test.describe("AgentMarkdown transcript links", () => {
     await host.close();
   });
 
-  // Mounts the Codex session and pushes the assistant message, retrying until the markdown renders (App
-  // registers its host listener only after mount, so an early push can land before anyone is listening).
+  // Mounts the Codex session and pushes the assistant message after `ready` proves App is listening.
   async function mount(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitForMessage("ready");
     const markdown = page.locator(".agent-markdown");
-    await expect(async () => {
-      host.pushToWeb({ type: "session-list", sessions: [codexChip] });
-      host.pushToWeb(assistantMessage());
-      await expect(markdown).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 20_000 });
+    host.pushToWeb({ type: "session-list", sessions: [codexChip] });
+    host.pushToWeb(assistantMessage());
+    await expect(markdown).toBeVisible();
   }
 
   test("linkifies inline-code paths (incl. @), leaves fenced code plain, and reveals on click", async ({

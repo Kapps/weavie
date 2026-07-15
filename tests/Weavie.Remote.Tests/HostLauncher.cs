@@ -170,6 +170,17 @@ public sealed class HostHandle : IAsyncDisposable {
 		return (process.ExitCode, Snapshot(output));
 	}
 
+	/// <summary>Waits for this successfully-started host to exit and returns its exit code.</summary>
+	public async Task<int> WaitForExitAsync(TimeSpan timeout) {
+		try {
+			await _process.WaitForExitAsync().WaitAsync(timeout).ConfigureAwait(false);
+		} catch (TimeoutException) {
+			throw new InvalidOperationException($"host did not exit in {timeout.TotalSeconds:F0}s after shutdown was requested.");
+		}
+
+		return _process.ExitCode;
+	}
+
 	public ValueTask DisposeAsync() {
 		TreeKill(_process);
 		_process.Dispose();

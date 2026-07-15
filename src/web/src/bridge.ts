@@ -126,6 +126,7 @@ export interface AgentControlAxis {
   value: string;
   valueLabel: string;
   options: AgentControlOption[];
+  commandId: string | null;
 }
 
 /** One model in the merged model control, with the efforts and Fast state its submenu offers. */

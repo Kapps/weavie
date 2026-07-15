@@ -3,7 +3,7 @@ using Weavie.Core.Agents;
 
 namespace Weavie.Hosting.Agents;
 
-/// <summary>Serializes provider-neutral agent control state (model / effort / Fast / approvals / sandbox / slash) for the web bridge.</summary>
+/// <summary>Serializes provider-neutral agent control state (model / effort / Fast / mode / permissions / slash) for the web bridge.</summary>
 internal static class AgentControlsProtocol {
 	public static string Message(string slot, string workspace, AgentControlState state) {
 		ArgumentNullException.ThrowIfNull(slot);
@@ -41,6 +41,7 @@ internal static class AgentControlsProtocol {
 						label = option.Label,
 						description = option.Description,
 					}),
+					commandId = axis.CommandId,
 				}),
 				slash = state.Slash.Select(entry => new {
 					id = entry.Id,

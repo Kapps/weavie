@@ -126,4 +126,13 @@ public sealed class CommandTests {
 		Assert.Equal("{\"index\":1}", focus.DefaultKeybindings[0].ArgsJson);
 		Assert.Equal(CommandLocation.Core, registry.Require(CoreCommands.ReopenTerminal).RunsIn);
 	}
+
+	[Fact]
+	public void TogglePlanMode_UsesNativeShiftTabBinding() {
+		var command = CoreCommands.CreateRegistry().Require(CoreCommands.TogglePlanMode);
+
+		Assert.Equal(CommandLocation.Web, command.RunsIn);
+		Assert.Equal("shift+tab", Assert.Single(command.DefaultKeybindings).Key);
+		Assert.Equal("agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen", command.When);
+	}
 }

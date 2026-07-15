@@ -403,8 +403,7 @@ public sealed partial class HostCore {
 				// session's panes (replay the shell's log, nudge claude's TUI) — see TerminalController.ResyncPane.
 				foreach (var slot in _sessions?.Slots ?? []) {
 					slot.Session?.Claude?.ResyncPane();
-					slot.Session?.Agent.ReplayPane();
-					slot.Session?.Agent.ReplayControls();
+					slot.Session?.Agent.ReplayState();
 					slot.Session?.Shell.ResyncPane();
 				}
 

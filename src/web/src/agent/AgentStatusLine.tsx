@@ -16,8 +16,8 @@ import {
 } from "./agent-controls-store";
 
 // The dim strip under the composer. First segment is the merged model → effort / Fast control (its picker is a
-// cascading per-model submenu); the rest are the approvals / sandbox axes. Values are provider-neutral — the web
-// never learns they came from Codex.
+// cascading per-model submenu); the rest are provider-owned axes. Values are provider-neutral — the web
+// never learns their provider-specific meaning.
 export function AgentStatusLine(props: { backendId: string; slot: string | null }): JSX.Element {
   const state = (): ReturnType<typeof agentControlState> => agentControlState(props.slot);
   const modelLabel = (): string => state().modelControl.valueLabel;
@@ -36,6 +36,12 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
   const pullRequestTitle = (number: number): string => {
     commandsVersion();
     return `Open PR #${number} in browser${keyHint(CommandIds.openCurrentPr)}`;
+  };
+  const axisTitle = (axis: ReturnType<typeof state>["axes"][number]): string => {
+    commandsVersion();
+    return `${axis.label}: ${axis.valueLabel} — click to change${
+      axis.commandId === null ? "" : keyHint(axis.commandId)
+    }`;
   };
   // Switching sessions abandons an open picker so it can't apply to the wrong session.
   createEffect(() => {
@@ -66,7 +72,7 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
             <button
               type="button"
               class="agent-status-segment"
-              title={`${axis.label}: ${axis.valueLabel} — click to change`}
+              title={axisTitle(axis)}
               onClick={() => openControlPicker(axis.id)}
             >
               <span class="agent-status-key">{axis.label}</span>

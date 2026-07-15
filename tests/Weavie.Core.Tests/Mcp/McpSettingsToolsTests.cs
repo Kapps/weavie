@@ -135,6 +135,53 @@ public sealed class McpSettingsToolsTests : IDisposable {
 		Assert.True(response.RootElement.GetProperty("result").GetProperty("isError").GetBoolean());
 	}
 
+	[Fact]
+	public async Task GetSetting_WorkspaceScopedKey_ReflectsWorkspaceOverlay() {
+		using var store = NewStore();
+		await using var server = NewServer(store);
+		int port = server.Start();
+		using var ws = await ConnectAsync(port);
+
+		// setSetting routes a workspace-scoped key into this session's workspace overlay.
+		await SendAsync(ws, Request(6, "tools/call",
+			"{\"name\":\"setSetting\",\"arguments\":{\"key\":\"worktree.setupCommand\",\"value\":\"pnpm install\"}}"));
+		using (var setResp = await ReceiveAsync(ws)) {
+			Assert.False(setResp.RootElement.GetProperty("result").TryGetProperty("isError", out var err) && err.GetBoolean());
+		}
+
+		// getSetting must read back that workspace value, not the empty default — the bug this fixes.
+		await SendAsync(ws, Request(7, "tools/call",
+			"{\"name\":\"getSetting\",\"arguments\":{\"key\":\"worktree.setupCommand\"}}"));
+		using var getResp = await ReceiveAsync(ws);
+
+		string? text = getResp.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+		using var doc = JsonDocument.Parse(text!);
+		Assert.Equal("pnpm install", doc.RootElement.GetProperty("value").GetString());
+		Assert.Equal("workspaceFile", doc.RootElement.GetProperty("source").GetString());
+	}
+
+	[Fact]
+	public async Task ListSettings_WorkspaceScopedKey_ReflectsWorkspaceOverlay() {
+		using var store = NewStore();
+		await using var server = NewServer(store);
+		int port = server.Start();
+		using var ws = await ConnectAsync(port);
+
+		await SendAsync(ws, Request(8, "tools/call",
+			"{\"name\":\"setSetting\",\"arguments\":{\"key\":\"worktree.setupCommand\",\"value\":\"pnpm install\"}}"));
+		using (await ReceiveAsync(ws)) { }
+
+		await SendAsync(ws, Request(9, "tools/call", "{\"name\":\"listSettings\",\"arguments\":{}}"));
+		using var response = await ReceiveAsync(ws);
+
+		string? text = response.RootElement.GetProperty("result").GetProperty("content")[0].GetProperty("text").GetString();
+		using var catalog = JsonDocument.Parse(text!);
+		var setupCommand = catalog.RootElement.GetProperty("settings").EnumerateArray()
+			.Single(s => s.GetProperty("key").GetString() == "worktree.setupCommand");
+		Assert.Equal("pnpm install", setupCommand.GetProperty("value").GetString());
+		Assert.Equal("workspaceFile", setupCommand.GetProperty("source").GetString());
+	}
+
 	private static async Task<ClientWebSocket> ConnectAsync(int port) {
 		var client = new ClientWebSocket();
 		client.Options.SetRequestHeader("x-claude-code-ide-authorization", Token);

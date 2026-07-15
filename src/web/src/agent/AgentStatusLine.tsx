@@ -3,7 +3,7 @@ import { gitStatus } from "../chrome/git-status-store";
 import { pullRequestStatus } from "../chrome/pull-request-store";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
-import { dispatchCommand, onCommandsChanged } from "../commands/registry";
+import { onCommandsChanged, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { AgentControlPicker } from "./AgentControlPicker";
 import { AgentModelPicker } from "./AgentModelPicker";
@@ -86,7 +86,7 @@ export function AgentStatusLine(props: { backendId: string; slot: string | null 
               type="button"
               class="agent-status-segment agent-status-pr"
               title={pullRequestTitle(pr().number)}
-              onClick={() => void dispatchCommand(CommandIds.openCurrentPr)}
+              onClick={() => void runCommandWithFeedback(CommandIds.openCurrentPr)}
             >
               #{pr().number}
             </button>

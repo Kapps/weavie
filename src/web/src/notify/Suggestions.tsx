@@ -1,7 +1,7 @@
 import { For, type JSX } from "solid-js";
 import type { Suggestion, SuggestionAction } from "../bridge";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
+import { findCommand, runCommandWithFeedback } from "../commands/registry";
 
 // A RunCommand button's label with its command's effective shortcut appended ("Yes (Ctrl+…)"); an unbound or
 // non-command action shows just the label.
@@ -22,7 +22,7 @@ export function Suggestions(props: {
   const onAction = (suggestion: Suggestion, action: SuggestionAction): void => {
     if (action.kind === "RunCommand" && action.commandId !== undefined) {
       const args = action.argsJson === undefined ? undefined : JSON.parse(action.argsJson);
-      void dispatchCommand(action.commandId, args);
+      void runCommandWithFeedback(action.commandId, args);
       // Taking the offer is engagement: snooze the card (a fresh run re-offers if nothing came of it).
       props.onDismiss(suggestion.id, false);
     } else {

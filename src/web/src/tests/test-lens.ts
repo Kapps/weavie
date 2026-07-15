@@ -5,7 +5,7 @@
 
 import * as monaco from "monaco-editor";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
+import { findCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { uriHostPath } from "../editor/fs-path";
 import { activeCodeEditor } from "../editor/vscode-services";
@@ -28,7 +28,7 @@ export function installTestLenses(): void {
   const emitter = new monaco.Emitter<void>();
 
   const lensCommand = monaco.editor.registerCommand(LENS_COMMAND, (_accessor, arg) => {
-    void dispatchCommand(CommandIds.runTests, arg);
+    void runCommandWithFeedback(CommandIds.runTests, arg);
   });
 
   const provider = monaco.languages.registerCodeLensProvider(
@@ -97,10 +97,13 @@ export async function runTestAtCursor(): Promise<boolean> {
   const hits = await documentTestHits(model, rule);
   const innermost = innermostHitAt(hits, position);
   if (innermost === undefined) {
-    void dispatchCommand(CommandIds.runTests, { file: uriHostPath(model.uri) });
+    void runCommandWithFeedback(CommandIds.runTests, { file: uriHostPath(model.uri) });
     return true;
   }
-  void dispatchCommand(CommandIds.runTests, { file: uriHostPath(model.uri), name: innermost.name });
+  void runCommandWithFeedback(CommandIds.runTests, {
+    file: uriHostPath(model.uri),
+    name: innermost.name,
+  });
   return true;
 }
 

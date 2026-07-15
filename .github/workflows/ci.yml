@@ -114,6 +114,12 @@ jobs:
       # Each version's real install is a plain directory (e.g. Xcode_26.6.app); the runner also adds
       # symlink aliases (e.g. Xcode_26.6.0.app) that don't resolve their nested SDK path, so restrict
       # to -type d to land on the real bundle.
+      # FLAKE LOG: 2026-07-14 21:40 and 22:05 UTC, the macos job failed on this exact mismatch before
+      # this step existed (workload 26.5.10301 vs the runner's then-default Xcode 26.5) — runs
+      # https://github.com/Kapps/weavie/actions/runs/29370399377 and
+      # https://github.com/Kapps/weavie/actions/runs/29371814577. Fixed by adding this step
+      # (commit 12f3e74, refined in cbffe64 for the symlink-alias bug above). Green on every macos
+      # run since.
       - name: Select latest Xcode
         if: matrix.name == 'macos'
         run: sudo xcode-select -s "$(find /Applications -maxdepth 1 -name 'Xcode_*.app' -type d | sort -V | tail -1)"

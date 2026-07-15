@@ -522,6 +522,28 @@ public sealed class CorrectionRecorderTests {
 		Assert.Null(Assert.Single(_corpus.ReadAll()).Prompt);
 	}
 
+	[Fact]
+	public void InFlightRegionsBeyondCap_EvictsOldestRegion_StoppingItsCoalescing() {
+		// Open MaxInFlightRegions distinct regions, each left correcting-but-unfinished (never retyped back to
+		// the agent's output), then open one more. The dictionary must not just grow forever: the oldest region
+		// (region 0) should have been evicted, so its next save starts a FRESH chain (a new corpus append)
+		// instead of coalescing into (replacing) its existing entry.
+		for (int i = 0; i < CorrectionRecorder.MaxInFlightRegions; i++) {
+			Boundary($"p{i}");
+			AgentEdit($"file{i}.cs", "agent\n");
+			HandEdit($"file{i}.cs", "correcting\n");
+		}
+
+		Boundary("overflow");
+		AgentEdit("overflow.cs", "agent\n");
+		HandEdit("overflow.cs", "correcting\n");
+
+		int countBeforeContinuedEdit = _corpus.Count;
+		HandEdit("file0.cs", "correcting-more\n"); // region 0's chain, if still tracked, would coalesce in place
+
+		Assert.Equal(countBeforeContinuedEdit + 1, _corpus.Count); // a fresh append, not a same-count coalesce
+	}
+
 	private void Boundary(string? prompt) => _tracker.Observe(new AgentPromptSubmitted("session", prompt));
 
 	private void AgentEdit(string relativePath, string content) {

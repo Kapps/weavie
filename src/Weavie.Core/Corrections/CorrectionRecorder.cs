@@ -4,6 +4,9 @@ namespace Weavie.Core.Corrections;
 
 /// <summary>Appends action-time correction batches to a workspace's shared corpus.</summary>
 public sealed class CorrectionRecorder {
+	/// <summary>The cap on distinct in-flight regions — bounds a long session's memory, not user config.</summary>
+	public const int MaxInFlightRegions = 200;
+
 	private readonly CorrectionCorpus _corpus;
 	private readonly Lock _gate = new();
 	// Per agent region the correction it last stored, so successive editor saves that keep retyping over one region
@@ -12,6 +15,12 @@ public sealed class CorrectionRecorder {
 	// hence a list per origin, one live chain per region the user is editing. Session-scoped: origin ids are the
 	// tracker's, and a burst of autosaves is one continuous session.
 	private readonly Dictionary<(string Path, long OriginId), List<Chain>> _inFlight = [];
+	// Insertion order of _inFlight's keys, so once the region count exceeds MaxInFlightRegions the oldest region is
+	// dropped — most sessions never touch this cap (a chain is normally short-lived: it drops on retype-to-original),
+	// but an abandoned in-progress region otherwise sits here, holding its full Before/After text, for the rest of
+	// the session. Eviction just stops coalescing that region: its next save starts a fresh chain, same as any other
+	// region the recorder hasn't seen before.
+	private readonly Queue<(string Path, long OriginId)> _inFlightOrder = new();
 
 	/// <summary>Creates a recorder appending into <paramref name="corpus"/>.</summary>
 	/// <param name="corpus">The workspace's shared correction ring.</param>
@@ -69,6 +78,10 @@ public sealed class CorrectionRecorder {
 
 		if (chains is null) {
 			_inFlight[key] = chains = [];
+			_inFlightOrder.Enqueue(key);
+			while (_inFlight.Count > MaxInFlightRegions && _inFlightOrder.TryDequeue(out var oldest)) {
+				_inFlight.Remove(oldest);
+			}
 		}
 
 		chains.Add(new Chain(edit.Before, edit.After, _corpus.Append(OneFile(edit, fresh))));

@@ -191,16 +191,18 @@ public sealed partial class CodexAppServerSession : IStructuredAgentSession {
 
 	private void PersistThread() {
 		string? threadId;
+		string mode;
 		lock (_gate) {
 			if (_threadPersisted || string.IsNullOrEmpty(_threadId)) {
 				return;
 			}
 
 			threadId = _threadId;
+			mode = _collaborationMode;
 			_threadPersisted = true;
 		}
 
-		_threads.Adopt(_context.Workspace, threadId);
+		_threads.Adopt(_context.Workspace, threadId, mode);
 	}
 
 	// Clear the active turn only when the completion is for the turn we track: a late completion of an older

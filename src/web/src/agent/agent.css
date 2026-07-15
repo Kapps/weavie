@@ -995,7 +995,7 @@
 
 .agent-slash-option {
   display: grid;
-  grid-template-columns: minmax(0, max-content) minmax(0, 1fr);
+  grid-template-columns: minmax(0, max-content) minmax(0, 1fr) minmax(0, max-content);
   align-items: baseline;
   gap: 10px;
   padding: 4px 7px;
@@ -1017,5 +1017,10 @@
   overflow: hidden;
   color: var(--dim);
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-slash-key {
+  color: var(--dim);
   white-space: nowrap;
 }

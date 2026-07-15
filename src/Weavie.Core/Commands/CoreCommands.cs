@@ -56,6 +56,9 @@ public static class CoreCommands {
 	/// <summary>Interrupts the active structured-agent turn.</summary>
 	public const string AgentInterrupt = "weavie.agent.interrupt";
 
+	/// <summary>Toggles the active structured agent between its Plan and default collaboration modes.</summary>
+	public const string TogglePlanMode = "weavie.agent.togglePlanMode";
+
 	/// <summary>Opens the agent composer's model picker, or applies a <c>value</c> arg directly.</summary>
 	public const string SelectModel = "weavie.agent.selectModel";
 
@@ -556,6 +559,17 @@ public static class CoreCommands {
 			Aliases = ["interrupt", "stop agent", "cancel turn"],
 			DefaultKeybindings = [new CommandKeybinding { Key = "escape" }],
 			// While a composer overlay (slash menu or control picker) is open, Escape closes it, not the turn.
+			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
+		});
+
+		registry.Register(new CommandDefinition {
+			Id = TogglePlanMode,
+			Title = "Toggle Agent Plan Mode",
+			RunsIn = CommandLocation.Web,
+			Category = "Agent",
+			Description = "Toggle Plan mode for the active agent conversation; the selected mode applies from the next turn.",
+			Aliases = ["plan mode", "toggle plan", "codex plan", "plan"],
+			DefaultKeybindings = [new CommandKeybinding { Key = "shift+tab" }],
 			When = "agentFocused && !agentSlashMenuOpen && !agentControlPickerOpen",
 		});
 

@@ -36,7 +36,11 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 	};
 
 	private IReadOnlyList<CodexModelEntry> _catalog = [];
+	private IReadOnlyList<CodexCollaborationMode> _collaborationModes = [];
 	private IReadOnlyList<CodexSkill> _skills = [];
+	private string _collaborationMode = string.Empty;
+	private string? _modeModel;
+	private string? _modeEffort;
 	private string _modelOverride = string.Empty;
 	private string _effortOverride = string.Empty;
 	private string _serviceTierOverride = string.Empty;
@@ -57,6 +61,14 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 			EmitError($"'{value}' is not a valid {axis} option.");
 			return;
 		}
+		if (axis == "collaborationMode") {
+			lock (_gate) {
+				ApplyCollaborationModeLocked(value);
+			}
+			_threads.SetMode(_context.Workspace, value);
+			RaiseControlState();
+			return;
+		}
 
 		if (!TryRememberControl(axis, value)) {
 			return;
@@ -64,8 +76,15 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 		lock (_gate) {
 			switch (axis) {
-				case "model": _modelOverride = value; DropInvalidDerivedOverrides(); break;
-				case "effort": _effortOverride = value; break;
+				case "model":
+					_modelOverride = value;
+					_modeModel = value;
+					DropInvalidDerivedOverrides();
+					break;
+				case "effort":
+					_effortOverride = value;
+					_modeEffort = value;
+					break;
 				case "serviceTier": _serviceTierOverride = value; break;
 				case "approvalPolicy": _approvalOverride = value; break;
 				case "sandbox": _sandboxOverride = value; break;
@@ -102,19 +121,19 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private string EffectiveModel() {
 		lock (_gate) {
-			return _modelOverride.Length > 0 ? _modelOverride : Model();
+			return EffectiveModelIdLocked();
 		}
 	}
 
 	private string EffectiveEffort() {
 		lock (_gate) {
-			return EffortOverrideOrSetting(CurrentModelEntryLocked());
+			return EffectiveEffortLocked();
 		}
 	}
 
 	private string EffectiveServiceTier() {
 		lock (_gate) {
-			return ServiceTierOverrideOrSetting(CurrentModelEntryLocked());
+			return ServiceTierOverrideOrSetting(EffectiveModelEntryLocked());
 		}
 	}
 
@@ -143,6 +162,33 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 			}
 		}
 
+		long modeRequest = NextRequest();
+		var modes = await _client.RequestAsync(
+			modeRequest,
+			CodexAppServerProtocol.CollaborationModeList(modeRequest),
+			CancellationToken.None).ConfigureAwait(false);
+		if (CodexAppServerProtocol.TryReadCollaborationModes(modes, out var parsedModes)) {
+			string? unavailable = null;
+			lock (_gate) {
+				_collaborationModes = parsedModes;
+				if (_collaborationMode.Length == 0) {
+					string selected = parsedModes.FirstOrDefault(mode => mode.Mode == "default")?.Mode
+						?? parsedModes.FirstOrDefault()?.Mode
+						?? string.Empty;
+					if (selected.Length > 0) {
+						ApplyCollaborationModeLocked(selected);
+					}
+				} else if (parsedModes.All(mode => mode.Mode != _collaborationMode)) {
+					unavailable = _collaborationMode;
+				} else {
+					ApplyCollaborationModeLocked(_collaborationMode);
+				}
+			}
+			if (unavailable is not null) {
+				EmitError($"Codex no longer offers the saved '{unavailable}' mode. Choose one of its advertised modes before submitting.");
+			}
+		}
+
 		await RefreshSkillsAsync().ConfigureAwait(false);
 		RaiseControlState();
 	}
@@ -165,10 +211,10 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private AgentControlState BuildControlState() {
 		lock (_gate) {
-			var entry = CurrentModelEntryLocked();
+			var entry = EffectiveModelEntryLocked();
 			string effortId = EffortDisplay(entry);
 			bool fastOn = entry.ServiceTiers.Count > 0 && ServiceTierDisplay(entry) != StandardTier.Id;
-			string modelValue = CurrentModelIdLocked();
+			string modelValue = EffectiveModelIdLocked();
 
 			var modelControl = new AgentModelControl {
 				Value = modelValue,
@@ -176,14 +222,29 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 				Models = [.. _catalog.Select(model => ModelChoice(model, modelValue, effortId, fastOn))],
 			};
 
-			List<AgentControlAxis> axes = [
-				Axis("approvalPolicy", "Approvals", ApprovalPolicyLocked(), ApprovalOptions),
-				Axis("sandbox", "Sandbox", SandboxLocked(), SandboxOptions),
-			];
+			List<AgentControlAxis> axes = [];
+			if (_collaborationModes.Count > 0) {
+				axes.Add(Axis(
+					"collaborationMode",
+					"Mode",
+					_collaborationMode,
+					[.. _collaborationModes.Select(mode => new AgentControlOption {
+						Id = mode.Mode,
+						Label = mode.Name,
+					})],
+					CoreCommands.TogglePlanMode));
+			}
+			axes.AddRange([
+				Axis("approvalPolicy", "Approvals", ApprovalPolicyLocked(), ApprovalOptions, CoreCommands.SelectApprovalPolicy),
+				Axis("sandbox", "Sandbox", SandboxLocked(), SandboxOptions, CoreCommands.SelectSandbox),
+			]);
 
 			List<AgentSlashEntry> slash = [
 				Builtin("model", "Switch the model, effort, or Fast Mode", CoreCommands.SelectModel),
 			];
+			if (_collaborationModes.Any(mode => mode.Mode == "plan")) {
+				slash.Add(Builtin("plan", "Toggle Plan mode", CoreCommands.TogglePlanMode));
+			}
 			if (entry.Efforts.Count > 1) {
 				slash.Add(Builtin("effort", "Change how hard Codex reasons", CoreCommands.SelectEffort));
 			}
@@ -235,19 +296,28 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 		return id.Length > 0 ? id : _catalog.FirstOrDefault(model => model.IsDefault)?.Model.Id ?? string.Empty;
 	}
 
-	// The current model's catalog entry, or NoModel when the id isn't in the catalog (unknown model, or pre-load).
-	private CodexModelEntry CurrentModelEntryLocked() =>
+	private string EffectiveModelIdLocked() =>
+		_modeModel ?? CurrentModelIdLocked();
+
+	private CodexModelEntry BaseModelEntryLocked() =>
 		_catalog.FirstOrDefault(model => model.Model.Id == CurrentModelIdLocked()) ?? NoModel;
+
+	private CodexModelEntry EffectiveModelEntryLocked() =>
+		_catalog.FirstOrDefault(model => model.Model.Id == EffectiveModelIdLocked()) ?? NoModel;
 
 	// The effort to send: the override (always model-valid) else the setting, scoped to the model. A setting this
 	// model supports is used; one another model supports is a per-model gap, dropped to empty (wire omits → model
 	// default) so a hidden axis can't strand it; one no model supports (unset or a typo) passes through — empty
 	// omits, a typo reaches Codex and surfaces loudly rather than being silently swallowed.
-	private string EffortOverrideOrSetting(CodexModelEntry entry) =>
-		_effortOverride.Length > 0 ? _effortOverride : ScopeSettingToModel(Effort(), entry.Efforts, model => model.Efforts);
+	private string EffortOverrideOrSetting(CodexModelEntry entry) {
+		string effort = _effortOverride.Length > 0 ? _effortOverride : Effort();
+		return ScopeSettingToModel(effort, entry.Efforts, model => model.Efforts);
+	}
 
-	private string ServiceTierOverrideOrSetting(CodexModelEntry entry) =>
-		_serviceTierOverride.Length > 0 ? _serviceTierOverride : ScopeSettingToModel(ServiceTier(), entry.ServiceTiers, model => model.ServiceTiers);
+	private string ServiceTierOverrideOrSetting(CodexModelEntry entry) {
+		string tier = _serviceTierOverride.Length > 0 ? _serviceTierOverride : ServiceTier();
+		return ScopeSettingToModel(tier, entry.ServiceTiers, model => model.ServiceTiers);
+	}
 
 	private string ScopeSettingToModel(string setting, IReadOnlyList<AgentControlOption> here, Func<CodexModelEntry, IReadOnlyList<AgentControlOption>> of) {
 		if (here.Any(option => option.Id == setting)) {
@@ -258,9 +328,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 	}
 
 	private string EffortDisplay(CodexModelEntry entry) {
-		string effort = EffortOverrideOrSetting(entry);
+		string effort = _modeEffort ?? EffortOverrideOrSetting(entry);
 		return effort.Length > 0 ? effort : entry.DefaultEffort;
 	}
+
+	private string EffectiveEffortLocked() =>
+		_modeEffort ?? EffortOverrideOrSetting(EffectiveModelEntryLocked());
 
 	private string ServiceTierDisplay(CodexModelEntry entry) {
 		string tier = ServiceTierOverrideOrSetting(entry);
@@ -279,9 +352,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 	// that clears the stale one on Codex's side: the effort resets to the new model's default, the tier to Standard
 	// (a JSON null). Both are sent on the next turn/start, so an unsupported value can never linger on the thread.
 	private void DropInvalidDerivedOverrides() {
-		var entry = CurrentModelEntryLocked();
+		var entry = BaseModelEntryLocked();
 		if (_effortOverride.Length > 0 && entry.Efforts.All(option => option.Id != _effortOverride)) {
 			_effortOverride = entry.DefaultEffort;
+		}
+		if (_modeEffort is not null && entry.Efforts.All(option => option.Id != _modeEffort)) {
+			_modeEffort = entry.DefaultEffort;
 		}
 
 		if (_serviceTierOverride.Length > 0
@@ -304,17 +380,21 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private bool IsValidControl(string axis, string value) {
 		switch (axis) {
+			case "collaborationMode":
+				lock (_gate) {
+					return _collaborationModes.Any(mode => mode.Mode == value);
+				}
 			case "model":
 				lock (_gate) {
 					return _catalog.Any(model => model.Model.Id == value);
 				}
 			case "effort":
 				lock (_gate) {
-					return CurrentModelEntryLocked().Efforts.Any(option => option.Id == value);
+					return EffectiveModelEntryLocked().Efforts.Any(option => option.Id == value);
 				}
 			case "serviceTier":
 				lock (_gate) {
-					return ServiceTierOptions(CurrentModelEntryLocked()).Any(option => option.Id == value);
+					return ServiceTierOptions(EffectiveModelEntryLocked()).Any(option => option.Id == value);
 				}
 			case "approvalPolicy":
 				return ApprovalOptions.Any(option => option.Id == value);
@@ -327,7 +407,12 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 
 	private void RaiseControlState() => ControlStateChanged?.Invoke(BuildControlState());
 
-	private static AgentControlAxis Axis(string id, string label, string value, IReadOnlyList<AgentControlOption> options) {
+	private static AgentControlAxis Axis(
+		string id,
+		string label,
+		string value,
+		IReadOnlyList<AgentControlOption> options,
+		string commandId) {
 		var current = options.FirstOrDefault(option => option.Id == value);
 		return new AgentControlAxis {
 			Id = id,
@@ -335,7 +420,34 @@ public sealed partial class CodexAppServerSession : IStructuredAgentControls {
 			Value = value,
 			ValueLabel = current?.Label ?? (value.Length > 0 ? value : "default"),
 			Options = options,
+			CommandId = commandId,
 		};
+	}
+
+	private CodexCollaborationMode? CurrentCollaborationModeLocked() =>
+		_collaborationModes.FirstOrDefault(mode => mode.Mode == _collaborationMode);
+
+	private void ApplyCollaborationModeLocked(string value) {
+		var mode = _collaborationModes.First(candidate => candidate.Mode == value);
+		_collaborationMode = value;
+		_modeModel = mode.Model;
+		_modeEffort = mode.ReasoningEffort;
+	}
+
+	private CodexCollaborationMode? CurrentCollaborationMode() {
+		lock (_gate) {
+			if (_collaborationModes.Count == 0) {
+				return null;
+			}
+
+			var selected = CurrentCollaborationModeLocked()
+				?? throw new InvalidOperationException(
+					$"Codex no longer offers the saved '{_collaborationMode}' mode. Choose an advertised mode before submitting.");
+			return selected with {
+				Model = EffectiveModelIdLocked(),
+				ReasoningEffort = _modeEffort,
+			};
+		}
 	}
 
 	private static AgentSlashEntry Builtin(string name, string description, string commandId) =>

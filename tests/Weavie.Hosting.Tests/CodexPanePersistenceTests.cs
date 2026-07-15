@@ -70,6 +70,26 @@ public sealed class CodexPanePersistenceTests {
 	}
 
 	[Fact]
+	public async Task SwitchingToCodex_ReplaysTranscriptDiscardedWhileBackendWasInactive() {
+		await using var host = await StartWithCodexSessionAsync("codex-branch");
+		host.Send("""{"type":"agent-submit","slot":"codex-branch","prompt":"hello"}""");
+		var sessions = host.Bridge.LastOfType("session-list")!.Value.GetProperty("sessions");
+		string primary = sessions.EnumerateArray().Single(session => session.GetProperty("primary").GetBoolean())
+			.GetProperty("id").GetString()!;
+
+		host.Send($$"""{"type":"switch-session","id":"{{primary}}"}""");
+		host.Bridge.Clear();
+
+		// A remote backend's ready replay arrives while the local backend is focused and is intentionally not
+		// rendered. The subsequent bind must project the complete pane without requiring an unload/reload.
+		host.Send("""{"type":"switch-session","id":"codex-branch"}""");
+
+		Assert.NotNull(host.Bridge.LastOfType("agent-pane-reset"));
+		Assert.True(HasPaneMessage(host.Bridge, "codex-branch", "user-message", "hello"));
+		Assert.True(HasPaneMessage(host.Bridge, "codex-branch", "item-completed", "echo: hello"));
+	}
+
+	[Fact]
 	public async Task ThreadReset_ClearsTranscript_SoRestartComesUpEmpty() {
 		await using var host = await StartWithCodexSessionAsync("codex-branch");
 		host.Send("""{"type":"agent-submit","slot":"codex-branch","prompt":"hello"}""");

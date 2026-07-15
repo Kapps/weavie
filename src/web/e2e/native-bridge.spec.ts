@@ -35,10 +35,61 @@ test.describe("native in-process bridge contract", () => {
     await page.addInitScript(() => {
       const sent: string[] = [];
       (window as unknown as { __weavieSent: string[] }).__weavieSent = sent;
+      const send = (json: string): void => {
+        sent.push(json);
+        let message: { type?: string };
+        try {
+          message = JSON.parse(json) as { type?: string };
+        } catch {
+          return;
+        }
+        if (message.type !== "ready") return;
+
+        // A native host can answer synchronously. Its ready replay must land after App's listener exists,
+        // including the structured transcript that used to disappear during bootstrap.
+        const push = window.__weavieReceive;
+        push?.(
+          JSON.stringify({
+            type: "session-list",
+            sessions: [
+              {
+                id: "cx",
+                label: "codex",
+                active: true,
+                loaded: true,
+                primary: true,
+                providerId: "codex",
+                agentSurface: "structured",
+                status: "idle",
+                hue: 200,
+                monogram: "C",
+              },
+            ],
+          }),
+        );
+        push?.(JSON.stringify({ type: "agent-pane-reset", slot: "cx", workspace: "/repo" }));
+        push?.(
+          JSON.stringify({
+            type: "agent-pane-batch",
+            slot: "cx",
+            workspace: "/repo",
+            messages: [
+              {
+                type: "item-completed",
+                providerId: "codex",
+                itemId: "answer",
+                itemType: "agentMessage",
+                status: "completed",
+                text: "restored-on-ready",
+              },
+            ],
+          }),
+        );
+      };
       let receive: ((event: { data: unknown }) => void) | null = null;
       const chrome = (window as unknown as { chrome?: Record<string, unknown> }).chrome ?? {};
       chrome.webview = {
-        postMessage: (json: string) => sent.push(json),
+        postMessage: send,
         addEventListener: (type: string, listener: (event: { data: unknown }) => void) => {
           if (type === "message") receive = listener;
         },
@@ -48,7 +99,7 @@ test.describe("native in-process bridge contract", () => {
         receive?.({ data: raw });
       (window as unknown as { webkit: unknown }).webkit = {
         messageHandlers: {
-          weavie: { postMessage: (json: string) => sent.push(json) },
+          weavie: { postMessage: send },
         },
       };
     });
@@ -71,17 +122,16 @@ test.describe("native in-process bridge contract", () => {
       })
       .toBe(true);
 
-    // Inbound: Windows' ordered WebView2 message event reaches the app. Re-pushed under toPass because App
-    // registers its host listener only after mount.
+    await expect(page.locator(".agent-markdown")).toContainText("restored-on-ready");
+
+    // Inbound: Windows' ordered WebView2 message event reaches the mounted app.
     const toast = page.locator(".toast-msg", { hasText: "hello-native" });
-    await expect(async () => {
-      await page.evaluate(() =>
-        (window as unknown as { __weavieHostPush: (raw: string) => void }).__weavieHostPush(
-          JSON.stringify({ type: "notify", level: "info", message: "hello-native" }),
-        ),
-      );
-      await expect(toast).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 20_000 });
+    await page.evaluate(() =>
+      (window as unknown as { __weavieHostPush: (raw: string) => void }).__weavieHostPush(
+        JSON.stringify({ type: "notify", level: "info", message: "hello-native" }),
+      ),
+    );
+    await expect(toast).toBeVisible();
 
     await page.evaluate(() => {
       const push = (window as unknown as { __weavieHostPush: (raw: string) => void })

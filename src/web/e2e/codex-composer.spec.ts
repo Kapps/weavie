@@ -221,17 +221,14 @@ test.describe("Codex composer", () => {
     await host.close();
   });
 
-  // Mounts the Codex session and its control surface, retrying the pushes until the status line renders (App
-  // registers its host listener only after mount, so an early push can land before anyone is listening).
+  // Mounts the Codex session and its control surface after `ready` proves App's listeners are installed.
   async function mountCodex(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitForMessage("ready");
     const statusLine = page.locator(".agent-status-line");
-    await expect(async () => {
-      host.pushToWeb({ type: "session-list", sessions: [codexChip] });
-      host.pushToWeb(controls);
-      await expect(statusLine).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 20_000 });
+    host.pushToWeb({ type: "session-list", sessions: [codexChip] });
+    host.pushToWeb(controls);
+    await expect(statusLine).toBeVisible();
   }
 
   test("status line shows model, mode, approvals, and sandbox", async ({ page }) => {

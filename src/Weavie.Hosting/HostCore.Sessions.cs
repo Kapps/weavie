@@ -556,6 +556,9 @@ public sealed partial class HostCore {
 		session.SetEditorOutputActive(true);
 		if (session.Agent.Structured is not null) {
 			session.EnsureAgentStarted();
+			// A remote backend's ready replay is intentionally hidden while that backend is not focused. Binding
+			// is therefore the authoritative projection boundary for the structured pane and its controls.
+			session.Agent.ReplayState();
 		}
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb(invalidate: true);

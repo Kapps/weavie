@@ -50,9 +50,10 @@ window.addEventListener("unhandledrejection", (e) => {
   postToHost({ type: "log", level: "error", message: `unhandledrejection: ${message}` });
 });
 
-postToHost({ type: "ready" });
-
 // Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,
 // so first paint doesn't wait on the multi-megabyte editor code. The splash stays up until App dismisses it
 // once the editor is ready.
 render(() => <App />, root);
+
+// `ready` asks the host for an immediate state replay, so every App listener must exist before it is sent.
+postToHost({ type: "ready" });

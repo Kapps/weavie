@@ -356,10 +356,16 @@ public sealed partial class SessionChangeTracker {
 			string currentRaw = _current.GetValueOrDefault(path, ReadOrEmpty(path));
 			var currentLines = SplitLines(currentRaw);
 			var diskLines = SplitLines(ReadOrEmpty(path));
-			var diskRange = MapCurrentRangeToActual(path, currentRange);
-			if (!TryGetSlice(diskLines, diskRange, out var guardedSlice)
-				|| !string.Equals(string.Join("\n", guardedSlice), guardText, StringComparison.Ordinal)
-				|| !TryGetSlice(currentLines, currentRange, out var currentSlice)) {
+			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard against disk
+			// directly; then map the range into _current space (which omits the user's non-agent edits) so the
+			// review-side revert below rewrites only the agent's lines and preserves the user's untouched ones.
+			if (!TryGetSlice(diskLines, currentRange, out var guardedSlice)
+				|| !string.Equals(string.Join("\n", guardedSlice), guardText, StringComparison.Ordinal)) {
+				return RevertHunkOutcome.GuardMismatch;
+			}
+
+			var currentInCurrent = MapActualRangeToCurrent(path, currentRange);
+			if (!TryGetSlice(currentLines, currentInCurrent, out _)) {
 				return RevertHunkOutcome.GuardMismatch;
 			}
 
@@ -369,12 +375,12 @@ public sealed partial class SessionChangeTracker {
 			}
 
 			var newLines = new List<string>(currentLines);
-			newLines.RemoveRange(currentRange.Start - 1, currentRange.EndExclusive - currentRange.Start);
-			newLines.InsertRange(currentRange.Start - 1, replacement);
+			newLines.RemoveRange(currentInCurrent.Start - 1, currentInCurrent.EndExclusive - currentInCurrent.Start);
+			newLines.InsertRange(currentInCurrent.Start - 1, replacement);
 			string newContent = JoinLines(newLines, currentRaw);
 
 			// The rejected hunk is the correction: the agent's lines out, the baseline's back in.
-			edits = CorrectionsForRevert(path, currentRange, baselineRange);
+			edits = CorrectionsForRevert(path, currentInCurrent, baselineRange);
 			var before = Capture(path, withDisk: true);
 			// Reverting the last hunk of a created file returns it to non-existence — delete and forget it.
 			string diskContent = ApplyReviewChange(path, currentRaw, newContent);
@@ -496,13 +502,12 @@ public sealed partial class SessionChangeTracker {
 		ArgumentException.ThrowIfNullOrEmpty(path);
 		ArgumentNullException.ThrowIfNull(guardText);
 		lock (_gate) {
-			string currentRaw = _current.GetValueOrDefault(path, ReadOrEmpty(path));
-			var currentLines = SplitLines(currentRaw);
-			var diskLines = SplitLines(ReadOrEmpty(path));
-			var diskRange = MapCurrentRangeToActual(path, currentRange);
-			if (!TryGetSlice(diskLines, diskRange, out var guardedSlice)
-				|| !string.Equals(string.Join("\n", guardedSlice), guardText, StringComparison.Ordinal)
-				|| !TryGetSlice(currentLines, currentRange, out var currentSlice)) {
+			// currentRange + guardText are in the live-model (== disk) space the web diffed, so guard and take the
+			// kept lines straight from disk — never remap through _current, which omits the user's non-agent edits.
+			string diskRaw = ReadOrEmpty(path);
+			var diskLines = SplitLines(diskRaw);
+			if (!TryGetSlice(diskLines, currentRange, out var currentSlice)
+				|| !string.Equals(string.Join("\n", currentSlice), guardText, StringComparison.Ordinal)) {
 				return false;
 			}
 
@@ -515,7 +520,7 @@ public sealed partial class SessionChangeTracker {
 			var before = Capture(path, withDisk: false);
 			baselineLines.RemoveRange(baselineRange.Start - 1, baselineRange.EndExclusive - baselineRange.Start);
 			baselineLines.InsertRange(baselineRange.Start - 1, currentSlice);
-			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : currentRaw);
+			_reviewBaseline[path] = JoinLines(baselineLines, baselineRaw.Length > 0 ? baselineRaw : diskRaw);
 			SetPending(path, currentRange, false);
 			Record(ReviewActionKind.Keep, touchesDisk: false, [before], [path]);
 			return true;
@@ -584,7 +589,7 @@ public sealed partial class SessionChangeTracker {
 			foreach (var hunk in LineHunker.Hunks(
 				LineDiff.SplitLines(_reviewBaseline[path]),
 				LineDiff.SplitLines(_current.GetValueOrDefault(path, string.Empty)))) {
-				SetPending(path, hunk.AfterRange, true);
+				SetPending(path, MapCurrentRangeToActual(path, hunk.AfterRange), true);
 			}
 			return true;
 		}

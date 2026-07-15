@@ -53,6 +53,8 @@ interface Window {
   __WEAVIE_TERMINALS__?: Record<string, import("@xterm/xterm").Terminal>;
   /** The live Monaco editor, published by createEditor for e2e / diagnostics (read-only). */
   __WEAVIE_EDITOR__?: import("monaco-editor").editor.IStandaloneCodeEditor;
+  /** The monaco namespace, published by createEditor so e2e can register providers (read-only). */
+  __WEAVIE_MONACO__?: typeof import("monaco-editor");
   /**
    * The live review-walk file set + label the inline navigator cycles through, published by the editor
    * controller for e2e / diagnostics (read-only). A failed PR-switch test attaches this so the exact settled

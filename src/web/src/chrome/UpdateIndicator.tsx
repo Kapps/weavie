@@ -1,7 +1,7 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js";
 import { Portal } from "solid-js/web";
 import { keyHint } from "../commands/key-hint";
-import { dispatchCommand } from "../commands/registry";
+import { runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { type UpdateHold, updateHolds, updatePending, updateRestarting } from "./update-store";
 
@@ -103,7 +103,7 @@ export function UpdateIndicator(): JSX.Element {
                 type="button"
                 class="update-card-restart"
                 title={`Restart now to apply the update${keyHint(CommandIds.restartForUpdate)}`}
-                onClick={() => void dispatchCommand(CommandIds.restartForUpdate)}
+                onClick={() => void runCommandWithFeedback(CommandIds.restartForUpdate)}
               >
                 Restart Now{keyHint(CommandIds.restartForUpdate)}
               </button>

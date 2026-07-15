@@ -4,7 +4,7 @@ import { readClipboardImage, readClipboardText } from "../clipboard-read";
 import { setContext } from "../commands/context";
 import { keyHint } from "../commands/key-hint";
 import { liveKeyLabel } from "../commands/keys-live";
-import { dispatchCommand, registerCommand } from "../commands/registry";
+import { dispatchCommand, registerCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 import { notify } from "../notify/notify";
 import { sendPastedImage, sendPastedImagesFromClipboard } from "../terminal/paste-image";
@@ -133,7 +133,7 @@ export function AgentComposer(props: {
     }
     if (entry.commandId !== null) {
       setComposerDraft(props.backendId, slot, "");
-      void dispatchCommand(entry.commandId);
+      void runCommandWithFeedback(entry.commandId);
     } else if (entry.skillName !== null) {
       // Stage the skill so it submits as a structured skill input; clear the "/query" it replaces.
       stageSkill(props.backendId, slot, entry.skillName);

@@ -104,13 +104,22 @@ export function runForKeybinding(id: string, args: unknown): boolean {
     log("warn", `no web handler registered for command '${id}'`);
     return false;
   }
+  let outcome: ReturnType<CommandHandler>;
   try {
-    // Only an explicit `false` declines; a Promise/undefined consumes the key.
-    return handler(args) !== false;
+    outcome = handler(args);
   } catch (error) {
-    log("error", `command '${id}' threw: ${String(error)}`);
+    // A thrown handler is a failure, not a decline — surface it (matching the palette) rather than swallow it
+    // to the console, so a keyboard-run command isn't a silent no-op. It still consumed the key.
+    notify("warn", String(error));
     return true;
   }
+  // The sync return can't await a rejecting async handler; surface its rejection the same way.
+  if (outcome instanceof Promise) {
+    void outcome.catch((error: unknown) => notify("warn", String(error)));
+    return true;
+  }
+  // Only an explicit `false` declines; undefined consumes the key.
+  return outcome !== false;
 }
 
 /**

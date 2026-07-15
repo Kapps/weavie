@@ -181,6 +181,24 @@ describe("runForKeybinding", () => {
     expect(reg.runForKeybinding("core.k", undefined)).toBe(true);
     expect(env.invokeCalls[0]?.id).toBe("core.k");
   });
+
+  it("surfaces a thrown web handler as a toast instead of a silent console log", () => {
+    setCatalog([cmd("web.kthrow", "web")]);
+    reg.registerCommand("web.kthrow", () => {
+      throw new Error("kboom");
+    });
+    expect(reg.runForKeybinding("web.kthrow", undefined)).toBe(true);
+    expect(env.notified).toEqual([{ level: "warn", message: "Error: kboom" }]);
+  });
+
+  it("surfaces a rejecting async web handler as a toast", async () => {
+    setCatalog([cmd("web.kreject", "web")]);
+    reg.registerCommand("web.kreject", () => Promise.reject(new Error("kreject")));
+    expect(reg.runForKeybinding("web.kreject", undefined)).toBe(true);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(env.notified).toEqual([{ level: "warn", message: "Error: kreject" }]);
+  });
 });
 
 describe("host run-command (MCP) acknowledgement", () => {

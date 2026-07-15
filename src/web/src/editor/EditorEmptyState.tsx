@@ -2,7 +2,7 @@ import { Command, FilePlus, FileSearch, FolderTree, GitPullRequestArrow } from "
 import { For, type JSX, Show } from "solid-js";
 import { WeavieIcon } from "../chrome/WeavieIcon";
 import { formatKey } from "../commands/keybindings";
-import { dispatchCommand, findCommand } from "../commands/registry";
+import { findCommand, runCommandWithFeedback } from "../commands/registry";
 import { CommandIds } from "../commands/types";
 
 // Editor pane shown when no file is open. Each row is a button that dispatches a command and advertises its
@@ -68,7 +68,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
             type="button"
             class="editor-empty-review"
             onMouseDown={(event) => event.preventDefault()}
-            onClick={() => dispatchCommand(CommandIds.reviewOpen)}
+            onClick={() => void runCommandWithFeedback(CommandIds.reviewOpen)}
           >
             <GitPullRequestArrow size="1.15em" />
             <span class="editor-empty-action-text">
@@ -97,7 +97,7 @@ export function EditorEmptyState(props: { reviewCount: number }): JSX.Element {
                     // Don't steal focus on press: these actions hand focus to the omnibar, and a button
                     // holding focus would trip its focus-out close. preventDefault keeps the click firing.
                     onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => dispatchCommand(action.id)}
+                    onClick={() => void runCommandWithFeedback(action.id)}
                   >
                     <Icon size="1.15em" />
                     <span class="editor-empty-action-text">

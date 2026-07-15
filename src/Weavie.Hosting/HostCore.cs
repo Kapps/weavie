@@ -77,6 +77,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	// creation, and the web launcher awaits it again — both join this one run.
 	private readonly object _startGate = new();
 	private Task? _startTask;
+	private Task? _disposeTask;
 
 	// Drives the custom title bar (window-control / menu-action / file-index), present only when the platform
 	// exposes an IShellWindow (a web-rendered title bar). Null on native-chrome hosts.
@@ -193,6 +194,7 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	/// </summary>
 	public Task StartAsync() {
 		lock (_startGate) {
+			ObjectDisposedException.ThrowIf(_disposeTask is not null, this);
 			return _startTask ??= StartCoreAsync();
 		}
 	}
@@ -425,8 +427,67 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 	}
 
 	/// <inheritdoc/>
-	public async ValueTask DisposeAsync() {
-		await _http.DisposeAsync().ConfigureAwait(false);
+	public ValueTask DisposeAsync() {
+		lock (_startGate) {
+			return new ValueTask(_disposeTask ??= DisposeCoreAsync(_startTask));
+		}
+	}
+
+	private async Task DisposeCoreAsync(Task? startTask) {
+		var failures = new List<Exception>();
+		void Attempt(Action action) {
+			try {
+				action();
+			} catch (Exception ex) {
+				failures.Add(ex);
+			}
+		}
+
+		async Task AttemptAsync(Func<Task> action) {
+			try {
+				await action().ConfigureAwait(false);
+			} catch (Exception ex) {
+				failures.Add(ex);
+			}
+		}
+
+		if (startTask is not null) {
+			await AttemptAsync(() => startTask).ConfigureAwait(false);
+		}
+
+		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
+		Attempt(DetachReactions);
+		Attempt(() => {
+			_hotkeys?.Dispose();
+			_hotkeys = null;
+		});
+		Attempt(() => _drainTick?.Cancel());
+		await AttemptAsync(StopPullRequestStatusAsync).ConfigureAwait(false);
+		Attempt(_sessionStore.Flush);
+
+		foreach (var pending in _pendingWebCommands.Values) {
+			pending.TrySetResult(CommandResult.Failure("The window closed before the command completed."));
+		}
+
+		_pendingWebCommands.Clear();
+		var sessions = _sessions;
+		var primarySession = _primarySession;
+		_sessions = null;
+		_session = null;
+		_primarySession = null;
+		if (sessions is not null) {
+			await AttemptAsync(() => sessions.DisposeAsync().AsTask()).ConfigureAwait(false);
+		} else if (primarySession is not null) {
+			await AttemptAsync(() => primarySession.DisposeAsync().AsTask()).ConfigureAwait(false);
+		}
+
+		await AttemptAsync(() => _http.DisposeAsync().AsTask()).ConfigureAwait(false);
+		if (failures.Count > 0) {
+			throw new AggregateException("One or more host shutdown operations failed.", failures);
+		}
+	}
+
+	private void DetachReactions() {
 		if (_onKeybindingsChanged is not null) {
 			_keybindings.KeybindingsChanged -= _onKeybindingsChanged;
 			_onKeybindingsChanged = null;
@@ -467,23 +528,6 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		if (_onRailStateChanged is not null) {
 			_railState.Changed -= _onRailStateChanged;
 			_onRailStateChanged = null;
-		}
-
-		_hotkeys?.Dispose(); // unregisters the OS global hotkeys
-		_drainTick?.Cancel(); // ends a pending update drain's re-sample loop
-		await StopPullRequestStatusAsync().ConfigureAwait(false);
-		_sessionStore.Flush(); // persist the latest shell terminal size for the next launch's pre-spawn seed
-
-		// Fail any web command still awaiting an ack so a runCommand in flight at close doesn't hang.
-		foreach (var pending in _pendingWebCommands.Values) {
-			pending.TrySetResult(CommandResult.Failure("The window closed before the command completed."));
-		}
-
-		_pendingWebCommands.Clear();
-		if (_sessions is not null) {
-			await _sessions.DisposeAsync().ConfigureAwait(false);
-		} else if (_primarySession is not null) {
-			await _primarySession.DisposeAsync().ConfigureAwait(false);
 		}
 	}
 }

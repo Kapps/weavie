@@ -16,7 +16,8 @@ internal static class Program {
 		ChildProcessJob.Install();
 
 		ApplicationConfiguration.Initialize();
-		Application.Run(new AppController());
+		using var app = new AppController();
+		Application.Run(app);
 		return 0;
 	}
 }

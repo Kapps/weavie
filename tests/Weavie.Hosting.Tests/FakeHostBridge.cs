@@ -14,6 +14,9 @@ internal sealed class FakeHostBridge : IHostBridge {
 
 	public event Action<string>? MessageReceived;
 
+	/// <summary>Whether a live host is subscribed to inbound page messages.</summary>
+	public bool HasMessageReceiver => MessageReceived is not null;
+
 	public void PostToWeb(string json) {
 		lock (_gate) {
 			_posted.Add(json);

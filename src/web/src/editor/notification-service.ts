@@ -1,7 +1,6 @@
-// Bridges VSCode's INotificationService to Weavie's toast channel. Monaco reports failures from editor actions
-// through this service — a rejected/failed rename, an unappliable code action — via info/warn/error. The default
-// standalone implementation only writes those to the browser console, so without this bridge a failed refactor
-// is invisible: the user hits Enter and nothing happens. Registered as a service override in vscode-services.ts.
+// Bridges VSCode's INotificationService to Weavie's toast channel, registered as a service override in
+// vscode-services.ts. Without it, Monaco's failure reports (a failed rename's info/error) only reach the
+// browser console, so a failed refactor is invisible — the user hits Enter and nothing happens.
 
 import {
   type INotification,
@@ -36,9 +35,8 @@ function textOf(message: NotificationMessage | NotificationMessage[]): string {
   return Array.isArray(message) ? message.map(one).join("\n") : one(message);
 }
 
-// Forwards Monaco's notifications to Weavie toasts. Weavie has no notification center, so progress and prompt
-// actions aren't rendered — the message still surfaces, which is what a failed editor action needs. info/warn/
-// error are implemented directly (Monaco's rename calls them, not just notify).
+// Weavie has no notification center, so progress and prompt actions aren't rendered — the message still
+// surfaces, which is what a failed editor action needs. info/warn/error are implemented directly, not via notify.
 export class WeavieNotificationService implements INotificationService {
   readonly _serviceBrand: undefined;
   readonly onDidChangeFilter = Event.None;

@@ -302,15 +302,20 @@ public sealed class SettingsStore : IDisposable {
 		return new Subscription(() => SettingChanged -= Filtered);
 	}
 
-	/// <summary>Builds the <c>listSettings</c> catalog JSON: every setting with value, source, default, and metadata.</summary>
-	public string BuildCatalogJson() {
+	/// <summary>Builds the <c>listSettings</c> catalog JSON with values resolved through env → user file → default (no workspace overlay).</summary>
+	public string BuildCatalogJson() => BuildCatalog(workspaceRoot: null);
+
+	/// <summary>As <see cref="BuildCatalogJson()"/>, resolving <see cref="SettingScope.Workspace"/> keys against <paramref name="workspaceRoot"/>'s overlay.</summary>
+	public string BuildCatalogJson(string workspaceRoot) => BuildCatalog(workspaceRoot);
+
+	private string BuildCatalog(string? workspaceRoot) {
 		lock (_gate) {
 			using var stream = new MemoryStream();
 			using (var writer = new Utf8JsonWriter(stream)) {
 				writer.WriteStartObject();
 				writer.WriteStartArray("settings");
 				foreach (var definition in _registry.Definitions) {
-					WriteSettingObject(writer, definition);
+					WriteSettingObject(writer, definition, workspaceRoot);
 				}
 
 				writer.WriteEndArray();
@@ -321,13 +326,18 @@ public sealed class SettingsStore : IDisposable {
 		}
 	}
 
-	/// <summary>Builds the <c>getSetting</c> JSON for one key (resolved value, source, default, apply).</summary>
-	public string BuildGetJson(string key) {
+	/// <summary>Builds the <c>getSetting</c> JSON for one key resolved through env → user file → default (no workspace overlay).</summary>
+	public string BuildGetJson(string key) => BuildGet(key, workspaceRoot: null);
+
+	/// <summary>As <see cref="BuildGetJson(string)"/>, resolving a <see cref="SettingScope.Workspace"/> key against <paramref name="workspaceRoot"/>'s overlay.</summary>
+	public string BuildGetJson(string key, string workspaceRoot) => BuildGet(key, workspaceRoot);
+
+	private string BuildGet(string key, string? workspaceRoot) {
 		lock (_gate) {
 			var definition = _registry.Require(key);
 			using var stream = new MemoryStream();
 			using (var writer = new Utf8JsonWriter(stream)) {
-				WriteSettingObject(writer, definition);
+				WriteSettingObject(writer, definition, workspaceRoot);
 			}
 
 			return Encoding.UTF8.GetString(stream.ToArray());
@@ -355,8 +365,8 @@ public sealed class SettingsStore : IDisposable {
 		_debounce?.Dispose();
 	}
 
-	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition) {
-		var (value, source) = ResolveLocked(definition, workspaceRoot: null);
+	private void WriteSettingObject(Utf8JsonWriter writer, SettingDefinition definition, string? workspaceRoot) {
+		var (value, source) = ResolveLocked(definition, workspaceRoot);
 		object? fallback = definition.ComputeDefault?.Invoke() ?? definition.Default;
 
 		writer.WriteStartObject();

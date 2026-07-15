@@ -178,6 +178,15 @@ jobs:
       # Hosting/session-routing tests: unit (the editor channel + diff presenter) plus end-to-end integration
       # over a real HostCore on a temp git repo (the same construction path the headless e2e already exercises
       # on Linux). Covers the session active/inactive/background/worktree routing invariants.
+      # FLAKE LOG: 2026-07-15 11:27-12:43 UTC, this step hung for 75+ minutes (vs. its normal ~20s) on
+      # run https://github.com/Kapps/weavie/actions/runs/29411417420 job test (linux) — no error, no
+      # log output past "Test (hosting)" starting, just never completed. Root cause not identified (no
+      # code in this PR touches Weavie.Hosting.Tests or anything it exercises). Had no permission to
+      # cancel/rerun the job via the API, so pushed an empty commit to let this workflow's own
+      # concurrency group (cancel-in-progress) supersede the stuck run. The immediate next run
+      # (https://github.com/Kapps/weavie/actions/runs/29416311407) completed this step in 18s — did
+      # not reproduce, so treating as a one-off runner hang. If it recurs, this needs real
+      # investigation (e.g. a rare deadlock in a hosting test's process/socket wait).
       - name: Test (hosting)
         if: matrix.name == 'linux'
         run: dotnet test tests/Weavie.Hosting.Tests/Weavie.Hosting.Tests.csproj -c Debug

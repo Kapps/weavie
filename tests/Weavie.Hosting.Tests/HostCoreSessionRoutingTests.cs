@@ -2,6 +2,7 @@ using System.Text.Json;
 using Weavie.Core.Agents;
 using Weavie.Core.Diffs;
 using Weavie.Core.Hooks;
+using Weavie.Core.Sessions;
 using Xunit;
 
 namespace Weavie.Hosting.Tests;
@@ -80,6 +81,30 @@ public sealed class HostCoreSessionRoutingTests {
 		// Slot-less messages remain compatible with legacy clients and still address the active session.
 		host.Send("""{"type":"term-ready","session":"shell","cols":80,"rows":24}""");
 		Assert.Equal(terminalsBefore + 1, host.Platform.NoopLauncher.Created.Count);
+	}
+
+	[Fact]
+	public async Task SwitchSession_ReplaysStructuredControlsForTheActivatedSession() {
+		await using var host = await TestHost.StartAsync();
+		string primaryId = host.PrimaryId;
+		var created = await host.Core.NewSessionAsync(new NewSessionRequest {
+			Branch = "codex-controls",
+			Base = "main",
+			AgentProviderId = "codex",
+		}, CancellationToken.None);
+		Assert.True(created.Ok, created.Error);
+
+		host.Send(Msg(new { type = "switch-session", id = primaryId }));
+		host.Bridge.Clear();
+		host.Send(Msg(new { type = "switch-session", id = "codex-controls" }));
+
+		var controls = Assert.Single(host.Bridge.PostedOfType("agent-controls"));
+		Assert.Equal("codex-controls", controls.GetProperty("slot").GetString());
+		var state = controls.GetProperty("state");
+		Assert.Equal("gpt-test", state.GetProperty("modelControl").GetProperty("value").GetString());
+		Assert.Equal(
+			["approvalPolicy", "sandbox"],
+			state.GetProperty("axes").EnumerateArray().Select(axis => axis.GetProperty("id").GetString()));
 	}
 
 	[Fact]

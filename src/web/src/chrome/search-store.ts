@@ -158,6 +158,7 @@ export function cycleHistory(dir: number): boolean {
  */
 export function seedSearch(text: string | null): void {
   if (text !== null && text.length > 0) {
+    historyCursor = -1; // a fresh query replaces whatever history entry was being cycled
     setQueryRaw(text);
     runSearch();
   }

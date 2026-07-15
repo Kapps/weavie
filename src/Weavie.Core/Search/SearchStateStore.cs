@@ -140,7 +140,13 @@ public sealed class SearchStateStore {
 		[JsonPropertyName("recentTerms")]
 		public IReadOnlyList<string> RecentTerms { get; init; } = [];
 
-		public Document Sanitized() => this with { RecentTerms = [.. SearchHistory.Add(RecentTerms, "")] };
+		// Coalesce nulls a hand-edited file can introduce (JSON null on a reference field), so a bad edit resets
+		// to sane values rather than throwing out of the constructor past the malformed-file guard.
+		public Document Sanitized() => this with {
+			Include = Include ?? "",
+			Exclude = Exclude ?? "",
+			RecentTerms = [.. SearchHistory.Add(RecentTerms ?? [], "")],
+		};
 
 		public Document WithOptions(GrepOptions o) => this with {
 			CaseSensitive = o.CaseSensitive,

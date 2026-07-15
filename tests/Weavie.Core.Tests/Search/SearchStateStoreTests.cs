@@ -108,6 +108,19 @@ public sealed class SearchStateStoreTests {
 	}
 
 	[Fact]
+	public void HandEditedNulls_CoalesceInsteadOfThrowing() {
+		// A hand edit that nulls a reference field is valid JSON (so the malformed-file guard doesn't fire) but
+		// would throw out of the constructor without coalescing. The store must load sane defaults instead.
+		var fs = new InMemoryFileSystem();
+		fs.WriteAllText(StorePath, """{ "version": 1, "include": null, "recentTerms": null }""");
+
+		var state = new SearchStateStore(fs, StorePath).Current;
+
+		Assert.Equal("", state.Options.Include);
+		Assert.Empty(state.RecentTerms);
+	}
+
+	[Fact]
 	public void MalformedFile_BacksUpAndResets() {
 		var fs = new InMemoryFileSystem();
 		fs.WriteAllText(StorePath, "{ broken ");

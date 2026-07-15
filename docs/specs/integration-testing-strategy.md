@@ -84,7 +84,7 @@ The canonical run-once / cross / remote-only policy. New tests slot into this ta
 | LSP find-all-references | **both** | LSP framing crosses the bridge — real seam, latency-sensitive |
 | Edit → dirty clears → persisted to disk | **both** | On remote the write lands on the *worker's* worktree, not the client |
 | Session create / unload / open / delete | **both** (priority) | Strongest remote case — Runner provisioning, worktree-per-session, worker spawn, token |
-| Markdown preview updates on edit | headless | Pure frontend reactivity |
+| Markdown/SVG previews update on edit | headless | Pure frontend reactivity |
 | MCP (fake-claude) edits settings → UI reflects | headless | Registry MCP is loopback *inside the worker* in both modes; round-trip identical |
 | Resize / fullscreen-pane toggle | headless | `LayoutStore` frontend; transport-irrelevant |
 | Fake-claude diffs → accept / require-approval | headless (+1 cross smoke) | Hook gate is a pipe local to the worker in both modes; only the approval UI round-trips |

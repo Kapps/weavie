@@ -42,6 +42,12 @@ const SEED: Record<string, string | Buffer> = {
     "```mermaid\ngraph TD\n  A[Start] --> B[End]\n```\n\n" +
     "```ts\nconst answer: number = 42;\n```\n",
   "zoom.md": `# Zoomables\n\n![block](${ZOOM_IMAGE_SRC})\n\n\`\`\`mermaid\ngraph LR\n  A[One] --> B[Two]\n\`\`\`\n`,
+  "sample.svg":
+    '<svg xmlns="http://www.w3.org/2000/svg" width="240" height="120" viewBox="0 0 240 120">\n' +
+    '  <rect width="240" height="120" rx="12" fill="#54c6a4" />\n' +
+    '  <text x="120" y="68" text-anchor="middle" font-size="24">SVG preview</text>\n' +
+    "  <script>window.__weavieSvgScriptRan = true;</script>\n" +
+    "</svg>\n",
   "hello.ts":
     "export function greet(name: string): string {\n" +
     "  return `Hello, ${name}!`;\n" +

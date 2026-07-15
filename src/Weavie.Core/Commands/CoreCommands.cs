@@ -1171,7 +1171,7 @@ public static class CoreCommands {
 			DefaultKeybindings = [new CommandKeybinding { Key = "$mod+e", When = "!terminalFocused" }],
 		});
 
-		// Toggle the active file between Source (Monaco) and a rendered Preview (Markdown today). Gated to
+		// Toggle the active file between Source (Monaco) and a rendered Preview. Gated to
 		// editorFocused; the handler additionally DECLINES (key falls through to Monaco) for a file type with no
 		// preview, so the chord is harmless on, say, a .cs file. The focus-editor re-press (ctrl+<editor#> while
 		// the editor is already focused) routes through the same handler.
@@ -1180,9 +1180,9 @@ public static class CoreCommands {
 			Title = "Toggle Preview",
 			RunsIn = CommandLocation.Web,
 			Category = "Editor",
-			Description = "Switch the active file between Source (the Monaco editor) and a rendered Preview "
-				+ "(Markdown today). Does nothing for file types without a preview.",
-			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "show preview", "source view"],
+			Description = "Switch the active file between Source (the Monaco editor) and a rendered Preview. "
+				+ "Does nothing for file types without a preview.",
+			Aliases = ["toggle preview", "preview", "markdown preview", "render markdown", "svg preview", "render svg", "show preview", "source view"],
 			When = "editorFocused",
 		});
 

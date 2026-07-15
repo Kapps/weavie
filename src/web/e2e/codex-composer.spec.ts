@@ -423,6 +423,13 @@ test.describe("Codex composer", () => {
     await expect(page.locator(".agent-model-picker")).toBeHidden();
   });
 
+  // FLAKE LOG: 2026-07-15 11:19 UTC, timed out after 15000ms waiting for "ready" in mountCodex on
+  // Windows only (linux/macos green same run) — https://github.com/Kapps/weavie/actions/runs/29410461722/job/87336043687.
+  // Every other MockHost-based spec in the same run passed, including 18 other mountCodex calls in
+  // this file, so the 15s default isn't systemically tight; this reads as a one-off runner hiccup
+  // (Windows CI is documented elsewhere in this repo as slower/quirkier, e.g. mock-host.ts's
+  // close() loopback-socket note). No code change made — re-pushing to re-run CI as the
+  // reproduction check; if this recurs, root-cause for real instead of re-running again.
   test("toggling Fast in the submenu switches the tier and shows the bolt", async ({ page }) => {
     await mountCodex(page);
 

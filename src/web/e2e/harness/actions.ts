@@ -12,6 +12,14 @@ export async function awaitEditorReady(page: Page): Promise<void> {
 
 // Open a workspace file through the omnibar's "Go to File" and wait until the editor is ACTUALLY showing it.
 // The first fuzzy match is auto-selected, so typing the name and pressing Enter opens it.
+// FLAKE LOG: 2026-07-15 13:21 UTC, the omnibar row for a freshly agent-created file ("brand-new.ts")
+// never became visible within the 15s expect timeout on Windows only (linux/macos green same commit) —
+// https://github.com/Kapps/weavie/actions/runs/29417836640/job/87360368319, test
+// diff-review.spec.ts:435. Third distinct Windows-only e2e flake across 3 consecutive CI runs on the
+// same (comment-only) PR #400 — different test each time, never reproducing, never hitting
+// linux/macos. Plausible cause: Windows filesystem-watcher latency picking up a just-written new
+// file into the workspace index (unconfirmed). No code change made; logging per policy rather than
+// chasing another rerun — see PR #400 for the full pattern across runs.
 export async function openFile(page: Page, name: string): Promise<void> {
   await awaitEditorReady(page);
   await page.locator(".tb-omnibar-input").click();

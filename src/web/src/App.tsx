@@ -653,10 +653,13 @@ export default function App(): JSX.Element {
             <Show when={openTabs().length === 0}>
               <EditorEmptyState reviewCount={editor.parkedReviewCount()} />
             </Show>
-            {/* Preview mode: render the active file (Markdown) over the still-mounted Monaco host. */}
+            {/* Preview mode: render the active file over the still-mounted Monaco host. */}
             <Show when={previewActivePath() !== null}>
               <Suspense>
-                <PreviewPane content={() => editor.activeContent()} />
+                <PreviewPane
+                  path={() => previewActivePath() as string}
+                  content={() => editor.activeContent()}
+                />
               </Suspense>
             </Show>
             {/* A media (image/video) file tab: render it over the still-mounted Monaco host. */}

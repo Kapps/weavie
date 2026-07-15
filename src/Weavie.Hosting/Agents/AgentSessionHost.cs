@@ -108,6 +108,16 @@ public sealed class AgentSessionHost : IAsyncDisposable {
 		}
 	}
 
+	/// <summary>Replays every structured-agent surface owned by this session.</summary>
+	public void ReplayState() {
+		if (Structured is null) {
+			return;
+		}
+
+		ReplayPane();
+		ReplayControls();
+	}
+
 	/// <summary>Replays the current control state, so a (re)connecting web view shows the live model/approvals/sandbox.</summary>
 	public void ReplayControls() {
 		if (Controls is not null) {

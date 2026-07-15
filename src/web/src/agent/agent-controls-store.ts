@@ -1,4 +1,4 @@
-// Per-slot composer control state (model / approvals / sandbox / slash), pushed by the host as `agent-controls`
+// Per-slot composer control state (model / mode / permissions / slash), pushed by the host as `agent-controls`
 // and echoed back as `agent-set-control`. Keyed by slot like the agent pane: the active-backend gate means only
 // the active backend's slots arrive, and the host re-pushes on reconnect/switch, so the status line self-heals.
 
@@ -32,7 +32,7 @@ export function currentModel(slot: string | null): AgentModelChoice | undefined 
   return agentControlState(slot).modelControl.models.find((model) => model.current);
 }
 
-/** Sends a live control change (model / effort / serviceTier / approvals / sandbox) for a session to its host. */
+/** Sends a live provider-owned control change for a session to its host. */
 export function setAgentControl(
   backendId: string,
   slot: string,
@@ -40,6 +40,17 @@ export function setAgentControl(
   value: string,
 ): void {
   postToBackend(backendId, { type: "agent-set-control", slot, axis, value });
+}
+
+/** Toggles the command-owned axis to its other provider-advertised option. */
+export function toggleAgentControl(backendId: string, slot: string, commandId: string): boolean {
+  const axis = agentControlState(slot).axes.find((candidate) => candidate.commandId === commandId);
+  const target = axis?.options.find((option) => option.id !== axis.value);
+  if (axis === undefined || target === undefined) {
+    return false;
+  }
+  setAgentControl(backendId, slot, axis.id, target.id);
+  return true;
 }
 
 /** Switches to a model (its default effort applies on the host). */

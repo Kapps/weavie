@@ -4,8 +4,8 @@ using Weavie.Core.FileSystem;
 
 namespace Weavie.Core.Sessions;
 
-/// <summary>A stored Codex thread for a worktree, or an instruction to create one.</summary>
-public readonly record struct CodexThreadLaunch(string? ThreadId, bool Resume);
+/// <summary>A stored Codex thread for a worktree, including its conversation-local collaboration mode.</summary>
+public readonly record struct CodexThreadLaunch(string? ThreadId, bool Resume, string Mode);
 
 /// <summary>Persists one Codex app-server thread id per working directory.</summary>
 public sealed class CodexThreadStore {
@@ -38,25 +38,47 @@ public sealed class CodexThreadStore {
 		string key = Normalize(workingDirectory);
 		lock (_gate) {
 			var entry = Find(key);
-			return entry is null ? new CodexThreadLaunch(null, Resume: false) : new CodexThreadLaunch(entry.Id, Resume: true);
+			return entry is null
+				? new CodexThreadLaunch(null, Resume: false, Mode: string.Empty)
+				: new CodexThreadLaunch(entry.Id, Resume: true, entry.Mode);
 		}
 	}
 
 	/// <summary>Records the Codex thread id used for <paramref name="workingDirectory"/>.</summary>
-	public void Adopt(string workingDirectory, string threadId) {
+	public void Adopt(string workingDirectory, string threadId) => Adopt(workingDirectory, threadId, string.Empty);
+
+	/// <summary>Records the Codex thread id and collaboration mode used for <paramref name="workingDirectory"/>.</summary>
+	public void Adopt(string workingDirectory, string threadId, string mode) {
 		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
 		ArgumentException.ThrowIfNullOrEmpty(threadId);
+		ArgumentNullException.ThrowIfNull(mode);
 		string key = Normalize(workingDirectory);
 		lock (_gate) {
 			var entry = Find(key);
 			if (entry is null) {
-				_items.Add(new Entry { Key = key, Id = threadId });
+				_items.Add(new Entry { Key = key, Id = threadId, Mode = mode });
 				PersistLocked();
 				return;
 			}
 
-			if (!string.Equals(entry.Id, threadId, StringComparison.Ordinal)) {
+			if (!string.Equals(entry.Id, threadId, StringComparison.Ordinal)
+				|| !string.Equals(entry.Mode, mode, StringComparison.Ordinal)) {
 				entry.Id = threadId;
+				entry.Mode = mode;
+				PersistLocked();
+			}
+		}
+	}
+
+	/// <summary>Updates the collaboration mode of an already-persisted Codex conversation.</summary>
+	public void SetMode(string workingDirectory, string mode) {
+		ArgumentException.ThrowIfNullOrEmpty(workingDirectory);
+		ArgumentException.ThrowIfNullOrEmpty(mode);
+		string key = Normalize(workingDirectory);
+		lock (_gate) {
+			var entry = Find(key);
+			if (entry is not null && !string.Equals(entry.Mode, mode, StringComparison.Ordinal)) {
+				entry.Mode = mode;
 				PersistLocked();
 			}
 		}
@@ -102,7 +124,7 @@ public sealed class CodexThreadStore {
 
 			return [.. entries
 				.Where(e => !string.IsNullOrWhiteSpace(e.Cwd) && !string.IsNullOrWhiteSpace(e.Id))
-				.Select(e => new Entry { Key = e.Cwd, Id = e.Id })];
+				.Select(e => new Entry { Key = e.Cwd, Id = e.Id, Mode = e.Mode })];
 		} catch (JsonException ex) {
 			Log?.Invoke($"[codex-threads] {FilePath} is malformed ({ex.Message}); backing up to codex-threads.json.bad and resetting");
 			JsonStoreFile.BackupBad(_fileSystem, FilePath, text, "codex-threads", Log);
@@ -114,7 +136,7 @@ public sealed class CodexThreadStore {
 		try {
 			var document = new Document {
 				Version = 1,
-				Threads = [.. _items.Select(e => new ThreadEntry { Cwd = e.Key, Id = e.Id })],
+				Threads = [.. _items.Select(e => new ThreadEntry { Cwd = e.Key, Id = e.Id, Mode = e.Mode })],
 			};
 			_fileSystem.WriteAllTextAtomic(FilePath, JsonSerializer.Serialize(document, JsonOptions));
 		} catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) {
@@ -125,6 +147,7 @@ public sealed class CodexThreadStore {
 	private sealed class Entry {
 		public required string Key { get; init; }
 		public required string Id { get; set; }
+		public required string Mode { get; set; }
 	}
 
 	private sealed class Document {
@@ -141,5 +164,8 @@ public sealed class CodexThreadStore {
 
 		[JsonPropertyName("id")]
 		public string Id { get; set; } = string.Empty;
+
+		[JsonPropertyName("mode")]
+		public string Mode { get; set; } = string.Empty;
 	}
 }

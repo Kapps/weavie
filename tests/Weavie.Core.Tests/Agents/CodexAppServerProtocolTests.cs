@@ -126,6 +126,14 @@ public sealed class CodexAppServerProtocolTests {
 	}
 
 	[Fact]
+	public void CollaborationModeList_RequestsNativePresets() {
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.CollaborationModeList(4));
+
+		Assert.Equal("collaborationMode/list", doc.RootElement.GetProperty("method").GetString());
+		Assert.Equal(JsonValueKind.Object, doc.RootElement.GetProperty("params").ValueKind);
+	}
+
+	[Fact]
 	public void SkillsList_SendsSessionCwd() {
 		using var doc = JsonDocument.Parse(CodexAppServerProtocol.SkillsList(4, "/repo"));
 
@@ -167,6 +175,34 @@ public sealed class CodexAppServerProtocolTests {
 		Assert.Equal("review-pr", skill.Name);
 		Assert.Equal("/s/review-pr", skill.Path);
 		Assert.Equal("Review a pull request.", skill.Description);
+	}
+
+	[Fact]
+	public void TryReadCollaborationModes_PreservesAdvertisedMasks() {
+		using var doc = JsonDocument.Parse(
+			"""{"data":[{"name":"Plan","mode":"plan","model":null,"reasoning_effort":"medium"},{"name":"Default","mode":"default","model":null,"reasoning_effort":null}]}""");
+
+		Assert.True(CodexAppServerProtocol.TryReadCollaborationModes(doc.RootElement, out var modes));
+		Assert.Equal(["plan", "default"], modes.Select(mode => mode.Mode));
+		Assert.Equal("medium", modes[0].ReasoningEffort);
+		Assert.Null(modes[1].ReasoningEffort);
+	}
+
+	[Fact]
+	public void TurnStart_WithCollaborationMode_UsesPresetAndNativeInstructions() {
+		var mode = new CodexCollaborationMode("Plan", "plan", null, "medium");
+		using var doc = JsonDocument.Parse(CodexAppServerProtocol.TurnStart(
+			9, "thr_1", "plan it", "/repo", "workspace-write", "on-request", "gpt-5.5", "high", "", mode));
+		var parameters = doc.RootElement.GetProperty("params");
+		var collaboration = parameters.GetProperty("collaborationMode");
+		var settings = collaboration.GetProperty("settings");
+
+		Assert.Equal("plan", collaboration.GetProperty("mode").GetString());
+		Assert.Equal("gpt-5.5", settings.GetProperty("model").GetString());
+		Assert.Equal("medium", settings.GetProperty("reasoning_effort").GetString());
+		Assert.Equal(JsonValueKind.Null, settings.GetProperty("developer_instructions").ValueKind);
+		Assert.False(parameters.TryGetProperty("model", out _));
+		Assert.False(parameters.TryGetProperty("effort", out _));
 	}
 
 	[Fact]

@@ -128,15 +128,20 @@ public sealed partial class CodexAppServerSession {
 		ex.Code == -32600 && ex.Message.Contains("active turn", StringComparison.OrdinalIgnoreCase);
 
 	private string RequestFor(long id, string threadId, string? turnId, CodexTurnInput input, IReadOnlyList<CodexSkill> skills) {
+		var collaborationMode = string.IsNullOrEmpty(turnId) ? CurrentCollaborationMode() : null;
 		if (input.Images.Count > 0 || skills.Count > 0) {
 			string[] imagePaths = [.. input.Images.Select(image => image.Path)];
 			return string.IsNullOrEmpty(turnId)
-				? CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
+				? collaborationMode is null
+					? CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
+					: CodexAppServerProtocol.TurnStartWithInputs(id, threadId, input.Text, imagePaths, skills, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier(), collaborationMode)
 				: CodexAppServerProtocol.TurnSteerWithInputs(id, threadId, turnId, input.Text, imagePaths, skills);
 		}
 
 		return string.IsNullOrEmpty(turnId)
-			? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
+			? collaborationMode is null
+				? CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier())
+				: CodexAppServerProtocol.TurnStart(id, threadId, input.Text, _context.Workspace, EffectiveSandbox(), EffectiveApprovalPolicy(), EffectiveModel(), EffectiveEffort(), EffectiveServiceTier(), collaborationMode)
 			: CodexAppServerProtocol.TurnSteer(id, threadId, turnId, input.Text);
 	}
 

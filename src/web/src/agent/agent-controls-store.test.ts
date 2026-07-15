@@ -46,6 +46,23 @@ const state: AgentControlState = {
   slash: [],
 };
 
+const planState: AgentControlState = {
+  ...state,
+  axes: [
+    {
+      id: "collaborationMode",
+      label: "Mode",
+      value: "default",
+      valueLabel: "Default",
+      options: [
+        { id: "plan", label: "Plan", description: null },
+        { id: "default", label: "Default", description: null },
+      ],
+      commandId: "weavie.agent.togglePlanMode",
+    },
+  ],
+};
+
 describe("agent controls store", () => {
   it("records host-pushed control state per slot and stays empty for others", () => {
     bridge.listener?.({ type: "agent-controls", slot: "slot-a", workspace: "/w", state });
@@ -71,6 +88,36 @@ describe("agent controls store", () => {
         },
       },
     ]);
+  });
+
+  it("toggles the command-owned mode between advertised Plan and default presets", () => {
+    bridge.posted.length = 0;
+    bridge.listener?.({
+      type: "agent-controls",
+      slot: "slot-plan",
+      workspace: "/w",
+      state: planState,
+    });
+
+    expect(store.toggleAgentControl("remote-a", "slot-plan", "weavie.agent.togglePlanMode")).toBe(
+      true,
+    );
+    expect(bridge.posted.at(-1)?.message).toMatchObject({
+      axis: "collaborationMode",
+      value: "plan",
+    });
+
+    bridge.listener?.({
+      type: "agent-controls",
+      slot: "slot-plan",
+      workspace: "/w",
+      state: {
+        ...planState,
+        axes: planState.axes.map((axis) => ({ ...axis, value: "plan", valueLabel: "Plan" })),
+      },
+    });
+    store.toggleAgentControl("remote-a", "slot-plan", "weavie.agent.togglePlanMode");
+    expect(bridge.posted.at(-1)?.message).toMatchObject({ value: "default" });
   });
 
   it("selecting an effort under a non-current model switches model first, then sets effort", () => {

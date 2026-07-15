@@ -90,6 +90,10 @@ do not enter turn review, matching Claude Bash. Change and correction capture mu
 walking or snapshotting the workspace: its work is bounded by provider-reported or already-tracked paths, never
 by the number of files in the workspace.
 
+Codex Plan mode is independent of sandbox and approval policy. Weavie discovers Codex's collaboration presets
+at runtime and attaches the conversation's selected preset to each new `turn/start`; the existing permission
+controls continue to determine what an eventual implementation turn may do.
+
 ## Architecture / placement
 
 ```

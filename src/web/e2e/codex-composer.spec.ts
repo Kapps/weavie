@@ -62,6 +62,17 @@ const controls = {
     },
     axes: [
       {
+        id: "collaborationMode",
+        label: "Mode",
+        value: "default",
+        valueLabel: "Default",
+        options: [
+          { id: "plan", label: "Plan", description: null },
+          { id: "default", label: "Default", description: null },
+        ],
+        commandId: "weavie.agent.togglePlanMode",
+      },
+      {
         id: "approvalPolicy",
         label: "Approvals",
         value: "on-request",
@@ -70,6 +81,7 @@ const controls = {
           { id: "on-request", label: "On request", description: null },
           { id: "never", label: "Never", description: null },
         ],
+        commandId: "weavie.agent.selectApprovalPolicy",
       },
       {
         id: "sandbox",
@@ -80,6 +92,7 @@ const controls = {
           { id: "read-only", label: "Read only", description: null },
           { id: "workspace-write", label: "Workspace write", description: null },
         ],
+        commandId: "weavie.agent.selectSandbox",
       },
     ],
     slash: [
@@ -88,6 +101,14 @@ const controls = {
         name: "model",
         description: "Switch the model, effort, or Fast Mode",
         commandId: "weavie.agent.selectModel",
+        insertText: null,
+        skillName: null,
+      },
+      {
+        id: "builtin:plan",
+        name: "plan",
+        description: "Toggle Plan mode",
+        commandId: "weavie.agent.togglePlanMode",
         insertText: null,
         skillName: null,
       },
@@ -118,6 +139,16 @@ const fastOnControls = {
   },
 };
 
+const planControls = {
+  ...controls,
+  state: {
+    ...controls.state,
+    axes: controls.state.axes.map((axis) =>
+      axis.id === "collaborationMode" ? { ...axis, value: "plan", valueLabel: "Plan" } : axis,
+    ),
+  },
+};
+
 const paneMessage = (message: Record<string, unknown>) => ({
   type: "agent-pane",
   slot: "cx",
@@ -145,6 +176,9 @@ const catalog = {
   commands: [
     agentCommand("weavie.agent.submit", "Submit Agent Prompt", "agentComposerFocused", ["enter"]),
     agentCommand("weavie.agent.interrupt", "Interrupt Agent Turn", "agentFocused", ["escape"]),
+    agentCommand("weavie.agent.togglePlanMode", "Toggle Agent Plan Mode", "agentFocused", [
+      "shift+tab",
+    ]),
     agentCommand("weavie.agent.approve", "Approve Agent Request", approvalWhen, ["alt+y"]),
     agentCommand("weavie.agent.approveForSession", "Approve For Session", approvalWhen, [
       "alt+shift+y",
@@ -157,6 +191,7 @@ const catalog = {
   keybindings: [
     { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
     { key: "escape", command: "weavie.agent.interrupt", when: "agentFocused" },
+    { key: "shift+tab", command: "weavie.agent.togglePlanMode", when: "agentFocused" },
     { key: "alt+y", command: "weavie.agent.approve", when: approvalWhen },
     { key: "alt+shift+y", command: "weavie.agent.approveForSession", when: approvalWhen },
     { key: "alt+n", command: "weavie.agent.decline", when: approvalWhen },
@@ -186,31 +221,60 @@ test.describe("Codex composer", () => {
     await host.close();
   });
 
-  // Mounts the Codex session and its control surface, retrying the pushes until the status line renders (App
-  // registers its host listener only after mount, so an early push can land before anyone is listening).
+  // Mounts the Codex session and its control surface after `ready` proves App's listeners are installed.
   async function mountCodex(page: Page): Promise<void> {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitForMessage("ready");
     const statusLine = page.locator(".agent-status-line");
-    await expect(async () => {
-      host.pushToWeb({ type: "session-list", sessions: [codexChip] });
-      host.pushToWeb(controls);
-      await expect(statusLine).toBeVisible({ timeout: 1000 });
-    }).toPass({ timeout: 20_000 });
+    host.pushToWeb({ type: "session-list", sessions: [codexChip] });
+    host.pushToWeb(controls);
+    await expect(statusLine).toBeVisible();
   }
 
-  test("status line shows the merged model control, approvals, and sandbox", async ({ page }) => {
+  test("status line shows model, mode, approvals, and sandbox", async ({ page }) => {
     await mountCodex(page);
 
-    // Model / effort / Fast collapse into one segment; approvals and sandbox stay as their own segments.
+    // Model / effort / Fast collapse into one segment; the generic control axes follow it.
     const segments = page.locator(".agent-status-segment");
-    await expect(segments).toHaveCount(3);
+    await expect(segments).toHaveCount(4);
     await expect(page.locator(".agent-status-model")).toContainText("GPT-5.5 (Medium)");
     await expect(page.locator(".agent-status-toggle")).toHaveCount(0);
-    await expect(segments.nth(1)).toContainText("On request");
-    await expect(segments.nth(2)).toContainText("Workspace write");
+    await expect(segments.nth(1)).toContainText("Default");
+    await expect(segments.nth(2)).toContainText("On request");
+    await expect(segments.nth(3)).toContainText("Workspace write");
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
+  });
+
+  test("Shift+Tab and /plan share the Plan-mode command and advertise its binding", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+
+    const mode = page.locator(".agent-status-segment", { hasText: "Default" });
+    await expect(mode).toHaveAttribute("title", /Shift\+Tab/);
+    const textarea = page.locator("[data-agent-composer] textarea");
+    await textarea.click();
+    await page.keyboard.press("Shift+Tab");
+    expect(await host.waitForMessage("agent-set-control")).toMatchObject({
+      slot: "cx",
+      axis: "collaborationMode",
+      value: "plan",
+    });
+
+    host.pushToWeb(planControls);
+    await expect(page.locator(".agent-status-segment", { hasText: "Plan" })).toBeVisible();
+    await textarea.fill("/plan");
+    const row = page.locator(".agent-slash-option", { hasText: "/plan" });
+    await expect(row).toContainText("Shift+Tab");
+    await page.screenshot({ path: join(shotsDir, "13-plan-mode.png") });
+    await page.keyboard.press("Enter");
+    await expect
+      .poll(
+        () => host.received.filter((message) => message.type === "agent-set-control").at(-1)?.value,
+      )
+      .toBe("default");
   });
 
   test("status line links the current branch's pull request", async ({ page }) => {
@@ -424,8 +488,9 @@ test.describe("Codex composer", () => {
 
     const menu = page.locator(".agent-slash-menu");
     await expect(menu).toBeVisible();
-    await expect(menu.locator(".agent-slash-option")).toHaveCount(2);
+    await expect(menu.locator(".agent-slash-option")).toHaveCount(3);
     await expect(menu).toContainText("/model");
+    await expect(menu).toContainText("/plan");
     await expect(menu).toContainText("/review-pr");
     await page.screenshot({ path: join(shotsDir, "03-slash-menu.png") });
 

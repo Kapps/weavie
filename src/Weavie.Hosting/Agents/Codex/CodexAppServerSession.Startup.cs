@@ -74,6 +74,11 @@ public sealed partial class CodexAppServerSession {
 			.ConfigureAwait(false);
 		_client.Notify(CodexAppServerProtocol.Initialized());
 		var launch = _threads.Resolve(_context.Workspace);
+		lock (_gate) {
+			_collaborationMode = launch.Mode;
+			_modeModel = null;
+			_modeEffort = null;
+		}
 		long threadRequest = NextRequest();
 		BeginThreadAdoption();
 		var result = launch.Resume && !string.IsNullOrEmpty(launch.ThreadId)
@@ -81,8 +86,8 @@ public sealed partial class CodexAppServerSession {
 			: await StartThreadAsync(threadRequest).ConfigureAwait(false);
 		AdoptThread(CodexThreadResults.ReadThreadId(result));
 		HydrateTranscript(result);
-		FlushPendingInputs();
 		await LoadControlsAsync().ConfigureAwait(false);
+		FlushPendingInputs();
 	}
 
 	private async Task<JsonElement> ResumeThreadAsync(long requestId, string threadId) {
@@ -103,6 +108,11 @@ public sealed partial class CodexAppServerSession {
 		long startRequest = NextRequest();
 		var result = await StartThreadAsync(startRequest).ConfigureAwait(false);
 		_threads.Clear(_context.Workspace);
+		lock (_gate) {
+			_collaborationMode = string.Empty;
+			_modeModel = null;
+			_modeEffort = null;
+		}
 		Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
 		Emit(new AgentPaneMessage {
 			Type = "warning",

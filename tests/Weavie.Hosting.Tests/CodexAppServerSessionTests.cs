@@ -542,7 +542,112 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
-		Assert.Equal("gpt-5.4-mini", doc.RootElement.GetProperty("params").GetProperty("model").GetString());
+		Assert.Equal("gpt-5.4-mini", TurnSettings(doc).GetProperty("model").GetString());
+	}
+
+	[Fact]
+	public async Task Controls_ExposeNativePlanMode_AndApplyItsPresetOnNextTurn() {
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+
+		var mode = session.ControlState.Axes.Single(axis => axis.Id == "collaborationMode");
+		Assert.Equal("default", mode.Value);
+		Assert.Equal(["plan", "default"], mode.Options.Select(option => option.Id));
+		Assert.Equal(CoreCommands.TogglePlanMode, mode.CommandId);
+		Assert.Contains(session.ControlState.Slash, entry =>
+			entry.Name == "plan" && entry.CommandId == CoreCommands.TogglePlanMode);
+
+		session.SetControl("effort", "high");
+		session.SetControl("collaborationMode", "plan");
+		Assert.Equal("Plan", session.ControlState.Axes.Single(axis => axis.Id == "collaborationMode").ValueLabel);
+		Assert.Equal("GPT-5.5 (Medium)", session.ControlState.ModelControl.ValueLabel);
+
+		session.Submit(Submission("make a plan", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var collaboration = doc.RootElement.GetProperty("params").GetProperty("collaborationMode");
+		var settings = collaboration.GetProperty("settings");
+		Assert.Equal("plan", collaboration.GetProperty("mode").GetString());
+		Assert.Equal("gpt-5.5", settings.GetProperty("model").GetString());
+		Assert.Equal("medium", settings.GetProperty("reasoning_effort").GetString());
+		Assert.Equal(JsonValueKind.Null, settings.GetProperty("developer_instructions").ValueKind);
+	}
+
+	[Fact]
+	public async Task PlanMode_UsesTheModelAndEffortCodexAdvertises() {
+		File.WriteAllText(Path.Combine(_dir, "plan-model-mini"), string.Empty);
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSession(new CapturingAgentEventSink(), messages);
+
+		session.Start();
+		await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+		session.SetControl("effort", "high");
+		session.SetControl("serviceTier", "priority");
+		session.SetControl("collaborationMode", "plan");
+
+		Assert.Equal("gpt-5.4-mini", session.ControlState.ModelControl.Value);
+		Assert.Equal("GPT-5.4 mini (Low)", session.ControlState.ModelControl.ValueLabel);
+		session.SetControl("model", "gpt-5.5");
+		Assert.Equal("GPT-5.5 (Low) ⚡", session.ControlState.ModelControl.ValueLabel);
+		session.SetControl("collaborationMode", "default");
+		Assert.Equal("GPT-5.5 (High) ⚡", session.ControlState.ModelControl.ValueLabel);
+		session.SetControl("collaborationMode", "plan");
+		Assert.Equal("GPT-5.4 mini (Low)", session.ControlState.ModelControl.ValueLabel);
+
+		session.Submit(Submission("plan with the advertised preset", []));
+		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
+
+		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
+		var settings = TurnSettings(doc);
+		Assert.Equal("gpt-5.4-mini", settings.GetProperty("model").GetString());
+		Assert.Equal("low", settings.GetProperty("reasoning_effort").GetString());
+		Assert.False(doc.RootElement.GetProperty("params").TryGetProperty("serviceTier", out _));
+	}
+
+	[Fact]
+	public async Task PlanMode_PersistsWithTheResumedCodexConversation() {
+		InMemoryFileSystem fileSystem = new();
+		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
+		List<AgentPaneMessage> messages = [];
+		await using (var session = CreateSessionWithThreads(
+			new CapturingAgentEventSink(), messages, threads, fileSystem)) {
+			session.Start();
+			await WaitForAsync(() => session.ControlState.ModelControl.Models.Count > 0);
+			session.SetControl("collaborationMode", "plan");
+			session.Submit(Submission("plan it", []));
+			await WaitForAsync(() => threads.Resolve(_dir).Mode == "plan");
+		}
+
+		List<AgentPaneMessage> reopenedMessages = [];
+		await using var reopened = CreateSessionWithThreads(
+			new CapturingAgentEventSink(), reopenedMessages, threads, fileSystem);
+		reopened.Start();
+		await WaitForAsync(() => reopened.ControlState.ModelControl.Models.Count > 0);
+
+		Assert.Equal("plan", reopened.ControlState.Axes.Single(axis => axis.Id == "collaborationMode").Value);
+	}
+
+	[Fact]
+	public async Task RemovedSavedMode_BlocksSubmissionUntilAnAdvertisedModeIsChosen() {
+		File.WriteAllText(Path.Combine(_dir, "modes-without-plan"), string.Empty);
+		InMemoryFileSystem fileSystem = new();
+		CodexThreadStore threads = new(fileSystem, "/codex-threads.json");
+		threads.Adopt(_dir, "thread_saved", "plan");
+		List<AgentPaneMessage> messages = [];
+		await using var session = CreateSessionWithThreads(
+			new CapturingAgentEventSink(), messages, threads, fileSystem);
+
+		session.Start();
+		await WaitForAsync(() => messages.Any(message => message.Text?.Contains("no longer offers", StringComparison.Ordinal) == true));
+		session.Submit(Submission("should not run", []));
+		await WaitForAsync(() => messages.Count(message =>
+			message.Text?.Contains("no longer offers", StringComparison.Ordinal) == true) >= 2);
+
+		Assert.False(File.Exists(Path.Combine(_dir, "turn-start.json")));
 	}
 
 	[Fact]
@@ -591,7 +696,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
 		using var turn = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
 		var turnParameters = turn.RootElement.GetProperty("params");
-		Assert.Equal("high", turnParameters.GetProperty("effort").GetString());
+		Assert.Equal("high", TurnSettings(turn).GetProperty("reasoning_effort").GetString());
 		Assert.Equal("priority", turnParameters.GetProperty("serviceTier").GetString());
 	}
 
@@ -684,7 +789,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
 		var turnParams = doc.RootElement.GetProperty("params");
-		Assert.Equal("high", turnParams.GetProperty("effort").GetString());
+		Assert.Equal("high", TurnSettings(doc).GetProperty("reasoning_effort").GetString());
 		Assert.Equal("priority", turnParams.GetProperty("serviceTier").GetString());
 	}
 
@@ -725,7 +830,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		var turnParams = doc.RootElement.GetProperty("params");
 		// Neither the unsupported tier nor the unsupported effort reaches Codex; the model uses its own defaults.
 		Assert.False(turnParams.TryGetProperty("serviceTier", out _));
-		Assert.False(turnParams.TryGetProperty("effort", out _));
+		Assert.Equal(JsonValueKind.Null, TurnSettings(doc).GetProperty("reasoning_effort").ValueKind);
 	}
 
 	[Fact]
@@ -743,7 +848,7 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 		await WaitForAsync(() => File.Exists(Path.Combine(_dir, "turn-start.json")));
 
 		using var doc = JsonDocument.Parse(File.ReadAllText(Path.Combine(_dir, "turn-start.json")));
-		Assert.Equal("bogus", doc.RootElement.GetProperty("params").GetProperty("effort").GetString());
+		Assert.Equal("bogus", TurnSettings(doc).GetProperty("reasoning_effort").GetString());
 	}
 
 	[Fact]
@@ -763,6 +868,9 @@ public sealed partial class CodexAppServerSessionTests : IDisposable {
 
 	private static AgentModelChoice CurrentModel(AgentControlState state) =>
 		state.ModelControl.Models.Single(model => model.Current);
+
+	private static JsonElement TurnSettings(JsonDocument document) =>
+		document.RootElement.GetProperty("params").GetProperty("collaborationMode").GetProperty("settings");
 
 	[Fact]
 	public async Task Submit_WithStagedSkill_SendsResolvedSkillInputItem() {

@@ -15,12 +15,13 @@ web reaches only through provider-neutral bridge messages — a sibling to `IStr
    transcript (`user-message` / `user-steer`), so history is derived there — per-session and reload-durable,
    no new store (`prompt-history.ts`).
 
-2. **Control status line** — a dim strip under the composer showing the session's **model**, **approvals**,
-   and **sandbox**. Each segment opens a picker; a change applies **live to the running session**.
+2. **Control status line** — a dim strip under the composer showing the session's **model**, **mode**,
+   **approvals**, and **sandbox**. Each segment opens a picker; a change applies **live to the running
+   session**.
 
-3. **Slash menu** — typing `/` opens an autocomplete of built-in actions (`/model`, `/approvals`,
-   `/sandbox` → the select commands) plus the session's skills. Sourced through the same capability interface,
-   so its contents are provider-supplied, not hardcoded in the UI. A built-in dispatches its command; a skill
+3. **Slash menu** — typing `/` opens an autocomplete of built-in actions (`/model`, `/plan`, `/approvals`,
+   `/sandbox` → their commands) plus the session's skills. Sourced through the same capability interface, so
+   its contents are provider-supplied, not hardcoded in the UI. A built-in dispatches its command; a skill
    **stages** for structured invocation (below).
 
 ## The capability abstraction (Core, provider-neutral)
@@ -28,8 +29,9 @@ web reaches only through provider-neutral bridge messages — a sibling to `IStr
 `AgentControls.cs` defines the records the web renders — all provider-neutral:
 
 - `AgentControlOption { Id, Label, Description? }`
-- `AgentControlAxis { Id, Label, Value, ValueLabel, Options }` — `Id` is opaque to the web (`model` /
-  `approvalPolicy` / `sandbox`); the web renders labels and echoes `Id` back.
+- `AgentControlAxis { Id, Label, Value, ValueLabel, Options, CommandId? }` — `Id` is opaque to the web
+  (`collaborationMode` / `approvalPolicy` / `sandbox`); the web renders labels and echoes `Id` back.
+  `CommandId` lets every surface advertise the effective, user-overridable keybinding.
 - `AgentSlashEntry { Id, Name, Description, CommandId?, InsertText? }` — a built-in action dispatches
   `CommandId`; a skill/prompt inserts `InsertText`. Never both.
 - `AgentControlState { Axes, Slash }`
@@ -45,6 +47,11 @@ model change needs **no thread restart**: the Codex session holds session-local 
 effective values on the next `turn/start`. `SetControl` validates against the axis options, stores the selected
 value as the default for subsequent Codex sessions, updates the override, and raises `ControlStateChanged`; the
 status line reflects it immediately.
+
+Collaboration mode is conversation-local rather than a workspace default. The session obtains the available
+presets from Codex's `collaborationMode/list`, stores the selected preset beside the resumed thread id, and
+sends its exact model/reasoning settings in `turn/start.collaborationMode`. A saved preset that Codex no longer
+advertises is shown as an error and blocks a new turn until the user selects an advertised mode.
 
 ```mermaid
 flowchart LR
@@ -72,14 +79,16 @@ skill alone. `AgentInputAttachment`-style staging keeps images and skills symmet
   `AgentControlsProtocol.Message` (`agent-controls`) → `agent-controls-store`. Replayed on `ready`
   (`AgentSessionHost.ReplayControls`) so a (re)connecting web view self-heals.
 - **Set:** web `agent-set-control` → `HostCore.WebBridge` → `Agent.Controls.SetControl`.
-- Models come from the app-server's `model/list`, skills from `skills/list` (re-fetched on `skills/changed`) —
-  no hardcoded catalogs; approvals/sandbox options are the provider's own fixed enums.
+- Models come from the app-server's `model/list`, collaboration presets from `collaborationMode/list`, and
+  skills from `skills/list` (re-fetched on `skills/changed`) — no hardcoded catalogs; approvals/sandbox options
+  are the provider's own fixed enums.
 
 ## Keyboard integration
 
-New user-facing actions are commands: `weavie.agent.selectModel` / `selectApprovalPolicy` / `selectSandbox`
-(bare → open the picker; `value` arg → apply directly). The slash menu's built-ins reference them by id, so the
-status line, the palette, `/model`, and Claude all share one path.
+New user-facing actions are commands: `weavie.agent.selectModel` / `togglePlanMode` /
+`selectApprovalPolicy` / `selectSandbox` (bare → open the picker; `value` arg → apply directly). Plan mode
+defaults to Shift+Tab. The slash menu's built-ins reference commands by id, so status controls, the palette,
+slash actions, and Claude all share one path.
 
 The picker and slash menu are overlays with capture-phase key handling. While either is open it sets a context
 key (`agentControlPickerOpen` / `agentSlashMenuOpen`); `AgentSubmit` (Enter) and `AgentInterrupt` (Escape) are

@@ -1,6 +1,7 @@
 import { createEffect, createSignal, For, type JSX, onCleanup, Show } from "solid-js";
 import type { AgentSlashEntry } from "../bridge";
 import { setContext } from "../commands/context";
+import { liveKeyLabel } from "../commands/keys-live";
 
 // The autocomplete that opens above the composer while the draft is a slash command. `agentSlashMenuOpen` is
 // set while it has entries so the composer's Enter/Escape commands stand down and this window handler drives
@@ -75,6 +76,9 @@ export function AgentSlashMenu(props: {
             >
               <span class="agent-slash-name">/{entry.name}</span>
               <span class="agent-slash-desc">{entry.description}</span>
+              <Show when={entry.commandId === null ? "" : liveKeyLabel(entry.commandId)}>
+                {(key) => <span class="agent-slash-key">{key()}</span>}
+              </Show>
             </div>
           )}
         </For>

@@ -469,7 +469,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 
 	private async Task HandleListSettingsAsync(IMcpResponder responder, string? idRaw, CancellationToken ct) {
 		var settings = Require(_settings, "Settings");
-		await SendToolTextAsync(responder, idRaw, settings.BuildCatalogJson(), ct).ConfigureAwait(false);
+		// Resolve workspace-scoped keys against this session's workspace, matching setSetting's routing.
+		string root = PrimaryWorkspaceRoot;
+		string json = root.Length > 0 ? settings.BuildCatalogJson(root) : settings.BuildCatalogJson();
+		await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 	}
 
 	private async Task HandleGetSettingAsync(IMcpResponder responder, JsonElement args, string? idRaw, CancellationToken ct) {
@@ -481,7 +484,10 @@ public sealed partial class McpServer : IAsyncDisposable {
 		}
 
 		try {
-			await SendToolTextAsync(responder, idRaw, settings.BuildGetJson(key), ct).ConfigureAwait(false);
+			// Resolve a workspace-scoped key against this session's workspace, matching setSetting's routing.
+			string root = PrimaryWorkspaceRoot;
+			string json = root.Length > 0 ? settings.BuildGetJson(key, root) : settings.BuildGetJson(key);
+			await SendToolTextAsync(responder, idRaw, json, ct).ConfigureAwait(false);
 		} catch (UnknownSettingException ex) {
 			await SendToolErrorAsync(responder, idRaw, ex.Message, ct).ConfigureAwait(false);
 		}

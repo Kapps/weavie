@@ -36,10 +36,9 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 	private readonly WindowsPtyLauncher _ptyLauncher = new();
 	private readonly WebView2 _webView;
 	private readonly HostCore _core;
-	private readonly IUiDispatcher _dispatcher;
+	private readonly ControlUiDispatcher _dispatcher;
 	private readonly WinDialogs _dialogs;
 	private bool _lastMaximized;
-	private bool _webViewTornDown;
 	// Backs the title bar's blur dim, tracked from Activated/Deactivate.
 	private bool _focused = true;
 #if DEBUG
@@ -69,13 +68,7 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 
 		// Native pieces handed to the core via IHostPlatform; built before the core, whose constructor reads the
 		// dispatcher off this platform.
-		_dispatcher = new DelegateUiDispatcher(action => {
-			if (InvokeRequired) {
-				BeginInvoke(action);
-			} else {
-				action();
-			}
-		});
+		_dispatcher = new ControlUiDispatcher(this);
 		_dialogs = new WinDialogs(this);
 
 		// The shared core over this workspace, driven by the app-global Core stores (shared across windows). One
@@ -124,7 +117,6 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		Activated += (_, _) => SetFocused(true);
 		Deactivate += (_, _) => SetFocused(false);
 		FormClosing += OnFormClosing;
-		FormClosed += (_, _) => Shutdown();
 	}
 
 	/// <summary>This workspace's stable identity (path-derived), used by the app to dedupe/focus windows.</summary>
@@ -257,32 +249,4 @@ internal sealed partial class WorkspaceWindow : Form, IShellWindow, IHostPlatfor
 		};
 	}
 
-	/// <summary>
-	/// Persists geometry as the window closes, then tears the WebView2 down deterministically — automatic control
-	/// disposal races WebView2's native teardown and can leave the process alive.
-	/// </summary>
-	private void OnFormClosing(object? sender, FormClosingEventArgs e) {
-		SaveWindowState();
-		if (_webViewTornDown) {
-			return; // FormClosing can fire more than once; dispose the view exactly once.
-		}
-
-		_webViewTornDown = true;
-		_bridge.Dispose();
-		try {
-			_webView.Dispose();
-		} catch (Exception ex) {
-			Console.Error.WriteLine($"[weavie] webview teardown: {ex.Message}");
-		}
-	}
-
-	private void Shutdown() {
-		_core.Ready -= OnPageReady;
-		// Tears down the sessions (terminals / IDE-MCP / LSP) and detaches the core's handlers from the
-		// app-global stores. The stores themselves are owned by AppController.
-		_core.DisposeAsync().AsTask().GetAwaiter().GetResult();
-#if DEBUG
-		_devBringUp?.Dispose();
-#endif
-	}
 }

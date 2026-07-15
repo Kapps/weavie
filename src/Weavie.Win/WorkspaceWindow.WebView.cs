@@ -9,12 +9,20 @@ namespace Weavie.Win;
 // (Weavie.Hosting.Web) that owns the dev-server / bootstrap / navigation flow. This host supplies only the native
 // WebView2 ops via IWebSurface, the Debug dev-loss recovery, and the unattended screenshot.
 internal sealed partial class WorkspaceWindow : IWebSurface {
-	private async void OnLoad(object? sender, EventArgs e) {
+	private void OnLoad(object? sender, EventArgs e) {
+		if (!_closing) {
+			_initializationTask = InitializeForWindowAsync();
+		}
+	}
+
+	private async Task InitializeForWindowAsync() {
 		try {
 			await InitializeAsync();
 		} catch (Exception ex) {
 			Console.Error.WriteLine($"[weavie] initialization failed: {ex}");
-			MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			if (!_closing) {
+				MessageBox.Show(this, ex.ToString(), "weavie failed to start", MessageBoxButtons.OK, MessageBoxIcon.Error);
+			}
 		}
 	}
 
@@ -35,10 +43,22 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		var environmentTask = CoreWebView2Environment.CreateAsync(userDataFolder: userDataFolder);
 		_ = _core.StartAsync();
 		var environment = await environmentTask;
+		if (_closing) {
+			return;
+		}
+
 		await _webView.EnsureCoreWebView2Async(environment);
+		if (_closing) {
+			return;
+		}
+
 		var core = _webView.CoreWebView2;
 
 		await core.AddScriptToExecuteOnDocumentCreatedAsync(BridgeShim);
+		if (_closing) {
+			return;
+		}
+
 #if DEBUG
 		core.Settings.AreDevToolsEnabled = true; // local debugging, Debug builds only
 #else
@@ -48,6 +68,9 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		// Let the web title bar declare its draggable caption via CSS `app-region: drag`; WebView2 then handles
 		// dragging, double-click-maximize, and the right-click system menu for the frameless window.
 		core.Settings.IsNonClientRegionSupportEnabled = true;
+		if (_closing) {
+			return;
+		}
 
 		// A window.open / target=_blank goes to the OS browser, never a second in-app WebView with bridge access.
 		core.NewWindowRequested += OnNewWindowRequested;
@@ -89,7 +112,9 @@ internal sealed partial class WorkspaceWindow : IWebSurface {
 		await launcher.LaunchBundleAsync();
 #endif
 
-		ScheduleSnapshotIfRequested();
+		if (!_closing) {
+			ScheduleSnapshotIfRequested();
+		}
 	}
 
 	// IWebSurface — the native WebView2 ops the shared bring-up drives. Each marshals onto the UI thread (WebView2

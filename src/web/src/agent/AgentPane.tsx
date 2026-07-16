@@ -87,36 +87,57 @@ export function AgentPane(props: {
     ),
   );
 
+  const focusPromptIn = (surface: EventTarget | null): void => {
+    props.onFocus();
+    if (surface instanceof HTMLElement) {
+      surface
+        .querySelector<HTMLTextAreaElement>("[data-agent-composer] textarea")
+        ?.focus({ preventScroll: true });
+    }
+  };
+  const hasTextSelection = (): boolean => document.getSelection()?.isCollapsed === false;
+
   const focusPrompt = (event: MouseEvent): void => {
-    if (event.button !== 0) {
+    if (event.button !== 0 || event.detail === 0) {
       return;
     }
 
     const target = event.target;
     if (
       target instanceof Element &&
-      target.closest("button, textarea, input, select, a, [contenteditable='true'], [tabindex]") !==
-        null
+      target.closest(
+        "textarea, input, select, [contenteditable]:not([contenteditable='false'])",
+      ) !== null
     ) {
       return;
     }
+    if (hasTextSelection()) {
+      return;
+    }
+    focusPromptIn(event.currentTarget);
+  };
 
-    props.onFocus();
-    if (event.currentTarget instanceof HTMLElement) {
-      event.currentTarget
-        .querySelector<HTMLTextAreaElement>("[data-agent-composer] textarea")
-        ?.focus({ preventScroll: true });
+  const focusPromptFromDisabled = (event: PointerEvent): void => {
+    if (
+      event.button === 0 &&
+      event.target instanceof Element &&
+      event.target.closest(":disabled") !== null &&
+      !hasTextSelection()
+    ) {
+      focusPromptIn(event.currentTarget);
     }
   };
 
   return (
     // biome-ignore lint/a11y/noStaticElementInteractions: Surface clicks are a pointer convenience; the textarea remains keyboard-focusable.
+    // biome-ignore lint/a11y/useKeyWithClickEvents: Keyboard activation already keeps the activated control focused.
     <div
       class="agent-surface"
       classList={{ active: props.active }}
       data-kind="terminal:claude"
       data-surface="structured-agent"
-      onMouseDown={focusPrompt}
+      onClick={focusPrompt}
+      onPointerUp={focusPromptFromDisabled}
     >
       <div class="pane-head" role="toolbar">
         <span class="pane-label">{providerName()}</span>

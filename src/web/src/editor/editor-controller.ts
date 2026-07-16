@@ -57,6 +57,8 @@ export interface EditorControllerDeps {
   onOpenError: (message: string) => void;
   /** Report the file the editor is showing so the browser / title bar can track it. */
   onCurrentFileChanged: (path: string | null) => void;
+  /** Activate the editor pane and focus its visible overlay; false when Monaco is the visible surface. */
+  focusVisibleOverlay: () => boolean;
   /** Confirm discarding unsaved scratch buffers about to be closed (`names`); the single close-path guard. */
   confirmDiscard: (names: string[]) => Promise<boolean>;
   /** Confirm a destructive review action (Revert file / Revert all). Resolves true to proceed. */
@@ -273,13 +275,19 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     }
   };
 
+  const focusEditorSurface = (): void => {
+    if (!deps.focusVisibleOverlay()) {
+      host?.editor.focus();
+    }
+  };
+
   const openFile = (path: string, line: number, preview = false, scratch = false): void => {
     if (host === undefined) {
       deps.onCurrentFileChanged(path); // optimistic; the editor chunk isn't up yet
       pendingOpen = { path, line, preview, scratch };
       return;
     }
-    void applyActive(openTab(path, { line, preview, scratch }));
+    void applyActive(openTab(path, { line, preview, scratch })).then(focusEditorSurface);
   };
 
   // The document/workspace symbol query surface (monaco glue), captured once the editor chunk loads in start().
@@ -1157,7 +1165,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     openWebTab,
     openSourceTab,
     handleMessage,
-    focusEditor: () => host?.editor.focus(),
+    focusEditor: focusEditorSurface,
     selectionText: () => {
       const selection = host?.editor.getSelection();
       const model = host?.editor.getModel();

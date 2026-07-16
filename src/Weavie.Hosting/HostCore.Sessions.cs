@@ -529,7 +529,8 @@ public sealed partial class HostCore {
 	/// show/hide (each loaded session keeps its own live xterm pair). Rebinds the single editor to the slot's
 	/// worktree tabs, re-roots the omnibar/file browser, then re-pushes status + the rail + focus.
 	/// </summary>
-	private void SwitchToSlot(SessionSlot slot) {
+	private void SwitchToSlot(SessionSlot slot, bool replayAgentState) {
+		bool agentStateNeedsReplay = replayAgentState || !slot.Loaded;
 		LoadSlot(slot);
 		var session = slot.Session!;
 
@@ -551,6 +552,10 @@ public sealed partial class HostCore {
 		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
 		// session's working copies and reopens this one's.
 		PushSessionEditorToWeb(session);
+		// Flip the page to the incoming session's already-live panes before any expensive state projection. Keep
+		// focus adjacent and ordered after the list so keyboard input lands in the newly visible agent pane.
+		PushSessionList();
+		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
 		// Unmute the incoming session's editor output AFTER the rebind, so work it held while muted (a background
 		// openDiff, files Claude opened) replays onto the rebound editor instead of being wiped by the rebind.
 		session.SetEditorOutputActive(true);
@@ -558,7 +563,9 @@ public sealed partial class HostCore {
 			session.EnsureAgentStarted();
 			// A remote backend's ready replay is intentionally hidden while that backend is not focused. Binding
 			// is therefore the authoritative projection boundary for the structured pane and its controls.
-			session.Agent.ReplayState();
+			if (agentStateNeedsReplay) {
+				session.Agent.ReplayState();
+			}
 		}
 		// Re-root the omnibar quick-open + file browser to this session's worktree.
 		PushFileIndexToWeb(invalidate: true);
@@ -577,11 +584,6 @@ public sealed partial class HostCore {
 		// A PR/ref review re-surfaces its code on switch-back (open + render its first changed file), unlike a plain
 		// post-turn review which parks. Reads the persisted tracker, so it's race-free (unlike a per-switch git diff).
 		SurfaceActiveReviewOnSwitch();
-		// The rail push carries the new active flag, flipping the page to this session's (already-live) terminal
-		// panes. Pushed before focus so the target pane is shown first.
-		PushSessionList();
-		// Land keyboard focus in the new session's Claude pane.
-		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
 		// Record the new active slot (and any load it just triggered) so a reopen restores it.
 		PersistSessionState();
 	}
@@ -812,7 +814,7 @@ public sealed partial class HostCore {
 		}
 
 		if (ReferenceEquals(_sessions?.ActiveSlot, slot) && PrimarySlot() is { } primary) {
-			SwitchToSlot(primary);
+			SwitchToSlot(primary, replayAgentState: true);
 		}
 
 		// Detach and push the rail BEFORE the teardown: the chip fades the moment the session is dormant, not
@@ -961,7 +963,7 @@ public sealed partial class HostCore {
 					Session = CreateSession(record.Path, agentProviderId),
 				};
 				_sessions?.Add(slot, activate: false);
-				SwitchToSlot(slot);
+				SwitchToSlot(slot, replayAgentState: true);
 				if (!string.IsNullOrWhiteSpace(prompt)) {
 					SeedFirstPrompt(slot.Session!, prompt);
 				}
@@ -979,7 +981,7 @@ public sealed partial class HostCore {
 		var result = new TaskCompletionSource<CommandResult>();
 		_ui.Post(() => {
 			try {
-				SwitchToSlot(slot);
+				SwitchToSlot(slot, replayAgentState: true);
 				result.SetResult(CommandResult.Success($"Switched to the existing session for '{branch}'."));
 			} catch (Exception ex) {
 				result.SetException(ex);

@@ -40,10 +40,11 @@ page's `ReplayPane` always has the prior output to replay immediately, independe
 It appends each durable message on publish, and on a `transcript-reset` it clears the buffer *and* the
 persisted file.
 
-`AgentSessionHost.ReplayState` projects the pane and controls at both authoritative browser-binding points:
-the page's `ready` replay and `HostCore.SwitchToSlot`. The page sends its initial `ready` only after `App`
-mounts, so a synchronous native reply has a listener. Background remote traffic stays isolated; selecting
-that backend replays its retained state after it becomes active instead of admitting cross-backend frames.
+`AgentSessionHost.ReplayState` projects the pane and controls when the page sends `ready` and when it binds a
+different backend. The page sends its initial `ready` only after `App` mounts, so a synchronous native reply
+has a listener. Loaded same-backend session panes stay live in the page and switch by show/hide; a dormant
+session replays when loaded. Background remote traffic stays isolated, then replays its retained state after
+that backend becomes active.
 
 The two mechanisms are complementary, not redundant:
 

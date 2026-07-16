@@ -5,13 +5,14 @@
 // "More Actions" menu. See docs/specs/warm-lsp-across-switch.md.
 
 import * as monaco from "monaco-editor";
-import { MonacoLanguageClient } from "monaco-languageclient";
+import type { MonacoLanguageClient } from "monaco-languageclient";
 import { CloseAction, ErrorAction } from "vscode-languageclient";
 import { log, postToBackend } from "../bridge";
 import { worktreeMatchBase } from "../editor/fs-path";
 import { notify } from "../notify/notify";
 import { openLspChannel } from "./lsp-bridge-transport";
 import type { WeavieLspConfig, WeavieLspServer } from "./lsp-client";
+import { createWeavieLanguageClient } from "./weavie-language-client";
 
 // If a server crashes (or the WS drops) while documents are open, reconnect with capped exponential backoff
 // so a broken server doesn't storm; a connection that stayed up past HEALTHY_UPTIME_MS resets the backoff.
@@ -236,7 +237,7 @@ function connect(key: string, params: EnsureClientParams, attempt: number): void
   openedAt = Date.now();
 
   const settings = server.settings ?? {};
-  client = new MonacoLanguageClient({
+  client = createWeavieLanguageClient({
     name: `Weavie ${server.id} language client`,
     clientOptions: {
       // Scope providers to this worktree so a warm client from another session never answers for this one's

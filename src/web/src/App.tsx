@@ -461,14 +461,14 @@ export default function App(): JSX.Element {
   // different backend, first persist the outgoing session's unsaved edits before requesting the incoming
   // session. File writes remain pinned to the editor owner throughout the handoff. Same-backend binds run
   // synchronously.
-  const bindBackend = (backendId: string, then: () => void): void => {
+  const bindBackend = (backendId: string, then: (didRebind: boolean) => void): void => {
     if (backendId === activeBackendId()) {
-      then();
+      then(false);
       return;
     }
     void editor.flushDirty().finally(() => {
       setActiveBackendId(backendId);
-      then();
+      then(true);
     });
   };
 
@@ -477,8 +477,12 @@ export default function App(): JSX.Element {
   const switchToSession = (session: RailSession): void => {
     flushEditorSession();
     // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
-    bindBackend(session.backendId, () =>
-      postToBackend(session.backendId, { type: "switch-session", id: session.id }),
+    bindBackend(session.backendId, (didRebind) =>
+      postToBackend(session.backendId, {
+        type: "switch-session",
+        id: session.id,
+        replayAgentState: didRebind,
+      }),
     );
   };
 

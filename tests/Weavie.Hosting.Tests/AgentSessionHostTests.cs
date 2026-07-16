@@ -185,6 +185,10 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
+			// Small explicit stacks: each thread only runs a handful of calls, and the default stack size
+			// (1 MB+) needlessly multiplies across the 80 threads this loop creates, which previously hit the
+			// OS thread-creation limit on the CI Linux runner (OutOfMemoryException at Thread.StartCore, e.g.
+			// https://github.com/Kapps/weavie/actions/runs/29473255400 on 2026-07-16).
 			var hydrate = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -195,7 +199,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, maxStackSize: 256 * 1024);
 			var replay = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -203,7 +207,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, maxStackSize: 256 * 1024);
 			hydrate.Start();
 			replay.Start();
 			hydrate.Join();

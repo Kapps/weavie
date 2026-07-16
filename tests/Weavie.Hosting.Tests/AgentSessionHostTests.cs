@@ -185,6 +185,12 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
+			// Flaked 2026-07-16 05:11 UTC under CI load: OutOfMemoryException in Thread.StartCore creating
+			// these two threads with the default (multi-MB) stack, 40 iterations in a row alongside other
+			// parallel test collections also spinning up raw threads. The bodies below do no deep recursion,
+			// so a small explicit stack cuts native memory pressure without weakening the race being tested.
+			// https://github.com/Kapps/weavie/actions/runs/29473255400/job/87540618650
+			const int racingThreadStackSize = 256 * 1024;
 			var hydrate = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -195,7 +201,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, racingThreadStackSize);
 			var replay = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -203,7 +209,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, racingThreadStackSize);
 			hydrate.Start();
 			replay.Start();
 			hydrate.Join();

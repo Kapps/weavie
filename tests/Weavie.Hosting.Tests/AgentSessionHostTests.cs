@@ -166,6 +166,12 @@ public sealed class AgentSessionHostTests {
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
+	//
+	// The race is driven by two long-lived threads synchronized via a 3-party Barrier (this test + both workers)
+	// rather than a fresh Thread pair per iteration: spawning 80 raw OS threads in one test flaked with
+	// OutOfMemoryException at Thread.StartCore() under CI memory pressure (2026-07-16, run
+	// https://github.com/Kapps/weavie/actions/runs/29473255400) — reusing 2 threads across all 40 iterations
+	// removes the repeated native thread-creation churn that caused it.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -173,8 +179,41 @@ public sealed class AgentSessionHostTests {
 
 		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
 		AgentPaneMessage[] hydrated = [Completed("fresh-0", "fresh a"), Completed("fresh-1", "fresh b")];
+		const int iterations = 40;
 
-		for (int iteration = 0; iteration < 40; iteration++) {
+		Exception? threadError = null;
+		var barrier = new Barrier(3);
+		var hydrate = new Thread(() => {
+			for (int i = 0; i < iterations; i++) {
+				try {
+					barrier.SignalAndWait();
+					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
+					foreach (var message in hydrated) {
+						session.Emit(message);
+					}
+				} catch (Exception ex) {
+					threadError ??= ex;
+				} finally {
+					barrier.SignalAndWait();
+				}
+			}
+		});
+		var replay = new Thread(() => {
+			for (int i = 0; i < iterations; i++) {
+				try {
+					barrier.SignalAndWait();
+					host.ReplayPane();
+				} catch (Exception ex) {
+					threadError ??= ex;
+				} finally {
+					barrier.SignalAndWait();
+				}
+			}
+		});
+		hydrate.Start();
+		replay.Start();
+
+		for (int iteration = 0; iteration < iterations; iteration++) {
 			// Restore the "large disk seed already present" baseline before each race — the wide seed makes
 			// ReplayPane's post loop long enough to reliably expose an unordered trailing reset.
 			session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
@@ -183,35 +222,15 @@ public sealed class AgentSessionHostTests {
 			}
 
 			bridge.Clear();
-			Exception? threadError = null;
-			var barrier = new Barrier(2);
-			var hydrate = new Thread(() => {
-				try {
-					barrier.SignalAndWait();
-					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
-					foreach (var message in hydrated) {
-						session.Emit(message);
-					}
-				} catch (Exception ex) {
-					threadError = ex;
-				}
-			});
-			var replay = new Thread(() => {
-				try {
-					barrier.SignalAndWait();
-					host.ReplayPane();
-				} catch (Exception ex) {
-					threadError = ex;
-				}
-			});
-			hydrate.Start();
-			replay.Start();
-			hydrate.Join();
-			replay.Join();
+			barrier.SignalAndWait(); // release both workers to race
+			barrier.SignalAndWait(); // wait for both workers to finish this iteration
 
 			Assert.Null(threadError);
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));
 		}
+
+		hydrate.Join();
+		replay.Join();
 	}
 
 	// The messages carried by the single agent-pane-batch frame the bridge received (a replay or a live flush).

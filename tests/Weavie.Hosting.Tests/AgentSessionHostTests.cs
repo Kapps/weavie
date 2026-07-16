@@ -166,6 +166,14 @@ public sealed class AgentSessionHostTests {
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
+	//
+	// Flaked 2026-07-16 05:11 UTC on main (run https://github.com/Kapps/weavie/actions/runs/29473255400):
+	// `Test (hosting)` on linux failed with System.OutOfMemoryException at Thread.StartCore() inside this test.
+	// Root cause: the race below created two brand-new raw `Thread`s per iteration (80 native threads over the
+	// 40-iteration loop), spawned while ~30 other Hosting.Tests classes run concurrently by default (this class
+	// has no `[Collection]`) — enough concurrent native thread creation to exhaust the CI runner's thread budget.
+	// Fix: race via `Task.Run` (thread-pool) instead of raw `Thread`s, so the race still executes two concurrent,
+	// barrier-synced paths without paying for a fresh OS thread every time.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -185,7 +193,12 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
-			var hydrate = new Thread(() => {
+			// Task.Run (thread-pool) races the two sides instead of raw `Thread` instances: 40 iterations of
+			// spinning up two brand-new native threads each was enough to intermittently exhaust the CI
+			// runner's thread budget (OutOfMemoryException from Thread.StartCore) when other test classes were
+			// racing threads/processes of their own in parallel. The pool reuses already-live threads, so the
+			// race still exercises real concurrent execution without paying for fresh OS threads every time.
+			var hydrate = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
@@ -196,7 +209,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			var replay = new Thread(() => {
+			var replay = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					host.ReplayPane();
@@ -204,10 +217,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			hydrate.Start();
-			replay.Start();
-			hydrate.Join();
-			replay.Join();
+			await Task.WhenAll(hydrate, replay);
 
 			Assert.Null(threadError);
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));

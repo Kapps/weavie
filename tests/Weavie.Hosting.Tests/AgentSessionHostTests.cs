@@ -14,6 +14,10 @@ using Xunit;
 namespace Weavie.Hosting.Tests;
 
 public sealed class AgentSessionHostTests {
+	// Small on purpose: keeps the 80 short-lived race threads in ReplayPane_RacingHydrate_ConvergesToHydratedTranscript
+	// from exhausting a memory-constrained CI runner (see the flake note on that test).
+	private const int RaceThreadStackSize = 256 * 1024;
+
 	[Fact]
 	public async Task StructuredProvider_DoesNotStartUntilSlotIsKnown() {
 		string slot = string.Empty;
@@ -166,6 +170,12 @@ public sealed class AgentSessionHostTests {
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
+	//
+	// Flaked 2026-07-16 05:15 UTC on the Linux CI runner with a System.OutOfMemoryException from
+	// Thread.StartCore() (https://github.com/Kapps/weavie/actions/runs/29473255400/job/87540618650) — the
+	// runner was low on committed memory from earlier build/test steps, and each default-stack-size Thread
+	// (~8MB reserved on Linux) pushed it over. Mitigated by giving the 80 short-lived threads this test spins
+	// up an explicit small stack, since the lambdas here don't recurse and need only a few frames.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -195,7 +205,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, RaceThreadStackSize);
 			var replay = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -203,7 +213,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, RaceThreadStackSize);
 			hydrate.Start();
 			replay.Start();
 			hydrate.Join();

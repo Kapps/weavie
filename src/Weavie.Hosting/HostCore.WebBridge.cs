@@ -123,11 +123,19 @@ public sealed partial class HostCore {
 					if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
 						// Older pages don't send replayAgentState; preserve their pre-gating behavior across version skew.
 						bool replayAgentState = !root.TryGetProperty("replayAgentState", out var replay) || replay.GetBoolean();
-						SwitchToSlot(target, replayAgentState);
+						SwitchToSlot(target, replayAgentState, root.GetStringOrNull("pageId"));
 					}
 
 					break;
 				}
+			case "acquire-editor":
+				if (_sessions?.ActiveSlot is { Loaded: true } acquiredSlot
+					&& root.GetStringOrNull("pageId") is { } acquirePageId) {
+					BeginEditorProjection(acquiredSlot, acquirePageId, replayAll: true);
+				} else {
+					Notify("error", "Couldn't acquire the editor because the active session isn't loaded.");
+				}
+				break;
 
 			case "new-session": {
 					string? branch = root.GetStringOrNull("branch");
@@ -380,8 +388,10 @@ public sealed partial class HostCore {
 				PushLayoutToWeb();
 				// The ACTIVE session's editor tabs — normally the primary, but a restored worktree session may be
 				// active after a reopen/update restart, and the page must open its tabs, not the primary's.
-				if (_session is { } editorSession) {
-					PushSessionEditorToWeb(editorSession);
+				if (_session is { } editorSession && root.GetStringOrNull("pageId") is null) {
+					// Legacy pages have no explicit acquire/mount handshake. Keep their pre-projection behavior so a
+					// mixed-version remote can still open files while new pages acquire ownership explicitly.
+					BeginLegacyEditorProjection(editorSession, replayAll: true);
 				}
 
 				PushRecentFilesToWeb();
@@ -440,13 +450,16 @@ public sealed partial class HostCore {
 				}));
 				Log($"[weavie] {json}");
 				break;
+			case "editor-projection-mounted":
+				MountEditorProjection(root);
+				break;
+			case "release-editor":
+				ReleaseEditorProjection(root);
+				break;
 			case "monaco-ready":
-				// The editor pane can now render inline decorations. Replay the review set AND the active session's
-				// held openDiff here (not on `ready`, which fires before the editor exists) so changes/proposals that
-				// landed before this connect — a reload, or a claude turn that beat the editor's init — surface
-				// deterministically, with no settle sleep.
-				PushReviewStateToWeb();
-				_session?.EditorChannel.Replay();
+				// Stamped pages mount explicitly. Legacy pages have no projection acknowledgement, so this remains their
+				// editor-ready boundary for review/openDiff replay.
+				MountLegacyEditorProjection();
 				break;
 			case "layout-changed":
 				HandleLayoutChanged(root);
@@ -618,10 +631,8 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// The session a page→host editor message is FOR, by the id the page stamps from the last
-	/// <c>set-editor-session</c>: a send produced before a switch but processed after it carries the previous id
-	/// and is rejected (loudly). An unstamped message falls back to the active session; returns <c>null</c> when
-	/// there is no active session or the id doesn't match it.
+	/// The session a page→host editor message is FOR, requiring the exact mounted host epoch + projection revision.
+	/// This rejects both cross-session stragglers and ABA messages delayed across A₁→B→A₂.
 	/// </summary>
 	private HostSession? EditorMessageTarget(JsonElement root, string kind) {
 		if (_session is not { } active) {
@@ -631,12 +642,13 @@ public sealed partial class HostCore {
 		string? owner = root.TryGetProperty("sessionId", out var ownerEl) && ownerEl.ValueKind == JsonValueKind.String
 			? ownerEl.GetString()
 			: null;
-		if (string.IsNullOrEmpty(owner)) {
-			return active; // unstamped — attribute to the active session (transitional / older page)
+		if (_editorProjectionState == EditorProjectionState.Legacy) {
+			return string.Equals(owner, active.Id, StringComparison.Ordinal) ? active : null;
 		}
 
-		if (!string.Equals(owner, active.Id, StringComparison.Ordinal)) {
-			Log($"[weavie] {kind} for session '{owner}' ignored — active session is '{active.Id}' (stale post-switch message)");
+		long revision = ProjectionRevision(root);
+		if (!MatchesEditorProjection(root)) {
+			Log($"[weavie] {kind} for session '{owner ?? ""}' revision {revision} ignored — mounted session is '{active.Id}' revision {_editorProjectionRevision}");
 			return null;
 		}
 
@@ -740,24 +752,17 @@ public sealed partial class HostCore {
 	}
 
 	/// <summary>
-	/// Clears the page's inline turn-review markers (and the stale per-file diffs) — the outgoing half of a switch.
-	/// Must run BEFORE the incoming session's editor channel re-renders its held openDiff, or the reset's
-	/// <c>clearAll</c> would wipe that diff (it lives in the same inline-diff registry).
-	/// </summary>
-	private void ResetReviewMarkers() => _bridge.PostToWeb(ChangeMessages.TurnReset());
-
-	/// <summary>
-	/// Pushes the incoming session's inline turn-review set onto the page after a switch — the inbound half (markers
-	/// already cleared by <see cref="ResetReviewMarkers"/>). The live turn pushes are gated on <c>IsActiveSession</c>,
-	/// so a session that edited while muted has a tracker the page never heard about (an empty set also clears the
-	/// stale ← / → walk + parked navigator).
+	/// Pushes the incoming session's inline turn-review set onto the page after a switch. The projection commit
+	/// already cleared the prior page-owned review reducer, so an empty session needs only its history state.
 	/// </summary>
 	private void PushIncomingReviewState() {
-		if (_session is null) {
+		if (_session is not { } session) {
 			return;
 		}
 
-		PushTurnChangesToWeb(); // threads the incoming session's review label (a PR/ref review follows its session)
+		if (session.Changes.TurnChanges().Count > 0) {
+			PushTurnChangesToWeb(); // threads the incoming session's review label (a PR/ref review follows its session)
+		}
 		PushReviewHistoryToWeb(); // the incoming session's undo history persists — reflect it on the toolbar
 	}
 
@@ -772,8 +777,11 @@ public sealed partial class HostCore {
 			return;
 		}
 
-		PushTurnChangesToWeb();
-		foreach (var change in session.Changes.TurnChanges()) {
+		var changes = session.Changes.TurnChanges();
+		if (changes.Count > 0) {
+			PushTurnChangesToWeb();
+		}
+		foreach (var change in changes) {
 			PushReviewFileToWeb(change.Path); // includes PR comments so a reload restores the threads too
 		}
 

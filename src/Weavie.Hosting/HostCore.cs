@@ -218,13 +218,14 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		await LoginShellEnvironment.ImportOnceAsync(line => Log($"[env] {line}")).ConfigureAwait(false);
 
 		_bridge.MessageReceived += OnWebMessage;
+		if (_bridge is IPageLifecycleHostBridge pageLifecycle) {
+			pageLifecycle.PageDisconnected += OnEditorPageDisconnected;
+		}
 
 		// The primary session: the workspace's own checkout. Built after the login-shell env import so its language
 		// servers + git resolve from PATH. CreateSession wires its handlers + gated push subscriptions.
 		_primarySession = CreateSession(WorkspaceRoot, "claude");
 		_session = _primarySession;
-		// The active session drives the page's single editor: unmute its editor output (sessions start muted).
-		_primarySession.SetEditorOutputActive(true);
 		// Seed the primary session's in-memory editor state from its persisted store, so switching away and
 		// back restores the same tabs (secondary worktree sessions start empty and live only for the window).
 		_primarySession.EditorSession = _editorSession.Current;
@@ -465,6 +466,9 @@ public sealed partial class HostCore : IAsyncDisposable, ISessionHost {
 		}
 
 		Attempt(() => _bridge.MessageReceived -= OnWebMessage);
+		if (_bridge is IPageLifecycleHostBridge pageLifecycle) {
+			Attempt(() => pageLifecycle.PageDisconnected -= OnEditorPageDisconnected);
+		}
 		Attempt(DetachReactions);
 		Attempt(() => {
 			_hotkeys?.Dispose();

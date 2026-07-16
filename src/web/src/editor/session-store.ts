@@ -1,5 +1,13 @@
-import { batch, createSignal } from "solid-js";
-import { editorBackendId, onHostMessage, postToEditorBackend } from "../bridge";
+import { createSignal } from "solid-js";
+import {
+  currentEditorBinding,
+  type EditorBinding,
+  editorAttribution,
+  editorBackendId,
+  editorSessionId as editorOwner,
+  onHostMessage,
+  postToEditorBinding,
+} from "../bridge";
 import { samePath } from "./fs-path";
 import type { EditorSession, EditorSessionEntry, EditorViewState } from "./session-types";
 
@@ -9,7 +17,6 @@ import type { EditorSession, EditorSessionEntry, EditorViewState } from "./sessi
 // so there is no loop. Imported at top level (App.tsx) so this signal survives HMR rather than reloading with
 // the dynamic editor chunk.
 const [session, setSession] = createSignal<EditorSession | null>(null);
-const [editorOwner, setEditorOwner] = createSignal<string | null>(null);
 
 export { editorBackendId, editorOwner };
 
@@ -43,10 +50,14 @@ let lastStructure = "";
 // Tell the host the live open-tab set so Claude's getOpenEditors reports it (and close_tab can target it).
 function emitOpenEditors(session: EditorSession): void {
   lastStructure = structureKey(session);
+  const binding = currentEditorBinding();
+  if (binding === null) {
+    return;
+  }
   // Web/source tabs are web-only; they aren't reported to the host, so Claude's getOpenEditors never sees a path as a file.
-  postToEditorBackend({
+  postToEditorBinding(binding, {
     type: "open-editors-changed",
-    sessionId: editorOwner(),
+    ...editorAttribution(binding),
     editors: session.open.filter(isFileTab).map((entry) => ({
       path: entry.path,
       isActive: entry.path === session.active,
@@ -65,10 +76,7 @@ onHostMessage((message) => {
       postTimer = undefined;
     }
     const seeded = { active: message.session.active, open: normalize(message.session.open) };
-    batch(() => {
-      setEditorOwner(message.sessionId ?? null);
-      setSession(seeded);
-    });
+    setSession(seeded);
     // Report the restored set so getOpenEditors works immediately, without waiting for a tab change.
     emitOpenEditors(seeded);
   }
@@ -113,7 +121,7 @@ let postTimer: ReturnType<typeof setTimeout> | undefined;
 
 // Send a session to the host as editor-session-changed. Never sends file content — disk is the source of
 // truth. Flags are omitted when false so old files round-trip.
-function sendEditorSession(s: EditorSession, owner: string | null): void {
+function sendEditorSession(s: EditorSession, binding: EditorBinding): void {
   // Web/source tabs are a web-only surface — never persisted host-side (the host would treat the path as a file).
   // They're dropped here, so they don't survive a reload / session switch (acceptable for v1).
   const files = s.open.filter(isFileTab);
@@ -126,24 +134,25 @@ function sendEditorSession(s: EditorSession, owner: string | null): void {
   }));
   const active =
     s.active !== null && files.some((entry) => entry.path === s.active) ? s.active : null;
-  postToEditorBackend({
+  postToEditorBinding(binding, {
     type: "editor-session-changed",
-    sessionId: owner,
+    ...editorAttribution(binding),
     session: { active, open },
   });
 }
 
 function commit(next: EditorSession): void {
   setSession(next);
-  // Capture the owner now, not when the timer fires: this change describes the session active when the user
-  // made it, even if a session switch lands a new editor owner before the debounce fires.
-  const owner = editorOwner();
+  // Capture the whole binding now: both its backend and session can change before the debounce fires.
+  const binding = currentEditorBinding();
   if (postTimer !== undefined) {
     clearTimeout(postTimer);
   }
   postTimer = setTimeout(() => {
     postTimer = undefined;
-    sendEditorSession(next, owner);
+    if (binding !== null) {
+      sendEditorSession(next, binding);
+    }
   }, 300);
 
   // Push the open-tab set immediately when it changes, but not on a view-state-only commit (cursor/scroll),
@@ -162,10 +171,11 @@ export function flushEditorSession(): void {
   clearTimeout(postTimer);
   postTimer = undefined;
   const current = session();
-  if (current !== null) {
+  const binding = currentEditorBinding();
+  if (current !== null && binding !== null) {
     // Runs while the outgoing session still owns the tab set, so the live editor owner records it under the
     // correct session.
-    sendEditorSession(current, editorOwner());
+    sendEditorSession(current, binding);
   }
 }
 

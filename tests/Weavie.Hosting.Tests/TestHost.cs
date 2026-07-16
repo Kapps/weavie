@@ -1,4 +1,6 @@
 using System.Diagnostics;
+using System.Text.Json;
+using System.Text.Json.Nodes;
 using Weavie.Core.Agents;
 using Weavie.Core.Commands;
 using Weavie.Core.Configuration;
@@ -26,8 +28,10 @@ namespace Weavie.Hosting.Tests;
 /// files still land in the real Weavie dirs and are cleaned on dispose (lock) or harmlessly overwritten.
 /// </summary>
 internal sealed class TestHost : IAsyncDisposable {
+	internal const string TestPageId = "test-page";
 	private readonly string _tempRoot;
 	private readonly HostServices _services;
+	private JsonElement? _lastProjection;
 
 	private TestHost(string tempRoot, string repoRoot, HostServices services, FakeHostBridge bridge, TestPlatform platform, HostCore core, StubHttpMessageHandler sourceHttp, string sourcesDir) {
 		_tempRoot = tempRoot;
@@ -58,6 +62,9 @@ internal sealed class TestHost : IAsyncDisposable {
 
 	/// <summary>The host's settings store, for a test to tweak a setting before it creates a session.</summary>
 	public SettingsStore Settings => _services.Settings;
+
+	/// <summary>Whether switch/acquire helpers immediately acknowledge the offered editor projection.</summary>
+	public bool AutoMountEditorProjection { get; set; } = true;
 
 	/// <summary>Builds a temp git repo, starts a host over it, and delivers the page's <c>ready</c> message.</summary>
 	public static Task<TestHost> StartAsync() => StartAsync(_ => { });
@@ -90,7 +97,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		await host.Core.StartAsync().ConfigureAwait(false);
 		// `ready` triggers the initial layout / editor-session / session-list pushes (PostToWeb no-ops before this).
 		if (sendReady) {
-			host.Bridge.Receive("""{"type":"ready"}""");
+			host.Send("""{"type":"ready"}""");
 		}
 
 		return host;
@@ -130,18 +137,84 @@ internal sealed class TestHost : IAsyncDisposable {
 	/// <summary>The primary session's id (its rail slot id), read from the initial set-editor-session sessionId.</summary>
 	public string PrimaryId {
 		get {
-			var seed = Bridge.LastOfType("set-editor-session");
+			var seed = _lastProjection ?? Bridge.LastOfType("set-editor-session");
 			return seed?.GetProperty("sessionId").GetString() ?? throw new InvalidOperationException("no set-editor-session seed");
 		}
 	}
 
 	/// <summary>Creates a worktree-backed session on <paramref name="branch"/> (off main) and switches to it.</summary>
 	public async Task<CommandResult> CreateSessionAsync(string branch) =>
-		await Core.NewSessionAsync(new NewSessionRequest { Branch = branch, Base = "main", AttachExisting = false }, CancellationToken.None)
-			.ConfigureAwait(false);
+		await MountAfterAsync(Core.NewSessionAsync(
+			new NewSessionRequest { Branch = branch, Base = "main", AttachExisting = false },
+			CancellationToken.None)).ConfigureAwait(false);
 
 	/// <summary>Sends a raw web message to the host (as the page would).</summary>
-	public void Send(string json) => Bridge.Receive(json);
+	public void Send(string json) {
+		var message = JsonNode.Parse(json)?.AsObject() ?? throw new InvalidOperationException("invalid test web message");
+		string? type = message["type"]?.GetValue<string>();
+		if (type is "ready" or "switch-session") {
+			message["pageId"] ??= TestPageId;
+		}
+
+		if (type is "editor-session-changed" or "active-editor-changed" or "open-editors-changed") {
+			StampProjection(message);
+		}
+
+		Bridge.Receive(message.ToJsonString());
+		if (type == "ready") {
+			Bridge.Receive(JsonSerializer.Serialize(new { type = "acquire-editor", pageId = TestPageId }));
+		}
+		RememberLastProjection();
+		if (AutoMountEditorProjection && type is ("ready" or "switch-session")) {
+			MountEditorProjection();
+		}
+	}
+
+	private async Task<CommandResult> MountAfterAsync(Task<CommandResult> command) {
+		var result = await command.ConfigureAwait(false);
+		RememberLastProjection();
+		if (AutoMountEditorProjection) {
+			MountEditorProjection();
+		}
+		return result;
+	}
+
+	/// <summary>Acknowledges the most recently offered editor projection.</summary>
+	public void MountEditorProjection() {
+		RememberLastProjection();
+		var seed = _lastProjection;
+		if (!seed.HasValue) {
+			return;
+		}
+
+		var root = seed.Value;
+		Bridge.Receive(JsonSerializer.Serialize(new {
+			type = "editor-projection-mounted",
+			sessionId = root.GetProperty("sessionId").GetString(),
+			projectionEpoch = root.GetProperty("projectionEpoch").GetString(),
+			projectionRevision = root.GetProperty("projectionRevision").GetInt64(),
+			projectionPageId = root.GetProperty("projectionPageId").GetString(),
+		}));
+	}
+
+	private void StampProjection(JsonObject message) {
+		RememberLastProjection();
+		var seed = _lastProjection;
+		if (!seed.HasValue) {
+			return;
+		}
+
+		var root = seed.Value;
+		message["projectionEpoch"] ??= root.GetProperty("projectionEpoch").GetString();
+		message["projectionRevision"] ??= root.GetProperty("projectionRevision").GetInt64();
+		message["projectionPageId"] ??= root.GetProperty("projectionPageId").GetString();
+	}
+
+	private void RememberLastProjection() {
+		if (Bridge.LastOfType("set-editor-session") is { } projection) {
+			_lastProjection = projection;
+		}
+	}
 
 	/// <summary>
 	/// Simulates a worker restart (what a runner auto-update respawn does): disposes the live core and brings a
@@ -158,6 +231,7 @@ internal sealed class TestHost : IAsyncDisposable {
 		await Core.DisposeAsync().ConfigureAwait(false);
 		beforeRestart();
 		Bridge = new FakeHostBridge();
+		_lastProjection = null;
 		Platform = new TestPlatform(Bridge);
 		Core = new HostCore(
 			Platform,
@@ -166,7 +240,7 @@ internal sealed class TestHost : IAsyncDisposable {
 			WorkspaceHttpServerOptions.Native(Path.Combine(_tempRoot, "wwwroot")),
 			UnavailableWorkspaceWebSocketBridge.Instance);
 		await Core.StartAsync().ConfigureAwait(false);
-		Bridge.Receive("""{"type":"ready"}""");
+		Send("""{"type":"ready"}""");
 	}
 
 	private static HostServices IsolatedServices(

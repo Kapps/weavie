@@ -10,17 +10,20 @@ and the **same** `restoreSession()` covers a dev hot reload (HMR), so there is o
 This is the editor-state analogue of [window layout](layout.md), and it deliberately mirrors that
 feature end-to-end: a Core store that loads/persists/serves a per-workspace JSON file, a host that
 bridges both directions, and a **top-level web module store** seeded by a host push that survives HMR.
+Session and backend switches use the fenced ownership protocol in
+[editor projection ownership](editor-projection.md).
 
 ## Why this shape (the load-bearing insight)
 
-`ready` is emitted once at page load from `main.tsx`, **not** from `App`'s `onMount`. On HMR, `main.tsx`
+`ready` plus `acquire-editor` are emitted once at page load from `main.tsx`, **not** from `App`'s
+`onMount`. On HMR, `main.tsx`
 is not re-run, so the host never re-pushes. The layout nonetheless survives HMR purely because
 `layout/store.ts` is a top-level module signal that isn't reloaded when `App` or the editor chunk
 hot-swaps. The editor session does the same: a top-level web store (`editor/session-store.ts`, imported at
 top level by `App.tsx`), seeded by a host push at load and kept live by the editor host. That gives **one**
 restore path — `restoreSession()` reads the store on every fresh build of the editor widget — across:
 
-- **launch restore** — host reads the persisted session, pushes `set-editor-session` on `ready`, and
+- **launch restore** — host reads the persisted session, offers `set-editor-session` on `acquire-editor`, and
   `restoreSession()` reopens the active file from it on create;
 - **`Ctrl+R` restore** — same path (a reload re-runs `main.tsx` → `ready`);
 - **HMR restore** — the store survives the hot-swap, so `restoreSession()` reads it directly. The host does

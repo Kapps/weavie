@@ -12,3 +12,9 @@ public interface IHostBridge {
 	/// <summary>Pushes a raw JSON message string into the page via <c>window.__weavieReceive</c>.</summary>
 	void PostToWeb(string json);
 }
+
+/// <summary>A bridge that can identify when a browser page disconnects from its host.</summary>
+public interface IPageLifecycleHostBridge {
+	/// <summary>Raised after the last connection for a page id has closed.</summary>
+	event Action<string>? PageDisconnected;
+}

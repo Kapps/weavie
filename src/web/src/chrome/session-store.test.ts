@@ -11,12 +11,17 @@ const handlers = vi.hoisted(() => [] as Array<(m: SessionMsg, backendId: string)
 vi.mock("../bridge", () => ({
   // The page is bound to the local backend throughout these tests.
   activeBackendId: () => "local",
+  editorBackendId: () => null,
+  editorRailSessionId: () => null,
+  editorSessionId: () => null,
   backendName: (id: string) => id,
   connectedBackends: () => [{ id: "local", name: "default", isLocal: true }],
   onSessionMessage: (h: (m: SessionMsg, backendId: string) => void) => {
     handlers.push(h);
     return () => {};
   },
+  onHostMessage: () => () => {},
+  onBackendDisconnected: () => () => {},
   postToBackend: () => {},
   connectBackend: () => {},
   disconnectBackend: () => {},

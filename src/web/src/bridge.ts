@@ -246,9 +246,26 @@ export interface SearchMatch {
   preview: string;
 }
 
+export interface ProjectionStamp {
+  sessionId: string | null;
+  projectionEpoch: string;
+  projectionRevision: number;
+  projectionPageId: string;
+}
+
+export interface EditorAttribution {
+  sessionId: string | null;
+  projectionEpoch?: string;
+  projectionRevision?: number;
+  projectionPageId?: string;
+}
+
 export type HostBoundMessage =
-  | { type: "ready"; bridgeId?: string }
+  | { type: "ready"; bridgeId?: string; pageId?: string }
+  | { type: "acquire-editor"; pageId: string }
   | { type: "monaco-ready" }
+  | ({ type: "editor-projection-mounted" } & ProjectionStamp)
+  | ({ type: "release-editor" } & ProjectionStamp)
   | { type: "log"; level: "info" | "warn" | "error"; message: string }
   // The xterm pane is mounted and ready to host the PTY child. `slot` is the workspace session (rail id)
   // this pane belongs to; `session` is the pane within it.
@@ -275,7 +292,7 @@ export type HostBoundMessage =
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
   // on that one command, not its own messages). See docs/specs/command-responses.md.
-  | { type: "switch-session"; id: string; replayAgentState: boolean }
+  | { type: "switch-session"; id: string; replayAgentState: boolean; pageId?: string }
   // Create a new session. `existing` ⇒ check out the EXISTING `branch` (base ignored); else create a new
   // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
@@ -413,7 +430,7 @@ export type HostBoundMessage =
   // The editor session changed (debounced; host persists it). Carries open-list + active + per-file view
   // state, NEVER file contents. `sessionId` stamps the owning session; the host drops a change whose id
   // isn't the active session, so a stale debounced write can't leak one worktree's tabs into another.
-  | { type: "editor-session-changed"; sessionId: string | null; session: EditorSession }
+  | ({ type: "editor-session-changed"; session: EditorSession } & EditorAttribution)
   // New File (Ctrl+N): ask the host to create a fresh scratch buffer (an "Untitled-N" temp file in the
   // workspace scratch dir) and push it back as an open-file with `scratch: true`.
   | { type: "new-scratch" }
@@ -435,6 +452,9 @@ export type HostBoundMessage =
       // The session id whose editor this is (from the last set-editor-session); the host rejects a stale
       // post-switch emit (id != active session) so a background session's Claude isn't told the wrong file.
       sessionId: string | null;
+      projectionEpoch?: string;
+      projectionRevision?: number;
+      projectionPageId?: string;
       selection: {
         start: { line: number; character: number };
         end: { line: number; character: number };
@@ -447,6 +467,9 @@ export type HostBoundMessage =
       type: "open-editors-changed";
       // The session id these tabs belong to (from the last set-editor-session); host rejects a stale send.
       sessionId: string | null;
+      projectionEpoch?: string;
+      projectionRevision?: number;
+      projectionPageId?: string;
       editors: { path: string; isActive: boolean; isPinned: boolean; isPreview: boolean }[];
     }
   // Custom title bar (Windows): the min / maximize-restore / close buttons.
@@ -627,7 +650,15 @@ export type WebBoundMessage =
   // Host pushes the persisted editor session to restore (launch/Ctrl+R + every switch). NO file content —
   // the web reopens each file as a working copy from disk. `sessionId` is the owning session, which the web
   // echoes on the *-changed messages so a post-switch send is attributed correctly.
-  | { type: "set-editor-session"; sessionId: string | null; session: EditorSession }
+  | {
+      type: "set-editor-session";
+      sessionId: string | null;
+      railSessionId?: string | null;
+      projectionEpoch?: string | null;
+      projectionRevision?: number | null;
+      projectionPageId?: string | null;
+      session: EditorSession;
+    }
   // Host pushes resolved fonts when a font setting changes (ApplyMode.Live); applied to editor + terminal.
   | { type: "fonts"; editor: FontSpec; terminal: FontSpec }
   // Host re-pushes the resolved notification prefs when a notifications.* setting changes (ApplyMode.Live).
@@ -820,6 +851,7 @@ export type WebBoundMessage =
 
 type WebMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 type SessionMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
+type BackendDisconnectedHandler = (backendId: string) => void;
 
 // Listeners that render the page see the active backend plus correlated filesystem replies from the backend
 // that owns the mounted editor. Background traffic cannot otherwise paint over the screen.
@@ -827,17 +859,64 @@ const listeners = new Set<WebMessageHandler>();
 // Listeners for backend-scoped state that must be retained even while backgrounded: rail sessions, layout,
 // request results, and local-only registries. Every message is tagged with its origin backend.
 const sessionListeners = new Set<SessionMessageHandler>();
+const backendDisconnectedListeners = new Set<BackendDisconnectedHandler>();
 
 // The id of the backend whose traffic drives the page. "local" is the default backend (the native shell's
 // in-process host, or the same-origin headless WebSocket); remotes are added via connectBackend.
 const [activeBackend, setActiveBackend] = createSignal("local");
+const [pendingBackend, setPendingBackend] = createSignal<string | null>(null);
 /** The default backend's id — the machine the user is at (the native shell, or the same-origin headless host). */
 export const LOCAL_BACKEND_ID = "local";
-// The backend that most recently supplied the editor session currently mounted in Monaco. During a backend
-// switch this deliberately remains the outgoing backend until the incoming set-editor-session arrives.
-const [editorBackendId, setEditorBackendId] = createSignal<string | null>(null);
+/** The backend + session identity currently mounted on the shared editor/terminal surface. */
+export type EditorBinding =
+  | ({ backendId: string; protocol: "projection"; railSessionId: string } & ProjectionStamp)
+  | { backendId: string; protocol: "legacy"; sessionId: string | null; railSessionId: null };
 
-export { editorBackendId };
+/** Fields every editor-originated message echoes; legacy hosts receive the pre-projection shape. */
+export function editorAttribution(binding: EditorBinding): EditorAttribution {
+  return binding.protocol === "projection"
+    ? {
+        sessionId: binding.sessionId,
+        projectionEpoch: binding.projectionEpoch,
+        projectionRevision: binding.projectionRevision,
+        projectionPageId: binding.projectionPageId,
+      }
+    : { sessionId: binding.sessionId };
+}
+
+/** Stable identity of this page across bridge reconnects. */
+export const pageId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+
+// During a backend handoff this remains outgoing until set-editor-session moves both fields atomically.
+const [editorBinding, setEditorBinding] = createSignal<EditorBinding | null>(null);
+
+export const currentEditorBinding = editorBinding;
+export const editorBackendId = (): string | null => editorBinding()?.backendId ?? null;
+export const editorSessionId = (): string | null => editorBinding()?.sessionId ?? null;
+export const editorRailSessionId = (): string | null => editorBinding()?.railSessionId ?? null;
+
+/** Relinquishes this page's current projection lease on its owning backend. */
+export function releaseEditorBinding(binding: EditorBinding): void {
+  if (binding.protocol !== "projection" || currentEditorBinding() !== binding) {
+    return;
+  }
+  postToEditorBinding(binding, {
+    type: "release-editor",
+    sessionId: binding.sessionId,
+    projectionEpoch: binding.projectionEpoch,
+    projectionRevision: binding.projectionRevision,
+    projectionPageId: binding.projectionPageId,
+  });
+}
+
+// Filesystem requests can outlive a handoff. Their immutable backend admits the matching late reply after the
+// displayed editor has moved; host-file-provider makes ids unique to this page.
+const editorRequestBackends = new Map<string, string>();
+
+/** Stops admitting a filesystem reply after its request settled or timed out. */
+export function forgetEditorRequest(id: string): void {
+  editorRequestBackends.delete(id);
+}
 
 // The live link state of a backend's transport: opening for the first time, connected, or dropped and
 // retrying. The native in-process backend has no entry and is treated as always online. Drives the
@@ -930,6 +1009,24 @@ function failPendingForBackend(backendId: string, reason: string): void {
   }
 }
 
+function releaseDroppedProjection(message: WebBoundMessage, backendId: string): void {
+  if (
+    message.type !== "set-editor-session" ||
+    typeof message.projectionEpoch !== "string" ||
+    typeof message.projectionRevision !== "number" ||
+    message.projectionPageId !== pageId
+  ) {
+    return;
+  }
+  postToBackend(backendId, {
+    type: "release-editor",
+    sessionId: message.sessionId,
+    projectionEpoch: message.projectionEpoch,
+    projectionRevision: message.projectionRevision,
+    projectionPageId: message.projectionPageId,
+  });
+}
+
 // Parse one inbound JSON line and route it: command results resolve by token; session messages fan out to the
 // rail; page listeners receive the active backend plus correlated filesystem replies from the editor owner.
 function deliverFromHost(raw: string, backendId: string): void {
@@ -954,24 +1051,42 @@ function deliverFromHost(raw: string, backendId: string): void {
     }
     return;
   }
-  // Local-machine pushes route only from local. Other background traffic is dropped except filesystem replies
-  // from the mounted editor's owner, which must settle requests issued before an active-backend handoff.
+  // Local-machine pushes route only from local. Other background traffic is dropped except request-correlated
+  // filesystem replies and changes from the still-mounted editor during a backend handoff.
   const localMachinePush =
     parsed.type === "clipboard-content" ||
     parsed.type === "clipboard-image-content" ||
     parsed.type === "window-state" ||
     parsed.type === "notification-prefs" ||
     parsed.type === "agent-defaults";
+  const editorReplyId =
+    parsed.type === "fs-stat-result" ||
+    parsed.type === "fs-read-result" ||
+    parsed.type === "fs-write-result"
+      ? parsed.id
+      : null;
   const editorReply =
-    backendId === editorBackendId() &&
-    (parsed.type === "fs-stat-result" ||
-      parsed.type === "fs-read-result" ||
-      parsed.type === "fs-write-result");
+    editorReplyId !== null && editorRequestBackends.get(editorReplyId) === backendId;
+  const editorChange = parsed.type === "fs-change" && backendId === editorBackendId();
+  const pendingFailure = parsed.type === "notify" && backendId === pendingBackend();
+  if (
+    parsed.type === "set-editor-session" &&
+    pendingBackend() !== null &&
+    backendId !== pendingBackend()
+  ) {
+    releaseDroppedProjection(parsed, backendId);
+    return;
+  }
   if (
     localMachinePush
       ? backendId !== LOCAL_BACKEND_ID
-      : backendId !== activeBackend() && !editorReply
+      : backendId !== activeBackend() &&
+        !(parsed.type === "set-editor-session" && backendId === pendingBackend()) &&
+        !editorReply &&
+        !editorChange &&
+        !pendingFailure
   ) {
+    releaseDroppedProjection(parsed, backendId);
     return;
   }
   const deliver = (): void => {
@@ -980,13 +1095,52 @@ function deliverFromHost(raw: string, backendId: string): void {
     }
   };
   if (parsed.type === "set-editor-session") {
+    const projectionEpoch = parsed.projectionEpoch;
+    const projectionRevision = parsed.projectionRevision;
+    const projectionPageId = parsed.projectionPageId;
+    const railSessionId = parsed.railSessionId;
+    const legacy =
+      projectionEpoch == null && projectionRevision == null && projectionPageId == null;
+    const stamped =
+      typeof projectionEpoch === "string" &&
+      typeof projectionRevision === "number" &&
+      typeof projectionPageId === "string"
+        ? { projectionEpoch, projectionRevision, projectionPageId }
+        : null;
+    if (!legacy && stamped === null) {
+      log("error", "bridge: rejected a malformed editor projection");
+      return;
+    }
+    if (stamped !== null && stamped.projectionPageId !== pageId) {
+      log("error", "bridge: rejected an editor projection not issued to this page");
+      return;
+    }
+    if (stamped !== null && typeof railSessionId !== "string") {
+      log("error", "bridge: rejected an editor projection without a rail session identity");
+      return;
+    }
     // One transaction keeps MediaPane from observing an incoming backend with the outgoing session/path.
     batch(() => {
-      setEditorBackendId(backendId);
+      setEditorBinding(
+        stamped === null
+          ? { backendId, protocol: "legacy", sessionId: parsed.sessionId, railSessionId: null }
+          : {
+              backendId,
+              protocol: "projection",
+              sessionId: parsed.sessionId,
+              railSessionId: railSessionId as string,
+              ...stamped,
+            },
+      );
+      setActiveBackend(backendId);
+      setPendingBackend(null);
       deliver();
     });
   } else {
     deliver();
+  }
+  if (editorReply) {
+    editorRequestBackends.delete(editorReplyId);
   }
 }
 
@@ -1023,7 +1177,7 @@ const nativeTransport: BridgeTransport = {
 
 // The `ready` announcement that makes a host (re-)push its state — sent on every remote (re)connect and on a
 // local reconnect (main.tsx sends the local backend's initial one).
-const READY_HELLO = JSON.stringify({ type: "ready" });
+const READY_HELLO = JSON.stringify({ type: "ready", pageId });
 
 // Remote/web Weavie: a headless "serve" host exposes the same bridge protocol over a WebSocket. Outbound
 // before the socket opens is buffered and flushed on open; a dropped socket reconnects with capped backoff.
@@ -1035,7 +1189,7 @@ class WebSocketTransport implements BridgeTransport {
   private reconnectDelayMs = 500;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private readyId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-  private readyHello = JSON.stringify({ type: "ready", bridgeId: this.readyId });
+  private readyHello = JSON.stringify({ type: "ready", bridgeId: this.readyId, pageId });
   private socketAttempt = 0;
   // True once a connect has succeeded, so a later open is a reconnect and must re-announce readiness.
   private hasOpened = false;
@@ -1117,7 +1271,7 @@ class WebSocketTransport implements BridgeTransport {
     if (this.socketAttempt++ > 0) {
       const priorReadyHello = this.readyHello;
       this.readyId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-      this.readyHello = JSON.stringify({ type: "ready", bridgeId: this.readyId });
+      this.readyHello = JSON.stringify({ type: "ready", bridgeId: this.readyId, pageId });
       for (let i = 0; i < this.outbox.length; i++) {
         if (this.outbox[i] === priorReadyHello) {
           this.outbox[i] = this.readyHello;
@@ -1134,6 +1288,9 @@ class WebSocketTransport implements BridgeTransport {
         // The local backend's initial `ready` came from main.tsx; the host re-pushes state (and re-syncs
         // terminals) only on `ready`, so a reconnect re-announces it here (remotes' `hello` already does).
         socket.send(readyHello);
+      }
+      if (editorBackendId() === this.backendId) {
+        socket.send(JSON.stringify({ type: "acquire-editor", pageId }));
       }
       this.hasOpened = true;
       const pending = this.outbox.splice(0, this.outbox.length);
@@ -1387,6 +1544,12 @@ export function disconnectBackend(id: string): void {
   if (backend === undefined) {
     return;
   }
+  const binding = currentEditorBinding();
+  const ownedVisibleProjection = binding?.backendId === id;
+  const ownedVisibleBackend = activeBackend() === id;
+  if (ownedVisibleProjection) {
+    releaseEditorBinding(binding);
+  }
   backend.transport.dispose();
   backends.delete(id);
   setBackendResourceBases((current) => {
@@ -1395,8 +1558,22 @@ export function disconnectBackend(id: string): void {
   });
   failPendingForBackend(id, "The backend was disconnected.");
   publishBackends();
-  if (activeBackend() === id) {
-    setActiveBackend(LOCAL_BACKEND_ID);
+  for (const listener of backendDisconnectedListeners) {
+    listener(id);
+  }
+  if (ownedVisibleProjection && backends.has(LOCAL_BACKEND_ID)) {
+    setPendingBackend(LOCAL_BACKEND_ID);
+    postToBackend(LOCAL_BACKEND_ID, { type: "acquire-editor", pageId });
+  } else if (ownedVisibleBackend) {
+    batch(() => {
+      if (ownedVisibleProjection) {
+        setEditorBinding(null);
+      }
+      setActiveBackend(LOCAL_BACKEND_ID);
+      setPendingBackend(null);
+    });
+  } else if (pendingBackend() === id) {
+    setPendingBackend(null);
   }
 }
 
@@ -1409,6 +1586,12 @@ export const activeBackendId = activeBackend;
 /** Bind the page to a backend; its next session-scoped pushes (term-reset/editor) re-attach the panes. */
 export function setActiveBackendId(id: string): void {
   setActiveBackend(id);
+  setPendingBackend(null);
+}
+
+/** Admit one backend's projection as the pending atomic handoff without changing the visible surfaces yet. */
+export function beginBackendHandoff(id: string): void {
+  setPendingBackend(id === activeBackend() ? null : id);
 }
 
 /** The display name of a backend id, or the id itself if unknown. */
@@ -1431,7 +1614,19 @@ export function postToHost(message: HostBoundMessage): void {
 
 /** Route file-provider work to the host that owns the editor session, including during a backend handoff. */
 export function postToEditorBackend(message: HostBoundMessage): void {
-  postToBackend(editorBackendId() ?? activeBackend(), message);
+  postEditorMessage(editorBackendId() ?? activeBackend(), message);
+}
+
+/** Route an editor message through the immutable binding captured when that message was produced. */
+export function postToEditorBinding(binding: EditorBinding, message: HostBoundMessage): void {
+  postEditorMessage(binding.backendId, message);
+}
+
+function postEditorMessage(backendId: string, message: HostBoundMessage): void {
+  if (message.type === "fs-stat" || message.type === "fs-read" || message.type === "fs-write") {
+    editorRequestBackends.set(message.id, backendId);
+  }
+  postToBackend(backendId, message);
 }
 
 /** Send to a specific backend regardless of which is active (e.g. New Session at a chosen location). */
@@ -1502,6 +1697,14 @@ export function onSessionMessage(handler: SessionMessageHandler): () => void {
   sessionListeners.add(handler);
   return () => {
     sessionListeners.delete(handler);
+  };
+}
+
+/** Subscribe to explicit backend removal after its transport and retained resources have been dropped. */
+export function onBackendDisconnected(handler: BackendDisconnectedHandler): () => void {
+  backendDisconnectedListeners.add(handler);
+  return () => {
+    backendDisconnectedListeners.delete(handler);
   };
 }
 

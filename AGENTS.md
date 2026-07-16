@@ -120,6 +120,10 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
   `--font-metadata-size` or `--font-hint-size`. Never add a feature-local font stack, raw content size, or
   invented font variable.
 
+- **Do the proper fix, not the smallest fix.** Optimize for the simplest correct architecture, not the fewest
+  changed lines. When a defect exposes a broken ownership boundary, race-prone protocol, or duplicated source
+  of truth, repair that design and cover its invariants instead of adding a local guard that leaves the same
+  class of failure elsewhere.
 - **Minimize lines of code.** Every line is a liability — to read, maintain, and break. Write the
   least code that does the job, prefer the plainest version of it, and delete more than you add when
   you can.

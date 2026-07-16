@@ -3,6 +3,10 @@ import {
   activeBackendId,
   backendName,
   connectedBackends,
+  editorBackendId,
+  editorRailSessionId,
+  onBackendDisconnected,
+  onHostMessage,
   onSessionMessage,
   type SessionChip,
   type SessionStatusName,
@@ -40,6 +44,10 @@ export interface RemoteAgentRow {
 
 const [byBackend, setByBackend] = createSignal<Map<string, SessionChip[]>>(new Map());
 const [status, setStatus] = createSignal<SessionStatusName | undefined>(undefined);
+const [projectedSwitch, setProjectedSwitch] = createSignal<{
+  backendId: string;
+  id: string;
+} | null>(null);
 
 // True once ANY backend has pushed its session-list — i.e. the host has answered `ready` with the initial
 // session state. Distinguishes "no sessions yet, still booting" from "the host says there are none", which
@@ -86,6 +94,13 @@ export function trackSessionCommand<T>(
 onSessionMessage((message, backendId) => {
   if (message.type === "session-list") {
     setSessionsReceived(true);
+    const projected = projectedSwitch();
+    if (
+      projected?.backendId === backendId &&
+      !message.sessions.some((session) => session.id === projected.id)
+    ) {
+      setProjectedSwitch(null);
+    }
     setByBackend((prev) => {
       const next = new Map(prev);
       next.set(backendId, message.sessions.map(normalizeProvider));
@@ -101,10 +116,28 @@ onSessionMessage((message, backendId) => {
   }
 });
 
+onBackendDisconnected((backendId) => {
+  setByBackend((prev) => {
+    const next = new Map(prev);
+    next.delete(backendId);
+    return next;
+  });
+  if (projectedSwitch()?.backendId === backendId) {
+    setProjectedSwitch(null);
+  }
+});
+
+onHostMessage((message) => {
+  if (message.type === "set-editor-session") {
+    setProjectedSwitch(null);
+  }
+});
+
 // Every backend's chips, local first. A chip is active only when its backend is the one driving the page,
 // so a background backend never shows a second highlighted chip.
 const merged = createMemo<RailSession[]>(() => {
-  const active = activeBackendId();
+  const boundBackend = editorBackendId() ?? activeBackendId();
+  const boundRailSession = editorRailSessionId();
   const pending = pendingSessions();
   // Only still-connected backends, so a disconnected remote's lingering chips leave the rail immediately.
   const connected = new Set(connectedBackends().map((b) => b.id));
@@ -120,7 +153,9 @@ const merged = createMemo<RailSession[]>(() => {
         backendId,
         isLocal,
         locationName: backendName(backendId),
-        active: chip.active && backendId === active,
+        active:
+          backendId === boundBackend &&
+          (boundRailSession !== null ? chip.id === boundRailSession : chip.active),
         pending: pending.has(pendingKey(backendId, chip.id)),
       });
     }
@@ -136,32 +171,25 @@ export function findSession(backendId: string, id: string): RailSession | undefi
   return merged().find((s) => s.backendId === backendId && s.id === id);
 }
 
-/** Shows the requested switch target as active until the owning host's next session-list confirms it. */
+/** Highlight and step from a requested target while the committed editor/backend projection is in flight. */
 export function projectSessionSwitch(backendId: string, id: string): void {
-  setByBackend((prev) => {
-    const chips = prev.get(backendId);
-    if (chips === undefined || !chips.some((chip) => chip.id === id)) {
-      return prev;
-    }
-    const next = new Map(prev);
-    next.set(
-      backendId,
-      chips.map((chip) => {
-        const active = chip.id === id;
-        return chip.active === active ? chip : { ...chip, active };
-      }),
-    );
-    return next;
-  });
+  setProjectedSwitch({ backendId, id });
 }
 
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {
   // Read promotedKeys() so the memo re-runs when the promoted set changes (isPromoted reads it internally).
   void promotedKeys();
+  const projected = projectedSwitch();
   return merged()
     .filter((s) => s.isLocal || isPromoted(s.backendId, s.id))
-    .map((s) => (s.isLocal ? s : { ...s, agentHue: agentHue(s.locationName) }));
+    .map((s) => ({
+      ...(s.isLocal ? s : { ...s, agentHue: agentHue(s.locationName) }),
+      active:
+        projected === null
+          ? s.active
+          : s.backendId === projected.backendId && s.id === projected.id,
+    }));
 });
 
 /**

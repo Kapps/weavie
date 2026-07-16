@@ -64,6 +64,69 @@ test.describe("remote bridge transport", () => {
     await expect(toast).toBeVisible();
   });
 
+  test("live fonts update normal DOM and source-shadow typography roles", async ({ page }) => {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+
+    host.pushToWeb({
+      type: "source-loading",
+      target: "typography-source",
+      title: "Typography",
+      sourceId: "notion",
+    });
+    host.pushToWeb({
+      type: "source-doc",
+      target: "typography-source",
+      title: "Typography",
+      sourceId: "notion",
+      markdown: "Body with `code`.",
+      editedTime: "",
+    });
+    host.pushToWeb({ type: "prompt-source-token", sourceId: "notion", label: "Notion" });
+
+    const prose = page.locator(".editor-source .wv-source");
+    const sourceCode = prose.locator("code");
+    const promptInput = page.locator(".session-prompt-input");
+    await expect(sourceCode).toBeVisible();
+    await expect(promptInput).toBeVisible();
+
+    host.pushToWeb({
+      type: "fonts",
+      editor: { family: '"Courier New", monospace', size: 21, weight: "700" },
+      terminal: { family: "monospace", size: 13, weight: "normal" },
+    });
+
+    await expect
+      .poll(async () => {
+        const [content, prompt, proseStyle] = await Promise.all(
+          [sourceCode, promptInput, prose].map((locator) =>
+            locator.evaluate((element) => {
+              const style = getComputedStyle(element);
+              return { family: style.fontFamily, size: style.fontSize, weight: style.fontWeight };
+            }),
+          ),
+        );
+        return {
+          contentFamily: content.family,
+          contentWeight: content.weight,
+          promptFamily: prompt.family,
+          promptWeight: prompt.weight,
+          proseFamily: proseStyle.family,
+          proseSize: proseStyle.size,
+          proseWeight: proseStyle.weight,
+        };
+      })
+      .toEqual({
+        contentFamily: '"Courier New", monospace',
+        contentWeight: "700",
+        promptFamily: '"Courier New", monospace',
+        promptWeight: "700",
+        proseFamily: "Chivo, system-ui, sans-serif",
+        proseSize: "21px",
+        proseWeight: "400",
+      });
+  });
+
   test("a same-backend session switch reuses the live agent pane", async ({ page }) => {
     await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
     await host.waitForMessage("ready");

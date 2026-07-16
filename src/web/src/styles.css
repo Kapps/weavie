@@ -21,6 +21,18 @@
      to read distinctly from the soft system-UI / VS Code look and to stay crisp at small text sizes.
      @font-face is in fonts.css; code surfaces (Monaco/xterm) keep their own monospace via settings. */
   --ui-font: "Chivo", system-ui, sans-serif;
+  /* Semantic typography roles. Code companions track the live editor settings published by fonts.ts; feature
+     chrome stays compact and secondary text uses shared roles instead of inventing local scales. */
+  --font-chrome-family: var(--ui-font);
+  --font-chrome-size: 12px;
+  --font-content-family: var(--editor-font-family);
+  --font-content-size: var(--editor-font-size);
+  --font-content-weight: var(--editor-font-weight);
+  --font-prose-family: var(--font-chrome-family);
+  --font-prose-size: var(--font-content-size);
+  --font-prose-weight: 400;
+  --font-metadata-size: calc(var(--font-content-size) * 0.8125);
+  --font-hint-size: 11px;
   color-scheme: dark;
   /* Dark fallback for Monaco's editor background, applied in the brief window before the VSCode theme
      service injects the real theme colors — prevents a white editor flash on load. Monaco's own
@@ -45,7 +57,7 @@ body,
    components no longer need to re-assert the font. .app re-states it for its own subtree, and code surfaces
    (Monaco/xterm) set their own monospace, so neither is affected. */
 body {
-  font: 12px / 1.5 var(--ui-font);
+  font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
 /* Form controls don't inherit font-family by default, so every <button> (context-menu rows, dialog buttons,
@@ -68,7 +80,7 @@ textarea {
   /* Chrome default is the UI font (Chivo), NOT monospace — the tab strip, omnibar, menus and panels
      inherit from here. Regular weight: under the WebView's DirectWrite, Medium reads too bold for chrome,
      so keep 400. Code surfaces set their own font. */
-  font: 12px / 1.5 var(--ui-font);
+  font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
 .split {

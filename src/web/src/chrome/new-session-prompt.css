@@ -34,8 +34,9 @@
   border-radius: 8px;
   /* A branch name is an identifier, so type it in the code/mono font — it reads as a value and ties the
      field to the editor/terminal surfaces. (The chrome elsewhere is Chivo; only this value field is mono.) */
-  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-content-family);
   font-size: 0.95em;
+  font-weight: var(--font-content-weight);
   transition: border-color 120ms ease;
 }
 
@@ -76,8 +77,9 @@
 .session-prompt-suggestion {
   padding: 0.42em 0.6em;
   border-radius: 6px;
-  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-content-family);
   font-size: 0.9em;
+  font-weight: var(--font-content-weight);
   color: var(--fg);
   white-space: nowrap;
   overflow: hidden;

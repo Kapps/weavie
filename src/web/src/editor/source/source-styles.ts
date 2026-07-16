@@ -7,13 +7,14 @@ export const SOURCE_STYLES = `
 .wv-source {
   background: var(--bg, #000000);
   color: var(--fg, #cdd5dc);
-  font-family: var(--ui-font, system-ui, sans-serif);
+  font-family: var(--font-prose-family);
   /* Crisp grayscale AA, matching the editor/terminal — without it the WebView's default subpixel
      smoothing renders this prose noticeably heavier/fuzzier than the rest of the app. */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   line-height: 1.6;
-  font-size: 15px;
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
   min-height: 100%;
   padding: 2.5rem max(2rem, calc(50% - 22rem));
   box-sizing: border-box;
@@ -60,7 +61,7 @@ export const SOURCE_STYLES = `
 .wv-source a:hover { text-decoration: underline; }
 .wv-source strong { font-weight: 700; }
 .wv-source code {
-  font-family: ui-monospace, "Cascadia Code", Menlo, monospace; font-size: 0.88em;
+  font-family: var(--font-content-family); font-size: 0.88em; font-weight: var(--font-content-weight);
   background: color-mix(in srgb, var(--fg, #cdd5dc) 12%, transparent); padding: 0.1em 0.35em; border-radius: 4px;
 }
 .wv-source pre {
@@ -78,7 +79,7 @@ export const SOURCE_STYLES = `
 .wv-source .wv-children { margin-left: 1.4em; }
 .wv-source .wv-equation {
   margin: 0.9em 0; padding: 0.7em 1em; text-align: center; border-radius: 6px;
-  font-family: ui-monospace, monospace; font-size: 0.92em;
+  font-family: var(--font-content-family); font-size: 0.92em; font-weight: var(--font-content-weight);
   background: color-mix(in srgb, var(--fg, #cdd5dc) 6%, transparent);
 }
 .wv-source .wv-math { background: none; color: var(--accent, #54c6a4); }

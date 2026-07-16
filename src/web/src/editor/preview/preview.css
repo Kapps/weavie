@@ -8,9 +8,9 @@
   padding: 1.5em 2em;
   background: var(--bg);
   color: var(--fg);
-  /* Scale prose to the editor's font size (published by fonts.ts) so Preview reads at the same scale as
-     Source. Only the size tracks — the body keeps the readable UI font; code spans keep their monospace. */
-  font-size: var(--editor-font-size);
+  font-family: var(--font-prose-family);
+  font-size: var(--font-prose-size);
+  font-weight: var(--font-prose-weight);
 }
 
 /* Focus is structural (so the pane counts as editor-focused + scrolls by keyboard), not a visible ring. */
@@ -43,7 +43,7 @@
 
 .editor-preview-error {
   color: var(--bad);
-  font-size: 13px;
+  font-size: var(--font-metadata-size);
   text-align: center;
 }
 
@@ -84,8 +84,9 @@
 }
 
 .editor-preview-body code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-family: var(--font-content-family);
   font-size: 0.9em;
+  font-weight: var(--font-content-weight);
   background: var(--bar);
   border: 1px solid var(--border);
   border-radius: 4px;

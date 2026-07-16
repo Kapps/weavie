@@ -138,8 +138,9 @@
   background: var(--bg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-content-family);
   font-size: 0.9em;
+  font-weight: var(--font-content-weight);
   color: var(--fg);
 }
 
@@ -157,8 +158,9 @@
   color: var(--fg);
   border: 1px solid var(--border);
   border-radius: 6px;
-  font-family: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, "Courier New", monospace;
+  font-family: var(--font-content-family);
   font-size: 0.95em;
+  font-weight: var(--font-content-weight);
 }
 
 .url-prompt-input::placeholder {

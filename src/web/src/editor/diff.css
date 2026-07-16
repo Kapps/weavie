@@ -110,7 +110,7 @@
   border-radius: 5px;
   background: color-mix(in srgb, var(--diff-added, #5a9a6a) 20%, transparent);
   color: var(--diff-added, #5a9a6a);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   font-weight: 600;
 }
 
@@ -171,7 +171,7 @@
   gap: 8px;
   margin-left: 12px;
   font-family: ui-sans-serif, system-ui, sans-serif;
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   line-height: 1.4;
   white-space: nowrap;
   pointer-events: auto;
@@ -280,7 +280,7 @@
 
 .weavie-inline-toolbar .weavie-inline-stack-sub {
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   white-space: nowrap;
 }
 
@@ -404,7 +404,7 @@
 
 .weavie-inline-scope-count {
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
 }
 
 /* PR review comment threads: a view zone below a commented line, with the comments and a reply composer.

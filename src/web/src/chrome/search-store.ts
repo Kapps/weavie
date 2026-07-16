@@ -6,7 +6,13 @@ import {
   type SearchOptions,
   visibleIndices as visibleOf,
 } from "./search-model";
-import { commitSearchTerm, recentTerms, searchOptions, updateSearchOptions } from "./search-prefs";
+import {
+  commitSearchTerm,
+  recentTerms,
+  searchOptions,
+  updateSearchOptions,
+  updateSearchOptionsDebounced,
+} from "./search-prefs";
 
 // Module-level store: the query and results survive close/reopen (Esc doesn't cost a tuned search), and F4
 // result-stepping works from the editor without the panel mounted. The panel is a thin view over this; the
@@ -115,7 +121,7 @@ export function setQuery(value: string): void {
 
 /** Sets an include/exclude glob list from typing; persists it and re-runs the search debounced. */
 export function setGlobs(key: "include" | "exclude", value: string): void {
-  updateSearchOptions({ ...options(), [key]: value });
+  updateSearchOptionsDebounced({ ...options(), [key]: value });
   scheduleSearch();
 }
 

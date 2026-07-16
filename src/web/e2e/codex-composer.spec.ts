@@ -187,6 +187,7 @@ const catalog = {
     agentCommand("weavie.pr.openCurrent", "Open Current Pull Request", "pullRequestAvailable", [
       "$mod+shift+g",
     ]),
+    agentCommand("weavie.review.open", "Review Changes", "", []),
   ],
   keybindings: [
     { key: "enter", command: "weavie.agent.submit", when: "agentComposerFocused" },
@@ -251,6 +252,33 @@ test.describe("Codex composer", () => {
     expect(textareaLeft).toBe(modelLabelLeft);
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
+  });
+
+  test("status line shows the complete Review diff and opens it", async ({ page }) => {
+    await mountCodex(page);
+    host.pushToWeb(catalog);
+    host.pushToWeb({
+      type: "turn-changes",
+      label: "",
+      files: [
+        { path: "/workspace/one.ts", name: "one.ts", added: 7, removed: 1, line: 2 },
+        { path: "/workspace/two.ts", name: "two.ts", added: 5, removed: 3, line: 4 },
+      ],
+    });
+
+    const counts = page.locator(".agent-status-review");
+    await expect(counts).toHaveText("+12/-4");
+    await expect(counts).toHaveAttribute(
+      "title",
+      "Open review — 12 lines added, 4 removed across 2 files",
+    );
+    await counts.click();
+    await expect
+      .poll(() => host.received.some((message) => message.type === "get-turn-diff"))
+      .toBe(true);
+
+    host.pushToWeb({ type: "turn-changes", label: "", files: [] });
+    await expect(counts).toHaveCount(0);
   });
 
   test("Shift+Tab and /plan share the Plan-mode command and advertise its binding", async ({

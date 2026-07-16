@@ -12,6 +12,29 @@ import { type WebSocket, WebSocketServer } from "ws";
 /** A bridge message in either direction — kept loose on purpose; the web side owns the real types. */
 type Message = { type: string } & Record<string, unknown>;
 
+/** A session-list row with the same provider-derived surface metadata HostCore publishes. */
+export function mockSessionChip(
+  id: string,
+  label: string,
+  providerId: "claude" | "codex",
+  active: boolean,
+  primary: boolean,
+) {
+  return {
+    id,
+    label,
+    active,
+    loaded: true,
+    primary,
+    providerId,
+    agentSurface: providerId === "codex" ? "structured" : "terminal",
+    agentInputProtocol: providerId === "codex" ? 2 : 0,
+    status: "idle",
+    hue: 200,
+    monogram: label.slice(0, 1).toUpperCase(),
+  };
+}
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -53,6 +76,10 @@ export class MockHost {
   private bridgeReadyPaused = false;
   private bridgeId = "";
   private readonly waiters: { type: string; resolve: (m: Message) => void }[] = [];
+  private readonly receivedHandlers: {
+    type: string;
+    handler: (message: Message) => void;
+  }[] = [];
   private port = 0;
 
   private constructor(distDir: string, files: Record<string, string>, readyReplayProtocol: 0 | 1) {
@@ -147,6 +174,18 @@ export class MockHost {
     });
   }
 
+  /** Runs a handler synchronously in the WebSocket receive turn for every future message of `type`. */
+  onReceived(type: string, handler: (message: Message) => void): () => void {
+    const subscription = { type, handler };
+    this.receivedHandlers.push(subscription);
+    return () => {
+      const index = this.receivedHandlers.indexOf(subscription);
+      if (index !== -1) {
+        this.receivedHandlers.splice(index, 1);
+      }
+    };
+  }
+
   /** Stops the HTTP + WebSocket servers, force-closing any lingering sockets so teardown can't hang. */
   async close(): Promise<void> {
     this.socket?.terminate();
@@ -172,6 +211,12 @@ export class MockHost {
       return;
     }
     this.received.push(message);
+
+    for (const subscription of [...this.receivedHandlers]) {
+      if (subscription.type === message.type) {
+        subscription.handler(message);
+      }
+    }
 
     if (message.type === "ready") {
       this.bridgeId = typeof message.bridgeId === "string" ? message.bridgeId : "";

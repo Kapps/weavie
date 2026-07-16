@@ -55,6 +55,11 @@ public sealed class CodexPanePersistenceTests {
 		return Directory.Exists(dir) ? Directory.GetFiles(dir, "*.json") : [];
 	}
 
+	private static string? MessageType(string json) {
+		using var document = JsonDocument.Parse(json);
+		return document.RootElement.GetProperty("type").GetString();
+	}
+
 	[Fact]
 	public async Task CodexPaneTranscript_SurvivesWorkerRestart() {
 		await using var host = await StartWithCodexSessionAsync("codex-branch");
@@ -77,12 +82,57 @@ public sealed class CodexPanePersistenceTests {
 		string primary = sessions.EnumerateArray().Single(session => session.GetProperty("primary").GetBoolean())
 			.GetProperty("id").GetString()!;
 
-		host.Send($$"""{"type":"switch-session","id":"{{primary}}"}""");
+		host.Send($$"""{"type":"switch-session","id":"{{primary}}","replayAgentState":false}""");
 		host.Bridge.Clear();
 
 		// A remote backend's ready replay arrives while the local backend is focused and is intentionally not
 		// rendered. The subsequent bind must project the complete pane without requiring an unload/reload.
-		host.Send("""{"type":"switch-session","id":"codex-branch"}""");
+		host.Send("""{"type":"switch-session","id":"codex-branch","replayAgentState":true}""");
+
+		Assert.NotNull(host.Bridge.LastOfType("agent-pane-reset"));
+		Assert.True(HasPaneMessage(host.Bridge, "codex-branch", "user-message", "hello"));
+		Assert.True(HasPaneMessage(host.Bridge, "codex-branch", "item-completed", "echo: hello"));
+		var types = host.Bridge.Posted.Select(MessageType).ToList();
+		Assert.Contains("set-editor-session", types);
+		Assert.Contains("session-list", types);
+		Assert.Contains("focus-pane", types);
+		Assert.Contains("agent-pane-reset", types);
+		Assert.True(types.IndexOf("set-editor-session") < types.IndexOf("session-list"));
+		Assert.True(types.IndexOf("session-list") < types.IndexOf("focus-pane"));
+		Assert.True(types.IndexOf("focus-pane") < types.IndexOf("agent-pane-reset"));
+	}
+
+	[Fact]
+	public async Task SwitchingToCodex_OnSameBackend_ReusesLivePaneWithoutTranscriptReplay() {
+		await using var host = await StartWithCodexSessionAsync("codex-branch");
+		host.Send("""{"type":"agent-submit","slot":"codex-branch","prompt":"hello"}""");
+		var sessions = host.Bridge.LastOfType("session-list")!.Value.GetProperty("sessions");
+		string primary = sessions.EnumerateArray().Single(session => session.GetProperty("primary").GetBoolean())
+			.GetProperty("id").GetString()!;
+
+		host.Send($$"""{"type":"switch-session","id":"{{primary}}","replayAgentState":false}""");
+		host.Bridge.Clear();
+		host.Send("""{"type":"switch-session","id":"codex-branch","replayAgentState":false}""");
+
+		Assert.NotNull(host.Bridge.LastOfType("session-list"));
+		Assert.Null(host.Bridge.LastOfType("agent-pane-reset"));
+		Assert.Null(host.Bridge.LastOfType("agent-pane-batch"));
+		Assert.Null(host.Bridge.LastOfType("agent-controls"));
+	}
+
+	[Fact]
+	public async Task SwitchingToDormantCodex_OnSameBackend_ReplaysPersistedPane() {
+		await using var host = await StartWithCodexSessionAsync("codex-branch");
+		host.Send("""{"type":"agent-submit","slot":"codex-branch","prompt":"hello"}""");
+		var sessions = host.Bridge.LastOfType("session-list")!.Value.GetProperty("sessions");
+		string primary = sessions.EnumerateArray().Single(session => session.GetProperty("primary").GetBoolean())
+			.GetProperty("id").GetString()!;
+
+		host.Send($$"""{"type":"switch-session","id":"{{primary}}","replayAgentState":false}""");
+		Assert.True((await host.Core.UnloadSessionAsync("codex-branch", CancellationToken.None)).Ok);
+		host.Bridge.Clear();
+
+		host.Send("""{"type":"switch-session","id":"codex-branch","replayAgentState":false}""");
 
 		Assert.NotNull(host.Bridge.LastOfType("agent-pane-reset"));
 		Assert.True(HasPaneMessage(host.Bridge, "codex-branch", "user-message", "hello"));

@@ -275,7 +275,7 @@ export type HostBoundMessage =
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
   // on that one command, not its own messages). See docs/specs/command-responses.md.
-  | { type: "switch-session"; id: string }
+  | { type: "switch-session"; id: string; replayAgentState: boolean }
   // Create a new session. `existing` ⇒ check out the EXISTING `branch` (base ignored); else create a new
   // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
   // checkout-able branches, answered by a branches-result tagged with the request `id`.

@@ -185,6 +185,11 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
+			// Flake (2026-07-16 05:11 UTC): OutOfMemoryException from Thread.StartCore on the CI Linux runner
+			// (run https://github.com/Kapps/weavie/actions/runs/29473255400/job/87540618650). 80 default-stack
+			// (1 MB) OS threads created/joined across the 40 iterations added avoidable memory pressure on top
+			// of the rest of the CI job; capped the stack size since this thread body needs only a few frames.
+			const int raceThreadStackSize = 256 * 1024;
 			var hydrate = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -195,7 +200,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, raceThreadStackSize);
 			var replay = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -203,7 +208,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, raceThreadStackSize);
 			hydrate.Start();
 			replay.Start();
 			hydrate.Join();

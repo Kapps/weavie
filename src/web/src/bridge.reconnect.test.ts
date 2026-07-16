@@ -199,6 +199,60 @@ describe("WebSocketTransport reconnect", () => {
     offMessage();
   });
 
+  it("delivers each backend's layout restore even while another backend drives the panes", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+
+    const messages: Array<{ message: WebBoundMessage; backendId: string }> = [];
+    const offMessage = bridge.onSessionMessage((message, backendId) =>
+      messages.push({ message, backendId }),
+    );
+    const layout = (top: number): Record<string, unknown> => ({
+      type: "set-layout",
+      document: {
+        version: 1,
+        seenPaneLevel: 1,
+        root: {
+          type: "split",
+          dir: "column",
+          weights: [top, 1 - top],
+          children: [
+            { type: "pane", id: "p_claude", kind: "terminal:claude" },
+            { type: "pane", id: "p_shell", kind: "terminal:shell" },
+          ],
+        },
+      },
+    });
+
+    FakeWebSocket.instances[0]?.open();
+    FakeWebSocket.instances[0]?.receive(layout(0.25));
+    window.__weavieReceive?.(JSON.stringify(layout(0.75)));
+
+    expect(messages).toEqual([
+      {
+        backendId: "remote:test",
+        message: expect.objectContaining({
+          type: "set-layout",
+          document: expect.objectContaining({
+            root: expect.objectContaining({ weights: [0.25, 0.75] }),
+          }),
+        }),
+      },
+      {
+        backendId: "local",
+        message: expect.objectContaining({
+          type: "set-layout",
+          document: expect.objectContaining({
+            root: expect.objectContaining({ weights: [0.75, 0.25] }),
+          }),
+        }),
+      },
+    ]);
+    offMessage();
+  });
+
   it("delivers non-control frames whose nested payload mentions bridge-ready", async () => {
     const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
     bridge.connectBackend("remote:test", "Test", resolveEndpoint);

@@ -579,16 +579,21 @@ export default function App(): JSX.Element {
 
   // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
   // never overwrite the saved state with the default before it loads.
-  let persistTimer = 0;
+  const persistTimers = new Map<string, number>();
   const persistRoot = (root: LayoutNode): void => {
+    const backendId = activeBackendId();
     const base = layoutDocument();
     if (base === null) {
       return;
     }
-    window.clearTimeout(persistTimer);
-    persistTimer = window.setTimeout(() => {
-      sendLayout({ ...base, root });
-    }, 400);
+    window.clearTimeout(persistTimers.get(backendId));
+    persistTimers.set(
+      backendId,
+      window.setTimeout(() => {
+        persistTimers.delete(backendId);
+        sendLayout(backendId, { ...base, root });
+      }, 400),
+    );
   };
 
   // A splitter drag: show the new sizes immediately, persist on a debounce.
@@ -1286,7 +1291,9 @@ export default function App(): JSX.Element {
     document.addEventListener("focusin", onFocusIn);
 
     onCleanup(() => {
-      window.clearTimeout(persistTimer);
+      for (const timer of persistTimers.values()) {
+        window.clearTimeout(timer);
+      }
       offEditorOptions();
       offKeybindings();
       offDoubleShift();

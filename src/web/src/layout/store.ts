@@ -1,5 +1,5 @@
-import { createSignal } from "solid-js";
-import { onHostMessage, postToHost } from "../bridge";
+import { createMemo, createSignal } from "solid-js";
+import { activeBackendId, onSessionMessage, postToBackend } from "../bridge";
 import type { LayoutDocument, LayoutNode } from "./types";
 
 // The default layout (mirrors Weavie.Core.Layout's seeded default): a left column stacking the agent and
@@ -22,20 +22,22 @@ export const DEFAULT_LAYOUT_ROOT: LayoutNode = {
   ],
 };
 
-// The latest layout document pushed by the host. The listener is registered at module load (before
-// main.tsx sends "ready") so the host's set-layout reply can never race ahead of it.
-const [document, setDocument] = createSignal<LayoutDocument | null>(null);
+// A backend's ready replay can arrive while another backend drives the page. Cache every workspace layout so
+// activating that backend restores its frame instead of retaining whichever layout happened to paint first.
+const [documents, setDocuments] = createSignal<Map<string, LayoutDocument>>(new Map());
 
-onHostMessage((message) => {
+onSessionMessage((message, backendId) => {
   if (message.type === "set-layout") {
-    setDocument(message.document);
+    setDocuments((current) => new Map(current).set(backendId, message.document));
   }
 });
 
-/** The most recent layout document from the host, or null until the first push arrives. */
-export const layoutDocument = document;
+/** The active backend's most recent layout document, or null until its first push arrives. */
+export const layoutDocument = createMemo<LayoutDocument | null>(
+  () => documents().get(activeBackendId()) ?? null,
+);
 
-/** Sends an updated layout to the host to validate, persist, and broadcast back. */
-export function sendLayout(doc: LayoutDocument): void {
-  postToHost({ type: "layout-changed", document: doc });
+/** Sends an updated layout to the backend that owned the user gesture. */
+export function sendLayout(backendId: string, doc: LayoutDocument): void {
+  postToBackend(backendId, { type: "layout-changed", document: doc });
 }

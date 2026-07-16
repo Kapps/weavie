@@ -166,6 +166,11 @@ public sealed class AgentSessionHostTests {
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
+	//
+	// Flaked 2026-07-16 05:15 UTC on the CI Linux job (https://github.com/Kapps/weavie/actions/runs/29473255400)
+	// with System.OutOfMemoryException from Thread.StartCore(): 40 iterations x 2 raw `new Thread` per run
+	// churned 80 OS threads in one test, occasionally exhausting the CI container's thread/memory limits.
+	// Fixed by racing on the thread pool (Task.Run) instead of spawning fresh OS threads each iteration.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -185,7 +190,7 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
-			var hydrate = new Thread(() => {
+			var hydrate = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
@@ -196,7 +201,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			var replay = new Thread(() => {
+			var replay = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					host.ReplayPane();
@@ -204,10 +209,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			hydrate.Start();
-			replay.Start();
-			hydrate.Join();
-			replay.Join();
+			await Task.WhenAll(hydrate, replay);
 
 			Assert.Null(threadError);
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));

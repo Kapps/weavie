@@ -166,6 +166,12 @@ public sealed class AgentSessionHostTests {
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
+	//
+	// Flaked 2026-07-16 05:11 UTC on CI (linux): OutOfMemoryException in Thread.StartCore while starting the
+	// race threads below — https://github.com/Kapps/weavie/actions/runs/29473255400/job/87540618650. Not
+	// reproducible locally after several reruns; the two threads below defaulted to 8MB Linux stacks each for
+	// trivial bodies, so gave them an explicit small stack to cut the memory pressure this loop puts on a
+	// contended CI runner.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -195,7 +201,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, maxStackSize: 256 * 1024);
 			var replay = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -203,7 +209,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, maxStackSize: 256 * 1024);
 			hydrate.Start();
 			replay.Start();
 			hydrate.Join();

@@ -136,6 +136,25 @@ export function findSession(backendId: string, id: string): RailSession | undefi
   return merged().find((s) => s.backendId === backendId && s.id === id);
 }
 
+/** Shows the requested switch target as active until the owning host's next session-list confirms it. */
+export function projectSessionSwitch(backendId: string, id: string): void {
+  setByBackend((prev) => {
+    const chips = prev.get(backendId);
+    if (chips === undefined || !chips.some((chip) => chip.id === id)) {
+      return prev;
+    }
+    const next = new Map(prev);
+    next.set(
+      backendId,
+      chips.map((chip) => {
+        const active = chip.id === id;
+        return chip.active === active ? chip : { ...chip, active };
+      }),
+    );
+    return next;
+  });
+}
+
 /** The rail's working set: every local session, plus promoted remotes (tagged with their agent hue). */
 export const railSessions = createMemo<RailSession[]>(() => {
   // Read promotedKeys() so the memo re-runs when the promoted set changes (isPromoted reads it internally).

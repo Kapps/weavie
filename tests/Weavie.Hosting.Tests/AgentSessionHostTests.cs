@@ -174,6 +174,10 @@ public sealed class AgentSessionHostTests {
 		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
 		AgentPaneMessage[] hydrated = [Completed("fresh-0", "fresh a"), Completed("fresh-1", "fresh b")];
 
+		// Flaked on Linux CI 2026-07-16 (System.OutOfMemoryException from Thread.StartCore:
+		// https://github.com/Kapps/weavie/actions/runs/29473255400) — 40 iterations x 2 raw OS Thread objects
+		// per run exhausted the runner's thread-creation headroom. Switched to Task.Run so the race reuses
+		// thread-pool workers across iterations instead of spinning up 80 fresh native threads.
 		for (int iteration = 0; iteration < 40; iteration++) {
 			// Restore the "large disk seed already present" baseline before each race — the wide seed makes
 			// ReplayPane's post loop long enough to reliably expose an unordered trailing reset.
@@ -185,7 +189,7 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
-			var hydrate = new Thread(() => {
+			var hydrate = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
@@ -196,7 +200,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			var replay = new Thread(() => {
+			var replay = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					host.ReplayPane();
@@ -204,10 +208,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			hydrate.Start();
-			replay.Start();
-			hydrate.Join();
-			replay.Join();
+			await Task.WhenAll(hydrate, replay);
 
 			Assert.Null(threadError);
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));

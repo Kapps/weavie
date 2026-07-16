@@ -723,6 +723,9 @@ export default function App(): JSX.Element {
           providerId={activeProviderId()}
           active={focusedKind() === AGENT_PANE_KIND}
           messages={focusedAgentMessages()}
+          reviewAdded={editor.reviewLineCounts().added}
+          reviewFileCount={editor.parkedReviewCount()}
+          reviewRemoved={editor.reviewLineCounts().removed}
           shortcut={paneShortcut(numberOf(kind))}
           onFocus={() => focusPane(kind)}
         />

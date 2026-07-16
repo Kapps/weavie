@@ -43,6 +43,7 @@ There are limitations though:
 5. In each client you want to connect to this server, go into the Cloud section in the rail, and select Add Remote Agent.
    - Example URL: `https://<servername>.tail<random>.ts.net`
    - Token must exactly match the one you used to start the Runner.
+6. Now when you launch a new session, you can select whether to run it locally or on this remote runner.
 
 ## Building
 

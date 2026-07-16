@@ -178,13 +178,16 @@ public sealed class WorktreeIntegrationTests : IDisposable {
 		// A remote-tracking branch + its symbolic HEAD, without a live remote — the state a fetch leaves behind.
 		RunGit(_repo, "update-ref", "refs/remotes/origin/master", head);
 		RunGit(_repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/master");
+		// A real remote branch whose last segment is literally HEAD — a diff target, not a symbolic alias.
+		RunGit(_repo, "update-ref", "refs/remotes/origin/feature/HEAD", head);
 
 		var refs = await _git.ListRefsAsync(_repo);
 
 		Assert.Contains("main", refs);
 		Assert.Contains("alpha", refs);
 		Assert.Contains("origin/master", refs);
-		// The remote's symbolic HEAD is an alias, not a diff target.
+		// A deeper "…/HEAD" is a real branch, kept; only the remote's own symbolic HEAD alias is dropped.
+		Assert.Contains("origin/feature/HEAD", refs);
 		Assert.DoesNotContain("origin", refs);
 		Assert.DoesNotContain("origin/HEAD", refs);
 		// Local branches sort ahead of remotes, so the typeahead is local-first.

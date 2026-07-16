@@ -166,6 +166,12 @@ public sealed class AgentSessionHostTests {
 	// their web posts are ordered with their `_paneMessages` mutations, a trailing ReplayPane reset can land after
 	// hydrate delivered its content and wipe the pane. The pane must always converge to the authoritative
 	// transcript, whichever way the two interleave.
+	//
+	// Flaked 2026-07-16 05:11 UTC on `test (linux)`: https://github.com/Kapps/weavie/actions/runs/29473255400 —
+	// OutOfMemoryException from Thread.StartCore() creating the race threads below, not a logic failure (the
+	// other 304 hosting tests passed). Each iteration's pair of threads only ever runs trivial lambda bodies, so
+	// the OS's default stack (up to 8 MiB/thread on Linux) reserves far more address space than the test needs
+	// across its 80 real OS threads; an explicit small stack removes that as a contributor.
 	[Fact]
 	public async Task ReplayPane_RacingHydrate_ConvergesToHydratedTranscript() {
 		await using var fixture = CreateFixture(static () => "slot-1", static (_, _) => { }, 0);
@@ -173,6 +179,7 @@ public sealed class AgentSessionHostTests {
 
 		// A resumed thread re-emits transcript-reset + its completed items; this is the authoritative end state.
 		AgentPaneMessage[] hydrated = [Completed("fresh-0", "fresh a"), Completed("fresh-1", "fresh b")];
+		const int raceThreadStackBytes = 256 * 1024;
 
 		for (int iteration = 0; iteration < 40; iteration++) {
 			// Restore the "large disk seed already present" baseline before each race — the wide seed makes
@@ -195,7 +202,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, raceThreadStackBytes);
 			var replay = new Thread(() => {
 				try {
 					barrier.SignalAndWait();
@@ -203,7 +210,7 @@ public sealed class AgentSessionHostTests {
 				} catch (Exception ex) {
 					threadError = ex;
 				}
-			});
+			}, raceThreadStackBytes);
 			hydrate.Start();
 			replay.Start();
 			hydrate.Join();

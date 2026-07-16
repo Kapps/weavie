@@ -56,6 +56,28 @@ public sealed class GitService : IGitService {
 			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)];
 	}
 
+	/// <inheritdoc/>
+	public async Task<IReadOnlyList<string>> ListRefsAsync(string directory, CancellationToken ct = default) {
+		ArgumentException.ThrowIfNullOrEmpty(directory);
+		// One for-each-ref over both scopes: heads sort before remotes ("h" < "r"), so the typeahead is local-first.
+		var result = await RunCheckedAsync(directory, ["for-each-ref", "--format=%(refname)", "refs/heads", "refs/remotes"], ct).ConfigureAwait(false);
+		var refs = new List<string>();
+		foreach (string line in result.StdOut.Replace("\r", "", StringComparison.Ordinal)
+			.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)) {
+			if (line.StartsWith("refs/heads/", StringComparison.Ordinal)) {
+				refs.Add(line["refs/heads/".Length..]);
+			} else if (line.StartsWith("refs/remotes/", StringComparison.Ordinal)) {
+				string name = line["refs/remotes/".Length..];
+				// Skip each remote's symbolic HEAD (refs/remotes/<remote>/HEAD): an alias, not a branch to diff.
+				if (!name.EndsWith("/HEAD", StringComparison.Ordinal)) {
+					refs.Add(name);
+				}
+			}
+		}
+
+		return refs;
+	}
+
 	/// <summary>
 	/// Whether <paramref name="name"/> is a syntactically valid git branch name — a subset of
 	/// <c>git check-ref-format</c>'s rules. Applied at the trust boundary before a (web-supplied) name reaches

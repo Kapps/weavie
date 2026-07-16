@@ -298,6 +298,10 @@ export type HostBoundMessage =
   // markdown (notion-edit.ts). Answered by a refreshed source-doc, or source-edit-error. See docs/specs/notion-writes.md.
   | { type: "source-save-edit"; target: string; oldStr: string; newStr: string }
   | { type: "list-branches"; id: string }
+  // Diff Against: list-refs asks a backend for the refs to diff against — local + remote-tracking branches
+  // (unlike list-branches, includes remotes and the checked-out branch). Answered by a branches-result tagged
+  // with the request `id`. See docs/specs/diff-against.md.
+  | { type: "list-refs"; id: string }
   // Open PR: list-prs asks a backend for its repo's open pull requests (answered by a prs-result tagged with
   // the request `id`); open-pr checks out the chosen PR's head branch as a session, seeding Claude with its
   // context. See docs/specs/open-pr.md.
@@ -1516,8 +1520,7 @@ onSessionMessage((message) => {
   }
 });
 
-/** Ask `backendId` for the local branches available to check out as a new session (empty on timeout). */
-export function requestBranches(backendId: string): Promise<string[]> {
+function requestRefList(backendId: string, type: "list-branches" | "list-refs"): Promise<string[]> {
   const id = `br${++branchSeq}`;
   return new Promise<string[]>((resolve) => {
     const timer = setTimeout(() => {
@@ -1529,8 +1532,18 @@ export function requestBranches(backendId: string): Promise<string[]> {
       pendingBranchRequests.delete(id);
       resolve(branches);
     });
-    postToBackend(backendId, { type: "list-branches", id });
+    postToBackend(backendId, { type, id });
   });
+}
+
+/** Ask `backendId` for the local branches available to check out as a new session (empty on timeout). */
+export function requestBranches(backendId: string): Promise<string[]> {
+  return requestRefList(backendId, "list-branches");
+}
+
+/** Ask `backendId` for the refs to diff against — local branches + remote-tracking branches (empty on timeout). */
+export function requestDiffRefs(backendId: string): Promise<string[]> {
+  return requestRefList(backendId, "list-refs");
 }
 
 /** One open pull request, as the Open-PR picker renders it. Mirrors the host's prs-result entries. */

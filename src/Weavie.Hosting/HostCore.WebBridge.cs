@@ -151,6 +151,11 @@ public sealed partial class HostCore {
 					break;
 				}
 
+			case "list-refs": {
+					_ = ListRefsForWebAsync(root.GetStringOrEmpty("id"));
+					break;
+				}
+
 			case "list-prs": {
 					_ = ListPullRequestsForWebAsync(root.GetStringOrEmpty("id"), root.GetStringOrEmpty("query"));
 					break;
@@ -1217,8 +1222,29 @@ public sealed partial class HostCore {
 			Log($"[weavie] list-branches failed: {ex.Message}");
 		}
 
-		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "branches-result", id, branches }));
+		PostBranchesResult(id, branches);
 	}
+
+	/// <summary>
+	/// Answers the "Diff Against…" prompt's ref typeahead: every ref a diff can name — local branches and
+	/// remote-tracking branches (e.g. <c>main</c>, <c>origin/main</c>). Unlike the new-session list this keeps
+	/// remotes and the checked-out branch, since a diff target isn't a checkout. Replies with a
+	/// <c>branches-result</c> tagged by <paramref name="id"/>; a non-repo or git failure yields an empty list.
+	/// </summary>
+	private async Task ListRefsForWebAsync(string id) {
+		string[] refs = [];
+		try {
+			refs = [.. await new GitService().ListRefsAsync(WorkspaceRoot, CancellationToken.None).ConfigureAwait(false)];
+		} catch (GitException ex) {
+			Log($"[weavie] list-refs failed: {ex.Message}");
+		}
+
+		PostBranchesResult(id, refs);
+	}
+
+	/// <summary>Replies to a branch/ref typeahead request with the <c>branches-result</c> envelope it correlates by id.</summary>
+	private void PostBranchesResult(string id, string[] branches) =>
+		_bridge.PostToWeb(JsonSerializer.Serialize(new { type = "branches-result", id, branches }));
 
 	/// <summary>
 	/// Runs a Core command the web asked for on the active session. A non-null <paramref name="token"/> requests a

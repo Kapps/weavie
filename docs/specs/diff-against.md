@@ -14,7 +14,7 @@ attached (comments + a committed head instead of the working tree); see [open-pr
 
 | id | title | default key | behavior |
 |----|-------|-------------|----------|
-| `weavie.diff.against` | Diff Against… | `$mod+Shift+d` | Prompt for a ref (typeahead over local branches; any commit-ish accepted). A `ref` arg — e.g. Claude via `runCommand` — skips the prompt. |
+| `weavie.diff.against` | Diff Against… | `$mod+Shift+d` | Prompt for a ref (typeahead over local **and** remote-tracking branches — `main`, `origin/main`, incl. the checked-out branch; any commit-ish accepted). A `ref` arg — e.g. Claude via `runCommand` — skips the prompt. |
 | `weavie.diff.againstParent` | Diff Against Parent | — | The fixed ref `HEAD^`: the last commit's changes plus anything uncommitted. |
 | `weavie.diff.againstHead` | Diff Against HEAD | — | The fixed ref `HEAD`: the uncommitted changes. |
 

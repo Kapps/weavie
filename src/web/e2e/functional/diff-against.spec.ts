@@ -87,6 +87,25 @@ test("Diff Against… prompts for a ref and walks a multi-file diff", async ({ p
   await expect(page.locator(".weavie-inline-added").first()).toBeVisible();
 });
 
+test("Diff Against… typeahead surfaces remote-tracking branches", async ({ page, weavie }) => {
+  test.setTimeout(60_000);
+  // A remote-tracking branch, without a live remote — the state a fetch leaves behind. Before the fix the
+  // typeahead listed only local heads, so origin/* refs (the usual diff base) never appeared.
+  const head = execFileSync("git", ["rev-parse", "HEAD"], { cwd: weavie.workspace })
+    .toString()
+    .trim();
+  git(weavie.workspace, "update-ref", "refs/remotes/origin/release", head);
+
+  await runCommand(page, "Diff Against…");
+
+  const prompt = page.locator(".session-prompt");
+  await expect(prompt).toBeVisible();
+  await prompt.locator(".session-prompt-input").fill("origin");
+  await expect(
+    prompt.locator(".session-prompt-suggestion", { hasText: "origin/release" }),
+  ).toBeVisible({ timeout: 10_000 });
+});
+
 test("a ref with no changes answers with a toast, not an empty navigator", async ({
   page,
   weavie,

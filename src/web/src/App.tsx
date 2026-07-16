@@ -355,6 +355,14 @@ export default function App(): JSX.Element {
     onSaveError: (message) => addToast("error", message),
     onOpenError: (message) => addToast("warn", message),
     onCurrentFileChanged: setCurrentFile,
+    focusVisibleOverlay: () => {
+      setActivePane("editor");
+      const overlay = editorContainer?.parentElement?.querySelector<HTMLElement>(
+        ":scope > [data-kind='editor'][tabindex]",
+      );
+      overlay?.focus();
+      return document.activeElement === overlay;
+    },
     confirmDiscard,
     confirm,
     promptScratchName,

@@ -254,6 +254,82 @@ test.describe("Codex composer", () => {
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
   });
 
+  test("mouse clicks return to the prompt without taking text selection or response-field focus", async ({
+    page,
+  }) => {
+    await mountCodex(page);
+
+    const textarea = page.locator("[data-agent-composer] textarea");
+    const run = page.locator("[data-agent-composer] button[type='submit']");
+    await expect(run).toBeDisabled();
+    await page.locator(".agent-status-model").focus();
+    await run.click({ force: true });
+    await expect(textarea).toBeFocused();
+
+    await textarea.fill("ready");
+    await page.locator(".agent-surface .pane-head").click();
+    await expect(textarea).toBeFocused();
+    await page.keyboard.type(" after chrome");
+
+    await page.locator(".agent-status-model").click();
+    await expect(page.locator(".agent-model-picker")).toBeVisible();
+    await expect(textarea).toBeFocused();
+    await page.keyboard.type(" and a button");
+    await expect(textarea).toHaveValue("ready after chrome and a button");
+    await page.keyboard.press("Escape");
+    await textarea.fill("");
+
+    host.pushToWeb(userMessage("selectable"));
+    const transcript = page.locator(".agent-entry-text", { hasText: "selectable" });
+    const box = await transcript.boundingBox();
+    if (box === null) {
+      throw new Error("selectable transcript text has no layout box");
+    }
+    const selectionY = box.y + box.height / 2;
+    await page.mouse.move(box.x, selectionY);
+    await page.mouse.down();
+    await page.mouse.move(box.x + 100, selectionY, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(() => page.evaluate(() => document.getSelection()?.toString()))
+      .toContain("selectable");
+
+    await page.evaluate(() => document.getSelection()?.removeAllRanges());
+    const runBox = await run.boundingBox();
+    if (runBox === null) {
+      throw new Error("disabled Run button has no layout box");
+    }
+    await page.mouse.move(box.x, selectionY);
+    await page.mouse.down();
+    await page.mouse.move(runBox.x + runBox.width / 2, runBox.y + runBox.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect
+      .poll(() => page.evaluate(() => document.getSelection()?.toString()))
+      .toContain("selectable");
+
+    host.pushToWeb(
+      paneMessage({
+        type: "input-requested",
+        itemId: "input-1",
+        status: "pending",
+        questions: [
+          {
+            id: "answer",
+            header: "Answer",
+            question: "What should Codex do?",
+            isSecret: false,
+            options: [],
+          },
+        ],
+      }),
+    );
+    const response = page.locator(".agent-input-request input");
+    await response.click();
+    await expect(response).toBeFocused();
+    await response.fill("Keep this field focused");
+    await expect(response).toHaveValue("Keep this field focused");
+  });
+
   test("status line shows the complete Review diff and opens it", async ({ page }) => {
     await mountCodex(page);
     host.pushToWeb(catalog);

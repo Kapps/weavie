@@ -3,7 +3,10 @@
 A standing hourly reviewer that scans newly-landed commits on `main` for **egregious behavioral
 pathologies** — approaches that are cost-pathological or insane even though the code is correct and
 passes CI (the canonical case: a change-tracker that reads every file in the repo before and after
-every tool call). It is the automated form of the manual `claude/audit-recent-commits` sweep.
+every tool call) — and for **cross-session misroutes**: a timing gap plus a session switch that
+corrupts state or sends a command to the wrong session/backend (the class
+[`session-isolation-invariants.md`](session-isolation-invariants.md) exists to keep dead). It is the
+automated form of the manual `claude/audit-recent-commits` sweep.
 
 It exists because nothing else catches this class: `weavie-reviewer` reviews one change set for
 correctness + standards, CI checks that code works, and per-PR human review judges each diff locally
@@ -52,7 +55,9 @@ Then create a Routine with cron `0 * * * *`, a fresh session per fire, and the p
 ```
 You are the hourly Weavie behavior-audit reviewer. Scan commits that landed on main since the last
 run for EGREGIOUS behavioral pathologies (cost-pathological / insane approaches that pass CI, e.g.
-reading every file in the repo per tool call). Do not touch anything that isn't such a pathology.
+reading every file in the repo per tool call) AND cross-session/backend misroutes (a timing gap + a
+session switch that corrupts state or sends a command to the wrong session). Do not touch anything
+that isn't such a pathology.
 
 1. `git fetch origin main --tags`. Record HEAD: `SCANNED=$(git rev-parse origin/main)`.
 2. Determine the range. If the tag `behavior-audit/last` exists, RANGE="behavior-audit/last..origin/main".

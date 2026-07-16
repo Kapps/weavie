@@ -816,6 +816,18 @@
   color: color-mix(in srgb, var(--fg) 82%, var(--dim));
 }
 
+.agent-status-review {
+  gap: 0;
+}
+
+.agent-status-review-added {
+  color: var(--diff-added, #5a9a6a);
+}
+
+.agent-status-review-removed {
+  color: var(--diff-removed, #c47a7a);
+}
+
 .agent-status-unavailable {
   cursor: default;
 }

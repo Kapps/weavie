@@ -121,7 +121,9 @@ public sealed partial class HostCore {
 			case "switch-session": {
 					string switchId = root.GetStringOrEmpty("id");
 					if (!string.IsNullOrEmpty(switchId) && _sessions?.Find(switchId) is { } target) {
-						SwitchToSlot(target);
+						// Older pages don't send replayAgentState; preserve their pre-gating behavior across version skew.
+						bool replayAgentState = !root.TryGetProperty("replayAgentState", out var replay) || replay.GetBoolean();
+						SwitchToSlot(target, replayAgentState);
 					}
 
 					break;

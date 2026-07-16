@@ -275,7 +275,7 @@ export type HostBoundMessage =
   // Session rail → host: switch to a session (binds the page to it). Load/unload/delete are weavie.session.*
   // commands run via invoke-command (the delete classify→confirm→delete dance is the `classify` arg + `force`
   // on that one command, not its own messages). See docs/specs/command-responses.md.
-  | { type: "switch-session"; id: string }
+  | { type: "switch-session"; id: string; replayAgentState: boolean }
   // Create a new session. `existing` ⇒ check out the EXISTING `branch` (base ignored); else create a new
   // branch off `base` ("head" = active session's HEAD, or "main"). list-branches asks a backend for its
   // checkout-able branches, answered by a branches-result tagged with the request `id`.
@@ -824,8 +824,8 @@ type SessionMessageHandler = (msg: WebBoundMessage, backendId: string) => void;
 // Listeners that render the page see the active backend plus correlated filesystem replies from the backend
 // that owns the mounted editor. Background traffic cannot otherwise paint over the screen.
 const listeners = new Set<WebMessageHandler>();
-// Listeners for the cross-backend rail: session-list / session-status from EVERY connected backend, tagged
-// with their origin backend, so the rail can show local + remote sessions side by side.
+// Listeners for backend-scoped state that must be retained even while backgrounded: rail sessions, layout,
+// request results, and local-only registries. Every message is tagged with its origin backend.
 const sessionListeners = new Set<SessionMessageHandler>();
 
 // The id of the backend whose traffic drives the page. "local" is the default backend (the native shell's
@@ -871,13 +871,14 @@ export const activeBackendPhase = (): BackendPhase => phases().get(activeBackend
 export const activeBackendOffline = (): boolean => activeBackendPhase() !== "online";
 
 // These route cross-backend (tagged with origin) rather than being dropped by the active-backend gate — they
-// feed the rail, the New Session typeahead, the active backend's suggestions/recent-files, and local-only
-// registry/rail state. Editor replies are separately pinned to the editor-owning backend; everything else is
-// gated to the active backend.
+// feed the rail, backend layout cache, New Session typeahead, active-backend suggestions/recent-files, and
+// local-only registry/rail state. Editor replies are separately pinned to the editor-owning backend;
+// everything else is gated to the active backend.
 function isSessionMessage(type: string): boolean {
   return (
     type === "session-list" ||
     type === "session-status" ||
+    type === "set-layout" ||
     type === "pull-request-status" ||
     type === "session-attention" ||
     type === "agent-attachment-state" ||
@@ -1496,7 +1497,7 @@ export function onHostMessage(handler: WebMessageHandler): () => void {
   };
 }
 
-/** Subscribe to session-list / session-status from EVERY backend (tagged with its id), for the rail. */
+/** Subscribe to retained backend-scoped state from every backend, tagged with its id. */
 export function onSessionMessage(handler: SessionMessageHandler): () => void {
   sessionListeners.add(handler);
   return () => {

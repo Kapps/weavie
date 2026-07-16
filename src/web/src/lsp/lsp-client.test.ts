@@ -84,6 +84,9 @@ vi.mock("./lsp-bridge-transport", () => ({
 vi.mock("vscode-languageclient", () => ({
   CloseAction: { DoNotRestart: 1 },
   ErrorAction: { Continue: 1 },
+  CodeLensRequest: { method: "textDocument/codeLens" },
+  CodeLensResolveRequest: { method: "codeLens/resolve" },
+  DocumentHighlightRequest: { method: "textDocument/documentHighlight" },
 }));
 vi.mock("../bridge", () => ({
   log: () => {},

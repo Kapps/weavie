@@ -461,14 +461,14 @@ export default function App(): JSX.Element {
   // different backend, first persist the outgoing session's unsaved edits before requesting the incoming
   // session. File writes remain pinned to the editor owner throughout the handoff. Same-backend binds run
   // synchronously.
-  const bindBackend = (backendId: string, then: () => void): void => {
+  const bindBackend = (backendId: string, then: (didRebind: boolean) => void): void => {
     if (backendId === activeBackendId()) {
-      then();
+      then(false);
       return;
     }
     void editor.flushDirty().finally(() => {
       setActiveBackendId(backendId);
-      then();
+      then(true);
     });
   };
 
@@ -477,8 +477,12 @@ export default function App(): JSX.Element {
   const switchToSession = (session: RailSession): void => {
     flushEditorSession();
     // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
-    bindBackend(session.backendId, () =>
-      postToBackend(session.backendId, { type: "switch-session", id: session.id }),
+    bindBackend(session.backendId, (didRebind) =>
+      postToBackend(session.backendId, {
+        type: "switch-session",
+        id: session.id,
+        replayAgentState: didRebind,
+      }),
     );
   };
 
@@ -579,16 +583,21 @@ export default function App(): JSX.Element {
 
   // Persist the layout after a user gesture (debounced). Skipped until the host's initial layout push, so we
   // never overwrite the saved state with the default before it loads.
-  let persistTimer = 0;
+  const persistTimers = new Map<string, number>();
   const persistRoot = (root: LayoutNode): void => {
+    const backendId = activeBackendId();
     const base = layoutDocument();
     if (base === null) {
       return;
     }
-    window.clearTimeout(persistTimer);
-    persistTimer = window.setTimeout(() => {
-      sendLayout({ ...base, root });
-    }, 400);
+    window.clearTimeout(persistTimers.get(backendId));
+    persistTimers.set(
+      backendId,
+      window.setTimeout(() => {
+        persistTimers.delete(backendId);
+        sendLayout(backendId, { ...base, root });
+      }, 400),
+    );
   };
 
   // A splitter drag: show the new sizes immediately, persist on a debounce.
@@ -1286,7 +1295,9 @@ export default function App(): JSX.Element {
     document.addEventListener("focusin", onFocusIn);
 
     onCleanup(() => {
-      window.clearTimeout(persistTimer);
+      for (const timer of persistTimers.values()) {
+        window.clearTimeout(timer);
+      }
       offEditorOptions();
       offKeybindings();
       offDoubleShift();

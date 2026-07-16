@@ -127,6 +127,26 @@ test.describe("remote bridge transport", () => {
       });
   });
 
+  test("a same-backend session switch reuses the live agent pane", async ({ page }) => {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    host.pushToWeb({
+      type: "session-list",
+      sessions: [
+        sessionChip("local-main", "main", "codex", true, true),
+        sessionChip("local-feature", "feature", "codex", false, false),
+      ],
+    });
+
+    const switched = host.waitForMessage("switch-session");
+    await page.locator('.session-chip[title^="feature —"]').click();
+
+    expect(await switched).toMatchObject({
+      id: "local-feature",
+      replayAgentState: false,
+    });
+  });
+
   test("a backend switch never mixes the incoming resource host with the outgoing media identity", async ({
     page,
   }) => {
@@ -180,7 +200,7 @@ test.describe("remote bridge transport", () => {
 
       const remoteSwitch = remote.waitForMessage("switch-session");
       await remoteChip.click();
-      await remoteSwitch;
+      expect(await remoteSwitch).toMatchObject({ replayAgentState: true });
       remote.pushToWeb({
         type: "set-editor-session",
         sessionId: "remote-owner",
@@ -193,7 +213,7 @@ test.describe("remote bridge transport", () => {
 
       const localSwitch = host.waitForMessage("switch-session");
       await page.locator(".session-chip:not(.active)").click();
-      await localSwitch;
+      expect(await localSwitch).toMatchObject({ replayAgentState: true });
       host.pushToWeb({
         type: "set-editor-session",
         sessionId: "local-owner",
@@ -273,7 +293,7 @@ test.describe("remote bridge transport", () => {
       await expect(remoteChip).toBeVisible();
       const switched = remote.waitForMessage("switch-session");
       await remoteChip.click();
-      await switched;
+      expect(await switched).toMatchObject({ replayAgentState: true });
 
       // HostCore.SwitchToSlot now sends this authoritative replay after the web has admitted the backend.
       remote.pushToWeb({

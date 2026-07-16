@@ -25,8 +25,25 @@ There are limitations though:
 - Linux client support is untested. Headless support as a remote runner is supported, but I haven't tested running the weavie client itself on a Linux machine.
 - Most Git features only support Github currently.
 - There's still a lot of polish to be added.
-- No releases or installer — build it from source.
-- Nothing yet around packaging, signing, or shipping an actual binary.
+
+## Getting Started
+
+### Client Setup
+1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) for your OS (no proper releases yet).
+2. Run it. If you find that features like running tests or creating a worktree don't work out of the box for your repo, just ask Claude to set an appropriate one.
+
+### Remote Runner Setup
+**Remote setup must use a VPN or Tailscale. DO NOT expose the headless server to the internet.** There's authentication, but aside from the authentication the remote code hasn't been properly looked at.
+
+1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) of the Runner
+   - Prebuilt remote runner binaries are currently only provided for Linux.
+3. If using Tailscale, make sure to go into your admin console and enable Tailscale Serve.
+4. Run the runner.
+   - Tailscale example: `./current/Weavie.Runner --tls tailscale --token <random token> --workspace <workspace folder to serve>`
+5. In each client you want to connect to this server, go into the Cloud section in the rail, and select Add Remote Agent.
+   - Example URL: `https://<servername>.tail<random>.ts.net`
+   - Token must exactly match the one you used to start the Runner.
+6. Now when you launch a new session, you can select whether to run it locally or on this remote runner.
 
 ## Building
 

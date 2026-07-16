@@ -47,7 +47,7 @@ public sealed partial class HostCore {
 		}
 
 		if (activeId is { } id && _sessions.Find(id.Value) is { IsPrimary: false } activeSlot) {
-			SwitchToSlot(activeSlot);
+			SwitchToSlot(activeSlot, replayAgentState: true);
 		}
 	}
 }

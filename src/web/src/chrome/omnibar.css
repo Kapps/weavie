@@ -109,7 +109,7 @@
 
 .tb-row-dir {
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -169,7 +169,7 @@
 .tb-tree-row.dir .tb-row-leaf {
   text-transform: uppercase;
   letter-spacing: 0.12em;
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   opacity: 0.9;
 }
 
@@ -214,7 +214,7 @@
   margin-left: auto;
   flex: 0 0 auto;
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   font-variant-numeric: tabular-nums;
   letter-spacing: 0.02em;
 }
@@ -227,5 +227,5 @@
 
 .tb-omnibar-more {
   border-top: 1px solid var(--border);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
 }

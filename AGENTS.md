@@ -115,6 +115,11 @@ run the full functional suite on `headless`, only the transport-sensitive delta 
 
 ## Code standards
 
+- **Use the shared typography roles.** Feature chrome inherits `--font-chrome-*`; editor-adjacent code uses
+  the authoritative `--font-content-*`; rendered documents use `--font-prose-*`; secondary text uses
+  `--font-metadata-size` or `--font-hint-size`. Never add a feature-local font stack, raw content size, or
+  invented font variable.
+
 - **Minimize lines of code.** Every line is a liability — to read, maintain, and break. Write the
   least code that does the job, prefer the plainest version of it, and delete more than you add when
   you can.

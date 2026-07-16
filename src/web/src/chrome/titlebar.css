@@ -268,7 +268,7 @@
 
 .tb-recent-path {
   color: var(--dim);
-  font-size: 11px;
+  font-size: var(--font-hint-size);
   margin-left: 16px;
   max-width: 320px;
   overflow: hidden;

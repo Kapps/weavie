@@ -13,7 +13,7 @@
   -webkit-backdrop-filter: blur(3px);
   backdrop-filter: blur(3px);
   /* Portaled to <body>, outside the .app font scope — re-assert the UI font (see confirm-dialog.css). */
-  font: 12px / 1.5 var(--ui-font);
+  font: var(--font-chrome-size) / 1.5 var(--font-chrome-family);
 }
 
 .embed-lightbox-body {

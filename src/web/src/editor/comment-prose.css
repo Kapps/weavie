@@ -26,7 +26,7 @@
      unmistakably reads as a comment rather than body text. Colour stays a readable --dim (the raw comment hue
      is deliberately near-invisible); the italics + the rail carry the "this is a comment" signal. */
   font-family: var(--prose-font), system-ui, sans-serif;
-  font-size: 13px;
+  font-size: var(--font-metadata-size);
   font-style: italic;
   line-height: var(--prose-line, 1.5);
   color: var(--dim, #8a8f99);

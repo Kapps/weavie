@@ -185,7 +185,14 @@ public sealed class AgentSessionHostTests {
 			bridge.Clear();
 			Exception? threadError = null;
 			var barrier = new Barrier(2);
-			var hydrate = new Thread(() => {
+			// Pooled Task.Run, not `new Thread`: 40 iterations x 2 dedicated native threads (each with its own
+			// reserved stack) intermittently threw OutOfMemoryException from Thread.StartCore() on the Linux CI
+			// runner (flaked 2026-07-16 on an unrelated docs-only merge — run
+			// https://github.com/Kapps/weavie/actions/runs/29473255400/job/87540618650 — while Windows/macOS on the
+			// same commit passed). The race under test only needs two concurrently-scheduled callers of the
+			// barrier; the ThreadPool reuses its worker threads across iterations instead of allocating 80 fresh
+			// OS threads.
+			var hydrate = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					session.Emit(new AgentPaneMessage { Type = "transcript-reset", ProviderId = "codex" });
@@ -196,7 +203,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			var replay = new Thread(() => {
+			var replay = Task.Run(() => {
 				try {
 					barrier.SignalAndWait();
 					host.ReplayPane();
@@ -204,10 +211,7 @@ public sealed class AgentSessionHostTests {
 					threadError = ex;
 				}
 			});
-			hydrate.Start();
-			replay.Start();
-			hydrate.Join();
-			replay.Join();
+			await Task.WhenAll(hydrate, replay);
 
 			Assert.Null(threadError);
 			Assert.Equal(hydrated.Select(message => message.ItemId), VisibleItemIds(bridge));

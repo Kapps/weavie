@@ -2,31 +2,10 @@ import { existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { expect, test } from "@playwright/test";
-import { MockHost } from "./mock-host";
+import { MockHost, mockSessionChip as sessionChip } from "./mock-host";
 
 // The built app from `vite build`; the e2e run builds it first (see the `e2e` npm script).
 const distDir = join(dirname(fileURLToPath(import.meta.url)), "..", "dist");
-
-function sessionChip(
-  id: string,
-  label: string,
-  providerId: "claude" | "codex",
-  active: boolean,
-  primary: boolean,
-) {
-  return {
-    id,
-    label,
-    active,
-    loaded: true,
-    primary,
-    providerId,
-    agentSurface: providerId === "codex" ? "structured" : "terminal",
-    status: "idle",
-    hue: 200,
-    monogram: label.slice(0, 1).toUpperCase(),
-  };
-}
 
 test.beforeAll(() => {
   if (!existsSync(join(distDir, "index.html"))) {

@@ -195,9 +195,9 @@ export async function waitForHttp(
   }
 }
 
-// Shared per-test scaffolding both transports need: an isolated HOME, a throwaway git workspace, claude
-// stubbed at the process seam (resume off so no managed-session startup watcher fires on the fake), and the
-// optional fake script + its readable debug log. The worker inherits these env vars.
+// Shared per-test scaffolding both transports need: an isolated HOME, a throwaway git workspace, Claude
+// stubbed at the process seam (resume off so no managed-session startup watcher fires on the fake), Codex
+// forced onto its deterministic unavailable-session path, and the optional fake script + its readable log.
 export interface FakeScaffold {
   home: string;
   workspace: string;
@@ -225,6 +225,9 @@ export async function prepareFake(options: LaunchOptions): Promise<FakeScaffold>
     CLAUDE_CONFIG_DIR: join(home, ".claude"),
     WEAVIE_CLAUDE_PATH: wrapper,
     WEAVIE_CLAUDE_RESUMESESSION: "false",
+    // Never launch the runner's real Codex. The missing binary becomes UnavailableStructuredAgentSession,
+    // retaining provider identity, routing, and the structured pane without a model or network dependency.
+    WEAVIE_CODEX_PATH: join(home, "missing-codex"),
   };
   if (options.fakeScript) {
     env.WEAVIE_FAKE_CLAUDE_SCRIPT = await writeFakeScript(home, options.fakeScript);

@@ -433,7 +433,6 @@ export function AgentComposer(props: {
         onAccept={acceptSlash}
         onDismiss={() => setSlashDismissed(true)}
       />
-      <span class="agent-compose-prompt">prompt&gt;</span>
       <textarea
         ref={textareaRef}
         rows={1}

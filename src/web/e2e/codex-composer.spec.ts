@@ -242,6 +242,13 @@ test.describe("Codex composer", () => {
     await expect(segments.nth(1)).toContainText("Default");
     await expect(segments.nth(2)).toContainText("On request");
     await expect(segments.nth(3)).toContainText("Workspace write");
+    const textareaLeft = await page
+      .locator("[data-agent-composer] textarea")
+      .evaluate((element) => element.getBoundingClientRect().left);
+    const modelLabelLeft = await page
+      .locator(".agent-status-model .agent-status-value")
+      .evaluate((element) => element.getBoundingClientRect().left);
+    expect(textareaLeft).toBe(modelLabelLeft);
     await page.screenshot({ path: join(shotsDir, "01-status-line.png") });
     await page.locator(".agent-compose").screenshot({ path: join(shotsDir, "00-compose-row.png") });
   });
@@ -614,6 +621,7 @@ test.describe("Codex composer", () => {
       "placeholder",
       "Write a prompt — / for commands and skills",
     );
+    await expect(page.locator("[data-agent-composer]")).not.toContainText("prompt>");
     await page.screenshot({ path: join(shotsDir, "08-empty-state.png") });
   });
 

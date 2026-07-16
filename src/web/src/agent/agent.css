@@ -1,3 +1,7 @@
+.agent-surface {
+  --agent-control-inline-padding: 6px;
+}
+
 .agent-body-wrap {
   position: relative;
   display: flex;
@@ -531,8 +535,7 @@
   position: relative;
   flex: 0 0 auto;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  /* Top-align so the "prompt>" label rides the textarea's first line and stays put as it grows. */
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: start;
   gap: 8px;
   min-height: 42px;
@@ -544,15 +547,6 @@
   font-size: var(--terminal-font-size, 16px);
   font-weight: var(--terminal-font-weight, normal);
   line-height: 1.24;
-}
-
-.agent-compose-prompt {
-  /* Matches the textarea's top padding so both first lines sit on the same baseline. */
-  padding-top: 3px;
-  color: var(--accent);
-  font-weight: 650;
-  user-select: none;
-  white-space: nowrap;
 }
 
 .agent-attachments {
@@ -717,6 +711,7 @@
   border: 0;
   border-bottom: 1px solid var(--border);
   border-radius: 0;
+  margin-left: var(--agent-control-inline-padding);
   padding: 3px 0 2px;
   font: inherit;
   line-height: 1.24;
@@ -797,7 +792,7 @@
   display: inline-flex;
   align-items: baseline;
   gap: 5px;
-  padding: 0 6px;
+  padding: 0 var(--agent-control-inline-padding);
   border: 0;
   border-radius: 3px;
   background: transparent;

@@ -1,5 +1,5 @@
 import { render } from "solid-js/web";
-import { postToHost } from "../bridge";
+import { pageId, postToHost } from "../bridge";
 import { dismissSplash } from "../splash";
 import { Welcome } from "./Welcome";
 import "../fonts.css";
@@ -22,6 +22,6 @@ window.addEventListener("error", (e) => {
   });
 });
 
-postToHost({ type: "ready" });
+postToHost({ type: "ready", pageId });
 render(() => <Welcome />, root);
 dismissSplash();

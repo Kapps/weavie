@@ -37,6 +37,31 @@ public sealed class DiffAgainstTests {
 	}
 
 	[Fact]
+	public async Task DiffAgainstHead_SeedsDurableReviewBeforeProjectionMount() {
+		await using var host = await TestHost.StartAsync();
+		host.AutoMountEditorProjection = false;
+		// Re-offer the current session and hold the page in its Monaco rebind window.
+		host.Send($$"""{"type":"acquire-editor","pageId":"{{TestHost.TestPageId}}"}""");
+		host.Bridge.Clear();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		File.WriteAllText(path, "hello\nworld\n");
+
+		host.Send("""{"type":"diff-against","ref":"HEAD"}""");
+		await Wait.ForAsync(() => host.Core.ActiveSessionForTest()!.Changes.TurnChanges().Count == 1 ? 1 : (int?)null);
+		Assert.Empty(host.Bridge.PostedOfType("turn-changes"));
+		host.Core.ActiveSessionForTest()!.EditorChannel.ShowDiff(
+			"held-diff", """{"type":"show-diff","id":"held-diff"}""");
+
+		host.MountEditorProjection();
+		var changes = await Wait.ForAsync(() => host.Bridge.LastOfType("turn-changes"));
+		Assert.Equal("vs HEAD", changes.GetProperty("label").GetString());
+		Assert.Equal(path, Assert.Single(changes.GetProperty("files").EnumerateArray()).GetProperty("path").GetString());
+		int resetIndex = host.Bridge.Posted.ToList().FindIndex(message => message.Contains("\"type\":\"turn-reset\"", StringComparison.Ordinal));
+		int showIndex = host.Bridge.Posted.ToList().FindIndex(message => message.Contains("\"type\":\"show-diff\"", StringComparison.Ordinal));
+		Assert.InRange(resetIndex, 0, showIndex - 1);
+	}
+
+	[Fact]
 	public async Task DiffAgainstHead_RevertFile_RestoresRefContentOnDisk() {
 		// Diff Against is no longer read-only: a Reject writes the ref (baseline) back over the worktree file — an
 		// uncommitted backout — through the same tracker a turn revert uses.

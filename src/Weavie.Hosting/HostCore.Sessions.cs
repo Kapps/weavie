@@ -20,7 +20,7 @@ public sealed partial class HostCore {
 	/// <summary>
 	/// Wires a session's command handlers + change/status/diff push subscriptions, gated on
 	/// <see cref="IsActiveSession"/>. State that ACCUMULATES while muted (the review feed) must also be
-	/// re-applied on switch-in (<c>PushIncomingReviewState</c> in <see cref="SwitchToSlot"/>).
+	/// re-applied on switch-in (<c>PushIncomingReviewState</c> after the projection mount).
 	/// </summary>
 	private void WireSession(HostSession session) {
 		// Web commands drive the page's SINGLE editor surface, so only the active session may run them — else a
@@ -70,34 +70,26 @@ public sealed partial class HostCore {
 		// Change/status events fire on hook-pipe and watcher threads; the guard AND the push run posted on the
 		// UI thread — where switches run and in-order with their message train — so a stale event can't check
 		// active, lose to a switch, and still land after the incoming session's pushes.
-		session.Changes.Changed += () => _ui.Post(() => {
-			if (IsActiveSession(session)) {
-				PushTurnChangesToWeb();
-			}
-		});
-		session.Changes.FileChanged += path => _ui.Post(() => {
-			if (IsActiveSession(session)) {
+		session.Changes.Changed += () => _ui.Post(() =>
+			DispatchEditorProjection(session, PushTurnChangesToWeb));
+		session.Changes.FileChanged += path => _ui.Post(() =>
+			DispatchEditorProjection(session, () => {
 				PushRefreshToWeb(path);
 				PushTurnDiffToWeb(path);
-			}
-		});
-		session.Changes.FileDeleted += path => _ui.Post(() => {
-			if (IsActiveSession(session)) {
-				PushDeletionToWeb(path);
-			}
-		});
+			}));
+		session.Changes.FileDeleted += path => _ui.Post(() =>
+			DispatchEditorProjection(session, () => PushDeletionToWeb(path)));
 		// A new prompt committed the faded accepted band: re-push the trimmed review set, each committed file's
 		// diff (its faded hunks vanish inline), and the now-cleared undo history.
-		session.Changes.AcceptedCommitted += paths => _ui.Post(() => {
-			if (IsActiveSession(session)) {
+		session.Changes.AcceptedCommitted += paths => _ui.Post(() =>
+			DispatchEditorProjection(session, () => {
 				PushTurnChangesToWeb();
 				foreach (string path in paths) {
 					PushTurnDiffToWeb(path);
 				}
 
 				PushReviewHistoryToWeb();
-			}
-		});
+			}));
 		WireAttention(session);
 		session.Status.Changed += status => _ui.Post(() => {
 			if (IsActiveSession(session)) {
@@ -118,11 +110,8 @@ public sealed partial class HostCore {
 			// surfaces changes as they land — no status-driven re-push or auto-open arming needed here.
 			PushSessionList();
 		});
-		session.FileChanges += changes => _ui.Post(() => {
-			if (IsActiveSession(session)) {
-				PushWatcherChangesToWeb(changes);
-			}
-		});
+		session.FileChanges += changes => _ui.Post(() =>
+			DispatchEditorProjection(session, () => PushWatcherChangesToWeb(changes)));
 	}
 
 	private bool IsActiveSession(HostSession session) => ReferenceEquals(_session, session);
@@ -529,7 +518,18 @@ public sealed partial class HostCore {
 	/// show/hide (each loaded session keeps its own live xterm pair). Rebinds the single editor to the slot's
 	/// worktree tabs, re-roots the omnibar/file browser, then re-pushes status + the rail + focus.
 	/// </summary>
-	private void SwitchToSlot(SessionSlot slot, bool replayAgentState) {
+	private void SwitchToSlot(SessionSlot slot, bool replayAgentState) =>
+		SwitchToSlot(slot, replayAgentState, ProjectEditorForInternalSwitch);
+
+	private void SwitchToSlot(SessionSlot slot, bool replayAgentState, string? projectionPageId) =>
+		SwitchToSlot(
+			slot,
+			replayAgentState,
+			projectionPageId is null
+				? (target, replay) => BeginLegacyEditorProjection(target.Session!, replay)
+				: (target, replay) => BeginEditorProjection(target, projectionPageId, replay));
+
+	private void SwitchToSlot(SessionSlot slot, bool replayAgentState, Action<SessionSlot, bool> projectEditor) {
 		bool agentStateNeedsReplay = replayAgentState || !slot.Loaded;
 		LoadSlot(slot);
 		var session = slot.Session!;
@@ -545,20 +545,13 @@ public sealed partial class HostCore {
 		_sessions?.SetActive(slot);
 		slot.LastActiveUtc = DateTimeOffset.UtcNow;
 
-		// Tear down the outgoing session's inline review markers BEFORE the rebind + the incoming channel's
-		// held-openDiff replay — the reset's clearAll wipes the whole inline-diff registry, so running it after the
-		// replay would erase a just-rendered background openDiff (it shares that registry).
-		ResetReviewMarkers();
 		// Rebind the editor to this session's worktree: push its open tabs so the page closes the previous
 		// session's working copies and reopens this one's.
-		PushSessionEditorToWeb(session);
+		projectEditor(slot, false);
 		// Flip the page to the incoming session's already-live panes before any expensive state projection. Keep
 		// focus adjacent and ordered after the list so keyboard input lands in the newly visible agent pane.
 		PushSessionList();
 		_bridge.PostToWeb("{\"type\":\"focus-pane\",\"kind\":\"terminal:claude\"}");
-		// Unmute the incoming session's editor output AFTER the rebind, so work it held while muted (a background
-		// openDiff, files Claude opened) replays onto the rebound editor instead of being wiped by the rebind.
-		session.SetEditorOutputActive(true);
 		if (session.Agent.Structured is not null) {
 			session.EnsureAgentStarted();
 			// A remote backend's ready replay is intentionally hidden while that backend is not focused. Binding
@@ -575,26 +568,9 @@ public sealed partial class HostCore {
 		// Push the incoming session's worktree branch to the footer (its worktree may be on a different branch).
 		PushGitStatus();
 		PushPullRequestStatus();
-		// Catch the page up on the incoming session's inline review: its muted-while-background diffs (and the
-		// ← / → walk) are gated on the active session, so without this they wouldn't appear and the previous
-		// session's walk would linger. This threads the incoming session's review label too (a PR/ref review's
-		// state — its seeded tracker + label — persists on the session, so no per-switch git diff is needed).
-		// Pushed after the status so the web's auto-arm sees the idle state.
-		PushIncomingReviewState();
-		// A PR/ref review re-surfaces its code on switch-back (open + render its first changed file), unlike a plain
-		// post-turn review which parks. Reads the persisted tracker, so it's race-free (unlike a per-switch git diff).
-		SurfaceActiveReviewOnSwitch();
 		// Record the new active slot (and any load it just triggered) so a reopen restores it.
 		PersistSessionState();
 	}
-
-	/// <summary>
-	/// Pushes a session's open editor tabs (a <c>set-editor-session</c>) so the page rebinds the editor to that
-	/// session's worktree files, built from its in-memory <see cref="HostSession.EditorSession"/> (missing files dropped).
-	/// </summary>
-	private void PushSessionEditorToWeb(HostSession session) =>
-		_bridge.PostToWeb(EditorSessionStore.BuildRestoreJson(
-			session.EditorSession, session.FileSystem, session.WorkspaceRoot, session.Id, Log));
 
 	/// <inheritdoc/>
 	public Task<CommandResult> NewSessionAsync(NewSessionRequest request, CancellationToken ct) {

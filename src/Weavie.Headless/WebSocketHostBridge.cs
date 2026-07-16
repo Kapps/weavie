@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Json;
 using System.Threading.Channels;
 using Weavie.Hosting;
 using Weavie.Hosting.Web;
@@ -16,7 +17,7 @@ namespace Weavie.Headless;
 /// behind is dropped loudly. Pushes with no page connected are dropped, never buffered (each page re-requests
 /// state on its <c>ready</c>).
 /// </summary>
-internal sealed class WebSocketHostBridge : IHostBridge, IWorkspaceWebSocketBridge {
+internal sealed class WebSocketHostBridge : IHostBridge, IPageLifecycleHostBridge, IWorkspaceWebSocketBridge {
 	// A connection this many messages behind is treated as dead/hopeless and dropped — far above any healthy
 	// burst (a loopback page drains in microseconds), low enough to bound memory and fail fast. A dropped page's
 	// transport reconnects and re-requests state, so an over-eager drop self-heals rather than losing the page.
@@ -34,6 +35,9 @@ internal sealed class WebSocketHostBridge : IHostBridge, IWorkspaceWebSocketBrid
 
 	/// <inheritdoc/>
 	public event Action<string>? MessageReceived;
+
+	/// <inheritdoc/>
+	public event Action<string>? PageDisconnected;
 
 	/// <inheritdoc/>
 	public bool Available => true;
@@ -86,6 +90,10 @@ internal sealed class WebSocketHostBridge : IHostBridge, IWorkspaceWebSocketBrid
 
 				string json = Encoding.UTF8.GetString(message.GetBuffer(), 0, (int)message.Length);
 				message.SetLength(0);
+				if (!connection.PageIdentityResolved) {
+					connection.PageId = PageIdFromOwnershipMessage(json, out bool resolved);
+					connection.PageIdentityResolved = resolved;
+				}
 				_dispatcher.Post(() => MessageReceived?.Invoke(json));
 			}
 		} finally {
@@ -98,6 +106,39 @@ internal sealed class WebSocketHostBridge : IHostBridge, IWorkspaceWebSocketBrid
 			}
 
 			await sendLoop.ConfigureAwait(false); // no send may race the caller's socket dispose
+			if (connection.PageId is { } pageId) {
+				_dispatcher.Post(() => {
+					if (!_connections.Keys.Any(candidate =>
+						string.Equals(candidate.PageId, pageId, StringComparison.Ordinal))) {
+						PageDisconnected?.Invoke(pageId);
+					}
+				});
+			}
+		}
+	}
+
+	private static string? PageIdFromOwnershipMessage(string json, out bool resolved) {
+		resolved = false;
+		try {
+			using var document = JsonDocument.Parse(json);
+			var root = document.RootElement;
+			string? type = root.TryGetProperty("type", out var typeElement)
+				&& typeElement.ValueKind == JsonValueKind.String
+				? typeElement.GetString()
+				: null;
+			string? pageId = root.TryGetProperty("pageId", out var pageIdElement)
+				&& pageIdElement.ValueKind == JsonValueKind.String
+				? pageIdElement.GetString()
+				: null;
+			if (type is "acquire-editor" or "switch-session" && pageId is not null) {
+				resolved = true;
+				return pageId;
+			}
+
+			resolved = type == "ready" && pageId is null;
+			return null;
+		} catch (JsonException) {
+			return null;
 		}
 	}
 
@@ -149,6 +190,10 @@ internal sealed class WebSocketHostBridge : IHostBridge, IWorkspaceWebSocketBrid
 		}
 
 		public WebSocket Socket { get; }
+
+		public string? PageId { get; set; }
+
+		public bool PageIdentityResolved { get; set; }
 
 		public Channel<byte[]> Outbox { get; }
 	}

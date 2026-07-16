@@ -126,7 +126,36 @@ test.describe("remote bridge transport", () => {
     });
   });
 
-  test("Ctrl+Tab highlights the requested remote session without visiting its backend's stale active session", async ({
+  test("a removed switch target cannot leave the rail optimistically highlighted", async ({
+    page,
+  }) => {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    const main = sessionChip("local-main", "main", "claude", true, true);
+    const feature = sessionChip("local-feature", "feature", "claude", false, false);
+    host.pushToWeb({ type: "session-list", sessions: [main, feature] });
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: "main-owner",
+      railSessionId: main.id,
+      session: { active: null, open: [] },
+    });
+    await host.waitForMessage("editor-projection-mounted");
+    const unsubscribe = host.onReceived("switch-session", () => {
+      host.pushToWeb({ type: "session-list", sessions: [main] });
+    });
+
+    try {
+      await page.locator('.session-chip[title^="feature —"]').click();
+
+      await expect(page.locator(".session-chip")).toHaveCount(1);
+      await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^main —/);
+    } finally {
+      unsubscribe();
+    }
+  });
+
+  test("Ctrl+Tab projects the rail target but commits the backend only with its editor projection", async ({
     page,
   }) => {
     const remote = await MockHost.start({ distDir });
@@ -136,6 +165,11 @@ test.describe("remote bridge transport", () => {
       host.pushToWeb({
         type: "session-list",
         sessions: [sessionChip("ma", "MA", "claude", true, true)],
+      });
+      host.pushToWeb({
+        type: "set-editor-session",
+        sessionId: "ma",
+        session: { active: null, open: [] },
       });
       host.pushToWeb({
         type: "remote-agents",
@@ -186,6 +220,12 @@ test.describe("remote bridge transport", () => {
 
       expect(await switched).toMatchObject({ id: "fa", replayAgentState: true });
       await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^FA @/);
+      remote.pushToWeb({
+        type: "set-editor-session",
+        sessionId: "fa",
+        session: { active: null, open: [] },
+      });
+      await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^FA @/);
     } finally {
       await remote.close();
     }
@@ -217,6 +257,7 @@ test.describe("remote bridge transport", () => {
       host.pushToWeb({
         type: "set-editor-session",
         sessionId: "local-owner",
+        railSessionId: "local-slot",
         session: {
           active: "/local/pixel.png",
           open: [{ path: "/local/pixel.png", viewState: null }],
@@ -243,30 +284,38 @@ test.describe("remote bridge transport", () => {
       await expect(remoteChip).toBeVisible();
 
       const remoteSwitch = remote.waitForMessage("switch-session");
+      const localRelease = host.waitForMessage("release-editor");
       await remoteChip.click();
       expect(await remoteSwitch).toMatchObject({ replayAgentState: true });
+      expect(await localRelease).toMatchObject({ sessionId: "local-owner" });
       remote.pushToWeb({
         type: "set-editor-session",
         sessionId: "remote-owner",
+        railSessionId: "remote-slot",
         session: {
           active: "/remote/pixel.png",
           open: [{ path: "/remote/pixel.png", viewState: null }],
         },
       });
       await expect(image).toHaveJSProperty("naturalWidth", 8);
+      await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^remote @/);
 
       const localSwitch = host.waitForMessage("switch-session");
-      await page.locator(".session-chip:not(.active)").click();
+      const remoteRelease = remote.waitForMessage("release-editor");
+      await page.locator('.session-chip[title^="main —"]').click();
       expect(await localSwitch).toMatchObject({ replayAgentState: true });
+      expect(await remoteRelease).toMatchObject({ sessionId: "remote-owner" });
       host.pushToWeb({
         type: "set-editor-session",
         sessionId: "local-owner",
+        railSessionId: "local-slot",
         session: {
           active: "/local/pixel.png",
           open: [{ path: "/local/pixel.png", viewState: null }],
         },
       });
       await expect(image).toHaveJSProperty("naturalWidth", 8);
+      await expect(page.locator(".session-chip.active")).toHaveAttribute("title", /^main —/);
 
       expect(
         [...host.mediaRequests, ...remote.mediaRequests].filter((request) => request.status >= 400),
@@ -338,6 +387,12 @@ test.describe("remote bridge transport", () => {
       const switched = remote.waitForMessage("switch-session");
       await remoteChip.click();
       expect(await switched).toMatchObject({ replayAgentState: true });
+
+      remote.pushToWeb({
+        type: "set-editor-session",
+        sessionId: "remote-codex",
+        session: { active: null, open: [] },
+      });
 
       // HostCore.SwitchToSlot now sends this authoritative replay after the web has admitted the backend.
       remote.pushToWeb({

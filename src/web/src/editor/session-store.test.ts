@@ -7,17 +7,36 @@ const hostHandlers = vi.hoisted(() => [] as Array<(m: unknown, backendId: string
 const postedBackends = vi.hoisted(() => [] as Array<string | null>);
 const bridgeState = vi.hoisted(() => ({
   activeBackendId: "local",
-  editorBackendId: null as string | null,
+  binding: null as {
+    backendId: string;
+    protocol: "projection";
+    sessionId: string | null;
+    railSessionId: string;
+    projectionEpoch: string;
+    projectionRevision: number;
+    projectionPageId: string;
+  } | null,
 }));
 vi.mock("../bridge", () => ({
-  editorBackendId: () => bridgeState.editorBackendId,
+  currentEditorBinding: () => bridgeState.binding,
+  editorBackendId: () => bridgeState.binding?.backendId ?? null,
+  editorSessionId: () => bridgeState.binding?.sessionId ?? null,
   onHostMessage: (h: (m: unknown, backendId: string) => void) => {
     hostHandlers.push(h);
     return () => {};
   },
-  postToEditorBackend: (m: Record<string, unknown>) => {
+  editorAttribution: (binding: NonNullable<typeof bridgeState.binding>) => ({
+    sessionId: binding.sessionId,
+    projectionEpoch: binding.projectionEpoch,
+    projectionRevision: binding.projectionRevision,
+    projectionPageId: binding.projectionPageId,
+  }),
+  postToEditorBinding: (
+    binding: NonNullable<typeof bridgeState.binding>,
+    m: Record<string, unknown>,
+  ) => {
     posted.push(m);
-    postedBackends.push(bridgeState.editorBackendId ?? bridgeState.activeBackendId);
+    postedBackends.push(binding.backendId);
   },
 }));
 
@@ -27,7 +46,15 @@ type Entry = EditorSessionEntry;
 
 // Seed the store via the host's set-editor-session, then clear the captured traffic so each test starts fresh.
 function seed(open: Entry[], active: string | null, owner = "sess-1", backendId = "local"): void {
-  bridgeState.editorBackendId = backendId;
+  bridgeState.binding = {
+    backendId,
+    protocol: "projection",
+    sessionId: owner,
+    railSessionId: owner,
+    projectionEpoch: "host-test",
+    projectionRevision: 1,
+    projectionPageId: "page-test",
+  };
   for (const h of hostHandlers) {
     h({ type: "set-editor-session", sessionId: owner, session: { active, open } }, backendId);
   }

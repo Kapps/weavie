@@ -1,6 +1,6 @@
 import { render } from "solid-js/web";
 import App from "./App";
-import { postToHost } from "./bridge";
+import { currentEditorBinding, pageId, postToHost, releaseEditorBinding } from "./bridge";
 import { mark } from "./startup-timing";
 import "./fonts.css";
 // Chrome stylesheets, co-located with the components they style. Order is the cascade: base first, then
@@ -49,6 +49,12 @@ window.addEventListener("unhandledrejection", (e) => {
   const message = r instanceof Error ? (r.stack ?? r.message) : String(r);
   postToHost({ type: "log", level: "error", message: `unhandledrejection: ${message}` });
 });
+window.addEventListener("pagehide", () => {
+  const binding = currentEditorBinding();
+  if (binding !== null) {
+    releaseEditorBinding(binding);
+  }
+});
 
 // Render the shell immediately. Monaco + its VSCode service layer load as a separate chunk from inside App,
 // so first paint doesn't wait on the multi-megabyte editor code. The splash stays up until App dismisses it
@@ -56,4 +62,7 @@ window.addEventListener("unhandledrejection", (e) => {
 render(() => <App />, root);
 
 // `ready` asks the host for an immediate state replay, so every App listener must exist before it is sent.
-postToHost({ type: "ready" });
+postToHost({ type: "ready", pageId });
+// Editor ownership is explicit: background backend `ready` handshakes may refresh ambient state but can never
+// mute or steal the page's mounted editor projection.
+postToHost({ type: "acquire-editor", pageId });

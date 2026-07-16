@@ -11,7 +11,13 @@ import {
   ITextFileService,
   ITextModelService,
 } from "@codingame/monaco-vscode-api/services";
-import { log, postToHost } from "../bridge";
+import {
+  currentEditorBinding,
+  type EditorBinding,
+  editorAttribution,
+  log,
+  postToEditorBinding,
+} from "../bridge";
 import { startLanguageServices } from "../lsp/lsp-client";
 import { installReferenceCommands } from "../lsp/reference-commands";
 import { installTestLenses } from "../tests/test-lens";
@@ -21,7 +27,7 @@ import { canonicalFsPath, uriHostPath } from "./fs-path";
 import { mediaTypeOf } from "./media/media-types";
 import { createEditor, monaco } from "./monaco-setup";
 import { leaveLine } from "./nav-history";
-import { captureViewState, editorOwner, editorSession, openTab, promote } from "./session-store";
+import { captureViewState, editorSession, openTab, promote } from "./session-store";
 import { initEditorServices, setOpenEditorSink } from "./vscode-services";
 
 // A resolved, refcounted model reference held for an open file. Disposing it drops a refcount; the model is
@@ -155,7 +161,10 @@ export async function createEditorHost(
   // Tell the host which file + selection is active so embedded Claude knows what the user is looking at.
   // Debounced (cursor moves fire rapidly); the transient review model is suppressed — not a file being worked on.
   let emitTimer: ReturnType<typeof setTimeout> | undefined;
-  const emitActiveEditor = (): void => {
+  const emitActiveEditor = (binding: EditorBinding): void => {
+    if (currentEditorBinding() !== binding) {
+      return;
+    }
     const model = editor.getModel();
     if (model === null || !isUserFileModel(model)) {
       return;
@@ -163,13 +172,13 @@ export async function createEditorHost(
     const sel = editor.getSelection();
     const text = sel !== null && !sel.isEmpty() ? model.getValueInRange(sel) : "";
     // Monaco positions are 1-based; the IDE selection protocol is 0-based.
-    postToHost({
+    postToEditorBinding(binding, {
       type: "active-editor-changed",
       uri: model.uri.toString(),
       languageId: model.getLanguageId(),
       text,
       // Stamp the owning session so a selection emit that fires after a switch is attributed correctly.
-      sessionId: editorOwner(),
+      ...editorAttribution(binding),
       selection: {
         start: {
           line: (sel?.startLineNumber ?? 1) - 1,
@@ -184,7 +193,10 @@ export async function createEditorHost(
     if (emitTimer !== undefined) {
       clearTimeout(emitTimer);
     }
-    emitTimer = setTimeout(emitActiveEditor, 150);
+    const binding = currentEditorBinding();
+    if (binding !== null) {
+      emitTimer = setTimeout(() => emitActiveEditor(binding), 150);
+    }
   };
 
   // Drive the editor status footer (cursor/selection/EOL). Written synchronously — the footer wants immediate
@@ -385,16 +397,15 @@ export async function createEditorHost(
     );
   };
 
-  // Resolve (or reuse) the refcounted working-copy reference for a file URI, and wire its save listener once.
-  const ensureRef = async (uri: monaco.Uri): Promise<ModelRef> => {
+  // A newly-created reference is private until its open wins. Concurrent opens can therefore dispose their own
+  // superseded candidates without invalidating the reference adopted by a newer open of the same URI.
+  const resolveRef = async (uri: monaco.Uri): Promise<{ ref: ModelRef; owned: boolean }> => {
     const key = uri.toString();
-    let ref = refs.get(key);
-    if (ref === undefined) {
-      ref = await textModelService.createModelReference(uri);
-      refs.set(key, ref);
+    const existing = refs.get(key);
+    if (existing !== undefined) {
+      return { ref: existing, owned: false };
     }
-    attachSave(ref.object.textEditorModel);
-    return ref;
+    return { ref: await textModelService.createModelReference(uri), owned: true };
   };
 
   // The single path that swaps the editor to a file working copy (open + restore differ only in `placement`).
@@ -408,6 +419,7 @@ export async function createEditorHost(
       | { selection: monaco.IRange }
       | { viewState: monaco.editor.ICodeEditorViewState | null },
   ): Promise<boolean> => {
+    const binding = currentEditorBinding();
     // Snapshot the outgoing tab's position before swapping away (data-only store write; never loops back).
     snapshotViewState();
     // On a cross-file jump, if the user scrolled the outgoing cursor off-screen, record where they were looking
@@ -433,10 +445,24 @@ export async function createEditorHost(
     }
     const token = ++openSeq;
     try {
-      const ref = await ensureRef(uri);
-      if (token !== openSeq) {
+      const resolved = await resolveRef(uri);
+      let ref = resolved.ref;
+      if (binding !== currentEditorBinding() || token !== openSeq) {
+        if (resolved.owned) {
+          ref.dispose();
+        }
         return true; // superseded by a newer open — that open owns the editor; not this tab's failure
       }
+      if (resolved.owned) {
+        const existing = refs.get(uri.toString());
+        if (existing === undefined) {
+          refs.set(uri.toString(), ref);
+        } else {
+          ref.dispose();
+          ref = existing;
+        }
+      }
+      attachSave(ref.object.textEditorModel);
       editor.setModel(ref.object.textEditorModel);
       if ("line" in placement) {
         const position = { lineNumber: placement.line, column: placement.column ?? 1 };
@@ -457,7 +483,7 @@ export async function createEditorHost(
     } catch (error) {
       // A genuine read failure. If a newer open superseded this one, stay quiet — it owns the editor. Otherwise
       // error loudly: the model never swapped, so without this the tab would sit blank with no signal.
-      if (token !== openSeq) {
+      if (binding !== currentEditorBinding() || token !== openSeq) {
         return true;
       }
       log("error", `open failed for ${uri.toString()}: ${String(error)}`);
@@ -525,12 +551,16 @@ export async function createEditorHost(
   };
 
   const clear = (): void => {
+    openSeq += 1;
     editor.setModel(null);
   };
 
   // Release every open working copy (flush, drop reference, empty the editor). Used by rebindSession; unlike
   // dispose() this releases the refs, since a session switch (not a hot reload) must tear the old models down.
   const releaseAll = (): void => {
+    // A rebind to media/web/source/empty opens no successor model, so it must invalidate an older async text
+    // open explicitly. The immutable binding check above also keeps its eventual reference out of this session.
+    openSeq += 1;
     for (const [key, ref] of [...refs]) {
       flushSave(key);
       ref.dispose();

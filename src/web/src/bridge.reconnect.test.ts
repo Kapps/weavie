@@ -173,6 +173,10 @@ describe("WebSocketTransport reconnect", () => {
     socket?.receive({
       type: "set-editor-session",
       sessionId: "remote-session",
+      railSessionId: "remote-slot",
+      projectionEpoch: "remote-host",
+      projectionRevision: 1,
+      projectionPageId: bridge.pageId,
       session: { active: null, open: [] },
     });
     expect(bridge.editorBackendId()).toBe("remote:test");
@@ -194,8 +198,232 @@ describe("WebSocketTransport reconnect", () => {
       id: "fs1",
       path: "/remote/file.png",
     });
+    window.__weavieReceive?.(
+      JSON.stringify({
+        type: "set-editor-session",
+        sessionId: "local-session",
+        railSessionId: "local-slot",
+        projectionEpoch: "local-host",
+        projectionRevision: 1,
+        projectionPageId: bridge.pageId,
+        session: { active: null, open: [] },
+      }),
+    );
+    expect(bridge.editorBackendId()).toBe("local");
+
+    // The request still belongs to remote:test: changing the displayed binding cannot discard its reply.
     socket?.receive({ type: "fs-stat-result", id: "fs1", ok: true, exists: true, size: 2 });
     expect(replies.at(-1)).toMatchObject({ type: "fs-stat-result", id: "fs1", ok: true });
+    offMessage();
+  });
+
+  it("commits the backend and editor binding together when a pending projection arrives", async () => {
+    bridge.setActiveBackendId("local");
+    window.__weavieReceive?.(
+      JSON.stringify({
+        type: "set-editor-session",
+        sessionId: "local-session",
+        railSessionId: "local-slot",
+        projectionEpoch: "local-host",
+        projectionRevision: 7,
+        projectionPageId: bridge.pageId,
+        session: { active: null, open: [] },
+      }),
+    );
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWebSocket.instances[0]?.open();
+
+    bridge.beginBackendHandoff("remote:test");
+    expect(bridge.activeBackendId()).toBe("local");
+    expect(bridge.editorBackendId()).toBe("local");
+
+    FakeWebSocket.instances[0]?.receive({
+      type: "set-editor-session",
+      sessionId: "remote-session",
+      railSessionId: "remote-slot",
+      projectionEpoch: "remote-host",
+      projectionRevision: 8,
+      projectionPageId: bridge.pageId,
+      session: { active: null, open: [] },
+    });
+
+    expect(bridge.activeBackendId()).toBe("remote:test");
+    expect(bridge.editorBackendId()).toBe("remote:test");
+  });
+
+  it("admits only the target backend while an editor handoff is pending", async () => {
+    bridge.setActiveBackendId("local");
+    window.__weavieReceive?.(
+      JSON.stringify({
+        type: "set-editor-session",
+        sessionId: "local-session",
+        railSessionId: "local-slot",
+        projectionEpoch: "local-host",
+        projectionRevision: 1,
+        projectionPageId: bridge.pageId,
+        session: { active: null, open: [] },
+      }),
+    );
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWebSocket.instances[0]?.open();
+
+    bridge.beginBackendHandoff("remote:test");
+    window.__weavieReceive?.(
+      JSON.stringify({
+        type: "set-editor-session",
+        sessionId: "local-session",
+        railSessionId: "local-slot",
+        projectionEpoch: "local-host",
+        projectionRevision: 2,
+        projectionPageId: bridge.pageId,
+        session: { active: null, open: [] },
+      }),
+    );
+    expect(bridge.currentEditorBinding()).toMatchObject({
+      backendId: "local",
+      projectionRevision: 1,
+    });
+
+    FakeWebSocket.instances[0]?.receive({
+      type: "set-editor-session",
+      sessionId: "remote-session",
+      railSessionId: "remote-slot",
+      projectionEpoch: "remote-host",
+      projectionRevision: 1,
+      projectionPageId: bridge.pageId,
+      session: { active: null, open: [] },
+    });
+    expect(bridge.currentEditorBinding()).toMatchObject({
+      backendId: "remote:test",
+      projectionRevision: 1,
+    });
+  });
+
+  it("releases a removed backend's editor lease before dropping its transport", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+    const socket = FakeWebSocket.instances[0];
+    socket?.open();
+    socket?.receive({
+      type: "set-editor-session",
+      sessionId: "remote-session",
+      railSessionId: "remote-slot",
+      projectionEpoch: "remote-host",
+      projectionRevision: 3,
+      projectionPageId: bridge.pageId,
+      session: { active: null, open: [] },
+    });
+
+    bridge.disconnectBackend("remote:test");
+
+    expect(socket?.sent.map((frame) => JSON.parse(frame))).toContainEqual(
+      expect.objectContaining({
+        type: "release-editor",
+        projectionEpoch: "remote-host",
+        projectionRevision: 3,
+      }),
+    );
+    expect(socket?.closed).toBe(true);
+    expect(bridge.activeBackendId()).toBe("local");
+    expect(bridge.currentEditorBinding()).toBeNull();
+  });
+
+  it("adopts an unstamped legacy editor projection", () => {
+    bridge.setActiveBackendId("local");
+    window.__weavieReceive?.(
+      JSON.stringify({
+        type: "set-editor-session",
+        sessionId: "legacy-session",
+        session: { active: null, open: [] },
+      }),
+    );
+
+    expect(bridge.currentEditorBinding()).toEqual({
+      backendId: "local",
+      protocol: "legacy",
+      sessionId: "legacy-session",
+      railSessionId: null,
+    });
+  });
+
+  it("does not acquire the editor when a background backend connects", async () => {
+    bridge.setActiveBackendId("local");
+    window.__weavieReceive?.(
+      JSON.stringify({
+        type: "set-editor-session",
+        sessionId: "local-session",
+        railSessionId: "local-slot",
+        projectionEpoch: "local-host",
+        projectionRevision: 9,
+        projectionPageId: bridge.pageId,
+        session: { active: null, open: [] },
+      }),
+    );
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWebSocket.instances[0]?.open();
+
+    const sentTypes = FakeWebSocket.instances[0]?.sent.map(
+      (message) => (JSON.parse(message) as { type: string }).type,
+    );
+    expect(sentTypes).toContain("ready");
+    expect(sentTypes).not.toContain("acquire-editor");
+  });
+
+  it("releases a page-targeted projection that no longer owns the handoff intent", async () => {
+    bridge.setActiveBackendId("local");
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    await vi.advanceTimersByTimeAsync(0);
+    const socket = FakeWebSocket.instances[0];
+    socket?.open();
+
+    socket?.receive({
+      type: "set-editor-session",
+      sessionId: "abandoned-owner",
+      railSessionId: "abandoned-slot",
+      projectionEpoch: "remote-host",
+      projectionRevision: 11,
+      projectionPageId: bridge.pageId,
+      session: { active: null, open: [] },
+    });
+
+    expect(socket?.sent.map((frame) => JSON.parse(frame))).toContainEqual({
+      type: "release-editor",
+      sessionId: "abandoned-owner",
+      projectionEpoch: "remote-host",
+      projectionRevision: 11,
+      projectionPageId: bridge.pageId,
+    });
+    expect(bridge.editorBackendId()).not.toBe("remote:test");
+  });
+
+  it("surfaces an error from the backend whose editor acquisition is pending", async () => {
+    const resolveEndpoint = vi.fn(() => Promise.resolve(endpoint("ws://host/weavie-bridge")));
+    bridge.connectBackend("remote:test", "Test", resolveEndpoint);
+    bridge.setActiveBackendId("remote:test");
+    await vi.advanceTimersByTimeAsync(0);
+    FakeWebSocket.instances[0]?.open();
+    bridge.beginBackendHandoff("local");
+    const received: WebBoundMessage[] = [];
+    const offMessage = bridge.onHostMessage((message) => received.push(message));
+
+    window.__weavieReceive?.(
+      JSON.stringify({ type: "notify", level: "error", message: "local acquire failed" }),
+    );
+
+    expect(received).toContainEqual({
+      type: "notify",
+      level: "error",
+      message: "local acquire failed",
+    });
     offMessage();
   });
 
@@ -305,7 +533,7 @@ describe("WebSocketTransport reconnect", () => {
     bridge.setActiveBackendId("remote:test");
     await vi.advanceTimersByTimeAsync(0);
 
-    bridge.postToBackend("remote:test", { type: "ready" });
+    bridge.postToBackend("remote:test", { type: "ready", pageId: bridge.pageId });
     FakeWebSocket.instances[0]?.drop();
     await vi.advanceTimersByTimeAsync(600);
     FakeWebSocket.instances[1]?.open();

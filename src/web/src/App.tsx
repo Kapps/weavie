@@ -18,15 +18,18 @@ import {
   activeBackendOffline,
   activeBackendPhase,
   backendName,
+  beginBackendHandoff,
   connectedBackends,
+  currentEditorBinding,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
   onHostMessage,
   openTarget,
+  pageId,
   postToBackend,
   postToHost,
   postToLocalHost,
-  setActiveBackendId,
+  releaseEditorBinding,
   type TermSession,
 } from "./bridge";
 import { defaultAgentProvider, setDefaultAgentProvider } from "./chrome/agent-default";
@@ -462,13 +465,23 @@ export default function App(): JSX.Element {
   // different backend, first persist the outgoing session's unsaved edits before requesting the incoming
   // session. File writes remain pinned to the editor owner throughout the handoff. Same-backend binds run
   // synchronously.
+  let bindIntent = 0;
   const bindBackend = (backendId: string, then: (didRebind: boolean) => void): void => {
+    const intent = ++bindIntent;
     if (backendId === activeBackendId()) {
+      beginBackendHandoff(backendId);
       then(false);
       return;
     }
     void editor.flushDirty().finally(() => {
-      setActiveBackendId(backendId);
+      if (intent !== bindIntent) {
+        return;
+      }
+      const outgoing = currentEditorBinding();
+      if (outgoing !== null && outgoing.backendId !== backendId) {
+        releaseEditorBinding(outgoing);
+      }
+      beginBackendHandoff(backendId);
       then(true);
     });
   };
@@ -476,8 +489,6 @@ export default function App(): JSX.Element {
   // Switch to a session by id. Flushes the outgoing session's pending editor session first so its tab set
   // isn't lost; the host processes both messages in order on the still-active session.
   const switchToSession = (session: RailSession): void => {
-    // Crossing backends otherwise exposes that backend's previously active chip until the switch reply arrives,
-    // making one Ctrl+Tab look like two rail steps. The host's next session-list remains authoritative.
     projectSessionSwitch(session.backendId, session.id);
     flushEditorSession();
     // Crossing to another backend rebinds the page to it; its switch-session reply re-attaches terminals + editor.
@@ -486,6 +497,7 @@ export default function App(): JSX.Element {
         type: "switch-session",
         id: session.id,
         replayAgentState: didRebind,
+        pageId,
       }),
     );
   };

@@ -38,6 +38,17 @@ public sealed class HostCoreSessionRoutingTests {
 	}
 
 	[Fact]
+	public async Task Projection_CarriesTheRailSlotIdentitySeparatelyFromItsInternalSessionOwner() {
+		await using var host = await TestHost.StartAsync();
+
+		Assert.True((await host.CreateSessionAsync("feature")).Ok);
+		var projection = host.Bridge.LastOfType("set-editor-session")!.Value;
+
+		Assert.Equal("feature", projection.GetProperty("railSessionId").GetString());
+		Assert.NotEqual("feature", projection.GetProperty("sessionId").GetString());
+	}
+
+	[Fact]
 	public async Task Reconnect_ResyncsLspConfigForTheActiveSession() {
 		await using var host = await TestHost.StartAsync();
 
@@ -57,7 +68,7 @@ public sealed class HostCoreSessionRoutingTests {
 		await using var host = await TestHost.StartAsync();
 		host.Bridge.Clear();
 
-		host.Send("""{"type":"ready","bridgeId":"page-1"}""");
+		host.Bridge.Receive($$"""{"type":"ready","bridgeId":"page-1","pageId":"{{TestHost.TestPageId}}"}""");
 
 		var info = host.Bridge.LastOfType("host-info");
 		Assert.True(info.HasValue);
@@ -65,6 +76,241 @@ public sealed class HostCoreSessionRoutingTests {
 		using var tail = JsonDocument.Parse(host.Bridge.Posted[^1]);
 		Assert.Equal("bridge-ready", tail.RootElement.GetProperty("type").GetString());
 		Assert.Equal("page-1", tail.RootElement.GetProperty("bridgeId").GetString());
+	}
+
+	[Fact]
+	public async Task Ready_FromAnotherPage_DoesNotStealTheMountedEditorProjection() {
+		await using var host = await TestHost.StartAsync();
+		string primaryId = host.PrimaryId;
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		host.Bridge.Clear();
+
+		// Ambient state replay is connection-wide, but editor ownership is acquired separately. A second tab or a
+		// background transport reconnect must not bump the revision and mute the page that already mounted it.
+		host.Bridge.Receive("""{"type":"ready","pageId":"another-page"}""");
+		Assert.Empty(host.Bridge.PostedOfType("set-editor-session"));
+
+		host.Send(Msg(new {
+			type = "open-editors-changed",
+			sessionId = primaryId,
+			editors = new[] { new { path, isActive = true, isPinned = false, isPreview = false } },
+		}));
+		Assert.Equal(path, Assert.Single(host.Core.ActiveSessionForTest()!.Editor.OpenEditors).FilePath);
+	}
+
+	[Fact]
+	public async Task CurrentProjectionMessages_AreAcceptedBeforeMount() {
+		await using var host = await TestHost.StartAsync();
+		host.AutoMountEditorProjection = false;
+		await host.CreateSessionAsync("feature");
+		var session = host.Core.ActiveSessionForTest()!;
+		string path = Path.Combine(session.WorkspaceRoot, "readme.txt");
+
+		// The tab store reports the newly committed set synchronously, before Monaco's asynchronous mount ack.
+		host.Send(Msg(new {
+			type = "open-editors-changed",
+			sessionId = session.Id,
+			editors = new[] { new { path, isActive = true, isPinned = false, isPreview = false } },
+		}));
+
+		Assert.Equal(path, Assert.Single(session.Editor.OpenEditors).FilePath);
+		host.MountEditorProjection();
+	}
+
+	[Fact]
+	public async Task LateMountFromAbaMiddleProjection_CannotOwnTheReturnedSession() {
+		await using var host = await TestHost.StartAsync();
+		string primaryId = host.PrimaryId;
+		host.AutoMountEditorProjection = false;
+		await host.CreateSessionAsync("feature");
+		var middle = host.Bridge.LastOfType("set-editor-session")!.Value;
+
+		host.Send(Msg(new { type = "switch-session", id = primaryId }));
+		var returned = host.Bridge.LastOfType("set-editor-session")!.Value;
+		Assert.True(returned.GetProperty("projectionRevision").GetInt64() > middle.GetProperty("projectionRevision").GetInt64());
+
+		// B's delayed ack arrives after A₂ was offered. Session id alone would accept this A→B→A class of
+		// race; the exact host epoch/revision/page fence must reject the middle projection.
+		host.Bridge.Receive(Msg(new {
+			type = "editor-projection-mounted",
+			sessionId = middle.GetProperty("sessionId").GetString(),
+			projectionEpoch = middle.GetProperty("projectionEpoch").GetString(),
+			projectionRevision = middle.GetProperty("projectionRevision").GetInt64(),
+			projectionPageId = middle.GetProperty("projectionPageId").GetString(),
+		}));
+
+		host.MountEditorProjection();
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		host.Send(Msg(new {
+			type = "open-editors-changed",
+			sessionId = primaryId,
+			editors = new[] { new { path, isActive = true, isPinned = false, isPreview = false } },
+		}));
+		Assert.Equal(path, Assert.Single(host.Core.ActiveSessionForTest()!.Editor.OpenEditors).FilePath);
+	}
+
+	[Fact]
+	public async Task MountFromAnotherPage_CannotActivateTheOfferedProjection() {
+		await using var host = await TestHost.StartAsync();
+		host.AutoMountEditorProjection = false;
+		host.Send(Msg(new { type = "acquire-editor", pageId = TestHost.TestPageId }));
+		var projection = host.Bridge.LastOfType("set-editor-session")!.Value;
+		var session = host.Core.ActiveSessionForTest()!;
+		session.EditorChannel.ShowDiff("diff-page", """{"type":"show-diff","id":"diff-page"}""");
+
+		host.Bridge.Receive(Msg(new {
+			type = "editor-projection-mounted",
+			sessionId = projection.GetProperty("sessionId").GetString(),
+			projectionEpoch = projection.GetProperty("projectionEpoch").GetString(),
+			projectionRevision = projection.GetProperty("projectionRevision").GetInt64(),
+			projectionPageId = "another-page",
+		}));
+
+		Assert.Empty(host.Bridge.PostedOfType("show-diff"));
+		host.MountEditorProjection();
+		Assert.Single(host.Bridge.PostedOfType("show-diff"));
+	}
+
+	[Fact]
+	public async Task RepeatedMount_ReplaysTheMountedEditorsDurableDiff() {
+		await using var host = await TestHost.StartAsync();
+		var session = host.Core.ActiveSessionForTest()!;
+		session.EditorChannel.ShowDiff("remount", """{"type":"show-diff","id":"remount"}""");
+		Assert.Single(host.Bridge.PostedOfType("show-diff"));
+		host.Bridge.Clear();
+
+		host.MountEditorProjection();
+
+		Assert.Single(host.Bridge.PostedOfType("show-diff"));
+	}
+
+	[Fact]
+	public async Task PageRelease_UnbindsItsSupersedingOfferWithoutLeavingAGhostOwner() {
+		await using var host = await TestHost.StartAsync();
+		host.AutoMountEditorProjection = false;
+		host.Send(Msg(new { type = "acquire-editor", pageId = TestHost.TestPageId }));
+		var oldOffer = host.Bridge.LastOfType("set-editor-session")!.Value;
+		host.Send(Msg(new { type = "acquire-editor", pageId = TestHost.TestPageId }));
+		var newOffer = host.Bridge.LastOfType("set-editor-session")!.Value;
+		Assert.True(newOffer.GetProperty("projectionRevision").GetInt64()
+			> oldOffer.GetProperty("projectionRevision").GetInt64());
+
+		host.Bridge.Receive(Msg(new {
+			type = "release-editor",
+			sessionId = oldOffer.GetProperty("sessionId").GetString(),
+			projectionEpoch = oldOffer.GetProperty("projectionEpoch").GetString(),
+			projectionRevision = oldOffer.GetProperty("projectionRevision").GetInt64(),
+			projectionPageId = oldOffer.GetProperty("projectionPageId").GetString(),
+		}));
+		host.Bridge.Clear();
+
+		var created = await host.Core.NewSessionAsync(
+			new NewSessionRequest { Branch = "released", Base = "main" }, CancellationToken.None);
+		Assert.True(created.Ok, created.Error);
+		Assert.Empty(host.Bridge.PostedOfType("set-editor-session"));
+
+		host.Send(Msg(new { type = "acquire-editor", pageId = TestHost.TestPageId }));
+		Assert.Single(host.Bridge.PostedOfType("set-editor-session"));
+	}
+
+	[Fact]
+	public async Task DisconnectedPage_CannotRemainTheEditorOwner() {
+		await using var host = await TestHost.StartAsync();
+		host.Bridge.DisconnectPage(TestHost.TestPageId);
+		host.Bridge.Clear();
+
+		var created = await host.Core.NewSessionAsync(
+			new NewSessionRequest { Branch = "disconnected", Base = "main" }, CancellationToken.None);
+		Assert.True(created.Ok, created.Error);
+		Assert.Empty(host.Bridge.PostedOfType("set-editor-session"));
+	}
+
+	[Fact]
+	public async Task ProjectionFromThePriorHostEpoch_CannotMutateTheRestartedSession() {
+		await using var host = await TestHost.StartAsync();
+		var oldProjection = host.Bridge.LastOfType("set-editor-session")!.Value.Clone();
+		await host.RestartAsync();
+		var currentProjection = host.Bridge.LastOfType("set-editor-session")!.Value;
+		Assert.NotEqual(
+			oldProjection.GetProperty("projectionEpoch").GetString(),
+			currentProjection.GetProperty("projectionEpoch").GetString());
+
+		string path = Path.Combine(host.RepoRoot, "readme.txt");
+		host.Bridge.Receive(Msg(new {
+			type = "editor-session-changed",
+			sessionId = oldProjection.GetProperty("sessionId").GetString(),
+			projectionEpoch = oldProjection.GetProperty("projectionEpoch").GetString(),
+			projectionRevision = oldProjection.GetProperty("projectionRevision").GetInt64(),
+			projectionPageId = oldProjection.GetProperty("projectionPageId").GetString(),
+			session = new { active = path, open = new[] { new { path } } },
+		}));
+
+		Assert.Empty(host.Core.ActiveSessionForTest()!.Editor.OpenEditors);
+	}
+
+	[Fact]
+	public async Task FileEvents_DuringProjectionRebind_AreDeferredUntilMount() {
+		await using var host = await TestHost.StartAsync();
+		host.AutoMountEditorProjection = false;
+		await host.CreateSessionAsync("feature");
+		var session = host.Core.ActiveSessionForTest()!;
+		string path = Path.Combine(session.WorkspaceRoot, "readme.txt");
+		var mutation = new AgentMutation.File(path, Cwd: null, ProvidesEditLocation: true);
+
+		host.Bridge.Clear();
+		session.Events.Observe(new AgentToolStarting(mutation));
+		File.WriteAllText(path, "hello\nchanged while mounting\n");
+		session.Events.Observe(new AgentToolCompleted(mutation));
+
+		Assert.Empty(host.Bridge.PostedOfType("fs-change"));
+		Assert.Empty(host.Bridge.PostedOfType("turn-diff"));
+		host.MountEditorProjection();
+		Assert.NotEmpty(host.Bridge.PostedOfType("fs-change"));
+		Assert.NotEmpty(host.Bridge.PostedOfType("turn-diff"));
+	}
+
+	[Fact]
+	public async Task LegacyPage_MountsAtMonacoReadyAndCanReportItsEditorState() {
+		await using var host = await TestHost.StartAsync(_ => { }, sendReady: false);
+		var session = host.Core.ActiveSessionForTest()!;
+		session.EditorChannel.ShowDiff("legacy", """{"type":"show-diff","id":"legacy"}""");
+		host.Bridge.Receive("""{"type":"ready"}""");
+		var seed = host.Bridge.LastOfType("set-editor-session");
+		Assert.True(seed.HasValue);
+		Assert.Equal(JsonValueKind.Null, seed.Value.GetProperty("projectionRevision").ValueKind);
+		Assert.Empty(host.Bridge.PostedOfType("show-diff"));
+		string changed = Path.Combine(host.RepoRoot, "readme.txt");
+		var mutation = new AgentMutation.File(changed, Cwd: null, ProvidesEditLocation: true);
+		session.Events.Observe(new AgentToolStarting(mutation));
+		File.WriteAllText(changed, "changed before Monaco\n");
+		session.Events.Observe(new AgentToolCompleted(mutation));
+		Assert.Empty(host.Bridge.PostedOfType("turn-diff"));
+
+		string path = changed;
+		host.Bridge.Receive(Msg(new {
+			type = "open-editors-changed",
+			sessionId = seed.Value.GetProperty("sessionId").GetString(),
+			editors = new[] { new { path, isActive = true, isPinned = false, isPreview = false } },
+		}));
+
+		Assert.Equal(path, Assert.Single(host.Core.ActiveSessionForTest()!.Editor.OpenEditors).FilePath);
+		host.Bridge.Receive("""{"type":"monaco-ready"}""");
+		Assert.Single(host.Bridge.PostedOfType("show-diff"));
+		Assert.NotEmpty(host.Bridge.PostedOfType("turn-diff"));
+	}
+
+	[Fact]
+	public async Task LegacySessionSwitch_ClearsTheOutgoingReviewProjection() {
+		await using var host = await TestHost.StartAsync(_ => { }, sendReady: false);
+		host.Bridge.Receive("""{"type":"ready"}""");
+		host.Bridge.Receive("""{"type":"monaco-ready"}""");
+		host.Bridge.Clear();
+
+		var created = await host.Core.NewSessionAsync(
+			new NewSessionRequest { Branch = "legacy-switch", Base = "main" }, CancellationToken.None);
+
+		Assert.True(created.Ok, created.Error);
+		Assert.Single(host.Bridge.PostedOfType("turn-reset"));
 	}
 
 	[Fact]
@@ -236,13 +482,11 @@ public sealed class HostCoreSessionRoutingTests {
 		host.Bridge.Clear();
 		host.Send("""{"type":"monaco-ready"}""");
 		Assert.Empty(host.Bridge.PostedOfType("turn-diff"));
-		var changes = host.Bridge.LastOfType("turn-changes");
-		Assert.True(changes.HasValue);
-		Assert.Equal(0, changes.Value.GetProperty("files").GetArrayLength());
+		Assert.Empty(host.Bridge.PostedOfType("turn-changes"));
 	}
 
 	[Fact]
-	public async Task SwitchBackToBackgroundSessionWithHeldDiff_DoesNotWipeItWithTheReviewReset() {
+	public async Task SwitchBackToBackgroundSession_ReplaysHeldDiffOnlyAfterProjectionMount() {
 		await using var host = await TestHost.StartAsync();
 		var primary = host.Core.ActiveSessionForTest();
 		Assert.NotNull(primary);
@@ -259,42 +503,15 @@ public sealed class HostCoreSessionRoutingTests {
 		_ = primary!.DiffPresenter.PresentDiffAsync(new DiffProposal(file, file, "hello\nworld\n", "readme.txt"), CancellationToken.None);
 		Assert.Empty(host.Bridge.PostedOfType("show-diff")); // held while background
 
-		// Switch back to the primary: the held diff replays on switch-in, and the switch's review-marker reset
-		// (turn-reset → clearAll) must run BEFORE that replay, or it would wipe the just-rendered diff.
+		// Switch back to the primary: the held diff cannot replay into the page until its exact returned projection
+		// mounts. This is also the durability boundary for work that completed while the session was backgrounded.
 		host.Bridge.Clear();
+		host.AutoMountEditorProjection = false;
 		host.Send(Msg(new { type = "switch-session", id = primaryId }));
+		Assert.Empty(host.Bridge.PostedOfType("show-diff"));
 
-		var posted = host.Bridge.Posted;
-		int showIndex = IndexOfType(posted, "show-diff");
-		int lastResetIndex = LastIndexOfType(posted, "turn-reset");
-		Assert.True(showIndex >= 0, "the held openDiff should re-render on switch-in");
-		Assert.True(lastResetIndex < showIndex,
-			"the switch's turn-reset must precede the held diff's replay, else clearAll wipes the diff");
-	}
-
-	private static int IndexOfType(IReadOnlyList<string> posted, string type) {
-		for (int i = 0; i < posted.Count; i++) {
-			if (TypeOf(posted[i]) == type) {
-				return i;
-			}
-		}
-
-		return -1;
-	}
-
-	private static int LastIndexOfType(IReadOnlyList<string> posted, string type) {
-		for (int i = posted.Count - 1; i >= 0; i--) {
-			if (TypeOf(posted[i]) == type) {
-				return i;
-			}
-		}
-
-		return -1;
-	}
-
-	private static string TypeOf(string json) {
-		using var doc = JsonDocument.Parse(json);
-		return doc.RootElement.TryGetProperty("type", out var t) ? t.GetString() ?? "" : "";
+		host.MountEditorProjection();
+		Assert.Single(host.Bridge.PostedOfType("show-diff"));
 	}
 
 	[Fact]

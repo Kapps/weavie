@@ -99,32 +99,36 @@ public sealed partial class HostCore {
 
 		// Seed + arm atomically on the UI thread: a switch (or re-arm against a different ref) that landed while the
 		// git reads ran means this review is no longer active — drop it rather than seed onto the wrong session.
+		// Projection mounting gates only the page pushes; the session-owned review state must survive a slow rebind.
 		_ui.Post(() => {
 			if (!ReferenceEquals(ActiveReview(), review) || !IsActiveSession(session)) {
 				return;
 			}
 
-			// Clear the web's stale markers (a re-arm over a prior review), then snap the tracker's board clean so a
-			// file the session already changed that now equals the ref leaves the walk (it isn't in the ref diff, so
+			// Snap the tracker's board clean so a file the session already changed that now equals the ref leaves the
+			// walk (it isn't in the ref diff, so
 			// it wouldn't be re-seeded). Snapping commits any pending turn review — see docs/specs/diff-against.md.
-			_bridge.PostToWeb(ChangeMessages.TurnReset());
 			session.Changes.AcceptTurn();
 			foreach (var (absolute, refContent, disk, existed) in seeds) {
 				session.Changes.SeedRefBaseline(absolute, refContent, disk, existed);
 			}
 
-			PushTurnChangesToWeb();
-			PushReviewHistoryToWeb();
-			if (seeds.Count == 0) {
-				return;
-			}
+			DispatchEditorProjection(session, () => {
+				// Clear a prior review on the page before publishing the replacement set.
+				_bridge.PostToWeb(ChangeMessages.TurnReset());
+				PushTurnChangesToWeb();
+				PushReviewHistoryToWeb();
+				if (seeds.Count == 0) {
+					return;
+				}
 
-			// A PR/ref review surfaces its code: open the first changed file at its first hunk + render it (comments
-			// + diff). Post-turn review parks instead; the difference is the host-driven open here.
-			string first = seeds[0].Absolute;
-			int line = session.Changes.GetTurn(first) is { } turn ? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) ?? 1 : 1;
-			session.FileOpener.Open(first, line, preview: true, scratch: false);
-			PushReviewFileToWeb(first);
+				// A PR/ref review surfaces its code: open the first changed file at its first hunk + render it (comments
+				// + diff). Post-turn review parks instead; the difference is the host-driven open here.
+				string first = seeds[0].Absolute;
+				int line = session.Changes.GetTurn(first) is { } turn ? LineDiff.FirstChangedLine(turn.BaselineText, turn.CurrentText) ?? 1 : 1;
+				session.FileOpener.Open(first, line, preview: true, scratch: false);
+				PushReviewFileToWeb(first);
+			});
 		});
 	}
 
@@ -159,9 +163,11 @@ public sealed partial class HostCore {
 			}
 
 			session.Changes.AcceptTurn();
-			_bridge.PostToWeb(ChangeMessages.TurnReset());
-			PushTurnChangesToWeb();
-			PushReviewHistoryToWeb();
+			DispatchEditorProjection(session, () => {
+				_bridge.PostToWeb(ChangeMessages.TurnReset());
+				PushTurnChangesToWeb();
+				PushReviewHistoryToWeb();
+			});
 		});
 	}
 

@@ -17,7 +17,12 @@ import {
   type IStat,
   registerFileSystemOverlay,
 } from "@codingame/monaco-vscode-files-service-override";
-import { onHostMessage, postToEditorBackend, type WebBoundMessage } from "../bridge";
+import {
+  forgetEditorRequest,
+  onHostMessage,
+  postToEditorBackend,
+  type WebBoundMessage,
+} from "../bridge";
 import { canonicalFsPath, uriHostPath } from "./fs-path";
 
 // A correlated request can't wedge a model resolve forever: if the host never replies (a dropped message, a
@@ -33,6 +38,7 @@ const encoder = new TextEncoder();
 const decoder = new TextDecoder();
 
 let seq = 0;
+const requestNamespace = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const pending = new Map<string, (result: FsResult) => void>();
 
 /** Sends one correlated fs request and resolves with the matching host reply (rejects on timeout). */
@@ -41,10 +47,11 @@ function request(message: {
   path: string;
   content?: string;
 }): Promise<FsResult> {
-  const id = `fs${++seq}`;
+  const id = `${requestNamespace}-fs${++seq}`;
   return new Promise<FsResult>((resolve, reject) => {
     const timer = setTimeout(() => {
       pending.delete(id);
+      forgetEditorRequest(id);
       reject(
         new Error(
           `file provider: ${message.type} ${message.path} timed out after ${REQUEST_TIMEOUT_MS}ms`,
@@ -54,6 +61,7 @@ function request(message: {
     pending.set(id, (result) => {
       clearTimeout(timer);
       pending.delete(id);
+      forgetEditorRequest(id);
       resolve(result);
     });
     if (message.type === "fs-write") {

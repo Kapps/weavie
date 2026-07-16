@@ -5,12 +5,16 @@ import type * as monaco from "monaco-editor";
 import { createSignal } from "solid-js";
 import {
   activeBackendId,
+  currentEditorBinding,
+  type EditorBinding,
   isBrowserHostedShell,
   LOCAL_BACKEND_ID,
   log,
   postToBackend,
+  postToEditorBinding,
   postToHost,
   type ReviewCommentInfo,
+  releaseEditorBinding,
   type WebBoundMessage,
 } from "../bridge";
 import { dismissSplash } from "../splash";
@@ -202,6 +206,41 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   let initTimer: number | undefined;
   // Disposables for the content/model listeners that feed activeContent (the live Preview text).
   let contentSubs: { dispose(): void }[] = [];
+  let projectionReady = false;
+  let projectionRebind = Promise.resolve();
+  let acknowledgedBinding: EditorBinding | null = null;
+  const acknowledgeProjection = (binding: EditorBinding): void => {
+    if (binding.protocol === "legacy" || acknowledgedBinding === binding) {
+      return;
+    }
+    acknowledgedBinding = binding;
+    postToEditorBinding(binding, {
+      type: "editor-projection-mounted",
+      sessionId: binding.sessionId,
+      projectionEpoch: binding.projectionEpoch,
+      projectionRevision: binding.projectionRevision,
+      projectionPageId: binding.projectionPageId,
+    });
+  };
+  const rebindProjection = (binding: EditorBinding, alreadyRebound: boolean): Promise<void> => {
+    const run = async (): Promise<void> => {
+      const editorHost = host;
+      if (editorHost === undefined || currentEditorBinding() !== binding) {
+        return;
+      }
+      if (!alreadyRebound) {
+        await editorHost.rebindSession();
+      }
+      if (currentEditorBinding() !== binding) {
+        return;
+      }
+      deps.onCurrentFileChanged(activePath());
+      acknowledgeProjection(binding);
+    };
+    const queued = projectionRebind.then(run, run);
+    projectionRebind = queued.catch(() => undefined);
+    return queued;
+  };
   // The active file's working-copy text, kept live off the editor model so Preview renders edits/reloads.
   const [activeContent, setActiveContent] = createSignal("");
   // Whether an inline openDiff review currently occupies the editor, so the Preview overlay suspends over it.
@@ -211,7 +250,15 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const [parkedReviewCount, setParkedReviewCount] = createSignal(0);
   const [reviewLineCounts, setReviewLineCounts] = createSignal({ added: 0, removed: 0 });
   // An open-file request that arrived before the editor was ready; replayed when it is.
-  let pendingOpen: { path: string; line: number; preview?: boolean; scratch?: boolean } | undefined;
+  let pendingOpen:
+    | {
+        binding: EditorBinding | null;
+        path: string;
+        line: number;
+        preview?: boolean;
+        scratch?: boolean;
+      }
+    | undefined;
   // Files Claude changed since the last review, in document order; drives the toolbar's ← / → file walk.
   let reviewFiles: ReviewFile[] = [];
   // Names the review in the toolbar/parked subtitle ("PR #12", "vs main"); empty for a plain post-turn review.
@@ -247,6 +294,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
     // reading it as a working copy would decode binary as UTF-8 and autosave could write the mojibake back.
     const activeKind = openTabs().find((tab) => tab.path === result.path)?.kind;
     if (activeKind === "web" || activeKind === "source" || mediaTypeOf(result.path) !== null) {
+      host?.clear();
       return Promise.resolve();
     }
     // Don't clobber an in-progress review: the reviewed file is active, but the editor shows the transient
@@ -279,7 +327,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   const openFile = (path: string, line: number, preview = false, scratch = false): void => {
     if (host === undefined) {
       deps.onCurrentFileChanged(path); // optimistic; the editor chunk isn't up yet
-      pendingOpen = { path, line, preview, scratch };
+      pendingOpen = { binding: currentEditorBinding(), path, line, preview, scratch };
       return;
     }
     void applyActive(openTab(path, { line, preview, scratch }));
@@ -639,6 +687,7 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
   // Brings up the editor, holding the splash until a deterministic outcome — editor ready or a real failure
   // (chunk load, crash, or an init that never settles within EDITOR_INIT_MS) — so the reveal shows a settled UI.
   const start = (container: HTMLElement): void => {
+    const startingBinding = currentEditorBinding();
     const editorReady = import("./editor-host").then(({ createEditorHost }) =>
       createEditorHost(container, deps.onSaveError, deps.onOpenError, (loc) =>
         navHistory.record(loc),
@@ -689,10 +738,24 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         commentProse = prose.createCommentProse(created.editor, {
           isBlocked: (uri) => inlineDiff?.hasDiffForUri(uri) ?? false,
         });
+        let reboundBinding = startingBinding;
+        while (currentEditorBinding() !== null) {
+          const binding = currentEditorBinding();
+          if (binding === null) {
+            break;
+          }
+          await rebindProjection(binding, binding === reboundBinding);
+          if (currentEditorBinding() === binding) {
+            break;
+          }
+          reboundBinding = null;
+        }
         if (pendingOpen !== undefined) {
-          const { path, line, preview, scratch } = pendingOpen;
+          const { binding, path, line, preview, scratch } = pendingOpen;
           pendingOpen = undefined;
-          openFile(path, line, preview, scratch);
+          if (binding === null || currentEditorBinding() === binding) {
+            openFile(path, line, preview, scratch);
+          }
         }
         // Reflect whatever file the editor ended up showing (replayed pending-open or hot-reload restore).
         const model = created.editor.getModel();
@@ -702,11 +765,16 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         // Deterministic "editor is usable" signal: the shell now reveals before the editor chunk settles
         // (App defers start past first paint), so tests and any editor-gated UI wait on this, not on the splash.
         container.setAttribute("data-ready", "true");
+        projectionReady = true;
         postToHost({ type: "monaco-ready" });
         mark("editor-ready");
       })
       .catch((error: unknown) => {
         log("error", `editor init failed: ${String(error)}`);
+        const binding = currentEditorBinding();
+        if (binding !== null) {
+          releaseEditorBinding(binding);
+        }
         // The pane is now dead (host stays undefined, every openFile silently queues), so tell the user
         // rather than leave a blank editor that swallows clicks.
         deps.onOpenError("The editor failed to load. Reload the window to try again.");
@@ -765,6 +833,21 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
           }
         : undefined,
     );
+  };
+
+  const resetReviewProjection = (): void => {
+    inlineDiff?.clearAll();
+    inlineDiff?.setReviewHistory({
+      canUndo: false,
+      canUndoKeep: false,
+      canUndoRevert: false,
+      canRedo: false,
+    });
+    reviewFiles = [];
+    reviewLabel = "";
+    commentsByPath.clear();
+    updateParkedReview();
+    commentProse?.refresh();
   };
 
   // Step the file axis of the review walk: open the neighbour (wrapping) at its first change. Returns false
@@ -966,10 +1049,18 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         }
         return true;
       case "set-editor-session":
-        // A session switch flipped the store to the incoming session's tab set, so rebind the editor. On launch
-        // this arrives before the editor chunk is up; restoreSession in createEditorHost covers that.
-        if (host !== undefined) {
-          void host.rebindSession().then(() => deps.onCurrentFileChanged(activePath()));
+        // Projection commit owns the complete editor/review surface. Clear the outgoing review immediately,
+        // then serialize Monaco rebinds; only the rebind for the still-current immutable binding may mount.
+        resetReviewProjection();
+        if (projectionReady && host !== undefined) {
+          const binding = currentEditorBinding();
+          if (binding !== null) {
+            void rebindProjection(binding, false).catch((error: unknown) => {
+              log("error", `editor projection rebind failed: ${String(error)}`);
+              deps.onOpenError(`Couldn't switch editor sessions: ${String(error)}`);
+              releaseEditorBinding(binding);
+            });
+          }
         }
         return true;
       case "open-file":
@@ -1066,17 +1157,8 @@ export function createEditorController(deps: EditorControllerDeps): EditorContro
         });
         return true;
       case "turn-reset":
-        // A turn boundary that clears the set (Keep-all) or a session switch: drop all inline markers so a
-        // fresh set starts clean (kept/reviewed state lives in Core now). reviewFiles too — else a switch
-        // with no following turn-changes leaves the ← / → walk on the previous session's (maybe gone) paths.
-        // commentsByPath + reviewLabel too, so a switch away from a PR/ref review drops its threads + label
-        // (both repopulated by the host on arm/switch-in).
-        inlineDiff?.clearAll();
-        reviewFiles = [];
-        reviewLabel = "";
-        commentsByPath.clear();
-        updateParkedReview(); // keep the count signal in sync so the empty-state cue clears too (#125)
-        commentProse?.refresh();
+        // A turn boundary clears the accepted review board; projection switches use the same reducer above.
+        resetReviewProjection();
         return true;
       case "review-history":
         // Host-pushed undo/redo availability: drives the toolbar's Undo/Redo buttons and lets the undo chords

@@ -144,3 +144,165 @@ test("warm Claude/Codex session switches fully paint within one second", async (
     await host.close();
   }
 });
+
+test("a media projection supersedes an unresolved text restore", async ({ page }) => {
+  const host = await MockHost.start({
+    distDir,
+    files: {
+      [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
+      [CLAUDE_OTHER]: "export const other = true;\n",
+      [CODEX_OTHER]: "export const note = true;\n",
+    },
+  });
+  host.setMedia(CODEX_ID, CODEX_IMAGE, PIXEL_RED);
+  const projections = new Map([
+    [CLAUDE_ID, claude],
+    [CODEX_ID, codex],
+  ]);
+  const unsubscribe = host.onReceived("switch-session", (message) => {
+    const projection = projections.get(String(message.id));
+    if (projection === undefined) {
+      throw new Error(`unexpected switch target ${String(message.id)}`);
+    }
+    host.pushToWeb(editorSession(projection));
+    host.pushToWeb({ type: "session-list", sessions: sessions(projection.id) });
+  });
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    host.pushToWeb(editorSession(codex));
+    host.pushToWeb({ type: "session-list", sessions: sessions(CODEX_ID) });
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+
+    host.pauseFileProvider();
+    await page.locator(`.session-chip[title^="${claude.label} —"]`).click();
+    await expect(page.locator(".session-chip.active")).toHaveAttribute(
+      "title",
+      new RegExp(`^${claude.label} —`),
+    );
+    const pendingStat = await host.waitForMessage("fs-stat");
+    expect(pendingStat.path).toBe(CLAUDE_ACTIVE);
+
+    await page.locator(`.session-chip[title^="${codex.label} —"]`).click();
+    await expect(page.locator(".session-chip.active")).toHaveAttribute(
+      "title",
+      new RegExp(`^${codex.label} —`),
+    );
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+
+    host.resumeFileProvider();
+    await host.waitForMessage("fs-read");
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+
+    await expect(page.locator(".editor-media img")).toHaveAttribute(
+      "src",
+      new RegExp(`session=${CODEX_ID}.*path=${encodeURIComponent(CODEX_IMAGE)}`),
+    );
+    await expect.poll(() => page.locator(".editor").getAttribute("data-active-file")).toBeNull();
+    await expect(page.locator(".editor-tab.active .editor-tab-label")).toHaveText("pixel.png");
+  } finally {
+    unsubscribe();
+    host.resumeFileProvider();
+    await host.close();
+  }
+});
+
+test("an A-B-A projection cannot dispose the returned session's same-file model", async ({
+  page,
+}) => {
+  const host = await MockHost.start({
+    distDir,
+    files: {
+      [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
+    },
+  });
+  host.setMedia(CODEX_ID, CODEX_IMAGE, PIXEL_RED);
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    host.pushToWeb({ type: "session-list", sessions: sessions(CODEX_ID) });
+    host.pushToWeb(editorSession(codex));
+    await expect(page.locator(".editor")).toHaveAttribute("data-ready", "true", {
+      timeout: 60_000,
+    });
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+
+    host.pauseFileProvider();
+    host.pushToWeb(editorSession(claude));
+    expect((await host.waitForMessage("fs-stat")).path).toBe(CLAUDE_ACTIVE);
+    host.pushToWeb(editorSession(codex));
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+    host.pushToWeb(editorSession(claude));
+
+    host.resumeFileProvider();
+    await host.waitForMessage("fs-read");
+    await expect(page.locator(".editor")).toHaveAttribute(
+      "data-active-file",
+      /[\\/]workspace[\\/]claude[\\/]active\.ts$/,
+    );
+    await expect(page.locator(".monaco-editor .view-lines").first()).toContainText(
+      "CLAUDE_ACTIVE_MARKER",
+    );
+    await expect(page.locator(".toast-error")).toHaveCount(0);
+  } finally {
+    host.resumeFileProvider();
+    await host.close();
+  }
+});
+
+test("a media tab supersedes an unresolved text open within one projection", async ({ page }) => {
+  const host = await MockHost.start({
+    distDir,
+    files: {
+      [CLAUDE_ACTIVE]: "export const value = 'CLAUDE_ACTIVE_MARKER';\n",
+    },
+  });
+  host.setMedia(CLAUDE_ID, CODEX_IMAGE, PIXEL_RED);
+
+  try {
+    await page.goto(host.pageUrl(), { waitUntil: "domcontentloaded" });
+    await host.waitForMessage("ready");
+    host.pushToWeb({
+      type: "session-list",
+      sessions: [mockSessionChip(CLAUDE_ID, claude.label, "claude", true, true)],
+    });
+    host.pushToWeb({
+      type: "set-editor-session",
+      sessionId: CLAUDE_ID,
+      session: { active: null, open: [] },
+    });
+    await host.waitForMessage("editor-projection-mounted");
+
+    host.pauseFileProvider();
+    host.pushToWeb({ type: "open-file", path: CLAUDE_ACTIVE, line: 1 });
+    const pendingStat = await host.waitForMessage("fs-stat");
+    expect(pendingStat.path).toBe(CLAUDE_ACTIVE);
+
+    host.pushToWeb({ type: "open-file", path: CODEX_IMAGE, line: 1 });
+    await expect(page.locator(".editor-media img")).toHaveJSProperty("complete", true);
+    host.resumeFileProvider();
+    await host.waitForMessage("fs-read");
+    await page.evaluate(
+      () =>
+        new Promise<void>((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve())),
+        ),
+    );
+
+    await expect(page.locator(".editor-media img")).toHaveAttribute(
+      "src",
+      new RegExp(`session=${CLAUDE_ID}.*path=${encodeURIComponent(CODEX_IMAGE)}`),
+    );
+    await expect.poll(() => page.locator(".editor").getAttribute("data-active-file")).toBeNull();
+  } finally {
+    host.resumeFileProvider();
+    await host.close();
+  }
+});

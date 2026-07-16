@@ -8,11 +8,12 @@ namespace Weavie.Hosting.Tests;
 /// exactly as the real web view would). The shared host components depend only on the bridge contract, so this
 /// is all they need to exercise routing end-to-end without a web view.
 /// </summary>
-internal sealed class FakeHostBridge : IHostBridge {
+internal sealed class FakeHostBridge : IHostBridge, IPageLifecycleHostBridge {
 	private readonly List<string> _posted = [];
 	private readonly Lock _gate = new();
 
 	public event Action<string>? MessageReceived;
+	public event Action<string>? PageDisconnected;
 
 	/// <summary>Whether a live host is subscribed to inbound page messages.</summary>
 	public bool HasMessageReceiver => MessageReceived is not null;
@@ -60,4 +61,7 @@ internal sealed class FakeHostBridge : IHostBridge {
 
 	/// <summary>Raises an inbound web message, as the page's bridge would.</summary>
 	public void Receive(string json) => MessageReceived?.Invoke(json);
+
+	/// <summary>Raises the connection lifecycle signal for <paramref name="pageId"/>.</summary>
+	public void DisconnectPage(string pageId) => PageDisconnected?.Invoke(pageId);
 }

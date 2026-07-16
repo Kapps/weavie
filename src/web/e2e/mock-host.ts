@@ -74,7 +74,11 @@ export class MockHost {
   private readonly wss: WebSocketServer;
   private socket: WebSocket | null = null;
   private bridgeReadyPaused = false;
+  private fileProviderPaused = false;
+  private readonly pausedFileRequests: Message[] = [];
   private bridgeId = "";
+  private pageId = "";
+  private projectionRevision = 0;
   private readonly waiters: { type: string; resolve: (m: Message) => void }[] = [];
   private readonly receivedHandlers: {
     type: string;
@@ -134,7 +138,17 @@ export class MockHost {
     if (this.socket === null || this.socket.readyState !== this.socket.OPEN) {
       throw new Error("pushToWeb: no page is connected to the bridge yet");
     }
-    this.socket.send(JSON.stringify(message));
+    const payload =
+      message.type === "set-editor-session" && message.projectionEpoch === undefined
+        ? {
+            ...message,
+            railSessionId: message.railSessionId ?? message.sessionId,
+            projectionEpoch: "mock-host",
+            projectionRevision: ++this.projectionRevision,
+            projectionPageId: this.pageId,
+          }
+        : message;
+    this.socket.send(JSON.stringify(payload));
   }
 
   /** Holds the ordered ready-tail marker so reconnect UI can be asserted while state replay is incomplete. */
@@ -146,6 +160,19 @@ export class MockHost {
   resumeBridgeReady(): void {
     this.bridgeReadyPaused = false;
     this.pushToWeb({ type: "bridge-ready", bridgeId: this.bridgeId });
+  }
+
+  /** Holds fs-* replies so tests can switch projections while a working-copy resolve is in flight. */
+  pauseFileProvider(): void {
+    this.fileProviderPaused = true;
+  }
+
+  /** Answers every held fs-* request in arrival order, then resumes immediate replies. */
+  resumeFileProvider(): void {
+    this.fileProviderPaused = false;
+    for (const message of this.pausedFileRequests.splice(0)) {
+      this.answerFileProvider(message);
+    }
   }
 
   /** Drops only the live bridge socket; the server stays up so the page reconnects normally. */
@@ -220,6 +247,7 @@ export class MockHost {
 
     if (message.type === "ready") {
       this.bridgeId = typeof message.bridgeId === "string" ? message.bridgeId : "";
+      this.pageId = typeof message.pageId === "string" ? message.pageId : "";
       this.pushToWeb(
         this.readyReplayProtocol === 1
           ? { type: "host-info", buildNumber: "test", readyReplayProtocol: 1 }
@@ -242,6 +270,13 @@ export class MockHost {
   // Answer the file:// provider so the editor can open working copies. Only fs-stat / fs-read / fs-write
   // are handled; everything else is recorded but not replied to.
   private answerFileProvider(message: Message): void {
+    if (
+      this.fileProviderPaused &&
+      (message.type === "fs-stat" || message.type === "fs-read" || message.type === "fs-write")
+    ) {
+      this.pausedFileRequests.push(message);
+      return;
+    }
     if (message.type === "fs-stat") {
       const content = this.files.get(String(message.path));
       this.pushToWeb(

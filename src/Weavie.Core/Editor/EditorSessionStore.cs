@@ -80,6 +80,33 @@ public sealed class EditorSessionStore {
 	/// </para>
 	/// </summary>
 	public static string BuildRestoreJson(EditorSession session, IFileSystem fileSystem, string? workspaceRoot, string? sessionId, Action<string>? log) {
+		return BuildRestoreJson(
+			session,
+			fileSystem,
+			workspaceRoot,
+			sessionId,
+			railSessionId: null,
+			projectionEpoch: null,
+			projectionRevision: null,
+			projectionPageId: null,
+			log);
+	}
+
+	/// <summary>
+	/// Builds a restore message stamped with the immutable host projection that owns it. The editor
+	/// <paramref name="sessionId"/> and rail <paramref name="railSessionId"/> are distinct identities: the former
+	/// routes editor/media work to a live backend, while the latter selects the session chip and terminal slot.
+	/// </summary>
+	public static string BuildRestoreJson(
+		EditorSession session,
+		IFileSystem fileSystem,
+		string? workspaceRoot,
+		string? sessionId,
+		string? railSessionId,
+		string? projectionEpoch,
+		long? projectionRevision,
+		string? projectionPageId,
+		Action<string>? log) {
 		ArgumentNullException.ThrowIfNull(session);
 		ArgumentNullException.ThrowIfNull(fileSystem);
 
@@ -112,6 +139,10 @@ public sealed class EditorSessionStore {
 		var message = new {
 			type = "set-editor-session",
 			sessionId,
+			railSessionId,
+			projectionEpoch,
+			projectionRevision,
+			projectionPageId,
 			session = new { active, open },
 		};
 		return JsonSerializer.Serialize(message, EditorSessionSerialization.MessageOptions);

@@ -27,10 +27,12 @@ There are limitations though:
 - There's still a lot of polish to be added.
 
 ## Getting Started
+
+### Client Setup
 1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) for your OS (no proper releases yet).
 2. Run it. If you find that features like running tests or creating a worktree don't work out of the box for your repo, just ask Claude to set an appropriate one.
 
-### Remote Setup
+### Remote Runner Setup
 **Remote setup must use a VPN or Tailscale. DO NOT expose the headless server to the internet.** There's authentication, but aside from the authentication the remote code hasn't been properly looked at.
 
 1. Download the [latest tagged version](https://github.com/Kapps/weavie/releases/tag/main-latest) of the Runner
